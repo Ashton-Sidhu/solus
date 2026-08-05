@@ -168,7 +168,7 @@
       </div>
 
       <!-- Body -->
-      <div class="shortcuts-body" style="scrollbar-width:thin">
+      <div class="shortcuts-body">
         {#if !hasResults}
           <div class="shortcuts-empty">
             <MagnifyingGlassIcon size={18} weight="light" class="text-(--solus-text-tertiary)" />

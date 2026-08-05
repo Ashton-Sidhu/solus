@@ -22,7 +22,8 @@
     MagnifyingGlassIcon,
     DotsThreeIcon,
   } from "phosphor-svelte";
-  import { runtime, toasts } from "../../contexts";
+  import { runtime } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import DocumentEditor from "../editor/DocumentEditor.svelte";
   import FindReplaceBar from "../editor/FindReplaceBar.svelte";
@@ -676,6 +677,7 @@
       : 'doc-shell-root--floating h-[min(86vh,90vh)] w-[min(100rem,96vw)] rounded-2xl'} overflow-hidden bg-(--solus-container-bg) {inline
       ? ''
       : 'border border-(--solus-tool-border)'}"
+    class:doc-shell-root--inline={inline}
   >
     <!-- Pane-level chrome lives in the floating PaneChrome cluster; the floating
          (pill) modal has no pane around it, so it keeps its own corner close. -->
@@ -931,6 +933,10 @@
     height: 2.875rem;
     padding-left: 1.375rem;
   }
+  .doc-shell-root--inline .doc-shell-toolbar {
+    height: var(--solus-chrome-row-h, 2.875rem);
+    padding-left: max(1.375rem, var(--solus-chrome-lead-inset, 0px));
+  }
   /* Where the document lives, in the same mono face as the section numerals. */
   .doc-shell-breadcrumb {
     flex-shrink: 0;
@@ -1111,34 +1117,9 @@
      document can't nudge the rail sideways. */
   .doc-shell-scroll {
     scrollbar-gutter: stable;
-    scrollbar-width: thin;
-    scrollbar-color: transparent transparent;
-    transition: scrollbar-color var(--duration-base) var(--ease-premium);
   }
-  .doc-shell-scroll:hover,
-  .doc-shell-scroll:focus-within {
-    scrollbar-color: var(--solus-scroll-thumb) transparent;
-  }
-  .doc-shell-scroll::-webkit-scrollbar {
-    width: 0.5625rem;
-  }
-  /* No arrows, no border, no track — the inset keeps the thumb a slim pill. */
-  .doc-shell-scroll::-webkit-scrollbar-thumb {
-    background: transparent;
-    border: 0.125rem solid transparent;
-    background-clip: padding-box;
-    border-radius: 999px;
-    transition: background var(--duration-base) var(--ease-premium);
-  }
-  .doc-shell-scroll:hover::-webkit-scrollbar-thumb,
-  .doc-shell-scroll:focus-within::-webkit-scrollbar-thumb {
-    background: color-mix(in srgb, var(--solus-text-tertiary) 20%, transparent);
-    background-clip: padding-box;
-  }
-  .doc-shell-scroll::-webkit-scrollbar-thumb:hover {
-    background: color-mix(in srgb, var(--solus-text-tertiary) 32%, transparent);
-    background-clip: padding-box;
-  }
+  /* The app-wide hairline bar in index.css draws the thumb; the gutter above is
+     the only thing this surface needs on top of it. */
 
   @media (max-width: 767px) {
     .doc-shell-root:not(.h-full) {
@@ -1149,6 +1130,7 @@
     }
     /* The header is the strip on mobile: no title cluster (the pane tab already
        shows it), so the row inside sizes the header instead of a fixed 52px. */
+    .doc-shell-root--inline .doc-shell-toolbar,
     .doc-shell-toolbar {
       display: block;
       height: auto;

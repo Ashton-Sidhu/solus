@@ -92,11 +92,11 @@ describe('Socket.IO transport', () => {
     await waitForStatus(client, 'connected')
     closeClientEngine(client)
     await waitForStatus(client, 'reconnecting')
-    harness.events.broadcast('tasks.invalidated', { projectRoot: '/project' })
+    harness.events.broadcast('tasks.invalidated', {})
     await waitForStatus(client, 'connected')
     await waitFor(() => taskEvents.length === 1)
 
-    expect(taskEvents).toEqual([{ projectRoot: '/project' }])
+    expect(taskEvents).toEqual([{}])
     expect(resets).toBe(0)
 
     closeClientEngine(client, true)

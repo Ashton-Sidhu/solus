@@ -10,8 +10,18 @@ export { encodePathAsFolder } from '../../shared/types'
 // injected marker onward. `\[Working On ` matches both the bound-work block
 // (`[Working On - …]`) and the task block (`[Working On Task — …]`).
 const INJECTED_CONTEXT_REGEX = /\[Referenced Plan:|\[Referenced Work:|\[Working On /
+// The task packet now rides the system prompt, but sessions started before that
+// have it prepended to their first prompt on disk. It is the one block that goes
+// *before* the typed text, so stripping from its marker onward like the trailing
+// blocks would delete the whole message, leaving those sessions with no user turn
+// at all — and, with no turn to lead it, the entire transcript folds into one
+// headless activity row. The packet always closes with its read_task line
+// (formatTaskContext), so cut through that.
+const PREPENDED_TASK_PACKET =
+  /^\[Working On Task [\s\S]*?\nCall read_task with task_id "[^"]*" to refresh this packet[^\n]*\n+/
 
 export function stripInjectedContext(text: string): string {
-  const idx = text.search(INJECTED_CONTEXT_REGEX)
-  return idx !== -1 ? text.slice(0, idx).trimEnd() : text
+  const typed = text.replace(PREPENDED_TASK_PACKET, '')
+  const idx = typed.search(INJECTED_CONTEXT_REGEX)
+  return idx !== -1 ? typed.slice(0, idx).trimEnd() : typed
 }

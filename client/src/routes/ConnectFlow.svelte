@@ -3,7 +3,7 @@
   import { defaultDeviceLabel, urlHost } from "@client-core/pairing";
   import { classifyConnectInput, probeServer } from "../lib/connect";
   import { addHostFromInput } from "../lib/add-host";
-  import { toasts } from "../lib/toast.store.svelte";
+  import { toasts } from "@renderer/lib/toasts";
 
   interface Props {
     onConnect: (server: SavedServer) => Promise<void>;

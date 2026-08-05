@@ -82,7 +82,7 @@ describe('WorkspaceContext tab clearing', () => {
     workspace.eventReducer = { streaming: { text: {} } }
     workspace.environment = { refreshTab: async () => {} }
     // A class field, so an Object.create'd instance never gets one.
-    workspace.autoNamedTabs = new Set<string>()
+    workspace.metadataFinalizedTabs = new Set<string>()
 
     workspace.clearTab('tab-a')
 
@@ -467,6 +467,87 @@ describe('WorkspaceContext new-tab Git initialization', () => {
 
     resolveGit()
     await creation
+  })
+})
+
+describe('WorkspaceContext task-bound tab creation', () => {
+  test('passes the subtask id into tab creation', async () => {
+    installRendererGlobals()
+
+    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const workspace = Object.create(WorkspaceContext.prototype) as any
+    let createOptions: Record<string, unknown> | undefined
+    workspace.createTab = async (cwd: string, options: Record<string, unknown>) => {
+      expect(cwd).toBe('/repo')
+      createOptions = options
+      return 'subtask-tab'
+    }
+    workspace.router = { closeGroup: () => {} }
+
+    await workspace.openTaskSession({ id: 'subtask-1', projectKey: '/repo' })
+
+    expect(createOptions).toEqual({ taskId: 'subtask-1' })
+  })
+
+  test('publishes the task relationship with the new tab', async () => {
+    installRendererGlobals()
+
+    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const sourceSession = {
+      id: 'source-session',
+      serverId: 'local',
+      workingDirectory: '/repo',
+      gitContext: null,
+      modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
+      provider: 'codex',
+      sessionSkills: [],
+    } as unknown as Session
+    const registry = {
+      tabs: {} as Record<string, Tab>,
+      sessions: {} as Record<string, Session>,
+      tabOrder: [] as string[],
+      activeTabId: 'source-tab',
+      get activeSession() { return sourceSession },
+    }
+    const workspace = Object.create(WorkspaceContext.prototype) as any
+    workspace.registry = registry
+    workspace.lifecycle = {
+      staticInfo: { workspacePath: '/repo' },
+      pluginCommands: { global: [], project: [] },
+    }
+    workspace.config = {
+      globalDefaults: {
+        permissionMode: 'auto',
+        workingDirectory: '/repo',
+        gitContext: null,
+        worktreeBaseBranch: null,
+        modelConfig: sourceSession.modelConfig,
+      },
+      defaultReasoningEffortFor: () => 'high',
+    }
+    workspace.settings = {
+      activeAgent: 'codex',
+      rateLimitBehavior: 'ask',
+      worktreeEnabled: false,
+    }
+    workspace.addTabToOrder = (tabId: string) => { registry.tabOrder.push(tabId) }
+    workspace.setActiveTab = (tabId: string) => { registry.activeTabId = tabId }
+    workspace.resetOverlays = () => {}
+    workspace.refreshPluginCommands = () => Promise.resolve()
+    workspace.environment = {
+      refreshTab: (currentWorkspace: any, options: { tabId: string }) => {
+        const tab = currentWorkspace.tabs[options.tabId]
+        // WHY: adding the tab to tabOrder makes it visible to the sidebar. A
+        // subtask id assigned only after this async boundary flashes as a loose
+        // top-level task until initialization finishes.
+        expect(currentWorkspace.sessions[tab.sessionId].pendingTaskId).toBe('subtask-1')
+        return Promise.resolve()
+      },
+    }
+
+    const tabId = await workspace.createTab('/repo', { taskId: 'subtask-1' })
+
+    expect(workspace.sessionFor(tabId)?.pendingTaskId).toBe('subtask-1')
   })
 })
 

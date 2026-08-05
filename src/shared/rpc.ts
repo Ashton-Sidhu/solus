@@ -58,6 +58,7 @@ export const RPC_INVOKE_METHODS = [
   'voiceModelRetry',
   'logVoiceTranscription',
   'searchFiles',
+  'searchProjectContents',
   'listDirectory',
   'createDirectory',
   'readProjectFile',
@@ -72,7 +73,7 @@ export const RPC_INVOKE_METHODS = [
   'loadSession',
   'loadSessionPreview',
   'getSessionInfo',
-  'generateSessionTitle',
+  'generateSessionMetadata',
   'setSessionTitle',
   'listRecentProjects',
   'trackRecentProject',
@@ -221,6 +222,7 @@ export const RPC_INVOKE_METHODS = [
   'prGuideMetadata',
   'prOpenReview',
   'prGetDetail',
+  'prUpdate',
   'prGetOverview',
   'prChangedFiles',
   'prListThreads',
@@ -249,8 +251,12 @@ export const RPC_INVOKE_METHODS = [
   'readReviewState',
   'writeReviewState',
 
-  // Tasks (provider-backed tickets: list/get/CRUD behind one interface)
+  // Tasks (global native store plus project-scoped upstream providers)
   'tasksProviderStatus',
+  'tasksListUpstream',
+  'tasksGetUpstream',
+  'tasksUpdateUpstream',
+  'tasksCommentUpstream',
   'tasksList',
   'tasksGet',
   'tasksCreate',
@@ -259,6 +265,9 @@ export const RPC_INVOKE_METHODS = [
   'tasksComment',
   'tasksLinkSession',
   'tasksSessions',
+  'tasksForSession',
+  'tasksLink',
+  'tasksUnlink',
 
   // Automations (run-now; CRUD + run history)
   'automationCreate',

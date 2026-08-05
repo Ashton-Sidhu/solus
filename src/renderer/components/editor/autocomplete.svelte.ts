@@ -1,63 +1,52 @@
-// Reference-autocomplete state machine, decoupled from any editor host.
+// Unified reference-autocomplete state machine, decoupled from any editor host.
 //
-// It owns the six completion channels — slash commands, @-files, #plans,
-// %works, !PRs and &sessions — including their filter state, candidate fetching, keyboard handling
-// and reference insertion. Editor mechanics sit behind AutocompleteEditor so
-// the same state machine can drive the CodeMirror prompt input and the Tiptap
-// document editor without leaking either editor's transaction model.
+// Three trigger characters and one index behind them: `/` is verbs, `@` is
+// files, `#` is every other noun in the workspace — plans, docs, pull requests,
+// sessions, tasks, automations. Kind is a level you drill into, never a menu you
+// pick first, and drilling writes `#automations/` into the composer text rather
+// than into state, so undo, caret movement and selection work for free.
+//
+// Editor mechanics sit behind AutocompleteEditor so the same machine drives the
+// CodeMirror prompt input and the Tiptap document editor without leaking either
+// editor's transaction model.
 import { planKey } from "../../../shared/types";
 import type {
   AgentId,
   FileMatch,
-  PlanDescriptor,
   PlanReference,
   PluginCommandsResult,
-  SessionMeta,
   SessionReference,
-  Work,
   WorkReference,
 } from "../../../shared/types";
-import type { PullRequestSummary } from "../../../shared/providers";
 import {
   SLASH_COMMANDS,
   codexSlashCommands,
-  getFilteredFromCategorized,
   type SlashCommand,
   type CategorizedSlashCommands,
 } from "../input/slash-commands";
 import { type WorkspaceContext, type PlanStore } from "../../contexts";
-import { matchesOpenProjects } from "../../lib/sessionUtils";
-import type { AutocompleteEditor } from "./autocomplete-editor";
+import {
+  autocompleteSelectionAction,
+  type AutocompleteEditor,
+} from "./autocomplete-editor";
+import { GLYPH, KIND_NOUN, KINDS, kindFor, type RefKind } from "./unified-autocomplete/kinds";
+import {
+  buildRows,
+  ghostFor,
+  isSelectable,
+  type MenuItem,
+  type MenuRow,
+  type SelectableRow,
+} from "./unified-autocomplete/rows";
+import {
+  findAnchor,
+  readTrigger,
+  triggerRunPattern,
+  type Trigger,
+} from "./unified-autocomplete/trigger";
+import { ReferenceIndex } from "./unified-autocomplete/reference-index.svelte";
 
-// Trigger patterns shared by every reference-aware composer. Re-exported by
-// PromptEditor so callers don't re-declare them.
-export const SLASH_INLINE_RE = /(?:^|\s)(\/[a-zA-Z-]*)$/;
-export const FILE_TRIGGER_RE =
-  /(?:(?<![^\s])@([^\s]*)|(~\/[^\s]*|\.\.?\/[^\s]*))$/;
-export const PLAN_TRIGGER_RE = /(?:^|\s)#([^\s]*)$/;
-export const WORK_TRIGGER_RE = /(?:^|\s)%([^\s]*)$/;
-export const PR_TRIGGER_RE = /(?:^|\s)!([^\s]*)$/;
-export const SESSION_TRIGGER_RE = /(?:^|\s)&([^\s]*)$/;
-
-/** A referenced session's chip label: its slug, else the first line of its
- *  first message, else a short id. */
-function sessionRefTitle(session: SessionMeta): string {
-  const slug = session.slug?.trim();
-  if (slug) return slug;
-  const firstLine = session.firstMessage?.split("\n")[0]?.trim();
-  if (firstLine) return firstLine;
-  return session.sessionId.slice(0, 8);
-}
-
-/** Imperative handle onto the file menu component (it owns its own selection).
- *  Signatures mirror FileAutocompleteMenu's exports so the instance is directly
- *  assignable. */
-export interface FileMenuHandle {
-  resetSelection(): void;
-  moveSelection(delta: -1 | 1): boolean;
-  getSelected(): FileMatch | null;
-  acceptSelection(): boolean;
-}
+export { filterPlanAutocompleteDescriptors } from "./unified-autocomplete/reference-index.svelte";
 
 /** Everything the controller needs from its host. Reactive props are passed as
  *  getters so reads stay reactive across the module boundary. */
@@ -84,11 +73,6 @@ export interface AutocompleteDeps {
   session: WorkspaceContext;
   planStore: PlanStore;
   getEditor: () => AutocompleteEditor | null;
-  getFileMenu: () => FileMenuHandle | null;
-}
-
-function moveIndex(current: number, delta: number, count: number) {
-  return count === 0 ? 0 : (current + delta + count) % count;
 }
 
 export function shouldUnwrapFileReferenceOnBackspace(
@@ -108,64 +92,44 @@ export function shouldUnwrapFileReferenceOnBackspace(
   );
 }
 
-export function filterPlanAutocompleteDescriptors(
-  descriptors: PlanDescriptor[],
-  filter: string,
-  projectRoots: string[],
-): PlanDescriptor[] {
-  const query = filter.toLowerCase();
-  const scoped = descriptors.filter((descriptor) =>
-    matchesOpenProjects(descriptor.cwd, projectRoots),
-  );
-  const matching = query
-    ? scoped.filter((descriptor) =>
-        descriptor.title.toLowerCase().includes(query),
-      )
-    : scoped;
-  return matching.sort((a, b) => b.timestamp - a.timestamp).slice(0, 20);
-}
-
-export class AutocompleteController {
-  // ─── Slash command menu ───
-  slashFilter = $state<string | null>(null);
-  slashIndex = $state(0);
+/** Mouse hover sets selection, but not for this long after a navigation key —
+ *  a stationary cursor must not steal the highlight during keyboard use. */
+const HOVER_SUPPRESSION_MS = 400;
+export class UnifiedAutocompleteController {
+  /** Index of the live trigger character within the text before the caret.
+   *  Held across keystrokes so a query can keep its spaces. */
+  #anchor = $state<number | null>(null);
+  #textBeforeCursor = $state("");
+  /** Esc closes the popover but keeps the text; the next keystroke reopens it. */
+  #dismissed = $state(false);
+  #selectedIndex = $state(0);
   cursorAnchorRect = $state<DOMRect | null>(null);
 
-  // ─── File autocomplete ───
-  fileFilter = $state<string | null>(null);
-  fileResults = $state<FileMatch[]>([]);
+  #fileResults = $state<FileMatch[]>([]);
+  #fileTotal = $state<number | null>(null);
   #fileSearchTimer: ReturnType<typeof setTimeout> | null = null;
   #fileSearchId = 0;
 
-  // ─── Plan autocomplete ───
-  planFilter = $state<string | null>(null);
-  planIndex = $state(0);
+  /** Anchor the `#` indexes were last warmed for. Loading is a rising-edge
+   *  event, not a per-keystroke one: an emptiness test would re-fire forever in
+   *  a repo that genuinely has no pull requests. */
+  #warmedForAnchor: number | null = null;
+  #lastKeyAt = 0;
+  #pointer: { x: number; y: number } | null = null;
 
-  // ─── Work autocomplete ───
-  workFilter = $state<string | null>(null);
-  workIndex = $state(0);
-  workMenuLoading = $state(false);
-  workMenuUsesInlineTrigger = $state(false);
-  #workLoadRequestId = 0;
+  constructor(private deps: AutocompleteDeps) {
+    // Built here rather than as a field initializer: `deps` is a parameter
+    // property, which TypeScript assigns after field initializers run.
+    this.#index = new ReferenceIndex({
+      session: deps.session,
+      planStore: deps.planStore,
+      workingDirectory: () => deps.workingDirectory(),
+      tabId: () => deps.tabId(),
+    });
+  }
 
-  // ─── Pull request autocomplete ───
-  prFilter = $state<string | null>(null);
-  prIndex = $state(0);
-  prCandidates = $state<PullRequestSummary[]>([]);
-  prMenuLoading = $state(false);
-  #prLoadRequestId = 0;
+  // ─── Commands (`/`) ───
 
-  // ─── Session autocomplete ───
-  sessionFilter = $state<string | null>(null);
-  sessionIndex = $state(0);
-  sessionCandidates = $state<SessionMeta[]>([]);
-  sessionMenuLoading = $state(false);
-  #sessionLoadRequestId = 0;
-
-  constructor(private deps: AutocompleteDeps) {}
-
-  // Built-in Claude Code commands come live from the SDK, de-duped against the
-  // filesystem plugin/skill commands shown in their own buckets.
   #pluginCommandNames = $derived.by(
     () =>
       new Set(
@@ -211,142 +175,175 @@ export class AutocompleteController {
     }),
   );
 
-  filteredSlashCommands = $derived.by(() =>
-    this.slashFilter
-      ? getFilteredFromCategorized(this.slashFilter, this.commands)
-      : [],
+  /** The `/` channel is flat and ranked: a handful of verbs needs no taxonomy.
+   *  The description carries the row; the name is mono because you can type it. */
+  #commandItems = $derived.by((): MenuItem[] =>
+    [
+      ...this.commands.solus,
+      ...this.commands.codex,
+      ...this.commands.claudeCode,
+      ...this.commands.global,
+      ...this.commands.project,
+    ].map((command) => ({
+      id: `cmd:${command.command}`,
+      // The leading `/` is the trigger the user already typed, so the row shows
+      // the bare name — which is also what the query is matched against.
+      title: command.command.slice(1),
+      meta: command.description,
+      when: "",
+      icon: GLYPH.cmd,
+      mono: true,
+      monoMeta: false,
+      token: { kind: "slash", command: command.command },
+      command,
+    })),
   );
 
-  planResults = $derived.by(() => {
-    if (this.planFilter === null) return [] as PlanDescriptor[];
-    const workingDirectory = this.deps.workingDirectory();
-    return filterPlanAutocompleteDescriptors(
-      [...this.deps.planStore.cachedDescriptors],
-      this.planFilter,
-      workingDirectory
-        ? [workingDirectory]
-        : this.deps.session.openProjectScopeRoots,
+  // ─── Files (`@`) ───
+
+  #openFileItems = $derived.by((): MenuItem[] => {
+    const session = this.deps.session.sessionFor(this.deps.tabId());
+    const touched = session?.sessionChangedFiles ?? [];
+    return touched.slice(0, 8).map((path) => this.#fileItem(path, false));
+  });
+
+  #worktreeFileItems = $derived.by((): MenuItem[] => {
+    const open = new Set(this.#openFileItems.map((item) => item.token.kind === "file" ? item.token.path : ""));
+    return this.#fileResults
+      .map((file) => {
+        const path = this.deps.useRelativeFilePaths() ? file.display : file.path;
+        return this.#fileItem(
+          file.isDir ? `${path}/` : path,
+          file.isDir,
+          file.isDir ? file.path : undefined,
+        );
+      })
+      .filter((item) => !open.has(item.token.kind === "file" ? item.token.path : ""));
+  });
+
+  #fileItem(path: string, isDir: boolean, directoryPath?: string): MenuItem {
+    const trimmed = path.replace(/\/$/, "");
+    const cut = trimmed.lastIndexOf("/");
+    const name = trimmed.slice(cut + 1);
+    return {
+      id: `file:${path}`,
+      title: isDir ? `${name}/` : name,
+      meta: trimmed.slice(0, cut + 1),
+      when: "",
+      icon: isDir ? GLYPH.folder : GLYPH.file,
+      mono: true,
+      monoMeta: true,
+      token: { kind: "file", path, name },
+      directoryPath,
+    };
+  }
+
+  // ─── Everything else (`#`) ───
+
+  #index: ReferenceIndex;
+
+  /** A getter, not a `$derived` field: `#index` is built in the constructor,
+   *  and field initializers run before it exists. The index's own `byKind` is
+   *  already derived, so reactivity is unaffected. */
+  get #byKind(): Record<RefKind, MenuItem[]> {
+    return this.#index.byKind;
+  }
+
+  // ─── Derived menu ───
+
+  trigger = $derived.by((): Trigger | null => {
+    const trigger = readTrigger(this.#textBeforeCursor, this.#anchor);
+    if (!trigger) return null;
+    if (trigger.char === "/" && this.deps.enableSlash?.() === false)
+      return null;
+    return trigger;
+  });
+
+  rows = $derived.by((): MenuRow[] => {
+    const trigger = this.trigger;
+    if (!trigger || this.deps.readOnly()) return [];
+    return buildRows({
+      trigger,
+      commands: this.#commandItems,
+      openFiles: this.#openFileItems,
+      worktreeFiles: this.#worktreeFileItems,
+      worktreeFileCount: this.#fileTotal,
+      byKind: this.#byKind,
+      counts: {
+        plan: this.#byKind.plan.length,
+        doc: this.#byKind.doc.length,
+        pr: this.#byKind.pr.length,
+        session: this.#byKind.session.length,
+        task: this.#byKind.task.length,
+        automation: this.#byKind.automation.length,
+      },
+    });
+  });
+
+  selectableRows = $derived(this.rows.filter(isSelectable));
+
+  selectedRow = $derived.by((): SelectableRow | null => {
+    const rows = this.selectableRows;
+    if (rows.length === 0) return null;
+    return rows[Math.min(this.#selectedIndex, rows.length - 1)];
+  });
+
+  selectedIndex = $derived(
+    Math.min(this.#selectedIndex, Math.max(0, this.selectableRows.length - 1)),
+  );
+
+  open = $derived(
+    this.trigger !== null && !this.#dismissed && this.rows.length > 0,
+  );
+
+  ghost = $derived(ghostFor(this.selectedRow, this.trigger?.query ?? ""));
+
+  /** Footer verbs, so the popover always states what the two keys will do. */
+  enterVerb = $derived(
+    this.selectedRow?.type === "category"
+      ? "open"
+      : this.selectedRow?.type === "deadEnd"
+        ? "dismiss"
+        : "insert",
+  );
+  tabVerb = $derived(
+    this.selectedRow?.type === "category"
+      ? "open"
+      : this.selectedRow?.type === "item" && this.selectedRow.item.directoryPath
+        ? "open"
+      : this.selectedRow?.type === "deadEnd"
+        ? "dismiss"
+        : "complete",
+  );
+  showTabHint = $derived(this.selectedRow !== null);
+
+  footer = $derived.by(() => {
+    const trigger = this.trigger;
+    if (!trigger) return "";
+    if (trigger.char === "/")
+      return `${this.selectableRows.length} commands`;
+    if (trigger.char === "@")
+      return this.#fileTotal === null
+        ? ""
+        : `${this.#fileTotal.toLocaleString("en-US")} files`;
+    const total = KINDS.reduce(
+      (sum, kind) => sum + this.#byKind[kind.key].length,
+      0,
     );
+    return `${total.toLocaleString("en-US")} referenceable`;
   });
 
-  workResults = $derived.by(() => {
-    if (this.workFilter === null) return [] as Work[];
-    const query = this.workFilter.trim().toLowerCase();
-    const all = Object.values(this.deps.session.worksStore.works).sort(
-      (a, b) =>
-        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-    );
-    return (
-      query
-        ? all.filter(
-            (w) =>
-              w.title.toLowerCase().includes(query) ||
-              w.preview.toLowerCase().includes(query) ||
-              w.type.toLowerCase().includes(query),
-          )
-        : all
-    ).slice(0, 20);
-  });
-
-  prResults = $derived.by(() => {
-    if (this.prFilter === null) return [] as PullRequestSummary[];
-    const query = this.prFilter.trim().toLowerCase().replace(/^#/, "");
-    return (
-      query
-        ? this.prCandidates.filter(
-            (pullRequest) =>
-              String(pullRequest.number).includes(query) ||
-              pullRequest.title.toLowerCase().includes(query) ||
-              pullRequest.author.toLowerCase().includes(query),
-          )
-        : this.prCandidates
-    ).slice(0, 20);
-  });
-
-  sessionResults = $derived.by(() => {
-    if (this.sessionFilter === null) return [] as SessionMeta[];
-    const query = this.sessionFilter.trim().toLowerCase();
-    // You can't reference your own conversation (matches prompt_session).
-    const currentSessionId =
-      this.deps.session.sessionFor(this.deps.tabId())?.agentSessionId;
-    const all = this.sessionCandidates.filter(
-      (session) => session.sessionId !== currentSessionId,
-    );
-    return (
-      query
-        ? all.filter(
-            (session) =>
-              (session.slug ?? "").toLowerCase().includes(query) ||
-              (session.firstMessage ?? "").toLowerCase().includes(query) ||
-              session.cwd.toLowerCase().includes(query),
-          )
-        : all
-    ).slice(0, 20);
-  });
-
-  // ─── Menu visibility ───
-  showSlashMenu = $derived.by(
-    () => this.slashFilter !== null && !this.deps.readOnly(),
-  );
-  showFileMenu = $derived.by(
-    () => this.fileFilter !== null && this.fileResults.length > 0,
-  );
-  isPlanMenuLoading = $derived.by(
-    () =>
-      this.planFilter !== null &&
-      this.deps.planStore.isDescriptorLoading(
-        this.deps.planStore.descriptorCacheKey(undefined, true),
-      ) &&
-      this.planResults.length === 0,
-  );
-  showPlanMenu = $derived.by(
-    () =>
-      this.planFilter !== null &&
-      (this.planResults.length > 0 || this.isPlanMenuLoading),
-  );
-  isWorkMenuLoading = $derived.by(
-    () =>
-      this.workFilter !== null &&
-      this.workMenuLoading &&
-      this.workResults.length === 0,
-  );
-  showWorkMenu = $derived.by(
-    () =>
-      this.workFilter !== null &&
-      (this.workResults.length > 0 || this.isWorkMenuLoading),
-  );
-  isPrMenuLoading = $derived.by(
-    () =>
-      this.prFilter !== null &&
-      this.prMenuLoading &&
-      this.prResults.length === 0,
-  );
-  showPrMenu = $derived.by(
-    () =>
-      this.prFilter !== null &&
-      (this.prResults.length > 0 || this.isPrMenuLoading),
-  );
-  isSessionMenuLoading = $derived.by(
-    () =>
-      this.sessionFilter !== null &&
-      this.sessionMenuLoading &&
-      this.sessionResults.length === 0,
-  );
-  showSessionMenu = $derived.by(
-    () =>
-      this.sessionFilter !== null &&
-      (this.sessionResults.length > 0 || this.isSessionMenuLoading),
-  );
-
-  // ─── Menu helpers ───
+  // ─── Editor change handling ───
 
   updateCursorAnchor() {
     this.cursorAnchorRect = this.deps.getEditor()?.cursorRect() ?? null;
   }
 
-  #clearFileCompletion() {
-    this.fileFilter = null;
-    this.fileResults = [];
+  clearCompletions() {
+    this.#anchor = null;
+    this.#dismissed = false;
+    this.#selectedIndex = 0;
+    this.#fileResults = [];
     this.#fileSearchId++;
     if (this.#fileSearchTimer) {
       clearTimeout(this.#fileSearchTimer);
@@ -354,367 +351,82 @@ export class AutocompleteController {
     }
   }
 
-  clearCompletions() {
-    this.slashFilter = null;
-    this.planFilter = null;
-    this.workFilter = null;
-    this.prFilter = null;
-    this.sessionFilter = null;
-    this.workMenuUsesInlineTrigger = false;
-    this.#clearFileCompletion();
-  }
+  /** Re-evaluate the caret-local trigger and reconcile refs when nodes changed. */
+  handleEditorChange(textBeforeCursor: string, trackedRefsChanged = false) {
+    this.#textBeforeCursor = textBeforeCursor;
 
-  #handleMenuKey(
-    e: KeyboardEvent,
-    index: number,
-    count: number,
-    setIndex: (n: number) => void,
-    onAccept: () => void,
-    onDismiss: () => void,
-  ): boolean {
-    switch (e.key) {
-      case "ArrowDown":
-        e.preventDefault();
-        setIndex(moveIndex(index, 1, count));
-        return true;
-      case "ArrowUp":
-        e.preventDefault();
-        setIndex(moveIndex(index, -1, count));
-        return true;
-      case "Tab":
-      case "Enter":
-        e.preventDefault();
-        if (count > 0) onAccept();
-        return true;
-      case "Escape":
-        e.preventDefault();
-        onDismiss();
-        return true;
-      default:
-        return false;
+    // The held anchor survives only while it still points at its trigger
+    // character; otherwise look for a freshly typed one at the caret.
+    let anchor = this.#anchor;
+    if (
+      anchor === null ||
+      anchor >= textBeforeCursor.length ||
+      !"/@#.~".includes(textBeforeCursor.charAt(anchor))
+    ) {
+      anchor = findAnchor(textBeforeCursor);
+      if (anchor !== this.#anchor) this.#selectedIndex = 0;
     }
-  }
+    this.#anchor = anchor;
+    this.#dismissed = false;
 
-  updateSlashFilter(textBeforeCursor: string) {
-    if (this.deps.enableSlash?.() === false) {
-      this.slashFilter = null;
+    if (trackedRefsChanged) this.syncRefs();
+    const trigger = this.trigger;
+    if (!trigger) {
+      this.#fileResults = [];
+      this.#warmedForAnchor = null;
       return;
     }
-    const match = textBeforeCursor.match(SLASH_INLINE_RE);
-    if (match) {
-      this.slashFilter = match[1];
-      this.slashIndex = 0;
-    } else {
-      this.slashFilter = null;
+
+    // A spaced query that matches nothing hands the words back to the sentence.
+    if (/\s/.test(trigger.query) && this.selectableRows.length === 0) {
+      this.#anchor = null;
+      this.#warmedForAnchor = null;
+      return;
     }
+
+    if (trigger.char === "@") this.#searchFiles(trigger.query);
+    if (trigger.char === "#" && this.#warmedForAnchor !== trigger.anchor) {
+      this.#warmedForAnchor = trigger.anchor;
+      this.#loadReferenceIndexes();
+    }
+    this.updateCursorAnchor();
   }
 
-  #updateFileFilter(value: string) {
-    const match = value.match(FILE_TRIGGER_RE);
-    if (match) {
-      const query = match[1] ?? match[2] ?? "";
-      const searchId = ++this.#fileSearchId;
-      // Keep previous results visible while the new search is in flight so
-      // the menu doesn't flicker closed on every keystroke.
-      const isOpening = this.fileFilter === null;
-      this.fileFilter = query;
-      if (this.#fileSearchTimer) clearTimeout(this.#fileSearchTimer);
-      // Search immediately on the trigger keystroke so the menu appears
-      // without a debounce delay; debounce only while the user keeps typing.
-      this.#fileSearchTimer = setTimeout(
-        async () => {
-          const result = await this.deps.session.apiFor(this.deps.tabId()).searchFiles(
+  #searchFiles(query: string) {
+    const searchId = ++this.#fileSearchId;
+    // Search immediately on the trigger keystroke so the menu appears without a
+    // debounce delay; debounce only while the user keeps typing. Previous
+    // results stay visible in between so the menu doesn't flicker closed.
+    const isOpening = this.#fileResults.length === 0;
+    if (this.#fileSearchTimer) clearTimeout(this.#fileSearchTimer);
+    this.#fileSearchTimer = setTimeout(
+      async () => {
+        const result = await this.deps.session
+          .apiFor(this.deps.tabId())
+          .searchFiles(
             query,
             // searchFiles' main-process handler tolerates an absent cwd; the
             // type says string, so pass through the possibly-undefined value.
             this.deps.workingDirectory() as string,
           );
-          if (searchId !== this.#fileSearchId) return;
-          this.fileResults = result.files;
-          // Results arrive ranked best-first — snap selection back to the top
-          // so Enter always accepts the best match.
-          this.deps.getFileMenu()?.resetSelection();
-          this.#fileSearchTimer = null;
-        },
-        isOpening ? 0 : 80,
-      );
-    } else {
-      this.#clearFileCompletion();
-    }
-  }
-
-  #updatePlanFilter(textBeforeCursor: string) {
-    const match = textBeforeCursor.match(PLAN_TRIGGER_RE);
-    if (match) {
-      this.planFilter = match[1] ?? "";
-      this.planIndex = 0;
-      const planStore = this.deps.planStore;
-      const descriptorKey = planStore.descriptorCacheKey(undefined, true);
-      if (
-        (planStore.cachedDescriptorKey !== descriptorKey ||
-          planStore.cachedDescriptors.length === 0) &&
-        !planStore.isDescriptorLoading(descriptorKey)
-      ) {
-        void planStore
-          .getDescriptors(undefined, true, this.deps.session.ctx)
-          .catch(() => {});
-      }
-    } else {
-      this.planFilter = null;
-    }
-  }
-
-  #updateWorkFilter(textBeforeCursor: string) {
-    const match = textBeforeCursor.match(WORK_TRIGGER_RE);
-    if (match) {
-      this.workMenuUsesInlineTrigger = true;
-      this.workFilter = match[1] ?? "";
-      this.workIndex = 0;
-      if (
-        Object.keys(this.deps.session.worksStore.works).length === 0 &&
-        !this.workMenuLoading
-      ) {
-        void this.#loadWorksForMenu();
-      }
-    } else {
-      this.workFilter = null;
-    }
-  }
-
-  async #loadWorksForMenu() {
-    const requestId = ++this.#workLoadRequestId;
-    this.workMenuLoading = true;
-    try {
-      await this.deps.session.worksStore.loadAll(this.deps.workingDirectory());
-    } finally {
-      if (requestId === this.#workLoadRequestId) this.workMenuLoading = false;
-    }
-  }
-
-  #updatePrFilter(textBeforeCursor: string) {
-    const match = textBeforeCursor.match(PR_TRIGGER_RE);
-    if (match) {
-      const isOpening = this.prFilter === null;
-      this.prFilter = match[1] ?? "";
-      this.prIndex = 0;
-      if (isOpening) void this.#loadPullRequestsForMenu();
-    } else {
-      this.prFilter = null;
-    }
-  }
-
-  async #loadPullRequestsForMenu() {
-    const requestId = ++this.#prLoadRequestId;
-    this.prMenuLoading = true;
-    try {
-      const workingDirectory = this.deps.workingDirectory();
-      const context = workingDirectory
-        ? this.deps.session.ctxForDirectory(workingDirectory)
-        : this.deps.session.ctx;
-      const result = await this.deps.session.prsStore.loadFor(
-        context,
-        { state: "open" },
-      );
-      if (requestId === this.#prLoadRequestId) {
-        this.prCandidates = [...result.items].sort(
-          (a, b) =>
-            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-        );
-      }
-    } finally {
-      if (requestId === this.#prLoadRequestId) this.prMenuLoading = false;
-    }
-  }
-
-  #updateSessionFilter(textBeforeCursor: string) {
-    const match = textBeforeCursor.match(SESSION_TRIGGER_RE);
-    if (match) {
-      const isOpening = this.sessionFilter === null;
-      this.sessionFilter = match[1] ?? "";
-      this.sessionIndex = 0;
-      if (isOpening) void this.#loadSessionsForMenu();
-    } else {
-      this.sessionFilter = null;
-    }
-  }
-
-  async #loadSessionsForMenu() {
-    const requestId = ++this.#sessionLoadRequestId;
-    this.sessionMenuLoading = true;
-    try {
-      const workingDirectory = this.deps.workingDirectory();
-      // listSessions returns [] without a project path, so a session-less
-      // composer has nothing to offer — bail before the IPC round-trip.
-      if (!workingDirectory) return;
-      const tabId = this.deps.tabId();
-      const sessions = await this.deps.session.apiFor(tabId).listSessions(
-        workingDirectory,
-        this.deps.session.ctxFor(tabId),
-      );
-      if (requestId === this.#sessionLoadRequestId) {
-        this.sessionCandidates = [...sessions].sort(
-          (a, b) =>
-            new Date(b.lastTimestamp).getTime() -
-            new Date(a.lastTimestamp).getTime(),
-        );
-      }
-    } finally {
-      if (requestId === this.#sessionLoadRequestId)
-        this.sessionMenuLoading = false;
-    }
-  }
-
-  #handleWorkMenuKey(e: KeyboardEvent): boolean {
-    if (
-      this.#handleMenuKey(
-        e,
-        this.workIndex,
-        this.workResults.length,
-        (n) => (this.workIndex = n),
-        () => {
-          const work = this.workResults[this.workIndex];
-          if (work) this.handleWorkSelect(work);
-        },
-        () => {
-          this.workFilter = null;
-        },
-      )
-    )
-      return true;
-
-    if (this.workMenuUsesInlineTrigger) return false;
-    if (e.metaKey || e.ctrlKey || e.altKey) return false;
-    if (e.key === "Backspace") {
-      e.preventDefault();
-      this.workFilter = (this.workFilter ?? "").slice(0, -1);
-      this.workIndex = 0;
-      return true;
-    }
-    if (e.key.length === 1) {
-      e.preventDefault();
-      this.workFilter = `${this.workFilter ?? ""}${e.key}`;
-      this.workIndex = 0;
-      return true;
-    }
-    return false;
-  }
-
-  // ─── Menu actions (arrow fields so child onSelect callbacks keep `this`) ───
-
-  handleFileSelect = (file: FileMatch) => {
-    if (this.deps.readOnly()) return;
-    const refPath = this.deps.useRelativeFilePaths() ? file.display : file.path;
-    const name = refPath.slice(refPath.lastIndexOf("/") + 1);
-    this.deps.getEditor()?.insertReference(
-      {
-        kind: "file",
-        path: file.isDir ? refPath + "/" : refPath,
-        name,
+        if (searchId !== this.#fileSearchId) return;
+        this.#fileResults = result.files;
+        this.#fileTotal = result.files.length;
+        // Results arrive ranked best-first — snap selection back to the top so
+        // ⏎ always accepts the best match.
+        this.#selectedIndex = 0;
+        this.#fileSearchTimer = null;
       },
-      FILE_TRIGGER_RE,
+      isOpening ? 0 : 80,
     );
-    this.clearCompletions();
-    this.deps.getEditor()?.focus();
-  };
+  }
 
-  handleFileDrillIn = (file: FileMatch) => {
-    if (this.deps.readOnly()) return;
-    this.deps
-      .getEditor()
-      ?.replaceTrigger(FILE_TRIGGER_RE, `@${file.path}/`);
-    this.deps.getEditor()?.focus();
-  };
-
-  handlePlanSelect = (descriptor: PlanDescriptor) => {
-    if (this.deps.readOnly()) return;
-    const id = planKey(descriptor.sessionId, descriptor.planToolUseId);
-    this.deps.getEditor()?.insertReference({
-      kind: "plan",
-      planId: id,
-      sessionId: descriptor.sessionId,
-      planToolUseId: descriptor.planToolUseId,
-      title: descriptor.title,
-      status: descriptor.status,
-    }, PLAN_TRIGGER_RE);
-    this.syncRefs();
-    this.clearCompletions();
-    void this.deps.planStore.loadFromDisk({
-      sessionId: descriptor.sessionId,
-      planToolUseId: descriptor.planToolUseId,
-      projectPath: descriptor.projectPath,
-      cwd: descriptor.cwd,
-      timestamp: descriptor.timestamp,
-      filePath: descriptor.planFilePath,
-      title: descriptor.title,
-      status: descriptor.status,
-      bookmarked: descriptor.bookmarked,
-      bookmarkedAt: descriptor.bookmarkedAt,
-      ctx: this.deps.session.ctx,
-      provider: descriptor.provider,
-    });
-    this.deps.getEditor()?.focus();
-  };
-
-  handleWorkSelect = (work: Work) => {
-    if (this.deps.readOnly()) return;
-    this.deps.getEditor()?.insertReference({
-      kind: "work",
-      workId: work.id,
-      title: work.title,
-      type: work.type,
-    }, WORK_TRIGGER_RE);
-    this.syncRefs();
-    this.clearCompletions();
-    void this.deps.session.worksStore.ensureContent(
-      work.id,
-      "composer-work-select",
-      this.deps.workingDirectory(),
-    );
-    this.deps.getEditor()?.focus();
-  };
-
-  handlePrSelect = (pullRequest: PullRequestSummary) => {
-    if (this.deps.readOnly()) return;
-    this.deps.getEditor()?.insertReference({
-      kind: "pr",
-      number: pullRequest.number,
-      title: pullRequest.title,
-    }, PR_TRIGGER_RE);
-    this.clearCompletions();
-    this.deps.getEditor()?.focus();
-  };
-
-  handleSessionSelect = (session: SessionMeta) => {
-    if (this.deps.readOnly()) return;
-    this.deps.getEditor()?.insertReference({
-      kind: "session",
-      sessionId: session.sessionId,
-      provider: session.provider,
-      title: sessionRefTitle(session),
-      cwd: session.cwd,
-    }, SESSION_TRIGGER_RE);
-    this.syncRefs();
-    this.clearCompletions();
-    this.deps.getEditor()?.focus();
-  };
-
-  handleSlashSelect = (cmd: SlashCommand) => {
-    if (this.deps.readOnly()) return;
-    const isSolusBuiltIn = SLASH_COMMANDS.some(
-      (c) => c.command === cmd.command,
-    );
-    if (isSolusBuiltIn) {
-      this.clearCompletions();
-      this.deps.onSolusCommand()?.(cmd);
-      return;
-    }
-    this.deps.getEditor()?.insertReference(
-      { kind: "slash", command: cmd.command },
-      SLASH_INLINE_RE,
-    );
-    this.clearCompletions();
-    this.deps.getEditor()?.focus();
-  };
+  /** One key, one index: opening `#` warms all six categories concurrently,
+   *  because any of them is reachable by typing three letters without drilling
+   *  first. */
+  #loadReferenceIndexes() {
+    this.#index.warm();
+  }
 
   syncRefs() {
     const onRefsChange = this.deps.onRefsChange();
@@ -726,18 +438,145 @@ export class AutocompleteController {
     onRefsChange(planRefs, workRefs, sessionRefs);
   }
 
-  // ─── Core handlers ───
+  // ─── Actions (arrow fields so row callbacks keep `this`) ───
+
+  /** Rewrite the trigger run to `#<slug>/`, putting the scope in the text where
+   *  the caret can keep typing straight into it. */
+  drill = (kind: RefKind) => {
+    const trigger = this.trigger;
+    if (!trigger) return;
+    const editor = this.deps.getEditor();
+    editor?.replaceTrigger(
+      triggerRunPattern(this.#textBeforeCursor, trigger.anchor),
+      `#${kindFor(kind).slug}/`,
+    );
+    this.#selectedIndex = 0;
+    editor?.focus();
+  };
+
+  /** Leave the scope in one press, dropping the whole slug. */
+  leaveScope = () => {
+    const trigger = this.trigger;
+    if (!trigger) return;
+    const editor = this.deps.getEditor();
+    editor?.replaceTrigger(
+      triggerRunPattern(this.#textBeforeCursor, trigger.anchor),
+      trigger.char,
+    );
+    this.#selectedIndex = 0;
+    editor?.focus();
+  };
+
+  accept = (item: MenuItem) => {
+    if (this.deps.readOnly()) return;
+    const trigger = this.trigger;
+    if (!trigger) return;
+
+    // A Solus built-in is a whole intent, not a reference: the host runs it.
+    if (item.command && SLASH_COMMANDS.includes(item.command)) {
+      this.clearCompletions();
+      this.deps.onSolusCommand()?.(item.command);
+      return;
+    }
+
+    const pattern = triggerRunPattern(this.#textBeforeCursor, trigger.anchor);
+    const editor = this.deps.getEditor();
+    editor?.insertReference(item.token, pattern);
+    this.#afterAccept(item);
+    this.clearCompletions();
+    editor?.focus();
+  };
+
+  /** Warm what the chip will need to resolve at render and at send. */
+  #afterAccept(item: MenuItem) {
+    const { token } = item;
+    if (token.kind === "plan") {
+      const descriptor = this.deps.planStore.cachedDescriptors.find(
+        (d) => planKey(d.sessionId, d.planToolUseId) === token.planId,
+      );
+      if (descriptor)
+        void this.deps.planStore.loadFromDisk({
+          sessionId: descriptor.sessionId,
+          planToolUseId: descriptor.planToolUseId,
+          projectPath: descriptor.projectPath,
+          cwd: descriptor.cwd,
+          timestamp: descriptor.timestamp,
+          filePath: descriptor.planFilePath,
+          title: descriptor.title,
+          status: descriptor.status,
+          bookmarked: descriptor.bookmarked,
+          bookmarkedAt: descriptor.bookmarkedAt,
+          ctx: this.deps.session.ctx,
+          provider: descriptor.provider,
+        });
+    } else if (token.kind === "work") {
+      void this.deps.session.worksStore.ensureContent(
+        token.workId,
+        "composer-work-select",
+        this.deps.workingDirectory(),
+      );
+    }
+    if (token.kind === "plan" || token.kind === "work" || token.kind === "session")
+      this.syncRefs();
+  }
+
+  /** Run the selected row's action — the one entry point ⏎ and a click share. */
+  activate = (row: SelectableRow) => {
+    if (row.type === "category") this.drill(row.kind);
+    else if (row.type === "item") this.accept(row.item);
+    else if (row.action === "back") this.leaveScope();
+    else this.clearCompletions();
+  };
+
+  acceptGhost = () => {
+    const ghost = this.ghost;
+    if (!ghost) return;
+    const trigger = this.trigger;
+    if (!trigger) return;
+    const editor = this.deps.getEditor();
+    editor?.replaceTrigger(
+      triggerRunPattern(this.#textBeforeCursor, trigger.anchor),
+      this.#textBeforeCursor.slice(trigger.anchor) + ghost,
+    );
+    this.#selectedIndex = 0;
+    editor?.focus();
+  };
+
+  /** Directory browsing stays text-backed just like the former file menu: the
+   * absolute path is written into the trigger, so Backspace can walk it back. */
+  drillFileDirectory = (item: MenuItem) => {
+    const trigger = this.trigger;
+    if (!trigger || !item.directoryPath || this.deps.readOnly()) return;
+    const editor = this.deps.getEditor();
+    editor?.replaceTrigger(
+      triggerRunPattern(this.#textBeforeCursor, trigger.anchor),
+      `@${item.directoryPath.replace(/\/+$/, "")}/`,
+    );
+    this.#selectedIndex = 0;
+    editor?.focus();
+  };
+
+  /** Hover selects, except right after a navigation key. */
+  hoverRow = (index: number, event: MouseEvent) => {
+    if (Date.now() - this.#lastKeyAt < HOVER_SUPPRESSION_MS) return;
+    const { clientX: x, clientY: y } = event;
+    if (this.#pointer?.x === x && this.#pointer?.y === y) return;
+    this.#pointer = { x, y };
+    this.#selectedIndex = index;
+  };
+
+  // ─── Keyboard contract ───
 
   /** Backspace against a file chip restores the `@path` text it was picked
-   *  from rather than deleting it, so a mis-picked deep path stays editable.
-   *  Restoring the text re-matches FILE_TRIGGER_RE on the next editor update,
-   *  which reopens the menu at that path. */
+   *  from rather than deleting it, so a mis-picked deep path stays editable. */
   #handleFileRefBackspace(e: KeyboardEvent): boolean {
     // While an @path trigger is being edited it is also parseable as a file
     // reference. Do not mistake that live autocomplete text for an accepted
     // file chip, or Backspace will only reveal the already-visible text and
     // swallow the deletion.
-    if (!shouldUnwrapFileReferenceOnBackspace(e, this.fileFilter !== null))
+    if (
+      !shouldUnwrapFileReferenceOnBackspace(e, this.trigger?.char === "@")
+    )
       return false;
     if (this.deps.readOnly()) return false;
     const editor = this.deps.getEditor();
@@ -746,116 +585,90 @@ export class AutocompleteController {
     return true;
   }
 
-  /** Returns true when a menu consumed the key (caller should not handle it). */
+  /** Returns true when the menu consumed the key (caller should not handle it). */
   handleKeyDown(e: KeyboardEvent): boolean {
+    const trigger = this.trigger;
+
+    // One ⌫ on an empty scoped query returns to the six categories, with the
+    // query that led there gone — before any chip handling, because the scope is
+    // text, not a chip.
+    if (
+      e.key === "Backspace" &&
+      trigger &&
+      trigger.path.length > 0 &&
+      !trigger.query
+    ) {
+      e.preventDefault();
+      this.leaveScope();
+      return true;
+    }
     if (this.#handleFileRefBackspace(e)) return true;
-    if (this.showWorkMenu && this.#handleWorkMenuKey(e)) return true;
-    if (
-      this.showSessionMenu &&
-      this.#handleMenuKey(
-        e,
-        this.sessionIndex,
-        this.sessionResults.length,
-        (n) => (this.sessionIndex = n),
-        () => this.handleSessionSelect(this.sessionResults[this.sessionIndex]),
-        () => {
-          this.sessionFilter = null;
-        },
-      )
-    )
+    if (!this.open) return false;
+
+    const rows = this.selectableRows;
+    const selectedRow = this.selectedRow;
+    const selectionAction = autocompleteSelectionAction(
+      e.key,
+      selectedRow?.type === "item" && !!selectedRow.item.directoryPath,
+    );
+    if (selectionAction) {
+      e.preventDefault();
+      this.#lastKeyAt = Date.now();
+      if (selectedRow?.type === "item" && selectionAction === "drill")
+        this.drillFileDirectory(selectedRow.item);
+      else if (selectedRow)
+        this.activate(selectedRow);
       return true;
-    if (
-      this.showPrMenu &&
-      this.#handleMenuKey(
-        e,
-        this.prIndex,
-        this.prResults.length,
-        (n) => (this.prIndex = n),
-        () => this.handlePrSelect(this.prResults[this.prIndex]),
-        () => {
-          this.prFilter = null;
-        },
-      )
-    )
-      return true;
-    if (
-      this.showPlanMenu &&
-      this.#handleMenuKey(
-        e,
-        this.planIndex,
-        this.planResults.length,
-        (n) => (this.planIndex = n),
-        () => this.handlePlanSelect(this.planResults[this.planIndex]),
-        () => {
-          this.planFilter = null;
-        },
-      )
-    )
-      return true;
-    if (this.showFileMenu) {
-      const fileMenu = this.deps.getFileMenu();
-      switch (e.key) {
-        case "ArrowDown":
+    }
+
+    switch (e.key) {
+      case "ArrowDown":
+      case "ArrowUp": {
+        e.preventDefault();
+        this.#lastKeyAt = Date.now();
+        const step = e.key === "ArrowDown" ? 1 : rows.length - 1;
+        this.#selectedIndex = (this.selectedIndex + step) % rows.length;
+        return true;
+      }
+      case "ArrowRight": {
+        const row = this.selectedRow;
+        const atEnd = this.#caretAtLineEnd(e);
+        // → is only honoured at the end of the line, so it is never hijacked
+        // mid-text. Tab accepts the selected row outright in the case above.
+        if (row?.type === "category" && atEnd) {
           e.preventDefault();
-          fileMenu?.moveSelection(1);
-          return true;
-        case "ArrowUp":
-          e.preventDefault();
-          fileMenu?.moveSelection(-1);
-          return true;
-        case "Tab": {
-          e.preventDefault();
-          const selected = fileMenu?.getSelected();
-          if (selected?.isDir) this.handleFileDrillIn(selected);
-          else fileMenu?.acceptSelection();
+          this.#lastKeyAt = Date.now();
+          this.drill(row.kind);
           return true;
         }
-        case "Enter":
+        if (this.ghost && atEnd) {
           e.preventDefault();
-          fileMenu?.acceptSelection();
+          this.#lastKeyAt = Date.now();
+          this.acceptGhost();
           return true;
-        case "Escape":
-          e.preventDefault();
-          this.clearCompletions();
-          return true;
+        }
+        return false;
       }
+      case "ArrowLeft":
+        if (trigger && trigger.path.length > 0 && !trigger.query) {
+          e.preventDefault();
+          this.leaveScope();
+          return true;
+        }
+        return false;
+      case "Escape":
+        e.preventDefault();
+        this.#dismissed = true;
+        return true;
+      default:
+        return false;
     }
-    if (
-      this.showSlashMenu &&
-      this.#handleMenuKey(
-        e,
-        this.slashIndex,
-        this.filteredSlashCommands.length,
-        (n) => (this.slashIndex = n),
-        () => this.handleSlashSelect(this.filteredSlashCommands[this.slashIndex]),
-        () => {
-          this.slashFilter = null;
-        },
-      )
-    )
-      return true;
-
-    return false;
   }
 
-  /** Re-evaluate caret-local triggers and reconcile refs only when their nodes changed. */
-  handleEditorChange(textBeforeCursor: string, trackedRefsChanged = false) {
-    this.updateSlashFilter(textBeforeCursor);
-    this.#updateFileFilter(textBeforeCursor);
-    this.#updatePlanFilter(textBeforeCursor);
-    this.#updateWorkFilter(textBeforeCursor);
-    this.#updatePrFilter(textBeforeCursor);
-    this.#updateSessionFilter(textBeforeCursor);
-    if (trackedRefsChanged) this.syncRefs();
-    if (
-      this.slashFilter !== null ||
-      this.fileFilter !== null ||
-      this.planFilter !== null ||
-      this.workFilter !== null ||
-      this.prFilter !== null ||
-      this.sessionFilter !== null
-    ) {
-      this.updateCursorAnchor();
-    }
+  #caretAtLineEnd(e: KeyboardEvent): boolean {
+    const target = e.target;
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)
+      return target.selectionStart === target.value.length;
+    return this.deps.getEditor()?.isCaretAtLineEnd() ?? true;
   }
 }

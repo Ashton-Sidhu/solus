@@ -52,7 +52,6 @@ export function isHomeVisible(
   if (!session) return false
   return (
     !session.loadingHistory &&
-    !session.agentSessionId &&
     session.messages.length === 0 &&
     !session.statusCard
   )
@@ -192,7 +191,12 @@ export function visibleWorkspaceTabIds(
  * another live column — they get the border and the stepped-back background.
  */
 export function isFramedRoute(ref: RouteRef | null): boolean {
-  return isArtifactRoute(ref) || isPageRoute(ref) || ref?.name === 'review'
+  // `prDiff` frames for the same reason `review` does: it opens beside a full
+  // page (the PR review), not beside a conversation, so the two surfaces need a
+  // seam between them rather than floating on one canvas.
+  return (
+    isArtifactRoute(ref) || isPageRoute(ref) || ref?.name === 'review' || ref?.name === 'prDiff'
+  )
 }
 
 /**

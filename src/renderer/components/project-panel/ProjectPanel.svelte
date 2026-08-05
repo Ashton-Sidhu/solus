@@ -4,8 +4,8 @@
     getSettingsContext,
     type ProjectPanelSectionId,
     getSessionEnvironmentStore,
-    toasts,
   } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import {
     isProjectRailOpen,
     PROJECT_RAIL_MAX_WIDTH,
@@ -19,6 +19,7 @@
     ArrowsClockwiseIcon,
     CheckIcon,
     PlusIcon,
+    SidebarSimpleIcon,
     WarningCircleIcon,
   } from "phosphor-svelte";
   import SidePanel from "../layout/SidePanel.svelte";
@@ -34,6 +35,8 @@
   import { sessionWorks } from "./lib/session-works";
   import { matchesOpenProjects } from "../../lib/sessionUtils";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
+  import { comboHint } from "../../lib/keybindings/manifest";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
 
   interface Props {
     /** The conversation this rail describes — it lives inside that view. */
@@ -49,6 +52,9 @@
     minimized?: boolean;
     /** False while the owning Editor/web surface is mounted but hidden. */
     active?: boolean;
+    /** Collapse the rail through its owning conversation so transient and
+     *  persisted open state stay in sync. */
+    onCollapse: () => void;
   }
   let {
     tabId: panelTabId,
@@ -56,6 +62,7 @@
     containerWidth,
     minimized = false,
     active = true,
+    onCollapse,
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -250,6 +257,24 @@
         </span>
       {/if}
     </button>
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button
+            {...tooltipProps}
+            class="tiny-icon"
+            type="button"
+            aria-label="Collapse project panel"
+            onclick={onCollapse}
+          >
+            <SidebarSimpleIcon size={12} mirrored />
+          </button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content
+        value={`Collapse project panel (${comboHint("global.toggle-project-panel")})`}
+      />
+    </TooltipUI.Root>
   </span>
 {/snippet}
 

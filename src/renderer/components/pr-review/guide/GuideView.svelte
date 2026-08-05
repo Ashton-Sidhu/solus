@@ -1,7 +1,7 @@
 <script lang="ts">
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import type { FileDiffContentsLoader } from "@pierre/diffs";
-  import { ClockIcon } from "phosphor-svelte";
+  import { ArrowsClockwiseIcon, ClockIcon } from "phosphor-svelte";
   import type { ReviewGuide, ReviewLedger } from "../../../../shared/review";
   import type { DiffComment } from "../../../../shared/types";
   import {
@@ -28,6 +28,8 @@
     loadDiffFiles,
     meta,
     guideCurrent = true,
+    onRegenerate,
+    regenerating = false,
     onFileJump,
     comments = [],
     onCommentSave,
@@ -42,6 +44,11 @@
     meta?: { repo?: string; number?: number; baseRef: string; branch: string };
     /** Whether the cached guide describes the checkout's current HEAD. */
     guideCurrent?: boolean;
+    /** Rewrite the guide against the current HEAD. Absent where the host has no
+     *  way to regenerate, which leaves the outdated marker inert but honest. */
+    onRegenerate?: () => void;
+    /** A regeneration already in flight, so the marker can say so. */
+    regenerating?: boolean;
     /** Forwarded to each section so file chips can route to a host Diff tab. */
     onFileJump?: (path: string) => void;
     /** Review-draft comments + handlers, forwarded to every section's diff cards.
@@ -79,7 +86,10 @@
       <div class="mx-auto flex w-full max-w-[92rem] flex-col 2xl:max-w-[104rem]">
         <!-- Guide overview: a large title with PR identity + summary, given room
              to read before the diffs. -->
-        <header class="guide-intro border-b border-(--solus-art-border) py-11 pr-8 pl-14">
+        <!-- The chrome band and the masthead already sit above this title; a
+             deep top pad on top of them read as a hole rather than as air. The
+             weight stays below the header, where the guide starts. -->
+        <header class="guide-intro border-b border-(--solus-art-border) pt-6 pr-8 pb-10 pl-14">
           <h1 class="text-[2rem] leading-[1.15] font-bold tracking-tight text-balance text-(--solus-text-primary)">
             {guide.title}
           </h1>
@@ -111,13 +121,32 @@
                   Generated {generatedTime ?? "recently"}
                 </span>
                 <span class="opacity-50">·</span>
-                <span
-                  class="font-medium {guideCurrent
-                    ? 'font-secondary text-(--solus-text-secondary)'
-                    : 'text-amber-700 dark:text-amber-400'}"
-                >
-                  {guideCurrent ? "Current" : "Outdated"}
-                </span>
+                {#if guideCurrent}
+                  <span class="font-secondary font-medium text-(--solus-text-secondary)">
+                    Current
+                  </span>
+                {:else if onRegenerate}
+                  <!-- The staleness marker *is* the fix: rather than a full-width
+                       strip above the guide announcing new commits, the line that
+                       already dates the guide carries the one action it implies. -->
+                  <button
+                    type="button"
+                    class="inline-flex h-[1.375rem] cursor-pointer items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 font-medium text-amber-700 transition-colors duration-150 hover:bg-amber-500/20 disabled:cursor-progress dark:text-amber-300"
+                    title="New commits since this guide was written"
+                    disabled={regenerating}
+                    onclick={onRegenerate}
+                  >
+                    <ArrowsClockwiseIcon
+                      size={11}
+                      class={regenerating
+                        ? "shrink-0 animate-spin [animation-duration:1.2s] motion-reduce:animate-none"
+                        : "shrink-0"}
+                    />
+                    {regenerating ? "Regenerating…" : "Outdated — regenerate"}
+                  </button>
+                {:else}
+                  <span class="font-medium text-amber-700 dark:text-amber-400">Outdated</span>
+                {/if}
               {/if}
             </div>
           {/if}

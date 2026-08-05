@@ -5,6 +5,21 @@ import type { TaskStatus } from '../../session/lib/task-list'
 // strip of everything you happened to open. Pure so the mark vocabulary and the
 // menu ordering can be tested without a workspace store.
 
+export type BreadcrumbDraftMode = 'existing-task' | 'new-task' | 'no-task' | null
+
+/** A draft names the destination being created rather than borrowing the
+ * placeholder session title for every level of the path. */
+export function breadcrumbLeafLabels(
+  taskLabel: string,
+  sessionLabel: string,
+  draftMode: BreadcrumbDraftMode,
+): { task: string | null; session: string } {
+  if (draftMode === 'no-task') return { task: null, session: 'New session' }
+  if (draftMode === 'new-task') return { task: 'New task', session: 'New session' }
+  if (draftMode === 'existing-task') return { task: taskLabel, session: 'New session' }
+  return { task: taskLabel, session: sessionLabel }
+}
+
 /** The app's own status palette, not the chart/brand ramps that happen to sit
  *  near it. Menu notes use the same colours as session status icons elsewhere. */
 export function statusColor(status: TaskStatus): string | null {

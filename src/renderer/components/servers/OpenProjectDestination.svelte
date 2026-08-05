@@ -155,7 +155,7 @@
         id="open-project-list"
         role="listbox"
         aria-label="Repositories"
-        class="hairline-scroll h-[16.625rem] overflow-y-auto pt-1"
+        class="h-[16.625rem] overflow-y-auto pt-1"
       >
         {#if store.reposLoading && store.repos.length === 0}
           <div class="flex h-full items-center justify-center gap-2 text-[0.75rem] text-muted-foreground">

@@ -12,6 +12,7 @@
   import { portal } from "../portal";
   import { formatMessageTime } from "../../lib/sessionUtils";
   import { formatWaited } from "./lib/queued-prompts";
+  import { shouldCollapseUserMessage } from "./lib/user-message";
   import type { Message, OutboundPromptState } from "../../../shared/types";
   import type { Component } from "svelte";
 
@@ -39,6 +40,7 @@
   const isPending = $derived(deliveryState !== 'sent');
   const isAutomation = $derived(message?.via === "automation");
   const hasControls = $derived(isPending && (!!onEditSubmit || !!onRemove));
+  const canCollapse = $derived(!isPending && shouldCollapseUserMessage(text));
   // The wait is only worth stating on the bubble that actually served it.
   const waitedLabel = $derived(
     message?.queuedWaitMs
@@ -47,6 +49,7 @@
   );
 
   let isEditing = $state(false);
+  let isExpanded = $state(false);
   let draft = $state("");
   let editEl = $state<HTMLTextAreaElement | null>(null);
 
@@ -208,13 +211,29 @@
             class="w-full resize-none bg-transparent text-[0.8125rem] leading-[1.55] text-(--solus-text-primary) outline-none"
           ></textarea>
         {:else}
-          <div
-            class="prose-cloud prose-transcript-user {isPending ? 'opacity-[0.6]' : ''}"
-            data-conversation-message-content
-            data-conversation-message-id={message?.id}
-          >
-            <SvelteMarkdown source={text} renderers={markdownRenderers} sanitizeUrl={markdownSanitizeUrl} />
+          <div class="relative">
+            <div
+              class="prose-cloud prose-transcript-user {isPending ? 'opacity-[0.6]' : ''} {canCollapse && !isExpanded ? 'user-message-collapsed' : ''}"
+              data-conversation-message-content
+              data-conversation-message-id={message?.id}
+            >
+              <SvelteMarkdown
+                source={text}
+                renderers={markdownRenderers}
+                sanitizeUrl={markdownSanitizeUrl}
+              />
+            </div>
           </div>
+          {#if canCollapse}
+            <button
+              type="button"
+              aria-expanded={isExpanded}
+              onclick={() => (isExpanded = !isExpanded)}
+              class="mt-0.5 flex min-h-10 w-full cursor-pointer items-center justify-end text-[0.6875rem] font-medium text-(--solus-text-tertiary) transition-[color,transform] duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none active:scale-[0.96]"
+            >
+              {isExpanded ? "Show less" : "Read more"}
+            </button>
+          {/if}
         {/if}
         {#if hasControls && !isEditing}
           <!-- Collapsed to nothing until reached for: the bubble is only as tall
@@ -333,6 +352,12 @@
   .user-cv-body {
     content-visibility: auto;
     contain-intrinsic-size: auto 3rem;
+  }
+
+  .user-message-collapsed {
+    max-height: 13rem;
+    overflow: hidden;
+    mask-image: linear-gradient(to bottom, black calc(100% - 2.5rem), transparent);
   }
 
 </style>

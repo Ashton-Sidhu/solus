@@ -15,7 +15,8 @@
     onDiffWorkerPoolReady,
     setDiffWorkerPoolTheme,
   } from "../../lib/diff-worker-pool";
-  import { getWorkspaceContext, toasts } from "../../contexts";
+  import { getWorkspaceContext } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import {
     useKeybinding,
     useScope,
@@ -30,6 +31,11 @@
     rangeFromRemappedAnchor,
     selectedTextForFileRange,
   } from "./lib/file-comments";
+  import {
+    fileFindPosition,
+    isFileFindShortcut,
+    shouldRestoreFileEditorFocus,
+  } from "./lib/file-find";
 
   export type FileSaveState =
     | "idle"
@@ -41,14 +47,195 @@
 
   const LINKED_LINE_CSS = `
     [data-solus-linked-line] {
-      --diffs-line-bg: var(--solus-diff-selection-bg) !important;
-      background-color: var(--solus-diff-selection-bg) !important;
+      --diffs-line-bg: var(--solus-accent-light) !important;
+      background-color: var(--solus-accent-light) !important;
     }
     [data-column-number][data-solus-linked-line] {
       color: var(--solus-accent) !important;
       box-shadow: inset 2px 0 var(--solus-accent);
     }
   `;
+
+  // Pierre owns file-editor search behavior inside its shadow root. Restyle that
+  // widget to the same geometry and visual language as Solus's shared FindBar;
+  // the editor's extra whole-word and regex controls remain available.
+  const FILE_EDITOR_FIND_CSS = `
+    :host {
+      --diffs-editor-match-bg: var(--solus-diff-find-active-bg);
+      --diffs-editor-match-highlight-bg: var(--solus-diff-find-bg);
+    }
+    [data-search-panel] {
+      position: fixed;
+      top: var(--solus-file-find-top, 8px);
+      right: auto;
+      left: var(--solus-file-find-left, 0);
+      width: var(--solus-file-find-width, 100%);
+    }
+    [data-search-panel] [data-editor-widget] {
+      width: min(22rem, calc(100% - 1.5rem));
+      min-width: 0;
+      margin-inline: auto 0.75rem;
+      padding: 0.375rem;
+      border: 0.0625rem solid var(--solus-popover-border);
+      border-radius: 0.625rem;
+      background: var(--solus-popover-bg);
+      box-shadow: var(--solus-popover-shadow);
+      backdrop-filter: blur(1.25rem) saturate(1.1);
+      -webkit-backdrop-filter: blur(1.25rem) saturate(1.1);
+    }
+    [data-search-grid],
+    [data-search-grid][data-mode="find"] {
+      grid-template-columns: minmax(0, 1fr) auto auto auto;
+      grid-template-areas: "find matches nav close";
+      gap: 0.1875rem;
+    }
+    [data-search-grid][data-mode="replace"] {
+      grid-template-columns: minmax(0, 1fr) auto auto auto;
+      grid-template-areas:
+        "find matches nav close"
+        "replace actions actions actions";
+      gap: 0.25rem 0.1875rem;
+    }
+    [data-search-grid] [data-input-box] {
+      width: auto;
+      min-width: 0;
+    }
+    [data-input-box] input {
+      height: 1.625rem;
+      color: var(--solus-text-primary);
+      background: var(--solus-surface-hover);
+      border: 0;
+      border-radius: 0.375rem;
+      padding-inline: 0.5rem;
+      font-size: 0.75rem;
+      line-height: 1.625rem;
+      box-shadow: none;
+    }
+    [data-input-box] input:focus-visible {
+      outline: 0.0625rem solid var(--solus-accent-border);
+    }
+    [data-input-box][data-find] input {
+      padding-inline-end: 4.5rem;
+    }
+    [data-matches] {
+      min-width: 3.25rem;
+      padding-inline: 0.25rem;
+      color: var(--solus-text-tertiary);
+      text-align: right;
+      font-size: 0.6875rem;
+      font-weight: 400;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.5rem;
+    }
+    [data-search-icon] {
+      --diffs-search-icon-size: 1.5rem;
+      color: var(--solus-text-tertiary);
+      border-radius: 0.375rem;
+      transition:
+        scale var(--duration-quick) var(--ease-premium),
+        background var(--duration-quick) var(--ease-premium),
+        color var(--duration-quick) var(--ease-premium);
+    }
+    [data-search-icon]:not(:disabled):hover {
+      color: var(--solus-text-primary);
+      background: var(--solus-surface-hover);
+    }
+    [data-search-icon]:not(:disabled):active {
+      scale: 0.96;
+    }
+    [data-search-icon][aria-pressed="true"] {
+      color: var(--solus-accent);
+      background: var(--solus-accent-light);
+    }
+    [data-search-icon]:focus-visible {
+      outline: 0.125rem solid var(--solus-accent-border);
+      outline-offset: 0.0625rem;
+    }
+    [data-search-close] {
+      --diffs-search-icon-size: 1.5rem;
+      grid-area: close;
+      position: static;
+      color: var(--solus-text-tertiary);
+      background: transparent;
+      transform: none;
+    }
+    [data-search-close]:not(:disabled):hover {
+      color: var(--solus-text-primary);
+      background: var(--solus-surface-hover);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      [data-search-icon] {
+        transition: none;
+      }
+    }
+  `;
+
+  function installFileEditorFindStyles() {
+    const fileElement = rootEl?.firstElementChild;
+    const shadowRoot = fileElement?.shadowRoot;
+    if (!shadowRoot) return;
+    let style = shadowRoot.querySelector<HTMLStyleElement>(
+      "style[data-solus-file-find-css]",
+    );
+    if (!style) {
+      style = document.createElement("style");
+      style.dataset.solusFileFindCss = "";
+      shadowRoot.append(style);
+    }
+    style.textContent = FILE_EDITOR_FIND_CSS;
+    syncFileEditorFindPosition();
+    watchFileFindFocus(shadowRoot);
+  }
+
+  function watchFileFindFocus(shadowRoot: ShadowRoot) {
+    fileFindPanelObserver?.disconnect();
+    let wasFindOpen = !!shadowRoot.querySelector("[data-search-panel]");
+    fileFindPanelObserver = new MutationObserver(() => {
+      const isFindOpen = !!shadowRoot.querySelector("[data-search-panel]");
+      if (!wasFindOpen && isFindOpen) {
+        requestAnimationFrame(() => {
+          const input = shadowRoot.querySelector<HTMLInputElement>("[data-search]");
+          input?.focus({ preventScroll: true });
+          input?.select();
+        });
+      } else if (shouldRestoreFileEditorFocus(wasFindOpen, isFindOpen)) {
+        requestAnimationFrame(() => {
+          if (rootEl?.isConnected) editor?.focus({ preventScroll: true });
+        });
+      }
+      wasFindOpen = isFindOpen;
+    });
+    fileFindPanelObserver.observe(shadowRoot, { childList: true, subtree: true });
+  }
+
+  function syncFileEditorFindPosition() {
+    const fileElement = rootEl?.firstElementChild;
+    const paneElement = rootEl?.closest<HTMLElement>("[data-file-editor-pane]");
+    if (!(fileElement instanceof HTMLElement) || !paneElement) return;
+    const position = fileFindPosition(paneElement.getBoundingClientRect());
+    fileElement.style.setProperty("--solus-file-find-top", `${position.top}px`);
+    fileElement.style.setProperty("--solus-file-find-left", `${position.left}px`);
+    fileElement.style.setProperty("--solus-file-find-width", `${position.width}px`);
+  }
+
+  function isolateFileFindEvents(event: KeyboardEvent) {
+    if (isFileFindShortcut(event)) {
+      event.stopPropagation();
+      return;
+    }
+    const findPanel = event
+      .composedPath()
+      .find(
+        (target): target is HTMLElement =>
+          target instanceof HTMLElement && target.dataset.searchPanel !== undefined,
+      );
+    if (event.key !== "Escape" || !findPanel) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (findPanel.isConnected) {
+      findPanel.querySelector<HTMLButtonElement>("[data-search-close]")?.click();
+    }
+  }
 
   interface Props {
     api?: typeof window.solus;
@@ -60,6 +247,13 @@
     isDark: boolean;
     isReadOnly?: boolean;
     line?: number;
+    /**
+     * Bumped by the caller each time a reveal is *requested*, so asking for the
+     * same file and line twice (walking search results in one file, clicking
+     * the same hit after dismissing it) scrolls and highlights again. Comparing
+     * `line` alone cannot see a repeated request.
+     */
+    revealEpoch?: number;
     onSaveStateChange?: (state: FileSaveState) => void;
   }
 
@@ -73,6 +267,7 @@
     isDark,
     isReadOnly = false,
     line,
+    revealEpoch = 0,
     onSaveStateChange,
   }: Props = $props();
 
@@ -104,6 +299,7 @@
   let fileInstance: PierreFile<AnnotationMeta> | null = null;
   let editor: Editor<AnnotationMeta> | null = null;
   let detachEditor: (() => void) | null = null;
+  let fileFindPanelObserver: MutationObserver | null = null;
   let mountedComments: ReturnType<typeof mount>[] = [];
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let lastSavedContents = "";
@@ -347,7 +543,7 @@
   }
 
   function syncLinkedLineRequest() {
-    const nextKey = line ? `${filePath}:${line}` : "";
+    const nextKey = line ? `${filePath}:${line}:${revealEpoch}` : "";
     if (nextKey === linkedLineRequestKey) return;
     linkedLineRequestKey = nextKey;
     linkedLineDismissed = false;
@@ -436,6 +632,14 @@
     if (!rootEl) return;
     let disposed = false;
     rootEl.addEventListener("pointerdown", dismissLinkedLine);
+    rootEl.addEventListener("keydown", isolateFileFindEvents);
+    const paneElement = rootEl.closest<HTMLElement>("[data-file-editor-pane]");
+    const findPositionObserver = paneElement
+      ? new ResizeObserver(syncFileEditorFindPosition)
+      : null;
+    if (paneElement) findPositionObserver?.observe(paneElement);
+    window.addEventListener("resize", syncFileEditorFindPosition);
+    requestAnimationFrame(syncFileEditorFindPosition);
     const stopCommentFormEvents = draftFormWrapper
       ? isolateFileCommentEvents(draftFormWrapper)
       : () => {};
@@ -468,6 +672,7 @@
         });
         if (!isReadOnly) {
           editor = new Editor<AnnotationMeta>({
+            onAttach: installFileEditorFindStyles,
             onChange: (file, annotations) => {
               scheduleSave(file.contents);
               applyRemappedAnnotations(
@@ -486,6 +691,11 @@
     return () => {
       disposed = true;
       rootEl?.removeEventListener("pointerdown", dismissLinkedLine);
+      rootEl?.removeEventListener("keydown", isolateFileFindEvents);
+      findPositionObserver?.disconnect();
+      window.removeEventListener("resize", syncFileEditorFindPosition);
+      fileFindPanelObserver?.disconnect();
+      fileFindPanelObserver = null;
       stopCommentFormEvents();
       unsubscribe();
       void flushSave();
@@ -552,7 +762,6 @@
   <div
     bind:this={rootEl}
     class="pierre-file-host relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain text-[length:var(--solus-code-font-size,0.7813rem)] leading-[1.6]"
-    style="scrollbar-width:thin"
   ></div>
 
   <div bind:this={draftFormWrapper} class="solus-inline-draft-portal">

@@ -6,7 +6,7 @@ import { TAB_GROUP_MODES, type SettingsContext, type TabGroupMode } from '../app
 import type { GitRefreshResult } from '../git/session-environment.store.svelte'
 import type { StatusBarContext } from '../app/status-bar.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
-import { toasts } from '../app/toast.store.svelte'
+import { toasts } from '../../lib/toasts'
 import { isDispatchedSession } from '../../components/servers/run-on'
 import { nextMsgId } from './session.utils'
 
@@ -21,7 +21,7 @@ export interface SessionConfigControllerDeps {
   registry: TabRegistry
   statusBar: StatusBarContext
   setPluginCommands(commands: Session['pluginCommands']): void
-  createTab(cwd?: string): Promise<string>
+  createDraftTab(cwd?: string): Promise<string>
   ctx(tabId?: string): IpcContext
   ctxForDirectory(dir: string): IpcContext
   apiFor?(tabId?: string): typeof window.solus
@@ -202,11 +202,32 @@ export class SessionConfigController {
         : null
       return
     }
-    if (session.gitContext?.worktreePath) return
+    // Worktree mode only chooses where a new session starts. A running session
+    // moves through continueInWorktree instead; this guard also keeps the global
+    // shortcut from retargeting an existing conversation.
+    if (session.agentSessionId) return
     // A dispatched session always gets its own worktree: its base checkout sits
     // on a host nobody is watching, so a collision there has no one to untangle
     // it. The surface shows the toggle disabled rather than accepting the click.
     if (isDispatchedSession(session)) return
+    if (session.gitContext?.worktreePath) {
+      const targetBranch = session.gitContext.targetBranch
+      if (!targetBranch) return
+      if (session.worktreeBaseBranch) {
+        session.worktreeBaseBranch = null
+        return
+      }
+      const projectRoot = session.gitContext.repoRoot
+        ?? worktreeProjectRoot(session.gitContext.worktreePath)
+      // The existing creation path expects a project-root checkout plus its
+      // target branch. Only adapt the unstarted draft into that normal shape;
+      // worktree creation itself remains unchanged.
+      session.workingDirectory = projectRoot
+      session.gitContext = { repoRoot: projectRoot, branch: targetBranch, targetBranch }
+      session.worktreeBaseBranch = targetBranch
+      this.deps.refreshPluginCommands(projectRoot, tabId ?? this.deps.registry.activeTabId)
+      return
+    }
     if (session.worktreeBaseBranch) {
       session.worktreeBaseBranch = null
     } else {
@@ -216,12 +237,12 @@ export class SessionConfigController {
 
   async switchToWorktree(worktreePath: string, tabId?: string): Promise<void> {
     if (!tabId && this.deps.registry.activeSession?.agentSessionId) {
-      await this.deps.createTab()
+      await this.deps.createDraftTab()
     }
     const isSolusWorktree = isSolusWorktreePath(worktreePath)
     const projectRoot = isSolusWorktree ? worktreeProjectRoot(worktreePath) : worktreePath
     if (!tabId && !this.deps.registry.activeSession) {
-      await this.deps.createTab(projectRoot)
+      await this.deps.createDraftTab(projectRoot)
     }
     const targetTabId = tabId ?? this.deps.registry.activeTabId
     const session = tabId
@@ -263,7 +284,7 @@ export class SessionConfigController {
       }
       const projectRoot = worktreeProjectRoot(baseDir)
       if (!tabId && targetSession?.agentSessionId) {
-        await this.deps.createTab()
+        await this.deps.createDraftTab()
       }
       const targetTabId = tabId ?? this.deps.registry.activeTabId
       const session = tabId
@@ -310,10 +331,10 @@ export class SessionConfigController {
       ? this.deps.registry.sessionFor(tabId)
       : this.deps.registry.activeSession
     if (!tabId && targetSession?.agentSessionId) {
-      await this.deps.createTab()
+      await this.deps.createDraftTab()
     }
     if (!tabId && this.deps.registry.tabOrder.length === 0) {
-      const createdTabId = await this.deps.createTab(dir)
+      const createdTabId = await this.deps.createDraftTab(dir)
       void this.apiFor(createdTabId).trackRecentProject(dir)
       return
     }

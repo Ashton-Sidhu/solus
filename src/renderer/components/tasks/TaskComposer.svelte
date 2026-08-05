@@ -99,7 +99,7 @@
   let dueDate = $state(draft?.dueDate ?? "");
   let priority = $state<TaskPriority | "">(draft?.priority ?? "");
   let status = $state<TaskStatus>(
-    untrack(() => initialStatus) ?? draft?.status ?? "open",
+    untrack(() => initialStatus) ?? draft?.status ?? "todo",
   );
   let labels = $state<string[]>(draft?.labels ?? []);
   // A preset parent forces a child task; otherwise the user chooses task vs epic.
@@ -108,7 +108,7 @@
   let createAnother = $state(loadCreateAnother());
 
   const PRIORITY_OPTIONS: TaskPriority[] = ["urgent", "high", "medium", "low"];
-  const STATUS_OPTIONS: TaskStatus[] = ["open", "in_progress", "done"];
+  const STATUS_OPTIONS: TaskStatus[] = ["todo", "in_progress", "done"];
   const presets = dueDatePresets();
 
   let titleEl = $state<HTMLInputElement | null>(null);
@@ -250,7 +250,8 @@
         // Planning fields only persist where the provider stores them (local).
         dueDate: canPlan ? dueDate || undefined : undefined,
         priority: canPlan ? priority || undefined : undefined,
-        // Status is only a real settable field locally; GitHub issues open as open.
+        // Status is only a real settable field locally; new GitHub issues
+        // always start in the open (todo) state.
         status: allowEpics ? status : undefined,
         labels: labels.length ? [...labels] : undefined,
       });
@@ -499,7 +500,7 @@
 
     <!-- Property row -->
     <div class="flex items-center gap-2 flex-wrap px-[1.125rem] pb-3 shrink-0">
-      <!-- Status (local only — GitHub issues always open as open) -->
+      <!-- Status (local only — new GitHub issues always start open/todo) -->
       {#if allowEpics}
         <button
           type="button"

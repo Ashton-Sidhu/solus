@@ -563,9 +563,14 @@
     gap: 0.375rem;
     min-height: var(--solus-chrome-row-h, 2.5rem);
     padding-block: 0;
-    padding-right: 0.75rem;
+    /* The pane's floating chrome cluster (maximize / close) hovers over this
+       same row at the top-right, so the trailing controls reserve its width —
+       a flat gutter slid them underneath it. No-op where no pane publishes the
+       inset (embedded diffs, mobile). */
+    padding-right: max(0.75rem, var(--solus-pane-chrome-inset, 0px));
     padding-left: max(0.75rem, var(--solus-chrome-lead-inset, 0px));
-    border-bottom: 0.0625rem solid var(--solus-container-border);
+    border-bottom: 0.0625rem solid
+      color-mix(in srgb, var(--solus-container-border) 50%, transparent);
     flex-shrink: 0;
   }
 
@@ -803,7 +808,6 @@
     max-height: 18rem;
     overflow-y: auto;
     padding-block: 0.25rem;
-    scrollbar-width: thin;
   }
   .turn-menu-stats {
     color: var(--solus-text-tertiary);

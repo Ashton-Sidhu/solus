@@ -1,12 +1,13 @@
 <script lang="ts">
   import {
     CaretDownIcon,
+    CheckIcon,
     CheckCircleIcon,
     CircleNotchIcon,
     GitMergeIcon,
   } from "phosphor-svelte";
   import type { IpcContext, MergeMethod } from "../../../shared/types";
-  import { toasts } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -111,33 +112,61 @@
       class="inline-flex w-[30px] shrink-0 cursor-pointer items-center justify-center border-0 bg-transparent px-0 text-primary-foreground transition-colors hover:bg-primary-foreground/10 disabled:cursor-not-allowed disabled:opacity-60"
       disabled={merging}
       aria-label="Merge method"
+      aria-haspopup="menu"
+      aria-expanded={menuOpen}
       onclick={() => (menuOpen = !menuOpen)}
     >
-      <CaretDownIcon size={11} class="shrink-0" />
+      <CaretDownIcon
+        size={11}
+        class="shrink-0 transition-transform duration-150 {menuOpen
+          ? 'rotate-180'
+          : ''}"
+      />
     </Button>
   </div>
   <DropdownMenu.Root bind:open={menuOpen}>
-    <DropdownMenu.Content customAnchor={triggerEl} side="top" align="end" sideOffset={6} class="w-[220px]">
-    <div class="py-1" role="listbox" aria-label="Merge method">
+    <DropdownMenu.Content
+      customAnchor={triggerEl}
+      side="bottom"
+      align="end"
+      sideOffset={6}
+      collisionPadding={8}
+      class="w-[280px]"
+      aria-label="Merge method"
+      onInteractOutside={(event) => {
+        if (triggerEl?.contains(event.target as Node)) event.preventDefault();
+      }}
+    >
       {#each METHOD_OPTIONS as opt (opt.value)}
         <DropdownMenu.Item
-          class={method === opt.value ? "font-medium" : undefined}
+          data-menu-current={method === opt.value ? "" : undefined}
+          class="h-auto min-h-11 items-start gap-2.5 py-2"
           onSelect={() => {
             method = opt.value;
             menuOpen = false;
           }}
         >
-          <div class="flex min-w-0 flex-col gap-0.5 py-0.5">
-            <div class="text-[12px] font-medium">
+          <span class="flex min-w-0 flex-1 flex-col gap-px">
+            <span
+              class="truncate text-menu leading-[1.25] font-medium text-(--solus-text-primary)"
+            >
               {opt.label}
-            </div>
-            <div class="text-[11px] leading-[1.5] text-muted-foreground">
+            </span>
+            <span
+              class="truncate text-menu-meta leading-[1.35] text-(--solus-text-tertiary)"
+            >
               {opt.hint}
-            </div>
-          </div>
+            </span>
+          </span>
+          {#if method === opt.value}
+            <CheckIcon
+              size={12}
+              class="mt-1 shrink-0 text-(--solus-accent)"
+              aria-hidden="true"
+            />
+          {/if}
         </DropdownMenu.Item>
       {/each}
-    </div>
     </DropdownMenu.Content>
   </DropdownMenu.Root>
 {/if}

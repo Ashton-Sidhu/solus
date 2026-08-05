@@ -40,7 +40,7 @@ export interface HostEventMap {
   'provider.deviceCodeReceived': DeviceCodePrompt
   'review.progressChanged': ReviewProgressEvent
   'review.guideStatusChanged': ReviewGuideStatusEvent
-  'tasks.invalidated': { projectRoot: string }
+  'tasks.invalidated': Record<string, never>
   'prs.invalidated': { projectRoot: string }
   'annotations.changed': AnnotationsChanged
   'attention.snapshotChanged': { entries: AttentionEntry[] }
@@ -83,7 +83,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'provider.deviceCodeReceived': { owner: 'providers', category: 'targeted', recovery: 'reset', description: 'A provider sign-in produced a device code.' },
   'review.progressChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'Review generation progress changed.' },
   'review.guideStatusChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'A review guide changed status.' },
-  'tasks.invalidated': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: 'A task mutation committed for one project.' },
+  'tasks.invalidated': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: 'The local task store changed.' },
   'prs.invalidated': { owner: 'prs', category: 'invalidation', recovery: 'reload', description: 'Pull-request state changed for one project.' },
   'annotations.changed': { owner: 'annotations', category: 'delta', recovery: 'reload', description: 'Plan or work annotations changed.' },
   'attention.snapshotChanged': { owner: 'attention', category: 'snapshot', recovery: 'reload', description: 'The bounded attention list changed.' },

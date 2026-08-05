@@ -49,18 +49,19 @@ A typical loop: summon Solus, describe the change, review the plan it drafts, wa
 | [**Works**](https://solus.sh/docs#works) | Docs, slides, and diagrams the agent produces are extracted from the chat and saved as standalone artifacts you can search, edit, and export — they outlive the session that made them. |
 | [**Document editor**](https://solus.sh/docs#document-editor) | Native Markdown editing with a selection toolbar, slash commands for block types, and bidirectional raw-Markdown sync. |
 | [**Design mode**](https://solus.sh/docs#design-mode) | Screenshot any window, annotate it with rectangles, arrows, numbered pins, and text, and send the composited image to the agent. |
-| [**Voice input**](https://solus.sh/docs#voice) | Push-to-talk or a continuous hands-free loop, both transcribed locally with Whisper — audio never leaves your machine. |
+| [**Voice input**](https://solus.sh/docs#voice) | Push-to-talk or a continuous hands-free loop, both transcribed locally on your device — audio never leaves your machine. |
 | [**Automations**](https://solus.sh/docs#automations) | Save a prompt and run it on a schedule — interval, daily, weekly, monthly, or raw cron — or on demand. Every run keeps a history you can open as a full session. Agents can create automations for you. |
 | [**Rate limit queueing**](https://solus.sh/docs#rate-limits) | Hit a limit mid-task and Solus asks, queues and re-sends, continues, or stops — globally or per tab. |
 | [**Hosts & connections**](https://solus.sh/docs#connections) | The desktop app doubles as a server: pair your phone or another browser, add other machines as hosts, and choose where each session runs. |
-| [**Tasks**](https://solus.sh/docs#tasks) *(soon)* | A project-scoped board of local tickets and GitHub Issues, with sessions started straight from a task. |
+| [**Tasks**](https://solus.sh/docs#tasks) | A project-scoped board of local tickets and GitHub Issues, with sessions started straight from a task. |
 
 ## Install
 
 **Homebrew** — recommended, and it keeps itself current:
 
 ```bash
-brew install --cask Ashton-Sidhu/tap/solus
+brew install --cask Ashton-Sidhu/tap/solus          # macOS desktop app
+brew install Ashton-Sidhu/tap/solus-server          # headless server — see below
 ```
 
 **Direct download** — a signed and notarized `.dmg` from [solus.sh](https://solus.sh), or from the [releases page](https://github.com/Ashton-Sidhu/solus/releases). Drag `Solus.app` to `/Applications`. The app updates itself in place from there.

@@ -35,11 +35,11 @@ describe('history', () => {
   test('replace overwrites the current entry instead of stacking one', () => {
     const router = new RouterStore()
     router.navigate(TASKS)
-    router.navigate({ name: 'tasks', params: { taskId: 'SOL-1' } }, { replace: true })
+    router.navigate({ name: 'task', params: { taskId: 'SOL-1' } }, { replace: true })
 
-    expect(router.params('tasks')?.taskId).toBe('SOL-1')
+    expect(router.params('task')?.taskId).toBe('SOL-1')
     router.back()
-    expect(router.at('tasks')).toBe(false)
+    expect(router.at('task')).toBe(false)
   })
 
   test('navigating after going back drops the forward entries', () => {

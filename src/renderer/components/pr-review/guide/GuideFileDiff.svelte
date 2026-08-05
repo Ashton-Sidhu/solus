@@ -86,11 +86,10 @@
   // parsePatchMetadata caches by patch string, so this returns a stable reference
   // across annotation-only re-renders (keeps FileDiff from treating it as a new diff).
   const fileDiffMeta = $derived(
-    profilePrReviewWork(
-      "patch-parse",
-      () => parsePatchMetadata(patch),
-      { filePath, patchCharacters: patch.length },
-    ),
+    profilePrReviewWork("patch-parse", () => parsePatchMetadata(patch), {
+      filePath,
+      patchCharacters: patch.length,
+    }),
   );
   const analyzedFiles = $derived(fileDiffMeta ? [fileDiffMeta] : []);
   const localMoveAnalysis = $derived(
@@ -119,7 +118,8 @@
   let formatExpanded = $state(false);
   let previousMetadata = fileDiffMeta;
   const formatOnlyCollapsed = $derived(
-    !!fileDiffMeta && !formatExpanded &&
+    !!fileDiffMeta &&
+      !formatExpanded &&
       !(autoCollapse && expanded) &&
       (noiseAnalysis?.formatOnlyHunks.length ?? 0) > 0 &&
       (noiseAnalysis?.formatOnlyHunks.length ?? 0) < fileDiffMeta.hunks.length,
@@ -191,11 +191,12 @@
     try {
       profilePrReviewWork(
         "diff-render",
-        () => fileInstance?.render({
-          fileDiff: displayFileDiffMeta,
-          containerWrapper: container,
-          lineAnnotations: buildAnnotations(),
-        }),
+        () =>
+          fileInstance?.render({
+            fileDiff: displayFileDiffMeta,
+            containerWrapper: container,
+            lineAnnotations: buildAnnotations(),
+          }),
         { filePath, patchCharacters: patch.length },
       );
     } catch {
@@ -208,7 +209,7 @@
       theme: getDiffThemeName(theme.isDark),
       themeType: (theme.isDark ? "dark" : "light") as "dark" | "light",
       diffStyle: "unified" as const,
-      diffIndicators: "bars" as const,
+      diffIndicators: "none" as const,
       lineDiffType: "word-alt" as const,
       overflow: "wrap" as const,
       // "line-info-basic" over "metadata": the guide's concern-scoped cards often
@@ -373,21 +374,31 @@
 <Button
   type="button"
   variant="ghost"
-  class="flex min-h-10 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left font-mono text-[0.6875rem] text-(--solus-accent) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96] {autoCollapse && !expanded ? '' : 'hidden'}"
+  class="flex min-h-10 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left font-mono text-[0.6875rem] text-(--solus-accent) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96] {autoCollapse &&
+  !expanded
+    ? ''
+    : 'hidden'}"
   aria-label={`Expand ${collapsedSummary}`}
   onclick={() => (expanded = true)}
 >
-  <span class="inline-block size-1.5 shrink-0 rotate-45 border-r-[1.5px] border-b-[1.5px] border-current"></span>
+  <span
+    class="inline-block size-1.5 shrink-0 rotate-45 border-r-[1.5px] border-b-[1.5px] border-current"
+  ></span>
   <span class="min-w-0 flex-1 truncate">{collapsedSummary}</span>
 </Button>
 <Button
   type="button"
   variant="ghost"
-  class="flex min-h-10 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left font-mono text-[0.6875rem] text-(--solus-accent) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96] {formatOnlyCollapsed && (!autoCollapse || expanded) ? '' : 'hidden'}"
+  class="flex min-h-10 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left font-mono text-[0.6875rem] text-(--solus-accent) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96] {formatOnlyCollapsed &&
+  (!autoCollapse || expanded)
+    ? ''
+    : 'hidden'}"
   aria-label={`Expand ${formatSummary}`}
   onclick={() => (formatExpanded = true)}
 >
-  <span class="inline-block size-1.5 shrink-0 rotate-45 border-r-[1.5px] border-b-[1.5px] border-current"></span>
+  <span
+    class="inline-block size-1.5 shrink-0 rotate-45 border-r-[1.5px] border-b-[1.5px] border-current"
+  ></span>
   <span class="min-w-0 flex-1 truncate">{formatSummary}</span>
 </Button>
 <div

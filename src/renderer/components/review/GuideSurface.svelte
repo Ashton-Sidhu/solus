@@ -57,25 +57,11 @@
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-  {#if loader.stale && loader.guide && !loader.loading}
-    <div
-      class="sticky top-0 z-10 flex items-center gap-2.5 border-b border-primary bg-secondary px-4 py-2 text-[11.5px] text-secondary-foreground"
-      role="status"
-    >
-      <span class="min-w-0 flex-1 truncate">
-        The change has new commits since this guide was written.
-      </span>
-      <button
-        type="button"
-        class="inline-flex h-[24px] shrink-0 cursor-pointer items-center gap-1 rounded-md border-0 bg-transparent px-1.5 text-[11.5px] font-medium hover:bg-muted"
-        onclick={() => loader.refresh()}
-      >
-        <ArrowsClockwiseIcon size={11} />
-        Regenerate
-      </button>
-    </div>
-  {/if}
-  {#if loader.loading && loader.guide === null}
+  <!-- Either kind of generation earns the progress screen: this loader's own
+       call, or the durable background one the Generate button queues. Showing it
+       only for the former left the button spinning against an unchanged empty
+       state, with the real work invisible. -->
+  {#if (loader.loading || generationInProgress) && loader.guide === null}
     <ReviewProgress step={loader.progressStep} />
   {:else if loader.guide && loader.guide.sections.length > 0}
     <GuideView
@@ -85,6 +71,8 @@
       loadDiffFiles={loader.loadDiffFiles}
       {meta}
       guideCurrent={!loader.stale}
+      onRegenerate={() => loader.refresh()}
+      regenerating={loader.loading}
       {onFileJump}
       {comments}
       {onCommentSave}

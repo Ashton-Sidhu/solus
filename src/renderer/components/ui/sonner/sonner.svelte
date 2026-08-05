@@ -17,6 +17,7 @@
   class="toaster group"
   style="--normal-bg: var(--color-popover); --normal-text: var(--color-popover-foreground); --normal-border: var(--color-border);"
   {...restProps}
+  closeButton
 >
   {#snippet loadingIcon()}
     <Loader2Icon class="size-4 animate-spin" />
@@ -34,3 +35,16 @@
     <TriangleAlertIcon class="size-4" />
   {/snippet}
 </Sonner>
+
+<style>
+  :global(.toaster [data-sonner-toast][data-styled="true"]) {
+    padding-right: 44px;
+  }
+
+  :global(.toaster [data-sonner-toast][data-styled="true"] [data-close-button]) {
+    top: 8px;
+    right: 8px;
+    left: auto;
+    transform: none;
+  }
+</style>

@@ -6,7 +6,8 @@
     ArrowsClockwiseIcon,
   } from "phosphor-svelte";
   import type { Automation } from "../../../shared/types";
-  import { getWorkspaceContext, getWindowContext, runtime, toasts } from "../../contexts";
+  import { getWorkspaceContext, getWindowContext, runtime } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import {
     useKeybinding,
     useScope,

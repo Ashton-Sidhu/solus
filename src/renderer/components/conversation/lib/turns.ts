@@ -1,4 +1,4 @@
-import type { Message } from '../../../../shared/types'
+import type { Message, SessionStatus } from '../../../../shared/types'
 import { isAgentNotice, isNoReplyNotice } from '../../../contexts/workspace/session.utils'
 
 export type GroupedItem =
@@ -202,6 +202,11 @@ function isDivider(item: GroupedItem): boolean {
   return !!(agentChangedTo || forkSourceSessionId || worktreeMovedTo || newSessionForPlanId)
 }
 
+/** A provider rate limit is a fact about the run, not a step in the turn. */
+function isRateLimitNotice(item: GroupedItem): boolean {
+  return item.kind === 'system' && !!item.message.rateLimitNotice
+}
+
 const OUTPUT_KINDS = new Set<GroupedItem['kind']>(['assistant', 'live-assistant'])
 const COLLAPSE_EXCLUDED_KINDS = new Set<GroupedItem['kind']>([
   'artifact',
@@ -288,6 +293,11 @@ export function buildTurns(items: GroupedItem[], opts: { running: boolean }): Tu
     // Walk back over the answer to find where it starts. The absorbed notice is
     // not rendered at all, so it cannot end the answer.
     let tailStart = endIndex >= 0 ? endIndex : body.length
+    // A rate limit reported as the turn lands sits after the answer without being
+    // part of it. Left in the way, it would stop this walk on the first step and
+    // fold the whole answer behind the activity row — so step over it, and it
+    // rides along in the tail where it was written.
+    while (tailStart > 0 && isRateLimitNotice(body[tailStart - 1])) tailStart--
     while (tailStart > 0 && OUTPUT_KINDS.has(body[tailStart - 1].kind)) tailStart--
 
     // One cut, so both slices keep the order they happened in.
@@ -334,6 +344,23 @@ function firstTimestamp(items: GroupedItem[]): number {
     if (item.kind !== 'live-assistant') return item.message.timestamp
   }
   return 0
+}
+
+/**
+ * §16 — a turn folds when it *ends*, and a run parked on a question, a
+ * permission or a plan has not ended: it is waiting on the reader. Folding there
+ * would hide the very output the card asks about — the agent's reasoning sits in
+ * `body` (the pending tool call is the last item, so nothing is left in `tail`)
+ * and disappears behind a summary row until the card is answered.
+ */
+export function runIsLive(status: SessionStatus | undefined, hasLiveStream: boolean): boolean {
+  return (
+    status === 'running' ||
+    status === 'connecting' ||
+    status === 'awaiting_input' ||
+    status === 'awaiting_plan' ||
+    hasLiveStream
+  )
 }
 
 /**

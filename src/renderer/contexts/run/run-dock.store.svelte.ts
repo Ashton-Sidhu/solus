@@ -1,4 +1,4 @@
-import { createContext } from 'svelte'
+import { createAppContext } from '../app/create-app-context'
 
 /**
  * UI state for the bottom run-log dock. The dock spans the conversation width
@@ -25,4 +25,4 @@ export class RunDockStore {
   }
 }
 
-export const [getRunDockStore, setRunDockStore] = createContext<RunDockStore>()
+export const [getRunDockStore, setRunDockStore] = createAppContext<RunDockStore>('run-dock')

@@ -84,6 +84,13 @@ export interface PullRequestDetail extends PullRequestSummary {
   headRepo: { owner: string; repo: string; isFork: boolean }
 }
 
+/** Mutable pull-request content. State/base changes stay behind their dedicated
+ * workflows so a generic edit cannot accidentally close or retarget a PR. */
+export interface PullRequestUpdate {
+  title?: string
+  body?: string
+}
+
 export interface PullRequestOverview {
   detail: PullRequestDetail
   commits: PrCommit[]

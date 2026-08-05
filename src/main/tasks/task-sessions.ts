@@ -1,0 +1,284 @@
+import type { DatabaseSync } from 'node:sqlite'
+import { getDb, withTx } from '../db'
+import { appendTaskEvent, diffTaskEvents } from './task-events'
+import {
+  database,
+  emitChanged,
+  jsonValue,
+  listTaskChildren,
+  loadTaskRecord,
+  normalizedOptional,
+  requireTask,
+  taskFromRow,
+  writeTask,
+} from './task-store'
+import type {
+  Task,
+  TaskForSessionResult,
+  TaskPr,
+  TaskSessionLink,
+  TaskSessionRole,
+} from '../../shared/task-types'
+
+/** The session↔task binding store: attempt rows in `task_session_links`, the
+ * session-born minting path, and the session-keyed reads the sidebar and
+ * breadcrumb hydrate from. */
+
+const MAX_PROMPT_TITLE_LENGTH = 80
+
+interface TaskSessionLinkRow {
+  task_id: string
+  session_id: string
+  role: TaskSessionRole
+  branch: string | null
+  /** Legacy capture — populated by earlier versions, read-only today. */
+  pr: string | null
+  linked_at: number
+  /** Joined from `sessions` on the session-keyed reads; absent on attempt reads. */
+  session_title?: string | null
+  session_provider?: string | null
+  last_activity_at?: number | null
+}
+
+function linkFromRow(row: TaskSessionLinkRow): TaskSessionLink {
+  return {
+    taskId: row.task_id,
+    sessionId: row.session_id,
+    ...(row.session_title == null ? {} : { sessionTitle: row.session_title }),
+    ...(row.session_provider == null ? {} : { provider: row.session_provider }),
+    ...(row.last_activity_at == null ? {} : { lastActivityAt: row.last_activity_at }),
+    role: row.role,
+    ...(row.branch === null ? {} : { branch: row.branch }),
+    ...(row.pr === null ? {} : { pr: jsonValue<TaskPr | undefined>(row.pr, undefined) }),
+    linkedAt: row.linked_at,
+  }
+}
+
+export interface SessionLinkDetails {
+  branch?: string | null
+  /** Stamps a session-born task whose provider session id was not available
+   * when its pre-launch row was minted. Existing provenance is never replaced. */
+  originSessionId?: string | null
+}
+
+/** Writes the attempt row and the task's denormalized current-branch field, so
+ * direct and mint-time bindings share exactly one set of rules. Runs inside the
+ * caller's transaction. The public write is the `Task` object's `linkSession`. */
+export function writeSessionLink(
+  db: DatabaseSync,
+  taskId: string,
+  sessionId: string,
+  role: TaskSessionRole,
+  details: SessionLinkDetails,
+  now: number,
+): void {
+  requireTask(taskId, db)
+  const branch = normalizedOptional(details.branch)
+  // Re-linking an existing attempt is bookkeeping, not history — only a genuine
+  // first binding is a session start.
+  const isNewLink = !db.prepare('SELECT 1 FROM task_session_links WHERE task_id = ? AND session_id = ?')
+    .get(taskId, sessionId)
+  db.prepare(`
+    INSERT INTO task_session_links(task_id, session_id, role, branch, linked_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(task_id, session_id) DO UPDATE SET
+      role = excluded.role,
+      branch = COALESCE(excluded.branch, task_session_links.branch),
+      linked_at = excluded.linked_at
+  `).run(taskId, sessionId, role, branch, now)
+  db.prepare(`
+    UPDATE tasks SET
+      branch = COALESCE(?, branch),
+      origin_session_id = COALESCE(origin_session_id, ?),
+      updated_at = ?
+    WHERE id = ?
+  `).run(branch, normalizedOptional(details.originSessionId) ?? sessionId, now, taskId)
+
+  if (isNewLink) {
+    appendTaskEvent(db, taskId, {
+      kind: 'session_started',
+      actor: 'agent',
+      targetKind: 'session',
+      targetKey: sessionId,
+    }, now)
+  }
+}
+
+/** One task's attempts, oldest-linked last. */
+export function attemptsForTask(taskId: string, db: DatabaseSync = database()): TaskSessionLink[] {
+  const rows = db.prepare(`
+    SELECT * FROM task_session_links
+    WHERE task_id = ?
+    ORDER BY linked_at DESC, session_id
+  `).all(taskId) as unknown as TaskSessionLinkRow[]
+  return rows.map(linkFromRow)
+}
+
+/** Task-keyed attempts for either one task or the complete global store, with
+ * session titles joined in for display. */
+export async function taskSessions(taskId?: string): Promise<Record<string, TaskSessionLink[]>> {
+  const select = `
+    SELECT
+      task_session_links.*,
+      COALESCE(sessions.custom_title, sessions.first_message) AS session_title,
+      sessions.provider AS session_provider,
+      sessions.last_timestamp AS last_activity_at
+    FROM task_session_links
+    LEFT JOIN sessions ON sessions.session_id = task_session_links.session_id
+  `
+  const rows = (taskId
+    ? getDb().prepare(`${select}
+        WHERE task_session_links.task_id = ?
+        ORDER BY task_session_links.linked_at, task_session_links.session_id
+      `).all(taskId)
+    : getDb().prepare(`${select}
+        ORDER BY task_session_links.linked_at, task_session_links.task_id, task_session_links.session_id
+      `).all()) as unknown as TaskSessionLinkRow[]
+  const links: Record<string, TaskSessionLink[]> = {}
+  for (const row of rows) (links[row.task_id] ??= []).push(linkFromRow(row))
+  return links
+}
+
+/** Resolve a session into the durable two-level task tree without loading or
+ * starting any sibling sessions. */
+export async function tasksForSession(sessionId: string): Promise<TaskForSessionResult | null> {
+  const link = getDb().prepare(`
+    SELECT * FROM task_session_links
+    WHERE session_id = ?
+    ORDER BY linked_at DESC
+    LIMIT 1
+  `).get(sessionId) as unknown as TaskSessionLinkRow | undefined
+  if (!link) return null
+
+  const task = loadTaskRecord(link.task_id)
+  if (!task) return null
+  const parent = task.parentId ? loadTaskRecord(task.parentId) : null
+  const rootId = parent?.id ?? task.id
+  const subtasks = listTaskChildren(rootId)
+  const siblings = task.parentId ? subtasks.filter((subtask) => subtask.id !== task.id) : []
+  const attemptsByTask = await taskSessions()
+  const attempts = [rootId, ...subtasks.map((subtask) => subtask.id)]
+    .flatMap((id) => attemptsByTask[id] ?? [])
+  return { task, parent, subtasks, siblings, attempts }
+}
+
+function promptTitle(input: { prompt?: string; title?: string }): string {
+  const firstLine = (input.title ?? input.prompt?.split(/\r?\n/).find((line) => line.trim()) ?? '').trim()
+  if (!firstLine) return 'Untitled task'
+  return Array.from(firstLine).slice(0, MAX_PROMPT_TITLE_LENGTH).join('')
+}
+
+interface PrepareSessionTaskInput {
+  /** A session that already has a provider conversation has passed its first
+   * dispatch and is permanently outside automatic minting. */
+  existingAgentSessionId?: string | null
+  /** Bind this task instead of minting a new one. */
+  existingTaskId?: string | null
+  sessionId?: string
+  projectKey?: string | null
+  worktreeKey?: string | null
+  prompt?: string
+  title?: string
+  branch?: string | null
+  originSessionId?: string | null
+}
+
+/** First-dispatch boundary: mint a session-born task or bind an explicit
+ * existing one, in a single transaction with the optional session link. Returns
+ * null for a resumed provider session — the no-backfill rule — in which case no
+ * read, write, notification, or repair happens. */
+export async function prepareSessionTask(input: PrepareSessionTaskInput): Promise<Task | null> {
+  if (input.existingAgentSessionId) return null
+  const task = withTx(() => {
+    const db = database()
+    const now = Date.now()
+    const existingTaskId = normalizedOptional(input.existingTaskId)
+    const projectKey = normalizedOptional(input.projectKey)
+    const worktreeKey = normalizedOptional(input.worktreeKey)
+    let task: Task
+    if (existingTaskId) {
+      const existing = requireTask(existingTaskId, db)
+      const branch = normalizedOptional(input.branch)
+      db.prepare(`
+        UPDATE tasks SET
+          project_key = COALESCE(project_key, ?),
+          worktree_key = COALESCE(worktree_key, ?),
+          branch = COALESCE(?, branch),
+          status = CASE WHEN status IN ('inbox', 'todo') THEN 'in_progress' ELSE status END,
+          triaged_at = CASE
+            WHEN status IN ('inbox', 'todo') THEN COALESCE(triaged_at, ?)
+            ELSE triaged_at
+          END,
+          updated_at = ?
+        WHERE id = ?
+      `).run(projectKey, worktreeKey, branch, now, now, existingTaskId)
+      // This promotes inbox/todo straight to in_progress without going through
+      // updateTask, so the diff has to happen here or the move is unrecorded.
+      const updated = requireTask(existingTaskId, db)
+      diffTaskEvents(db, existingTaskId, existing, updated, { actor: 'agent' }, now)
+      task = taskFromRow(updated)
+    } else {
+      task = writeTask(db, {
+        title: promptTitle(input),
+        projectKey,
+        parentId: null,
+        status: 'in_progress',
+        worktreeKey,
+        branch: input.branch,
+        source: 'session',
+        originSessionId: input.originSessionId ?? input.sessionId,
+        titleSource: 'prompt',
+        now,
+      })
+    }
+
+    if (input.sessionId) {
+      writeSessionLink(db, task.id, input.sessionId, 'working', {
+        branch: input.branch,
+        originSessionId: input.originSessionId,
+      }, now)
+      task = taskFromRow(requireTask(task.id, db))
+    }
+    return task
+  })
+  emitChanged()
+  return task
+}
+
+/** Generated scaffolding is bookkeeping the user did not ask for, so it does
+ * not add title/body activity events. The description fills only an empty body:
+ * a task-page edit that wins the background-generation race is authoritative. */
+export async function updateGeneratedMetadataForSession(
+  sessionId: string,
+  title: string,
+  description: string,
+): Promise<Task | null> {
+  const generatedTitle = title.trim()
+  const generatedDescription = description.trim()
+  if (!generatedTitle || !generatedDescription) return null
+  const task = withTx(() => {
+    const db = database()
+    const row = db.prepare(`
+      SELECT tasks.id
+      FROM tasks
+      JOIN task_session_links ON task_session_links.task_id = tasks.id
+      WHERE task_session_links.session_id = ?
+        AND task_session_links.role = 'working'
+        AND tasks.title_source = 'prompt'
+      ORDER BY task_session_links.linked_at DESC
+      LIMIT 1
+    `).get(sessionId) as { id: string } | undefined
+    if (!row) return null
+    db.prepare(`
+      UPDATE tasks SET
+        title = ?,
+        title_source = 'generated',
+        body = CASE WHEN TRIM(body) = '' THEN ? ELSE body END,
+        updated_at = ?
+      WHERE id = ? AND title_source = 'prompt'
+    `).run(generatedTitle, generatedDescription, Date.now(), row.id)
+    return taskFromRow(requireTask(row.id, db))
+  })
+  if (task) emitChanged()
+  return task
+}

@@ -24,8 +24,6 @@
     btn?.scrollIntoView({ block: 'nearest' })
   })
 
-  const scrollThumb = `color-mix(in srgb, var(--solus-text-tertiary) 40%, transparent)`
-
   const posStyle = $derived.by(() => {
     const spaceBelow = window.innerHeight - anchorCoords.bottom
     if (spaceBelow >= 200) {
@@ -44,7 +42,7 @@
     <div
       bind:this={listEl}
       class="slash-block-menu overflow-y-auto rounded-[0.625rem] p-1.5 bg-(--solus-popover-bg) border border-(--solus-popover-border)"
-      style="max-height:17.5rem;min-width:15.75rem;backdrop-filter:blur(1.25rem) saturate(1.1);-webkit-backdrop-filter:blur(1.25rem) saturate(1.1);box-shadow:var(--solus-popover-shadow);--scroll-thumb:{scrollThumb}"
+      style="max-height:17.5rem;min-width:15.75rem;backdrop-filter:blur(1.25rem) saturate(1.1);-webkit-backdrop-filter:blur(1.25rem) saturate(1.1);box-shadow:var(--solus-popover-shadow)"
     >
       {#each commands as cmd, i (cmd.id)}
         {#if i > 0 && cmd.group !== commands[i - 1].group}
@@ -75,16 +73,6 @@
 {/if}
 
 <style>
-  .slash-block-menu::-webkit-scrollbar {
-    width: 0.1875rem;
-  }
-  .slash-block-menu::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .slash-block-menu::-webkit-scrollbar-thumb {
-    background: var(--scroll-thumb);
-    border-radius: 0.25rem;
-  }
   .slash-block-menu__item {
     width: 100%;
     display: flex;

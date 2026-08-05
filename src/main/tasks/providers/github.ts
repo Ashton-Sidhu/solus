@@ -3,7 +3,7 @@ import { buildClient, type GitHubClient } from '../../providers/github/octokit'
 import { resolveRepoRef } from '../../git/git-helpers'
 import { createLogger } from '../../logger'
 import type { RepoRef } from '../../providers/types'
-import type { Task, TaskCommentData, TaskKind, TaskList, TaskPriority, TaskProvider, TaskStatus } from '../../../shared/task-types'
+import type { Task, TaskCommentData, TaskKind, TaskList, TaskPriority, TaskStatus, TaskUpdatePatch } from '../../../shared/task-types'
 
 const log = createLogger('main', 'github-tasks')
 
@@ -37,7 +37,7 @@ const ISSUE_FIELDS = `
   updatedAt
   issueType { name }
   labels(first: 20) { nodes { name } }
-  assignees(first: 5) { nodes { login } }
+  assignees(first: 5) { nodes { login avatarUrl(size: 40) } }
   parent { number }
   subIssuesSummary { total }
   linkedPr: closedByPullRequestsReferences(first: 1, includeClosedPrs: false) {
@@ -64,18 +64,13 @@ const ISSUE_FIELDS = `
   }
 `
 
-// `filterBy` is passed as a whole nullable variable, NOT `{ assignee: $assignee }`:
-// GitHub treats `filterBy: { assignee: null }` as "issues with NO assignee", so a
-// hard-coded assignee key silently hides every assigned issue. Passing the entire
-// IssueFilters object (null when we're not scoping to the viewer) means no filter.
 const LIST_ISSUES_QUERY = `
-  query($owner: String!, $repo: String!, $states: [IssueState!], $filters: IssueFilters, $cursor: String) {
+  query($owner: String!, $repo: String!, $states: [IssueState!], $cursor: String) {
     repository(owner: $owner, name: $repo) {
       issues(
         first: ${PAGE_SIZE}
         after: $cursor
         states: $states
-        filterBy: $filters
         orderBy: { field: UPDATED_AT, direction: DESC }
       ) {
         pageInfo { hasNextPage endCursor }
@@ -101,8 +96,6 @@ const GET_ISSUE_QUERY = `
     }
   }
 `
-
-const VIEWER_QUERY = `query { viewer { login } }`
 
 // Resolve a project's field definitions (ids + single-select option ids) so we
 // can write back. Keyed on the project's node id and memoized — field defs are
@@ -153,16 +146,6 @@ const CLEAR_PROJECT_FIELD_MUTATION = `
   }
 `
 
-// Link an existing issue under a parent as a native sub-issue (GA 2025). Takes
-// both issues' GraphQL node ids, not their numbers.
-const ADD_SUB_ISSUE_MUTATION = `
-  mutation($issueId: ID!, $subIssueId: ID!) {
-    addSubIssue(input: { issueId: $issueId, subIssueId: $subIssueId }) {
-      issue { number }
-    }
-  }
-`
-
 // ─── GraphQL node shapes ──────────────────────────────────────────────────────
 
 interface IssueNode {
@@ -174,7 +157,7 @@ interface IssueNode {
   updatedAt: string
   issueType: { name: string } | null
   labels: { nodes: { name: string }[] }
-  assignees: { nodes: { login: string }[] }
+  assignees: { nodes: { login: string; avatarUrl: string }[] }
   parent: { number: number } | null
   subIssuesSummary: { total: number } | null
   // The active PR that will close this issue (open only, first one) — present on
@@ -223,7 +206,7 @@ interface GitHubLinkedPr {
  * inject full context (comments + linked PRs) at session start without a second
  * round-trip. Typed so consumers don't reach into `unknown`.
  */
-export interface GitHubTaskRaw {
+interface GitHubTaskRaw {
   number: number
   comments: GitHubComment[]
   linkedPrs: GitHubLinkedPr[]
@@ -236,7 +219,7 @@ function normalizeStatus(node: IssueNode, labels: string[]): TaskStatus {
   // but an explicitly in-progress open issue should read as such.
   if (node.state === 'CLOSED') return 'done'
   if (labels.includes(IN_PROGRESS_LABEL)) return 'in_progress'
-  return 'open'
+  return 'todo'
 }
 
 // Conventional priority labels → normalized priority. Covers the common schemes
@@ -277,8 +260,9 @@ function priorityFromOption(name: string): TaskPriority | undefined {
 function statusFromOption(name: string): TaskStatus | undefined {
   const n = name.toLowerCase()
   if (/done|complete|closed|shipped|merged/.test(n)) return 'done'
-  if (/progress|doing|review|started|active/.test(n)) return 'in_progress'
-  if (/todo|to do|backlog|open|ready|triage|new|planned/.test(n)) return 'open'
+  if (/review/.test(n)) return 'in_review'
+  if (/progress|doing|started|active/.test(n)) return 'in_progress'
+  if (/todo|to do|backlog|open|ready|triage|new|planned/.test(n)) return 'todo'
   return undefined
 }
 
@@ -378,7 +362,8 @@ function issueToTask(node: IssueNode): Task {
   const projectItems = node.projectItems?.nodes ?? []
   const onBoard = projectItems.length > 0
   const planning = onBoard ? readProjectFields(projectItems) : {}
-  const boardStatus = planning.status ?? (node.state === 'CLOSED' ? 'done' : 'open')
+  const boardStatus = planning.status ?? (node.state === 'CLOSED' ? 'done' : 'todo')
+  const assignee = node.assignees.nodes[0]
   return {
     id: String(node.number),
     providerId: 'github',
@@ -387,7 +372,8 @@ function issueToTask(node: IssueNode): Task {
     body: node.body ?? '',
     status: onBoard ? boardStatus : normalizeStatus(node, labels),
     url: node.url,
-    assignee: node.assignees.nodes[0]?.login,
+    assignee: assignee?.login,
+    assigneeAvatarUrl: assignee?.avatarUrl,
     labels,
     priority: onBoard ? planning.priority : priorityFromLabels(labels),
     parentId: node.parent ? String(node.parent.number) : undefined,
@@ -396,7 +382,7 @@ function issueToTask(node: IssueNode): Task {
     branch: active?.headRefName,
     pr: active ? { url: active.url, number: active.number } : undefined,
     canEditPlanningFields: onBoard,
-    updatedAt: node.updatedAt,
+    updatedAt: Date.parse(node.updatedAt) || 0,
     raw,
   }
 }
@@ -411,14 +397,12 @@ function toIssueNumber(id: string): number {
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 /**
- * GitHub Issues behind the host-neutral `TaskProvider`. Bound to a single repo
+ * GitHub Issues normalized into the shared `Task` shape. Bound to a single repo
  * (auto-detected from the project's `origin` remote). Supports reads, status
- * write-back, posting comments, and creating issues (including linking a new one
- * under a parent as a native sub-issue). Deleting remote issues is intentionally
- * omitted (that optional mutator stays undefined so callers feature-detect),
- * keeping GitHub authoritative for content.
+ * write-back, and posting comments. Deleting remote issues is intentionally
+ * omitted, keeping GitHub authoritative for content.
  */
-export class GitHubTaskProvider implements TaskProvider {
+export class GitHubTaskProvider {
   readonly id = 'github' as const
 
   // Project field definitions are stable, so memoize them per project node id to
@@ -435,11 +419,8 @@ export class GitHubTaskProvider implements TaskProvider {
     return buildClient(this.auth)
   }
 
-  async listTasks(opts: { assignedToMe?: boolean } = {}): Promise<TaskList> {
+  async listTasks(): Promise<TaskList> {
     const { graphql } = await this.client()
-    // null filters = no scoping (all issues); only narrow to the viewer on demand.
-    const filters = opts.assignedToMe ? { assignee: await this.viewerLogin(graphql) } : null
-
     const tasks: Task[] = []
     let truncated = false
     // Open issues first, then closed with whatever budget remains: everything is
@@ -452,7 +433,6 @@ export class GitHubTaskProvider implements TaskProvider {
           owner: this.repo.owner,
           repo: this.repo.repo,
           states,
-          filters,
           cursor,
         })
         const page = res.repository.issues
@@ -487,56 +467,6 @@ export class GitHubTaskProvider implements TaskProvider {
   }
 
   /**
-   * Create an issue upstream from `title` + `body` (+ optional labels), then
-   * return it re-hydrated through getTask. When `parentId` is set we link the new
-   * issue as a native sub-issue of that parent (GA 2025, GraphQL) so epics created
-   * in Solus map faithfully; a linking failure leaves the issue created but flat
-   * rather than failing the whole write. `kind` is ignored — GitHub has no native
-   * epic type, the parent/child link is what makes an issue read as an epic.
-   */
-  async createTask(input: Partial<Task>): Promise<Task> {
-    const title = input.title?.trim()
-    if (!title) throw new Error('A title is required to create a GitHub issue.')
-    const { rest, graphql } = await this.client()
-    const created = await rest.issues.create({
-      owner: this.repo.owner,
-      repo: this.repo.repo,
-      title,
-      body: input.body?.trim() || undefined,
-      labels: input.labels?.length ? input.labels : undefined,
-    })
-    if (input.parentId) {
-      try {
-        await this.linkSubIssue(rest, graphql, input.parentId, created.data.node_id)
-      } catch (err) {
-        // Keep the issue — it just won't be nested. Surfaced in logs, not to the
-        // user, since the create itself succeeded.
-        log.warn('github_sub_issue_link_failed', { issueNumber: created.data.number, parentId: input.parentId, error: err instanceof Error ? err.message : String(err) })
-      }
-    }
-    return this.getTask(String(created.data.number))
-  }
-
-  /** Link an existing issue as a sub-issue of `parentId` via the GraphQL
-   *  addSubIssue mutation (needs both issues' GraphQL node ids). */
-  private async linkSubIssue(
-    rest: GitHubClient['rest'],
-    graphql: GitHubClient['graphql'],
-    parentId: string,
-    childNodeId: string,
-  ): Promise<void> {
-    const parent = await rest.issues.get({
-      owner: this.repo.owner,
-      repo: this.repo.repo,
-      issue_number: toIssueNumber(parentId),
-    })
-    await graphql(ADD_SUB_ISSUE_MUTATION, {
-      issueId: parent.data.node_id,
-      subIssueId: childNodeId,
-    })
-  }
-
-  /**
    * Write-back to the issue. Content fields (title, body, labels, assignee) map to
    * native issue fields. Planning fields (status, due date, priority) depend on
    * whether the issue is on a Projects v2 board:
@@ -551,7 +481,7 @@ export class GitHubTaskProvider implements TaskProvider {
    * Returns the re-hydrated task so the caller reflects GitHub's post-write truth.
    * Edits commit one field at a time (inline auto-save), so these writes never race.
    */
-  async updateTask(id: string, patch: Partial<Task>): Promise<Task> {
+  async updateTask(id: string, patch: TaskUpdatePatch): Promise<Task> {
     const number = toIssueNumber(id)
     const { rest, graphql } = await this.client()
     const base = { owner: this.repo.owner, repo: this.repo.repo, issue_number: number }
@@ -569,7 +499,7 @@ export class GitHubTaskProvider implements TaskProvider {
 
     // Due/priority live on the project item — only writable when on a board.
     if (onBoard && patch.dueDate !== undefined) await this.writeDueDate(graphql, items, patch.dueDate)
-    if (onBoard && patch.priority !== undefined) await this.writePriority(graphql, items, patch.priority)
+    if (onBoard && patch.priority !== undefined) await this.writePriority(graphql, items, patch.priority ?? undefined)
 
     // Content fields → native issue fields. `labels` replaces the whole set
     // (the UI shows every label, so it edits the full set); `assignees` mirrors
@@ -612,16 +542,18 @@ export class GitHubTaskProvider implements TaskProvider {
     status: TaskStatus,
   ): Promise<void> {
     const onBoard = items.length > 0
+    const closed = status === 'done' || status === 'dropped'
     if (onBoard) {
       // Mirror the board status onto open/closed so issue lists stay correct.
-      await rest.issues.update({ ...base, state: status === 'done' ? 'closed' : 'open' })
+      await rest.issues.update({ ...base, state: closed ? 'closed' : 'open' })
       await this.writeStatusOption(graphql, items, status)
-    } else if (status === 'done') {
+    } else if (closed) {
       await rest.issues.update({ ...base, state: 'closed' })
-    } else if (status === 'in_progress') {
+    } else if (status === 'in_progress' || status === 'in_review') {
       await rest.issues.update({ ...base, state: 'open' })
       await rest.issues.addLabels({ ...base, labels: [IN_PROGRESS_LABEL] })
-    } else if (status === 'open') {
+    } else {
+      // todo / inbox — plain open, no in-progress marker.
       await rest.issues.update({ ...base, state: 'open' })
       // Removing a label that isn't applied 404s — that's a no-op for us.
       await rest.issues.removeLabel({ ...base, name: IN_PROGRESS_LABEL }).catch((err) => {
@@ -671,18 +603,29 @@ export class GitHubTaskProvider implements TaskProvider {
     return fields
   }
 
-  /** Write the Status option onto the first item whose project maps `status`. */
+  /** Write the Status option onto the first item whose project maps `status`.
+   *  Statuses a board has no column for degrade to their nearest neighbour
+   *  (in_review → in_progress, dropped → done, inbox → todo). */
   private async writeStatusOption(
     graphql: GitHubClient['graphql'],
     items: ProjectItemRef[],
     status: TaskStatus,
   ): Promise<void> {
+    const fallback: Partial<Record<TaskStatus, TaskStatus>> = {
+      in_review: 'in_progress',
+      dropped: 'done',
+      inbox: 'todo',
+    }
+    const candidates = [status, fallback[status]].filter(Boolean) as TaskStatus[]
     for (const item of items) {
       const fields = await this.resolveProjectFields(graphql, item.project.id)
-      const optionId = fields.status?.options.find((o) => statusFromOption(o.name) === status)?.id
-      if (fields.status && optionId) {
-        await this.setSelect(graphql, item, fields.status.id, optionId)
-        return
+      if (!fields.status) continue
+      for (const candidate of candidates) {
+        const optionId = fields.status.options.find((o) => statusFromOption(o.name) === candidate)?.id
+        if (optionId) {
+          await this.setSelect(graphql, item, fields.status.id, optionId)
+          return
+        }
       }
     }
   }
@@ -691,7 +634,7 @@ export class GitHubTaskProvider implements TaskProvider {
   private async writeDueDate(
     graphql: GitHubClient['graphql'],
     items: ProjectItemRef[],
-    dueDate: string,
+    dueDate: string | null,
   ): Promise<void> {
     for (const item of items) {
       const fields = await this.resolveProjectFields(graphql, item.project.id)
@@ -754,11 +697,8 @@ export class GitHubTaskProvider implements TaskProvider {
     })
   }
 
-  /**
-   * Post a comment on the issue — used by the "started in Solus" write-back when
-   * a session binds to a task. Not part of `TaskProvider` (it's a GitHub-only
-   * capability the binding layer calls directly).
-   */
+  /** Post a comment on the issue; returns the created comment so callers can
+   *  patch it into a stale re-read (GraphQL reads lag REST writes). */
   async postComment(id: string, body: string): Promise<TaskCommentData> {
     const { rest } = await this.client()
     const res = await rest.issues.createComment({
@@ -775,27 +715,6 @@ export class GitHubTaskProvider implements TaskProvider {
     }
   }
 
-  async startTaskWork(id: string, current?: Task): Promise<void> {
-    const task = current ?? await this.getTask(id)
-    if (task.status !== 'open') return
-
-    const number = toIssueNumber(id)
-    const { rest, graphql } = await this.client()
-    const base = { owner: this.repo.owner, repo: this.repo.repo, issue_number: number }
-    const items = await this.fetchProjectItems(graphql, number)
-    await this.writeStatus(rest, graphql, base, items, 'in_progress')
-    await rest.issues.createComment({
-      ...base,
-      body: 'Started working on this in [Solus](https://solus.chat).',
-    })
-  }
-
-  private async viewerLogin(graphql: GitHubClient['graphql']): Promise<string> {
-    const status = await this.auth.status()
-    if (status.connected && status.login) return status.login
-    const res = await graphql<{ viewer: { login: string } }>(VIEWER_QUERY)
-    return res.viewer.login
-  }
 }
 
 interface ListIssuesResponse {

@@ -154,11 +154,16 @@ export class SessionEventReducer {
         if (session.boundWorkId) {
           this.deps.worksStore.linkSession(session.workingDirectory, session.boundWorkId, event.sessionId)
         }
-        if (session.boundTaskId) {
-          // Persist the task↔session link so the card can surface live work and a
-          // jump-back even after the session's renderer-only boundTaskId resets.
-          this.deps.tasksStore.linkSession(session.workingDirectory, session.boundTaskId, event.sessionId)
-        }
+        // The main process owns the durable link at first dispatch. Keep the
+        // provisional binding until that link is in the renderer store so the
+        // sidebar never projects this session as loose between the two states.
+        const pendingTaskId = session.pendingTaskId
+        if (pendingTaskId) this.deps.tasksStore.trackSessionStart(pendingTaskId, event.sessionId)
+        void this.deps.tasksStore.hydrateForSession(event.sessionId)
+          .then((task) => {
+            if (task && session.pendingTaskId === pendingTaskId) session.pendingTaskId = null
+          })
+          .catch(() => null)
         this.deps.onSessionInitialized?.(tabId)
         break
 
@@ -429,6 +434,7 @@ export class SessionEventReducer {
             role: 'system',
             content: event.message ?? `Rate limit warning (${event.rateLimitType}).`,
             timestamp: Date.now(),
+            rateLimitNotice: true,
           })
           break
         }
@@ -451,6 +457,7 @@ export class SessionEventReducer {
             role: 'system',
             content,
             timestamp: Date.now(),
+            rateLimitNotice: true,
           })
         }
         break

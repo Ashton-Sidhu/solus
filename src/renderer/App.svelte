@@ -20,6 +20,8 @@
     BookmarksIcon,
     ListChecksIcon,
     PlugsIcon,
+    MagnifyingGlassIcon,
+    FileTextIcon,
   } from "phosphor-svelte";
   import ConnectionStatusOverlay from "./components/servers/ConnectionStatusOverlay.svelte";
   import FatalErrorScene from "./components/servers/FatalErrorScene.svelte";
@@ -37,12 +39,12 @@
   import type { Command } from "./components/command-palette/lib/commands";
   import {
     projectsStore,
-    toasts,
     connectionsStore,
     serversStore,
     cloudflareStore,
     parseRoute,
   } from "./contexts";
+  import { toasts } from "./lib/toasts";
   import { invalidateHomeCache } from "./components/layout/NewTabHome.svelte";
   import { setPopoverLayer } from "./components/popoverLayer.svelte";
   import { worktreeProjectRoot } from "../shared/types";
@@ -188,7 +190,7 @@
       });
     const snapshot: PersistedTabs = {
       version: 1,
-      activeTabId: session.activeTabId,
+      activeTabId: session.durableActiveTabId,
       tabOrder: [...session.tabOrder],
       tabs,
       location: session.router.serialized,
@@ -201,6 +203,7 @@
   // as the user visits each tab, rather than re-reading all N tabs every keystroke.
   $effect(() => {
     if (session.hydrating) return;
+    if (session.draftTabId) return;
     const activeId = session.activeTabId;
     const tabText = session.tabs[activeId]?.input.text ?? "";
     const activeInputText = session.activeInput.text;
@@ -325,6 +328,10 @@
     [],
   );
   let commandPaletteOpen = $state(false);
+  let projectSearchOpen = $state(false);
+  let hasMountedProjectSearch = $state(false);
+  let goToFileOpen = $state(false);
+  let hasMountedGoToFile = $state(false);
   let paletteGitTarget = $state<{
     tabId: string;
     ctx: IpcContext;
@@ -349,14 +356,14 @@
   const taskComposer = $derived(session.ui.taskComposer);
   const sessionRename = $derived(session.ui.sessionRename);
   const taskComposerConfig = $derived(
-    taskComposer ? projectConfigStore.configFor(taskComposer.cwd) : undefined,
+    taskComposer ? projectConfigStore.configFor(taskComposer.projectKey) : undefined,
   );
   const taskComposerProvider = $derived(
     taskComposerConfig?.taskProvider ?? "local",
   );
   const taskComposerTasks = $derived(
-    taskComposer && session.tasksStore.cwd === taskComposer.cwd
-      ? session.tasksStore.tasks
+    taskComposer
+      ? session.tasksStore.tasksForProject(taskComposer.projectKey)
       : [],
   );
   const taskComposerEpics = $derived(
@@ -368,7 +375,7 @@
 
   $effect(() => {
     if (!taskComposer) return;
-    void projectConfigStore.load(taskComposer.cwd);
+    void projectConfigStore.load(taskComposer.projectKey);
   });
 
   const isExpanded = $derived(session.isExpanded);
@@ -418,6 +425,8 @@
     if (directoryPickerOpen) hasMountedDirectoryPicker = true;
     if (shortcutsModalOpen) hasMountedShortcuts = true;
     if (commandPaletteOpen) hasMountedCommandPalette = true;
+    if (projectSearchOpen) hasMountedProjectSearch = true;
+    if (goToFileOpen) hasMountedGoToFile = true;
     if (serversStore.addServerOpen) hasMountedAddServer = true;
     if (openProjectStore.isOpen) hasMountedOpenProject = true;
     if (hostOnboardingStore.isOpen) hasMountedHostOnboarding = true;
@@ -868,7 +877,15 @@
   useKeybinding("global.select-project", () => {
     startOpenProject({ tabId: session.focusedChatTabId ?? undefined });
   });
-  useKeybinding("global.new-tab", () => session.createTab(undefined, { via: "keybinding" }));
+  useKeybinding("global.new-task", () => {
+    session.createDraftTab(undefined, { freshTask: true, via: "keybinding" });
+  });
+  useKeybinding("global.new-session-without-task", () => {
+    session.createDraftTab(undefined, { withoutTask: true, via: "keybinding" });
+  });
+  useKeybinding("global.new-session", () =>
+    session.createDraftTab(undefined, { via: "keybinding" }),
+  );
 
   function visualTabOrder(tabIds: string[]): string[] {
     return buildTabSections(
@@ -959,9 +976,6 @@
   );
   useKeybinding("global.session-picker-j", () =>
     window.dispatchEvent(new CustomEvent("solus:toggle-session-picker")),
-  );
-  useKeybinding("global.filter-tasks", () =>
-    window.dispatchEvent(new CustomEvent("solus:focus-task-filter")),
   );
   useKeybinding("global.toggle-expanded", () => session.toggleExpanded(), {
     enabled: () => viewMode === "pill",
@@ -1082,6 +1096,16 @@
       enabled: () => viewMode === "editor",
     },
   );
+  // Both need a project to search, and the pill has nowhere to show results.
+  const canSearchProject = $derived(
+    viewMode === "editor" && !!sessionEnvironmentStore.environmentFor(keyboardTabId).cwd,
+  );
+  useKeybinding("global.project-search", () => (projectSearchOpen = true), {
+    enabled: () => canSearchProject,
+  });
+  useKeybinding("global.go-to-file", () => (goToFileOpen = true), {
+    enabled: () => canSearchProject,
+  });
 
   const paletteGitProjectRoot = $derived.by(() => {
     if (paletteGitTarget) return paletteGitTarget.projectRoot;
@@ -1146,7 +1170,7 @@
       });
     void session.worksStore.loadAll(scopedCwd);
     void session.automationsStore.loadAll();
-    if (taskCwd) void session.tasksStore.ensureLoaded(taskCwd);
+    if (taskCwd) void session.tasksStore.ensureLoaded();
     projectsStore
       .loadProjects({ force: true })
       .then((ps) => {
@@ -1181,13 +1205,53 @@
       run: () => startOpenProject({ tabId: activeTabId }),
     },
     {
+      id: "go-to-file",
+      label: "Go to file",
+      group: "General",
+      icon: FileTextIcon,
+      hint: comboHint("global.go-to-file"),
+      keywords: ["file", "open", "quick open", "goto", "find file"],
+      run: () => (goToFileOpen = true),
+    },
+    {
+      id: "project-search",
+      label: "Search in project",
+      group: "General",
+      icon: MagnifyingGlassIcon,
+      hint: comboHint("global.project-search"),
+      keywords: ["find", "grep", "search", "contents", "text", "in files"],
+      run: () => (projectSearchOpen = true),
+    },
+    {
+      id: "new-task",
+      label: "New task",
+      group: "General",
+      icon: PlusIcon,
+      hint: comboHint("global.new-task"),
+      keywords: ["create", "task"],
+      run: () => session.createDraftTab(undefined, { freshTask: true, via: "palette" }),
+    },
+    {
       id: "new-tab",
       label: "New session",
       group: "General",
       icon: PlusIcon,
-      hint: comboHint("global.new-tab"),
+      hint: comboHint("global.new-session"),
       keywords: ["create", "session", "tab"],
-      run: () => session.createTab(undefined, { via: "palette" }),
+      run: () => session.createDraftTab(undefined, { via: "palette" }),
+    },
+    {
+      id: "new-session-without-task",
+      label: "New session without task",
+      group: "General",
+      icon: PlusIcon,
+      hint: comboHint("global.new-session-without-task"),
+      keywords: ["create", "session", "tab", "no task"],
+      run: () =>
+        session.createDraftTab(undefined, {
+          withoutTask: true,
+          via: "palette",
+        }),
     },
     {
       id: "save-prompt",
@@ -1425,7 +1489,7 @@
         group: "Tasks",
         icon: CheckSquareIcon,
         keywords: ["task", "create", "new", "todo", "issue", taskProjectName],
-        run: () => session.openTaskComposer(taskCwd),
+        run: () => session.openTaskComposer(taskCwd, true),
       });
     }
     const createTaskInChildren: Command[] = paletteProjects.map((p) => ({
@@ -1451,12 +1515,9 @@
     // the tasks provider; children stream in once the store loads for this
     // project. Only the active project's tasks count (the store is scoped to one
     // cwd, so anything else is stale).
-    const tasksLoadedForProject =
-      !!taskCwd &&
-      session.tasksStore.cwd === taskCwd &&
-      session.tasksStore.loaded;
+    const tasksLoadedForProject = !!taskCwd && session.tasksStore.loaded;
     const goToTaskChildren: Command[] = tasksLoadedForProject
-      ? session.tasksStore.tasks.map((t) => ({
+      ? session.tasksStore.tasksForProject(taskCwd).map((t) => ({
           id: `go-to-task:${t.id}`,
           label: t.title,
           group: "Tasks",
@@ -1522,7 +1583,7 @@
           keywords: ["session", "worktree", "existing", wt.branch, wt.path],
           run: () => {
             void (async () => {
-              await session.createTab(undefined, { via: "palette" });
+              await session.createDraftTab(undefined, { via: "palette" });
               await session.switchToWorktree(wt.path, undefined, "palette");
             })();
           },
@@ -1537,7 +1598,7 @@
           keywords: ["session", "branch", "checkout", "switch", branch],
           run: () => {
             void (async () => {
-              await session.createTab(undefined, { via: "palette" });
+              await session.createDraftTab(undefined, { via: "palette" });
               await switchPaletteBranch(branch);
             })();
           },
@@ -1820,7 +1881,7 @@
     directoryPickerRequireWorktree = false;
     if (directoryPickerNewTab) {
       directoryPickerNewTab = false;
-      const newTabId = await session.createTab(dir);
+      const newTabId = await session.createDraftTab(dir);
       if (overrideServerId) {
         moveTabToHost(newTabId, overrideServerId, dir, { requireWorktree });
       }
@@ -1906,7 +1967,7 @@
         : null;
     // A tab always starts on the active server, so even a brand new one has to
     // be moved across before its first prompt runs on the right machine.
-    const targetTabId = reusableTabId ?? (await session.createTab(path));
+    const targetTabId = reusableTabId ?? (await session.createDraftTab(path));
     moveTabToHost(targetTabId, serverId, path);
     requestInputFocus({ tabId: targetTabId });
 
@@ -2161,6 +2222,32 @@
   {/await}
 {/if}
 
+{#if hasMountedGoToFile}
+  {#await import("./components/search/FilePickerOverlay.svelte")}
+    {#if goToFileOpen}
+      <div class="lazy-modal-loading" role="status">Loading files…</div>
+    {/if}
+  {:then filePickerModule}
+    {@const FilePickerOverlay = filePickerModule.default}
+    <FilePickerOverlay bind:open={goToFileOpen} tabId={keyboardTabId} />
+  {/await}
+{/if}
+
+{#if hasMountedProjectSearch}
+  {#await import("./components/search/ProjectSearchOverlay.svelte")}
+    {#if projectSearchOpen}
+      <div class="lazy-modal-loading" role="status">Loading search…</div>
+    {/if}
+  {:then projectSearchModule}
+    {@const ProjectSearchOverlay = projectSearchModule.default}
+    <ProjectSearchOverlay
+      bind:open={projectSearchOpen}
+      isDark={settings.isDark}
+      tabId={keyboardTabId}
+    />
+  {/await}
+{/if}
+
 {#if hasMountedCommandPalette}
   {#await commandPaletteModulePromise}
     {#if commandPaletteOpen}
@@ -2234,15 +2321,18 @@
       allowEpics={taskComposerProvider === "local"}
       canPlan={taskComposerProvider === "local"}
       knownLabels={taskComposerLabels}
-      workingDirectory={taskComposer.cwd}
+      workingDirectory={taskComposer.workingDirectory}
       provider={settings.activeAgent}
       onCreate={async (input) => {
-        const cwd = taskComposer?.cwd;
-        if (!cwd) return;
+        const context = taskComposer;
+        if (!context) return;
         try {
-          if (session.tasksStore.cwd === cwd)
-            await session.tasksStore.create(cwd, input);
-          else await window.solus.tasksCreate(cwd, input);
+          await session.tasksStore.create({
+            ...input,
+            projectKey: context.projectKey,
+            branch: context.branch,
+            worktreeKey: input.parentId ? undefined : context.worktreeKey,
+          });
           toasts.success("Task created");
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

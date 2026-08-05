@@ -302,11 +302,13 @@
         role="navigation"
         aria-label="Settings"
         collapsible="none"
-        class="border-r border-r-sidebar-border bg-[color-mix(in_oklch,var(--foreground)_2%,var(--card))]"
+        class="border-r border-r-sidebar-border bg-(--solus-sidebar-surface)"
       >
-        <!-- Settings forces the session sidebar closed, so this nav is the leftmost
-           chrome and sits under the macOS traffic lights. The strip clears them and
-           lines the search field up with the bottom of the content header. -->
+        <!-- The nav column has no header of its own, so it opens with the same
+             empty band the content header occupies. That puts the search field's
+             top edge on the header's bottom border instead of floating a row
+             above it. (Traffic-light clearance is the page outlet's job — see
+             `page-surface--inset` in ui/Pane.svelte — not this strip's.) -->
         <Sidebar.Header class="gap-0 p-0 px-3 pb-3">
           <div class="h-(--settings-header-height) shrink-0"></div>
           <SearchField

@@ -66,7 +66,8 @@
   let formatExpanded = $state(false);
   let previousMetadata = fileDiffMeta;
   const formatOnlyCollapsed = $derived(
-    !!fileDiffMeta && !formatExpanded &&
+    !!fileDiffMeta &&
+      !formatExpanded &&
       !(autoCollapse && expanded) &&
       (noiseAnalysis?.formatOnlyHunks.length ?? 0) > 0 &&
       (noiseAnalysis?.formatOnlyHunks.length ?? 0) < fileDiffMeta.hunks.length,
@@ -100,7 +101,7 @@
       theme: getDiffThemeName(theme.isDark),
       themeType: (theme.isDark ? "dark" : "light") as "dark" | "light",
       diffStyle: "unified" as const,
-      diffIndicators: "bars" as const,
+      diffIndicators: "none" as const,
       lineDiffType: "word-alt" as const,
       overflow: "wrap" as const,
       hunkSeparators: (hasFileContents ? "line-info-basic" : "metadata") as
@@ -223,7 +224,9 @@
   aria-label={`Expand ${collapsedSummary}`}
   onclick={() => (expanded = true)}
 >
-  <span class="inline-block size-1.5 shrink-0 rotate-45 border-r-[1.5px] border-b-[1.5px] border-current"></span>
+  <span
+    class="inline-block size-1.5 shrink-0 rotate-45 border-r-[1.5px] border-b-[1.5px] border-current"
+  ></span>
   <span class="min-w-0 flex-1 truncate">{collapsedSummary}</span>
 </button>
 <button
@@ -233,7 +236,9 @@
   aria-label={`Expand ${formatSummary}`}
   onclick={() => (formatExpanded = true)}
 >
-  <span class="inline-block size-1.5 shrink-0 rotate-45 border-r-[1.5px] border-b-[1.5px] border-current"></span>
+  <span
+    class="inline-block size-1.5 shrink-0 rotate-45 border-r-[1.5px] border-b-[1.5px] border-current"
+  ></span>
   <span class="min-w-0 flex-1 truncate">{formatSummary}</span>
 </button>
 <div

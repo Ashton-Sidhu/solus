@@ -1,4 +1,4 @@
-import { createContext } from 'svelte'
+import { createAppContext } from '../../contexts/app/create-app-context'
 import { KEYBINDINGS, type BindingId } from './manifest'
 import { comboFromEvent, comboIsTextInput, defaultCombo, eventMatches, isMac } from './match'
 import type { BindingDef, Handler, KeyCombo, RegisterOptions, Scope } from './types'
@@ -144,4 +144,4 @@ export class KeybindingsContext {
 }
 
 export const [getKeybindingsContext, setKeybindingsContext] =
-  createContext<KeybindingsContext>()
+  createAppContext<KeybindingsContext>('keybindings')

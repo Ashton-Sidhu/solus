@@ -68,6 +68,70 @@ export async function getFinder(basePath: string): Promise<FileFinder | null> {
   return entry.finder
 }
 
+// Content indexing costs scan CPU and memory that the path-only consumers
+// (autocomplete, file tree, quick open) must not pay for, so project content
+// search gets its own finder per root. These are kept out of the path LRU
+// above: a session with several worktrees would otherwise let its content
+// indices evict each other's path indices. They expire on idle instead, since
+// a search burst is followed by long silence.
+const CONTENT_FINDER_IDLE_MS = 15 * 60_000
+
+interface ContentFinderEntry extends FinderEntry {
+  idleTimer: ReturnType<typeof setTimeout> | null
+}
+
+const contentFinders = new Map<string, ContentFinderEntry>()
+
+function touchContentFinder(basePath: string, entry: ContentFinderEntry): void {
+  if (entry.idleTimer) clearTimeout(entry.idleTimer)
+  entry.idleTimer = setTimeout(() => {
+    contentFinders.delete(basePath)
+    try { entry.finder.destroy() } catch { /* already destroyed */ }
+    log.info('content_finder_idle_destroyed', { basePath })
+  }, CONTENT_FINDER_IDLE_MS)
+  entry.idleTimer.unref?.()
+}
+
+/** The content-indexed finder for a root, created on first search. */
+export async function getContentFinder(basePath: string): Promise<FileFinder | null> {
+  const hit = contentFinders.get(basePath)
+  if (hit) {
+    touchContentFinder(basePath, hit)
+    await hit.scanned
+    return hit.finder
+  }
+
+  let created: ReturnType<typeof FileFinder.create>
+  try {
+    const { FileFinder } = await loadFff()
+    created = FileFinder.create({
+      basePath,
+      disableMmapCache: true,
+      disableContentIndexing: false,
+      aiMode: false,
+      enableFsRootScanning: true,
+      enableHomeDirScanning: true,
+    })
+  } catch (err) {
+    log.warn('content_finder_load_failed', { basePath, error: err instanceof Error ? err.message : String(err) })
+    return null
+  }
+  if (!created.ok) {
+    log.warn('content_finder_create_failed', { basePath, error: String(created.error) })
+    return null
+  }
+
+  const entry: ContentFinderEntry = {
+    finder: created.value,
+    scanned: created.value.waitForScan(SCAN_TIMEOUT_MS).catch(() => {}),
+    idleTimer: null,
+  }
+  contentFinders.set(basePath, entry)
+  touchContentFinder(basePath, entry)
+  await entry.scanned
+  return entry.finder
+}
+
 /** Best-effort prewarm so the first autocomplete keystroke hits a ready index. */
 export function warmFinder(basePath: string): void {
   void getFinder(basePath).catch(() => {})
@@ -94,4 +158,9 @@ export function destroyAllFinders(): void {
     try { finder.destroy() } catch { /* already destroyed */ }
   }
   finders.clear()
+  for (const entry of contentFinders.values()) {
+    if (entry.idleTimer) clearTimeout(entry.idleTimer)
+    try { entry.finder.destroy() } catch { /* already destroyed */ }
+  }
+  contentFinders.clear()
 }

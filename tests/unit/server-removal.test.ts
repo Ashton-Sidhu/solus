@@ -77,7 +77,7 @@ describe('server removal', () => {
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
 
     const { serversStore } = await import('../../src/renderer/contexts/connections/servers.store.svelte')
-    const { toasts } = await import('../../src/renderer/contexts/app/toast.store.svelte')
+    const { toasts } = await import('../../src/renderer/lib/toasts')
     // The store is a module singleton shared with other test files; align its
     // in-memory state with this file's fixtures regardless of import order.
     serversStore.refreshServers()

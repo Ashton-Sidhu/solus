@@ -5,6 +5,78 @@
 	import CraftStrip from "$lib/CraftStrip.svelte";
 
 	let mobileMenuOpen = $state(false);
+	let brewCopied = $state(false);
+
+	const BREW_COMMAND = "brew install --cask Ashton-Sidhu/tap/solus";
+
+	function copyBrew() {
+		navigator.clipboard.writeText(BREW_COMMAND);
+		brewCopied = true;
+		setTimeout(() => (brewCopied = false), 2000);
+	}
+
+	const features = [
+		{
+			anchor: "plans",
+			title: "Reviewable plans",
+			desc: "The agent drafts before it executes. Comment inline on any selection, then approve — works with every model.",
+		},
+		{
+			anchor: "diff",
+			title: "Diff panel",
+			desc: "Every file the agent touched. Leave line-level comments and send them back as one structured message.",
+		},
+		{
+			anchor: "review",
+			title: "Review companion",
+			desc: "A second agent reviews your branch and writes a guided report — click a finding to land on the exact hunk.",
+		},
+		{
+			anchor: "pull-request-merge",
+			title: "Pull requests",
+			desc: "Merge, squash, or rebase with checks in view. Hand conflicted PRs to an agent in an isolated worktree.",
+		},
+		{
+			anchor: "sessions",
+			title: "Git worktrees",
+			desc: "Isolate risky work on its own branch and worktree with one keystroke. Fork sessions to try two approaches.",
+		},
+		{
+			anchor: "tasks",
+			title: "Tasks",
+			desc: "A project board of local tickets and GitHub Issues — start a session straight from a task.",
+		},
+		{
+			anchor: "automations",
+			title: "Automations",
+			desc: "Save a prompt and run it on a schedule or on demand. Every run keeps a history you can open as a full session.",
+		},
+		{
+			anchor: "works",
+			title: "Works",
+			desc: "Docs, slides, and diagrams the agent produces, saved as standalone artifacts that outlive the chat.",
+		},
+		{
+			anchor: "delegated-agents",
+			title: "Delegated agents",
+			desc: "Agents spawn subagents — Claude delegating to Codex and back — with live activity rendered inline.",
+		},
+		{
+			anchor: "voice",
+			title: "Voice input",
+			desc: "Push-to-talk or a continuous hands-free loop, transcribed locally — audio never leaves your machine.",
+		},
+		{
+			anchor: "design-mode",
+			title: "Design mode",
+			desc: "Screenshot any window, annotate it with arrows, pins, and text, and send the image to the agent.",
+		},
+		{
+			anchor: "connections",
+			title: "Hosts & remote",
+			desc: "Pair your phone or any browser, add other machines as hosts, and choose where each session runs.",
+		},
+	];
 
 	function downloadApp(e: MouseEvent) {
 		e.preventDefault();
@@ -223,8 +295,8 @@
 			>
 		</h1>
 		<p class="v2-sub">
-			Plan, review, and ship agent work with Claude Code or Codex — without
-			changing editors.
+			Plan, review, and ship agent work with Claude Code or Codex — from your
+			desktop, your browser, or your phone, without changing editors.
 		</p>
 		<div class="v2-cta-row">
 			<button onclick={downloadApp} class="v2-cta-primary">
@@ -242,9 +314,48 @@
 				Download for macOS
 			</button>
 		</div>
+		<button
+			onclick={copyBrew}
+			class="group inline-flex items-center gap-2 mt-3 px-3.5 py-2 rounded-lg cursor-pointer
+			       bg-black/[0.04] hover:bg-black/[0.06] border border-black/[0.06]
+			       font-[family-name:var(--font-mono)] text-[12px] text-[#6B6158] transition-colors"
+			aria-label="Copy Homebrew install command"
+		>
+			<span class="select-none text-[#A09488]">$</span>
+			{BREW_COMMAND}
+			{#if brewCopied}
+				<svg
+					width="12"
+					height="12"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="#4A9E6B"
+					stroke-width="2.5"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg
+				>
+			{:else}
+				<svg
+					width="12"
+					height="12"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					stroke-linecap="round"
+					class="opacity-40 group-hover:opacity-70 transition-opacity"
+					aria-hidden="true"
+					><rect x="9" y="9" width="11" height="11" rx="2" /><path
+						d="M5 15V5a2 2 0 0 1 2-2h10"
+					/></svg
+				>
+			{/if}
+		</button>
 		<ul class="v2-trust" aria-label="What Solus is">
 			<li>Keyboard-first</li>
-			<li>Model-agnostic — Claude Code &amp; Codex</li>
+			<li>Claude Code &amp; Codex — your subscriptions</li>
+			<li>macOS app · web &amp; mobile · Linux server</li>
 			<li>
 				<a
 					href="https://github.com/Ashton-Sidhu/solus"
@@ -263,7 +374,7 @@
 							d="M12 .7a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2.23c-3.22.7-3.9-1.37-3.9-1.37-.52-1.34-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.57-.29-5.27-1.28-5.27-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.16 1.18a10.98 10.98 0 0 1 5.75 0c2.2-1.49 3.16-1.18 3.16-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.42-2.71 5.39-5.29 5.68.42.36.79 1.06.79 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z"
 						/>
 					</svg>
-					GitHub
+					Source-available on GitHub
 				</a>
 			</li>
 		</ul>
@@ -411,6 +522,59 @@
 	</div>
 </section>
 
+<!-- Features -->
+<section
+	id="features"
+	class="px-10 py-[160px] max-[1800px]:py-[110px] border-t border-black/[0.07] max-lg:px-6 max-lg:py-20"
+>
+	<div class="max-w-[1200px] mx-auto flex flex-col gap-14 max-lg:gap-10">
+		<div class="flex flex-col gap-5 max-w-[640px]">
+			<div
+				class="reveal font-[family-name:var(--font-mono)] text-[11px] font-semibold uppercase tracking-[0.12em] text-[#B08D3E]"
+			>
+				Features
+			</div>
+			<h2
+				class="reveal reveal-d1 font-[family-name:var(--font-display)] text-[clamp(30px,3.8vw,52px)] max-[1440px]:text-[clamp(27px,3.4vw,52px)] font-semibold tracking-[-0.038em] leading-[1.1] max-w-[22ch] text-balance"
+			>
+				One workspace.
+				<em class="not-italic text-[#D4AF6A]">The whole loop.</em>
+			</h2>
+			<p
+				class="reveal reveal-d2 text-base/7 sm:text-[16px] max-[1440px]:sm:text-[15px] leading-[1.75] text-[#6B6158] max-w-[52ch] text-pretty"
+			>
+				Every surface agent work touches — plans, diffs, pull requests, tasks,
+				schedules — lives in one keyboard-first workspace. Each one links to its
+				docs.
+			</p>
+		</div>
+
+		<div
+			class="reveal reveal-d2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-12"
+		>
+			{#each features as feature}
+				<a
+					href={`/docs#${feature.anchor}`}
+					class="group flex flex-col gap-1.5 py-5 border-t border-black/[0.06] no-underline"
+				>
+					<div
+						class="flex items-center gap-1.5 font-[family-name:var(--font-display)] text-[15px] font-semibold text-[#1A1714]"
+					>
+						{feature.title}
+						<span
+							class="text-[13px] text-[#A09488] opacity-0 group-hover:opacity-100 transition-opacity"
+							aria-hidden="true">›</span
+						>
+					</div>
+					<div class="text-[13px] leading-relaxed text-[#6B6158]">
+						{feature.desc}
+					</div>
+				</a>
+			{/each}
+		</div>
+	</div>
+</section>
+
 <!-- Craft details -->
 <CraftStrip />
 
@@ -458,7 +622,7 @@
 		<p
 			class="reveal reveal-d2 text-base/7 sm:text-[16px] max-[1440px]:sm:text-[15px] leading-[1.65] text-[#6B6158]"
 		>
-			Delegate, review, ship — built by engineers, for engineers..
+			Delegate, review, ship — built by engineers, for engineers.
 		</p>
 
 		<div class="reveal reveal-d3 flex flex-col gap-3 mt-1">
@@ -477,7 +641,17 @@
 				Download for macOS
 			</button>
 			<p class="text-[12px] text-[#6B6158]">
-				Free during beta. macOS 13 Ventura or later.
+				Free during beta. macOS 12 Monterey or later, Apple Silicon.
+			</p>
+			<p
+				class="text-[12px] text-[#6B6158] font-[family-name:var(--font-mono)] leading-relaxed"
+			>
+				<span class="text-[#A09488]">$</span> {BREW_COMMAND}<br />
+				<span class="text-[#A09488]">$</span> brew install
+				Ashton-Sidhu/tap/solus-server
+				<span class="font-[family-name:var(--font-sans)] text-[#A09488]"
+					>— headless server for Linux or any always-on box</span
+				>
 			</p>
 		</div>
 	</div>

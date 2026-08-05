@@ -46,7 +46,7 @@ function normalizeRunCommand(value: unknown, index: number): RunCommandConfig | 
   return entry
 }
 
-const TASK_PROVIDERS = new Set(['github', 'jira', 'linear', 'local'])
+const TASK_PROVIDERS = new Set(['github', 'local'])
 
 function normalizeConfig(value: unknown): ProjectConfig | null {
   if (!value || typeof value !== 'object') return null
@@ -55,7 +55,6 @@ function normalizeConfig(value: unknown): ProjectConfig | null {
     runCommands?: unknown
     taskProvider?: unknown
     taskProviderConfig?: unknown
-    taskStartWriteBack?: unknown
   }
   const config: ProjectConfig = { version: 1 }
   if (Array.isArray(raw.runCommands)) {
@@ -72,8 +71,6 @@ function normalizeConfig(value: unknown): ProjectConfig | null {
     const repo = typeof scope.repo === 'string' ? scope.repo : undefined
     if (owner || repo) config.taskProviderConfig = { owner, repo }
   }
-  // Only the opt-out is stored; absence means the write-back stays enabled.
-  if (raw.taskStartWriteBack === false) config.taskStartWriteBack = false
   return config
 }
 

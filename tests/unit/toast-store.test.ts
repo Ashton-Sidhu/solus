@@ -37,10 +37,11 @@ const toast = Object.assign(
 
 mock.module("svelte-sonner", () => ({ toast }))
 
-const { toasts } = await import("../../src/renderer/contexts/app/toast.store.svelte")
+const { toasts } = await import("../../src/renderer/lib/toasts")
 
-describe("toast store", () => {
+describe("toast service", () => {
   beforeEach(() => {
+    toasts.dismiss()
     calls.length = 0
     dismissed.length = 0
   })
@@ -50,7 +51,7 @@ describe("toast store", () => {
 
     expect(calls).toHaveLength(1)
     expect(calls[0]).toMatchObject({ kind: "success", message: "Saved" })
-    expect(calls[0].options?.duration).toBe(6000)
+    expect(calls[0].options?.duration).toBeUndefined()
   })
 
   test("maps two actions to Sonner's standard action and cancel buttons", () => {
@@ -79,5 +80,14 @@ describe("toast store", () => {
     calls[0].options?.onAutoClose?.({} as never)
 
     expect(committed).toBe(1)
+  })
+
+  test("uses Sonner's ID and only dismisses the matching active toast", () => {
+    const id = toasts.info("Connected")
+
+    expect(toasts.isActive(id)).toBe(true)
+    expect(toasts.dismiss("another-toast")).toBe(false)
+    expect(toasts.dismiss(id)).toBe(true)
+    expect(dismissed).toEqual([id])
   })
 })

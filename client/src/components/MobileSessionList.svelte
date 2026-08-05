@@ -1,19 +1,26 @@
 <script lang="ts">
+  import { SvelteSet } from "svelte/reactivity";
+  import { slide } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
   import {
     PlusIcon,
     BooksIcon,
     GearIcon,
     ClockIcon,
+    CheckIcon,
     XIcon,
     PushPinIcon,
     CaretRightIcon,
     HardDrivesIcon,
-    BinocularsIcon,
+    BookOpenTextIcon,
+    CircleNotchIcon,
   } from "phosphor-svelte";
   import { getWorkspaceContext, getSessionSidebarStore, serversStore } from "@renderer/contexts";
+  import { aggregateReviewGuideStatus } from "@renderer/components/session/lib/task-list";
+  import { toasts } from "@renderer/lib/toasts";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
   import { getAttentionIcon, attentionLabel, type AttentionState } from "@renderer/lib/sessionUtils";
-  import { reviewGuideStore } from "@renderer/components/review/review-guide.store.svelte";
+  import { Skeleton } from "@renderer/components/ui/skeleton";
 
   interface Props {
     /** Close the drawer after a navigation action. */
@@ -29,11 +36,13 @@
   const activeServer = $derived(serversStore.activeServer);
   const serverOnline = $derived(activeServer?.status === "online");
 
-  // Flatten the project → branch → tab tree into one large row per open session,
-  // keeping project/branch context as secondary text. A flat list of big tap
-  // targets is far easier to scan and hit on a phone than the desktop tree.
-  const groups = $derived(store.projectBranchGroups);
+  // Keep the phone surface flat, but source its rows from the same durable
+  // task tree as desktop. Sessions become peer-sized tap targets rather than a
+  // nested disclosure, and unopened attempts remain lazy until selected.
+  const groups = $derived(store.taskGroups);
   const hasSessions = $derived(groups.length > 0);
+  const collapsedProjectKeys = new SvelteSet<string>();
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // Shared row shell — keeps pinned + session rows visually identical.
   const rowBase =
@@ -41,19 +50,133 @@
   const sectionLabel =
     "first:pt-2 px-3.5 pt-[1.125rem] pb-1 text-[0.75rem] font-normal text-(--solus-text-tertiary) truncate";
 
-  function selectTab(tabId: string) {
-    store.selectTab(tabId);
+  function toggleProject(projectKey: string) {
+    if (collapsedProjectKeys.has(projectKey)) {
+      collapsedProjectKeys.delete(projectKey);
+    } else {
+      collapsedProjectKeys.add(projectKey);
+    }
+  }
+
+  function projectGroupId(projectKey: string) {
+    return `mobile-project-${encodeURIComponent(projectKey)}`;
+  }
+
+  // Fixed widths, so the loading list never reshuffles between renders.
+  const SKELETON_ROWS = [
+    { width: "62%", delay: 0 },
+    { width: "44%", delay: 80 },
+    { width: "71%", delay: 160 },
+    { width: "38%", delay: 240 },
+    { width: "55%", delay: 320 },
+  ];
+
+  function selectTask(task: (typeof store.allTasks)[number]) {
+    void store.selectTask(task);
     requestInputFocus();
     onSessionSelect();
   }
 
-  function closeTab(tabId: string, e: Event) {
+  function selectSession(child: ReturnType<typeof store.sessionsFor>[number]) {
+    void store.selectChild(child);
+    requestInputFocus();
+    onSessionSelect();
+  }
+
+  function removeTask(task: (typeof store.allTasks)[number], e: Event) {
     e.stopPropagation();
-    store.closeTabs([tabId]);
+    if (task.status === "running") {
+      const running = task.tabIds.filter(
+        (tabId) => store.childForTab(tabId).attention === "running",
+      ).length;
+      toasts.show({
+        message: `Stop ${running === 1 ? "the run" : `${running} runs`} in “${task.title}” and remove it from the sidebar?`,
+        actions: [
+          { label: "Stop and remove", onAction: () => store.closeTask(task) },
+          { label: "Keep open", onAction: requestInputFocus },
+        ],
+      });
+      return;
+    }
+    store.closeTask(task);
+  }
+
+  async function finishTask(task: (typeof store.allTasks)[number]) {
+    try {
+      if (task.taskId) await session.tasksStore.setStatus(task.taskId, "done");
+      store.closeTask(task);
+    } catch (error) {
+      toasts.error(
+        `Couldn't complete task: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  function completeTask(task: (typeof store.allTasks)[number], e: Event) {
+    e.stopPropagation();
+    if (task.status !== "running") {
+      void finishTask(task);
+      return;
+    }
+    toasts.show({
+      message: `Stop the work in “${task.title}” and mark it completed?`,
+      actions: [
+        { label: "Stop and complete", onAction: () => void finishTask(task) },
+        { label: "Keep working", onAction: requestInputFocus },
+      ],
+    });
+  }
+
+  function removeChild(
+    child: ReturnType<typeof store.sessionsFor>[number],
+    e: Event,
+  ) {
+    e.stopPropagation();
+    const remove = () => store.closeChild(child);
+    if (child.attention !== "running") {
+      remove();
+      return;
+    }
+    toasts.show({
+      message: `Stop “${child.label}” and remove it from the sidebar?`,
+      actions: [
+        { label: "Stop and remove", onAction: remove },
+        { label: "Keep open", onAction: requestInputFocus },
+      ],
+    });
+  }
+
+  async function finishChild(child: ReturnType<typeof store.sessionsFor>[number]) {
+    try {
+      if (child.taskId) await session.tasksStore.setStatus(child.taskId, "done");
+      store.closeChild(child);
+    } catch (error) {
+      toasts.error(
+        `Couldn't complete subtask: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  function completeChild(
+    child: ReturnType<typeof store.sessionsFor>[number],
+    e: Event,
+  ) {
+    e.stopPropagation();
+    if (child.attention !== "running") {
+      void finishChild(child);
+      return;
+    }
+    toasts.show({
+      message: `Stop “${child.label}” and mark the subtask completed?`,
+      actions: [
+        { label: "Stop and complete", onAction: () => void finishChild(child) },
+        { label: "Keep working", onAction: requestInputFocus },
+      ],
+    });
   }
 
   function newSession() {
-    void session.createTab();
+    void session.createDraftTab(undefined, { via: "click" });
     requestInputFocus();
     onSessionSelect();
   }
@@ -63,11 +186,8 @@
     onSessionSelect();
   }
 
-  function isReviewRunning(tabId: string | null | undefined): boolean {
-    return !!tabId && reviewGuideStore.isRunningFor(
-      session.apiFor(tabId),
-      session.sessionFor(tabId),
-    );
+  function reviewStatusForTab(tabId: string | null | undefined) {
+    return tabId ? store.childForTab(tabId).reviewGuideStatus : null;
   }
 </script>
 
@@ -89,13 +209,22 @@
   {/if}
 {/snippet}
 
-{#snippet reviewMark()}
+{#snippet reviewMark(status: "generating" | "ready")}
   <span
-    class="shrink-0 flex items-center text-(--solus-accent)"
-    title="Review running"
-    aria-label="Review running"
+    class="shrink-0 flex items-center {status === 'ready'
+      ? 'text-(--solus-art-positive)'
+      : 'text-(--solus-status-running-icon)'}"
+    title={status === "ready" ? "Review guide ready" : "Generating review guide"}
+    aria-label={status === "ready" ? "Review guide ready" : "Generating review guide"}
   >
-    <BinocularsIcon size={14} weight="bold" />
+    {#if status === "ready"}
+      <BookOpenTextIcon size={14} weight="fill" />
+    {:else}
+      <CircleNotchIcon
+        size={14}
+        class="animate-spin [animation-duration:0.9s] motion-reduce:animate-none"
+      />
+    {/if}
   </span>
 {/snippet}
 
@@ -141,7 +270,7 @@
       {#each store.pinnedSessions as pin (pin.sessionId)}
         {@const openTabId = store.openTabIdForPinned(pin)}
         {@const isActive = !!openTabId && openTabId === session.activeTabId}
-        {@const reviewRunning = isReviewRunning(openTabId)}
+        {@const reviewStatus = reviewStatusForTab(openTabId)}
         <button
           class="{rowBase} {isActive ? 'bg-(--solus-accent-light)' : 'bg-transparent active:bg-(--solus-surface-hover)'}"
           onclick={() => nav(() => store.openPinnedSession(pin))}
@@ -149,58 +278,163 @@
           {#if isActive}{@render activeBar()}{/if}
           <span class="shrink-0 flex items-center {isActive ? 'text-(--solus-accent)' : 'text-(--solus-text-tertiary)'}"><PushPinIcon size={14} weight="fill" /></span>
           <span class="flex-1 min-w-0 truncate text-[0.8125rem] font-normal {isActive ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{pin.title}</span>
-          {#if reviewRunning}
-            {@render reviewMark()}
+          {#if reviewStatus}
+            {@render reviewMark(reviewStatus)}
           {/if}
         </button>
       {/each}
     {/if}
 
-    {#if hasSessions}
+    {#if !session.tasksStore.loaded}
+      <!-- Placeholders sit on the same rhythm as the rows they stand in for —
+           section label, leading mark, one title line — so the list settles in
+           place rather than reflowing when it arrives. -->
+      <div class="flex flex-col" role="status" aria-label="Loading sessions">
+        <div class="{sectionLabel} flex items-end">
+          <Skeleton class="h-2 w-[28%] rounded-[0.1875rem] opacity-70" />
+        </div>
+        {#each SKELETON_ROWS as row, i (i)}
+          <div
+            class="flex min-h-[3.25rem] items-center gap-2.5 py-2 pr-1.5 pl-3.5"
+            style="opacity:{1 - i * 0.13}"
+          >
+            <Skeleton class="size-[0.875rem] shrink-0 rounded-full opacity-60" />
+            <Skeleton
+              class="h-[0.75rem] rounded-[0.25rem]"
+              style="width:{row.width};animation-delay:{row.delay}ms"
+            />
+          </div>
+        {/each}
+      </div>
+    {:else if hasSessions}
       {#each groups as group (group.projectKey)}
-        <div class={sectionLabel}>{group.projectLabel}</div>
-        {#each group.branches as branch (branch.key)}
-          {@const multiBranch = group.branches.length > 1 || branch.tabIds.length > 1}
-          {#each branch.tabIds as tabId (tabId)}
-            {@const child = store.childForTab(tabId)}
-            {@const isActive = tabId === session.activeTabId}
-            {@const reviewRunning = isReviewRunning(tabId)}
+        <button
+          type="button"
+          class="{sectionLabel} flex min-h-10 w-full cursor-pointer items-center gap-2 text-left [-webkit-tap-highlight-color:transparent] active:bg-(--solus-surface-hover)"
+          aria-expanded={!collapsedProjectKeys.has(group.projectKey)}
+          aria-controls={projectGroupId(group.projectKey)}
+          onclick={() => toggleProject(group.projectKey)}
+        >
+          <span class="min-w-0 flex-1 truncate">{group.projectLabel}</span>
+          <span class="font-mono text-[0.6875rem] opacity-60 tabular-nums">{group.tasks.length}</span>
+          <CaretRightIcon
+            size={12}
+            class="shrink-0 transition-transform duration-150 {collapsedProjectKeys.has(
+              group.projectKey,
+            )
+              ? ''
+              : 'rotate-90'}"
+          />
+        </button>
+        {#if !collapsedProjectKeys.has(group.projectKey)}
+          <div
+            id={projectGroupId(group.projectKey)}
+            transition:slide={{ duration: reduceMotion ? 0 : 120, easing: cubicOut }}
+          >
+            {#each group.tasks as task (task.id)}
+              {@const taskSessions = task.taskId ? store.sessionsFor(task) : []}
+              {@const isActive = task.tabIds.includes(session.activeTabId)}
+              {@const leadTabId = task.tabIds[0]}
+              {@const reviewStatus = aggregateReviewGuideStatus(
+                taskSessions.length > 0
+                  ? taskSessions
+                  : leadTabId
+                    ? [store.childForTab(leadTabId)]
+                    : [],
+              )}
+              <div
+            class="{rowBase} {isActive ? 'bg-(--solus-accent-light)' : 'bg-transparent active:bg-(--solus-surface-hover)'}"
+            role="button"
+            tabindex="0"
+            data-active={isActive ? "true" : undefined}
+            onclick={() => selectTask(task)}
+            onkeydown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                selectTask(task);
+              }
+            }}
+          >
+            {#if isActive}{@render activeBar()}{/if}
+            <span class="flex-1 min-w-0 flex flex-col gap-px">
+              <span class="truncate text-[0.8125rem] leading-tight font-normal {isActive ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{task.title}</span>
+              {#if taskSessions.length > 0}
+                <span class="truncate text-[0.6875rem] leading-tight text-(--solus-text-tertiary)">{taskSessions.length} session{taskSessions.length === 1 ? '' : 's'}</span>
+              {/if}
+            </span>
+            {#if task.attention}
+              {@render attentionMark(task.attention)}
+            {/if}
+            {#if reviewStatus}
+              {@render reviewMark(reviewStatus)}
+            {/if}
+            {#if leadTabId || task.taskId}
+              <button
+                class="shrink-0 w-9 h-9 flex items-center justify-center rounded-full border-0 bg-transparent text-(--solus-text-muted) cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-tertiary) active:text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
+                aria-label="Mark task completed"
+                onclick={(e) => completeTask(task, e)}
+              >
+                <CheckIcon size={15} weight="bold" />
+              </button>
+              <button
+                class="shrink-0 w-9 h-9 flex items-center justify-center rounded-full border-0 bg-transparent text-(--solus-text-muted) cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-tertiary) active:text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
+                aria-label="Remove task from sidebar"
+                onclick={(e) => removeTask(task, e)}
+              >
+                <XIcon size={15} />
+              </button>
+            {/if}
+          </div>
+
+          {#each taskSessions as child (child.sessionId ?? child.tabId ?? child.taskId)}
+            {@const childActive = child.tabId === session.activeTabId}
             <div
-              class="{rowBase} {isActive ? 'bg-(--solus-accent-light)' : 'bg-transparent active:bg-(--solus-surface-hover)'}"
+              class="{rowBase} {childActive ? 'bg-(--solus-accent-light)' : 'bg-transparent active:bg-(--solus-surface-hover)'}"
               role="button"
               tabindex="0"
-              data-active={isActive ? "true" : undefined}
-              onclick={() => selectTab(tabId)}
+              data-active={childActive ? "true" : undefined}
+              onclick={() => selectSession(child)}
               onkeydown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
-                  selectTab(tabId);
+                  selectSession(child);
                 }
               }}
             >
-              {#if isActive}{@render activeBar()}{/if}
+              {#if childActive}{@render activeBar()}{/if}
               <span class="flex-1 min-w-0 flex flex-col gap-px">
-                <span class="truncate text-[0.8125rem] leading-tight font-normal {isActive ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{child.label}</span>
-                {#if multiBranch}
-                  <span class="truncate text-[0.6875rem] leading-tight text-(--solus-text-tertiary)">{branch.label}</span>
-                {/if}
+                <span class="truncate text-[0.8125rem] leading-tight font-normal {childActive ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{child.label}</span>
+                <span class="truncate text-[0.6875rem] leading-tight text-(--solus-text-tertiary)">{task.title}</span>
               </span>
               {#if child.attention}
                 {@render attentionMark(child.attention)}
               {/if}
-              {#if reviewRunning}
-                {@render reviewMark()}
+              {#if child.reviewGuideStatus}
+                {@render reviewMark(child.reviewGuideStatus)}
               {/if}
-              <button
-                class="shrink-0 w-9 h-9 flex items-center justify-center rounded-full border-0 bg-transparent text-(--solus-text-muted) cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-tertiary) active:text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
-                aria-label="Close session"
-                onclick={(e) => closeTab(tabId, e)}
-              >
-                <XIcon size={15} />
-              </button>
+              {#if child.isSubtask}
+                <button
+                  class="shrink-0 w-9 h-9 flex items-center justify-center rounded-full border-0 bg-transparent text-(--solus-text-muted) cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-tertiary) active:text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
+                  aria-label="Mark subtask completed"
+                  onclick={(e) => completeChild(child, e)}
+                >
+                  <CheckIcon size={15} weight="bold" />
+                </button>
+              {/if}
+              {#if child.tabId || child.dismissalKey}
+                <button
+                  class="shrink-0 w-9 h-9 flex items-center justify-center rounded-full border-0 bg-transparent text-(--solus-text-muted) cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-tertiary) active:text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
+                  aria-label="Remove subtask from sidebar"
+                  onclick={(e) => removeChild(child, e)}
+                >
+                  <XIcon size={15} />
+                </button>
+              {/if}
             </div>
           {/each}
-        {/each}
+            {/each}
+          </div>
+        {/if}
       {/each}
     {:else}
       <div class="flex flex-col items-center gap-3 px-4 py-12 text-[0.8125rem] text-(--solus-text-tertiary)">

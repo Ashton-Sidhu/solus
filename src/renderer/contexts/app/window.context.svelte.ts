@@ -1,4 +1,4 @@
-import { createContext } from 'svelte'
+import { createAppContext } from './create-app-context'
 import { MOBILE_QUERY } from './runtime.svelte'
 
 export type ViewMode = 'pill' | 'editor'
@@ -78,4 +78,4 @@ export class WindowContext {
   }
 }
 
-export const [getWindowContext, setWindowContext] = createContext<WindowContext>()
+export const [getWindowContext, setWindowContext] = createAppContext<WindowContext>('window')

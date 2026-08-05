@@ -104,7 +104,7 @@
     { enabled: () => isPreview },
   );
   useKeybinding("plan-modal.new-tab", () => {
-    void session.createTab();
+    void session.createDraftTab();
   });
 
   function handleSave(md: string) {

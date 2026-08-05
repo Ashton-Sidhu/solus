@@ -16,7 +16,8 @@
   import { CheckIcon } from "phosphor-svelte";
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
   import type { PlanComment, SessionMeta, WorkStorage } from "../../shared/types";
-  import { getWorkspaceContext, toasts, getSettingsContext } from "../../contexts";
+  import { getWorkspaceContext, getSettingsContext } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import { formatInlineComments } from "../../contexts/workspace/session.utils";
   import { uuid } from "../../../shared/uuid";
   import { formatSavedAgo } from "../document-shell/saveStatus";

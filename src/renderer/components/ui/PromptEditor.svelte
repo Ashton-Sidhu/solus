@@ -8,15 +8,10 @@
     SessionReference,
     WorkReference,
   } from "../../../shared/types";
-  import PlanAutocompleteMenu from "../plan/PlanAutocompleteMenu.svelte";
-  import WorkAutocompleteMenu from "../work/WorkAutocompleteMenu.svelte";
-  import PrAutocompleteMenu from "../prs/PrAutocompleteMenu.svelte";
-  import SessionAutocompleteMenu from "../session/SessionAutocompleteMenu.svelte";
-  import SlashCommandMenu from "../input/SlashCommandMenu.svelte";
+  import UnifiedAutocompleteMenu from "../input/UnifiedAutocompleteMenu.svelte";
   import type { SlashCommand } from "../input/slash-commands";
-  import FileAutocompleteMenu from "../input/FileAutocompleteMenu.svelte";
   import PlainTextEditor from "./plain-text-editor/plain-text-editor.svelte";
-  import { AutocompleteController } from "../editor/autocomplete.svelte";
+  import { UnifiedAutocompleteController } from "../editor/autocomplete.svelte";
   import type { AutocompleteEditor } from "../editor/autocomplete-editor";
   import { resolveAutocompleteScope } from "../editor/autocomplete-scope";
 
@@ -113,7 +108,6 @@
 
   let plainTextEditorEl: ReturnType<typeof PlainTextEditor> | null =
     $state(null);
-  let fileMenuEl: ReturnType<typeof FileAutocompleteMenu> | null = $state(null);
   const autocompleteEditor: AutocompleteEditor = {
     textBeforeCursor: () => plainTextEditorEl?.textBeforeCursor() ?? "",
     cursorRect: () => plainTextEditorEl?.getCursorRect() ?? null,
@@ -131,11 +125,12 @@
         sessionRefs: [],
       },
     isCaretAtStart: () => plainTextEditorEl?.isCaretAtStart() ?? false,
+    isCaretAtLineEnd: () => plainTextEditorEl?.isCaretAtLineEnd() ?? true,
   };
 
   // The reference-autocomplete state machine is editor-neutral; this component
-  // hosts its menus and connects it to the lightweight CodeMirror composer.
-  const ac = new AutocompleteController({
+  // hosts its menu and connects it to the lightweight CodeMirror composer.
+  const ac = new UnifiedAutocompleteController({
     readOnly: () => readOnly,
     tabId: () => autocompleteScope.tabId,
     workingDirectory: () => autocompleteScope.workingDirectory,
@@ -148,8 +143,14 @@
     session,
     planStore,
     getEditor: () => autocompleteEditor,
-    getFileMenu: () => fileMenuEl,
   });
+
+  // The completion is drawn by the editor, not the menu, so it sits exactly
+  // where the next typed character would go.
+  $effect(() => {
+    plainTextEditorEl?.setGhostCompletion(ac.open ? ac.ghost : "");
+  });
+
   const decoratedSlashCommands = $derived([
     ...ac.commands.solus,
     ...ac.commands.codex,
@@ -203,9 +204,9 @@
       autoFocus,
       ensureTrailingParagraph,
     );
-    // Re-evaluate the slash trigger so prompt-history navigation keeps the
-    // command menu in sync (setContent fires no editor update).
-    ac.updateSlashFilter(
+    // Re-evaluate the trigger so prompt-history navigation keeps the menu in
+    // sync (setContent fires no editor update).
+    ac.handleEditorChange(
       untrack(() => autocompleteEditor.textBeforeCursor() || text),
     );
   }
@@ -218,67 +219,18 @@
   }
 </script>
 
-{#if ac.showSlashMenu}
-  <SlashCommandMenu
-    filter={ac.slashFilter!}
-    selectedIndex={ac.slashIndex}
-    onSelect={ac.handleSlashSelect}
+{#if ac.open}
+  <UnifiedAutocompleteMenu
+    rows={ac.rows}
+    selectedIndex={ac.selectedIndex}
     anchorRect={ac.cursorAnchorRect}
-    commands={ac.commands}
-    placement={menuPlacement}
-  />
-{/if}
-
-{#if ac.showFileMenu}
-  <FileAutocompleteMenu
-    bind:this={fileMenuEl}
-    files={ac.fileResults}
-    onSelect={ac.handleFileSelect}
-    anchorRect={ac.cursorAnchorRect}
-    placement={menuPlacement}
-  />
-{/if}
-
-{#if ac.showPlanMenu}
-  <PlanAutocompleteMenu
-    plans={ac.planResults}
-    isLoading={ac.isPlanMenuLoading}
-    selectedIndex={ac.planIndex}
-    onSelect={ac.handlePlanSelect}
-    anchorRect={ac.cursorAnchorRect}
-    placement={menuPlacement}
-  />
-{/if}
-
-{#if ac.showWorkMenu}
-  <WorkAutocompleteMenu
-    works={ac.workResults}
-    isLoading={ac.isWorkMenuLoading}
-    selectedIndex={ac.workIndex}
-    onSelect={ac.handleWorkSelect}
-    anchorRect={ac.cursorAnchorRect}
-    placement={menuPlacement}
-  />
-{/if}
-
-{#if ac.showPrMenu}
-  <PrAutocompleteMenu
-    pullRequests={ac.prResults}
-    isLoading={ac.isPrMenuLoading}
-    selectedIndex={ac.prIndex}
-    onSelect={ac.handlePrSelect}
-    anchorRect={ac.cursorAnchorRect}
-    placement={menuPlacement}
-  />
-{/if}
-
-{#if ac.showSessionMenu}
-  <SessionAutocompleteMenu
-    sessions={ac.sessionResults}
-    isLoading={ac.isSessionMenuLoading}
-    selectedIndex={ac.sessionIndex}
-    onSelect={ac.handleSessionSelect}
-    anchorRect={ac.cursorAnchorRect}
+    onActivate={ac.activate}
+    onHover={ac.hoverRow}
+    onBack={ac.leaveScope}
+    enterVerb={ac.enterVerb}
+    tabVerb={ac.tabVerb}
+    showTabHint={ac.showTabHint}
+    footer={ac.footer}
     placement={menuPlacement}
   />
 {/if}

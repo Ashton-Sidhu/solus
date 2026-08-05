@@ -115,7 +115,7 @@
   // A disabled row with no reason is the worst of both worlds, so say why the
   // choice is off the table.
   const worktreeBlockedNote = $derived(
-    worktreeBlockedReason(canToggleWorktree, inWorktree),
+    worktreeBlockedReason(canToggleWorktree),
   );
   // The repo is resolved against the host the session is already on — a
   // dispatched session's checkout path means nothing in the local manifest.

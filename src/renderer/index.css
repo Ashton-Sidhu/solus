@@ -150,9 +150,28 @@
      and the reservation self-collapses off-mac. Overridden to the real inset by
      `html.is-mac-editor` (set from the window context on the editor window).
        - height: the controls' vertical band.
-       - traffic-light-inset: window-left edge → first safe x for content. */
+       - traffic-light-inset: window-left edge → first app-control x.
+       - control/content values: one geometry contract for the sidebar toggle
+         and every header that follows it, so the two can never overlap. */
   --solus-titlebar-height: 0px;
   --solus-traffic-light-inset: 0px;
+  --solus-chrome-row-h: 2.5rem;
+  --solus-titlebar-control-size: 1.75rem;
+  --solus-titlebar-control-gap: 0.75rem;
+  --solus-titlebar-control-left: max(
+    0.625rem,
+    var(--solus-traffic-light-inset)
+  );
+  --solus-titlebar-control-top: max(
+    0.625rem,
+    calc(
+      (var(--solus-titlebar-height) - var(--solus-titlebar-control-size)) / 2
+    )
+  );
+  --solus-titlebar-content-inset: calc(
+    var(--solus-titlebar-control-left) + var(--solus-titlebar-control-size) +
+      var(--solus-titlebar-control-gap)
+  );
   /* Container */
   --solus-edge-bg: #fbfaf6;
   --solus-container-bg: #fefefc;
@@ -161,6 +180,13 @@
   --solus-sidebar-bg: #f9f8f4;
   --solus-sidebar-bg-left: #fffdf8;
   --solus-sidebar-bg-right: #fffdf8;
+  /* The navigation surface, wherever it appears: the session sidebar, the
+     settings column, the workspace rail. A shade above `card`, which is itself
+     above `background` — light means nearer, so the pane you steer from reads as
+     lying on top of the pane you work in. Defined once against `--card` rather
+     than as two hardcoded values: the same mix lifts the panel in dark mode,
+     where `--card` is dark and the 8% white is what raises it. */
+  --solus-sidebar-surface: color-mix(in oklch, var(--card) 92%, #fff);
   --solus-container-shadow: 0 0 0 0.0625rem rgba(0,0,0,0.04), 0 0.5rem 2rem rgba(0,0,0,0.12), 0 0.125rem 0.375rem rgba(0,0,0,0.06);
   --solus-card-shadow: 0 0 0 0.0625rem rgba(0,0,0,0.04), 0 0.5rem 2rem rgba(0,0,0,0.12), 0 0.125rem 0.375rem rgba(0,0,0,0.06);
   --solus-card-shadow-collapsed: 0 0.25rem 1rem rgba(0,0,0,0.09), 0 0.0625rem 0.25rem rgba(0,0,0,0.05);
@@ -213,6 +239,15 @@
   --solus-status-error-bg: rgba(196, 112, 96, 0.06);
   --solus-status-dead: #c47060;
   --solus-status-permission: #d97757;
+  /* Finished with output nobody has read yet. Blue because every other status
+     colour is spoken for by something that wants a decision — unread only wants
+     a glance, so it sits outside the terracotta/red/amber family entirely.
+     Tuned against --solus-sidebar-bg, *not* borrowed from --solus-art-5: the
+     chart ramp is muted on purpose so a dozen series can coexist, which left the
+     dot washed out once the row hover wash landed on top of it. This is the
+     lightest blue that still clears 3:1 hovered (3.46 plain, 3.17 hovered) —
+     anything brighter reads as a smudge on the warm off-white. */
+  --solus-status-unread: #3b82f6;
   /* Tab */
   --solus-tab-active: #f1efe7;
   --solus-tab-active-border: #dddad2;
@@ -237,8 +272,8 @@
   --solus-timeline-node-active: #d97757;
   --solus-timeline-node-done: rgba(90, 158, 111, 0.25);
   /* Scrollbar */
-  --solus-scroll-thumb: rgba(0, 0, 0, 0.09);
-  --solus-scroll-thumb-hover: rgba(0, 0, 0, 0.18);
+  --solus-scroll-thumb: rgba(0, 0, 0, 0.14);
+  --solus-scroll-thumb-hover: rgba(0, 0, 0, 0.28);
   /* Buttons */
   --solus-stop-bg: #ef4444;
   --solus-stop-hover: #dc2626;
@@ -494,6 +529,8 @@
   --solus-status-error-bg: rgba(227, 100, 94, 0.08);
   --solus-status-dead: var(--solus-status-error);
   --solus-status-permission: var(--solus-accent);
+  /* Lifted off the dark sidebar rather than the chart ramp, same as light. */
+  --solus-status-unread: #7cc0ea;
   --solus-brand-gold: #dcb872;
   /* Tab */
   --solus-tab-active: #302f2b;
@@ -516,8 +553,8 @@
   --solus-timeline-node-active: var(--solus-accent);
   --solus-timeline-node-done: rgba(111, 200, 132, 0.35);
   /* Scrollbar */
-  --solus-scroll-thumb: rgba(255, 255, 255, 0.09);
-  --solus-scroll-thumb-hover: rgba(255, 255, 255, 0.18);
+  --solus-scroll-thumb: rgba(255, 255, 255, 0.14);
+  --solus-scroll-thumb-hover: rgba(255, 255, 255, 0.28);
   /* Buttons */
   --solus-stop-bg: #ef4444;
   --solus-stop-hover: #dc2626;
@@ -738,6 +775,39 @@
   --solus-external-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.4 2.4h5.2v5.2M9.6 2.4L4 8'/%3E%3Cpath d='M8 9.6H2.4V4'/%3E%3C/svg%3E");
 }
 
+/* List-page surface (the "List pages — Tasks & Pull requests" spec, Part A).
+   The two list surfaces sit directly on --background with no panel, so their
+   depth comes entirely from washes and half-pixel rings rather than borders and
+   fills. Both are foreground percentages, so they self-invert in dark mode and
+   there is nothing to restate under `.dark`.
+
+   Consume as arbitrary values — `bg-[var(--wash-1)]`, `bg-[var(--hairline)]`.
+   These are deliberately plain custom properties rather than Tailwind theme
+   keys: promoting them would mint `bg-wash-1` utilities that tailwind-merge
+   cannot classify, and each would then need registering in lib/tw.ts. */
+:root {
+  /* Washes. wash-1 is the row hover, wash-2 the held/selected fill and the
+     keycap skin, wash-3 the inert counter badge. */
+  --wash-1: color-mix(in oklch, var(--foreground) 3%, transparent);
+  --wash-2: color-mix(in oklch, var(--foreground) 4%, transparent);
+  --wash-3: color-mix(in oklch, var(--foreground) 7%, transparent);
+  /* Rules. The group-header rule is the quiet one; -strong is for section
+     dividers that have to survive against a wash, and -strongest is the ring a
+     board card takes while it is the selected one. */
+  --hairline: color-mix(in oklch, var(--foreground) 7%, transparent);
+  --hairline-strong: color-mix(in oklch, var(--foreground) 11%, transparent);
+  --hairline-strongest: color-mix(in oklch, var(--foreground) 14%, transparent);
+  /* Status semantics. Aliases, so a chart-palette change cannot silently
+     repaint lifecycle state — a row's colour means one specific thing. */
+  --running: var(--primary);
+  --warning: var(--chart-2);
+  --success: var(--chart-3);
+  --failure: var(--destructive);
+  /* Not-started-yet. The one status that is an absence, so it borrows the
+     neutral grey rather than a palette hue. */
+  --idle: var(--solus-status-idle);
+}
+
 /* Dark mode inverts which half of the card shell does the work: the fill lifts
    (a dark page can't be out-shadowed the way paper can), the shadow turns to
    real black for contact, and the light-source inset drops to a whisper. Lives
@@ -844,20 +914,52 @@ html.solus-web #root {
   }
 }
 
-/* ─── Scrollbar — thin & subtle ─── */
+/* ─── Scrollbar — hairline, overlay-style ───
+   One rule for every scroller in the app. The track stays 0.5rem so the thumb
+   is still grabbable, but a transparent padding-box border shrinks the ink to a
+   0.1875rem hairline pill floating in the middle of that gutter.
+
+   Idle thumbs are invisible. `data-scrolling` is stamped by lib/scroll-reveal
+   while a scroller is actually moving, so the bar reads as a position rather
+   than as a rule drawn down the side of every pane — hover is not the trigger,
+   because a scroller fills its pane and is hovered the whole time you read it.
+   Pointing at the gutter still resolves the thumb, so it stays grabbable.
+   Chromium does not animate scrollbar pseudo-elements: this is a swap, not a
+   fade.
+
+   Never set `scrollbar-width` on a scroller: in Chromium any non-`auto` value
+   opts the element out of ::-webkit-scrollbar entirely and it falls back to the
+   chunky native bar. Use `.no-scrollbar` below to hide one instead. */
 ::-webkit-scrollbar {
-  width: 0.125rem;
-  height: 0.125rem;
+  width: 0.5rem;
+  height: 0.5rem;
 }
-::-webkit-scrollbar-track {
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
+  background: transparent;
+  background-clip: padding-box;
+  border: 0.15625rem solid transparent;
+  border-radius: 999px;
+  min-height: 2rem;
+}
+[data-scrolling]::-webkit-scrollbar-thumb {
   background: var(--solus-scroll-thumb);
-  border-radius: 0.25rem;
+  background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--solus-scroll-thumb-hover);
+  background-clip: padding-box;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 /* Scroll owners represented by the workspace-edge scrollbar keep their native
@@ -1043,6 +1145,34 @@ button.solus-token {
   -webkit-user-select: none;
   user-select: none;
 }
+/* The top match completed ahead of the caret in grey, with the key that takes
+   it. Not selectable and not part of the value — purely a preview. */
+.solus-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  vertical-align: baseline;
+  user-select: none;
+  pointer-events: none;
+}
+.solus-ghost__text {
+  color: var(--solus-text-tertiary);
+  opacity: 0.7;
+  white-space: pre;
+}
+.solus-ghost__key {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  font-size: 0.59375rem;
+  letter-spacing: 0.04em;
+  padding: 0.0625rem 0.25rem;
+  border-radius: 0.1875rem;
+  color: var(--solus-text-tertiary);
+  background: color-mix(in srgb, var(--solus-text-primary) 4%, transparent);
+  box-shadow:
+    0 0 0 0.03125rem color-mix(in srgb, var(--solus-text-primary) 12%, transparent),
+    inset 0 -0.0625rem 0 color-mix(in srgb, var(--solus-text-primary) 9%, transparent);
+}
+
 .solus-token--slash { cursor: default; }
 .solus-token:hover {
   background: color-mix(in oklch, var(--foreground) 9%, transparent);
@@ -1072,7 +1202,9 @@ button.solus-token {
 }
 .solus-token--session,
 .solus-token--work,
-.solus-token--pr {
+.solus-token--pr,
+.solus-token--task,
+.solus-token--automation {
   font-size: calc(0.75rem * var(--solus-font-scale, 1));
 }
 /* A file chip is the only mono one, and it carries the line number. */
@@ -2116,16 +2248,6 @@ button.solus-token {
   border-radius: 0;
   line-height: 1.55;
   overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--solus-text-primary) 18%, transparent)
-    transparent;
-}
-.solus-code-block pre::-webkit-scrollbar {
-  height: 0.5rem;
-}
-.solus-code-block pre::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--solus-text-primary) 18%, transparent);
-  border-radius: 0.5rem;
 }
 /* Edge-fades — shown only when the code actually overflows in that direction. */
 .solus-code-body::before,
@@ -2736,6 +2858,21 @@ button.solus-token {
 .prose-transcript-user a:visited {
   color: inherit;
 }
+.prose-transcript .solus-link__favicon,
+.prose-transcript-user .solus-link__favicon {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-right: 0.25rem;
+  border-radius: 0.125rem;
+  object-fit: contain;
+  vertical-align: -0.09375rem;
+  outline: 0.0625rem solid rgba(0, 0, 0, 0.1);
+}
+.dark .prose-transcript .solus-link__favicon,
+.dark .prose-transcript-user .solus-link__favicon {
+  outline-color: rgba(255, 255, 255, 0.1);
+}
 .prose-transcript .solus-link--external::after {
   content: "";
   display: inline-block;
@@ -2951,13 +3088,12 @@ button.solus-token {
 }
 
 /* ─── PR prose ───
-   Applied alongside `.prose-cloud .github-markdown` on every body GitHub gives
-   us: the pull request description, review-thread comments, and the timeline's
-   conversation rows. One ruleset for all of them — a reply is the same kind of
-   writing as the description it answers, so it gets the same typography. That
-   body is other people's markdown, so the ruleset covers every element an
-   author might reach for, not just the ones our own PRs happen to use. Three
-   rules carry it:
+   Applied to pull request and task descriptions, review-thread comments, and
+   both activity timelines. One ruleset for all of them — a reply is the same
+   kind of writing as the description it answers, so it gets the same
+   typography. That body may be other people's markdown, so the ruleset covers
+   every element an author might reach for, not just the ones our own PRs happen
+   to use. Three rules carry it:
 
    · Body is muted, structure is solid. Paragraphs sit on the tertiary tone;
      headings, strong, em and code step up to primary. That single contrast
@@ -2970,7 +3106,8 @@ button.solus-token {
    Last in the prose region on purpose: nearly every declaration here ties on
    specificity with a `.prose-cloud` / `.github-markdown` rule above, so source
    order is what decides them. */
-.prose-pr {
+.prose-pr,
+.task-description-prose .solus-doc-editor .ProseMirror {
   /* Every size below is a ratio of this one, so a denser surface (the inline
      diff card) re-scales the whole ruleset by setting it once. */
   --prose-pr-size: calc(0.875rem * var(--solus-font-scale, 1));
@@ -2986,15 +3123,16 @@ button.solus-token {
    little past the nominal 78ch the 1.75 leading is tuned for — deliberate, so
    the column doesn't strand a band of empty canvas on a wide pane. */
 .prose-pr-description { max-width: 84ch; }
+.prose-pr-comment { color: var(--solus-text-secondary); }
 /* Element margins alone set the rhythm — the generic sibling step would add to
    the asymmetric heading spacing below. */
-.prose-pr > * + * { margin-top: 0; }
-.prose-pr > :last-child { margin-bottom: 0; }
-.prose-pr p { margin: 0 0 0.75rem; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) > * + * { margin-top: 0; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) > :last-child { margin-bottom: 0; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) p { margin: 0 0 0.75rem; }
 
 /* An h1 in the body is demoted to h2 — the PR title is the page's h1. */
-.prose-pr h1,
-.prose-pr h2 {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h1,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h2 {
   margin: 2rem 0 0.625rem;
   font-size: calc(var(--prose-pr-size) * 1.107);
   font-weight: 600;
@@ -3002,10 +3140,10 @@ button.solus-token {
   letter-spacing: -0.015em;
   color: var(--solus-text-primary);
 }
-.prose-pr h3,
-.prose-pr h4,
-.prose-pr h5,
-.prose-pr h6 {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h3,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h4,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h5,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h6 {
   margin: 1.25rem 0 0.375rem;
   font-size: calc(var(--prose-pr-size) * 0.964);
   font-weight: 600;
@@ -3013,19 +3151,19 @@ button.solus-token {
   letter-spacing: -0.01em;
   color: var(--solus-text-primary);
 }
-.prose-pr h1:first-child,
-.prose-pr h2:first-child,
-.prose-pr h3:first-child,
-.prose-pr h4:first-child,
-.prose-pr h5:first-child,
-.prose-pr h6:first-child { margin-top: 0; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h1:first-child,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h2:first-child,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h3:first-child,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h4:first-child,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h5:first-child,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h6:first-child { margin-top: 0; }
 
-.prose-pr strong { font-weight: 600; color: var(--solus-text-primary); }
-.prose-pr em { font-style: italic; color: var(--solus-text-primary); }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) strong { font-weight: 600; color: var(--solus-text-primary); }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) em { font-style: italic; color: var(--solus-text-primary); }
 
 /* Mono runs at 0.9× whatever surrounds them — never equal, or the chip reads
    as a size change rather than a change of voice. */
-.prose-pr code {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) code {
   padding: 0.0625rem 0.25rem;
   border-radius: 0.25rem;
   background: var(--solus-surface-hover);
@@ -3033,7 +3171,7 @@ button.solus-token {
   font-size: 0.9em;
 }
 /* A commit SHA is an address, not a literal you'd retype: accent, no chip. */
-.prose-pr code.markdown-sha {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) code.markdown-sha {
   padding: 0;
   background: none;
   color: var(--solus-accent);
@@ -3042,32 +3180,32 @@ button.solus-token {
 /* Markers live in their own gutter rather than in the text flow, so a list
    stays aligned at any nesting depth and a wrapped line never tucks under its
    own bullet. */
-.prose-pr ul {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) ul {
   margin: 0.75rem 0;
   padding-left: 0;
   list-style: none;
 }
-.prose-pr ol {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) ol {
   margin: 0.75rem 0;
   padding-left: 1.5rem;
   list-style: decimal;
 }
-.prose-pr li {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) li {
   margin: 0;
   font-size: calc(var(--prose-pr-size) * 0.964);
   line-height: 1.7;
 }
-.prose-pr li + li { margin-top: 0.75rem; }
-.prose-pr li > p { margin: 0; }
-.prose-pr li > p + p { margin-top: 0.375rem; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) li + li { margin-top: 0.75rem; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) li > p { margin: 0; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) li > p + p { margin-top: 0.375rem; }
 /* A nested list belongs to its parent item, not to the gap between items. */
-.prose-pr li > ul,
-.prose-pr li > ol { margin: 0.375rem 0 0; }
-.prose-pr ul > li {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) li > ul,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) li > ol { margin: 0.375rem 0 0; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) ul > li {
   position: relative;
   padding-left: 1.25rem;
 }
-.prose-pr ul > li::before {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) ul > li::before {
   content: "";
   position: absolute;
   left: 0.25rem;
@@ -3079,7 +3217,7 @@ button.solus-token {
   background: currentColor;
 }
 /* Nested bullets hollow out, so depth reads without a second indent cue. */
-.prose-pr li ul > li::before {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) li ul > li::before {
   top: 0.56em;
   width: 0.3125rem;
   height: 0.3125rem;
@@ -3088,24 +3226,32 @@ button.solus-token {
 }
 /* Mono numerals, muted, right-aligned in the gutter (list-style-position:
    outside) so a two-digit item never shifts the text column. */
-.prose-pr ol > li::marker {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) ol > li::marker {
   font-family: var(--solus-code-font-family);
   font-size: 0.86em;
   color: var(--solus-text-tertiary);
 }
 
 /* Task rows carry their own marker, so they opt out of the bullet gutter. */
-.prose-pr .markdown-task-item {
+.prose-pr .markdown-task-item,
+.task-description-prose .solus-doc-editor .ProseMirror ul[data-type="taskList"] > li {
   margin-left: 0;
   padding-left: 0;
   gap: 0.625rem;
 }
-.prose-pr .markdown-task-item::before { content: none; }
+.prose-pr .markdown-task-item::before,
+.task-description-prose .solus-doc-editor .ProseMirror ul[data-type="taskList"] > li::before { content: none; }
 .prose-pr .markdown-task-checkbox {
   width: 0.8125rem;
   height: 0.8125rem;
   margin-top: 0.25rem;
   border-radius: 0.25rem;
+}
+.task-description-prose .solus-doc-editor .ProseMirror ul[data-type="taskList"] input[type="checkbox"] {
+  width: 0.8125rem;
+  height: 0.8125rem;
+  margin-top: 0.125rem;
+  accent-color: var(--solus-art-3);
 }
 /* Sage tick; the label stays muted rather than struck — a done item is still
    part of the description. */
@@ -3113,9 +3259,13 @@ button.solus-token {
   border-color: var(--solus-art-3);
   background: var(--solus-art-3);
 }
+.task-description-prose .solus-doc-editor .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div {
+  color: var(--solus-text-tertiary);
+  text-decoration: none;
+}
 
 /* Quiet, not decorative: a wash and a leading hairline, same muted text. */
-.prose-pr blockquote {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) blockquote {
   margin: 1rem 0;
   padding: 0.75rem 1rem;
   border-left: 0.125rem solid var(--solus-container-border);
@@ -3125,12 +3275,12 @@ button.solus-token {
   font-size: calc(var(--prose-pr-size) * 0.964);
   line-height: 1.7;
 }
-.prose-pr blockquote > :first-child { margin-top: 0; }
-.prose-pr blockquote > :last-child { margin-bottom: 0; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) blockquote > :first-child { margin-top: 0; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) blockquote > :last-child { margin-bottom: 0; }
 
 /* Callouts earn a tinted card instead of a bare left rule — they're for the
    one caveat that changes what the reviewer should do. */
-.prose-pr .markdown-alert {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) .markdown-alert {
   margin: 1rem 0;
   padding: 0.75rem 1rem;
   border: 0.0625rem solid color-mix(in srgb, var(--markdown-alert-color) 28%, transparent);
@@ -3140,12 +3290,12 @@ button.solus-token {
   font-size: calc(var(--prose-pr-size) * 0.964);
   line-height: 1.7;
 }
-.prose-pr .markdown-alert-title { margin-bottom: 0.25rem; }
-.prose-pr .markdown-alert-title svg { width: 0.9375rem; height: 0.9375rem; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) .markdown-alert-title { margin-bottom: 0.25rem; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) .markdown-alert-title svg { width: 0.9375rem; height: 0.9375rem; }
 
 /* No chrome and no language label — a fenced block is a quotation of a
    terminal, and it scrolls rather than wrapping. */
-.prose-pr pre {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) pre {
   margin: 1rem 0;
   padding: 0.75rem 0.875rem;
   border: none;
@@ -3159,18 +3309,18 @@ button.solus-token {
   overflow-wrap: normal;
 }
 
-.prose-pr hr {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) hr {
   margin: 1.5rem 0 1rem;
   border-top: 0.0625rem solid var(--solus-container-border);
   opacity: 1;
 }
 /* The "Generated with …" line under a closing rule sits below the document. */
-.prose-pr hr + p:last-child {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) hr + p:last-child {
   margin-bottom: 0;
   font-size: calc(var(--prose-pr-size) * 0.893);
 }
 
-.prose-pr img {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) img {
   display: block;
   max-width: 100%;
   height: auto;
@@ -3179,11 +3329,11 @@ button.solus-token {
   border-radius: 0.5rem;
 }
 
-.prose-pr table {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) table {
   margin: 1rem 0;
   font-size: calc(var(--prose-pr-size) * 0.893);
 }
-.prose-pr th {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) th {
   padding: 0 0.7em 0.5em 0;
   border-bottom: 0.0625rem solid var(--solus-container-border);
   background: none;
@@ -3193,27 +3343,27 @@ button.solus-token {
   text-transform: uppercase;
   color: var(--solus-text-tertiary);
 }
-.prose-pr td {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) td {
   padding: 0.55em 0.7em 0.55em 0;
   border-bottom: 0.0625rem solid color-mix(in srgb, var(--solus-container-border) 55%, transparent);
   color: var(--solus-text-tertiary);
 }
-.prose-pr td:first-child {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) td:first-child {
   font-weight: 500;
   color: var(--solus-text-primary);
 }
-.prose-pr tr:last-child td { border-bottom: none; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) tr:last-child td { border-bottom: none; }
 /* Two columns is a label→value pair, not a grid: drop the rules and give the
    label a fixed gutter so every value starts on the same edge. */
-.prose-pr table:not(:has(td:nth-child(3))) {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) table:not(:has(td:nth-child(3))) {
   font-size: calc(var(--prose-pr-size) * 0.964);
 }
-.prose-pr table:not(:has(td:nth-child(3))) :is(th, td) {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) table:not(:has(td:nth-child(3))) :is(th, td) {
   padding: 0.3em 0.75em 0.3em 0;
   border-bottom: none;
   line-height: 1.7;
 }
-.prose-pr table:not(:has(td:nth-child(3))) td:first-child {
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) table:not(:has(td:nth-child(3))) td:first-child {
   width: 8.75rem;
 }
 
@@ -3221,17 +3371,17 @@ button.solus-token {
    takes the same ruleset a step down: type via the ratio variable, block
    rhythm halved by hand — description spacing is tuned for a full pane, and
    32px above a heading would be most of the card. */
-.prose-pr-compact {
+.github-markdown.prose-cloud.prose-pr-compact {
   --prose-pr-size: calc(0.75rem * var(--solus-font-scale, 1));
   line-height: 1.65;
 }
-.prose-pr-compact p { margin-bottom: 0.5rem; }
-.prose-pr-compact :is(h1, h2) { margin: 1rem 0 0.375rem; }
-.prose-pr-compact :is(h3, h4, h5, h6) { margin: 0.625rem 0 0.25rem; }
-.prose-pr-compact :is(ul, ol) { margin: 0.5rem 0; }
-.prose-pr-compact li + li { margin-top: 0.375rem; }
-.prose-pr-compact :is(pre, blockquote, .markdown-alert) { margin: 0.625rem 0; }
-.prose-pr-compact hr { margin: 0.875rem 0 0.625rem; }
+.github-markdown.prose-cloud.prose-pr-compact p { margin-bottom: 0.5rem; }
+.github-markdown.prose-cloud.prose-pr-compact :is(h1, h2) { margin: 1rem 0 0.375rem; }
+.github-markdown.prose-cloud.prose-pr-compact :is(h3, h4, h5, h6) { margin: 0.625rem 0 0.25rem; }
+.github-markdown.prose-cloud.prose-pr-compact :is(ul, ol) { margin: 0.5rem 0; }
+.github-markdown.prose-cloud.prose-pr-compact li + li { margin-top: 0.375rem; }
+.github-markdown.prose-cloud.prose-pr-compact :is(pre, blockquote, .markdown-alert) { margin: 0.625rem 0; }
+.github-markdown.prose-cloud.prose-pr-compact hr { margin: 0.875rem 0 0.625rem; }
 
 /* ─── Pulsing dot animation ─── */
 @keyframes pulse-dot {
@@ -3346,21 +3496,6 @@ button.solus-token {
   animation: spin 0.9s linear infinite;
 }
 
-/* Compact rails use a visible but deliberately quiet scrollbar. */
-.hairline-scroll {
-  scrollbar-width: thin;
-}
-.hairline-scroll::-webkit-scrollbar {
-  width: 0.1875rem;
-}
-.hairline-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-.hairline-scroll::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--solus-text-tertiary) 35%, transparent);
-  border-radius: 0.25rem;
-}
-
 /* ─── Top scroll fade — sticky pseudo-element ─── */
 .has-scroll-fade-top {
   position: relative;
@@ -3391,8 +3526,9 @@ button.solus-token {
    the window context (platform === darwin && editor mode); resolves the safe
    area vars above so every consumer's reservation switches on together. */
 html.is-mac-editor {
-  --solus-titlebar-height: 2.375rem;
-  --solus-traffic-light-inset: 5.75rem;
+  --solus-titlebar-height: 3.25rem;
+  --solus-traffic-light-inset: 5.625rem;
+  --solus-chrome-row-h: var(--solus-titlebar-height);
 }
 
 /* ─── Drag region for frameless window ─── */

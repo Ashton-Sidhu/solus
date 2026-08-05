@@ -1,9 +1,11 @@
 import type { PullRequestSummary } from '../../../../shared/providers'
+import type { Task } from '../../../../shared/task-types'
 import type { AttentionState } from '../../../lib/sessionUtils'
 
 /** The sidebar's state vocabulary. Narrower than `AttentionState`: the column
  *  reports what a task wants from a person, so "finished but unread" is not a
- *  state here — it is an idle task with a bolder title.
+ *  status here — it is an idle task carrying `SidebarTask.unread`, which the
+ *  margin reports with a dot rather than a glyph.
  *
  *  `done` is the one status the user sets rather than the agent: it is what the
  *  check in the hover cluster writes, and it only says "I am finished with
@@ -28,10 +30,26 @@ export function hasGlyph(status: TaskStatus): boolean {
   return status !== 'running' && status !== 'idle' && status !== 'done'
 }
 
-/** Unread output and states that need a person use the same title weight as
- *  selection. The status glyph still carries the specific reason. */
-export function sidebarTitleNeedsEmphasis(status: TaskStatus, unread: boolean): boolean {
-  return unread || hasGlyph(status)
+/**
+ * Whether a task row opens onto anything. Several sessions obviously do; so does
+ * a single one that belongs to a *subtask*, because the row above it is named
+ * after the root task and would otherwise be the only trace of the child's
+ * existence. A lone session of the task itself discloses nothing — the row is
+ * already that session.
+ */
+export function hasDisclosure(sessions: readonly { isSubtask?: boolean }[]): boolean {
+  return sessions.length > 1 || sessions.some((session) => session.isSubtask)
+}
+
+export type ReviewGuideIndicatorStatus = 'generating' | 'ready' | null
+
+/** A task summarizes every session below it. Work in flight wins over ready so
+ * the parent never looks settled while one of its guides is still being made. */
+export function aggregateReviewGuideStatus(
+  sessions: readonly { reviewGuideStatus: ReviewGuideIndicatorStatus }[],
+): ReviewGuideIndicatorStatus {
+  if (sessions.some((session) => session.reviewGuideStatus === 'generating')) return 'generating'
+  return sessions.some((session) => session.reviewGuideStatus === 'ready') ? 'ready' : null
 }
 
 /**
@@ -76,6 +94,9 @@ export interface SidebarTask {
   /** Stable renderer identity. Unlike the branch key, this survives worktree
    *  resolution and closing any one session within the task. */
   id: string
+  /** Durable task id when this row is backed by the task store. Loose session
+   *  rows deliberately leave it unset until the first dispatch mints a task. */
+  taskId?: string
   /** Current branch key. This is navigation data and may change while a
    *  pending worktree resolves. */
   key: string
@@ -84,12 +105,20 @@ export interface SidebarTask {
   projectLabel: string
   /** Real git branch, matched against a PR's head ref. Null off a branch. */
   branchName: string | null
+  /** The host this task's sessions run on. Null when nothing is open for it —
+   *  the task record itself does not remember a machine. */
+  serverId: string | null
+  /** The PR number the task record captured, for when the live PR list can't
+   *  answer (another project's PRs, or a PR that has already been merged out of
+   *  the list). 0 and null both mean "none". */
+  prNumber: number | null
   status: TaskStatus
   /** The raw state behind `status`, kept so glyphs can be labelled in the
    *  app's own words rather than the sidebar's narrower vocabulary. */
   attention: AttentionState
-  /** True while a session finished with output the user has not seen. Bolds the
-   *  title without spending a glyph on it. */
+  /** True while a session finished with output the user has not seen. Earns a
+   *  dot in the margin, and only while the row is otherwise at rest — a task
+   *  that is asking or working has something louder to report. */
   unread: boolean
   /** Sort tie-break: most recent activity first. */
   activityAt: number
@@ -98,37 +127,35 @@ export interface SidebarTask {
   tabIds: string[]
 }
 
-export type SidebarTaskData = Omit<SidebarTask, 'id'>
+/** Lifecycle changes never remove a durable task from the sidebar. Only child
+ * tasks (which render under their root) and an explicit sidebar dismissal keep
+ * a row out; opening a session restores an explicitly dismissed task. */
+export function shouldShowDurableSidebarTask(
+  task: Task,
+  isDismissed: boolean,
+  hasOpenSession: boolean,
+): boolean {
+  return !task.parentId && (!isDismissed || hasOpenSession)
+}
 
-/** Assign one stable renderer identity to each current task. A task keeps its
- *  identity while any session remains in it, even if its branch key changes or
- *  its lead session closes. If one task temporarily splits while environments
- *  resolve, each rendered row still receives a unique identity. */
-export function identifySidebarTasks(
-  identityByTabId: Map<string, string>,
-  tasks: SidebarTaskData[],
-): SidebarTask[] {
-  const claimedIds = new Set<string>()
-  const liveTabIds = new Set<string>()
+/** A dismissed child stays gone after its tab closes, but explicitly reopening
+ * that session restores the row so the active work never becomes unreachable. */
+export function shouldShowSidebarChild(isDismissed: boolean, hasOpenTab: boolean): boolean {
+  return !isDismissed || hasOpenTab
+}
 
-  const identified = tasks.map((task) => {
-    const previousId = task.tabIds
-      .map((tabId) => identityByTabId.get(tabId))
-      .find((id) => id !== undefined && !claimedIds.has(id))
-    const id = previousId ?? task.tabIds.find((tabId) => !claimedIds.has(tabId)) ?? task.key
-
-    claimedIds.add(id)
-    for (const tabId of task.tabIds) {
-      liveTabIds.add(tabId)
-      identityByTabId.set(tabId, id)
-    }
-    return { ...task, id }
-  })
-
-  for (const tabId of identityByTabId.keys()) {
-    if (!liveTabIds.has(tabId)) identityByTabId.delete(tabId)
-  }
-  return identified
+/** Resolve the breadcrumb's task without putting a local-only draft into the
+ * sidebar projection. A draft can inherit a durable task before it has a
+ * linked session or visible tab row of its own. */
+export function activeSidebarTask(
+  tasks: SidebarTask[],
+  activeTabId: string,
+  draftTabId: string | null,
+  draftRootTaskId: string | null,
+): SidebarTask | null {
+  const openTask = tasks.find((task) => task.tabIds.includes(activeTabId))
+  if (openTask || activeTabId !== draftTabId || !draftRootTaskId) return openTask ?? null
+  return tasks.find((task) => task.taskId === draftRootTaskId) ?? null
 }
 
 /**
@@ -147,11 +174,14 @@ export function reconcileSidebarTasks(
     const previous = previousById.get(next.id)
     if (
       previous &&
+      previous.taskId === next.taskId &&
       previous.key === next.key &&
       previous.title === next.title &&
       previous.projectKey === next.projectKey &&
       previous.projectLabel === next.projectLabel &&
       previous.branchName === next.branchName &&
+      previous.serverId === next.serverId &&
+      previous.prNumber === next.prNumber &&
       previous.status === next.status &&
       previous.attention === next.attention &&
       previous.unread === next.unread &&
@@ -170,6 +200,34 @@ export function reconcileSidebarTasks(
     if (!liveIds.has(id)) previousById.delete(id)
   }
   return reconciled
+}
+
+/** Keep the sidebar in insertion order even when its source projection changes
+ * shape or arrives in a different order. Existing rows retain their slot;
+ * genuinely new rows are appended, and removed rows leave the ledger. */
+export function holdSidebarTaskOrder(
+  orderedIds: string[],
+  tasks: SidebarTask[],
+): SidebarTask[] {
+  const taskById = new Map(tasks.map((task) => [task.id, task]))
+  const retainedIds = new Set<string>()
+
+  for (let index = orderedIds.length - 1; index >= 0; index -= 1) {
+    const id = orderedIds[index]
+    if (!taskById.has(id)) orderedIds.splice(index, 1)
+    else retainedIds.add(id)
+  }
+
+  for (const task of tasks) {
+    if (retainedIds.has(task.id)) continue
+    orderedIds.push(task.id)
+    retainedIds.add(task.id)
+  }
+
+  return orderedIds.flatMap((id) => {
+    const task = taskById.get(id)
+    return task ? [task] : []
+  })
 }
 
 /** Rank, then most recent activity, then the order the tasks were created in
@@ -243,9 +301,7 @@ export interface ProjectSummary {
 }
 
 /**
- * The projects behind the breadcrumb's picker. Built from the *unfiltered* task
- * list: the counts must not change when a filter is on, or the way back would
- * renumber itself.
+ * The projects behind the breadcrumb's picker.
  */
 export function buildProjectSummaries(allTasks: SidebarTask[]): ProjectSummary[] {
   const byProject = new Map<string, SidebarTask[]>()
@@ -271,32 +327,13 @@ export function buildProjectSummaries(allTasks: SidebarTask[]): ProjectSummary[]
 
 export type ViewMode = 'flat' | 'grouped'
 
-/** Show the per-row project only when the flat list actually mixes projects.
- *  A group heading, project filter, or single-project list already supplies
- *  that context, so repeating it inside every task is noise. */
-export function showsProjectLine(
-  mode: ViewMode,
-  projectFilter: string | null,
-  projectCount: number,
-): boolean {
-  return mode === 'flat' && projectFilter === null && projectCount > 1
-}
-
-export type TrailingSlot = 'status' | 'elapsed' | 'pr' | 'none'
-
-/**
- * One slot, one occupant. Live status wins because it says what needs attention
- * now; running time comes next; a PR is standing context for an otherwise idle
- * task. The PR chip alone yields to hover actions.
- *
- * The chip still steps aside on hover (that swap is CSS) to make room for the
- * row's actions.
- */
-export function trailingSlot(status: TaskStatus, hasPr: boolean, hovered: boolean): TrailingSlot {
-  if (hasGlyph(status)) return 'status'
-  if (status === 'running') return 'elapsed'
-  if (hasPr && !hovered) return 'pr'
-  return 'none'
+/** A grouped list states the project in its heading, so repeating it on every
+ *  row under that heading is noise. A flat list has no heading to lean on:
+ *  which project a task belongs to is part of reading the row, even when only
+ *  one project happens to be open right now — a column whose rows change shape
+ *  the moment a second project appears is harder to read than one that doesn't. */
+export function showsProjectLine(mode: ViewMode): boolean {
+  return mode === 'flat'
 }
 
 export type PrChipState = 'draft' | 'open' | 'approvalRequested' | 'merged'
@@ -307,9 +344,11 @@ export interface PrChip {
 }
 
 /**
- * Match a task's branch to an open PR by head ref. Returns null when the PR
- * list has not loaded — the chip states standing information, and a guess is
- * worse than an empty slot.
+ * Match a task's branch to an open PR by head ref, falling back to the number
+ * the task record captured when it opened one. The live list is preferred
+ * because it is the only thing that knows the PR's *state*; the recorded number
+ * is what keeps the chip on a task whose PR the list doesn't carry — another
+ * project's, or one already merged out of it — where it reads as plain open.
  *
  * `PullRequestSummary` carries no human verdict, so "approved" and "changes
  * requested" are not distinguishable here and render as plain open.
@@ -317,10 +356,10 @@ export interface PrChip {
 export function prChipFor(
   branchName: string | null,
   prs: readonly PullRequestSummary[],
+  recordedNumber: number | null = null,
 ): PrChip | null {
-  if (!branchName) return null
-  const pr = prs.find((item) => item.headRef === branchName)
-  if (!pr) return null
+  const pr = branchName ? prs.find((item) => item.headRef === branchName) : undefined
+  if (!pr) return recordedNumber ? { number: recordedNumber, state: 'open' } : null
   if (pr.state === 'merged') return { number: pr.number, state: 'merged' }
   if (pr.draft) return { number: pr.number, state: 'draft' }
   if (pr.needsMyReview) return { number: pr.number, state: 'approvalRequested' }

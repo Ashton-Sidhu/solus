@@ -229,10 +229,11 @@ export class ClaudeAgent {
             && !isTaskNotificationResult(msg as unknown as ResultEvent)
           ) {
             sawResult = true
-            // Refuse steers from here on. `input.close()` below can lag this by
-            // a whole git snapshot, and a message accepted in that window would
-            // be shown to the user and then never read.
-            input?.seal()
+            // A background task keeps the SDK query and its input loop alive, so
+            // Enter must still be able to steer the main agent while that task is
+            // running. With no background work, refuse input during the snapshot
+            // gap: `input.close()` below can lag and nothing would read it again.
+            if (backgroundTasks.size === 0) input?.seal()
             const contextUsage = await readContextUsage(cquery)
             if (contextUsage) yield { type: 'usage', context: contextUsage }
             if (state.sessionId && opts.onTurnComplete) {

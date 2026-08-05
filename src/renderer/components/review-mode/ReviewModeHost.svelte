@@ -11,7 +11,8 @@
   import type { PullRequestSummary } from "../../../shared/providers";
   import type { IpcContext, PrReviewContext } from "../../../shared/types";
   import type { ReviewOutcome } from "../../../shared/review-session-types";
-  import { getWorkspaceContext, toasts } from "../../contexts";
+  import { getWorkspaceContext } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import { Button } from "../ui/button";
   import PrChecksChip from "../prs/PrChecksChip.svelte";
   import PrReviewPane from "../pr-review/PrReviewPane.svelte";
@@ -336,7 +337,7 @@
 <svelte:window onkeydown={onWindowKeydown} />
 
 <section class="flex h-full min-h-0 flex-col bg-(--solus-container-bg) antialiased" aria-label="Review mode">
-  <header class="flex h-12 shrink-0 items-center gap-3 border-b border-(--solus-container-border) pr-3 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]">
+  <header class="flex h-(--solus-chrome-row-h) shrink-0 items-center gap-3 border-b border-(--solus-container-border) pr-3 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]">
     <span class="rounded-md bg-(--solus-accent-light) px-2 py-1 text-[0.625rem] font-semibold tracking-[0.06em] text-(--solus-accent) uppercase ring-1 ring-inset ring-(--solus-accent-border)">
       Review mode
     </span>

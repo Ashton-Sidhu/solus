@@ -1,17 +1,9 @@
 // Pure, non-reactive helpers for the tasks UI.
 import type { Task, TaskStatus, TaskPriority } from '../../../../shared/task-types'
 
-export type StatusFilter = 'all' | 'active' | 'open' | 'in_progress' | 'done'
-
-/** How the list/board orders tasks. `updated` is the provider default;
+/** How the list/board orders tasks. `updated` is the default;
  *  `priority` and `due` answer "what's next". */
 export type TaskSort = 'updated' | 'priority' | 'due'
-
-export interface TaskFilterState {
-  query: string
-  status: StatusFilter
-  sort: TaskSort
-}
 
 /** Display + ordering metadata per priority. `rank` drives the sort (lower =
  *  more urgent); the colour classes drive the badge. */
@@ -29,23 +21,6 @@ export const PRIORITY_META: Record<
   low: { label: 'Low', rank: 3, chipClass: 'text-(--solus-text-tertiary) bg-(--solus-surface-hover)', flagClass: 'text-(--solus-text-tertiary)' },
 }
 
-/** Due-date tone classes, paired light/dark like PRIORITY_META. `chip` is the
- *  badge form (cards), `text` the inline form (detail sidebar). */
-export const DUE_TONE_META = {
-  overdue: {
-    chip: 'text-[#cf222e] bg-[#cf222e]/10 [.dark_&]:text-[#f85149] [.dark_&]:bg-[#f85149]/10',
-    text: 'text-[#cf222e] [.dark_&]:text-[#f85149]',
-  },
-  soon: {
-    chip: 'text-[#9a6700] bg-[#9a6700]/10 [.dark_&]:text-[#d29922] [.dark_&]:bg-[#d29922]/10',
-    text: 'text-[#9a6700] [.dark_&]:text-[#d29922]',
-  },
-  normal: {
-    chip: 'text-(--solus-text-tertiary) bg-(--solus-surface-hover)',
-    text: 'text-(--solus-text-tertiary)',
-  },
-} as const
-
 function priorityRank(t: Task): number {
   return t.priority ? PRIORITY_META[t.priority].rank : 4
 }
@@ -59,7 +34,7 @@ function dueRank(t: Task): number {
 /** Order tasks for display. Priority/due both tie-break by the other then by
  *  recency, so "what's next" surfaces urgent + soon-due work first. */
 export function sortTasks(tasks: Task[], sort: TaskSort): Task[] {
-  const byUpdated = (a: Task, b: Task) => b.updatedAt.localeCompare(a.updatedAt)
+  const byUpdated = (a: Task, b: Task) => b.updatedAt - a.updatedAt
   const arr = [...tasks]
   if (sort === 'priority') {
     arr.sort((a, b) => priorityRank(a) - priorityRank(b) || dueRank(a) - dueRank(b) || byUpdated(a, b))
@@ -71,11 +46,29 @@ export function sortTasks(tasks: Task[], sort: TaskSort): Task[] {
   return arr
 }
 
-/** Display metadata for a normalized status — label + the theme token its dot uses. */
-export const STATUS_META: Record<TaskStatus, { label: string; dotClass: string }> = {
-  open: { label: 'Open', dotClass: 'border border-(--solus-text-tertiary)' },
-  in_progress: { label: 'In progress', dotClass: 'bg-(--solus-accent)' },
-  done: { label: 'Done', dotClass: 'bg-(--solus-text-secondary)' },
+// Status glyphs, drawn on a 14×14 box with a 1.45 stroke. Status is never
+// carried by colour alone: each state has a distinct shape as well as a token.
+const RING = 'M7 12.6A5.6 5.6 0 107 1.4a5.6 5.6 0 000 11.2'
+const STATUS_GLYPHS = {
+  idle: RING,
+  clock: `${RING}M7 4.2v2.9l2 1.2`,
+  eye: 'M1.9 7s2-3.5 5.1-3.5S12.1 7 12.1 7s-2 3.5-5.1 3.5S1.9 7 1.9 7M5.7 7a1.3 1.3 0 102.6 0 1.3 1.3 0 10-2.6 0',
+  check: `${RING}M4.6 7.2l1.7 1.7L9.6 5.6`,
+  slash: `${RING}M3 3l8 8`,
+} as const
+
+/** Display metadata for a normalized status — label, the theme token its dot
+ *  and glyph use, the dot class, and the SVG path for the glyph form. */
+export const STATUS_META: Record<
+  TaskStatus,
+  { label: string; dotClass: string; token: string; glyph: string }
+> = {
+  inbox: { label: 'Inbox', dotClass: 'border border-(--solus-text-tertiary)', token: '--idle', glyph: STATUS_GLYPHS.idle },
+  todo: { label: 'To do', dotClass: 'border border-(--solus-text-tertiary)', token: '--idle', glyph: STATUS_GLYPHS.idle },
+  in_progress: { label: 'In progress', dotClass: 'bg-(--solus-accent)', token: '--running', glyph: STATUS_GLYPHS.clock },
+  in_review: { label: 'In review', dotClass: 'bg-[#8250df]', token: '--warning', glyph: STATUS_GLYPHS.eye },
+  done: { label: 'Done', dotClass: 'bg-(--solus-text-secondary)', token: '--success', glyph: STATUS_GLYPHS.check },
+  dropped: { label: 'Dropped', dotClass: 'bg-(--solus-text-tertiary)', token: '--failure', glyph: STATUS_GLYPHS.slash },
 }
 
 export function statusLabel(status: TaskStatus): string {
@@ -93,12 +86,6 @@ export function visibleLabels(task: Task): string[] {
   return task.labels.filter((l) => !STATUS_REDUNDANT_LABELS.has(l.trim().toLowerCase()))
 }
 
-export interface TaskComment {
-  author: { login: string } | null
-  body: string
-  createdAt: string
-}
-
 /** Up-to-two-letter initials for a comment author's avatar. Splits on the usual
  *  name separators (space, dot, underscore, dash) so `ashton.sidhu` → "AS";
  *  falls back to the first two characters, or "?" when there's no author. */
@@ -108,25 +95,6 @@ export function authorInitials(login: string | null | undefined): string {
   const parts = name.split(/[\s._-]+/).filter(Boolean)
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
   return name.slice(0, 2).toUpperCase()
-}
-
-export interface TaskLinkedPr {
-  number: number
-  title: string
-  url: string
-  state: 'OPEN' | 'CLOSED' | 'MERGED'
-}
-
-/** Pull the hydrated comments + linked PRs out of a GitHub task's `raw` payload
- *  (shaped by the GitHub provider's `GitHubTaskRaw`). Returns empty lists for
- *  local tasks or an unhydrated summary, so the detail view degrades cleanly. */
-export function taskHydration(task: Task): { comments: TaskComment[]; linkedPrs: TaskLinkedPr[] } {
-  const raw = task.raw
-  if (raw && typeof raw === 'object' && 'comments' in raw) {
-    const r = raw as { comments?: TaskComment[]; linkedPrs?: TaskLinkedPr[] }
-    return { comments: r.comments ?? [], linkedPrs: r.linkedPrs ?? [] }
-  }
-  return { comments: [], linkedPrs: [] }
 }
 
 /** Compact "updated 5m ago" style relative time for the freshness hint and
@@ -148,10 +116,17 @@ export function relativeTime(iso: string | number, now = Date.now()): string {
   return `${Math.round(months / 12)}y ago`
 }
 
-/** The kanban columns, in board order. Status is the drop target / drag result. */
+/**
+ * The kanban columns, in board order. Status is the drop target / drag result.
+ *
+ * Ordered by how much attention the column wants, matching the section order of
+ * the grouped list — so switching layouts re-plots the same tasks rather than
+ * re-teaching where they live.
+ */
 export const BOARD_COLUMNS: { status: TaskStatus; label: string }[] = [
-  { status: 'open', label: 'Open' },
   { status: 'in_progress', label: 'In progress' },
+  { status: 'in_review', label: 'In review' },
+  { status: 'todo', label: 'Todo' },
   { status: 'done', label: 'Done' },
 ]
 
@@ -177,90 +152,32 @@ export function dueDateMeta(
   return { label, tone }
 }
 
-export interface TaskGroup {
-  /** The epic task, or null for the bucket of tasks that belong to no epic. */
-  epic: Task | null
-  children: Task[]
-}
-
-export interface BoardColumn {
+interface BoardColumn {
   status: TaskStatus
   label: string
   tasks: Task[]
 }
 
 /**
- * Bucket tasks into the kanban columns by status. The column *is* the status, so
- * the status filter doesn't apply here — only the free-text query (and the
- * server-side assignee scope already baked into `tasks`). Epics are containers,
- * not board cards, so they're dropped; their children stand on their own.
+ * Bucket tasks into the kanban columns by status. `tasks` arrives already
+ * searched, filtered and ordered by the page, so the board is the *same* set as
+ * the list re-plotted — a card can never appear in one layout and not the other.
+ * Epics are containers, not board cards, so they're dropped; their children
+ * stand on their own.
  */
-export function buildBoard(tasks: Task[], query: string, sort: TaskSort): BoardColumn[] {
-  const q = query.trim().toLowerCase()
-  const leaves = tasks.filter((t) => t.kind !== 'epic' && matchesQuery(t, q))
+export function buildBoard(tasks: Task[]): BoardColumn[] {
+  const leaves = tasks.filter((t) => t.kind !== 'epic')
   return BOARD_COLUMNS.map((col) => ({
     ...col,
-    tasks: sortTasks(leaves.filter((t) => t.status === col.status), sort),
+    // Every status lands somewhere, or a task would silently vanish when the
+    // board is chosen: inbox is a not-yet-triaged todo, dropped is closed work.
+    // Same folding the list's sections do.
+    tasks: leaves.filter((task) =>
+      col.status === 'todo'
+        ? task.status === 'todo' || task.status === 'inbox'
+        : col.status === 'done'
+          ? task.status === 'done' || task.status === 'dropped'
+          : task.status === col.status,
+    ),
   }))
-}
-
-function matchesQuery(task: Task, q: string): boolean {
-  if (!q) return true
-  return [task.title, task.body, task.assignee ?? '', task.id, ...task.labels]
-    .join('\n')
-    .toLowerCase()
-    .includes(q)
-}
-
-function matchesStatus(task: Task, status: StatusFilter): boolean {
-  if (status === 'all') return true
-  if (status === 'active') return task.status === 'open' || task.status === 'in_progress'
-  return task.status === status
-}
-
-/**
- * Build the epic-grouped, filtered view. Epics are containers, not
- * leaves: the status filter applies to their children, never to the epic itself,
- * and an epic is hidden once a filter/search empties it (the old code left bare
- * epic headers behind). A search hit on an epic's own title keeps the epic with
- * its status-matching children. With no filter or query, every epic shows — even
- * empty ones, so you can still add to them.
- */
-export function buildTaskGroups(tasks: Task[], filters: TaskFilterState): TaskGroup[] {
-  const q = filters.query.trim().toLowerCase()
-  const active = filters.status !== 'all' || q.length > 0
-  const epics: Task[] = []
-  for (const task of tasks) {
-    if (task.kind === 'epic') epics.push(task)
-  }
-
-  const epicIds = new Set(epics.map((e) => e.id))
-  const childrenByEpic = new Map<string, Task[]>()
-  const standalone: Task[] = []
-
-  for (const task of tasks) {
-    if (task.kind === 'epic') continue
-
-    if (task.parentId && epicIds.has(task.parentId)) {
-      const children = childrenByEpic.get(task.parentId) ?? []
-      children.push(task)
-      childrenByEpic.set(task.parentId, children)
-    } else {
-      standalone.push(task)
-    }
-  }
-
-  const groups: TaskGroup[] = []
-  for (const epic of epics) {
-    const epicTitleHit = q.length > 0 && epic.title.toLowerCase().includes(q)
-    const children = (childrenByEpic.get(epic.id) ?? []).filter(
-      (t) =>
-        matchesStatus(t, filters.status) && (epicTitleHit || matchesQuery(t, q)),
-    )
-    if (children.length || epicTitleHit || !active) groups.push({ epic, children: sortTasks(children, filters.sort) })
-  }
-
-  const visibleStandalone = standalone.filter((t) => matchesStatus(t, filters.status) && matchesQuery(t, q))
-  if (visibleStandalone.length) groups.push({ epic: null, children: sortTasks(visibleStandalone, filters.sort) })
-  return groups
 }

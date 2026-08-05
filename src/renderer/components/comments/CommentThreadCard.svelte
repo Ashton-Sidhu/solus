@@ -461,8 +461,6 @@
     max-height: min(calc(var(--doc-viewport-h, 100vh) * 0.4), 26.25rem);
     overflow-y: auto;
     overscroll-behavior: contain;
-    scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--solus-text-tertiary) 22%, transparent) transparent;
   }
   .ctc__earlier {
     align-self: flex-start;

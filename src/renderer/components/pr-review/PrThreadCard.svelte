@@ -14,7 +14,7 @@
   import { hunkToPatch, fileName, dirName } from "./lib/activity-data";
   import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
   import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
-  import { toasts } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
   import { requestInputFocus } from "../../lib/inputFocus";
   import type { ReviewThread, ReviewComment } from "../../../shared/providers";
@@ -39,7 +39,7 @@
 
   // Comment bodies are GitHub markdown — same pipeline + `.prose-pr`
   // typography as the PR description and the timeline's conversation rows.
-  const bodyProseClass = "github-markdown prose-cloud prose-pr";
+  const bodyProseClass = "github-markdown prose-cloud prose-pr prose-pr-comment";
 
   let replying = $state(false);
   let replyText = $state("");

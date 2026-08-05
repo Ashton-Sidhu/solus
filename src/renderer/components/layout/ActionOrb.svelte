@@ -26,8 +26,8 @@
     getSessionEnvironmentStore,
     runtime,
     serversStore,
-    toasts,
   } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import { KEYBINDINGS, type BindingId } from "../../lib/keybindings/manifest";
   import { formatCombo } from "../../lib/keybindings/match";

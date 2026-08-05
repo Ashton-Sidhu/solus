@@ -1,4 +1,5 @@
 import { SvelteSet } from 'svelte/reactivity'
+import type { TaskCreationContext } from '../../components/tasks/lib/task-creation-context'
 
 /**
  * Shell state that isn't a location: whether the pill is expanded, which
@@ -9,9 +10,9 @@ import { SvelteSet } from 'svelte/reactivity'
 export class WorkspaceUiStore {
   isExpanded = $state(false)
   sessionPickerOpen = $state(false)
-  /** The standalone create-task modal: the project it targets. `null` = closed.
+  /** The standalone create-task modal: the captured environment it targets. `null` = closed.
    *  Lives here (not in App) so the command palette can open it. */
-  taskComposer = $state<{ cwd: string } | null>(null)
+  taskComposer = $state<TaskCreationContext | null>(null)
   /** The rename prompt: the tab whose session is being named. `null` = closed.
    *  Lives here so every surface's context menu can open the one dialog. */
   sessionRename = $state<{ tabId: string } | null>(null)

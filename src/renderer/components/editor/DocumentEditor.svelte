@@ -33,6 +33,11 @@
   import TableContextMenu from "./TableContextMenu.svelte";
   import TableBlockBar from "./TableBlockBar.svelte";
   import TableGrips from "./TableGrips.svelte";
+  import { portal } from "../portal";
+  import {
+    deferTableResizeReflow,
+    type TableResizePreview,
+  } from "./lib/deferred-table-resize";
 
   interface Props {
     value: string;
@@ -119,6 +124,7 @@
     y: number;
     axis?: "row" | "column";
   } | null>(null);
+  let tableResizePreview = $state<TableResizePreview | null>(null);
   let linkPopover = $state<{
     coords: { left: number; top: number; bottom: number };
     from: number;
@@ -396,6 +402,10 @@
 
     editorInstance = editor;
     untrack(() => onEditorReady?.(editor));
+    const stopDeferredTableResize = deferTableResizeReflow(
+      editor,
+      (preview) => (tableResizePreview = preview),
+    );
 
     // The drag-handle extension hands the browser a snapshot of the dragged
     // node as the drag image — Chromium paints it on a solid white card, and
@@ -434,6 +444,7 @@
         document.removeEventListener("dragstart", onDocDragStart);
       if (onDocDragEnd) document.removeEventListener("dragend", onDocDragEnd);
       dragGhost?.remove();
+      stopDeferredTableResize();
       editor.destroy();
       editorInstance = null;
     };
@@ -685,6 +696,15 @@
       editor={editorInstance}
       onMenu={(coords) => (tableMenuCoords = coords)}
     />
+    {#if tableResizePreview}
+      <div
+        use:portal={document.body}
+        data-solus-ui
+        class="doc-table-resize-preview"
+        style="left:{tableResizePreview.x}px;top:{tableResizePreview.top}px;height:{tableResizePreview.height}px"
+        aria-hidden="true"
+      ></div>
+    {/if}
   {/if}
 
   {#if tableMenuCoords && editorInstance}
@@ -732,6 +752,14 @@
   }
 
   /* Column resize handles for resizable tables. */
+  :global(.solus-doc-editor .ProseMirror table) {
+    /* Tiptap writes a pixel width inline once every column has been resized.
+       Let the colgroup redistribute that fixed canvas instead: otherwise an
+       internal divider drag changes the table's outer width and shifts the
+       content beside the handle. Wide minimums can still overflow through the
+       table wrapper's horizontal scroller. */
+    width: 100% !important;
+  }
   :global(.solus-doc-editor .ProseMirror .column-resize-handle) {
     position: absolute;
     right: -0.0625rem;
@@ -747,6 +775,16 @@
   }
   :global(.solus-doc-editor .ProseMirror table:hover .column-resize-handle) {
     opacity: 0.5;
+  }
+  .doc-table-resize-preview {
+    position: fixed;
+    z-index: 10001;
+    width: 0.1875rem;
+    border-radius: 999px;
+    background: var(--solus-accent);
+    opacity: 0.72;
+    pointer-events: none;
+    transform: translateX(-50%);
   }
 
   /* Drop indicator while dragging a block. prosemirror-dropcursor sets the
@@ -794,6 +832,13 @@
     transition:
       background-color var(--duration-quick) var(--ease-premium),
       transform var(--duration-quick) var(--ease-premium);
+  }
+  /* Floating UI positions the handle asynchronously after Tiptap reveals it.
+     Until the first coordinates land, the element otherwise paints at the
+     editor container's 0,0 origin and visibly jumps into the text gutter. */
+  :global(.drag-handle:not([style*="left:"])) {
+    visibility: hidden;
+    pointer-events: none !important;
   }
   :global(.drag-handle::before) {
     content: "";

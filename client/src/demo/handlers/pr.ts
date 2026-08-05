@@ -17,6 +17,20 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
   })
   backend.register('prGetOverview', () => store.prOverview())
   backend.register('prGetDetail', () => store.prOverview().detail)
+  backend.register('prUpdate', (args) => {
+    const patch = args[2] as { title?: string; body?: string }
+    const detail = store.prOverview().detail
+    if (patch.title !== undefined) detail.title = patch.title
+    if (patch.body !== undefined) detail.body = patch.body
+    detail.updatedAt = new Date().toISOString()
+    const summary = store.prList().find((item) => item.number === detail.number)
+    if (summary) {
+      summary.title = detail.title
+      summary.body = detail.body
+      summary.updatedAt = detail.updatedAt
+    }
+    return detail
+  })
   backend.register('prListCommits', () => store.prOverview().commits)
   backend.register('prListReviewers', () => store.prOverview().reviewers)
   backend.register('prChangedFiles', () => store.prChangedFiles())

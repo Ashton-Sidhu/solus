@@ -1,4 +1,4 @@
-import { SvelteMap } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { reviewGuideKeyFor, type ReviewGuideStatusEvent } from '../../../shared/review'
 import { worktreeProjectRoot, type AgentId, type IpcContext, type ReasoningEffort, type Session } from '../../../shared/types'
 import { serverConnections } from '@client-core/server-connections'
@@ -6,6 +6,7 @@ import type { HostEventSubscriber } from '@client-core/host-event-subscriber'
 
 type SolusApi = typeof window.solus
 type ReviewScope = 'branch' | 'session'
+type ReadyListener = (api: SolusApi, event: ReviewGuideStatusEvent) => void
 
 export interface ReviewGuideIdentity {
   repoRoot: string
@@ -59,6 +60,8 @@ export class ReviewGuideStore {
   private subscribedApis = new WeakSet<SolusApi>()
   private loadedTargetsByApi = new WeakMap<SolusApi, Map<string, string>>()
   private revisionsByApi = new WeakMap<SolusApi, Map<string, string>>()
+  private readyListeners = new Set<ReadyListener>()
+  private openedReadyEventsByApi = new SvelteMap<SolusApi, SvelteSet<string>>()
 
   constructor(
     private readonly eventsForApi: (api: SolusApi) => HostEventSubscriber = (api) => serverConnections.eventsForApi(api),
@@ -77,7 +80,21 @@ export class ReviewGuideStore {
   bind(api: SolusApi): void {
     if (this.subscribedApis.has(api)) return
     this.subscribedApis.add(api)
-    this.eventsForApi(api).subscribe('review.guideStatusChanged', (event) => this.set(api, event))
+    this.eventsForApi(api).subscribe('review.guideStatusChanged', (event) => {
+      const previous = this.statusesByApi.get(api)?.get(statusKey(event))
+      this.set(api, event)
+      if (event.status === 'ready' && previous?.status !== 'ready') {
+        for (const listener of this.readyListeners) listener(api, event)
+      }
+    })
+  }
+
+  /** Observe guides that become ready through a live host event. Cached status
+   * probes deliberately do not notify: reopening Solus must not replay old
+   * completion toasts. */
+  onReady(listener: ReadyListener): () => void {
+    this.readyListeners.add(listener)
+    return () => this.readyListeners.delete(listener)
   }
 
   async load(
@@ -168,6 +185,30 @@ export class ReviewGuideStore {
       this.revisionsByApi.get(api)?.get(statusKey(identity)) !== identity.revision
     ) return null
     return event
+  }
+
+  /** Status presented in navigation. A ready mark is an unread affordance: it
+   * disappears after that exact generated guide has been opened, while the
+   * durable ready status remains available to the review action itself. */
+  indicatorStatusFor(
+    api: SolusApi,
+    identity: ReviewGuideIdentity | null,
+  ): ReviewGuideStatusEvent | null {
+    const event = this.statusFor(api, identity)
+    if (!event || event.status !== 'ready') return event
+    const openedKey = `${statusKey(event)}::${event.updatedAt}`
+    return this.openedReadyEventsByApi.get(api)?.has(openedKey) ? null : event
+  }
+
+  markOpened(api: SolusApi, identity: ReviewGuideIdentity | null): void {
+    const event = this.statusFor(api, identity)
+    if (!event || event.status !== 'ready') return
+    let opened = this.openedReadyEventsByApi.get(api)
+    if (!opened) {
+      opened = new SvelteSet()
+      this.openedReadyEventsByApi.set(api, opened)
+    }
+    opened.add(`${statusKey(event)}::${event.updatedAt}`)
   }
 
   isRunningFor(api: SolusApi, session: Session | undefined): boolean {

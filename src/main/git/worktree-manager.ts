@@ -558,22 +558,33 @@ export async function fetchAndCheckoutPr(
   const existing = listProjectWorktrees(projectPath).find(
     (w) => w.path === worktreePath || w.branch === branch,
   )
-  if (existing) {
-    log.info('pr_worktree_reused', { branch, worktreePath: existing.path })
+  // A previous or concurrent open may have already created the checkout without
+  // it appearing in `git worktree list` yet. The PR path is deterministic, so an
+  // existing directory is already the requested outcome; do not fail by trying
+  // to add the same worktree again.
+  const existingWorktreePath = existing?.path ?? (existsSync(worktreePath) ? worktreePath : null)
+  if (existingWorktreePath) {
+    log.info('pr_worktree_reused', { branch, worktreePath: existingWorktreePath })
     // Fast-forward to the freshly fetched head when it can apply cleanly; never
     // clobber local agent work (a non-ff or dirty tree is left as-is).
-    await runAsync('git', ['merge', '--ff-only', 'FETCH_HEAD'], existing.path).catch(() => {})
+    await runAsync('git', ['merge', '--ff-only', 'FETCH_HEAD'], existingWorktreePath).catch(() => {})
   } else {
     log.info('pr_worktree_creating', { branch, worktreePath })
     const branchExists = await runAsync('git', ['rev-parse', '--verify', `refs/heads/${branch}`], projectPath).then(
       () => true,
       () => false,
     )
-    if (branchExists) {
-      await runAsync('git', ['worktree', 'add', worktreePath, branch], projectPath)
-      await runAsync('git', ['merge', '--ff-only', 'FETCH_HEAD'], worktreePath).catch(() => {})
-    } else {
-      await runAsync('git', ['worktree', 'add', '-b', branch, worktreePath, 'FETCH_HEAD'], projectPath)
+    try {
+      if (branchExists) {
+        await runAsync('git', ['worktree', 'add', worktreePath, branch], projectPath)
+        await runAsync('git', ['merge', '--ff-only', 'FETCH_HEAD'], worktreePath).catch(() => {})
+      } else {
+        await runAsync('git', ['worktree', 'add', '-b', branch, worktreePath, 'FETCH_HEAD'], projectPath)
+      }
+    } catch (error) {
+      // Another open can win between the existence check and `worktree add`.
+      // Once the deterministic path exists, creation has reached the desired state.
+      if (!existsSync(worktreePath)) throw error
     }
     await copyIncludedWorktreeFiles(projectPath, worktreePath)
   }
@@ -584,7 +595,7 @@ export async function fetchAndCheckoutPr(
     () => headSha,
   )
 
-  return { worktreePath: existing?.path ?? worktreePath, branch, baseSha, headSha }
+  return { worktreePath: existingWorktreePath ?? worktreePath, branch, baseSha, headSha }
 }
 
 export function listProjectWorktrees(projectPath: string): WorktreeEntry[] {

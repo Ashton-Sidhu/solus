@@ -2,7 +2,7 @@
   import { BellIcon, BellSlashIcon, SpinnerIcon } from "phosphor-svelte";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { webPushState } from "../lib/web-push.svelte";
-  import { toasts } from "../lib/toast.store.svelte";
+  import { toasts } from "@renderer/lib/toasts";
 
   interface Props {
     variant?: "status" | "row";

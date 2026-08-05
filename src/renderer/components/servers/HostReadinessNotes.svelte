@@ -10,7 +10,7 @@
   } from "phosphor-svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
-  import { toasts } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import GitHostPanel from "./GitHostPanel.svelte";
   import ProviderPanel from "./ProviderPanel.svelte";
   import type { OpenProjectStore } from "./open-project.store.svelte";

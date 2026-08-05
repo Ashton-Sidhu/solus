@@ -8,7 +8,8 @@
     SpinnerGapIcon,
   } from "phosphor-svelte";
   import { onMount } from "svelte";
-  import { getWorkspaceContext, connectionsStore, toasts } from "../../contexts";
+  import { getWorkspaceContext, connectionsStore } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
   import SettingsSection from "../settings/SettingsSection.svelte";

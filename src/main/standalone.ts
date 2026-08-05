@@ -1,6 +1,7 @@
 import { join } from 'path'
 import { createLogger, flushLogs } from './logger'
 import { shutdownAnalytics } from './analytics'
+import { shutdownOtel } from './otel'
 import { coerceGitCredentialAction, runGitCredentialHelper, type GitCredentialAction } from './providers/github/git-credential'
 import { bestEndpoint, extractGitCredentialAction, formatClaimBlock, hostForUrl, parseFlags, parsePort } from '../shared/entrypoint'
 import type { BootCore } from './boot-core'
@@ -119,7 +120,7 @@ function installShutdownHandlers(core: BootCore): void {
       try {
         await core.shutdown()
       } finally {
-        await shutdownAnalytics()
+        await Promise.all([shutdownAnalytics(), shutdownOtel()])
       }
       flushLogs()
       process.exit(0)

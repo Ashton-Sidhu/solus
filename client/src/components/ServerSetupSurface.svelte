@@ -29,7 +29,7 @@
   } from "../lib/add-host";
   import { classifyConnectInput } from "../lib/connect";
   import { activateServer } from "../lib/primary-connection";
-  import { toasts } from "../lib/toast.store.svelte";
+  import { toasts } from "@renderer/lib/toasts";
   import { webState } from "../lib/web-state.svelte";
   import MobileSheet from "./MobileSheet.svelte";
 

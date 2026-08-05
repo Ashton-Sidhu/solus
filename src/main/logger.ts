@@ -3,6 +3,7 @@ import { inspect } from 'util'
 import { join } from 'path'
 import { isPackagedRuntime, logsDir } from './platform/paths'
 import { installBrokenPipeGuard } from './broken-pipe'
+import { emitOtelLog, recordOtelDuration } from './otel'
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
@@ -248,6 +249,7 @@ function emit(level: LogLevel, tag: string, file: string, bound: Record<string, 
   const entry: Record<string, unknown> = { ts: new Date().toISOString(), level, tag, file, msg }
   if (merged) Object.assign(entry, merged)
   pushEntry(entry)
+  emitOtelLog(level, msg, { tag, file, ...merged })
   if (level === 'info' && logEventSink) {
     try {
       logEventSink(msg)
@@ -278,6 +280,7 @@ function makeLogger(tag: string, file: string, bound?: Record<string, unknown>):
         stdoutGuard?.write(() => console.log(`${prefix} ${label}\n${formatDevData(payload)}`))
       }
       pushEntry({ ts: new Date().toISOString(), level: 'metric', tag, file, label, ...payload })
+      recordOtelDuration(label, durationMs, { tag, ...bound, ...data })
     },
     child: (extra) => makeLogger(tag, file, { ...bound, ...extra }),
   }

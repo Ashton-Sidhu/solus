@@ -88,18 +88,3 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     },
   },
 ];
-
-export function getFilteredFromCategorized(
-  filter: string,
-  commands: CategorizedSlashCommands,
-): SlashCommand[] {
-  const q = filter.toLowerCase();
-  const pass = (c: SlashCommand) => c.command.startsWith(q);
-  return [
-    ...commands.solus.filter(pass),
-    ...commands.codex.filter(pass),
-    ...commands.claudeCode.filter(pass),
-    ...commands.global.filter(pass),
-    ...commands.project.filter(pass),
-  ];
-}

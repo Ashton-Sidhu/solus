@@ -66,7 +66,7 @@
   // Comment/review bodies are GitHub markdown — same pipeline *and* the same
   // `.prose-pr` typography as the description above them. Sizes/colour can't be
   // set with utilities here: the `.prose-cloud` rules are unlayered and win.
-  const bodyProseClass = "github-markdown prose-cloud prose-pr mt-1.5";
+  const bodyProseClass = "github-markdown prose-cloud prose-pr prose-pr-comment mt-1.5";
 
   // Which commit runs are expanded past their preview, keyed by event key.
   // Mutated in place ($state proxies are deeply reactive); stale keys from a
@@ -169,12 +169,15 @@
             </p>
             <!-- Sha + message only — the run header already credits the author,
                  and repeating the name at the row's far edge reads orphaned.
-                 Each commit sits on its own washed chip: shas are literals, and
-                 a bare column of them disappears into the surrounding prose. -->
+                 Each commit sits on its own card chip inside a half-pixel ring:
+                 shas are literals, and a bare column of them disappears into the
+                 surrounding prose. A ring rather than a wash, so the chips read
+                 as objects lifted off the timeline instead of holes punched in
+                 it — same treatment as the composer at the foot of the feed. -->
             <ul class="mt-2 flex flex-col gap-1.5" role="list">
               {#each preview.visible as commit (commit.sha)}
                 <li
-                  class="flex items-center gap-3 rounded-lg bg-[color:color-mix(in_oklab,var(--muted)_62%,transparent)] px-3 py-2"
+                  class="flex items-center gap-3 rounded-[10px] bg-card px-3 py-[9px] shadow-[inset_0_0_0_.5px_var(--hairline-strong)]"
                 >
                   <code class="shrink-0 font-mono text-[11px] text-primary"
                     >{commit.sha.slice(0, 7)}</code

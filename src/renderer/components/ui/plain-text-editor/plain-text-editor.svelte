@@ -37,6 +37,7 @@
     type ReferenceDecorationConfig,
   } from "./lib/reference-decorations";
   import { markdownComposerKeymap } from "./lib/markdown-keymap";
+import { ghostCompletion, showGhost } from "./lib/ghost-completion";
 
   interface Props extends ReferenceDecorationCallbacks {
     value: string;
@@ -140,36 +141,13 @@
       lineHeight: "normal",
       scrollbarWidth: "auto",
     },
-    // A composer that has scrolled at all keeps its thumb at nearly full track
-    // height, so anything visible at rest reads as a rule drawn down the side
-    // of the card rather than as a scroll position. The thumb is therefore
-    // painted only while the pointer is over the composer, and the gutter is
-    // wider than the pill so it floats clear of both the text and the border.
-    ".cm-scroller::-webkit-scrollbar": {
-      width: "0.625rem",
-    },
+    // index.css draws the thumb (and reveals it only while the composer is
+    // scrolling); the track margin is the one thing local to this surface — it
+    // holds the pill well inside the composer's padded well, so it never runs
+    // to the card's rounded corners.
     ".cm-scroller::-webkit-scrollbar-track": {
       background: "transparent",
-      // Holds the pill well inside the composer's padded well, so it never
-      // runs to the card's rounded corners.
       margin: "0.625rem 0",
-    },
-    ".cm-scroller::-webkit-scrollbar-thumb": {
-      background: "transparent",
-      borderRadius: "999px",
-      border: "0.1875rem solid transparent",
-      backgroundClip: "content-box",
-      transition: "background-color 200ms ease",
-    },
-    "&:hover .cm-scroller::-webkit-scrollbar-thumb": {
-      background:
-        "color-mix(in srgb, var(--solus-text-tertiary) 26%, transparent)",
-      backgroundClip: "content-box",
-    },
-    "&:hover .cm-scroller::-webkit-scrollbar-thumb:hover": {
-      background:
-        "color-mix(in srgb, var(--solus-text-tertiary) 44%, transparent)",
-      backgroundClip: "content-box",
     },
     ".cm-content": {
       // The floor for an empty editor. A host that wants a taller resting well
@@ -233,6 +211,7 @@
         keymap.of([...historyKeymap, ...defaultKeymap]),
       ]),
       referenceCompartment.of(referenceChips ? references.extension : []),
+      ghostCompletion,
       attributesCompartment.of(
         EditorView.contentAttributes.of({
           role: "textbox",
@@ -430,6 +409,17 @@
 
   export function isCaretAtStart(): boolean {
     return view?.state.selection.main.head === 0;
+  }
+
+  /** Draw (or clear) the grey completion the autocomplete menu is offering. */
+  export function setGhostCompletion(text: string) {
+    if (view) showGhost(view, text);
+  }
+
+  export function isCaretAtLineEnd(): boolean {
+    if (!view) return true;
+    const head = view.state.selection.main.head;
+    return head === view.state.doc.lineAt(head).to;
   }
 
   export function textBeforeCursor(): string {

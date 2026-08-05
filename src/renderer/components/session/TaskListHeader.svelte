@@ -1,86 +1,66 @@
 <script lang="ts">
-  import { ListIcon, TreeViewIcon, XIcon } from "phosphor-svelte";
+  import { ListIcon, TreeViewIcon } from "phosphor-svelte";
   import type { SidebarViewMode } from "../../contexts/app/settings.context.svelte";
 
   interface Props {
     label: string;
     count: number;
     mode: SidebarViewMode;
-    /** A toggle over one project's worth of tasks has nothing to switch. */
-    showToggle: boolean;
-    /** While a filter is on, the ✕ beside the count is the one way out. */
-    filtered: boolean;
     onModeChange: (mode: SidebarViewMode) => void;
-    onClearFilter: () => void;
   }
   let {
     label,
     count,
     mode,
-    showToggle,
-    filtered,
     onModeChange,
-    onClearFilter,
   }: Props = $props();
 
   // Selection, disclosure and scroll all survive a mode switch, so the toggle
   // is a lens over the same list rather than a second screen — which is why it
   // is two bare glyphs rather than a segmented plate. Ink alone says which is on.
   const segment =
-    "flex size-5 cursor-pointer items-center justify-center rounded transition-[background,color] duration-150 hover:bg-accent";
+    "flex size-6 cursor-pointer items-center justify-center rounded-[0.4375rem] transition-[background,color] duration-150";
+  const segmentOn =
+    "bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] text-foreground";
+  const segmentOff =
+    "text-muted-foreground hover:bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)]";
 </script>
 
-<!-- The section label sits one step out from the spine, on the nav icons'
-     column: it is the level above the titles, so it starts where their icons
-     do rather than where their labels do. -->
-<div class="flex h-[2.125rem] flex-shrink-0 items-center gap-[0.4375rem] pr-2.5 pl-[1.375rem]">
+<!-- The label starts on the same 10px inset every other row's content does, so
+     the column keeps one left edge from the new-task bar down to the footer. -->
+<div class="flex h-[2.625rem] flex-shrink-0 items-center gap-[0.5625rem] px-6">
   <span
-    class="overflow-hidden text-[0.59375rem] font-semibold tracking-[0.1em] text-ellipsis whitespace-nowrap text-muted-foreground uppercase"
+    class="overflow-hidden text-[0.59375rem] font-semibold tracking-[0.12em] text-ellipsis whitespace-nowrap text-[color-mix(in_oklch,var(--foreground)_60%,transparent)] uppercase"
     >{label}</span
   >
+  <!-- A pill rather than a bare figure: it is the total the section is named
+       for, not a per-row count, so it reads as part of the label. -->
   <span
-    class="font-mono text-[0.625rem] text-muted-foreground opacity-45 tabular-nums"
+    class="rounded-full bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)] px-1.5 py-0.5 font-mono text-[0.59375rem] text-[color-mix(in_oklch,var(--foreground)_60%,transparent)] tabular-nums"
     >{count}</span
   >
-  {#if filtered}
+  <div
+    class="ml-auto flex items-center gap-0.5"
+    role="group"
+    aria-label="Task list view"
+  >
     <button
-      class="flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-[0.1875rem] text-muted-foreground transition-[background,color] duration-150 hover:bg-accent hover:text-foreground"
-      data-clear-project-filter
-      title="Show all tasks"
-      aria-label="Show all tasks"
-      onclick={onClearFilter}
+      class="{segment} {mode === 'flat' ? segmentOn : segmentOff}"
+      title="Flat list"
+      aria-pressed={mode === "flat"}
+      aria-label="Flat list"
+      onclick={() => onModeChange("flat")}
     >
-      <XIcon size={8} weight="bold" />
+      <ListIcon size={13} />
     </button>
-  {/if}
-  {#if showToggle}
-    <div
-      class="ml-auto flex items-center gap-0.5"
-      role="group"
-      aria-label="Task list view"
+    <button
+      class="{segment} {mode === 'grouped' ? segmentOn : segmentOff}"
+      title="Group by project"
+      aria-pressed={mode === "grouped"}
+      aria-label="Group by project"
+      onclick={() => onModeChange("grouped")}
     >
-      <button
-        class="{segment} {mode === 'flat'
-          ? 'text-foreground'
-          : 'text-muted-foreground/70'}"
-        title="Flat list"
-        aria-pressed={mode === "flat"}
-        aria-label="Flat list"
-        onclick={() => onModeChange("flat")}
-      >
-        <ListIcon size={13} />
-      </button>
-      <button
-        class="{segment} {mode === 'grouped'
-          ? 'text-foreground'
-          : 'text-muted-foreground/70'}"
-        title="Group by project"
-        aria-pressed={mode === "grouped"}
-        aria-label="Group by project"
-        onclick={() => onModeChange("grouped")}
-      >
-        <TreeViewIcon size={13} />
-      </button>
-    </div>
-  {/if}
+      <TreeViewIcon size={13} />
+    </button>
+  </div>
 </div>

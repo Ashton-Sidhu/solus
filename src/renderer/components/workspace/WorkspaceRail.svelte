@@ -130,20 +130,8 @@
     gap: 1.375rem;
     padding: 1.5rem 0.875rem 1.25rem;
     border-right: 0.0625rem solid color-mix(in srgb, var(--solus-container-border) 55%, transparent);
-    background: color-mix(in srgb, var(--muted) 26%, var(--solus-container-bg));
+    background: var(--solus-sidebar-surface);
     overflow: hidden;
-  }
-
-  /* Once the session sidebar steps away, this rail becomes the window's
-     leading surface. Keep its title below the macOS traffic-light row instead
-     of letting the two pieces of chrome compete for the same band. The
-     titlebar variable is zero on web and non-mac surfaces, so their existing
-     spacing is unchanged. */
-  :global(.workspace-body.sidebar-collapsed) .rail {
-    padding-top: max(
-      1.5rem,
-      calc(var(--solus-titlebar-height, 0px) + 1rem)
-    );
   }
 
   /* The project scope and the footer tally stay put; only the facets scroll, so
@@ -170,7 +158,6 @@
     flex-direction: column;
     gap: 1.375rem;
     overflow-y: auto;
-    scrollbar-width: thin;
   }
 
   .rail-section {
@@ -206,10 +193,12 @@
     background: color-mix(in srgb, var(--muted) 70%, transparent);
     color: var(--solus-text-primary);
   }
-  /* Selected facet: card background + 600 weight — no dot or accent bar. */
+  /* Selected facet: a persistent wash + 600 weight — no dot or accent bar. The
+     rail is now the *lighter* surface, so the old card fill would have read as a
+     dent in it; the wash is the same language the session sidebar's current nav
+     row uses, one step stronger than hover. */
   .rail-row.active {
-    background: var(--solus-container-bg);
-    box-shadow: 0 0.0625rem 0.125rem color-mix(in srgb, var(--solus-text-primary) 7%, transparent);
+    background: color-mix(in oklch, var(--foreground) 5%, transparent);
     color: var(--solus-text-primary);
   }
   .rail-row.active .rail-row-label {

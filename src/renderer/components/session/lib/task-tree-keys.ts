@@ -3,7 +3,7 @@
  *
  * The list is `role="tree"`, so the arrows have to behave like a tree rather
  * than like a listbox: → opens a closed row before it walks into it, and ← is
- * the way back out of a subtask. The decision only depends on the focused row's
+ * the way back out of a session. The decision only depends on the focused row's
  * own state, so it lives here where it can be read in one screen; the component
  * is left holding nothing but the DOM.
  */
@@ -17,11 +17,11 @@ export type TreeKeyIntent =
   | null
 
 export interface TreeRowState {
-  /** Position among the visible rows, subtasks included when expanded. */
+  /** Position among the visible rows, sessions included when expanded. */
   index: number
-  /** Undefined on a row with no subtasks — it has nothing to open or close. */
+  /** Undefined on a row with no sessions — it has nothing to open or close. */
   expanded: boolean | undefined
-  /** Where ← lands from a subtask. Null on a top-level task row. */
+  /** Where ← lands from a session. Null on a top-level task row. */
   parentIndex: number | null
 }
 

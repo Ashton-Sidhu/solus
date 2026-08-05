@@ -54,7 +54,8 @@ export function makeSession(settings: SettingsContext, overrides?: Partial<Sessi
     forkedFromSessionId: null,
     forked: false,
     boundWorkId: null,
-    boundTaskId: null,
+    pendingTaskId: null,
+    taskCreationDisabled: false,
     prReview: null,
     ...overrides,
   }

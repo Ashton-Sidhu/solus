@@ -60,10 +60,6 @@ export interface ProjectConfig {
   runCommands?: RunCommandConfig[]
   /** Which task provider this project uses. Absent = local (the default). */
   taskProvider?: TaskProviderId
-  /** Provider scope. Auto-filled from the git remote for GitHub (`owner`/`repo`);
-   *  later providers will carry their own selectors (Jira project key, Linear team). */
+  /** Provider scope. Auto-filled from the git remote for GitHub (`owner`/`repo`). */
   taskProviderConfig?: { owner?: string; repo?: string }
-  /** When false, starting a session from a task does NOT move the ticket to
-   *  In Progress or post the "started in Solus" comment. Absent = enabled. */
-  taskStartWriteBack?: boolean
 }

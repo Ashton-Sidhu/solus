@@ -155,7 +155,7 @@
         </span>
       </div>
     {:else}
-      <div class="flex-1 overflow-y-auto" style="scrollbar-width:thin">
+      <div class="flex-1 overflow-y-auto">
         {#each grouped as group (group.path)}
           <div class="border-t border-(--solus-popover-border) first:border-t-0">
             <div

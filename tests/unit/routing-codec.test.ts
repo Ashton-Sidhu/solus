@@ -18,8 +18,8 @@ const SAMPLES: RouteRef[] = [
   { name: 'chat', params: {} },
   { name: 'chat', params: { tabId: 'tab_abc' } },
   { name: 'chat', params: { sessionId: 'sess_9' } },
-  { name: 'tasks', params: {} },
-  { name: 'tasks', params: { taskId: 'SOL-12' } },
+  { name: 'tasks', params: {} as Record<string, never> },
+  { name: 'task', params: { taskId: 'SOL-12' } },
   { name: 'prs', params: { projectPath: '/repo/app' } },
   { name: 'reviewMode', params: {} as Record<string, never> },
   { name: 'settings', params: { tab: 'voice' } },
@@ -44,6 +44,7 @@ const SAMPLES: RouteRef[] = [
   { name: 'diff', params: { sourceTabId: 'tab_a', scope: { kind: 'session' }, filePath: 'src/a/b.ts' } },
   { name: 'files', params: { sourceTabId: 'tab_a' } },
   { name: 'fileEditor', params: { sourceTabId: 'tab_a', path: 'src/a/b.ts' } },
+  { name: 'fileEditor', params: { sourceTabId: 'tab_a', path: 'src/a/b.ts', line: 412 } },
   { name: 'subagent', params: { tabId: 'tab_a', messageId: 'msg_1' } },
 ]
 
@@ -112,6 +113,22 @@ describe('the pane grammar', () => {
       expect(parsed.panes.map((pane) => pane.base)).toEqual(refs)
       expect(parsed.panes.findIndex((pane) => pane.id === parsed.focusedPaneId)).toBe(count - 1)
     }
+  })
+
+  test('a file opened before the line slot existed still opens that file', () => {
+    // A persisted location or an agent link written against the older
+    // `<tab>/<path>` grammar must not silently resolve to a different file.
+    expect(parseRoute('/fileEditor/tab_a/src/a/b.ts')).toEqual({
+      name: 'fileEditor',
+      params: { sourceTabId: 'tab_a', path: 'src/a/b.ts' },
+    })
+  })
+
+  test('a path whose first segment is numeric is not read as a line', () => {
+    expect(parseRoute('/fileEditor/tab_a/-/2024/report.md')).toEqual({
+      name: 'fileEditor',
+      params: { sourceTabId: 'tab_a', path: '2024/report.md' },
+    })
   })
 
   test('a pane may exist for its overlay alone', () => {

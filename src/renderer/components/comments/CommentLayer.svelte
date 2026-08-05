@@ -8,7 +8,7 @@
   import { portal } from "../portal";
   import { MarkdownTextarea } from "../ui/markdown-field";
   import { Button } from "../ui/button";
-  import { toasts } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import type { BindingId } from "../../lib/keybindings/manifest";
   import PlanCommentsRail from "../plan/PlanCommentsRail.svelte";

@@ -1,5 +1,6 @@
 import type {
   PullRequestSummary,
+  PullRequestUpdate,
   PullRequestOverview,
   PullRequestDetail,
   PrCommit,
@@ -27,6 +28,33 @@ interface CacheEntry<T> {
   inFlight?: Promise<T>
 }
 
+export type PrReviewTab = 'activity' | 'guide' | 'diff'
+
+/** Everything about how the list was left, so returning from a review restores
+ *  the reading position and not merely the query. */
+export interface PrListView {
+  query: string
+  /** The *fetch* scope, not a display filter — the server pages per state. */
+  stateFilter: 'open' | 'closed' | 'all'
+  sortMode: 'updated' | 'created' | 'effort'
+  minesOnly: boolean
+  failingOnly: boolean
+  collapsedGroups: Record<string, boolean>
+  selectedNumber: number | null
+  scrollTop: number
+}
+
+const EMPTY_LIST_VIEW: PrListView = {
+  query: '',
+  stateFilter: 'open',
+  sortMode: 'updated',
+  minesOnly: false,
+  failingOnly: false,
+  collapsedGroups: {},
+  selectedNumber: null,
+  scrollTop: 0,
+}
+
 export class PrsStore {
   items = $state<PullRequestSummary[]>([])
   needsReviewItems = $state<PullRequestSummary[]>([])
@@ -45,7 +73,17 @@ export class PrsStore {
   /** Active content tab of the `pr-review` surface. Lifted out of PrReviewPane so
    *  chrome around it can react to the selection. Chat is NOT a content tab — it
    *  is the primary conversation, toggled by `maximized`. */
-  prReviewTab = $state<'activity' | 'guide' | 'diff'>('guide')
+  prReviewTab = $state<PrReviewTab>('guide')
+  /**
+   * How the list was left. A pull request now *replaces* the list rather than
+   * docking beside it, so the page unmounts on every open — and the list has to
+   * remember the review, not just the query. Held here and reset only when the
+   * project scope changes, never on page open.
+   */
+  listView = $state<PrListView>({ ...EMPTY_LIST_VIEW })
+  /** The visible rows in list order. The chrome band's crumb switcher and its
+   *  `n of N` stepper read this, so neither can drift from the list behind them. */
+  listOrder = $state<number[]>([])
   /** Fixed launch snapshot for Review Mode. The session store owns subsequent
    *  ordering and dispositions, so list refreshes cannot move the active PR. */
   reviewModeNumbers = $state<number[]>([])
@@ -352,6 +390,30 @@ export class PrsStore {
     return this.readCached(this.detailCache, key, !!opts.force, () => window.solus.prGetDetail(safeCtx, number))
   }
 
+  async updatePullRequest(
+    ctx: IpcContext,
+    number: number,
+    patch: PullRequestUpdate,
+  ): Promise<PullRequestDetail> {
+    const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
+    const updated = await window.solus.prUpdate(safeCtx, number, patch)
+    const key = this.prKey(ctx, number)
+    this.seed(this.detailCache, key, updated)
+    const overview = this.overviewCache.get(key)?.value
+    if (overview) {
+      overview.detail = updated
+      this.seed(this.overviewCache, key, overview)
+    }
+    for (const items of [this.items, this.needsReviewItems]) {
+      const item = items.find((candidate) => candidate.number === number)
+      if (!item) continue
+      item.title = updated.title
+      item.body = updated.body
+      item.updatedAt = updated.updatedAt
+    }
+    return updated
+  }
+
   async loadCommits(ctx: IpcContext, number: number, opts: { force?: boolean } = {}): Promise<PrCommit[]> {
     const key = this.prKey(ctx, number)
     const overview = this.overviewCache.get(key)
@@ -435,6 +497,14 @@ export class PrsStore {
 
   get(number: number): PullRequestSummary | undefined {
     return this.items.find((p) => p.number === number)
+  }
+
+  /** Forget how the list was left. Only a change of project scope earns this —
+   *  opening the page must not throw away the reading position a review
+   *  returned to. */
+  resetListView(): void {
+    this.listView = { ...EMPTY_LIST_VIEW }
+    this.listOrder = []
   }
 
   needsReviewCountFor(ctx: IpcContext): number {

@@ -221,6 +221,10 @@ function _materializeTabs(
           ? { ...snapTab.terminalFailure }
           : null,
         contextUsage: snapTab.contextUsage ? { ...snapTab.contextUsage } : null,
+        // The active transcript is attached after the first paint. Mark it now
+        // so the renderer shows a finite loading state instead of inferring one
+        // forever from agentSessionId + an empty transcript.
+        loadingHistory: snapTab.tabId === activeTabId && !!(snapTab.agentSessionId || snapTab.handoffFrom),
       })
       tab = makeTab(session.id, {
         id: snapTab.tabId,

@@ -1,56 +1,103 @@
-import type { Task } from '../../../shared/task-types'
-import { listTasks, getTask, createTask, updateTask, deleteTask, postTaskComment, linkTaskSessionAndNotify, taskProviderStatus } from '../../tasks/task-service'
-import { taskSessions } from '../../tasks/task-links'
+import type {
+  TaskCreateInput,
+  TaskLinkInput,
+  TaskLinkKind,
+  TaskListFilter,
+  TaskSessionRole,
+  TaskUpdatePatch,
+} from '../../../shared/task-types'
+import {
+  commentOnUpstreamTask,
+  getUpstreamTask,
+  listUpstreamTasks,
+  taskProviderStatus,
+  updateUpstreamTask,
+} from '../../tasks/upstream'
+import { createTask, listTasks } from '../../tasks/task-store'
+import { Task } from '../../tasks/task'
+import { taskSessions, tasksForSession } from '../../tasks/task-sessions'
 import type { SolusServer } from '../server'
 
-/** RPC surface for the renderer to browse and mutate tasks through whichever
- *  provider the project is bound to. All calls take the project `cwd` so the
- *  service can resolve the provider; the renderer never sees a provider type. */
+/** Global native-task RPCs plus project-scoped upstream-provider reads/writes. */
 export function registerTasksHandlers(server: SolusServer): void {
   server.register('tasksProviderStatus', (args) => {
     const [cwd, opts] = args as [string, { checkAccess?: boolean } | undefined]
     return taskProviderStatus(cwd, opts ?? {})
   })
 
-  server.register('tasksList', (args) => {
-    const [cwd, opts] = args as [string, { assignedToMe?: boolean } | undefined]
-    return listTasks(cwd, opts ?? {})
+  server.register('tasksListUpstream', (args) => {
+    const [cwd, opts] = args as [string, { refresh?: boolean } | null | undefined]
+    return listUpstreamTasks(cwd, opts ?? {})
   })
 
-  server.register('tasksGet', (args) => {
+  server.register('tasksGetUpstream', (args) => {
     const [cwd, id] = args as [string, string]
-    return getTask(cwd, id)
+    return getUpstreamTask(cwd, id)
+  })
+
+  server.register('tasksUpdateUpstream', (args) => {
+    const [cwd, id, patch] = args as [string, string, TaskUpdatePatch]
+    return updateUpstreamTask(cwd, id, patch)
+  })
+
+  server.register('tasksCommentUpstream', (args) => {
+    const [cwd, id, body] = args as [string, string, string]
+    return commentOnUpstreamTask(cwd, id, body)
+  })
+
+  server.register('tasksList', (args) => {
+    const [filter] = args as [TaskListFilter | undefined]
+    return listTasks(filter)
+  })
+
+  server.register('tasksGet', async (args) => {
+    const [id] = args as [string]
+    return (await Task.byId(id)).details()
   })
 
   server.register('tasksCreate', (args) => {
-    const [cwd, input] = args as [string, Partial<Task>]
-    return createTask(cwd, input)
+    const [input] = args as [TaskCreateInput]
+    return createTask(input)
   })
 
-  server.register('tasksUpdate', (args) => {
-    const [cwd, id, patch] = args as [string, string, Partial<Task>]
-    return updateTask(cwd, id, patch)
+  server.register('tasksUpdate', async (args) => {
+    const [id, patch] = args as [string, TaskUpdatePatch]
+    return (await (await Task.byId(id)).update(patch)).record()
   })
 
-  server.register('tasksDelete', (args) => {
-    const [cwd, id] = args as [string, string]
-    return deleteTask(cwd, id)
+  server.register('tasksDelete', async (args) => {
+    const [id] = args as [string]
+    return (await Task.byId(id)).delete()
   })
 
-  server.register('tasksComment', (args) => {
-    const [cwd, id, body] = args as [string, string, string]
-    return postTaskComment(cwd, id, body)
+  server.register('tasksComment', async (args) => {
+    const [id, body] = args as [string, string]
+    return (await Task.byId(id)).comment(body)
   })
 
-  // Two-way task↔session link, kept in a local sidecar (never written upstream)
-  // so the card can show which tasks have live work and jump back to it.
-  server.register('tasksLinkSession', (args) => {
-    const [cwd, taskId, sessionId] = args as [string, string, string]
-    return linkTaskSessionAndNotify(cwd, taskId, sessionId)
+  server.register('tasksLinkSession', async (args) => {
+    const [taskId, sessionId, role] = args as [string, string, TaskSessionRole | undefined]
+    return (await Task.byId(taskId)).linkSession(sessionId, role ?? 'working')
+  })
+
+  server.register('tasksLink', async (args) => {
+    const [taskId, input] = args as [string, TaskLinkInput]
+    return (await Task.byId(taskId)).link(input)
+  })
+
+  server.register('tasksUnlink', async (args) => {
+    const [taskId, kind, targetKey, targetScope] = args as
+      [string, TaskLinkKind, string, string | undefined]
+    return (await Task.byId(taskId)).unlink(kind, targetKey, targetScope ?? '')
   })
 
   server.register('tasksSessions', (args) => {
-    const [cwd] = args as [string]
-    return taskSessions(cwd)
+    const [taskId] = args as [string | undefined]
+    return taskSessions(taskId)
+  })
+
+  server.register('tasksForSession', (args) => {
+    const [sessionId] = args as [string]
+    return tasksForSession(sessionId)
   })
 }

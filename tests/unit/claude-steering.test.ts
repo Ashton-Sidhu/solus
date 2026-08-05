@@ -120,9 +120,11 @@ describe('ClaudeAgent turn input lifetime', () => {
     expect(input.closed).toBe(false)
 
     // The turn's own result lands, but closing here would cut the SDK query off
-    // from the sub-agent that is still running.
+    // from the sub-agent that is still running. The open query must also keep
+    // accepting Enter-to-steer input instead of silently falling back to queue.
     expect((await stream.next()).value).toMatchObject({ type: 'task_complete' })
     expect(input.closed).toBe(false)
+    expect(input.push(opening('Also simplify the architecture'))).toBe(true)
 
     expect((await stream.next()).value).toMatchObject({ type: 'background_task_settled' })
     expect(input.closed).toBe(true)

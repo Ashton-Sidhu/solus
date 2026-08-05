@@ -5,7 +5,7 @@ import { existsSync, writeFileSync, readFileSync, statSync } from 'fs'
 import { appendFile, mkdir, readFile as readBinaryFile, readdir, realpath, stat, writeFile as writeTextFile } from 'fs/promises'
 import { homedir, tmpdir } from 'os'
 import { execFile, execFileSync } from 'child_process'
-import type { AgentId, Attachment, IpcContext, OpenInEditorRequest, FilePreviewRequest, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DetectedEditor, DetectedTerminal, EditorId } from '../../../shared/types'
+import type { AgentId, Attachment, IpcContext, OpenInEditorRequest, FilePreviewRequest, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DetectedEditor, DetectedTerminal, EditorId } from '../../../shared/types'
 import { AGENT_BIN } from '../../../shared/types'
 import { MAX_VOICE_SAMPLES, MAX_VOICE_WAV_BYTES } from '../../../shared/voice-audio'
 import { transcribeAudio, warmTranscription } from '../../transcription'
@@ -18,6 +18,7 @@ import { solusDir } from '../../platform/paths'
 import { getFinder, refreshFinder } from '../file-finder'
 import { sortDirEntries } from './filesystem-handlers'
 import { isInsideRoot, projectRootForRequest, readFilePreview, resolvePreviewPath } from './lib/file-preview'
+import { searchProjectContents } from './lib/content-search'
 import type { SolusServer } from '../server'
 import { filePathsToAttachments } from '../attachment-utils'
 
@@ -466,11 +467,26 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
       files.push({ path, display: toDisplay(path), isDir: entry.type === 'directory' })
     }
 
-    // Folders first; the sort is stable so match-score order holds within
-    // each group and Enter still accepts the best match of the top group.
-    files.sort((a, b) => Number(b.isDir) - Number(a.isDir))
-
+    // mixedSearch already returns relevance order. Unlike browse mode above,
+    // do not regroup directories ahead of files after the user starts typing.
     return { files }
+  })
+
+  server.register('searchProjectContents', async (args) => {
+    const [ctx, request] = args as [IpcContext, ProjectContentSearchRequest]
+    // Scoped to the caller's environment cwd, which already resolves to the
+    // worktree path for an isolated session — searching the main checkout would
+    // return matches the session cannot act on.
+    const rawRoot = projectRootForRequest(ctx, request?.cwd)
+    if (!rawRoot) return { ok: false, error: 'No project directory is available.' } satisfies ProjectContentSearchResult
+
+    let root: string
+    try {
+      root = await realpath(rawRoot)
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? String(err) } satisfies ProjectContentSearchResult
+    }
+    return searchProjectContents(root, request)
   })
 
   server.register('readProjectFile', async (args) => {

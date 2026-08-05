@@ -17,12 +17,12 @@
   } from "@renderer/contexts/app/runtime-boot";
   import { createAppCore } from "@renderer/contexts/app/app-core";
   import { subscribe } from "@client-core/connection-state";
-  import { connectionsStore, parseRoute, serversStore, toasts as rendererToasts, runtime } from "@renderer/contexts";
+  import { connectionsStore, parseRoute, serversStore, runtime } from "@renderer/contexts";
+  import { toasts } from "@renderer/lib/toasts";
   import { serverConnections } from "@client-core/server-connections";
   import { openProjectStore } from "@renderer/components/servers/open-project.store.svelte";
   import { hostOnboardingStore } from "@renderer/components/servers/host-onboarding.store.svelte";
   import { retargetSessionHost, isRunOnHostLocked } from "@renderer/components/servers/run-on";
-  import { Toaster } from "@renderer/components/ui/sonner/index.js";
   import { webState } from "./lib/web-state.svelte";
   import {
     useKeybinding,
@@ -44,11 +44,34 @@
     windowCtx,
     planStore,
     runStore,
+    projectConfigStore,
     sessionSidebarStore,
     session,
     agent,
     keybindings,
   } = createAppCore();
+
+  const taskComposer = $derived(session.ui.taskComposer);
+  const taskComposerConfig = $derived(
+    taskComposer ? projectConfigStore.configFor(taskComposer.cwd) : undefined,
+  );
+  const taskComposerProvider = $derived(
+    taskComposerConfig?.taskProvider ?? "local",
+  );
+  const taskComposerTasks = $derived(
+    taskComposer ? session.tasksStore.tasksForProject(taskComposer.cwd) : [],
+  );
+  const taskComposerEpics = $derived(
+    taskComposerTasks.filter((task) => task.kind === "epic"),
+  );
+  const taskComposerLabels = $derived(
+    Array.from(new Set(taskComposerTasks.flatMap((task) => task.labels))).sort(),
+  );
+
+  $effect(() => {
+    if (!taskComposer) return;
+    void projectConfigStore.load(taskComposer.cwd);
+  });
 
   const initialViewMode = windowCtx.viewMode;
 
@@ -112,18 +135,23 @@
           )?.installationId,
           agentSessionId: sess?.agentSessionId ?? null,
           provider: sess?.provider ?? null,
+          handoffFrom: sess?.handoffFrom ? { ...sess.handoffFrom } : undefined,
           workingDirectory: sess?.workingDirectory ?? session.globalDefaults.workingDirectory,
+          projectGroupPath: sess?.projectGroupPath ?? null,
           additionalDirs: sess ? [...sess.additionalDirs] : [],
           gitContext: sess?.gitContext ? { ...sess.gitContext } : null,
           worktreeBaseBranch: sess?.worktreeBaseBranch ?? null,
+          worktreeRequired: sess?.worktreeRequired ?? false,
           modelConfig: sess ? { ...sess.modelConfig } : { ...session.globalDefaults.modelConfig },
           permissionMode: sess?.permissionMode ?? session.globalDefaults.permissionMode,
           hasUnread: tab.hasUnread ?? false,
+          terminalFailure: sess?.terminalFailure ? { ...sess.terminalFailure } : null,
+          contextUsage: sess?.contextUsage ? { ...sess.contextUsage } : null,
         };
       });
     const snapshot: PersistedTabs = {
       version: 1,
-      activeTabId: session.activeTabId,
+      activeTabId: session.durableActiveTabId,
       tabOrder: [...session.tabOrder],
       tabs,
     };
@@ -170,7 +198,6 @@
   });
   serversStore.init();
 
-  const TOAST_HOTKEY = ["altKey", "shiftKey", "KeyT"];
 
   let directoryPickerOpen = $state(false);
   let directoryPickerNewTab = $state(false);
@@ -342,7 +369,15 @@
   useKeybinding("global.open-host-project", () => {
     if (!isRunning) startOpenProject();
   });
-  useKeybinding("global.new-tab", () => session.createTab(undefined, { via: "keybinding" }));
+  useKeybinding("global.new-task", () => {
+    session.createDraftTab(undefined, { freshTask: true, via: "keybinding" });
+  });
+  useKeybinding("global.new-session-without-task", () => {
+    session.createDraftTab(undefined, { withoutTask: true, via: "keybinding" });
+  });
+  useKeybinding("global.new-session", () =>
+    session.createDraftTab(undefined, { via: "keybinding" }),
+  );
   useKeybinding("global.next-tab", () => {
     const idx = visualTabOrder.indexOf(activeTabId);
     if (idx !== -1)
@@ -483,7 +518,7 @@
     directoryPickerRequireWorktree = false;
     if (directoryPickerNewTab) {
       directoryPickerNewTab = false;
-      const newTabId = await session.createTab(dir);
+      const newTabId = await session.createDraftTab(dir);
       if (overrideServerId) {
         moveTabToHost(newTabId, overrideServerId, dir, { requireWorktree });
       }
@@ -567,7 +602,7 @@
       !isRunOnHostLocked(session.sessionFor(tabId))
         ? tabId
         : null;
-    const targetTabId = reusableTabId ?? (await session.createTab(path));
+    const targetTabId = reusableTabId ?? (await session.createDraftTab(path));
     moveTabToHost(targetTabId, serverId, path);
     requestInputFocus({ tabId: targetTabId });
 
@@ -575,7 +610,7 @@
     // is 25 minutes away at PR time. Say so now, without blocking the session.
     if (pushNote) {
       const onboardingHost = { id: serverId, label: hostLabel || serverId };
-      rendererToasts.info(pushNote, {
+      toasts.info(pushNote, {
         actions: [
           {
             label: "Set up",
@@ -588,7 +623,7 @@
 
     if (!cloned && hostIsLocal) return;
     const name = path.split(/[\\/]/).pop();
-    rendererToasts.success(
+    toasts.success(
       cloned
         ? `Cloned ${name} on ${hostLabel || "host"}`
         : `Opened ${name} on ${hostLabel || "host"}`,
@@ -694,22 +729,11 @@
   });
 </script>
 
-<svelte:window onkeydowncapture={rendererToasts.handleKeydown} />
-
 <Tooltip.Provider
   delayDuration={450}
   skipDelayDuration={300}
   disableHoverableContent
 >
-<Toaster
-  theme={settings.isDark ? "dark" : "light"}
-  position={runtime.isMobileViewport ? "top-center" : "top-right"}
-  offset={{ top: "1rem", right: "1rem" }}
-  visibleToasts={1}
-  duration={6000}
-  hotkey={TOAST_HOTKEY}
-/>
-
 <div
   bind:this={overlayEl}
   data-solus-ui
@@ -775,7 +799,7 @@
       onOpenProject={(path) =>
         void openProjectAtPath(path, openProjectStore.source !== "local")}
       onBrowse={browseForOpenProject}
-      onBackgroundCloneFailure={(failure) => rendererToasts.error(failure.title)}
+      onBackgroundCloneFailure={(failure) => toasts.error(failure.title)}
       localIdentity={localGitIdentity}
     />
   {/await}
@@ -802,6 +826,35 @@
     <KeyboardShortcutsModal
       bind:open={shortcutsModalOpen}
       activeScopes={shortcutsActiveScopes}
+    />
+  {/await}
+{/if}
+
+{#if taskComposer && taskComposerConfig !== undefined}
+  {#await import("@renderer/components/tasks/TaskComposer.svelte")}
+    <div class="lazy-modal-loading" role="status">Loading task composer…</div>
+  {:then taskComposerModule}
+    {@const TaskComposer = taskComposerModule.default}
+    <TaskComposer
+      epics={taskComposerEpics}
+      allowEpics={taskComposerProvider === "local"}
+      canPlan={taskComposerProvider === "local"}
+      knownLabels={taskComposerLabels}
+      workingDirectory={taskComposer.cwd}
+      provider={settings.activeAgent}
+      onCreate={async (input) => {
+        const cwd = taskComposer?.cwd;
+        if (!cwd) return;
+        try {
+          await session.tasksStore.create({ ...input, projectKey: input.projectKey ?? cwd });
+          toasts.success("Task created");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          toasts.error(`Couldn't create task: ${message}`);
+          throw error;
+        }
+      }}
+      onCancel={() => (session.ui.taskComposer = null)}
     />
   {/await}
 {/if}

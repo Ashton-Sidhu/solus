@@ -1,46 +1,60 @@
 <script lang="ts">
   import { PlusIcon } from "phosphor-svelte";
   import { fade } from "svelte/transition";
+  import { SvelteMap } from "svelte/reactivity";
   import type { Task, TaskStatus } from "../../../shared/task-types";
-  import { buildBoard, STATUS_META, type TaskSort } from "./lib/tasks-api";
-  import TaskCard from "./TaskCard.svelte";
+  import { buildBoard } from "./lib/tasks-api";
+  import { taskBoardCard } from "./lib/tasks-list-view";
+  import { VirtualList } from "../ui/list-page";
+  import TaskBoardCard from "./TaskBoardCard.svelte";
 
+  /**
+   * The global list re-plotted as a kanban board ("Tasks page" spec, board
+   * layout). Same tasks, same order, same grammar as the list — only the axis
+   * changes: a section becomes a column you can drop into.
+   *
+   * Each column scrolls on its own inside a wash well, so a long In-progress
+   * column never pushes Done off the bottom of the page.
+   */
   interface Props {
-    /** The project's tasks (already assignee-scoped server-side). */
+    /** The page's visible tasks — already searched, filtered and ordered. */
     tasks: Task[];
-    /** Free-text filter; the status filter is implicit in the columns. */
-    query: string;
-    /** Ordering within each column. */
-    sort: TaskSort;
+    selectedKey: string | null;
     onOpen: (task: Task) => void;
-    onStart: (task: Task) => void;
-    onOpenLink: (task: Task) => void;
     onSetStatus: (task: Task, status: TaskStatus) => void;
-    onResume: (task: Task) => void;
     sessionsFor: (taskId: string) => number;
+    /** Ticking clock, so card times age instead of freezing. */
+    now: number;
+    onContextMenu?: (event: MouseEvent, task: Task) => void;
     /** Open the composer pre-set to a column's status (undefined hides the +). */
     onAddInColumn?: (status: TaskStatus) => void;
   }
   let {
     tasks,
-    query,
-    sort,
+    selectedKey,
     onOpen,
-    onStart,
-    onOpenLink,
     onSetStatus,
-    onResume,
     sessionsFor,
+    now,
+    onContextMenu,
     onAddInColumn,
   }: Props = $props();
 
-  const columns = $derived(buildBoard(tasks, query, sort));
+  const columns = $derived(buildBoard(tasks));
+
+  // Only In progress earns a coloured heading — it is the one column whose count
+  // is a live number rather than a backlog.
+  const LABEL_COLOR: Partial<Record<TaskStatus, string>> = {
+    in_progress: "color-mix(in oklch, var(--running) 62%, var(--foreground))",
+  };
 
   // Drag-to-restatus: the card being dragged and the column hovered over. Status
-  // change is just an onSetStatus write — the same path the dropdown/keys use.
+  // change is just an onSetStatus write — the same path the keys and menu use.
   let dragId = $state<string | null>(null);
   let overStatus = $state<TaskStatus | null>(null);
-  const dragTask = $derived(tasks.find((t) => t.id === dragId) ?? null);
+  const columnHeights = new SvelteMap<TaskStatus, number>();
+  const cardHeights = new SvelteMap<string, number>();
+  const dragTask = $derived(tasks.find((task) => task.id === dragId) ?? null);
 
   function endDrag() {
     dragId = null;
@@ -51,127 +65,140 @@
     if (dragTask && dragTask.status !== status) onSetStatus(dragTask, status);
     endDrag();
   }
+
+  function measureColumn(node: HTMLElement, status: TaskStatus) {
+    const observer = new ResizeObserver(([entry]) => {
+      columnHeights.set(status, entry?.contentRect.height ?? node.clientHeight);
+    });
+    observer.observe(node);
+    return { destroy: () => observer.disconnect() };
+  }
+
+  function measureCard(node: HTMLElement, taskId: string) {
+    const observer = new ResizeObserver(() => {
+      cardHeights.set(taskId, node.offsetHeight);
+    });
+    observer.observe(node);
+    return { destroy: () => observer.disconnect() };
+  }
 </script>
 
-<!-- Columns are separated by whitespace alone — cards carry their own bounds, so
-     a permanent column fill would just add mud. The well appears only when it
-     means something: faintly on every valid target while a drag is live, and in
-     accent on the hovered column. -->
-<div class="-mx-1.5 flex gap-3 overflow-x-auto pb-2 [scrollbar-width:thin]">
+<div
+  class="flex min-h-0 flex-1 items-stretch gap-2.5 overflow-x-auto overflow-y-hidden pt-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:h-0"
+>
   {#each columns as col (col.status)}
-    {@const isOver = overStatus === col.status}
     {@const isSource = dragTask?.status === col.status}
     {@const isTarget = !!dragId && !isSource}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    {@const isOver = isTarget && overStatus === col.status}
     <div
-      class="group/col flex min-w-[15.5rem] max-w-[20rem] flex-1 flex-col rounded-2xl p-1.5 {isOver && isTarget
-        ? 'bg-(--solus-accent-light)'
-        : isTarget
-          ? 'bg-(--solus-surface-hover)/40'
-          : ''}"
-      ondragover={(e) => {
-        if (!dragId) return;
-        e.preventDefault();
-        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-        overStatus = col.status;
-      }}
-      ondragleave={(e) => {
-        // Ignore leaves into our own children — only a true exit clears the target.
-        if (overStatus !== col.status) return;
-        const to = e.relatedTarget;
-        if (to instanceof Node && e.currentTarget.contains(to)) return;
-        overStatus = null;
-      }}
-      ondrop={(e) => {
-        e.preventDefault();
-        drop(col.status);
-      }}
+      class="flex h-full min-h-0 max-w-[21.25rem] min-w-[14rem] flex-1 basis-[15.25rem] flex-col"
     >
-      <!-- Column header -->
-      <div class="flex items-center gap-2 px-2 pb-2.5 pt-1">
-        <span class="block size-2 shrink-0 rounded-full {STATUS_META[col.status].dotClass}"></span>
-        <span class="text-[0.8125rem] font-semibold tracking-[-0.01em] text-(--solus-text-primary)">{col.label}</span>
+      <!-- Column head. The label carries the status, so no dot repeats it. -->
+      <div class="flex h-[30px] shrink-0 items-center gap-2 pr-1 pl-0.5">
         <span
-          class="min-w-[1.375rem] rounded-full bg-(--solus-surface-hover) px-1.5 py-0.5 text-center text-[0.6875rem] font-medium leading-none text-(--solus-text-tertiary) tabular-nums"
-          >{col.tasks.length}</span
+          class="text-[9.5px] font-medium tracking-[.12em] uppercase"
+          style:color={LABEL_COLOR[col.status] ?? "var(--muted-foreground)"}
         >
+          {col.label}
+        </span>
+        <span class="font-mono text-[10px] tabular-nums text-muted-foreground opacity-70">
+          {col.tasks.length}
+        </span>
+        <span class="flex-1"></span>
         {#if onAddInColumn}
           <button
             type="button"
-            class="relative ml-auto inline-flex size-[1.375rem] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-(--solus-text-tertiary) opacity-0 transition-opacity duration-100 ease-in-out after:absolute after:-inset-1.5 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:opacity-100 focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:outline-none group-hover/col:opacity-100"
+            class="flex size-5 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground opacity-[.55] transition-[background-color,opacity] duration-150 hover:bg-[var(--wash-2)] hover:opacity-100 focus-visible:bg-[var(--wash-2)] focus-visible:opacity-100 focus-visible:outline-none"
             onclick={() => onAddInColumn?.(col.status)}
-            aria-label={`Add task to ${col.label}`}
-            title={`Add task to ${col.label}`}
+            aria-label={`New task in ${col.label}`}
+            title={`New task in ${col.label}`}
           >
-            <PlusIcon size={13} weight="bold" />
+            <PlusIcon size={11} weight="bold" />
           </button>
         {/if}
       </div>
 
-      <!-- Cards -->
-      <div class="flex flex-1 flex-col gap-2">
-        {#each col.tasks as task (task.id)}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div
-            draggable="true"
-            class="rounded-[0.625rem] bg-(--solus-popover-bg) shadow-[0_1px_2px_rgba(0,0,0,0.04),0_2px_8px_rgba(0,0,0,0.04)] ring-1 ring-black/5 transition-[transform,box-shadow,opacity] duration-150 ease-out hover:-translate-y-px hover:shadow-[0_2px_4px_rgba(0,0,0,0.05),0_10px_24px_rgba(0,0,0,0.09)] hover:ring-black/10 has-[:focus-visible]:ring-(--solus-accent)/50 dark:shadow-none dark:ring-white/10 dark:hover:shadow-none dark:hover:ring-white/15 {dragId ===
-            task.id
-              ? 'opacity-40'
-              : ''}"
-            ondragstart={(e) => {
-              if (e.dataTransfer) {
-                e.dataTransfer.effectAllowed = "move";
-                e.dataTransfer.setData("text/plain", task.id);
-              }
-              dragId = task.id;
-            }}
-            ondragend={endDrag}
-            in:fade={{ duration: 150 }}
-          >
-            <TaskCard
-              {task}
-              board
-              {onOpen}
-              {onStart}
-              {onOpenLink}
-              {onSetStatus}
-              {onResume}
-              activeSessions={sessionsFor(task.id)}
-            />
-          </div>
-        {/each}
-
-        {#if isOver && isTarget && col.tasks.length > 0}
-          <!-- Insertion slot: where the dragged card will land on drop. -->
-          <div
-            class="rounded-[0.625rem] border border-dashed border-(--solus-accent)/45 bg-(--solus-accent)/5 py-2.5 text-center text-[0.6875rem] font-semibold text-(--solus-accent)"
-            in:fade={{ duration: 100 }}
-          >
-            Move to {col.label}
-          </div>
-        {/if}
+      <!-- The well. It is a wash rather than a card, so the cards inside it are
+           the only things with edges — and it turns brand-tinted only while it
+           is a live drop target. -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden rounded-[14px] p-2 pb-5 transition-colors duration-150 {isOver
+          ? 'bg-[color-mix(in_oklch,var(--primary)_9%,transparent)] shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--primary)_34%,transparent)]'
+          : 'bg-[var(--wash-1)] shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_6%,transparent)]'}"
+        ondragover={(event) => {
+          if (!dragId) return;
+          event.preventDefault();
+          if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+          overStatus = col.status;
+        }}
+        ondragleave={(event) => {
+          // Ignore leaves into our own children — only a true exit clears the target.
+          if (overStatus !== col.status) return;
+          const to = event.relatedTarget;
+          if (to instanceof Node && event.currentTarget.contains(to)) return;
+          overStatus = null;
+        }}
+        ondrop={(event) => {
+          event.preventDefault();
+          drop(col.status);
+        }}
+        use:measureColumn={col.status}
+      >
+        <VirtualList
+          items={col.tasks}
+          height={columnHeights.get(col.status) ?? 0}
+          itemSize={(index) =>
+            (cardHeights.get(col.tasks[index].id) ?? 108) + 8}
+          estimatedItemSize={116}
+          overscan={4}
+          keyOf={(task) => task.id}
+          activeKey={selectedKey}
+        >
+          {#snippet children(task, _index, style)}
+            <div {style}>
+              <div use:measureCard={task.id}>
+                <TaskBoardCard
+                  card={taskBoardCard(task, sessionsFor(task.id), now)}
+                  selected={selectedKey === task.id}
+                  dragging={dragId === task.id}
+                  onSelect={() => onOpen(task)}
+                  onSetStatus={(status) => {
+                    if (task.status !== status) onSetStatus(task, status);
+                  }}
+                  onContextMenu={(event) => onContextMenu?.(event, task)}
+                  onDragStart={(event) => {
+                    if (event.dataTransfer) {
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("text/plain", task.id);
+                    }
+                    dragId = task.id;
+                  }}
+                  onDragEnd={endDrag}
+                />
+              </div>
+            </div>
+          {/snippet}
+          {#snippet footer()}
+            {#if isOver && col.tasks.length > 0}
+              <div
+                class="rounded-[11px] border border-dashed border-[color-mix(in_oklch,var(--primary)_45%,transparent)] py-2.5 text-center text-[11px] font-medium text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]"
+                in:fade={{ duration: 100 }}
+              >
+                Move to {col.label}
+              </div>
+            {/if}
+          {/snippet}
+        </VirtualList>
 
         {#if col.tasks.length === 0}
           <div
-            class="flex flex-1 items-center justify-center rounded-xl border border-dashed px-3 py-10 text-center text-xs {isOver && isTarget
-              ? 'border-(--solus-accent)/50 text-(--solus-accent)'
-              : 'border-(--solus-container-border)/60 text-(--solus-text-tertiary)'}"
+            class="flex h-[60px] shrink-0 items-center justify-center rounded-[11px] border border-dashed text-[11px] {isOver
+              ? 'border-[color-mix(in_oklch,var(--primary)_45%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
+              : 'border-[var(--hairline-strong)] text-muted-foreground opacity-70'}"
           >
-            {isOver && isTarget ? `Move to ${col.label}` : "Nothing here"}
+            {isOver ? `Move to ${col.label}` : "Empty"}
           </div>
-        {/if}
-
-        {#if onAddInColumn}
-          <!-- Always-visible add affordance at the column foot — the header's
-               hover-revealed + serves long columns; this one is discoverable. -->
-          <button
-            type="button"
-            class="flex cursor-pointer items-center gap-1.5 rounded-[0.625rem] border-0 bg-transparent px-3 py-2 text-left text-xs font-medium text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:outline-none"
-            onclick={() => onAddInColumn?.(col.status)}
-          >
-            <PlusIcon size={12} weight="bold" />
-            New task
-          </button>
         {/if}
       </div>
     </div>

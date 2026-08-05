@@ -89,7 +89,6 @@
     openProjects.find((project) => project.key === projectScope) ??
       (openProjects.length === 1 ? openProjects[0] : null),
   );
-  const scopedProjectKey = $derived(scopedProject?.key ?? null);
   const items: WorkspaceItem[] = $derived(
     scopedProject ? allItems.filter((item) => item.projectKey === scopedProject.key) : allItems,
   );
@@ -107,6 +106,7 @@
     projectScope = key;
     if (key) localStorage.setItem(PROJECT_SCOPE_KEY, key);
     else localStorage.removeItem(PROJECT_SCOPE_KEY);
+    resetLedgerSelection();
   }
 
   function load() {
@@ -149,19 +149,27 @@
     filter.text = "";
   }
 
+  function resetLedgerSelection() {
+    selectedIndex = 0;
+    renderLimit = RENDER_PAGE;
+    pinnedExpanded = false;
+  }
+
   $effect(() => {
-    if (open) {
+    if (!open) return;
+    // Opening the page is the only trigger for this setup. Loading reads the
+    // active project's path, which can change while the Workspace stays open;
+    // do not let that incidental dependency reset the user's selection.
+    untrack(() => {
       clearFilters();
-      selectedIndex = 0;
-      renderLimit = RENDER_PAGE;
-      pinnedExpanded = false;
+      resetLedgerSelection();
       mouseHasMoved = false;
       load();
       blurActiveTextInputOnMobile();
       if (!runtime.shouldSuppressFocus) {
         tick().then(() => searchEl?.focus());
       }
-    }
+    });
   });
 
   // ── Derived ledger ──
@@ -245,13 +253,9 @@
     filter.pinnedOnly;
     filter.time;
     filter.text;
-    // `openProjects` is rebuilt from the mounted tabs. Track the effective key,
-    // not the reconstructed project object, or a background data refresh can
-    // reset a hovered row to the first item even though the scope did not move.
-    scopedProjectKey;
-    selectedIndex = 0;
-    renderLimit = RENDER_PAGE;
-    pinnedExpanded = false;
+    // Project changes reset explicitly in `selectProject`. The implicit scope
+    // can be reconstructed as sessions hydrate, which must not move selection.
+    resetLedgerSelection();
   });
 
   $effect(() => {
@@ -476,7 +480,7 @@
         <!-- ── Ledger ── -->
         <div
           bind:this={scrollEl}
-          class="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 pb-4 outline-none @max-[44rem]:px-4 [scrollbar-width:thin]"
+          class="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 pb-4 outline-none @max-[44rem]:px-4"
           role="listbox"
           aria-label="Workspace items"
           tabindex="-1"

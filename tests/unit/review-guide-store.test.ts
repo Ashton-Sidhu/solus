@@ -121,4 +121,59 @@ describe('ReviewGuideStore', () => {
     })
     expect(store.statusFor(api, identity)?.status).toBe('ready')
   })
+
+  test('notifies once when a live generation becomes ready, but not for cached guides', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
+    const { ReviewGuideStore } = await import(
+      '../../src/renderer/components/review/review-guide.store.svelte'
+    )
+    const events = new HostEventSubscriber()
+    const cached = status()
+    const api = { reviewGuideStatus: async () => cached } as unknown as typeof window.solus
+    const store = new ReviewGuideStore(() => events)
+    const readyEvents: ReviewGuideStatusEvent[] = []
+    store.onReady((_api, event) => readyEvents.push(event))
+
+    await store.load(api, {} as never, { repoRoot: '/repo', key: cached.key }, 'branch')
+    expect(readyEvents).toEqual([])
+
+    events.receive({
+      type: 'review.guideStatusChanged',
+      payload: status({ status: 'generating', updatedAt: 2 }),
+      occurredAt: 2,
+    })
+    events.receive({
+      type: 'review.guideStatusChanged',
+      payload: status({ status: 'ready', updatedAt: 3 }),
+      occurredAt: 3,
+    })
+    events.receive({
+      type: 'review.guideStatusChanged',
+      payload: status({ status: 'ready', updatedAt: 3 }),
+      occurredAt: 3,
+    })
+
+    expect(readyEvents.map((event) => event.updatedAt)).toEqual([3])
+  })
+
+  test('clears only the opened ready indicator and restores it for a regenerated guide', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
+    const { ReviewGuideStore } = await import(
+      '../../src/renderer/components/review/review-guide.store.svelte'
+    )
+    const store = new ReviewGuideStore(() => new HostEventSubscriber())
+    const api = {} as typeof window.solus
+    const identity = { repoRoot: '/repo', key: 'feature__reviews' }
+
+    store.set(api, status({ updatedAt: 2 }))
+    expect(store.indicatorStatusFor(api, identity)?.status).toBe('ready')
+    store.markOpened(api, identity)
+    expect(store.indicatorStatusFor(api, identity)).toBeNull()
+    expect(store.statusFor(api, identity)?.status).toBe('ready')
+
+    store.set(api, status({ status: 'generating', updatedAt: 3 }))
+    expect(store.indicatorStatusFor(api, identity)?.status).toBe('generating')
+    store.set(api, status({ updatedAt: 4 }))
+    expect(store.indicatorStatusFor(api, identity)?.status).toBe('ready')
+  })
 })

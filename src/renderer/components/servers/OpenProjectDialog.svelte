@@ -416,7 +416,7 @@
       <!-- One panel that grows into each step rather than four dialogs of
            different sizes flashing past each other. -->
       <div
-        class="hairline-scroll min-h-0 overflow-y-auto overscroll-contain
+        class="min-h-0 overflow-y-auto overscroll-contain
           {hasMeasured
           ? '[transition:height_var(--duration-modal)_var(--ease-premium)] motion-reduce:transition-none'
           : ''}"
@@ -470,7 +470,7 @@
       {#if store.step === "destination" && showOutput && store.logLines.length > 0}
         <div
           bind:this={logPaneEl}
-          class="hairline-scroll max-h-28 shrink-0 overflow-y-auto border-t border-border bg-muted/60 px-4 py-2
+          class="max-h-28 shrink-0 overflow-y-auto border-t border-border bg-muted/60 px-4 py-2
             [mask-image:linear-gradient(to_bottom,transparent,black_1.25rem)]"
           transition:slide={{ duration: 160 }}
           role="log"

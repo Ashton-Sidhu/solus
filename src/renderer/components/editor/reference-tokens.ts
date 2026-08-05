@@ -34,13 +34,30 @@ export interface SessionReferenceToken extends SessionReference {
   kind: "session";
 }
 
+/** Tasks and automations are pointers only: the chip carries the id so the
+ *  label can be re-resolved at render, and the markdown link carries enough
+ *  text for the agent to act on it without a store lookup. */
+export interface TaskReferenceToken {
+  kind: "task";
+  taskId: string;
+  title: string;
+}
+
+export interface AutomationReferenceToken {
+  kind: "automation";
+  automationId: string;
+  title: string;
+}
+
 export type ReferenceToken =
   | FileReferenceToken
   | PlanReferenceToken
   | WorkReferenceToken
   | PrReferenceToken
   | SlashReferenceToken
-  | SessionReferenceToken;
+  | SessionReferenceToken
+  | TaskReferenceToken
+  | AutomationReferenceToken;
 
 export interface ReferenceTokenRange {
   from: number;
@@ -53,7 +70,7 @@ export interface ReferenceParseOptions {
 }
 
 const CUSTOM_REFERENCE_RE =
-  /\[((?:\\.|[^\]\\\n])*)\]\(((?:plan|work|pr|session):\/\/[^)\s]*)\)/g;
+  /\[((?:\\.|[^\]\\\n])*)\]\(((?:plan|work|pr|session|task|automation):\/\/[^)\s]*)\)/g;
 const FILE_REFERENCE_RE = /(^|\s)@([^\s]+)/g;
 const SLASH_REFERENCE_RE = /(^|\s)(\/[a-zA-Z-]+)/g;
 const AGENT_IDS = new Set<AgentId>(["claude-code", "codex", "opencode"]);
@@ -143,6 +160,18 @@ function parseCustomReference(label: string, href: string): ReferenceToken | nul
     };
   }
 
+  if (url.protocol === "task:") {
+    const taskId = stringParam(url, "taskId");
+    if (!taskId) return null;
+    return { kind: "task", taskId, title };
+  }
+
+  if (url.protocol === "automation:") {
+    const automationId = stringParam(url, "automationId");
+    if (!automationId) return null;
+    return { kind: "automation", automationId, title };
+  }
+
   return null;
 }
 
@@ -187,6 +216,14 @@ export function serializeReferenceToken(token: ReferenceToken): string {
         cwd: token.cwd,
       });
       return `[${escapeLabel(token.title)}](session://ref?${params})`;
+    }
+    case "task": {
+      const params = new URLSearchParams({ taskId: token.taskId });
+      return `[${escapeLabel(token.title)}](task://ref?${params})`;
+    }
+    case "automation": {
+      const params = new URLSearchParams({ automationId: token.automationId });
+      return `[${escapeLabel(token.title)}](automation://ref?${params})`;
     }
   }
 }

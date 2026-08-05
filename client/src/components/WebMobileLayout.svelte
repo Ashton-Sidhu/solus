@@ -65,7 +65,11 @@
     session.router.params("goal")?.tabId ?? null,
   );
 
-  const title = $derived((tab && sess) ? sessionTitle(sess, tab) : "New session");
+  const title = $derived(
+    session.draftTabId
+      ? sess?.pendingTaskId ? "New session" : "New task"
+      : (tab && sess) ? sessionTitle(sess, tab) : "New session",
+  );
   const statusIcon = $derived(
     (tab && sess) ? getStatusIcon(sess.status) : null,
   );
@@ -193,7 +197,7 @@
 
       <button
         class="mh-navbar-side-btn mh-navbar-side-btn--accent"
-        onclick={() => session.createTab()}
+        onclick={() => void session.createDraftTab(undefined, { via: "click" })}
         aria-label="New session"
       >
         <PlusIcon size={18} weight="bold" />

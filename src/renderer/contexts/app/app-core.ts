@@ -11,6 +11,11 @@ import { AgentContext, setAgentContext } from './agent.context.svelte'
 import { SessionSidebarStore, setSessionSidebarStore } from '../workspace/session-sidebar.store.svelte'
 import { VoiceModelStore, setVoiceModelStore } from './voice-model.store.svelte'
 import { KeybindingsContext, setKeybindingsContext } from '../../lib/keybindings/dispatcher.svelte'
+import {
+  reviewGuideStore,
+  sessionGuideIdentity,
+} from '../../components/review/review-guide.store.svelte'
+import { toasts } from '../../lib/toasts'
 
 export interface AppCore {
   settings: SettingsContext
@@ -52,6 +57,30 @@ export function createAppCore(): AppCore {
   const voiceModelStore = new VoiceModelStore()
   statusBar.bind(session)
   statusBar.bindAgent(agent)
+
+  reviewGuideStore.onReady((api, event) => {
+    if (event.scope !== 'session') return
+    const tabId = session.tabOrder.find((candidateTabId) => {
+      if (session.apiFor(candidateTabId) !== api) return false
+      const identity = sessionGuideIdentity(session.sessionFor(candidateTabId))
+      return identity?.repoRoot === event.repoRoot && identity.key === event.key
+    })
+    if (!tabId) return
+
+    const title = session.tabs[tabId]?.title?.trim()
+    toasts.success(title ? `Review guide ready for “${title}”` : 'Review guide ready', {
+      duration: 10_000,
+      action: {
+        label: 'Open guide',
+        onAction: () => {
+          if (!session.tabs[tabId]) return
+          if (session.activeTabId !== tabId) session.selectTab(tabId)
+          session.isExpanded = true
+          session.enterReview(event.key, 'session', tabId)
+        },
+      },
+    })
+  })
 
   const keybindings = new KeybindingsContext()
   keybindings.setOverrides(settings.keybindings)

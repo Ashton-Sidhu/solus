@@ -10,6 +10,7 @@ import type {
   PullRequestDetail,
   PullRequestOverview,
   PullRequestSummary,
+  PullRequestUpdate,
   RepoRef,
   ReviewComment,
   ReviewProvider,
@@ -555,6 +556,26 @@ class GitHubProvider implements ReviewProvider {
         isFork: !!headFull && !!baseFull && headFull !== baseFull,
       },
     }
+  }
+
+  async updatePullRequest(
+    repo: RepoRef,
+    number: number,
+    patch: PullRequestUpdate,
+  ): Promise<PullRequestDetail> {
+    const { rest } = await this.client()
+    const fields: { title?: string; body?: string } = {}
+    if (patch.title !== undefined) fields.title = patch.title
+    if (patch.body !== undefined) fields.body = patch.body
+    if (Object.keys(fields).length > 0) {
+      await rest.pulls.update({
+        owner: repo.owner,
+        repo: repo.repo,
+        pull_number: number,
+        ...fields,
+      })
+    }
+    return this.getPullRequest(repo, number)
   }
 
   async listReviewThreads(repo: RepoRef, number: number): Promise<ReviewThread[]> {

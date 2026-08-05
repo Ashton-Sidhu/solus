@@ -117,7 +117,7 @@
     </div>
     <ul
       bind:this={stepsListEl}
-      class="m-0 flex min-h-0 flex-1 list-none flex-col gap-[calc(0.125rem*var(--orb-scale))] overflow-y-auto overscroll-contain px-[calc(0.625rem*var(--orb-scale))] py-[calc(0.5rem*var(--orb-scale))] [scrollbar-width:thin]"
+      class="m-0 flex min-h-0 flex-1 list-none flex-col gap-[calc(0.125rem*var(--orb-scale))] overflow-y-auto overscroll-contain px-[calc(0.625rem*var(--orb-scale))] py-[calc(0.5rem*var(--orb-scale))]"
       role="list"
     >
       {#each progress.todos as todo, i (i)}

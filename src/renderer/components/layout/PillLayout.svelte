@@ -49,8 +49,8 @@
   const isExpanded = $derived(session.isExpanded);
   const isEditorMode = $derived(windowCtx.viewMode === "editor");
   const router = session.router;
-  const noTabs = $derived(
-    session.tabOrder.length === 0 && !router.at("folio") && !router.at("settings"),
+  const showNewTabHome = $derived(
+    (session.tabOrder.length === 0 || !!session.draftTabId) && !router.at("folio") && !router.at("settings"),
   );
   const pillPlanModal = $derived.by(() => {
     const planId = router.params("plan")?.planId ?? null;
@@ -282,8 +282,8 @@
                      diagram overlays, so closing it reveals the conversation
                      instantly with all state preserved. -->
                 <div class:tab-hidden={showPillDiagram || !!pillGoalTabId}>
-                  {#if noTabs}
-                    <NewTabHome />
+                  {#if showNewTabHome}
+                    <NewTabHome tab={session.tabs[session.activeTabId]} />
                   {/if}
                   {#each session.tabOrder as tId (tId)}
                     {#if mountedTabIds.has(tId)}

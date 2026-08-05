@@ -31,12 +31,6 @@ export function prStatusBadge(
   return { label: 'Open', Icon: GitPullRequestIcon, tone: 'var(--solus-art-positive)' }
 }
 
-/** Shorten an absolute project path for display in the project switcher: the
- *  home prefix collapses to `~` so the repo location still reads at a glance. */
-export function displayProjectPath(path: string): string {
-  return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~')
-}
-
 export function filterPrs(
   items: PullRequestSummary[],
   query: string,

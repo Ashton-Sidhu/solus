@@ -9,6 +9,7 @@
   import { routeForHref } from "../../lib/agent-links";
   import { FILE_ICON_VIEWBOX, getFileIconPath } from "../editor/fileIcons";
   import { tokenClassName } from "../editor/tokenStyle";
+  import { faviconUrlForHref } from "./lib/external-link";
   import { parseSessionHref, resolveSessionLinkMeta } from "./lib/session-link";
   import type { Snippet } from "svelte";
 
@@ -48,6 +49,8 @@
   // Anything leaving the app carries the arrow glyph; an in-app destination that
   // has a chip type took one of the branches above instead.
   const isExternal = $derived(/^https?:\/\//i.test(href));
+  const faviconUrl = $derived(faviconUrlForHref(href));
+  let failedFaviconUrl = $state<string | null>(null);
 
   function basename(path: string): string {
     const stripped = path.replace(/\/+$/, "");
@@ -157,6 +160,16 @@
     {title}
     class="solus-link"
     class:solus-link--external={isExternal}
-    onclick={handleClick}>{@render children?.()}</a
+    onclick={handleClick}
+    >{#if faviconUrl && failedFaviconUrl !== faviconUrl}<img
+        class="solus-link__favicon"
+        src={faviconUrl}
+        alt=""
+        width="12"
+        height="12"
+        loading="lazy"
+        referrerpolicy="no-referrer"
+        onerror={() => (failedFaviconUrl = faviconUrl)}
+      />{/if}{@render children?.()}</a
   >
 {/if}

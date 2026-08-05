@@ -20,7 +20,7 @@ import type {
 } from '../../../src/shared/types'
 import type { DraftReview, ReviewComment, ReviewThread } from '../../../src/shared/providers'
 import type { ReviewContext, ReviewState } from '../../../src/shared/review'
-import type { Task, TaskCommentData, TaskSessionLink } from '../../../src/shared/task-types'
+import type { Task, TaskCommentData, TaskLink, TaskLinkInput, TaskSessionLink } from '../../../src/shared/task-types'
 import type { ChangedFileStat, DiffRequest, TurnSnapshot } from '../../../src/shared/git-types'
 import { DEMO_PROJECT, type DemoFixtures } from './fixtures/types'
 
@@ -41,6 +41,7 @@ export class DemoStore {
   private readonly reviewStates = new Map<string, ReviewState>()
   private workCounter = 0
   private taskCounter = 0
+  private taskLinks = new Map<string, TaskLink[]>()
   private commentCounter = 0
   private automationCounter = 0
   private runCounter = 0
@@ -382,7 +383,7 @@ export class DemoStore {
 
   updateTask(id: string, patch: Partial<Task>): Task {
     const current = this.getTask(id)
-    return this.storeTask({ ...current, ...patch, id, updatedAt: this.nextIso() })
+    return this.storeTask({ ...current, ...patch, id, updatedAt: this.nextTimestamp() })
   }
 
   createTask(input: Partial<Task>): Task {
@@ -392,11 +393,11 @@ export class DemoStore {
       kind: input.kind ?? 'task',
       title: input.title ?? 'Untitled task',
       body: input.body ?? '',
-      status: input.status ?? 'open',
+      status: input.status ?? 'todo',
       url: null,
       labels: input.labels ?? [],
       canEditPlanningFields: true,
-      updatedAt: this.nextIso(),
+      updatedAt: this.nextTimestamp(),
       raw: {},
       ...input,
       id,
@@ -435,6 +436,33 @@ export class DemoStore {
     if (!links.some((link) => link.sessionId === sessionId)) {
       links.push({ sessionId, linkedAt: this.nextTimestamp() })
     }
+  }
+
+  taskLinksFor(taskId: string): TaskLink[] {
+    return this.taskLinks.get(taskId) ?? []
+  }
+
+  linkTask(taskId: string, input: TaskLinkInput): void {
+    this.getTask(taskId)
+    const targetScope = input.targetScope ?? ''
+    const links = this.taskLinksFor(taskId)
+      .filter((link) => !(link.kind === input.kind && link.targetScope === targetScope && link.targetKey === input.targetKey))
+    links.push({
+      taskId,
+      kind: input.kind,
+      targetScope,
+      targetKey: input.targetKey,
+      title: input.title?.trim() || (input.kind === 'pr' ? `#${input.targetKey}` : 'Untitled'),
+      ...(input.url ? { url: input.url } : {}),
+      createdBy: input.createdBy ?? 'user',
+      linkedAt: this.nextTimestamp(),
+    })
+    this.taskLinks.set(taskId, links)
+  }
+
+  unlinkTask(taskId: string, kind: TaskLink['kind'], targetKey: string, targetScope: string): void {
+    this.taskLinks.set(taskId, this.taskLinksFor(taskId)
+      .filter((link) => !(link.kind === kind && link.targetScope === targetScope && link.targetKey === targetKey)))
   }
 
   listAutomations(): Automation[] {

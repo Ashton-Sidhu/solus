@@ -16,6 +16,7 @@
   import RunOnPicker from "../servers/RunOnPicker.svelte";
   import { Button } from "../ui/button";
   import ProjectChip from "./ProjectChip.svelte";
+  import TaskPicker from "./TaskPicker.svelte";
 
   interface Props {
     tabId?: string;
@@ -53,9 +54,9 @@
   const canToggleWorktree = $derived(
     gitHome.canToggleWorktree || worktreeForced,
   );
-  // Only a *pending* worktree changes where the next session starts. Already
-  // sitting in one is the current checkout — Git won't branch a worktree out of
-  // a worktree, which is why the dropdown's "New worktree" is disabled here.
+  // Only a *pending* worktree changes where the next session starts. Choosing a
+  // new worktree from an existing one retargets the draft to the project root;
+  // creation still follows the normal origin/default-branch path.
   const startsNewWorktree = $derived(env.pending || worktreeForced);
   const displayBranch = $derived(env.branch ?? env.name);
   const branchLabel = $derived(env.pending ? env.name : displayBranch);
@@ -225,6 +226,10 @@
       <TooltipUI.Content value={branchTooltip} />
     </TooltipUI.Root>
   {/if}
+  <TaskPicker
+    tabId={targetTabId}
+    projectKey={gitHome.projectRoot ?? projectDir}
+  />
 </div>
 
 <!-- The composer is bottom-anchored, so the list opens over the transcript. -->

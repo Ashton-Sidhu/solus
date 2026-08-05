@@ -26,6 +26,8 @@ export type Scope =
   | 'saved-prompts'
   | 'diagram'
   | 'command-palette'
+  | 'project-search'
+  | 'go-to-file'
   | 'shortcuts-help'
 
 export type BindingDef = {

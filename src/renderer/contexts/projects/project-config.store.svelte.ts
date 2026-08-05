@@ -1,4 +1,4 @@
-import { createContext } from 'svelte'
+import { createAppContext } from '../app/create-app-context'
 import type { ProjectConfig } from '../../../shared/types'
 
 export class ProjectConfigStore {
@@ -30,4 +30,4 @@ export class ProjectConfigStore {
   }
 }
 
-export const [getProjectConfigStore, setProjectConfigStore] = createContext<ProjectConfigStore>()
+export const [getProjectConfigStore, setProjectConfigStore] = createAppContext<ProjectConfigStore>('project-config')

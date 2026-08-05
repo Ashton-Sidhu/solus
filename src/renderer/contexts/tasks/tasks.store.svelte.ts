@@ -1,35 +1,108 @@
 import { SvelteMap } from 'svelte/reactivity'
-import type { Task, TaskStatus, TaskKind, TaskSessionLink, TaskPr, TaskPriority, TaskProviderStatus } from '../../../shared/task-types'
+import { serverConnections } from '@client-core/server-connections'
+import type {
+  Task,
+  TaskCreateInput,
+  TaskDetails,
+  TaskForSessionResult,
+  TaskLinkInput,
+  TaskLinkKind,
+  TaskProviderStatus,
+  TaskSessionLink,
+  TaskStatus,
+  TaskUpdatePatch,
+} from '../../../shared/task-types'
+import { upstreamTaskDetails } from './upstream-task-details'
 
-// Renderer-side cache + RPC wrapper for tasks. Mirrors AutomationsStore, but
-// scoped to a single project cwd at a time: a task provider is bound to one
-// repo, so switching the active project reloads the list. The main process owns
-// the disposable provider cache; this is purely the in-flight UI view.
+const INVALIDATION_DEBOUNCE_MS = 100
+
+/** Global, local-first task state shared by every renderer surface. Local tasks
+ * live in `tasks`; upstream tickets (GitHub issues) are kept per-project in
+ * `upstreamTasksByProject` and routed to the `tasks*Upstream` RPCs by their
+ * `providerId`. */
 export class TasksStore {
   tasks = $state<Task[]>([])
   loading = $state(false)
   loaded = $state(false)
-  /** Set when the last load failed (e.g. GitHub offline / not connected). */
   error = $state<string | null>(null)
-  /** The cwd the current `tasks` belong to, so a stale project never renders. */
-  cwd = $state<string | null>(null)
-  /** Epoch ms the shown list was fetched from the provider — drives the
-   *  "updated Xm ago" hint. For an offline (cached) serve this is the cache's
-   *  original fetch time, not the load time, so the hint never claims stale
-   *  data is fresh. Null when unknown (legacy cache with no timestamp). */
   refreshedAt = $state<number | null>(null)
-  /** True when the last load served the offline cache after a failed live fetch. */
-  fromCache = $state(false)
-  /** True when the provider capped the list (GitHub stops at its page budget). */
-  truncated = $state(false)
-  /** task id → sessions started from it. Persisted in a local sidecar so the
-   *  back-link survives reloads even though a session's `boundTaskId` doesn't. */
+
+  byProject: Map<string, Task[]> = $derived.by(() => {
+    const grouped = new Map<string, Task[]>()
+    for (const task of this.tasks) {
+      if (!task.projectKey) continue
+      const tasks = grouped.get(task.projectKey)
+      if (tasks) tasks.push(task)
+      else grouped.set(task.projectKey, [task])
+    }
+    return grouped
+  })
+
+  byParent: Map<string, Task[]> = $derived.by(() => {
+    const grouped = new Map<string, Task[]>()
+    for (const task of this.tasks) {
+      if (!task.parentId) continue
+      const tasks = grouped.get(task.parentId)
+      if (tasks) tasks.push(task)
+      else grouped.set(task.parentId, [task])
+    }
+    return grouped
+  })
+
+  inbox: Task[] = $derived(this.tasks.filter((task) => !task.projectKey && task.status !== 'dropped'))
+  upNext: Task[] = $derived(
+    this.tasks.filter((task) => task.status === 'todo' || task.status === 'in_progress' || task.status === 'in_review'),
+  )
+
   sessionsByTask = new SvelteMap<string, TaskSessionLink[]>()
-  /** cwd → provider preflight. Keyed so stale responses from an old project
-   *  can't overwrite the status shown for the current one. */
+  /** Comments, links and activity for tasks a detail surface has opened. */
+  detailsByTask = new SvelteMap<string, TaskDetails>()
   providerStatusByCwd = new SvelteMap<string, TaskProviderStatus>()
-  private loadsByCwd = new Map<string, Promise<void>>()
+  upstreamTasksByProject = new SvelteMap<string, Task[]>()
+  upstreamErrorByProject = new SvelteMap<string, string>()
+  upstreamFromCacheByProject = new SvelteMap<string, boolean>()
+  upstreamRefreshedAtByProject = new SvelteMap<string, number>()
+  upstreamTruncatedByProject = new SvelteMap<string, boolean>()
+  upstreamLoadingByProject = new SvelteMap<string, boolean>()
+
+  private taskIdBySessionId = new SvelteMap<string, string>()
+  private loadPromise: Promise<void> | null = null
   private providerStatusLoadsByCwd = new Map<string, Promise<TaskProviderStatus>>()
+  private upstreamLoadsByProject = new Map<string, Promise<void>>()
+  private invalidationTimer: ReturnType<typeof setTimeout> | null = null
+
+  constructor() {
+    serverConnections.eventsFor().subscribe('tasks.invalidated', () => {
+      if (this.invalidationTimer) clearTimeout(this.invalidationTimer)
+      this.invalidationTimer = setTimeout(() => {
+        this.invalidationTimer = null
+        void this.load()
+        // The broadcast carries no payload, so an open detail surface re-reads
+        // its own task: another actor (an agent linking a doc mid-session) does
+        // not otherwise reach it.
+        for (const taskId of this.detailsByTask.keys()) void this.loadDetails(taskId)
+      }, INVALIDATION_DEBOUNCE_MS)
+    })
+    queueMicrotask(() => void this.ensureLoaded())
+  }
+
+  tasksForProject(projectKey: string | null | undefined): Task[] {
+    if (!projectKey) return []
+    return [
+      ...(this.byProject.get(projectKey) ?? []),
+      ...(this.upstreamTasksByProject.get(projectKey) ?? []),
+    ]
+  }
+
+  taskForId(id: string, projectKey?: string): Task | null {
+    return this.taskById(id, projectKey) ?? null
+  }
+
+  taskForSession(sessionId: string | null | undefined): Task | null {
+    if (!sessionId) return null
+    const taskId = this.taskIdBySessionId.get(sessionId)
+    return taskId ? (this.tasks.find((task) => task.id === taskId) ?? null) : null
+  }
 
   providerStatus(cwd: string | null | undefined): TaskProviderStatus | null {
     return cwd ? (this.providerStatusByCwd.get(cwd) ?? null) : null
@@ -62,179 +135,288 @@ export class TasksStore {
     return load
   }
 
-  ensureLoaded(cwd: string): Promise<void> {
-    const pending = this.loadsByCwd.get(cwd)
-    if (pending) return pending
-    if (this.cwd === cwd && this.loaded) return Promise.resolve()
-    const load = this.load(cwd)
-      .catch((err) => {
+  ensureLoaded(): Promise<void> {
+    if (this.loaded) return Promise.resolve()
+    return this.loadPromise ?? this.load()
+  }
+
+  async load(): Promise<void> {
+    if (this.loadPromise) return this.loadPromise
+    this.loading = true
+    this.error = null
+    const load = (async () => {
+      try {
+        const result = await window.solus.tasksList()
+        this.tasks.splice(0, this.tasks.length, ...result.tasks)
+        await this.loadLinks()
+        // Task records and their session links form one sidebar snapshot. Marking
+        // the store loaded between these requests lets restored sessions render
+        // briefly as unrelated loose rows before their durable links arrive.
+        this.loaded = true
+        this.refreshedAt = Date.now()
+      } catch (err) {
         this.error = err instanceof Error ? err.message : String(err)
-      })
-      .finally(() => {
-        this.loadsByCwd.delete(cwd)
-      })
-    this.loadsByCwd.set(cwd, load)
+        this.loaded = true
+      } finally {
+        this.loading = false
+        this.loadPromise = null
+      }
+    })()
+    this.loadPromise = load
     return load
   }
 
-  async load(cwd: string, opts: { assignedToMe?: boolean } = {}): Promise<void> {
-    this.cwd = cwd
-    this.loading = true
-    this.error = null
-    try {
-      const result = await window.solus.tasksList(cwd, opts)
-      // Guard against a slower earlier load resolving after a project switch.
-      if (this.cwd !== cwd) return
-      this.tasks = result.tasks
-      this.loaded = true
-      this.fromCache = result.fromCache ?? false
-      this.truncated = result.truncated ?? false
-      this.refreshedAt = result.fetchedAt ?? (result.fromCache ? null : Date.now())
-      void this.loadLinks(cwd)
-    } catch (err) {
-      if (this.cwd !== cwd) return
-      this.error = err instanceof Error ? err.message : String(err)
-      this.tasks = []
-      this.loaded = true
-    } finally {
-      if (this.cwd === cwd) this.loading = false
-    }
+  /** Fetch a project's upstream tickets — the cached snapshot by default, a
+   * live provider read with `refresh`. A project with no upstream provider
+   * returns an empty list; errors land in `upstreamErrorByProject` instead of
+   * failing the local list. */
+  async loadUpstream(projectKey: string, opts?: { refresh?: boolean }): Promise<void> {
+    const pending = this.upstreamLoadsByProject.get(projectKey)
+    if (pending) return pending
+
+    this.upstreamLoadingByProject.set(projectKey, true)
+    this.upstreamErrorByProject.delete(projectKey)
+    const load = (async () => {
+      try {
+        const upstream = await window.solus.tasksListUpstream(projectKey, opts)
+        this.upstreamTasksByProject.set(projectKey, upstream.tasks)
+        if (upstream.fromCache) this.upstreamFromCacheByProject.set(projectKey, true)
+        else this.upstreamFromCacheByProject.delete(projectKey)
+        if (upstream.fetchedAt !== undefined) {
+          this.upstreamRefreshedAtByProject.set(projectKey, upstream.fetchedAt)
+        } else if (!upstream.fromCache && upstream.tasks.length > 0) {
+          this.upstreamRefreshedAtByProject.set(projectKey, Date.now())
+        }
+        if (upstream.truncated) this.upstreamTruncatedByProject.set(projectKey, true)
+        else this.upstreamTruncatedByProject.delete(projectKey)
+      } catch (error) {
+        this.upstreamErrorByProject.set(
+          projectKey,
+          error instanceof Error ? error.message : String(error),
+        )
+      } finally {
+        this.upstreamLoadingByProject.delete(projectKey)
+        this.upstreamLoadsByProject.delete(projectKey)
+      }
+    })()
+    this.upstreamLoadsByProject.set(projectKey, load)
+    return load
   }
 
-  /** Pull the task→session links for a project so cards can show "has an active
-   *  session" and offer a jump-back. Best-effort — a missing sidecar is normal. */
-  async loadLinks(cwd: string): Promise<void> {
+  async loadLinks(): Promise<void> {
     try {
-      const links = await window.solus.tasksSessions(cwd)
-      if (this.cwd !== cwd) return
+      const links = await window.solus.tasksSessions()
       this.sessionsByTask.clear()
-      for (const [taskId, list] of Object.entries(links)) this.sessionsByTask.set(taskId, list)
+      this.taskIdBySessionId.clear()
+      for (const [taskId, list] of Object.entries(links)) {
+        this.sessionsByTask.set(taskId, list)
+        for (const link of list) this.taskIdBySessionId.set(link.sessionId, taskId)
+      }
     } catch {
-      // Non-fatal: the list just renders without back-links.
+      // Task rows remain useful without attempt links; a later invalidation retries.
     }
   }
 
-  /** Record a session as started-from a task — optimistic local update plus the
-   *  durable sidecar write. Called from the session reducer on session_init. */
-  linkSession(cwd: string, taskId: string, sessionId: string): void {
-    const list = this.sessionsByTask.get(taskId) ?? []
-    if (!list.some((l) => l.sessionId === sessionId)) {
-      this.sessionsByTask.set(taskId, [...list, { sessionId, linkedAt: Date.now() }])
-    }
-    void window.solus.tasksLinkSession(cwd, taskId, sessionId)
+  /** Expose the binding on the session-init frame while the authoritative
+   * task-session read is still in flight. The host has already persisted this
+   * association; the optimistic entry lets every task surface show live work
+   * immediately and is replaced by hydrateForSession's richer link data. */
+  trackSessionStart(taskId: string, sessionId: string): void {
+    this.taskIdBySessionId.set(sessionId, taskId)
+    const attempts = this.sessionsByTask.get(taskId) ?? []
+    if (attempts.some((attempt) => attempt.sessionId === sessionId)) return
+    this.sessionsByTask.set(taskId, [
+      ...attempts,
+      { taskId, sessionId, linkedAt: Date.now() },
+    ])
   }
 
-  /** Narrow status write-back (label/close on GitHub, field on local). Moves the
-   *  card optimistically — flip `status` in place so the board re-buckets it
-   *  instantly — then reconcile with the provider's post-write truth, or roll the
-   *  status back and rethrow so the caller can surface the failure. */
-  async setStatus(cwd: string, id: string, status: TaskStatus): Promise<void> {
-    const task = this.tasks.find((t) => t.id === id)
-    const prev = task?.status
+  async hydrateForSession(sessionId: string): Promise<TaskForSessionResult | null> {
+    const result = await window.solus.tasksForSession(sessionId)
+    if (!result) return null
+    for (const task of [result.parent, result.task, ...result.subtasks, ...result.siblings]) {
+      if (task) this.replace(task.id, task)
+    }
+    this.taskIdBySessionId.set(sessionId, result.task.id)
+    if (result.attempts.length) {
+      const attemptsByTask = new Map<string, TaskSessionLink[]>()
+      for (const attempt of result.attempts) {
+        const taskId = attempt.taskId ?? result.task.id
+        const attempts = attemptsByTask.get(taskId)
+        if (attempts) attempts.push(attempt)
+        else attemptsByTask.set(taskId, [attempt])
+        this.taskIdBySessionId.set(attempt.sessionId, taskId)
+      }
+      for (const [taskId, attempts] of attemptsByTask) {
+        this.sessionsByTask.set(taskId, attempts)
+      }
+    }
+    return result
+  }
+
+  async setStatus(id: string, status: TaskStatus): Promise<void> {
+    const task = this.taskById(id)
+    const previous = task?.status
     if (task) task.status = status
     try {
-      const updated = await window.solus.tasksUpdate(cwd, id, { status })
+      const updated = task && task.providerId !== 'local'
+        ? await window.solus.tasksUpdateUpstream(this.upstreamCwd(task), id, { status })
+        : await window.solus.tasksUpdate(id, { status })
       this.replace(id, updated)
     } catch (err) {
-      if (task && prev) task.status = prev
+      if (task && previous) task.status = previous
       throw err
     }
   }
 
-  /** Edit task fields. Local accepts every field; GitHub maps title/body/labels/
-   *  assignee/status to native issue fields and ignores the rest. Throws so the
-   *  caller can surface a toast and keep the draft. */
-  async update(cwd: string, id: string, patch: Partial<Task>): Promise<Task> {
-    const updated = await window.solus.tasksUpdate(cwd, id, patch)
+  async update(id: string, patch: TaskUpdatePatch): Promise<Task> {
+    const task = this.taskById(id)
+    const updated = task && task.providerId !== 'local'
+      ? await window.solus.tasksUpdateUpstream(this.upstreamCwd(task), id, patch)
+      : await window.solus.tasksUpdate(id, patch)
     this.replace(id, updated)
     return updated
   }
 
-  /** Hydrate a single ticket and reconcile the current project list when the
-   *  result still belongs to the active cwd. */
-  async get(cwd: string, id: string): Promise<Task> {
-    const task = await window.solus.tasksGet(cwd, id)
-    if (this.cwd === cwd) this.replace(id, task)
-    return task
-  }
-
-  private replace(id: string, updated: Task): void {
-    const i = this.tasks.findIndex((t) => t.id === id)
-    if (i === -1) this.tasks.unshift(updated)
-    else this.tasks[i] = updated
-  }
-
-  /** Create a task. The provider already returns the hydrated source-of-truth row,
-   *  so only the assignee-scoped view needs a reload to preserve its server filter. */
-  async create(
-    cwd: string,
-    input: {
-      title: string
-      body?: string
-      kind?: TaskKind
-      parentId?: string
-      dueDate?: string
-      priority?: TaskPriority
-      status?: TaskStatus
-      labels?: string[]
-      branch?: string
-      pr?: TaskPr
-    },
-    opts: { assignedToMe?: boolean } = {},
-  ): Promise<Task> {
-    const created = await window.solus.tasksCreate(cwd, input)
-    if (opts.assignedToMe) await this.load(cwd, opts)
-    else this.replace(created.id, created)
+  async create(input: TaskCreateInput): Promise<Task> {
+    const created = await window.solus.tasksCreate(input)
+    this.replace(created.id, created)
     return created
   }
 
-  /** Post a comment (GitHub issue comment / local note) and swap in the
-   *  re-hydrated task so the new comment shows. Throws so the composer keeps the
-   *  draft + surfaces a toast on failure. */
-  async comment(cwd: string, id: string, body: string): Promise<Task> {
-    const updated = await window.solus.tasksComment(cwd, id, body)
-    this.replace(id, updated)
-    return updated
+  async comment(id: string, body: string): Promise<Task> {
+    const task = this.taskById(id)
+    if (task && task.providerId !== 'local') {
+      const cwd = this.upstreamCwd(task)
+      const updated = await window.solus.tasksCommentUpstream(cwd, id, body)
+      this.replace(id, updated)
+      this.detailsByTask.set(id, upstreamTaskDetails(
+        updated,
+        this.tasksForProject(cwd),
+        this.sessionsByTask.get(id) ?? [],
+      ))
+      return updated
+    }
+    const details = await window.solus.tasksComment(id, body)
+    this.reconcileDetails(details)
+    return details.task
   }
 
-  // ── Deferred delete (undo-toast pattern, mirrors AutomationsStore) ──
-  // Soft-remove hides rows immediately and stashes them; the on-disk delete is
-  // deferred until the toast commits, so Undo is a pure in-memory restore.
+  /** Attach a doc, plan, PR or automation to a task. */
+  async link(id: string, input: TaskLinkInput): Promise<TaskDetails> {
+    const details = await window.solus.tasksLink(id, input)
+    this.reconcileDetails(details)
+    return details
+  }
+
+  async unlink(id: string, kind: TaskLinkKind, targetKey: string, targetScope = ''): Promise<TaskDetails> {
+    const details = await window.solus.tasksUnlink(id, kind, targetKey, targetScope)
+    this.reconcileDetails(details)
+    return details
+  }
+
+  /** The detail read behind the task page: comments, links and activity, none
+   * of which the flat `tasks` list carries. */
+  async loadDetails(id: string, projectKey?: string): Promise<TaskDetails> {
+    const task = this.taskById(id, projectKey)
+    if (task ? task.providerId !== 'local' : await this.isUpstreamId(id, projectKey)) {
+      const cwd = task?.projectKey ?? projectKey
+      if (!cwd) throw new Error(`Project not found for upstream task ${id}.`)
+      const updated = await window.solus.tasksGetUpstream(cwd, id)
+      this.replace(id, updated)
+      const details = upstreamTaskDetails(
+        updated,
+        this.tasksForProject(cwd),
+        this.sessionsByTask.get(id) ?? [],
+      )
+      this.detailsByTask.set(id, details)
+      return details
+    }
+    const details = await window.solus.tasksGet(id)
+    this.reconcileDetails(details)
+    return details
+  }
+
+  /** A directly opened task the store has never listed: an issue-number id in a
+   * project with an upstream provider is an upstream ticket (local ids are
+   * ULIDs), so a deep link hydrates instead of reading as a missing local task. */
+  private async isUpstreamId(id: string, projectKey?: string): Promise<boolean> {
+    if (!projectKey || !/^\d+$/.test(id)) return false
+    const status = this.providerStatusByCwd.get(projectKey) ?? await this.loadProviderStatus(projectKey)
+    return status.provider !== 'local'
+  }
+
+  detailsFor(id: string | null | undefined): TaskDetails | null {
+    return id ? (this.detailsByTask.get(id) ?? null) : null
+  }
+
+  /** Upstream tasks are always stamped with their project by the host; that
+   * project is the cwd the `tasks*Upstream` RPCs key their provider on. */
+  private upstreamCwd(task: Task): string {
+    if (!task.projectKey) throw new Error(`Project not found for ${task.providerId} task ${task.id}.`)
+    return task.projectKey
+  }
+
+  private reconcileDetails(details: TaskDetails): void {
+    this.replace(details.task.id, details.task)
+    for (const subtask of details.subtasks) this.replace(subtask.id, subtask)
+    this.detailsByTask.set(details.task.id, details)
+    if (details.attempts.length) {
+      this.sessionsByTask.set(details.task.id, details.attempts)
+      for (const attempt of details.attempts) this.taskIdBySessionId.set(attempt.sessionId, details.task.id)
+    }
+  }
+
+  private replace(id: string, updated: Task): void {
+    if (updated.providerId !== 'local' && updated.projectKey) {
+      const upstream = this.upstreamTasksByProject.get(updated.projectKey)
+      const index = upstream?.findIndex((task) => task.id === id) ?? -1
+      if (!upstream) this.upstreamTasksByProject.set(updated.projectKey, [updated])
+      else if (index === -1) upstream.push(updated)
+      else upstream[index] = updated
+      return
+    }
+    const index = this.tasks.findIndex((task) => task.id === id)
+    if (index === -1) this.tasks.push(updated)
+    else this.tasks[index] = updated
+  }
+
+  private taskById(id: string, projectKey?: string): Task | undefined {
+    const local = this.tasks.find((task) => task.id === id)
+    if (local) return local
+    if (projectKey) return this.upstreamTasksByProject.get(projectKey)?.find((task) => task.id === id)
+    return Array.from(this.upstreamTasksByProject.values()).flat().find((task) => task.id === id)
+  }
+
   private pendingDelete: Task[] = []
 
-  /** Hide the given tasks and stash them for a possible undo. Returns whether
-   *  anything was removed (so the caller only shows a toast when it was). */
   softRemove(ids: string[]): boolean {
-    const set = new Set(ids)
-    const removed = this.tasks.filter((t) => set.has(t.id))
+    const taskIds = new Set(ids)
+    const removed = this.tasks.filter((task) => taskIds.has(task.id))
     if (!removed.length) return false
     this.pendingDelete = removed
-    this.tasks = this.tasks.filter((t) => !set.has(t.id))
+    for (let index = this.tasks.length - 1; index >= 0; index--) {
+      if (taskIds.has(this.tasks[index].id)) this.tasks.splice(index, 1)
+    }
     return true
   }
 
-  /** Undo: put the stashed rows back (nothing was deleted on disk yet). */
   restorePending(): void {
     if (!this.pendingDelete.length) return
     this.tasks.push(...this.pendingDelete)
-    this.tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    this.tasks.sort((a, b) => b.updatedAt - a.updatedAt)
     this.pendingDelete = []
   }
 
-  /** Commit: actually delete the stashed rows through the provider. Runs every
-   *  delete before failing so one bad row can't strand the rest, then throws
-   *  with the failed tasks restored — the caller surfaces the toast. */
-  async commitPending(cwd: string): Promise<void> {
+  async commitPending(): Promise<void> {
     const pending = this.pendingDelete
     this.pendingDelete = []
-    const results = await Promise.allSettled(pending.map((t) => window.solus.tasksDelete(cwd, t.id)))
-    const failed = pending.filter((_, i) => results[i].status === 'rejected')
+    const results = await Promise.allSettled(pending.map((task) => window.solus.tasksDelete(task.id)))
+    const failed = pending.filter((_, index) => results[index].status === 'rejected')
     if (failed.length) {
-      // Resurface the rows that still exist rather than leaving them hidden
-      // until the next reload.
       this.tasks.push(...failed)
-      this.tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-      const first = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+      this.tasks.sort((a, b) => b.updatedAt - a.updatedAt)
+      const first = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
       throw first?.reason ?? new Error('Delete failed')
     }
   }

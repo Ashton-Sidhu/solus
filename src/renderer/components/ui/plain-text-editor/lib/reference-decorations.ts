@@ -130,6 +130,8 @@ function tokenLabel(token: ReferenceToken): string {
     case "plan":
     case "work":
     case "session":
+    case "task":
+    case "automation":
       return token.title;
     case "pr":
       return `#${token.number} ${token.title}`;
@@ -161,6 +163,8 @@ function tokenClick(
         : null;
     case "slash":
     case "session":
+    case "task":
+    case "automation":
       return null;
   }
 }

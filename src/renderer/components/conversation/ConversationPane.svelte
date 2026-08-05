@@ -8,6 +8,8 @@
   import EditorInputCard from "../input/EditorInputCard.svelte";
   import ProjectPanel from "../project-panel/ProjectPanel.svelte";
   import ConversationView from "./ConversationView.svelte";
+  import SessionBreadcrumb from "./SessionBreadcrumb.svelte";
+  import { isHomeVisible } from "../layout/lib/workspace-body";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
 
   let {
@@ -24,6 +26,13 @@
   // A pinned chat always names its tab; the leading pane's chat renders through
   // the pool instead, so this component never sees the bare active-tab case.
   const tabId = $derived(params.tabId ?? session.activeTabId);
+
+  // An empty split chat reads as the same headline-sitting-on-the-composer block
+  // the leading column centres, not a hero stranded in the middle of a blank
+  // transcript with the composer far below it.
+  const centerHome = $derived(
+    isHomeVisible(session.tabOrder.length, session.sessionFor(tabId)),
+  );
 
   async function attachFile() {
     if (onAttachFile) {
@@ -66,28 +75,35 @@
        grid after the old titled header was removed: both transcripts begin and
        both composers end on the same lines. -->
   <div
-    class="split-chat-chrome no-drag flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center justify-end gap-1 border-b border-[color-mix(in_srgb,var(--solus-container-border)_50%,transparent)] px-2.5"
+    class="split-chat-chrome no-drag flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center justify-end gap-1 px-2.5"
   >
-    <TooltipUI.Root>
-      <TooltipUI.Trigger>
-        {#snippet child({ props })}
-          <button
-            {...props}
-            type="button"
-            class={PAGE_ICON_BTN}
-            onclick={toggleRail}
-            aria-label={settings.splitProjectPanelOpen
-              ? "Collapse project panel"
-              : "Expand project panel"}
-          >
-            <SidebarSimpleIcon size={13} mirrored />
-          </button>
-        {/snippet}
-      </TooltipUI.Trigger>
-      <TooltipUI.Content
-        value={`${settings.splitProjectPanelOpen ? "Collapse" : "Expand"} project panel (${comboHint("global.toggle-project-panel")})`}
-      />
-    </TooltipUI.Root>
+    <SessionBreadcrumb
+      {tabId}
+      variant="inline"
+      showNewSessionAction={false}
+      showProjectPanelAction={false}
+    />
+
+    {#if !settings.splitProjectPanelOpen}
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props })}
+            <button
+              {...props}
+              type="button"
+              class={PAGE_ICON_BTN}
+              onclick={toggleRail}
+              aria-label="Expand project panel"
+            >
+              <SidebarSimpleIcon size={13} mirrored />
+            </button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content
+          value={`Expand project panel (${comboHint("global.toggle-project-panel")})`}
+        />
+      </TooltipUI.Root>
+    {/if}
 
     <button
       type="button"
@@ -100,8 +116,12 @@
   </div>
 
   <div class="flex min-h-0 min-w-0 flex-1">
-    <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div class="flex min-h-0 flex-1 flex-col">
+    <div
+      class="split-column flex min-h-0 min-w-0 flex-1 flex-col"
+      class:justify-center={centerHome}
+      class:home-measure={centerHome}
+    >
+      <div class="flex min-h-0 flex-col" class:flex-1={!centerHome}>
         <ConversationView {tabId} onDiffToggle={toggleDiff} forceVisible {surfaceVisible} />
       </div>
 
@@ -116,6 +136,21 @@
       </div>
     </div>
 
-    <ProjectPanel {tabId} isSplit containerWidth={paneWidth} active={surfaceVisible} />
+    <ProjectPanel
+      {tabId}
+      isSplit
+      containerWidth={paneWidth}
+      active={surfaceVisible}
+      onCollapse={toggleRail}
+    />
   </div>
 </div>
+
+<style>
+  /* The same measure the leading column's home uses, so a split composer on an
+     empty session is the width the user just came from — not the full-bleed
+     transcript measure. */
+  .split-column.home-measure {
+    --solus-reading-max: clamp(40rem, 50%, 52rem);
+  }
+</style>

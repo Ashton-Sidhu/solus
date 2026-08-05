@@ -281,7 +281,7 @@
         class="flex-1 max-h-[26rem] overflow-hidden"
       >
         <div
-          class="max-h-[26rem] overflow-x-hidden overflow-y-auto overscroll-y-contain p-2 [scrollbar-width:thin]"
+          class="max-h-[26rem] overflow-x-hidden overflow-y-auto overscroll-y-contain p-2"
         >
           {#if !hasResults}
             <div role="status" class="flex flex-col items-center justify-center gap-2.5 py-11 px-6 text-center text-[length:calc(0.8125rem*var(--solus-font-scale,1))] text-(--solus-text-tertiary)">

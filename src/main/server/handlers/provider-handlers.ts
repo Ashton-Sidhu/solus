@@ -11,7 +11,7 @@ import { writeReviewCheckpoint } from '../../review/checkpoints'
 import { estimateReviewEffort } from '../../review/effort'
 import { readPrGuideMetadata, requestPrGuides, scheduleGuideWarming } from '../../review/guide-warmer'
 import type { Provider, RepoRef } from '../../providers/types'
-import type { PrEffortRequest, PrEffortResult, PrFilter, DraftReview } from '../../../shared/providers'
+import type { PrEffortRequest, PrEffortResult, PrFilter, DraftReview, PullRequestUpdate } from '../../../shared/providers'
 import type { ReviewEffort } from '../../../shared/effort-types'
 import type { PrGuideMetadataRequest } from '../../../shared/review'
 import type { GithubDelegatedCredential, IpcContext, MergeMethod, PrConflictResolutionResult, PrMergeResult, PrReviewContext } from '../../../shared/types'
@@ -19,6 +19,7 @@ import { LOCAL_DEVICE_LABEL, type SolusServer } from '../server'
 import { attachReviewAttention } from './review-attention'
 import type { AgentDispatcher } from '../../agents/agent-runner'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
+import { Task } from '../../tasks/task'
 
 const log = createLogger('main', 'provider-handlers')
 const EFFORT_FETCH_CONCURRENCY = 4
@@ -254,6 +255,28 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     ])
     result.items = attachReviewAttention(result.items, viewer)
     const cwd = ctx.session.projectPath || ctx.session.workingDirectory
+    const sessionId = ctx.session.agentSessionId
+    const branch = ctx.session.gitContext?.branch
+    const sessionPullRequest = branch
+      ? result.items.find((pullRequest) => pullRequest.headRef === branch)
+      : undefined
+    if (cwd && sessionId && sessionPullRequest) {
+      const url = `https://${repo.host}/${repo.owner}/${repo.repo}/pull/${sessionPullRequest.number}`
+      const task = await Task.forSession(sessionId)
+      await task?.linkPullRequest({
+        number: sessionPullRequest.number,
+        title: `#${sessionPullRequest.number} ${sessionPullRequest.title}`,
+        url,
+        targetScope: cwd,
+        originSessionId: sessionId,
+        createdBy: 'agent',
+      }).catch((error) => {
+        log.warn('task_pr_link_failed', {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+    }
     // Stack inference is experimental and advisory: even resolving the local
     // repo root happens after the PR response is ready, so it cannot delay it.
     if (cwd) void resolveRepoRoot(cwd).then((repoRoot) => {
@@ -406,6 +429,20 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     const [ctx, number] = args as [IpcContext, number]
     const { repo, provider } = await reviewTargetFor(ctx)
     return provider.review.getPullRequest(repo, number)
+  })
+
+  server.register('prUpdate', async (args) => {
+    const [ctx, number, patch] = args as [IpcContext, number, PullRequestUpdate]
+    const title = patch.title?.trim()
+    if (patch.title !== undefined && !title) throw new Error('A pull request title cannot be empty.')
+    const { repo, provider } = await reviewTargetFor(ctx)
+    const updated = await provider.review.updatePullRequest(repo, number, {
+      ...(title !== undefined ? { title } : {}),
+      ...(patch.body !== undefined ? { body: patch.body } : {}),
+    })
+    const cwd = ctx.session.projectPath || ctx.session.workingDirectory
+    if (cwd) deps.events.broadcast('prs.invalidated', { projectRoot: cwd })
+    return updated
   })
 
   server.register('prGetOverview', async (args) => {

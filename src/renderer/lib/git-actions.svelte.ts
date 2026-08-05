@@ -5,7 +5,7 @@ import {
 // Value imports stay deep (not the barrel): workspace.context imports this
 // module, so a runtime barrel import here would create a cycle.
 import { connectionsStore } from '../contexts/connections/connections.store.svelte'
-import { toasts } from '../contexts/app/toast.store.svelte'
+import { toasts } from './toasts'
 import { requestInputFocus } from './inputFocus'
 import { LOCAL_SERVER_ID } from '@client-core/server-registry'
 

@@ -19,7 +19,8 @@
     WorkReference,
   } from "../../../shared/types";
   import { REASONING_EFFORT_LABELS } from "../../../shared/types";
-  import { getWorkspaceContext, toasts, getAgentContext, getPlanStore } from "../../contexts";
+  import { getWorkspaceContext, getAgentContext, getPlanStore } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import {
     useKeybinding,
     useScope,
@@ -68,7 +69,7 @@
   // `justify-center` centers the two columns horizontally while they're a row;
   // once stacked it would center them *vertically*, so it's reset to start.
   const BODY =
-    "flex min-h-0 flex-1 items-start justify-center gap-16 overflow-y-auto px-14 pt-12 pb-18 [scrollbar-width:thin] overscroll-y-contain " +
+    "flex min-h-0 flex-1 items-start justify-center gap-16 overflow-y-auto px-14 pt-12 pb-18 overscroll-y-contain " +
     "@max-[65rem]:flex-col @max-[65rem]:items-stretch @max-[65rem]:justify-start @max-[65rem]:gap-7.5 @max-[65rem]:px-7 @max-[65rem]:pt-7 @max-[65rem]:pb-11 " +
     "@max-[43.75rem]:px-5 @max-[43.75rem]:pt-5.5 @max-[43.75rem]:pb-9";
   const MAIN_COLUMN =
@@ -518,7 +519,7 @@
      right inset reserves room for. -->
 {#snippet chromeBar()}
   <div
-    class="flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center justify-between gap-3 border-b border-border/45 pr-[max(0.875rem,var(--solus-pane-chrome-inset,0px))] pl-5"
+    class="flex h-(--solus-chrome-row-h) shrink-0 items-center justify-between gap-3 border-b border-border/45 pr-[max(0.875rem,var(--solus-pane-chrome-inset,0px))] pl-[max(1.25rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <Breadcrumb.Root class="min-w-0">
       <Breadcrumb.List class="min-w-0 flex-nowrap gap-[0.4375rem] text-xs">

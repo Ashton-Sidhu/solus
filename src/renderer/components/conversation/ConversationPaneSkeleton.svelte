@@ -14,6 +14,7 @@
   <div
     class="flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center justify-end gap-2 border-b border-[color-mix(in_srgb,var(--solus-container-border)_50%,transparent)] px-2.5"
   >
+    <Skeleton class="mr-auto h-3.5 w-44 rounded opacity-45" />
     <Skeleton class="size-4 rounded-[0.25rem] opacity-55" />
     <Skeleton class="size-4 rounded-[0.25rem] opacity-55" />
   </div>

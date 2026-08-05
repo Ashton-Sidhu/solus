@@ -1,21 +1,39 @@
 import { describe, expect, it } from 'bun:test'
 import type { PullRequestSummary } from '../../src/shared/providers'
+import type { Task } from '../../src/shared/task-types'
 import {
+  activeSidebarTask,
+  aggregateReviewGuideStatus,
   buildProjectSummaries,
   formatElapsed,
   groupTasks,
-  identifySidebarTasks,
+  hasDisclosure,
+  hasGlyph,
   prChipFor,
   projectInitial,
   reconcileSidebarTasks,
-  sidebarTitleNeedsEmphasis,
+  shouldShowDurableSidebarTask,
   showsProjectLine,
   sortTasks,
   taskStatusFor,
-  trailingSlot,
   type SidebarTask,
   type TaskStatus,
 } from '../../src/renderer/components/session/lib/task-list'
+
+function durableTask(status: Task['status'], overrides: Partial<Task> = {}): Task {
+  return {
+    id: `task-${status}`,
+    providerId: 'local',
+    kind: 'task',
+    title: status,
+    body: '',
+    status,
+    url: null,
+    labels: [],
+    updatedAt: 0,
+    ...overrides,
+  }
+}
 
 function task(
   key: string,
@@ -38,6 +56,52 @@ function task(
     ...overrides,
   }
 }
+
+describe('activeSidebarTask', () => {
+  it('keeps a draft out of the sidebar projection while resolving its inherited task', () => {
+    const inheritedTask = task('task-row', 'idle', {
+      taskId: 'task-root',
+      tabIds: ['source-tab'],
+    })
+
+    expect(
+      activeSidebarTask([inheritedTask], 'draft-tab', 'draft-tab', 'task-root'),
+    ).toBe(inheritedTask)
+    expect(inheritedTask.tabIds).toEqual(['source-tab'])
+  })
+
+  it('does not assign an unrelated non-draft tab by task id', () => {
+    const inheritedTask = task('task-row', 'idle', {
+      taskId: 'task-root',
+      tabIds: ['source-tab'],
+    })
+
+    expect(
+      activeSidebarTask([inheritedTask], 'other-tab', 'draft-tab', 'task-root'),
+    ).toBeNull()
+  })
+})
+
+describe('shouldShowDurableSidebarTask', () => {
+  it('keeps completed and dropped tasks until the user explicitly removes them', () => {
+    // Status and age describe the task lifecycle, not whether its sidebar row
+    // exists. The explicit remove action is the only way a root row leaves.
+    expect(shouldShowDurableSidebarTask(durableTask('done'), false, false)).toBe(true)
+    expect(shouldShowDurableSidebarTask(durableTask('dropped'), false, false)).toBe(true)
+  })
+
+  it('keeps explicit dismissal reversible by opening a session', () => {
+    const task = durableTask('done')
+    expect(shouldShowDurableSidebarTask(task, true, false)).toBe(false)
+    expect(shouldShowDurableSidebarTask(task, true, true)).toBe(true)
+  })
+
+  it('continues to project child tasks through their root row', () => {
+    expect(
+      shouldShowDurableSidebarTask(durableTask('in_progress', { parentId: 'root' }), false, true),
+    ).toBe(false)
+  })
+})
 
 function pr(overrides: Partial<PullRequestSummary> = {}): PullRequestSummary {
   return {
@@ -87,52 +151,6 @@ describe('reconcileSidebarTasks', () => {
     reconcileSidebarTasks(previousById, [task('second', 'idle')])
 
     expect([...previousById.keys()]).toEqual(['second'])
-  })
-})
-
-describe('identifySidebarTasks', () => {
-  it('preserves renderer identity across branch rename and lead-session close', () => {
-    const identityByTabId = new Map<string, string>()
-    const [pending] = identifySidebarTasks(identityByTabId, [
-      task('/repos/solus::main', 'running', { tabIds: ['tab-1', 'tab-2'] }),
-    ])
-    const [resolved] = identifySidebarTasks(identityByTabId, [
-      task('/repos/solus::feature/session-name (worktree)', 'running', {
-        tabIds: ['tab-2'],
-      }),
-    ])
-
-    expect(resolved.id).toBe(pending.id)
-  })
-
-  it('gives temporarily split tasks distinct renderer identities', () => {
-    const identityByTabId = new Map<string, string>()
-    identifySidebarTasks(identityByTabId, [
-      task('pending', 'running', { tabIds: ['tab-1', 'tab-2'] }),
-    ])
-
-    const split = identifySidebarTasks(identityByTabId, [
-      task('resolved', 'running', { tabIds: ['tab-1'] }),
-      task('pending', 'running', { tabIds: ['tab-2'] }),
-    ])
-
-    expect(new Set(split.map((item) => item.id)).size).toBe(2)
-  })
-
-  it('preserves identity when a task gains another session and forgets closed sessions', () => {
-    const identityByTabId = new Map<string, string>()
-    const [initial] = identifySidebarTasks(identityByTabId, [
-      task('main', 'idle', { tabIds: ['tab-1'] }),
-    ])
-    const [expanded] = identifySidebarTasks(identityByTabId, [
-      task('main', 'idle', { tabIds: ['tab-1', 'tab-2'] }),
-    ])
-
-    expect(expanded.id).toBe(initial.id)
-    expect(identityByTabId.get('tab-2')).toBe(initial.id)
-
-    identifySidebarTasks(identityByTabId, [])
-    expect(identityByTabId.size).toBe(0)
   })
 })
 
@@ -231,42 +249,24 @@ describe('projectInitial', () => {
 })
 
 describe('showsProjectLine', () => {
-  it('drops the project line whenever the container already states it', () => {
-    // Never repeat the container: filtered to one project, or grouped under a
-    // project heading, the line is noise.
-    expect(showsProjectLine('flat', null, 2)).toBe(true)
-    expect(showsProjectLine('flat', '/repos/solus', 2)).toBe(false)
-    expect(showsProjectLine('grouped', null, 2)).toBe(false)
-    expect(showsProjectLine('flat', null, 1)).toBe(false)
+  it('drops the project line only where the container already states it', () => {
+    // Never repeat the container: grouped under a project heading, the line is
+    // noise. A flat list has no heading, so the row has to say it itself —
+    // including while only one project happens to be open, so the column does
+    // not silently change shape the moment a second one appears.
+    expect(showsProjectLine('flat')).toBe(true)
+    expect(showsProjectLine('grouped')).toBe(false)
   })
 })
 
-describe('trailingSlot', () => {
-  it('keeps reporting status while the pointer is on the row', () => {
-    // Hover used to swap the margin out for a toolbar, which meant the one row
-    // you were reaching for was the one row that stopped reporting.
-    expect(trailingSlot('question', true, false)).toBe('status')
-    expect(trailingSlot('question', true, true)).toBe('status')
-  })
-
-  it('resolves the rest of the precedence: PR chip, then empty', () => {
-    expect(trailingSlot('idle', true, false)).toBe('pr')
-    expect(trailingSlot('idle', false, false)).toBe('none')
-  })
-
-  it('reports a running task as elapsed time rather than a glyph', () => {
-    // Work in flight is not an alert, so running spends a number instead of a
-    // glyph — but it is still something happening now, so it outranks the PR
-    // chip, which is only standing information.
-    expect(trailingSlot('running', false, false)).toBe('elapsed')
-    expect(trailingSlot('running', true, false)).toBe('elapsed')
-    expect(trailingSlot('running', true, true)).toBe('elapsed')
-  })
-
-  it('yields only the PR chip to the hover actions', () => {
-    // Standing information, and the widest thing in the margin — it is the one
-    // occupant that can afford to step aside for the buttons.
-    expect(trailingSlot('idle', true, true)).toBe('none')
+describe('hasGlyph', () => {
+  it('spends a glyph only on states that want a person', () => {
+    // Work in flight is not an alert: running reports elapsed time instead, and
+    // idle reports nothing at all.
+    expect(hasGlyph('question')).toBe(true)
+    expect(hasGlyph('error')).toBe(true)
+    expect(hasGlyph('running')).toBe(false)
+    expect(hasGlyph('idle')).toBe(false)
   })
 })
 
@@ -322,29 +322,63 @@ describe('taskStatusFor', () => {
   })
 })
 
-describe('sidebarTitleNeedsEmphasis', () => {
-  it('matches selected title weight for unread output and user-attention states', () => {
-    expect(sidebarTitleNeedsEmphasis('idle', true)).toBe(true)
-    expect(sidebarTitleNeedsEmphasis('question', false)).toBe(true)
-    expect(sidebarTitleNeedsEmphasis('plan', false)).toBe(true)
-    expect(sidebarTitleNeedsEmphasis('limit', false)).toBe(true)
-    expect(sidebarTitleNeedsEmphasis('error', false)).toBe(true)
+describe('title emphasis', () => {
+  it('leaves unread output to the margin instead of the title weight', () => {
+    // Unread used to bold the title, which put it in the same channel as
+    // selection and as the states that are actually blocked on a person — so a
+    // heavier row meant three unrelated things and ranked none of them. The
+    // margin dot carries unread now, and weight is back to one meaning per row.
+    expect(hasGlyph('idle')).toBe(false)
   })
 
-  it('keeps running, idle, and done titles at their normal weight', () => {
-    expect(sidebarTitleNeedsEmphasis('running', false)).toBe(false)
-    expect(sidebarTitleNeedsEmphasis('idle', false)).toBe(false)
-    expect(sidebarTitleNeedsEmphasis('done', false)).toBe(false)
+  it('still emphasizes every state that is waiting on a person', () => {
+    expect(hasGlyph('question')).toBe(true)
+    expect(hasGlyph('plan')).toBe(true)
+    expect(hasGlyph('limit')).toBe(true)
+    expect(hasGlyph('error')).toBe(true)
+  })
+})
+
+describe('hasDisclosure', () => {
+  it('opens a task whose only session belongs to a subtask', () => {
+    // The row is named after the root task, so without the disclosure the
+    // subtask has no representation in the column at all — the reason a task
+    // having subtasks was invisible in the first place.
+    expect(hasDisclosure([{ isSubtask: true }])).toBe(true)
+  })
+
+  it('stays flat for a task that is already its one session', () => {
+    // Nothing to reveal: expanding would restate the row underneath itself.
+    expect(hasDisclosure([{ isSubtask: false }])).toBe(false)
+    expect(hasDisclosure([])).toBe(false)
+  })
+
+  it('opens any task holding more than one session', () => {
+    expect(hasDisclosure([{}, {}])).toBe(true)
   })
 })
 
 describe('done rows', () => {
-  it('spends no glyph and keeps its PR chip', () => {
-    // Completed is the quietest row in the column: it has nothing to ask for,
-    // so the trailing slot falls back to the standing information.
-    expect(trailingSlot('done', true, false)).toBe('pr')
-    expect(trailingSlot('done', false, false)).toBe('none')
-    expect(trailingSlot('done', true, true)).toBe('none')
+  it('spends no glyph, so the row falls back to standing information', () => {
+    // Completed is the quietest row in the column: it has nothing to ask for.
+    expect(hasGlyph('done')).toBe(false)
+  })
+})
+
+describe('review guide status', () => {
+  it('summarizes child guide work on the task and clears when every mark is read', () => {
+    expect(aggregateReviewGuideStatus([
+      { reviewGuideStatus: 'ready' },
+      { reviewGuideStatus: 'generating' },
+    ])).toBe('generating')
+    expect(aggregateReviewGuideStatus([
+      { reviewGuideStatus: null },
+      { reviewGuideStatus: 'ready' },
+    ])).toBe('ready')
+    expect(aggregateReviewGuideStatus([
+      { reviewGuideStatus: null },
+      { reviewGuideStatus: null },
+    ])).toBeNull()
   })
 })
 

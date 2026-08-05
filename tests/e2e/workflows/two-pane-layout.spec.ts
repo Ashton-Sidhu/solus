@@ -52,6 +52,9 @@ test.describe('Two-pane layout', () => {
     const secondaryChrome = editorPage.locator(
       `${ACTIVE_SHELL} .secondary-pane-wrap .split-chat-chrome`,
     )
+    await expect(
+      secondaryChrome.getByRole('navigation', { name: 'Location' }),
+    ).toBeVisible()
     const primaryInputCard = editorPage.locator(
       `${ACTIVE_SHELL} .input-dock:not(.mode-hidden) > div`,
     )

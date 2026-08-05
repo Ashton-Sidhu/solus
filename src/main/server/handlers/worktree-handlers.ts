@@ -7,6 +7,7 @@ import { computeGitIdentity, computeGitState, resolveRepoRoot } from '../../git/
 import { getDiff, getDiffFileContents, getDiffStats, listTurnSnapshots } from '../../git/session-snapshots'
 import { TextGenerator } from '../../agents/text-generator'
 import { createLogger } from '../../logger'
+import { Task } from '../../tasks/task'
 import type { SolusServer } from '../server'
 
 const log = createLogger('main', 'worktree-handlers')
@@ -109,7 +110,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     log.info('rpc_worktree_pr', { tabId: ctx.session.tabId })
     if (!ctx.session.gitContext) return { success: false, error: 'No active git branch for this tab' }
     const cwd = ctx.session.gitContext.worktreePath || ctx.session.workingDirectory
-    return createPR(ctx.session.gitContext, ctx.session.workingDirectory, {
+    const result = await createPR(ctx.session.gitContext, ctx.session.workingDirectory, {
       ...commitMessageOptions(ctx),
       generatePRText: (prompt) => textGenerator.generate({
         provider: ctx.session.provider ?? ctx.settings.activeAgent,
@@ -121,6 +122,24 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
         timeoutMs: 30_000,
       }),
     })
+    const sessionId = ctx.session.agentSessionId
+    const match = result.success ? result.url?.match(/\/pull\/(\d+)(?:[/?#]|$)/) : null
+    if (sessionId && result.url && match) {
+      const task = await Task.forSession(sessionId)
+      await task?.linkPullRequest({
+        number: Number(match[1]),
+        url: result.url,
+        targetScope: ctx.session.projectPath || ctx.session.workingDirectory,
+        originSessionId: sessionId,
+        createdBy: 'agent',
+      }).catch((error) => {
+        log.warn('task_pr_link_failed', {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+    }
+    return result
   })
 
   server.register('gitCommit', async (args) => {

@@ -1,4 +1,4 @@
-import { createContext } from 'svelte'
+import { createAppContext } from './create-app-context'
 import type { AgentMetadata, AgentUsageLimits } from '../../../shared/types'
 import type { SettingsContext } from './settings.context.svelte'
 
@@ -42,4 +42,4 @@ export class AgentContext {
   }
 }
 
-export const [getAgentContext, setAgentContext] = createContext<AgentContext>()
+export const [getAgentContext, setAgentContext] = createAppContext<AgentContext>('agent')

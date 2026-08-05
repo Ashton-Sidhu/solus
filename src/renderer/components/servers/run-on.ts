@@ -95,10 +95,9 @@ export function isRunOnHostLocked(session: Session | undefined): boolean {
   return !session || hasSessionStarted(session)
 }
 
-/** Explains why this checkout cannot branch into another worktree. */
-export function worktreeBlockedReason(canToggleWorktree: boolean, isInWorktree: boolean): string | null {
+/** Explains why this checkout cannot create a worktree. */
+export function worktreeBlockedReason(canToggleWorktree: boolean): string | null {
   if (canToggleWorktree) return null
-  if (isInWorktree) return 'Already in a worktree — switch to the project root to branch another.'
   return 'This checkout has no base branch to create a worktree from.'
 }
 

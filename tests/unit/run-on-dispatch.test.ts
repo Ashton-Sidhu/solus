@@ -192,21 +192,13 @@ describe('retargeting a session to another host', () => {
 })
 
 describe('worktree eligibility copy', () => {
-  test('an existing worktree is identified as a worktree, not a non-Git folder', () => {
-    // WHY: a disabled action must name the actual constraint. Calling an
-    // existing checkout "not Git" sends the user toward the wrong fix.
-    expect(worktreeBlockedReason(false, true)).toBe(
-      'Already in a worktree — switch to the project root to branch another.',
-    )
-  })
-
   test('a checkout without a base branch is not mislabeled as non-Git', () => {
-    expect(worktreeBlockedReason(false, false)).toBe(
+    expect(worktreeBlockedReason(false)).toBe(
       'This checkout has no base branch to create a worktree from.',
     )
   })
 
   test('an eligible checkout needs no blocked reason', () => {
-    expect(worktreeBlockedReason(true, false)).toBeNull()
+    expect(worktreeBlockedReason(true)).toBeNull()
   })
 })

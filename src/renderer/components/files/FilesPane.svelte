@@ -95,6 +95,8 @@
   let selectedPath = $state<string | null>(null);
   let selectedContents = $state<string | null>(null);
   let selectedSize = $state<number | null>(null);
+  let selectedReadOnly = $state(false);
+  let selectedTruncated = $state(false);
   let fileLoading = $state(false);
   let fileError = $state<string | null>(null);
   let saveState = $state<FileSaveState>("idle");
@@ -103,6 +105,8 @@
   let treeFiles: string[] | null = null;
 
   const statusLabel = $derived.by(() => {
+    if (selectedTruncated) return "Truncated — read only";
+    if (selectedReadOnly) return "Read only";
     if (saveState === "dirty") return "Unsaved";
     if (saveState === "saving") return "Saving...";
     if (saveState === "saved") return "Saved";
@@ -187,6 +191,8 @@
     syncTreeSelection(path);
     selectedContents = null;
     selectedSize = null;
+    selectedReadOnly = false;
+    selectedTruncated = false;
     fileError = null;
     fileLoading = true;
     saveState = "idle";
@@ -195,6 +201,10 @@
     if (result.ok) {
       selectedContents = result.contents;
       selectedSize = result.size;
+      // A file too large to load whole is served as a prefix; editing it would
+      // save the truncation back over the original.
+      selectedReadOnly = result.isReadOnly;
+      selectedTruncated = result.truncated === true;
     } else {
       fileError = result.error;
     }
@@ -308,11 +318,11 @@
   class="flex h-full min-h-0 min-w-0 flex-col border-l border-(--solus-container-border) bg-(--solus-container-bg)"
   bind:clientWidth={panelWidth}
 >
-  <!-- In-content path line, not a chrome row: the tree/refresh controls sit at
-       its left and the pane's close lives in the floating PaneChrome cluster,
-       which the right gutter reserves room for. -->
+  <!-- In-content path line on the shared chrome centreline: the tree/refresh
+       controls sit at its left and the pane's close lives in the floating
+       PaneChrome cluster, which the right gutter reserves room for. -->
   <div
-    class="flex shrink-0 items-center gap-2 py-1.5 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
+    class="flex h-(--solus-chrome-row-h) shrink-0 items-center gap-2 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <TooltipUI.Root>
       <TooltipUI.Trigger>
@@ -461,6 +471,7 @@
             filePath={selectedPath}
             displayPath={selectedPath}
             contents={selectedContents}
+            isReadOnly={selectedReadOnly}
             {isDark}
             onSaveStateChange={(state) => {
               saveState = state;

@@ -7,7 +7,10 @@ import { createLogger } from '../../logger'
 import type { SolusServer } from '../server'
 import { getIndexedSession, searchIndexedSessions, setSessionCustomTitle } from '../../db/session-indexer'
 import { renamePinnedSession } from '../../sessions/pinned-sessions'
-import { generateSessionTitle } from '../../sessions/session-title'
+import { generateSessionMetadata } from '../../sessions/session-title'
+import { updateGeneratedMetadataForSession } from '../../tasks/task-sessions'
+import { Task } from '../../tasks/task'
+import { tasksForSession } from '../../tasks/task-sessions'
 import { takeSessionScanBatch } from '../session-scan'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 
@@ -143,16 +146,35 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
-  server.register('generateSessionTitle', (args) => {
+  server.register('generateSessionMetadata', (args) => {
     const [promptText, cwd] = args as [string, string]
-    return generateSessionTitle(controlPlane, promptText, cwd)
+    return generateSessionMetadata(controlPlane, promptText, cwd)
   })
 
-  server.register('setSessionTitle', (args) => {
-    const [sessionId, title] = args as [string, string | null]
+  server.register('setSessionTitle', async (args) => {
+    const [sessionId, title, source = 'manual', generatedDescription] = args as [
+      string,
+      string | null,
+      'generated' | 'manual' | undefined,
+      string | undefined,
+    ]
     const trimmed = title?.trim()
     const customTitle = trimmed || null
     setSessionCustomTitle(sessionId, customTitle)
+    if (trimmed) {
+      try {
+        if (source === 'generated') {
+          if (generatedDescription) {
+            await updateGeneratedMetadataForSession(sessionId, trimmed, generatedDescription)
+          }
+        } else {
+          const task = await tasksForSession(sessionId)
+          if (task) await (await Task.byId(task.task.id)).update({ title: trimmed }, { actor: 'agent' })
+        }
+      } catch (error) {
+        log.warn('task_session_metadata_update_failed', { sessionId, error: String(error) })
+      }
+    }
     // A pin carries its own label, so it has to be told: the custom name when
     // there is one, otherwise back to what the session derives its title from.
     const pinLabel = trimmed || getIndexedSession(sessionId)?.firstMessage?.replace(/\s+/g, ' ').slice(0, 80)

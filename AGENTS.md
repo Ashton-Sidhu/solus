@@ -448,7 +448,7 @@ use a narrow Grep.
 | `git/` | Worktrees, status, snapshots, watcher, and PR drafts |
 | `run/` | Development process management for the Run feature |
 | `review/` | Review guide producer, ledger, and review agent |
-| `tasks/` | Task board service, tools, and task providers |
+| `tasks/` | Local-first task store, agent tools, and the GitHub upstream provider |
 | `automations/` | Saved automations, scheduler, runner, store, and tools |
 | `folio/` | Works: documents, slides, diagrams, annotations, and related tools |
 | `plans/` | Plan-mode annotations and state |

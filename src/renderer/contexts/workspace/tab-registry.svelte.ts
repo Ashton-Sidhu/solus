@@ -36,6 +36,8 @@ export class TabRegistry {
 
   setActiveTab(tabId: string): void {
     this.activeTabId = tabId
+    const tab = this.tabs[tabId]
+    if (tab) tab.hasUnread = false
     const key = branchKeyFor(this.sessionFor(tabId))
     if (key && this.lastActiveTabByBranch.get(key) !== tabId) {
       this.lastActiveTabByBranch.set(key, tabId)

@@ -10,7 +10,7 @@
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
   import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
   import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
-  import { toasts } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import { githubMarkdownRenderers } from "../ui/markdown-renderers";
   import { MarkdownTextarea } from "../ui/markdown-field";
   import { Button } from "../ui/button";
@@ -47,7 +47,7 @@
   // card's 12px type by the compact modifier. Sizes/colour can't be set with
   // utilities here: the `.prose-cloud` rules are unlayered and win.
   const bodyProseClass =
-    "github-markdown prose-cloud prose-pr prose-pr-compact mt-0.5";
+    "github-markdown prose-cloud prose-pr prose-pr-comment prose-pr-compact mt-0.5";
 
   let replying = $state(false);
   let replyText = $state("");

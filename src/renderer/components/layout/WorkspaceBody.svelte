@@ -23,7 +23,10 @@
   import { SvelteSet } from "svelte/reactivity";
   import { frameChrome } from "./frame-chrome.store.svelte";
   import { DEFAULT_PANEL_WIDTH } from "../../contexts/workspace/routing/pane-geometry.store.svelte";
-  import type { PaneEntry, PaneId } from "../../contexts/workspace/routing/location";
+  import type {
+    PaneEntry,
+    PaneId,
+  } from "../../contexts/workspace/routing/location";
   import { visibleRef } from "../../contexts/workspace/routing/location";
   import { isMovableRoute } from "../../contexts/workspace/routing/route-registry";
   import { CompanionPanes } from "./lib/companion-panes.svelte";
@@ -95,7 +98,8 @@
 
   provideOuterScrollbarContext({
     register(element) {
-      if (!outerScrollTargets.includes(element)) outerScrollTargets.push(element);
+      if (!outerScrollTargets.includes(element))
+        outerScrollTargets.push(element);
       outerScrollTarget = element;
 
       const activate = () => (outerScrollTarget = element);
@@ -124,11 +128,15 @@
   const leadingRef = $derived(visibleRef(leadingPane));
   // The leading pane resting on the conversation pool: no tab id means "whatever
   // the active tab is", which is exactly what the pool renders.
-  const poolInLead = $derived(leadingRef?.name === "chat" && !leadingRef.params.tabId);
+  const poolInLead = $derived(
+    leadingRef?.name === "chat" && !leadingRef.params.tabId,
+  );
   const centerHome = $derived(
     isHomeVisible(session.tabOrder.length, sess) && poolInLead,
   );
-  const activeProjectPanelTabKey = $derived(session.activeTabId || "new-tab-home");
+  const activeProjectPanelTabKey = $derived(
+    session.activeTabId || "new-tab-home",
+  );
   let projectPanelPopoutTabKey = $state<string | null>(null);
   const newTabProjectPanelPoppedOut = $derived(
     projectPanelPopoutTabKey === activeProjectPanelTabKey,
@@ -172,7 +180,12 @@
   const secondaryCollapsesSidebar = $derived(
     secondaryVisible && companionRef?.name !== "automation",
   );
-  const primaryReviewOpen = $derived(leadingRef?.name === "review");
+  // Both review surfaces read edge-to-edge: the standalone guide pane and the
+  // PR review, which replaces the list in the leading pane. Neither wants a
+  // session column beside it.
+  const primaryReviewOpen = $derived(
+    leadingRef?.name === "review" || leadingRef?.name === "prReview",
+  );
   const maximizedPaneId = $derived(geometry.maximizedPaneId);
   const sidebarOpenForChrome = $derived(
     sidebarOpen || secondaryCollapsesSidebar,
@@ -184,7 +197,9 @@
   // never unmounted) and its composer, and a maximized secondary (e.g. the
   // full-screen PR-review surface) covers the whole column, so the composer has
   // nothing to dock to. They step aside together rather than each being told to.
-  const conversationChromeVisible = $derived(poolInLead && maximizedPaneId === null);
+  const conversationChromeVisible = $derived(
+    poolInLead && maximizedPaneId === null,
+  );
   const showHomeBreadcrumb = $derived(
     active && centerHome && conversationChromeVisible && !!session.activeTabId,
   );
@@ -193,11 +208,6 @@
     x: number;
     y: number;
   } | null>(null);
-
-  function openHomeSessionMenu(tabId: string, anchor: HTMLElement) {
-    const rect = anchor.getBoundingClientRect();
-    homeSessionMenu = { tabId, x: rect.left, y: rect.bottom + 4 };
-  }
 
   $effect(() => {
     if (!showHomeBreadcrumb) homeSessionMenu = null;
@@ -210,7 +220,11 @@
   );
   const dockRuns = $derived(runStore.runsFor(runCwd) ?? []);
   const showRunDock = $derived(
-    active && enableRunDock && runDock.open && conversationChromeVisible && dockRuns.length > 0,
+    active &&
+      enableRunDock &&
+      runDock.open &&
+      conversationChromeVisible &&
+      dockRuns.length > 0,
   );
 
   // Lazy-mount the conversation pool: only mount a tab's ConversationView the
@@ -258,7 +272,6 @@
   // The conversation view and the secondary pane together: the container the
   // secondary's percentage geometry is measured in.
   let conversationSplitWidth = $state(0);
-  let conversationAreaEl: HTMLDivElement | undefined = $state();
   // Measured so the floating run dock clears the input bar even as it grows
   // with multi-line input, instead of relying on a fixed bottom offset.
   let inputDockHeight = $state(0);
@@ -361,7 +374,10 @@
   });
   useKeybinding(
     "global.toggle-project-panel",
-    () => toggleProjectPanel(!!session.splitChatTabId && router.focusedPaneId !== leadingPane.id),
+    () =>
+      toggleProjectPanel(
+        !!session.splitChatTabId && router.focusedPaneId !== leadingPane.id,
+      ),
     { enabled: () => active && enableProjectPanel },
   );
   useKeybinding(
@@ -372,7 +388,10 @@
         requestInputFocus();
         return;
       }
-      const tabId = await session.createTab(undefined, { activate: false, via: "keybinding" });
+      const tabId = await session.createDraftTab(undefined, {
+        activate: false,
+        via: "keybinding",
+      });
       session.openTabInSplit(tabId);
       requestInputFocus({ tabId });
     },
@@ -442,12 +461,19 @@
   const minPrimaryWidth = $derived(
     primaryIsListSidebar ? MIN_LIST_PRIMARY_PANE_WIDTH : MIN_PRIMARY_PANE_WIDTH,
   );
+  // Pages that own an edge-to-edge surface: each ends in its own footer band or
+  // full-bleed background, so the card gutter would read as that background
+  // failing to reach the window edge rather than as breathing room.
+  const FLUSH_PAGES = new Set(["settings", "tasks", "task", "prs", "prReview"]);
+  const pageFlush = $derived(FLUSH_PAGES.has(leadingRef?.name ?? ""));
   const autoSecondaryWidth = $derived.by(() =>
     clampSecondaryPaneWidth(
       primaryIsListSidebar
         ? secondaryContainerWidth -
             listSidebarPrimaryWidth(secondaryContainerWidth)
-        : Math.round(secondaryContainerWidth * geometry.weightFor(companion?.id ?? "")),
+        : Math.round(
+            secondaryContainerWidth * geometry.weightFor(companion?.id ?? ""),
+          ),
       secondaryContainerWidth,
       minPrimaryWidth,
     ),
@@ -460,7 +486,9 @@
   );
   const secondaryDefaultSize = $derived.by(() => {
     const paneId = companion?.id ?? "";
-    const width = geometry.hasResized(paneId) ? geometry.widthFor(paneId) : autoSecondaryWidth;
+    const width = geometry.hasResized(paneId)
+      ? geometry.widthFor(paneId)
+      : autoSecondaryWidth;
     return secondaryPaneDefaultSize(
       width,
       secondaryContainerWidth,
@@ -542,11 +570,15 @@
     const live = router.asidePanes;
     untrack(() => {
       if (live.length === 0 && secondaryPaneEl) {
-        secondaryClosingWidth = secondaryPaneEl.clientWidth || secondaryClosingWidth;
+        secondaryClosingWidth =
+          secondaryPaneEl.clientWidth || secondaryClosingWidth;
       }
       companions.sync(live);
       // Geometry outlives a pane only for the length of its exit animation.
-      geometry.prune([...router.panes.map((pane) => pane.id), ...companions.ids]);
+      geometry.prune([
+        ...router.panes.map((pane) => pane.id),
+        ...companions.ids,
+      ]);
     });
   });
   $effect(() => () => companions.dispose());
@@ -646,7 +678,7 @@
   class:is-resizing={isResizingSecondary}
   class:is-resizing-dock={isResizingDock}
   class:sidebar-collapsed={!sidebarOpen}
-  class:page-flush={leadingRef?.name === "settings" || primaryIsListSidebar}
+  class:page-flush={pageFlush}
   class:project-panel-open={railOpen}
   class:project-panel-collapsed={enableProjectPanel && !railOpen}
   bind:clientWidth={workspaceBodyWidth}
@@ -711,36 +743,33 @@
             >
               {@render dragBar()}
               <div class="conversation-view flex min-h-0 min-w-0 flex-1">
-      <div class="content-column flex h-full flex-1 flex-col min-h-0 min-w-0 relative">
-    <div class="conversation-card flex-1 flex flex-col min-h-0">
-      <!-- Tagged so modals portaled into the global overlay layer (the directory
-           picker) can centre on the conversation instead of the window. -->
-      <div
-        class="conversation-area flex-1 flex min-h-0 relative"
-        data-conversation-space
-        bind:this={conversationAreaEl}
-      >
-        <SessionPicker
-          open={active && session.sessionPickerOpen}
-          onClose={() => {
-            session.sessionPickerOpen = false;
-          }}
-          portalTarget={conversationAreaEl}
-        />
+                <div
+                  class="content-column flex h-full flex-1 flex-col min-h-0 min-w-0 relative"
+                >
+                  <div class="conversation-card flex-1 flex flex-col min-h-0">
+                    <div
+                      class="conversation-area flex-1 flex min-h-0 relative"
+                      data-conversation-space
+                    >
+                      <SessionPicker
+                        open={active && session.sessionPickerOpen}
+                        onClose={() => {
+                          session.sessionPickerOpen = false;
+                        }}
+                      />
 
-          <div
-            class="primary-column relative flex h-full flex-1 flex-col min-w-0"
-            class:justify-center={centerHome}
-            class:home-measure={centerHome}
-          >
-            {#if showHomeBreadcrumb}
-              <SessionBreadcrumb
-                tabId={session.activeTabId}
-                onSessionMenu={openHomeSessionMenu}
-                showNewSessionAction={false}
-              />
-            {/if}
-            <!-- Frame-level session-expand affordance. Rendered once here so
+                      <div
+                        class="primary-column relative flex h-full flex-1 flex-col min-w-0"
+                        class:justify-center={centerHome}
+                        class:home-measure={centerHome}
+                      >
+                        {#if showHomeBreadcrumb}
+                          <SessionBreadcrumb
+                            tabId={session.activeTabId}
+                            showNewSessionAction={false}
+                          />
+                        {/if}
+                        <!-- Frame-level session-expand affordance. Rendered once here so
                  every view shows it in the identical top-left spot instead of
                  each page placing its own. Self-gates via frameChrome (hidden
                  unless the sidebar is collapsed); the lead inset var —
@@ -748,83 +777,91 @@
                  traffic lights. Conversations rely on it too now: the chrome
                  row that used to carry their sidebar toggle is gone, and the
                  capsule is centred, so nothing collides at the left edge. -->
-            {#if leadingRef?.name !== "settings"}
-              <div
-                class="no-drag absolute left-[max(0.625rem,var(--solus-chrome-lead-inset,0px))] top-2.5 z-20"
-              >
-                <FrameExpandButton variant="sidebar" />
-              </div>
-            {/if}
-            <!-- Pages, artifacts, and reviews render through the leading Pane
+                        {#if leadingRef?.name !== "settings"}
+                          <div
+                            class="no-drag absolute left-[var(--solus-chrome-control-left,var(--solus-titlebar-control-left))] top-[var(--solus-titlebar-control-top)] z-20"
+                          >
+                            <FrameExpandButton variant="sidebar" size="header" />
+                          </div>
+                        {/if}
+                        <!-- Pages, artifacts, and reviews render through the leading Pane
                  below. The conversation pool stays mounted underneath (hidden
                  via display:none) so closing a pane reveals every tab instantly
                  with derived state, scroll, and editor drafts intact — never
                  re-mounted. That is what `keepAlive` declares in the registry:
                  the pool owns a chat's lifecycle, not the route. -->
-            <div
-              class="conversation-pool flex flex-col min-h-0 no-drag"
-              class:flex-1={!centerHome}
-              class:mode-hidden={!poolInLead}
-              onfocusin={() => router.focusPane(leadingPane.id)}
-            >
-              {#if session.tabOrder.length === 0}
-                <NewTabHome />
-              {/if}
-              {#each session.tabOrder as tId (tId)}
-                {#if mountedTabIds.has(tId)}
-                  <div
-                    class="tab-slot h-full"
-                    class:tab-hidden={tId !== session.activeTabId}
-                  >
-                    <ConversationView
-                      tabId={tId}
-                      surfaceVisible={active && conversationChromeVisible}
-                      retainTranscriptRows={retainedTranscriptTabIds.has(tId)}
-                      onDiffToggle={() => session.toggleDiff(tId)}
-                    />
+                        <div
+                          class="conversation-pool flex flex-col min-h-0 no-drag"
+                          class:flex-1={!centerHome}
+                          class:mode-hidden={!poolInLead}
+                          onfocusin={() => router.focusPane(leadingPane.id)}
+                        >
+                          <!-- Only when the draft is the tab this pool is showing.
+                               A draft created straight into the split pane
+                               (⌥⇧ new split chat) never activates, so keying off
+                               `draftTabId` alone stacked its home on top of the
+                               conversation the pool was still rendering. -->
+                          {#if session.tabOrder.length === 0 || session.draftTabId === session.activeTabId}
+                            <NewTabHome {tab} />
+                          {/if}
+                          {#each session.tabOrder as tId (tId)}
+                            {#if mountedTabIds.has(tId)}
+                              <div
+                                class="tab-slot h-full"
+                                class:tab-hidden={tId !== session.activeTabId}
+                              >
+                                <ConversationView
+                                  tabId={tId}
+                                  surfaceVisible={active &&
+                                    conversationChromeVisible}
+                                  retainTranscriptRows={retainedTranscriptTabIds.has(
+                                    tId,
+                                  )}
+                                  onDiffToggle={() => session.toggleDiff(tId)}
+                                />
+                              </div>
+                            {/if}
+                          {/each}
+                        </div>
+                        {#if !poolInLead}
+                          <Pane
+                            pane={leadingPane}
+                            surfaceVisible={active}
+                            {onAttachFile}
+                            {onScreenshot}
+                            {onDesignMode}
+                          />
+                        {/if}
+
+                        {#if showRunDock}
+                          <div
+                            class="run-dock-wrap no-drag"
+                            style="height:{effectiveDockHeight}px;bottom:{inputDockHeight +
+                              8}px"
+                          >
+                            <button
+                              type="button"
+                              class="dock-resize-handle"
+                              onmousedown={startDockResize}
+                              onkeydown={handleDockResizeKey}
+                              aria-label="Resize run logs"
+                            ></button>
+                            <RunDock cwd={runCwd} />
+                          </div>
+                        {/if}
+
+                        <div
+                          class="input-dock no-drag shrink-0 px-4 pt-2.5 pb-2.5"
+                          class:mode-hidden={!conversationChromeVisible}
+                          bind:clientHeight={inputDockHeight}
+                          onfocusin={() => router.focusPane(leadingPane.id)}
+                        >
+                          {@render inputRow()}
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                {/if}
-              {/each}
-            </div>
-            {#if !poolInLead}
-              <Pane
-                pane={leadingPane}
-                surfaceVisible={active}
-                {onAttachFile}
-                {onScreenshot}
-                {onDesignMode}
-              />
-            {/if}
-
-            {#if showRunDock}
-              <div
-                class="run-dock-wrap no-drag"
-                style="height:{effectiveDockHeight}px;bottom:{inputDockHeight +
-                  8}px"
-              >
-                <button
-                  type="button"
-                  class="dock-resize-handle"
-                  onmousedown={startDockResize}
-                  onkeydown={handleDockResizeKey}
-                  aria-label="Resize run logs"
-                ></button>
-                <RunDock cwd={runCwd} />
-              </div>
-            {/if}
-
-            <div
-              class="input-dock no-drag shrink-0 px-4 pt-2.5 pb-2.5"
-              class:mode-hidden={!conversationChromeVisible}
-              bind:clientHeight={inputDockHeight}
-              onfocusin={() => router.focusPane(leadingPane.id)}
-            >
-              {@render inputRow()}
-            </div>
-          </div>
-      </div>
-    </div>
-      </div>
+                </div>
                 <!-- The rail is chrome of THIS conversation, so it mounts and
                      unmounts with the tab strip and sizes itself against the
                      column. A secondary pane minimizes it temporarily without
@@ -836,6 +873,7 @@
                     containerWidth={projectRailContainerWidth}
                     minimized={secondaryVisible ||
                       (!hasStartedSession && !newTabProjectPanelPoppedOut)}
+                    onCollapse={() => toggleProjectPanel()}
                   />
                 {/if}
               </div>
@@ -851,7 +889,8 @@
                 aria-label="Resize panel"
                 disabled={maximized}
                 class={maximized ? "pointer-events-none opacity-0" : ""}
-                onDraggingChange={(dragging) => handleCompanionDragging(pane.id, dragging)}
+                onDraggingChange={(dragging) =>
+                  handleCompanionDragging(pane.id, dragging)}
               />
             {/if}
             <Resizable.Pane
@@ -861,11 +900,15 @@
               defaultSize={secondaryDefaultSize}
               minSize={secondaryBounds.min}
               maxSize={secondaryBounds.max}
-              class={`secondary-pane-wrap relative ${maximized
-                ? "secondary-pane-wrap--maximized"
-                : ""} ${closing ? "secondary-pane-wrap--closing" : ""} ${isFramedRoute(ref)
-                ? "secondary-pane-wrap--framed"
-                : ""} ${isResizingSecondary ? "is-resizing" : ""}`}
+              class={`secondary-pane-wrap relative ${
+                maximized ? "secondary-pane-wrap--maximized" : ""
+              } ${closing ? "secondary-pane-wrap--closing" : ""} ${
+                isFramedRoute(ref) ? "secondary-pane-wrap--framed" : ""
+              } ${
+                FLUSH_PAGES.has(ref?.name ?? "")
+                  ? "secondary-pane-wrap--flush"
+                  : ""
+              } ${isResizingSecondary ? "is-resizing" : ""}`}
               style={closing ? `width:${secondaryClosingWidth}px` : undefined}
             >
               {#if companions.settled.has(pane.id)}
@@ -937,6 +980,11 @@
       opacity 160ms cubic-bezier(0.2, 0, 0, 1);
     will-change: transform, opacity;
   }
+  /* …unless it holds a full-page surface, whose footer band has to reach the
+     window edge the same way it does in the primary slot. */
+  :global(.secondary-pane-wrap--flush) {
+    padding-bottom: 0;
+  }
   :global(.secondary-pane-wrap--closing) {
     position: absolute;
     top: 0;
@@ -958,6 +1006,7 @@
        leading control strip clears them — this is the "diff fully expanded" and
        "PR review" case. */
     --solus-chrome-lead-inset: var(--solus-traffic-light-inset);
+    --solus-page-top-inset: var(--solus-titlebar-height);
   }
   :global(.secondary-pane-wrap--framed) {
     border-left: 1px solid
@@ -980,16 +1029,20 @@
      maximized. No-op off the mac editor window (the inset var is 0). */
   .workspace-body.sidebar-collapsed .workspace-column,
   .workspace-body.sidebar-collapsed .primary-column {
-    --solus-chrome-lead-inset: var(--solus-traffic-light-inset);
+    /* The frame toggle owns the first safe app-control slot. Headers beside it
+       begin after the complete control + gap, never at the toggle's own x. */
+    --solus-chrome-control-left: var(--solus-titlebar-control-left);
+    --solus-chrome-lead-inset: var(--solus-titlebar-content-inset);
+    --solus-page-top-inset: var(--solus-titlebar-height);
   }
   .workspace-body.project-panel-open .content-column {
     padding-right: 0;
   }
-  /* Settings and the docked PR inbox both own edge-to-edge surfaces, so the
-     card gutter reads as their background failing to reach the window edge.
-     Drop the padding while either owns the primary slot. Declared last so it
-     beats the sidebar-collapsed and project-panel rules above (equal
-     specificity). */
+  /* Full-page surfaces (settings, tasks, pull requests) run edge to edge and
+     end in their own footer band, so the card gutter reads as that background
+     failing to reach the window edge. Drop the padding while one owns the
+     primary slot. Declared last so it beats the sidebar-collapsed and
+     project-panel rules above (equal specificity). */
   .workspace-body.page-flush .content-column {
     padding: 0;
   }

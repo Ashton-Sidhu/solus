@@ -572,7 +572,7 @@
           {#snippet child({ props: tooltipProps })}
             <button {...tooltipProps}
         onclick={async () => {
-          await session.createTab();
+          await session.createDraftTab(undefined, { via: "click" });
           requestInputFocus();
         }}
         data-testid="new-tab-button"

@@ -96,6 +96,26 @@ describe('Git state initialization', () => {
     expect(environmentStore.environmentFor().checkout).toEqual(globalDefaults.gitContext)
   })
 
+  test('keeps new-worktree mode available from an existing worktree', async () => {
+    const { homeGitDetails } = await import('../../src/renderer/lib/git-context')
+    const home = homeGitDetails(
+      '/project/.solus-worktrees/current',
+      {
+        repoRoot: '/project',
+        branch: 'solus/current-12345',
+        targetBranch: 'main',
+        worktreePath: '/project/.solus-worktrees/current',
+      },
+      null,
+    )
+
+    // WHY: a worktree is a checkout, not a base restriction. A new session can
+    // start in a sibling worktree as long as the repository default is known.
+    expect(home.canToggleWorktree).toBe(true)
+    expect(home.baseBranch).toBe('main')
+    expect(home.projectRoot).toBe('/project')
+  })
+
   test('refreshes and registers a worktree without erasing its path', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,

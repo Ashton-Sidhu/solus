@@ -19,8 +19,8 @@
   import {
     getWorkspaceContext,
     getSessionSidebarStore,
-    toasts,
   } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import SidePanel from "../layout/SidePanel.svelte";
   import {
@@ -28,11 +28,14 @@
     SIDEBAR_MIN_WIDTH,
   } from "../layout/lib/workspace-body";
   import * as Sidebar from "../ui/sidebar";
+  import TaskListSkeleton from "./TaskListSkeleton.svelte";
   import SessionContextMenu from "./SessionContextMenu.svelte";
   import ProjectMark from "./ProjectMark.svelte";
+  import TaskContextMenu from "./TaskContextMenu.svelte";
   import TaskListHeader from "./TaskListHeader.svelte";
   import TaskRow from "./TaskRow.svelte";
-  import type { SidebarTask } from "./lib/task-list";
+  import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
+  import { hasDisclosure, type SidebarTask } from "./lib/task-list";
   import { treeKeyIntent } from "./lib/task-tree-keys";
 
   interface Props {
@@ -55,16 +58,45 @@
   );
 
   let scrollEl: HTMLDivElement | undefined = $state();
-  let headerEl: HTMLDivElement | undefined = $state();
   let sessionContextMenu = $state<
-    | { kind: "tab"; tabId: string; x: number; y: number; task?: SidebarTask }
+    | {
+        kind: "tab";
+        tabId: string | null;
+        x: number;
+        y: number;
+      }
+    | {
+        kind: "task";
+        taskId: string;
+        sidebarTask?: SidebarTask;
+        child?: SidebarSessionChild;
+        x: number;
+        y: number;
+      }
     | { kind: "pinned"; pin: PinnedSession; x: number; y: number }
     | null
   >(null);
   const expandedTaskIds = new SvelteSet<string>();
+  const collapsedProjectKeys = new SvelteSet<string>();
   /** The row being renamed in place. One at a time: the edit replaces the label
-   *  where it sits, so two open editors would be two claims on the same name. */
+   *  where it sits, so two open editors would be two claims on the same name.
+   *  A durable row is named by its task, which outlives any session it has open
+   *  — and may have none at all. */
   let renamingTabId = $state<string | null>(null);
+  let renamingTaskId = $state<string | null>(null);
+
+  function startRename(target: {
+    taskId?: string;
+    tabId?: string | null;
+  }): void {
+    renamingTaskId = target.taskId ?? null;
+    renamingTabId = target.taskId ? null : (target.tabId ?? null);
+  }
+
+  function cancelRename(): void {
+    renamingTabId = null;
+    renamingTaskId = null;
+  }
   let savedSessionsOpen = $state(false);
 
   const reduceMotion = window.matchMedia(
@@ -76,28 +108,44 @@
   // column a task's disclosure lives in, and their labels start exactly where a
   // task title does, so the whole column reads as one list of one shape.
   const navRow =
-    "group flex h-8 w-full cursor-pointer items-center gap-[0.625rem] rounded bg-transparent px-[0.625rem] text-left text-muted-foreground transition-[color,background] duration-150 hover:bg-accent hover:text-foreground";
+    "group flex h-9 w-full cursor-pointer items-center gap-[0.6875rem] rounded-[0.5625rem] bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_82%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)] hover:text-foreground";
   const navRowActive = "text-foreground";
   const navIcon = "flex shrink-0 items-center";
-  const navLabel = "flex-1 text-left text-[0.8125rem] tracking-[-0.004em]";
+  const navLabel = "flex-1 text-left text-[0.84375rem] tracking-[-0.006em]";
   const navHint =
-    "shrink-0 font-mono text-[0.65625rem] opacity-0 transition-opacity duration-[120ms] group-hover:opacity-60";
+    "shrink-0 font-mono text-[0.65625rem] opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70";
   const navBeta =
-    "ml-1.5 inline-flex items-center rounded px-1 py-px align-middle text-[0.53125rem] leading-none tracking-[0.02em] text-primary uppercase bg-[color-mix(in_oklch,var(--primary)_14%,transparent)]";
+    "ml-1.5 inline-flex items-center rounded-[0.3125rem] px-[0.3125rem] py-0.5 align-middle font-mono text-[0.5625rem] leading-none font-medium tracking-[0.07em] text-primary uppercase bg-[color-mix(in_oklch,var(--primary)_13%,transparent)]";
   // A static total, in the same muted mono as every other number in the column.
   // A filled badge here would be the brightest thing above the list and would
   // compete with the status marks, which are what the eye is meant to count.
   const navCount =
-    "shrink-0 font-mono text-[0.65625rem] opacity-55 tabular-nums";
+    "shrink-0 font-mono text-[0.6875rem] text-muted-foreground opacity-60 tabular-nums";
 
   function toggleExpand(taskId: string) {
     if (expandedTaskIds.has(taskId)) expandedTaskIds.delete(taskId);
     else expandedTaskIds.add(taskId);
   }
 
+  function toggleProject(projectKey: string) {
+    if (collapsedProjectKeys.has(projectKey)) {
+      collapsedProjectKeys.delete(projectKey);
+    } else {
+      collapsedProjectKeys.add(projectKey);
+    }
+  }
+
+  function projectGroupId(projectKey: string) {
+    return `sidebar-project-${encodeURIComponent(projectKey)}`;
+  }
+
   function togglePrs() {
     session.togglePrs();
     requestInputFocus();
+  }
+
+  function newTask() {
+    void session.createDraftTab(undefined, { freshTask: true, via: "click" });
   }
 
   function scrollActiveSessionIntoView() {
@@ -127,35 +175,32 @@
     });
   });
 
-  /** ⌘⇧F puts the keyboard on the filter. There are two ways in and one way
-   *  out, so it lands on whichever is live: the ✕ beside the header while a
-   *  filter is on, otherwise the first project line in the list — the control
-   *  that sets one. */
-  function focusProjectFilter() {
-    const target = sidebarStore.projectFilter
-      ? headerEl?.querySelector<HTMLElement>("[data-clear-project-filter]")
-      : scrollEl?.querySelector<HTMLElement>("[data-project-filter]");
-    target?.focus();
-  }
-
   /** A task-row activation has two explicit effects: toggle its disclosure,
    *  then navigate to its best session. The stable task id keeps the first
    *  effect independent from any branch/session changes caused by the second. */
   function activateTask(task: SidebarTask) {
-    if (task.tabIds.length > 1) toggleExpand(task.id);
-    sidebarStore.selectBranch(task.key, task.tabIds);
+    if (hasDisclosure(sidebarStore.sessionsFor(task))) toggleExpand(task.id);
+    void sidebarStore.selectTask(task);
     requestInputFocus();
     onSessionSelect?.();
   }
 
-  function renameSession(tabId: string, next: string) {
-    renamingTabId = null;
-    void sidebarStore.renameSession(tabId, next);
+  function renameSidebarItem(
+    task: SidebarTask,
+    child: SidebarSessionChild | null,
+    next: string,
+  ) {
+    cancelRename();
+    if (!child) {
+      void sidebarStore.renameTask(task, next);
+    } else if (child.tabId) {
+      void sidebarStore.renameSession(child.tabId, next);
+    }
     requestInputFocus();
   }
 
-  function selectSession(tabId: string) {
-    sidebarStore.selectTab(tabId);
+  function selectSession(child: SidebarSessionChild) {
+    void sidebarStore.selectChild(child);
     requestInputFocus();
     onSessionSelect?.();
   }
@@ -194,9 +239,80 @@
 
   /** The check is the only state the user sets themselves — it says "I am
    *  finished with this", which nothing the agent reports can stand in for. */
-  function markTaskDone(task: SidebarTask) {
-    sidebarStore.toggleTaskDone(task.id);
+  function markTaskDone(taskId: string) {
+    sidebarStore.toggleTaskDone(taskId);
     requestInputFocus();
+  }
+
+  async function finishTask(task: SidebarTask) {
+    try {
+      if (task.taskId) await session.tasksStore.setStatus(task.taskId, "done");
+      removeTask(task);
+    } catch (error) {
+      toasts.error(
+        `Couldn't complete task: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      requestInputFocus();
+    }
+  }
+
+  function completeTask(task: SidebarTask) {
+    if (task.status !== "running") {
+      void finishTask(task);
+      return;
+    }
+    toasts.show({
+      message: `Stop the work in “${task.title}” and mark it completed?`,
+      actions: [
+        { label: "Stop and complete", onAction: () => void finishTask(task) },
+        { label: "Keep working", onAction: () => requestInputFocus() },
+      ],
+    });
+  }
+
+  function removeChild(child: SidebarSessionChild) {
+    sidebarStore.closeChild(child);
+    requestInputFocus();
+  }
+
+  async function finishChild(child: SidebarSessionChild) {
+    try {
+      if (child.taskId) await session.tasksStore.setStatus(child.taskId, "done");
+      removeChild(child);
+    } catch (error) {
+      toasts.error(
+        `Couldn't complete subtask: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      requestInputFocus();
+    }
+  }
+
+  function completeChild(child: SidebarSessionChild) {
+    if (child.attention !== "running") {
+      void finishChild(child);
+      return;
+    }
+    toasts.show({
+      message: `Stop “${child.label}” and mark the subtask completed?`,
+      actions: [
+        { label: "Stop and complete", onAction: () => void finishChild(child) },
+        { label: "Keep working", onAction: () => requestInputFocus() },
+      ],
+    });
+  }
+
+  function closeChild(child: SidebarSessionChild) {
+    if (child.attention !== "running") {
+      removeChild(child);
+      return;
+    }
+    toasts.show({
+      message: `Stop “${child.label}” and remove it from the sidebar?`,
+      actions: [
+        { label: "Stop and remove", onAction: () => removeChild(child) },
+        { label: "Keep open", onAction: () => requestInputFocus() },
+      ],
+    });
   }
 
   function removeTask(task: SidebarTask) {
@@ -205,7 +321,7 @@
     requestInputFocus();
   }
 
-  /** Closing an idle task is silent. Closing one with an agent still working
+  /** Removing an idle task is silent. Removing one with an agent still working
    *  asks first and names what it would stop, because the run cannot be got
    *  back once the tab is gone. */
   function closeTask(task: SidebarTask) {
@@ -218,10 +334,10 @@
       (tabId) => sidebarStore.childForTab(tabId).attention === "running",
     ).length;
     toasts.show({
-      message: `Stop ${running === 1 ? "the run" : `${running} runs`} in “${task.title}” and close it?`,
+      message: `Stop ${running === 1 ? "the run" : `${running} runs`} in “${task.title}” and remove it from the sidebar?`,
       actions: [
         {
-          label: "Stop and close",
+          label: "Stop and remove",
           onAction: () => removeTask(task),
         },
         { label: "Keep open", onAction: () => requestInputFocus() },
@@ -245,12 +361,18 @@
     if (index < 0) return;
 
     const expandedAttr = focused!.getAttribute("aria-expanded");
-    // A subtask's parent is the nearest task row above it.
-    const parentIndex = focused!.dataset.tabId
-      ? rows.findLastIndex(
-          (row, at) => at < index && row.dataset.taskKey !== undefined,
-        )
-      : -1;
+    // A session's parent is the nearest task row above it.
+    const parentIndex =
+      focused!.dataset.tabId ||
+      (focused!.dataset.taskId && focused!.dataset.taskKey === undefined)
+        ? rows.findLastIndex(
+            (row, at) => at < index && row.dataset.taskKey !== undefined,
+          )
+        : focused!.dataset.taskKey
+          ? rows.findLastIndex(
+              (row, at) => at < index && row.dataset.projectKey !== undefined,
+            )
+        : -1;
 
     const intent = treeKeyIntent(
       event.key,
@@ -265,6 +387,7 @@
     event.preventDefault();
 
     const taskKey = focused!.dataset.taskKey;
+    const projectKey = focused!.dataset.projectKey;
     const task = taskKey
       ? sidebarStore.visibleTasks.find((item) => item.key === taskKey)
       : undefined;
@@ -275,7 +398,8 @@
         break;
       case "expand":
       case "collapse":
-        if (task) toggleExpand(task.id);
+        if (projectKey) toggleProject(projectKey);
+        else if (task) toggleExpand(task.id);
         break;
       case "enterPane":
         requestInputFocus();
@@ -289,13 +413,15 @@
     }
   }
 
-  /** Right-click and ⋯ open the identical menu — two paths, never a superset.
-   *  A task row hands its own actions along: stop and mark-done live in here
-   *  now rather than as two more glyphs appearing under the cursor. */
+  /** Right-click and ⋯ open the identical menu. Durable task rows use the
+   *  task-specific menu; loose session rows keep the session menu. */
   function openSessionContextMenu(
     event: MouseEvent,
     target:
-      | { kind: "tab"; tabId: string; task?: SidebarTask }
+      | {
+          kind: "tab";
+          tabId: string | null;
+        }
       | { kind: "pinned"; pin: PinnedSession },
   ) {
     event.preventDefault();
@@ -305,6 +431,47 @@
 
   function closeSessionContextMenu() {
     sessionContextMenu = null;
+  }
+
+  function openTaskContextMenu(
+    event: MouseEvent,
+    taskId: string,
+    sidebarTask?: SidebarTask,
+    child?: SidebarSessionChild,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    sessionContextMenu = {
+      kind: "task",
+      taskId,
+      sidebarTask,
+      child,
+      x: event.clientX,
+      y: event.clientY,
+    };
+  }
+
+  function openTaskOrSessionContextMenu(event: MouseEvent, task: SidebarTask) {
+    if (task.taskId) {
+      openTaskContextMenu(event, task.taskId, task);
+      return;
+    }
+    openSessionContextMenu(event, {
+      kind: "tab",
+      tabId: task.tabIds[0] ?? null,
+    });
+  }
+
+  function openChildContextMenu(event: MouseEvent, child: SidebarSessionChild) {
+    if (child.tabId) {
+      openSessionContextMenu(event, { kind: "tab", tabId: child.tabId });
+      return;
+    }
+    if (child.taskId) {
+      openTaskContextMenu(event, child.taskId, undefined, child);
+      return;
+    }
+    openSessionContextMenu(event, { kind: "tab", tabId: child.tabId ?? null });
   }
 
   async function openPinnedSessionInSplit(pin: PinnedSession) {
@@ -337,30 +504,24 @@
     onPath={task.tabIds.includes(session.activeTabId)}
     expanded={expandedTaskIds.has(task.id)}
     showProjectLine={sidebarStore.showsProjectLine}
-    subtasks={task.tabIds.map((tabId) => sidebarStore.childForTab(tabId))}
+    sessions={sidebarStore.sessionsFor(task)}
     selectedTabId={task.tabIds.includes(session.activeTabId)
       ? session.activeTabId
       : null}
     {renamingTabId}
+    {renamingTaskId}
     onSelect={() => activateTask(task)}
-    onRename={renameSession}
-    onRenameCancel={() => (renamingTabId = null)}
-    onPickProject={() => sidebarStore.setProjectFilter(task.projectKey)}
-    onMore={(event) =>
-      openSessionContextMenu(event, {
-        kind: "tab",
-        tabId: task.tabIds[0],
-        task,
-      })}
+    onRename={(child, next) => renameSidebarItem(task, child, next)}
+    onRenameCancel={cancelRename}
+    onMore={(event) => openTaskOrSessionContextMenu(event, task)}
+    onComplete={() => completeTask(task)}
     onClose={() => closeTask(task)}
-    onSelectSub={selectSession}
-    onMoreSub={(event, tabId) =>
-      openSessionContextMenu(event, { kind: "tab", tabId })}
-    onCloseSub={closeSession}
+    onSelectSession={selectSession}
+    onMoreSession={openChildContextMenu}
+    onCompleteSession={completeChild}
+    onCloseSession={closeChild}
   />
 {/snippet}
-
-<svelte:window on:solus:focus-task-filter={focusProjectFilter} />
 
 <SidePanel
   side="left"
@@ -372,36 +533,35 @@
   onAction={onToggleCollapse}
   actionTooltip={`Collapse sidebar (${comboHint("global.toggle-sidebar")})`}
   actionAriaLabel="Collapse sidebar"
-  background="color-mix(in oklch, var(--foreground) 2%, var(--card))"
+  background="var(--solus-sidebar-surface)"
 >
   <!-- The one filled control in the column, and the only place terracotta
-       appears outside a status mark. Its label starts on the spine. -->
-  <div class="flex-shrink-0 px-3 pb-3.5">
+       appears outside a status mark. A top highlight and a short cast beneath
+       make it read as a physical key rather than a coloured plate. -->
+  <div class="flex-shrink-0 px-3.5 pt-0.5 pb-4">
     <button
-      class="flex h-[2.125rem] w-full cursor-pointer items-center gap-[0.625rem] rounded bg-primary px-[0.625rem] text-primary-foreground transition-[background] duration-150 hover:bg-[color-mix(in_oklch,var(--primary)_92%,var(--foreground))]"
-      onclick={() => {
-        void session.createTab();
-        requestInputFocus();
-      }}
+      class="flex h-[2.625rem] w-full cursor-pointer items-center gap-[0.5625rem] rounded-[0.6875rem] bg-primary px-3 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_4px_14px_-8px_color-mix(in_oklch,var(--primary)_90%,transparent)] transition-[filter] duration-150 hover:brightness-105"
+      onclick={newTask}
     >
       <PlusIcon size={16} class="shrink-0" />
       <span
-        class="text-[0.8125rem] font-medium tracking-[-0.004em] whitespace-nowrap"
+        class="text-[0.875rem] font-medium tracking-[-0.008em] whitespace-nowrap"
         >New task</span
       >
-      <span class="ml-auto font-mono text-[0.65625rem] opacity-60"
-        >{comboHint("global.new-tab")}</span
+      <span
+        class="ml-auto rounded-md bg-white/15 px-1.5 py-0.5 font-mono text-[0.65625rem]"
+        >{comboHint("global.new-task")}</span
       >
     </button>
   </div>
 
   <Sidebar.Group class="flex-shrink-0 p-0">
-    <Sidebar.GroupContent class="px-3">
-      <Sidebar.Menu class="gap-px">
+    <Sidebar.GroupContent class="px-3.5">
+      <Sidebar.Menu class="gap-0.5">
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
             class="{navRow} {session.router.at('folio') ? navRowActive : ''}"
-            isActive={session.router.at('folio')}
+            isActive={session.router.at("folio")}
             onclick={() => session.toggleFolio()}
           >
             <span class={navIcon}><BooksIcon size={16} /></span>
@@ -411,8 +571,10 @@
         </Sidebar.MenuItem>
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
-            class="{navRow} {session.router.at('automations') ? navRowActive : ''}"
-            isActive={session.router.at('automations')}
+            class="{navRow} {session.router.at('automations')
+              ? navRowActive
+              : ''}"
+            isActive={session.router.at("automations")}
             onclick={() => session.toggleAutomations()}
           >
             <span class={navIcon}><ArrowsClockwiseIcon size={16} /></span>
@@ -424,7 +586,7 @@
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
             class="{navRow} {session.router.at('prs') ? navRowActive : ''}"
-            isActive={session.router.at('prs')}
+            isActive={session.router.at("prs")}
             onclick={togglePrs}
           >
             <span class={navIcon}><GitPullRequestIcon size={16} /></span>
@@ -444,7 +606,7 @@
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
             class="{navRow} {session.router.at('tasks') ? navRowActive : ''}"
-            isActive={session.router.at('tasks')}
+            isActive={session.router.at("tasks")}
             onclick={() => session.toggleTasks()}
           >
             <span class={navIcon}><ListChecksIcon size={16} /></span>
@@ -470,42 +632,44 @@
   </Sidebar.Group>
 
   <!-- One of the two hairlines in the whole panel. -->
-  <div
-    class="mx-3 mt-3.5 h-[0.03125rem] flex-shrink-0 bg-sidebar-border"
-  ></div>
+  <div class="mx-3.5 mt-[1.125rem] h-[0.03125rem] flex-shrink-0 bg-sidebar-border"></div>
 
-  <div bind:this={headerEl} class="flex-shrink-0">
+  <div class="flex-shrink-0">
     <TaskListHeader
       label="Tasks"
       count={sidebarStore.headerCount}
       mode={sidebarStore.viewMode}
-      showToggle={sidebarStore.showsModeToggle}
-      filtered={!!sidebarStore.projectFilter}
       onModeChange={(mode) => sidebarStore.setViewMode(mode)}
-      onClearFilter={() => sidebarStore.setProjectFilter(null)}
     />
   </div>
 
   <!-- Only the list scrolls; everything above it is furniture. Rows hold the
        position they were created at — a row that moves under the cursor costs a
-       misclick every time, and one that moves while you read costs your place. -->
+       misclick every time, and one that moves while you read costs your place.
+
+       That last part is why the gutter is reserved rather than claimed on
+       demand. The app's scrollbars are styled, not overlaid, so Chromium takes
+       their width out of the content box the moment a scroller overflows —
+       expanding one task pushed the list over that line and narrowed every row
+       in the column by the bar's width, mid-click. Holding the gutter open
+       costs the same 8px whether or not the bar is there, and nothing moves. -->
   <div
     bind:this={scrollEl}
-    class="@container min-h-0 flex-1 overflow-y-auto px-3 pb-2.5"
-    style="scrollbar-width:thin; -webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
+    class="@container min-h-0 flex-1 overflow-y-auto px-3.5 pb-3.5 [scrollbar-gutter:stable]"
+    style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
     role="tree"
     tabindex="-1"
     aria-label="Tasks"
     onkeydown={handleTreeKeydown}
   >
-    {#if sidebarStore.visibleTasks.length === 0}
+    {#if !session.tasksStore.loaded}
+      <TaskListSkeleton />
+    {:else if sidebarStore.visibleTasks.length === 0}
       <p class="px-[0.625rem] py-1 text-[0.8125rem] text-muted-foreground">
-        {sidebarStore.projectFilter
-          ? `No open tasks in ${sidebarStore.filterProjectLabel}`
-          : "No open tasks"}
+        No open tasks
       </p>
     {:else if sidebarStore.viewMode === "flat"}
-      <div class="flex flex-col gap-0.5">
+      <div class="flex flex-col gap-[0.1875rem]">
         {#each sidebarStore.visibleTasks as task (task.id)}
           {@render taskRow(task, false)}
         {/each}
@@ -515,9 +679,16 @@
         <div class="mb-4">
           <!-- A project is the level above, so it is a section header rather
                than another row: mark, small uppercase name, a hairline running
-               to the count. It never competes with the task titles below it. -->
-          <div
-            class="mb-0.5 flex h-[1.625rem] items-center gap-[0.625rem] px-[0.625rem]"
+               to the count. The whole divider is its disclosure target. -->
+          <button
+            type="button"
+            role="treeitem"
+            aria-selected="false"
+            data-project-key={group.projectKey}
+            class="mb-0.5 flex h-8 w-full cursor-pointer items-center gap-[0.625rem] rounded px-[0.625rem] text-left transition-[color,background] duration-150 hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
+            aria-expanded={!collapsedProjectKeys.has(group.projectKey)}
+            aria-controls={projectGroupId(group.projectKey)}
+            onclick={() => toggleProject(group.projectKey)}
           >
             <ProjectMark
               projectKey={group.projectKey}
@@ -537,12 +708,29 @@
               class="shrink-0 font-mono text-[0.625rem] text-muted-foreground opacity-45 tabular-nums"
               >{group.tasks.length}</span
             >
-          </div>
-          <div class="flex flex-col gap-0.5">
-            {#each group.tasks as task (task.id)}
-              {@render taskRow(task, true)}
-            {/each}
-          </div>
+            <CaretRightIcon
+              size={11}
+              class="shrink-0 text-muted-foreground transition-transform duration-150 {collapsedProjectKeys.has(
+                group.projectKey,
+              )
+                ? ''
+                : 'rotate-90'}"
+            />
+          </button>
+          {#if !collapsedProjectKeys.has(group.projectKey)}
+            <div
+              id={projectGroupId(group.projectKey)}
+              class="flex flex-col gap-[0.1875rem]"
+              transition:slide={{
+                duration: reduceMotion ? 0 : 120,
+                easing: cubicOut,
+              }}
+            >
+              {#each group.tasks as task (task.id)}
+                {@render taskRow(task, true)}
+              {/each}
+            </div>
+          {/if}
         </div>
       {/each}
     {/if}
@@ -550,9 +738,9 @@
 
   <!-- The panel's second and last hairline. -->
   <Sidebar.Footer
-    class="relative flex-shrink-0 border-t border-t-sidebar-border px-3 pt-2 pb-2.5"
+    class="relative flex-shrink-0 border-t border-t-sidebar-border px-3.5 pt-2.5 pb-3.5"
   >
-    <Sidebar.Menu class="gap-px">
+    <Sidebar.Menu class="gap-0.5">
       {#if sidebarStore.pinnedSessions.length > 0}
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
@@ -626,7 +814,7 @@
       <Sidebar.MenuItem>
         <Sidebar.MenuButton
           class="{navRow} {session.router.at('settings') ? navRowActive : ''}"
-          isActive={session.router.at('settings')}
+          isActive={session.router.at("settings")}
           onclick={() => session.showSettings()}
         >
           <span
@@ -642,30 +830,70 @@
 </SidePanel>
 
 {#if sessionContextMenu}
-  {#if sessionContextMenu.kind === "tab"}
-    {@const menuTask = sessionContextMenu.task}
+  {#if sessionContextMenu.kind === "task"}
+    {@const menuTask = session.tasksStore.tasks.find(
+      (task) => task.id === sessionContextMenu.taskId,
+    )}
+    {@const sidebarTask = sessionContextMenu.sidebarTask}
+    {@const menuChild = sessionContextMenu.child}
+    {@const hasLinkedSession =
+      !!sidebarTask?.tabIds.length ||
+      !!menuChild?.tabId ||
+      !!menuChild?.sessionId ||
+      (menuTask
+        ? (session.tasksStore.sessionsByTask.get(menuTask.id)?.length ?? 0) > 0
+        : false)}
+    {#if menuTask}
+      <TaskContextMenu
+        x={sessionContextMenu.x}
+        y={sessionContextMenu.y}
+        task={menuTask}
+        {hasLinkedSession}
+        isRunning={sidebarTask?.status === "running" ||
+          menuChild?.attention === "running"}
+        onStart={() => void session.openTaskSession(menuTask)}
+        onResume={hasLinkedSession
+          ? () => void session.openTaskLinkedSession(menuTask)
+          : undefined}
+        onStop={sidebarTask
+          ? () => stopTask(sidebarTask)
+          : menuChild?.tabId
+            ? () => session.interruptTab(menuChild.tabId!)
+            : undefined}
+        onOpenTask={() => session.goToTask(menuTask.id)}
+        onOpenSource={() => {
+          if (menuTask.url) void window.solus.openExternal(menuTask.url);
+        }}
+        onStartRename={() => startRename({ taskId: menuTask.id })}
+        onToggleDone={() => {
+          if (menuTask.status === "done") markTaskDone(menuTask.id);
+          else if (sidebarTask) completeTask(sidebarTask);
+          else if (menuChild?.isSubtask) completeChild(menuChild);
+          else markTaskDone(menuTask.id);
+        }}
+        onRemove={sidebarTask
+          ? () => closeTask(sidebarTask)
+          : menuChild
+            ? () => closeChild(menuChild)
+            : undefined}
+        onClose={closeSessionContextMenu}
+      />
+    {/if}
+  {:else if sessionContextMenu.kind === "tab"}
     {@const menuTabId = sessionContextMenu.tabId}
     <SessionContextMenu
       x={sessionContextMenu.x}
       y={sessionContextMenu.y}
       tabId={menuTabId}
       showSplit
-      onStartRename={() => (renamingTabId = menuTabId)}
-      rowActions={menuTask
-        ? {
-            onStop:
-              menuTask.status === "running"
-                ? () => stopTask(menuTask)
-                : undefined,
-            done: menuTask.status === "done",
-            onToggleDone: () => markTaskDone(menuTask),
-          }
-        : {
-            onStop:
-              sidebarStore.childForTab(menuTabId).attention === "running"
-                ? () => session.interruptTab(menuTabId)
-                : undefined,
-          }}
+      onStartRename={(tabId) => startRename({ tabId })}
+      rowActions={{
+        onStop:
+          menuTabId &&
+          sidebarStore.childForTab(menuTabId).attention === "running"
+            ? () => session.interruptTab(menuTabId)
+            : undefined,
+      }}
       onClose={closeSessionContextMenu}
     />
   {:else}

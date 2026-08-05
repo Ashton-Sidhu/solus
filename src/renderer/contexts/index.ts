@@ -12,13 +12,12 @@ export { parseRoute, serializeRoute } from './workspace/routing/codec'
 export type { RouteName, RouteRef, SettingsTab } from './workspace/routing/route-registry'
 export type { Location, PaneEntry, PaneId } from './workspace/routing/location'
 
-/** App-wide settings, window, agent, status, voice, toast, runtime, and tool state. */
+/** App-wide settings, window, agent, status, voice, runtime, and tool state. */
 export { getSettingsContext } from './app/settings.context.svelte'
 export { getWindowContext } from './app/window.context.svelte'
 export { getAgentContext } from './app/agent.context.svelte'
 export { getStatusBarContext } from './app/status-bar.context.svelte'
 export { getVoiceModelStore } from './app/voice-model.store.svelte'
-export { toasts } from './app/toast.store.svelte'
 export { runtime } from './app/runtime.svelte'
 export { toolsStore } from './app/tools.store.svelte'
 
@@ -27,6 +26,9 @@ export { getSessionEnvironmentStore, environmentBranchKey } from './git/session-
 
 /** Plan state and operations exposed to renderer surfaces. */
 export { getPlanStore } from './plans/plan.store.svelte'
+
+/** Global local-first task state shared by task and session surfaces. */
+export { TasksStore } from './tasks/tasks.store.svelte'
 
 /** Run process state and run dock presentation state. */
 export { getRunStore } from './run/run.store.svelte'

@@ -2,9 +2,13 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import {
   flushDrafts,
   initDraftState,
+  loadDismissedSidebarRowKeys,
   loadDrafts,
   loadPersistedTabs,
   patchActiveDraft,
+  persistDismissedSidebarRow,
+  removePersistedTab,
+  savePersistedTabsDebounced,
   setTabPersistenceServerInstallationId,
   type PersistedTabs,
 } from '../../src/renderer/contexts/workspace/tab-persistence'
@@ -116,5 +120,55 @@ describe('tab persistence server scoping', () => {
       tabs: { 'tab-1': 'tab draft' },
     }))
     expect(storage.getItem('solus-tab-drafts:editor')).toBeNull()
+  })
+
+  test('removes a closed tab from the queued snapshot immediately', () => {
+    const snapshot = sampleSnapshot()
+    snapshot.activeTabId = 'tab-2'
+    snapshot.tabOrder.push('tab-2')
+    snapshot.tabs.push({ ...snapshot.tabs[0], tabId: 'tab-2', title: 'Other work' })
+    setTabPersistenceServerInstallationId('local-install', { migrateLegacy: true })
+
+    savePersistedTabsDebounced(snapshot)
+    removePersistedTab('tab-1', 'tab-2')
+
+    expect(loadPersistedTabs()).toEqual({
+      ...snapshot,
+      tabOrder: ['tab-2'],
+      tabs: [snapshot.tabs[1]],
+    })
+  })
+
+  test('removes a closed tab from the last flushed snapshot immediately', () => {
+    const snapshot = sampleSnapshot()
+    snapshot.activeTabId = 'tab-2'
+    snapshot.tabOrder.push('tab-2')
+    snapshot.tabs.push({ ...snapshot.tabs[0], tabId: 'tab-2', title: 'Other work' })
+    setTabPersistenceServerInstallationId('local-install', { migrateLegacy: true })
+    storage.setItem('solus-open-tabs:local-install:editor', JSON.stringify(snapshot))
+
+    removePersistedTab('tab-1', 'tab-2')
+
+    expect(loadPersistedTabs()).toEqual({
+      ...snapshot,
+      tabOrder: ['tab-2'],
+      tabs: [snapshot.tabs[1]],
+    })
+  })
+
+  test('persists dismissed sidebar tasks in the active server and window scope', () => {
+    setTabPersistenceServerInstallationId('local-install', { migrateLegacy: true })
+
+    persistDismissedSidebarRow('root-task')
+    persistDismissedSidebarRow('root-task')
+    persistDismissedSidebarRow('task:child-task')
+
+    expect(loadDismissedSidebarRowKeys()).toEqual(['root-task', 'task:child-task'])
+    expect(storage.getItem('solus-dismissed-sidebar-tasks:local-install:editor')).toBe(
+      JSON.stringify(['root-task', 'task:child-task']),
+    )
+
+    setTabPersistenceServerInstallationId('remote-install', { migrateLegacy: false })
+    expect(loadDismissedSidebarRowKeys()).toEqual([])
   })
 })

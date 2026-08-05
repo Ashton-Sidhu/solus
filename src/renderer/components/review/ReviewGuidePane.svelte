@@ -1,7 +1,8 @@
 <script lang="ts">
   import { ArrowsClockwiseIcon } from "phosphor-svelte";
   import type { GitCheckout } from "../../../shared/types";
-  import { getWorkspaceContext, getSettingsContext, getAgentContext, toasts } from "../../contexts";
+  import { getWorkspaceContext, getSettingsContext, getAgentContext } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import { formatDiffInlineComments } from "../../contexts/workspace/session.utils";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { PAGE_ICON_BTN } from "../../lib/page-chrome";

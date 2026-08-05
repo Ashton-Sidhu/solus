@@ -12,14 +12,17 @@ import { pairTokenFromLocation } from './lib/connect'
 import { setTabPersistenceServerInstallationId } from '@renderer/contexts/workspace/tab-persistence'
 import { webState } from './lib/web-state.svelte'
 import { webPushState } from './lib/web-push.svelte'
-import { toasts } from './lib/toast.store.svelte'
-import WebToast from './components/WebToast.svelte'
+import { toasts } from '@renderer/lib/toasts'
+import { startScrollReveal } from '@renderer/lib/scroll-reveal'
+import WebToaster from './components/WebToaster.svelte'
 
 window.addEventListener('unhandledrejection', (event) => {
   if (event.reason instanceof TransportDisconnectedError) event.preventDefault()
 })
 
 window.addEventListener('solus:open-server-connect', () => webState.openServerSetup())
+
+startScrollReveal()
 
 /** One-shot boot flag: land in the host chooser instead of auto-connecting. */
 const CHOOSE_HOST_KEY = 'solus.chooseHostOnBoot'
@@ -39,7 +42,7 @@ function leaveConnectScreen(): void {
 }
 
 const root = document.getElementById('root')!
-mount(WebToast, { target: root })
+mount(WebToaster, { target: root })
 
 subscribe(({ status, attempt }) => webState.setConnectionStatus(status, attempt))
 

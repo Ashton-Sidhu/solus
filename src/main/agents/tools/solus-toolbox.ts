@@ -19,6 +19,7 @@ import {
 } from '../../automations/automation-tools'
 import {
   createSessionAgentTool,
+  listAgentTargetsAgentTool,
   listSessionsAgentTool,
   promptSessionAgentTool,
   readSessionAgentTool,
@@ -36,6 +37,7 @@ import {
 import {
   commentTaskAgentTool,
   createTaskAgentTool,
+  linkTaskAgentTool,
   linkTaskSessionAgentTool,
   listTasksAgentTool,
   readTaskAgentTool,
@@ -81,6 +83,7 @@ export const solusToolbox = {
     status: cloudflareStatusAgentTool,
   },
   sessions: {
+    targets: listAgentTargetsAgentTool,
     list: listSessionsAgentTool,
     read: readSessionAgentTool,
     search: searchSessionsAgentTool,
@@ -98,6 +101,7 @@ export const solusToolbox = {
     create: createTaskAgentTool,
     comment: commentTaskAgentTool,
     linkSession: linkTaskSessionAgentTool,
+    link: linkTaskAgentTool,
   },
   prs: {
     list: listPrsAgentTool,

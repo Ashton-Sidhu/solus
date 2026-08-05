@@ -10,7 +10,7 @@ import type { WorkRefAttrs } from "./workRefExtension";
 import type { FileRefAttrs } from "./fileRefExtension";
 import type { SlashRefAttrs } from "./slashRefExtension";
 import type { SessionRefAttrs } from "./sessionRefExtension";
-import type { ReferenceToken } from "./reference-tokens";
+import { serializeReferenceToken, type ReferenceToken } from "./reference-tokens";
 import type {
   PlanReference,
   WorkReference,
@@ -26,6 +26,12 @@ export function textBeforeCursor(editor: Editor | null): string {
 export function isCaretAtStart(editor: Editor | null): boolean {
   if (!editor) return false;
   return editor.state.selection.from === 1;
+}
+
+export function isCaretAtLineEnd(editor: Editor | null): boolean {
+  if (!editor) return true;
+  const selection = editor.state.selection;
+  return selection.from === selection.$head.end();
 }
 
 // Converts a text-space index (from textBetween) to an absolute document
@@ -242,6 +248,16 @@ export function insertReference(
       const { kind: _, ...attrs } = token;
       return insertSessionReference(editor, attrs, triggerPattern);
     }
+    // Tasks and automations have no Tiptap node of their own — the document
+    // editor is not where you act on them. Their markdown link round-trips
+    // through the same parser the CodeMirror chip is built from.
+    case "task":
+    case "automation":
+      return updateTriggerText(
+        editor,
+        triggerPattern,
+        `${serializeReferenceToken(token)} `,
+      );
   }
 }
 

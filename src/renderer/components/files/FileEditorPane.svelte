@@ -20,10 +20,13 @@
     cwd: string;
     isDark: boolean;
     file: { path: string; line?: number };
+    /** Identifies the reveal *request*, so re-opening the same file and line
+     *  scrolls to it again instead of looking like nothing happened. */
+    revealEpoch?: number;
     onClose: () => void;
   }
 
-  let { ctx, cwd, isDark, file, onClose }: Props = $props();
+  let { ctx, cwd, isDark, file, revealEpoch = 0, onClose }: Props = $props();
   const workspace = getWorkspaceContext();
 
   ensureIconCollections();
@@ -50,12 +53,14 @@
   let contents = $state<string | null>(null);
   let size = $state<number | null>(null);
   let isReadOnly = $state(false);
+  let isTruncated = $state(false);
   let saveState = $state<FileSaveState>("idle");
   let loadGeneration = 0;
   const headerPath = $derived(displayPath || file.path);
   const headerIcon = $derived(fileTypeIcon(headerPath));
 
   const statusLabel = $derived.by(() => {
+    if (isTruncated) return "Truncated — read only";
     if (isReadOnly) return "Read only";
     if (saveState === "dirty") return "Unsaved";
     if (saveState === "saving") return "Saving...";
@@ -84,6 +89,7 @@
     contents = null;
     size = null;
     isReadOnly = false;
+    isTruncated = false;
     saveState = "idle";
 
     const result = await workspace.apiFor(ctx.session.tabId).readProjectFile(ctx, { path, cwd });
@@ -94,6 +100,7 @@
       contents = result.contents;
       size = result.size;
       isReadOnly = result.isReadOnly;
+      isTruncated = result.truncated === true;
     } else {
       filePath = path;
       displayPath = path;
@@ -110,11 +117,15 @@
   });
 </script>
 
-<div class="flex h-full min-h-0 min-w-0 flex-col border-l border-(--solus-container-border) bg-(--solus-container-bg)">
-  <!-- In-content path line, not a chrome row. The pane's close lives in the
-       floating PaneChrome cluster, which the right gutter reserves room for. -->
+<div
+  class="flex h-full min-h-0 min-w-0 flex-col border-l border-(--solus-container-border) bg-(--solus-container-bg)"
+  data-file-editor-pane
+>
+  <!-- In-content path line on the shared chrome centreline. The pane's close
+       lives in the floating PaneChrome cluster, which the right gutter reserves
+       room for. -->
   <div
-    class="flex shrink-0 items-center gap-2 py-1.5 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
+    class="flex h-(--solus-chrome-row-h) shrink-0 items-center gap-2 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
     {#if headerIcon}
       <Icon icon={headerIcon} width="14" height="14" class="shrink-0" />
@@ -172,6 +183,7 @@
       {displayPath}
       {contents}
       line={file.line}
+      {revealEpoch}
       {isDark}
       {isReadOnly}
       onSaveStateChange={(state) => {

@@ -1,4 +1,4 @@
-import { createContext } from 'svelte'
+import { createAppContext } from '../app/create-app-context'
 import type { AgentId, CommentAuthor, IpcContext, Plan, PlanComment, PlanCommentReply, PlanAnnotations, PlanDescriptor, PermissionOption } from '../../../shared/types'
 import { planKey } from '../../../shared/types'
 import { MemoryCache } from '../../../shared/cache'
@@ -494,4 +494,4 @@ export class PlanStore {
   }
 }
 
-export const [getPlanStore, setPlanStore] = createContext<PlanStore>()
+export const [getPlanStore, setPlanStore] = createAppContext<PlanStore>('plan')

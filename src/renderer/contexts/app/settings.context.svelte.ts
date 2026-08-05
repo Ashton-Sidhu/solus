@@ -1,6 +1,6 @@
 /** Unified settings context: theme + editor/terminal/agent + rate-limit + worktree toggle. */
 
-import { createContext } from 'svelte'
+import { createAppContext } from './create-app-context'
 import type { AgentId, AppCodeFontFamily, AppFontFamily, EditorId, ReasoningEffort, SettingsCtx, TerminalAppId } from '../../../shared/types'
 import { REASONING_EFFORT_LABELS } from '../../../shared/types'
 import type { KeyCombo } from '../../lib/keybindings/types'
@@ -72,8 +72,6 @@ export type SettingsFields = {
   runDockHeight: number
   tabGroupMode: TabGroupMode
   sidebarViewMode: SidebarViewMode
-  /** Project key the sidebar rail is filtered to; null is "All tasks". */
-  sidebarProjectFilter: string | null
 }
 
 function applyTheme(isDark: boolean): void {
@@ -262,7 +260,6 @@ function loadSettings(): SettingsFields {
         runDockHeight: typeof parsed.runDockHeight === 'number' && parsed.runDockHeight >= 96 ? parsed.runDockHeight : defaultRunDockHeight(),
         tabGroupMode: ((TAB_GROUP_MODES as readonly string[]).includes(parsed.tabGroupMode) ? parsed.tabGroupMode : 'flat') as TabGroupMode,
         sidebarViewMode: ((SIDEBAR_VIEW_MODES as readonly string[]).includes(parsed.sidebarViewMode) ? parsed.sidebarViewMode : 'flat') as SidebarViewMode,
-        sidebarProjectFilter: typeof parsed.sidebarProjectFilter === 'string' ? parsed.sidebarProjectFilter : null,
       }
     }
   } catch {}
@@ -300,7 +297,6 @@ function loadSettings(): SettingsFields {
     runDockHeight: defaultRunDockHeight(),
     tabGroupMode: 'flat',
     sidebarViewMode: 'flat',
-    sidebarProjectFilter: null,
   }
 }
 
@@ -338,7 +334,6 @@ export class SettingsContext {
   runDockHeight = $state(defaultRunDockHeight())
   tabGroupMode = $state<TabGroupMode>('flat')
   sidebarViewMode = $state<SidebarViewMode>('flat')
-  sidebarProjectFilter = $state<string | null>(null)
   // Seeded from the media query so 'system' paints correctly before the main
   // process answers; `setSystemTheme` takes over from there.
   private _systemIsDark = $state(globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true)
@@ -378,7 +373,6 @@ export class SettingsContext {
     this.runDockHeight = saved.runDockHeight
     this.tabGroupMode = saved.tabGroupMode
     this.sidebarViewMode = saved.sidebarViewMode
-    this.sidebarProjectFilter = saved.sidebarProjectFilter
 
     // Must run before first paint so CSS variables resolve to the saved palette.
     applyTheme(this.isDark)
@@ -493,7 +487,6 @@ export class SettingsContext {
     if (patch.runDockHeight !== undefined) this.runDockHeight = Math.max(96, patch.runDockHeight)
     if (patch.tabGroupMode !== undefined) this.tabGroupMode = patch.tabGroupMode
     if (patch.sidebarViewMode !== undefined) this.sidebarViewMode = patch.sidebarViewMode
-    if (patch.sidebarProjectFilter !== undefined) this.sidebarProjectFilter = patch.sidebarProjectFilter
     this.saveSettings()
   }
 
@@ -541,7 +534,6 @@ export class SettingsContext {
         runDockHeight: this.runDockHeight,
         tabGroupMode: this.tabGroupMode,
         sidebarViewMode: this.sidebarViewMode,
-        sidebarProjectFilter: this.sidebarProjectFilter,
       }))
     } catch {}
   }
@@ -560,4 +552,4 @@ export const spacing = {
   circleGap: 8,
 } as const
 
-export const [getSettingsContext, setSettingsContext] = createContext<SettingsContext>()
+export const [getSettingsContext, setSettingsContext] = createAppContext<SettingsContext>('settings')

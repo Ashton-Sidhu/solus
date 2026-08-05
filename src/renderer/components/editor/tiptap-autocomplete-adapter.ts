@@ -1,6 +1,5 @@
 import type { Editor } from "@tiptap/core";
 import type { AutocompleteEditor } from "./autocomplete-editor";
-import type { ReferenceToken } from "./reference-tokens";
 import * as refs from "./references";
 
 export function createTiptapAutocompleteAdapter(
@@ -31,5 +30,6 @@ export function createTiptapAutocompleteAdapter(
     },
     extractTrackedReferences: () => refs.extractRefs(getEditor()),
     isCaretAtStart: () => refs.isCaretAtStart(getEditor()),
+    isCaretAtLineEnd: () => refs.isCaretAtLineEnd(getEditor()),
   };
 }

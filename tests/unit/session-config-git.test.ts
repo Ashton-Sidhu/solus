@@ -46,7 +46,7 @@ describe('SessionConfigController provider switching', () => {
       } as any,
       statusBar: { ctx: { workingDirectory: '/repo' } } as any,
       setPluginCommands: () => {},
-      createTab: async () => 'tab-1',
+      createDraftTab: async () => 'tab-1',
       ctx: () => ({ session: { tabId: 'tab-1' } }) as IpcContext,
       ctxForDirectory: () => ({ session: { tabId: 'tab-1' } }) as IpcContext,
       apiFor: () => ({
@@ -90,6 +90,91 @@ describe('SessionConfigController provider switching', () => {
       content: 'Switched to Codex',
       agentChangedTo: 'Codex',
     })
+  })
+})
+
+describe('SessionConfigController worktree selection', () => {
+  test('retargets an unstarted worktree draft to a sibling based on main', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const session = {
+      workingDirectory: '/repo/.solus-worktrees/current',
+      gitContext: {
+        repoRoot: '/repo',
+        branch: 'solus/current-12345',
+        targetBranch: 'main',
+        worktreePath: '/repo/.solus-worktrees/current',
+      },
+      worktreeBaseBranch: null,
+      agentSessionId: null,
+      pluginCommands: { global: [], project: [] },
+    } as unknown as Session
+    const refreshedPluginDirectories: string[] = []
+    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const controller = new SessionConfigController({
+      settings: { activeAgent: 'codex', tabGroupMode: 'flat', worktreeEnabled: false } as any,
+      registry: {
+        activeTabId: 'draft-tab',
+        activeSession: session,
+        sessionFor: () => session,
+      } as any,
+      statusBar: { ctx: { workingDirectory: session.workingDirectory } } as any,
+      setPluginCommands: () => {},
+      createDraftTab: async () => 'draft-tab',
+      ctx: () => ({ session: { tabId: 'draft-tab' } }) as IpcContext,
+      ctxForDirectory: () => ({ session: { tabId: 'draft-tab' } }) as IpcContext,
+      refreshPluginCommands: (cwd) => refreshedPluginDirectories.push(cwd),
+      refreshGitRefs: () => {},
+      refreshGitState: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
+    })
+
+    controller.toggleWorktreeMode('draft-tab')
+
+    // WHY: creating a sibling from within a worktree only adapts the unstarted
+    // draft into the project-root shape expected by the existing creation path.
+    expect(session.workingDirectory).toBe('/repo')
+    expect(session.gitContext).toEqual({ repoRoot: '/repo', branch: 'main', targetBranch: 'main' })
+    expect(session.worktreeBaseBranch).toBe('main')
+    expect(refreshedPluginDirectories).toEqual(['/repo'])
+  })
+
+  test('does not retarget a session that has already started', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const session = {
+      workingDirectory: '/repo/.solus-worktrees/current',
+      gitContext: {
+        repoRoot: '/repo',
+        branch: 'solus/current-12345',
+        targetBranch: 'main',
+        worktreePath: '/repo/.solus-worktrees/current',
+      },
+      worktreeBaseBranch: null,
+      agentSessionId: 'live-session',
+    } as unknown as Session
+    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const controller = new SessionConfigController({
+      settings: { activeAgent: 'codex', tabGroupMode: 'flat', worktreeEnabled: false } as any,
+      registry: { activeTabId: 'live-tab', activeSession: session, sessionFor: () => session } as any,
+      statusBar: { ctx: { workingDirectory: session.workingDirectory } } as any,
+      setPluginCommands: () => {},
+      createDraftTab: async () => 'live-tab',
+      ctx: () => ({ session: { tabId: 'live-tab' } }) as IpcContext,
+      ctxForDirectory: () => ({ session: { tabId: 'live-tab' } }) as IpcContext,
+      refreshPluginCommands: () => {},
+      refreshGitRefs: () => {},
+      refreshGitState: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
+    })
+
+    controller.toggleWorktreeMode('live-tab')
+
+    expect(session.workingDirectory).toBe('/repo/.solus-worktrees/current')
+    expect(session.gitContext?.worktreePath).toBe('/repo/.solus-worktrees/current')
+    expect(session.worktreeBaseBranch).toBeNull()
   })
 })
 
@@ -147,7 +232,7 @@ describe('SessionConfigController branch switching', () => {
       registry: registry as any,
       statusBar: { ctx: { workingDirectory: '/repo' } } as any,
       setPluginCommands: () => {},
-      createTab: async () => {
+      createDraftTab: async () => {
         registry.activeTabId = 'tab-2'
         registry.activeSession = destinationSession
         return 'tab-2'
@@ -199,7 +284,7 @@ describe('SessionConfigController branch switching', () => {
     })
 
     const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
-    const { toasts } = await import('../../src/renderer/contexts/app/toast.store.svelte')
+    const { toasts } = await import('../../src/renderer/lib/toasts')
     const messages: string[] = []
     const originalError = toasts.error
     toasts.error = (message: string) => { messages.push(message) }
@@ -216,7 +301,7 @@ describe('SessionConfigController branch switching', () => {
         registry: { activeSession: session, activeTabId: 'tab-1' } as any,
         statusBar: { ctx: { workingDirectory: '/repo' } } as any,
         setPluginCommands: () => {},
-        createTab: async () => 'tab-1',
+        createDraftTab: async () => 'tab-1',
         ctx,
         ctxForDirectory: ctx,
         refreshPluginCommands: () => {},
@@ -234,7 +319,7 @@ describe('SessionConfigController branch switching', () => {
 })
 
 describe('SessionConfigController session start target', () => {
-  test('materializes a tab with the selected worktree context from the tab-less home', async () => {
+  test('opens a draft composer with the selected worktree context from the tab-less home', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,
       { snapshot: <T>(value: T) => value },
@@ -278,11 +363,10 @@ describe('SessionConfigController session start target', () => {
       registry: registry as any,
       statusBar: { ctx: { workingDirectory: '/repo' } } as any,
       setPluginCommands: () => {},
-      createTab: async (cwd) => {
+      createDraftTab: async (cwd) => {
         createdCwd = cwd
         registry.activeSession = session
         registry.activeTabId = 'new-tab'
-        registry.tabOrder.push('new-tab')
         return 'new-tab'
       },
       ctx: () => ({ session: { tabId: registry.activeTabId } }) as IpcContext,
@@ -304,7 +388,7 @@ describe('SessionConfigController session start target', () => {
     expect(session.worktreeBaseBranch).toBeNull()
   })
 
-  test('materializes a tab when a project is selected from the tab-less home', async () => {
+  test('opens a draft composer when a project is selected from the tab-less home', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,
       { snapshot: <T>(value: T) => value },
@@ -326,7 +410,7 @@ describe('SessionConfigController session start target', () => {
       registry: { activeSession: undefined, activeTabId: '', tabOrder: [], sessionFor: () => undefined } as any,
       statusBar: { ctx: { workingDirectory: '/workspace' } } as any,
       setPluginCommands: () => {},
-      createTab: async (cwd) => {
+      createDraftTab: async (cwd) => {
         createdCwd = cwd
         return 'new-tab'
       },
@@ -386,7 +470,7 @@ describe('SessionConfigController session start target', () => {
       } as any,
       statusBar: { ctx: { workingDirectory: '/old-project' } } as any,
       setPluginCommands: () => {},
-      createTab: async () => 'tab-1',
+      createDraftTab: async () => 'tab-1',
       ctx: () => ({ session: { tabId: 'tab-1' } }) as IpcContext,
       ctxForDirectory: () => ({ session: { tabId: 'tab-1' } }) as IpcContext,
       refreshPluginCommands: () => {},

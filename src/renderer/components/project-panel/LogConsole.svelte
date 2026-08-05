@@ -595,7 +595,6 @@
     flex-direction: column;
     overflow-y: auto;
     padding: 0.25rem 0;
-    scrollbar-width: thin;
   }
   .console-empty {
     flex: 1;

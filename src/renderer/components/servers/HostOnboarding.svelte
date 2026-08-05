@@ -184,7 +184,7 @@
         <!-- flex-auto, not flex-1: the stage sizes to its content, and a
              zero-basis item would collapse in an auto-height container. It only
              scrolls once the viewport cap actually bites. -->
-        <div class="hairline-scroll min-h-0 flex-auto overflow-y-auto px-[1.375rem] pb-5">
+        <div class="min-h-0 flex-auto overflow-y-auto px-[1.375rem] pb-5">
           {#if isPairing && store.pairingTarget}
             <HostPairingPanel target={store.pairingTarget} />
           {:else}

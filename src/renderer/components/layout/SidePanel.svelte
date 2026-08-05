@@ -120,7 +120,7 @@
                 <TooltipUI.Trigger>
                   {#snippet child({ props: tooltipProps })}
                     <button {...tooltipProps}
-                class="flex size-[1.625rem] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-(--solus-text-tertiary) transition-[color,background-color,transform] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] active:bg-[color-mix(in_srgb,var(--solus-accent)_12%,transparent)]"
+                class="flex size-[var(--solus-titlebar-control-size)] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-(--solus-text-tertiary) transition-[color,background-color,transform] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] active:bg-[color-mix(in_srgb,var(--solus-accent)_12%,transparent)]"
                 onclick={onAction}
                 aria-label={actionAriaLabel}
               >
@@ -144,6 +144,9 @@
 
 <style>
   .side-panel-shell {
+    /* The shell starts 4px from the window and its 1px border paints inward.
+       Mac titlebar chrome compensates for the resulting 5px local origin. */
+    --side-panel-window-inset: 5px;
     flex-shrink: 0;
     min-width: var(--panel-min-width, 160px);
     max-width: var(--panel-max-width, 400px);
@@ -162,6 +165,7 @@
   }
 
   .side-panel-shell.side-panel-flush {
+    --side-panel-window-inset: 0px;
     padding: 0;
   }
 
@@ -213,6 +217,9 @@
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-rows: var(--solus-titlebar-height, 2.375rem) auto;
     align-items: center;
+    position: relative;
+    top: calc(0px - var(--side-panel-window-inset));
+    margin-bottom: calc(0px - var(--side-panel-window-inset));
     padding: 0 0.75rem 0.75rem 1rem;
   }
 

@@ -597,10 +597,12 @@ export interface Session {
   /** Work this session is actively collaborating on. Its current content is
    *  injected into each prompt so the agent revises the live version. */
   boundWorkId: string | null
-  /** Task (ticket) this session was started from. The hydrated ticket is injected
-   *  at session start so the agent already knows it; drives the "working on #123"
-   *  chip and back-link. Mirror of boundWorkId. */
-  boundTaskId: string | null
+  /** Set when a session starts from a task and by Cmd+T for a new session under
+   * the active task. Once the provider session exists, task_session_links is
+   * authoritative instead. */
+  pendingTaskId: string | null
+  /** The user explicitly chose "No task" for this not-yet-started session. */
+  taskCreationDisabled?: boolean
   /** Set when this session is the chat tab of a PR review (worktree = PR head).
    *  Drives the PR-context system hint and the `'pr'` diff scope. */
   prReview: PrReviewContext | null
@@ -848,6 +850,10 @@ export interface Message {
   clientPromptId?: string
   /** How this message entered an already-running session. */
   delivery?: PromptDelivery
+  /** Set on the system message announcing a provider rate limit. The notice is a
+   *  statement about the run, not a step the turn took, so a trailing one must
+   *  not be mistaken for the end of the turn's answer. Live-only, like `via`. */
+  rateLimitNotice?: boolean
   /** Milliseconds this prompt spent held by a rate limit before it went out.
    *  Present only on a bubble that drained from the queue, so its caption can
    *  state the wait as a fact instead of counting to a time that has passed.
@@ -1032,6 +1038,13 @@ export interface SessionTitleChangedEvent {
   title: string | null
 }
 
+/** Model-generated scaffolding derived from the opening prompt. The title names
+ * the session; the description fills the session-born task the agent works on. */
+export interface SessionGeneratedMetadata {
+  title: string
+  description: string
+}
+
 export interface RunResult {
   totalCostUsd: number
   durationMs: number
@@ -1211,10 +1224,13 @@ export interface PromptOptions {
   /** Image attachments sent as real content blocks rather than flattened into `prompt`.
    *  `dataUrl` is a base64 data URL (`data:<mime>;base64,<data>`). */
   imageAttachments?: Array<{ mimeType: string; dataUrl: string }>
-  /** Set when a session is started from a task. On the first dispatch the main
-   *  process hydrates the ticket and prepends its context to `prompt`, so the
-   *  agent starts already knowing it. Only meaningful on session start. */
+  /** Set when a prompt is dispatched on a task-bound session. The main process
+   *  hydrates the ticket into the run's system prompt, so the agent works from
+   *  the task's live state without it entering the transcript. */
   taskId?: string
+  /** Explicitly keep a fresh session outside the task system. Without this,
+   *  an unbound first dispatch creates a local task from the prompt. */
+  skipTaskCreation?: boolean
   /** Goal objective attached to a fresh session dispatch. Main persists it as
    *  soon as the provider issues the session id, before a fast turn can finish. */
   goalObjective?: string
@@ -1546,6 +1562,19 @@ export interface SessionMeta {
   /** Git-root that groups a repo with all its worktrees. The canonical
    *  "project" key for cross-project search and grouping. */
   projectRoot?: string
+  /** Solus-owned lineage for a session created by another session. Provider
+   *  history remains the source of conversation content; this relationship is
+   *  local orchestration metadata that survives provider index refreshes. */
+  delegation?: SessionDelegation
+}
+
+export interface SessionDelegation {
+  parentSessionId: string
+  rootSessionId: string
+  exchangeId: string
+  depth: number
+  intent: 'delegate' | 'fire_and_forget'
+  createdAt: number
 }
 
 export interface SessionSearchResult {
@@ -1593,6 +1622,24 @@ export interface AgentMetadata {
     terminalResume?: boolean
     transport?: string
   }
+}
+
+/** One currently configured target for agent-created work. Unlike the static
+ *  model profile table, this reflects the backends actually registered on the
+ *  connected host and whether their binaries are currently available. */
+export interface AgentTarget {
+  provider: AgentId
+  label: string
+  available: boolean
+  unavailableReason?: string
+  defaultModel: string
+  models: Array<{
+    id: string
+    label: string
+    reasoningLevels: ReasoningEffort[]
+    defaultReasoningEffort: ReasoningEffort
+    defaultContextWindow: number | null
+  }>
 }
 
 export interface StartInfo {
@@ -1655,6 +1702,47 @@ export type ProjectFilesResult =
   | {
       ok: false
       root?: string
+      error: string
+    }
+
+export interface ProjectContentSearchRequest {
+  /** Whitespace is significant in a content query, so it is never trimmed. */
+  query: string
+  /** Search root. Callers pass the session's environment cwd, which already
+   *  resolves to the worktree path when the session runs in one. */
+  cwd?: string
+  caseSensitive: boolean
+  wholeWord: boolean
+  useRegex: boolean
+}
+
+/** Half-open `[start, end)` offsets into `lineContent`, in string indices. */
+export interface ProjectContentMatchRange {
+  start: number
+  end: number
+}
+
+export interface ProjectContentMatch {
+  /** Path relative to the search root. */
+  path: string
+  /** 1-based. */
+  lineNumber: number
+  lineContent: string
+  matchRanges: ProjectContentMatchRange[]
+}
+
+export type ProjectContentSearchResult =
+  | {
+      ok: true
+      matches: ProjectContentMatch[]
+      /** More matches exist than were returned (limit or time budget hit). */
+      truncated: boolean
+      /** Set when a regex failed to compile and the engine fell back to a
+       *  literal search — the query ran, but not as the user meant it. */
+      regexError?: string
+    }
+  | {
+      ok: false
       error: string
     }
 
@@ -1749,6 +1837,9 @@ export type FilePreviewResult =
       size: number
       /** Files outside the active project can be previewed but not edited. */
       isReadOnly: boolean
+      /** `contents` holds only the first slice of the file. Editing is disabled
+       *  in this state — saving would write the truncation back to disk. */
+      truncated?: boolean
       mimeType?: string
     }
   | {

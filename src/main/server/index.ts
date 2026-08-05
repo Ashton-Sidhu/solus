@@ -10,10 +10,10 @@ import { ResponseReceiptBudget } from '../transports/response-receipt-cache'
 import { ClientEventRegistry } from '../events/client-event-registry'
 import { HostEventPublisher } from '../events/host-event-publisher'
 import type { ControlPlane } from '../control-plane'
-import type { NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent, SessionStatus } from '../../shared/types'
+import type { AgentMetadata, NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent, SessionStatus } from '../../shared/types'
 import type { AgentId, IpcContext } from '../../shared/types'
 import { registerWindowHandlers, type WindowDeps } from './handlers/window-handlers'
-import { registerSessionHandlers, type SessionDeps } from './handlers/session-handlers'
+import { enrichAgentMetadata, registerSessionHandlers, type SessionDeps } from './handlers/session-handlers'
 import { registerWorktreeHandlers } from './handlers/worktree-handlers'
 import { registerFilesystemHandlers } from './handlers/filesystem-handlers'
 import { registerHistoryHandlers } from './handlers/history-handlers'
@@ -52,7 +52,9 @@ import { ensureClaimWindow, getInstallationId, isClaimable } from './auth'
 import { probeServerCapabilities, registerSetupHandlers } from './handlers/setup-handlers'
 import packageJson from '../../../package.json'
 import { solusDir } from '../platform/paths'
-import { onTasksChanged } from '../tasks/task-service'
+import { onTasksChanged } from '../tasks/task-store'
+import { agentTargetFromMetadata } from '../agents/agent-targets'
+import { recordSessionDelegation } from '../sessions/session-delegations'
 
 const log = createLogger('main', 'server-boot')
 
@@ -163,7 +165,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onAutomationsChanged((event) => events.broadcast('automation.changed', event)),
     onPrsChanged((projectRoot) => events.broadcast('prs.invalidated', { projectRoot })),
     onAnnotationsChanged((change) => events.broadcast('annotations.changed', change)),
-    onTasksChanged((projectRoot) => events.broadcast('tasks.invalidated', { projectRoot })),
+    onTasksChanged(() => events.broadcast('tasks.invalidated', {})),
   ]
   const pushNotifications = new PushNotificationService()
   const hasDesktopHandlers = !!opts.windowDeps && !!opts.fileDeps
@@ -210,6 +212,13 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Let the create_session tool spawn fresh background sessions via the control plane.
   setSessionCreator((req) => opts.controlPlane.createSession(req))
   setSessionController({
+    listAgentTargets: async () => Promise.all(
+      opts.controlPlane
+        .getBackendIds()
+        .map((id) => opts.controlPlane.getMetadataFor(id))
+        .filter((metadata): metadata is AgentMetadata => metadata !== undefined)
+        .map(async (metadata) => agentTargetFromMetadata(await enrichAgentMetadata(metadata))),
+    ),
     listSessions: (providers, projectPath) => opts.controlPlane.listSessionsForProviders(providers, projectPath),
     getSessionInfo: (sessionId) => opts.controlPlane.getSessionInfo(sessionId),
     loadSessionTail: (provider, sessionId, projectPath, limit) => opts.controlPlane.loadSession(provider, sessionId, projectPath, limit),
@@ -224,6 +233,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       opts.controlPlane.loadPlanContent(provider, sessionId, projectPath, planToolUseId),
     listPlans: (provider, projectPath, allProjects) => opts.controlPlane.listPlans(provider, projectPath, allProjects),
     invalidatePlanCaches: (sessionId) => opts.controlPlane.invalidatePlanCaches(sessionId),
+    recordSessionDelegation,
   })
   // Agent-conversation cards drive sessions that have no bound tab in the renderer.
   server.register('promptSession', async (args) => {

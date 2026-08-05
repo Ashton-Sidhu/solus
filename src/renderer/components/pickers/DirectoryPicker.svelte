@@ -513,7 +513,7 @@
 
       <div class="flex min-h-0 flex-1 max-md:flex-col">
         <nav
-          class="hairline-scroll flex w-49 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-r-border p-2
+          class="places-rail flex w-49 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-r-border p-2
             max-md:flex max-md:w-full max-md:flex-row max-md:gap-1.5 max-md:overflow-x-auto max-md:overflow-y-hidden
             max-md:border-r-0 max-md:border-b max-md:border-b-(--solus-popover-border)/30 max-md:bg-transparent max-md:px-3 max-md:py-2
             max-md:[touch-action:pan-x] max-md:[-webkit-overflow-scrolling:touch]"
@@ -685,7 +685,7 @@
                 <span class="text-xs text-(--solus-text-tertiary)">{leaf ? "No matching folders" : "Empty"}</span>
               </div>
             {:else if runtime.isMobileViewport}
-              <div class="hairline-scroll h-full overflow-y-auto [-webkit-overflow-scrolling:touch] [overscroll-behavior-y:contain] [touch-action:pan-y]">
+              <div class="h-full overflow-y-auto [-webkit-overflow-scrolling:touch] [overscroll-behavior-y:contain] [touch-action:pan-y]">
                 {#each rows as _item, index (index)}
                   {@render row(index)}
                 {/each}
@@ -763,7 +763,6 @@
   .virtual-scroll :global(.virtual-list-wrapper) {
     overflow-x: hidden !important;
     overscroll-behavior-y: contain;
-    scrollbar-width: thin;
     touch-action: pan-y;
   }
 
@@ -777,26 +776,12 @@
     display: none;
   }
 
-  .virtual-scroll :global(.virtual-list-wrapper::-webkit-scrollbar) {
-    width: 0.1875rem;
-    height: 0.1875rem;
-  }
-  .virtual-scroll :global(.virtual-list-wrapper::-webkit-scrollbar-track) {
-    background: transparent;
-  }
-  .virtual-scroll :global(.virtual-list-wrapper::-webkit-scrollbar-thumb) {
-    background: color-mix(in srgb, var(--solus-text-tertiary) 35%, transparent);
-    border-radius: 0.25rem;
-  }
-
   /* The places rail turns into a swipeable strip on mobile; a bar under it just
      steals height from the row. */
   @media (max-width: 767px) {
-    .hairline-scroll {
-      scrollbar-width: none;
-    }
-    .hairline-scroll::-webkit-scrollbar {
-      display: none;
+    .places-rail::-webkit-scrollbar {
+      width: 0;
+      height: 0;
     }
   }
 

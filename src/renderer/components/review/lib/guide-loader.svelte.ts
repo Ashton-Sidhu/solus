@@ -120,6 +120,28 @@ export class GuideLoader {
     requestInputFocus();
   }
 
+  /**
+   * Follow generation progress for this key for as long as the host is mounted.
+   *
+   * `load()` subscribes only around its *own* `generateGuide` call, which misses
+   * the case the "Generate guide" button actually takes: that queues a durable
+   * background generation (`requestReviewGuide`), so this loader never enters
+   * `loading` and the stepped progress screen never appeared. Both paths
+   * broadcast the same `review.progressChanged`, so listening for the loader's
+   * lifetime is what makes background generation legible.
+   *
+   * Returns an unsubscribe, for the host's `$effect`.
+   */
+  trackProgress(): () => void {
+    const api = this.#opts.getApi?.() ?? window.solus;
+    return serverConnections.eventsForApi(api).subscribe('review.progressChanged', (event) => {
+      // Events broadcast to every subscriber; keep only this key's, and read the
+      // key per event so a key change mid-flight doesn't adopt stale progress.
+      if (event.key !== this.#opts.getKey()) return;
+      this.progressStep = event.step;
+    });
+  }
+
   loadDiffFiles = (fileDiff: FileDiffMetadata) => {
     if (!this.diffScope) {
       throw new Error("Review comparison is unavailable");

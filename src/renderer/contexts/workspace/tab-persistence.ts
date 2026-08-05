@@ -6,6 +6,7 @@ import type { AgentId, ContextUsage, GitCheckout, ModelConfig, SessionHandoffLin
 // starts fresh unless it has its own legacy mode-scoped key.
 const LEGACY_TABS_KEY = 'solus-open-tabs'
 const LEGACY_DRAFTS_KEY = 'solus-tab-drafts'
+const DISMISSED_SIDEBAR_TASKS_KEY = 'solus-dismissed-sidebar-tasks'
 // Last successful start() payload, scoped to the server installation (+ window
 // mode) exactly like the tab snapshot so a different server never reads a stale
 // environment. Applied optimistically on boot, then reconciled with fresh data.
@@ -179,6 +180,57 @@ export function flushPersistedTabs(): void {
   } catch {}
   pendingTabs = null
   pendingTabsKey = null
+}
+
+/** Remove a closed tab from both the queued snapshot and localStorage now.
+ *  Closing is destructive UI state: if the renderer refreshes before the
+ *  structural persistence effect runs, the tab must not be restored. */
+export function removePersistedTab(tabId: string, activeTabId: string): void {
+  const key = storageKey(LEGACY_TABS_KEY)
+  const remove = (snapshot: PersistedTabs): PersistedTabs => ({
+    ...snapshot,
+    activeTabId,
+    tabOrder: snapshot.tabOrder.filter((id) => id !== tabId),
+    tabs: snapshot.tabs.filter((tab) => tab.tabId !== tabId),
+  })
+
+  if (pendingTabs && pendingTabsKey === key) {
+    pendingTabs = remove(pendingTabs)
+    flushPersistedTabs()
+    return
+  }
+
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return
+    const snapshot = JSON.parse(raw) as PersistedTabs
+    if (snapshot?.version !== 1 || !Array.isArray(snapshot.tabs) || !Array.isArray(snapshot.tabOrder)) return
+    localStorage.setItem(key, JSON.stringify(remove(snapshot)))
+  } catch {}
+}
+
+/** Durable tasks outlive their tabs, so closing a task row needs its own persisted
+ *  view-state marker or the task and its linked child sessions return on refresh. */
+export function loadDismissedSidebarRowKeys(): string[] {
+  try {
+    const raw = localStorage.getItem(storageKey(DISMISSED_SIDEBAR_TASKS_KEY))
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((taskId): taskId is string => typeof taskId === 'string')
+  } catch {
+    return []
+  }
+}
+
+/** Persist a dismissal synchronously because closing is destructive view state and
+ *  must survive a refresh before Svelte's structural persistence effect runs. */
+export function persistDismissedSidebarRow(rowKey: string): void {
+  try {
+    const rowKeys = new Set(loadDismissedSidebarRowKeys())
+    rowKeys.add(rowKey)
+    localStorage.setItem(storageKey(DISMISSED_SIDEBAR_TASKS_KEY), JSON.stringify([...rowKeys]))
+  } catch {}
 }
 
 // Unsent input drafts live in their own key, written on a debounce. They change

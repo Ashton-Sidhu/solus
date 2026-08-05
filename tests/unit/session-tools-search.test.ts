@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import { encodePathAsFolder } from '../../src/shared/types'
-import type { SessionMeta, SessionStatus } from '../../src/shared/types'
+import type { AgentTarget, SessionMeta, SessionStatus } from '../../src/shared/types'
 
 // session-tools imports the indexer, which imports node:sqlite (absent under
 // Bun's test runtime). Shim with bun:sqlite before dynamically importing the SUT.
@@ -12,9 +12,11 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 type ToolsModule = typeof import('../../src/main/sessions/session-tools')
 type IndexerModule = typeof import('../../src/main/db/session-indexer')
+type DelegationsModule = typeof import('../../src/main/sessions/session-delegations')
 type DbModule = typeof import('../../src/main/db')
 let tools: ToolsModule
 let indexer: IndexerModule
+let delegations: DelegationsModule
 let closeDb: DbModule['closeDb']
 
 const CWD = '/Users/test/proj'
@@ -26,6 +28,7 @@ beforeAll(async () => {
   process.env.SOLUS_DATA_DIR = dataDir
   tools = await import('../../src/main/sessions/session-tools')
   indexer = await import('../../src/main/db/session-indexer')
+  delegations = await import('../../src/main/sessions/session-delegations')
   ;({ closeDb } = await import('../../src/main/db'))
 })
 afterAll(() => {
@@ -55,14 +58,17 @@ interface FakeController {
   calls: {
     watch: Array<[string, string]>
     prompt?: Array<[string, string, 'queue' | 'steer' | undefined]>
+    delegation?: Array<{ childSessionId: string; parentSessionId: string; intent: 'delegate' | 'fire_and_forget' }>
   }
   liveStatusValue: SessionStatus | null
   metaValue: SessionMeta | null
   promptDisposition?: 'started' | 'steered' | 'queued'
+  targets?: AgentTarget[]
 }
 
 function installController(state: FakeController): void {
   tools.setSessionController({
+    listAgentTargets: async () => state.targets ?? [],
     listSessions: async () => [],
     getSessionInfo: async () => state.metaValue,
     loadSessionTail: async () => [],
@@ -79,8 +85,91 @@ function installController(state: FakeController): void {
     loadPlanContent: async () => null,
     listPlans: async () => [],
     invalidatePlanCaches: () => {},
+    recordSessionDelegation: (input) => {
+      ;(state.calls.delegation ??= []).push({
+        childSessionId: input.childSessionId,
+        parentSessionId: input.parentSessionId,
+        intent: input.intent,
+      })
+      return true
+    },
   })
 }
+
+const CLAUDE_TARGET: AgentTarget = {
+  provider: 'claude-code',
+  label: 'Claude Code',
+  available: true,
+  defaultModel: 'claude-sonnet-5',
+  models: [{
+    id: 'claude-sonnet-5',
+    label: 'Claude Sonnet 5',
+    reasoningLevels: ['low', 'medium', 'high'],
+    defaultReasoningEffort: 'medium',
+    defaultContextWindow: 200_000,
+  }],
+}
+
+describe('list_agent_targets executor', () => {
+  test('reports the configured runtime catalogue', async () => {
+    installController({
+      calls: { watch: [] },
+      liveStatusValue: null,
+      metaValue: null,
+      targets: [CLAUDE_TARGET],
+    })
+
+    const result = await tools.executeSessionTool('list_agent_targets', {})
+
+    expect(result.ok).toBe(true)
+    expect(JSON.parse(result.text)).toEqual({ targets: [CLAUDE_TARGET] })
+  })
+})
+
+describe('session delegation persistence', () => {
+  test('preserves root and depth across nested delegated sessions', () => {
+    for (const sessionId of ['root', 'child', 'grandchild']) {
+      indexer.persistIndexedSessionStart(sessionId, 'codex', CWD, PROJECT, 'gpt-5.5', 'high')
+    }
+
+    expect(delegations.recordSessionDelegation({
+      childSessionId: 'child',
+      parentSessionId: 'root',
+      exchangeId: 'exchange-1',
+      intent: 'delegate',
+      createdAt: 100,
+    })).toBe(true)
+    expect(delegations.recordSessionDelegation({
+      childSessionId: 'grandchild',
+      parentSessionId: 'child',
+      exchangeId: 'exchange-2',
+      intent: 'fire_and_forget',
+      createdAt: 200,
+    })).toBe(true)
+
+    expect(indexer.getIndexedSession('child')?.delegation).toEqual({
+      parentSessionId: 'root',
+      rootSessionId: 'root',
+      exchangeId: 'exchange-1',
+      depth: 1,
+      intent: 'delegate',
+      createdAt: 100,
+    })
+    expect(indexer.getIndexedSession('grandchild')?.delegation).toEqual({
+      parentSessionId: 'child',
+      rootSessionId: 'root',
+      exchangeId: 'exchange-2',
+      depth: 2,
+      intent: 'fire_and_forget',
+      createdAt: 200,
+    })
+
+    // WHY: provider history refreshes own the session index row but must not
+    // erase Solus-owned orchestration lineage stored beside it.
+    indexer.cacheIndexedSessions([meta({ sessionId: 'grandchild' })])
+    expect(indexer.getIndexedSession('grandchild')?.delegation?.rootSessionId).toBe('root')
+  })
+})
 
 describe('search_sessions executor', () => {
   function seedProject(root: string, sessionId: string, text: string): void {
@@ -200,6 +289,33 @@ describe('create_session executor', () => {
     expect(result.ok).toBe(true)
     expect(result.text).toContain('no report will arrive')
     expect(result.text).not.toContain('[session report]')
+  })
+
+  test('records durable lineage after the child receives its real session id', async () => {
+    const state: FakeController = {
+      calls: { watch: [] },
+      liveStatusValue: null,
+      metaValue: null,
+      targets: [CLAUDE_TARGET],
+    }
+    installController(state)
+    installCreator('spawned-with-lineage')
+
+    const result = await tools.executeSessionTool('create_session', {
+      prompt: 'go',
+      agent_provider: 'claude-code',
+      model_id: 'claude-sonnet-5',
+      mode: 'delegate',
+    }, {
+      ctx: { agentProvider: 'codex', cwd: CWD, sessionId: 'parent-session' },
+    })
+
+    expect(result.ok).toBe(true)
+    expect(state.calls.delegation).toEqual([{
+      childSessionId: 'spawned-with-lineage',
+      parentSessionId: 'parent-session',
+      intent: 'delegate',
+    }])
   })
 })
 

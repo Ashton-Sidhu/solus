@@ -39,10 +39,13 @@ function isBinaryBuffer(buffer: Buffer): boolean {
   return false
 }
 
-async function readFilePrefix(path: string, size: number): Promise<Buffer> {
+/** Beyond this the editor is asked to tokenize and render more than it can. */
+const PREVIEW_MAX_BYTES = 1024 * 1024
+
+async function readFilePrefix(path: string, size: number, cap = 8000): Promise<Buffer> {
   const handle = await open(path, 'r')
   try {
-    const sample = Buffer.alloc(Math.min(size, 8000))
+    const sample = Buffer.alloc(Math.min(size, cap))
     const result = await handle.read(sample, 0, sample.length, 0)
     return sample.subarray(0, result.bytesRead)
   } finally {
@@ -78,15 +81,21 @@ export async function readFilePreview(
       return { ok: false, path: target, error: 'Binary files cannot be previewed.' }
     }
 
-    const buffer = await readFile(target)
-    const isReadOnly = !root || !isInsideRoot(root, target)
+    // Project search can surface a hit in a generated bundle or a large log,
+    // which the editor would otherwise try to tokenize and render whole.
+    const truncated = fileStat.size > PREVIEW_MAX_BYTES
+    const buffer = truncated
+      ? await readFilePrefix(target, PREVIEW_MAX_BYTES, PREVIEW_MAX_BYTES)
+      : await readFile(target)
+    const outsideRoot = !root || !isInsideRoot(root, target)
     return {
       ok: true,
       path: target,
-      displayPath: isReadOnly ? target : relative(root, target),
+      displayPath: outsideRoot ? target : relative(root!, target),
       contents: buffer.toString('utf-8'),
       size: fileStat.size,
-      isReadOnly,
+      isReadOnly: outsideRoot || truncated,
+      ...(truncated ? { truncated } : {}),
       mimeType: mimeTypeForExtension(extname(target).toLowerCase()),
     }
   } catch (error: any) {

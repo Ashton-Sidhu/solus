@@ -1,11 +1,35 @@
 import { describe, expect, test } from 'bun:test'
 import {
   hasStartedConversation,
+  isHomeVisible,
   listSidebarPrimaryWidth,
   primaryProjectPanelOpen,
   retainedConversationTabIds,
   visibleWorkspaceTabIds,
 } from '../../src/renderer/components/layout/lib/workspace-body'
+
+describe('restored conversation loading', () => {
+  test('stops showing a loading surface after an empty history load completes', () => {
+    // WHY: an indexed/provider session can legitimately return no transcript
+    // (deleted history, stale index, or a newly-created session). Once the
+    // explicit loading gate clears, agentSessionId alone must not spin forever.
+    expect(isHomeVisible(1, {
+      agentSessionId: 'provider-session',
+      messages: [],
+      statusCard: null,
+      loadingHistory: false,
+    })).toBe(true)
+  })
+
+  test('keeps the home hidden while restored history is actually loading', () => {
+    expect(isHomeVisible(1, {
+      agentSessionId: 'provider-session',
+      messages: [],
+      statusCard: null,
+      loadingHistory: true,
+    })).toBe(false)
+  })
+})
 
 describe('primary project rail visibility', () => {
   test('treats a tab-backed empty session as an unstarted draft', () => {

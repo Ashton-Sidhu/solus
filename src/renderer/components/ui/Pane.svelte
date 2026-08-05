@@ -27,6 +27,9 @@
   // Pages used to size themselves with `flex-1` as children of the content
   // column; a companion pane's wrapper is a block, so it needs the height.
   const isPage = $derived(descriptor?.exclusiveGroup === "page");
+  const needsPageTopInset = $derived(
+    isPage && descriptor?.ownsTitlebarChrome !== true,
+  );
   const isLeading = $derived(session.router.leadingPane.id === pane.id);
 </script>
 
@@ -60,9 +63,21 @@
 {/snippet}
 
 {#if isPage}
-  <div class="flex min-h-0 flex-col {isLeading ? 'flex-1' : 'h-full'}">
+  <!-- Page routes share one macOS safe-area boundary here rather than each
+       surface remembering to clear the overlaid window controls. The inset is
+       published only when this pane actually reaches the window's top-left. -->
+  <div
+    class="page-surface flex min-h-0 flex-col {isLeading ? 'flex-1' : 'h-full'}"
+    class:page-surface--inset={needsPageTopInset}
+  >
     {@render surface()}
   </div>
 {:else}
   {@render surface()}
 {/if}
+
+<style>
+  .page-surface--inset {
+    padding-top: var(--solus-page-top-inset, 0px);
+  }
+</style>

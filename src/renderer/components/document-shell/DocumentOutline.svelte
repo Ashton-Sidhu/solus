@@ -213,7 +213,10 @@
     overscroll-behavior: contain;
     padding: 0.9375rem 0.875rem 0.875rem 1rem;
     border-radius: 0.75rem;
-    background: var(--solus-popover-bg);
+    /* This panel deliberately unfolds over the document. Use the shell's solid
+       canvas rather than the slightly translucent popover token so text and
+       table rules underneath can never show through it. */
+    background: var(--solus-container-bg);
     border: 0.0625rem solid var(--solus-popover-border);
     box-shadow:
       inset 0 0.0625rem 0 rgba(255, 255, 255, 0.55),

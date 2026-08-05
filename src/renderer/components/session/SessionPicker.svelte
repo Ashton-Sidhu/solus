@@ -32,6 +32,11 @@
   } from "../../lib/pickerEntries";
   import { createSessionPreviewStore } from "../../lib/preview.svelte";
   import { sessionHistorySourcesFromRoots } from "../../lib/sessionPickerHistory";
+  import {
+    centringPadding,
+    observeConversationBounds,
+    type ConversationBounds,
+  } from "../pickers/lib/conversation-bounds";
   import SessionPickerItem from "./SessionPickerItem.svelte";
   import SessionPickerSkeleton from "./SessionPickerSkeleton.svelte";
   import SessionPreview from "./SessionPreview.svelte";
@@ -43,13 +48,11 @@
     open: boolean;
     onClose: () => void;
     inline?: boolean;
-    portalTarget?: HTMLElement | null;
   }
   let {
     open = $bindable(),
     onClose,
     inline = false,
-    portalTarget = null,
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -69,6 +72,8 @@
   const preview = createSessionPreviewStore();
   let listHeight = $state(0);
   let virtualList: VirtualList | null = $state(null);
+  let viewportWidth = $state(0);
+  let conversationBounds = $state<ConversationBounds | null>(null);
   let wasOpen = false;
   let lastHistoryScopeKey: string | null = null;
   let historyLoadSeq = 0;
@@ -94,6 +99,16 @@
     const root = historyScopeRoots[0] ?? effectiveProjectPath;
     if (!root || root === "~") return "~";
     return root.replace(/\/$/, "").split("/").at(-1) || root;
+  });
+  const centringStyle = $derived(
+    runtime.isMobileViewport
+      ? ""
+      : centringPadding(conversationBounds, viewportWidth),
+  );
+
+  $effect(() => {
+    if (!open || inline) return;
+    return observeConversationBounds((bounds) => (conversationBounds = bounds));
   });
 
   $effect(() => {
@@ -291,8 +306,14 @@
     const keepOpen = opts?.keepOpen ?? false;
     if (!keepOpen) session.router.close('folio');
     if (entry.kind === "open") {
+      const sessionId = entry.session.agentSessionId;
+      if (sessionId)
+        void session.tasksStore.hydrateForSession(sessionId).catch(() => null);
       if (!keepOpen) session.selectTab(entry.tabId);
     } else {
+      void session.tasksStore
+        .hydrateForSession(entry.meta.sessionId)
+        .catch(() => null);
       void session.resumeSession(entry.meta, { background: keepOpen });
     }
     if (!keepOpen) close();
@@ -339,7 +360,7 @@
   }
 
   function handleNewSession() {
-    session.createTab();
+    void session.createDraftTab(undefined, { via: "click" });
     close();
   }
 
@@ -369,6 +390,8 @@
     }),
   );
 </script>
+
+<svelte:window bind:innerWidth={viewportWidth} />
 
 {#snippet pickerHeader()}
   <div
@@ -566,18 +589,15 @@
     {@render pickerBody()}
     {@render pickerFooter()}
   </div>
-{:else if open && (portalTarget || layer.el)}
+{:else if open && layer.el}
   <div
-    use:portal={portalTarget ?? layer.el}
-    class="z-[200] flex items-center justify-center overflow-hidden overscroll-contain {portalTarget
-      ? 'absolute inset-0'
-      : 'pointer-events-auto fixed inset-0 max-md:bg-black/50'}"
+    use:portal={layer.el}
+    class="pointer-events-auto fixed inset-0 z-[200] flex items-center justify-center overflow-hidden overscroll-contain bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] motion-safe:animate-[backdrop-fade_140ms_ease-out]"
+    style={centringStyle}
   >
     <div
       bind:this={popoverEl}
-      class="flex flex-col overflow-hidden overscroll-contain border border-[var(--solus-popover-border)] outline-none origin-top animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_both] rounded-[1.125rem] bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] dark:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] max-md:h-[100dvh] max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-[var(--solus-container-bg)] max-md:shadow-none max-md:backdrop-filter-none {portalTarget
-        ? 'h-3/4 max-h-[75%] w-3/4'
-        : 'h-[75vh] w-[clamp(32rem,58vw,56rem)] md:max-[1100px]:h-[min(78vh,42rem)] md:max-[1100px]:w-[min(80vw,48rem)]'}"
+      class="flex h-3/4 max-h-[75%] w-3/4 origin-top flex-col overflow-hidden overscroll-contain rounded-[1.125rem] border border-[var(--solus-popover-border)] bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_both] dark:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-[var(--solus-container-bg)] max-md:shadow-none max-md:backdrop-filter-none"
       role="dialog"
       aria-label="Session picker"
       tabindex="-1"

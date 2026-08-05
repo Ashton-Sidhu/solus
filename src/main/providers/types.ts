@@ -10,6 +10,7 @@ import type {
   PullRequestDetail,
   PullRequestOverview,
   PullRequestSummary,
+  PullRequestUpdate,
   RepoRef,
   ReviewComment,
   ReviewThread,
@@ -30,6 +31,7 @@ export type {
   PullRequestDetail,
   PullRequestOverview,
   PullRequestSummary,
+  PullRequestUpdate,
   RepoRef,
   ReviewComment,
   ReviewThread,
@@ -66,6 +68,7 @@ export interface ReviewProvider {
   /** Open PRs that currently request or assign the given viewer's attention. */
   listPullRequestsNeedingReview(repo: RepoRef, viewer: string): Promise<PullRequestSummary[]>
   getPullRequest(repo: RepoRef, number: number): Promise<PullRequestDetail>
+  updatePullRequest(repo: RepoRef, number: number, patch: PullRequestUpdate): Promise<PullRequestDetail>
   getPullRequestOverview(repo: RepoRef, number: number): Promise<PullRequestOverview>
   listReviewThreads(repo: RepoRef, number: number): Promise<ReviewThread[]>
   listCommits(repo: RepoRef, number: number): Promise<PrCommit[]>

@@ -9,12 +9,9 @@
   } from "../../../shared/types";
   import DocumentEditor from "./DocumentEditor.svelte";
   import { referenceExtensions } from "./referenceExtensions";
-  import { AutocompleteController } from "./autocomplete.svelte";
+  import { UnifiedAutocompleteController } from "./autocomplete.svelte";
   import { createTiptapAutocompleteAdapter } from "./tiptap-autocomplete-adapter";
-  import FileAutocompleteMenu from "../input/FileAutocompleteMenu.svelte";
-  import PlanAutocompleteMenu from "../plan/PlanAutocompleteMenu.svelte";
-  import WorkAutocompleteMenu from "../work/WorkAutocompleteMenu.svelte";
-  import PrAutocompleteMenu from "../prs/PrAutocompleteMenu.svelte";
+  import UnifiedAutocompleteMenu from "../input/UnifiedAutocompleteMenu.svelte";
 
   interface Props {
     value: string;
@@ -81,7 +78,6 @@
   const planStore = getPlanStore();
 
   let docEl: ReturnType<typeof DocumentEditor> | null = $state(null);
-  let fileMenuEl: ReturnType<typeof FileAutocompleteMenu> | null = $state(null);
   const ed = () => docEl?.getEditor() ?? null;
   const autocompleteEditor = createTiptapAutocompleteAdapter(
     ed,
@@ -90,8 +86,8 @@
   );
 
   // The reference-autocomplete machine, with the `/` channel off — the document
-  // editor's own block-command menu owns `/`. Only @ # % ! insert references here.
-  const ac = new AutocompleteController({
+  // editor's own block-command menu owns `/`. Only @ and # insert references here.
+  const ac = new UnifiedAutocompleteController({
     readOnly: () => readOnly,
     tabId: () => session.activeTabId,
     workingDirectory: () => workingDirectory,
@@ -105,7 +101,6 @@
     session,
     planStore,
     getEditor: () => autocompleteEditor,
-    getFileMenu: () => fileMenuEl,
   });
 
   // Reference nodes first, then any host-supplied extensions (e.g. comments).
@@ -161,45 +156,18 @@
   }
 </script>
 
-{#if ac.showFileMenu}
-  <FileAutocompleteMenu
-    bind:this={fileMenuEl}
-    files={ac.fileResults}
-    onSelect={ac.handleFileSelect}
+{#if ac.open}
+  <UnifiedAutocompleteMenu
+    rows={ac.rows}
+    selectedIndex={ac.selectedIndex}
     anchorRect={ac.cursorAnchorRect}
-    placement={menuPlacement}
-  />
-{/if}
-
-{#if ac.showPlanMenu}
-  <PlanAutocompleteMenu
-    plans={ac.planResults}
-    isLoading={ac.isPlanMenuLoading}
-    selectedIndex={ac.planIndex}
-    onSelect={ac.handlePlanSelect}
-    anchorRect={ac.cursorAnchorRect}
-    placement={menuPlacement}
-  />
-{/if}
-
-{#if ac.showWorkMenu}
-  <WorkAutocompleteMenu
-    works={ac.workResults}
-    isLoading={ac.isWorkMenuLoading}
-    selectedIndex={ac.workIndex}
-    onSelect={ac.handleWorkSelect}
-    anchorRect={ac.cursorAnchorRect}
-    placement={menuPlacement}
-  />
-{/if}
-
-{#if ac.showPrMenu}
-  <PrAutocompleteMenu
-    pullRequests={ac.prResults}
-    isLoading={ac.isPrMenuLoading}
-    selectedIndex={ac.prIndex}
-    onSelect={ac.handlePrSelect}
-    anchorRect={ac.cursorAnchorRect}
+    onActivate={ac.activate}
+    onHover={ac.hoverRow}
+    onBack={ac.leaveScope}
+    enterVerb={ac.enterVerb}
+    tabVerb={ac.tabVerb}
+    showTabHint={ac.showTabHint}
+    footer={ac.footer}
     placement={menuPlacement}
   />
 {/if}

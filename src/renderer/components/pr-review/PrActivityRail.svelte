@@ -1,11 +1,8 @@
 <script lang="ts">
   import {
     CaretRightIcon,
-    CheckIcon,
     CircleNotchIcon,
-    ClockIcon,
     FileIcon,
-    WarningIcon,
   } from "phosphor-svelte";
   import Icon from "@iconify/svelte";
   import type { Snippet } from "svelte";
@@ -25,9 +22,10 @@
   // Register the small offline icon subset used by changed-file rows.
   ensureIconCollections();
 
-  // The activity tab's right rail: merge readiness as a card, then flat
-  // sections for reviewers, checks, and the changed files with the
-  // additions/deletions split bar.
+  // The activity tab's right rail: four flat sections in one column — merge
+  // readiness (the only one you act on), reviewers, checks, and the changed
+  // files with the additions/deletions split bar. No section gets a surface of
+  // its own; label-then-content and a closing hairline carry the structure.
   let {
     detail,
     reviewers,
@@ -141,6 +139,14 @@
   </div>
 {/snippet}
 
+<!-- How the merge will be recorded, stated where the section names it rather
+     than only inside the button's menu. -->
+{#snippet mergeMethodNote()}
+  <span class="font-mono text-[10.5px] text-muted-foreground opacity-75">
+    {detail?.state === "merged" ? "squashed" : blocked ? "rebase" : "squash"}
+  </span>
+{/snippet}
+
 <!-- The rail is never lost: below the review's ~1000px it folds under the main
      column at full width instead of hiding. -->
 <aside class="w-[clamp(280px,22%,360px)] shrink-0 @max-[1000px]:w-full">
@@ -151,59 +157,53 @@
        rail: below 1000px it folds under the main column at full width, where a
        second scrollbox would be wrong. -->
   <div
-    class="hairline-scroll sticky top-0 flex flex-col gap-[26px] overflow-x-hidden @min-[1001px]:max-h-screen @min-[1001px]:overflow-y-auto @min-[1001px]:overscroll-contain"
+    class="sticky top-0 flex flex-col gap-[26px] overflow-x-hidden @min-[1001px]:max-h-screen @min-[1001px]:overflow-y-auto @min-[1001px]:overscroll-contain"
   >
-    <!-- Merge readiness: the one thing on this rail you act on, so it is the
-         only element that gets a surface of its own — a soft wash rather than
-         an outlined card, so it reads as raised without adding a hairline. -->
-    <section
-      class="flex flex-col gap-3 rounded-2xl bg-[color:color-mix(in_oklab,var(--muted)_55%,transparent)] px-4 py-4"
-    >
-      <div class="flex items-start gap-3">
-        <!-- The state as a filled disc, not a dot: this is the rail's headline
-             object, and a 7px speck can't carry it beside 14px type. -->
+    <!-- Merge readiness. No surface of its own: the rail's other sections are
+         plain label-then-content, and a washed card here made the one thing you
+         act on look like a different kind of object than the rest of the column.
+         The state is carried by a 7px keyline dot instead of a filled disc —
+         the same speck the crumb and the list rows use, so one status vocabulary
+         runs from the list through to here. A hairline closes the section, which
+         is what separates it from Reviewers without a box. -->
+    <section class="flex flex-col">
+      {@render sectionHead("Merge", mergeMethodNote)}
+
+      <div class="flex items-start gap-[9px]">
         {#if !detail}
-          <Skeleton class="size-[26px] shrink-0 rounded-full bg-muted" />
+          <Skeleton class="mt-[5px] size-[7px] shrink-0 rounded-full bg-muted" />
         {:else}
           <span
-            class="grid size-[26px] shrink-0 place-items-center rounded-full text-white"
+            class="mt-[5px] size-[7px] shrink-0 rounded-full"
             style={`background:${statusColor}`}
             aria-hidden="true"
-          >
-            {#if readyToMerge || detail.state === "merged"}
-              <CheckIcon size={13} weight="bold" />
-            {:else if blocked}
-              <WarningIcon size={13} weight="bold" />
-            {:else}
-              <ClockIcon size={13} weight="bold" />
-            {/if}
-          </span>
+          ></span>
         {/if}
-        <div class="min-w-0 flex-1">
+        <div class="flex min-w-0 flex-col gap-[3px]">
           {#if !detail}
             <Skeleton class="h-3.5 w-28 rounded bg-muted" />
-            <Skeleton class="mt-2 h-3 w-20 rounded bg-muted" />
+            <Skeleton class="mt-1 h-3 w-20 rounded bg-muted" />
           {:else}
-            <span class="block text-[14px] font-semibold">
+            <span class="text-[13.5px] font-semibold tracking-[-0.01em]">
               {detail.state === "merged"
-                ? "Merged"
+                ? "Merged into " + (detail.baseRef ?? "main")
                 : detail.state === "closed"
                   ? "Closed"
                   : detail.draft
-                    ? "Draft in progress"
+                    ? "Still a draft"
                     : readyToMerge
                       ? "Ready to merge"
                       : blocked && checks?.state === "failing"
                         ? "Checks need attention"
                         : blocked
-                          ? "Merge blocked"
+                          ? "Conflicts with " + (detail.baseRef ?? "main")
                           : "Review in progress"}
             </span>
             <span
-              class="mt-0.5 block text-[11.5px] tabular-nums text-muted-foreground"
+              class="text-[11.5px] leading-[1.55] text-pretty tabular-nums text-muted-foreground"
             >
               {#if checks?.state === "passing"}
-                {passedChecks} {passedChecks === 1 ? "check" : "checks"} passed
+                {passedChecks} {passedChecks === 1 ? "check" : "checks"} passed · no conflicts
               {:else if !checksCurrent}
                 Checks are refreshing
               {:else if checks?.state === "pending"}
@@ -216,19 +216,13 @@
             </span>
           {/if}
         </div>
-        {#if unresolvedCount > 0}
-          <span
-            class="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[10.5px] font-medium tabular-nums text-secondary-foreground"
-            title={`${unresolvedCount} unresolved ${unresolvedCount === 1 ? "thread" : "threads"}`}
-          >
-            {unresolvedCount} open
-          </span>
-        {/if}
       </div>
 
       {#if actions}
-        {@render actions()}
+        <div class="mt-3.5">{@render actions()}</div>
       {/if}
+
+      <div class="mt-[22px] h-px bg-[var(--hairline)]" aria-hidden="true"></div>
     </section>
 
     <!-- Reviewers -->

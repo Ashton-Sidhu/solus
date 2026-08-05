@@ -21,7 +21,8 @@
     diffFilePath,
     diffHeaderStats,
   } from "../../lib/diffTreeAdapter";
-  import { getWorkspaceContext, toasts, getSettingsContext, runtime } from "../../contexts";
+  import { getWorkspaceContext, getSettingsContext, runtime } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import {
     InlineCommentDraft,
     setInlineCommentDraft,

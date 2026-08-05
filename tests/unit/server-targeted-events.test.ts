@@ -38,9 +38,7 @@ describe('HostEventPublisher', () => {
     const clientA = captureClient(registry, 'ws:a')
     const clientB = captureClient(registry, 'ws:b')
 
-    expect(publisher.publish(['ws:a', 'ws:b', 'ws:a'], 'tasks.invalidated', {
-      projectRoot: '/project',
-    })).toBe(2)
+    expect(publisher.publish(['ws:a', 'ws:b', 'ws:a'], 'tasks.invalidated', {})).toBe(2)
 
     expect(clientA.events).toHaveLength(1)
     expect(clientB.events).toHaveLength(1)
@@ -52,21 +50,19 @@ describe('HostEventPublisher', () => {
     const clientA = captureClient(registry, 'ws:a')
     const clientB = captureClient(registry, 'ws:b')
 
-    expect(publisher.publish(['ws:a', 'ws:missing'], 'tasks.invalidated', {
-      projectRoot: '/targeted',
-    })).toBe(1)
-    expect(publisher.broadcast('tasks.invalidated', { projectRoot: '/all' })).toBe(2)
+    expect(publisher.publish(['ws:a', 'ws:missing'], 'tasks.invalidated', {})).toBe(1)
+    expect(publisher.broadcast('tasks.invalidated', {})).toBe(2)
 
     expect(clientA.events.map((event) => event.payload)).toEqual([
-      { projectRoot: '/targeted' },
-      { projectRoot: '/all' },
+      {},
+      {},
     ])
-    expect(clientB.events.map((event) => event.payload)).toEqual([{ projectRoot: '/all' }])
+    expect(clientB.events.map((event) => event.payload)).toEqual([{}])
   })
 
   test('treats an empty recipient list as a successful no-op', () => {
     const publisher = new HostEventPublisher(new ClientEventRegistry())
-    expect(publisher.publish([], 'tasks.invalidated', { projectRoot: '/project' })).toBe(0)
+    expect(publisher.publish([], 'tasks.invalidated', {})).toBe(0)
   })
 
   test('continues after one client delivery endpoint throws', () => {
@@ -75,9 +71,7 @@ describe('HostEventPublisher', () => {
     registry.register('ws:broken', () => { throw new Error('broken endpoint') })
     const healthy = captureClient(registry, 'ws:healthy')
 
-    expect(publisher.publish(['ws:broken', 'ws:healthy'], 'tasks.invalidated', {
-      projectRoot: '/project',
-    })).toBe(1)
+    expect(publisher.publish(['ws:broken', 'ws:healthy'], 'tasks.invalidated', {})).toBe(1)
     expect(healthy.events).toHaveLength(1)
   })
 
@@ -87,12 +81,12 @@ describe('HostEventPublisher', () => {
     const older = captureClient(registry, 'ws:a')
     const replacement = captureClient(registry, 'ws:a')
 
-    publisher.publish('ws:a', 'tasks.invalidated', { projectRoot: '/newest' })
+    publisher.publish('ws:a', 'tasks.invalidated', {})
     replacement.unsubscribe()
-    expect(publisher.publish('ws:a', 'tasks.invalidated', { projectRoot: '/gone' })).toBe(0)
+    expect(publisher.publish('ws:a', 'tasks.invalidated', {})).toBe(0)
     older.unsubscribe()
 
-    expect(replacement.events.map((event) => event.payload)).toEqual([{ projectRoot: '/newest' }])
+    expect(replacement.events.map((event) => event.payload)).toEqual([{}])
     expect(older.events).toEqual([])
   })
 })

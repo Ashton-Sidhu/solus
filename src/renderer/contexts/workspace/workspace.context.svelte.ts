@@ -1,4 +1,4 @@
-import { createContext } from 'svelte'
+import { createAppContext } from '../app/create-app-context'
 import type { AgentId, NormalizedEvent, EnrichedError, Message, Tab, InputState, Session, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, ModelConfig, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, StatusCardState, PrReviewContext, PromptDelivery, ThreadGoal, ThreadGoalSetRequest } from '../../../shared/types'
 import type { PullRequestSummary } from '../../../shared/providers'
 import type { Via } from '../../../shared/analytics-events'
@@ -13,11 +13,11 @@ import { WorksStore } from '../works/works.store.svelte'
 import { AutomationsStore } from '../automations/automations.store.svelte'
 import { automationDraftSessionRequest } from '../automations/automation-draft-session'
 import { TasksStore } from '../tasks/tasks.store.svelte'
-import { PrsStore } from '../prs/prs.store.svelte'
+import { PrsStore, type PrReviewTab } from '../prs/prs.store.svelte'
 import { StacksStore } from '../prs/stacks.store.svelte'
 import { type Task } from '../../../shared/task-types'
 import { writeSessionHandoff } from './active-session-pointer'
-import { toasts } from '../app/toast.store.svelte'
+import { toasts } from '../../lib/toasts'
 import { RouterStore } from './routing/router.store.svelte'
 import { PaneGeometryStore } from './routing/pane-geometry.store.svelte'
 import { visibleRef, type NavTarget, type PaneId } from './routing/location'
@@ -36,7 +36,7 @@ import { type StatusBarContext } from '../app/status-bar.context.svelte'
 import { type AgentContext } from '../app/agent.context.svelte'
 import { type GitRefreshResult, type SessionEnvironmentStore } from '../git/session-environment.store.svelte'
 import { makeSession, makeTab, makeInputState } from './session.factories'
-import { removeDraft } from './tab-persistence'
+import { removeDraft, removePersistedTab } from './tab-persistence'
 import { applySessionTitleChange } from './session-title-change'
 import { applyRuntimeConfig, nextMsgId } from './session.utils'
 import type { DiffScope } from '../../../shared/git-types'
@@ -63,6 +63,11 @@ import { prepareHostCheckout, retargetSessionHost } from '../../components/serve
 import { buildRemoteDispatchCard } from '../../lib/remote-dispatch-card'
 import { quotedReplyDraft } from '../../lib/quoted-reply'
 import { GoalSync } from './goal-sync'
+import { taskCreationContextFor, type TaskCreationContext } from '../../components/tasks/lib/task-creation-context'
+import {
+  reviewGuideStore,
+  sessionGuideIdentity,
+} from '../../components/review/review-guide.store.svelte'
 
 const devSessionLogging = Boolean((import.meta as any).env?.DEV)
 
@@ -96,6 +101,9 @@ export type SessionFields = {
 
 interface CreateTabOptions {
   activate?: boolean
+  freshTask?: boolean
+  withoutTask?: boolean
+  taskId?: string
   gitContext?: GitCheckout | null
   gitInitialization?: 'blocking' | 'background'
   worktreeRequested?: boolean
@@ -111,6 +119,11 @@ notificationAudio.volume = 1.0
 
 export class WorkspaceContext {
   registry = new TabRegistry()
+  /** A local-only new-tab composer. It deliberately stays out of tabOrder and
+   *  the server registry until the first prompt is submitted. */
+  draftTabId = $state<string | null>(null)
+  private draftSourceTabId: string | null = null
+  private draftTabVia: Via = 'click'
   lifecycle: WorkspaceLifecycleStore
   pendingInput = $state<string | null>(null)
   eventReducer: SessionEventReducer
@@ -160,7 +173,7 @@ export class WorkspaceContext {
       registry: this.registry,
       statusBar: this.statusBar,
       setPluginCommands: (commands) => { this.pluginCommands = commands },
-      createTab: (cwd) => this.createTab(cwd),
+      createDraftTab: (cwd) => this.createDraftTab(cwd),
       ctx: (tabId) => tabId ? this.ctxFor(tabId) : this.ctx,
       ctxForDirectory: (dir) => this.ctxForDirectory(dir),
       apiFor: (tabId) => tabId ? this.apiFor(tabId) : window.solus,
@@ -202,7 +215,7 @@ export class WorkspaceContext {
       applyGoalCleared: (tabId, threadId) => this.goalSync.applyCleared(tabId, threadId),
       onSessionInitialized: (tabId) => {
         void this.definePendingGoal(tabId)
-        void this.autoNameSession(tabId)
+        void this.generateSessionMetadata(tabId)
       },
       handlePendingInputSync: (session, events) => syncPendingInputFromEvent(this, session, events),
       log: (tab, eventType, session) => logDevSessionState(tab, eventType, session),
@@ -266,7 +279,14 @@ export class WorkspaceContext {
   get tabOrder(): string[] { return this.registry.tabOrder }
   set tabOrder(value: string[]) { this.registry.tabOrder = value }
   get activeTabId(): string { return this.registry.activeTabId }
-  set activeTabId(value: string) { this.registry.activeTabId = value }
+  set activeTabId(value: string) { this.registry.setActiveTab(value) }
+  /** The selected real tab for persistence while a local-only draft is open. */
+  get durableActiveTabId(): string {
+    if (!this.draftTabId) return this.activeTabId
+    return this.draftSourceTabId && this.tabs[this.draftSourceTabId]
+      ? this.draftSourceTabId
+      : this.tabOrder.at(-1) ?? ''
+  }
   get focusedChatTabId(): string | null {
     return this.router.chatTabIn(this.router.focusedPaneId, this.activeTabId)
   }
@@ -291,13 +311,18 @@ export class WorkspaceContext {
   set isExpanded(value: boolean) { this.ui.isExpanded = value }
   get sessionPickerOpen(): boolean { return this.ui.sessionPickerOpen }
   set sessionPickerOpen(value: boolean) { this.ui.sessionPickerOpen = value }
-  /** The project the tasks page lists tickets for — the project shown in the
-   *  status bar: the active session's cwd, or the global default when no session
-   *  is active (e.g. a new-tab home with a project selected). Only one project's
-   *  tasks show at a time, mirroring the status bar's single project path. */
+  /** The active tab's task environment, including its base project and checkout. */
+  get taskCreationContext(): TaskCreationContext | null {
+    const session = this.activeSession
+    return taskCreationContextFor(
+      session?.workingDirectory ?? this.globalDefaults.workingDirectory,
+      session ? session.gitContext : this.globalDefaults.gitContext,
+    )
+  }
+
+  /** The base project whose tasks the page lists. */
   get tasksProjectCwd(): string | null {
-    const cwd = this.activeSession?.workingDirectory ?? this.globalDefaults.workingDirectory
-    return cwd && cwd !== '~' ? cwd : null
+    return this.taskCreationContext?.projectKey ?? null
   }
 
   private defaultModelConfigFor(agentId: AgentId): ModelConfig {
@@ -320,6 +345,7 @@ export class WorkspaceContext {
   }
 
   private setActiveTab(tabId: string): void {
+    if (this.draftTabId && tabId !== this.draftTabId) this.discardDraftTab()
     this.registry.setActiveTab(tabId)
     prioritizeTabHydration(this, tabId)
     // A review guide belongs to the session it was generated from, so moving to
@@ -387,6 +413,15 @@ export class WorkspaceContext {
 
   inputFor(tabId: string): InputState {
     return this.tabs[tabId]?.input ?? this.currentInput
+  }
+
+  /** Whether this composer will mint a new task when its first prompt is sent. */
+  isFreshTaskDraft(tabId: string): boolean {
+    const session = this.sessionFor(tabId)
+    return tabId === this.draftTabId
+      && !!session
+      && !session.pendingTaskId
+      && !session.taskCreationDisabled
   }
 
   get activeSession(): Session | undefined {
@@ -613,34 +648,34 @@ export class WorkspaceContext {
   /** Tabs whose auto-name has been attempted. Both providers can re-emit
    *  session_init for a live session (Claude does it when a background task
    *  resumes the parent), and naming is a paid round trip — once per tab. */
-  private autoNamedTabs = new Set<string>()
+  private metadataFinalizedTabs = new Set<string>()
 
   applySessionTitleChanged(
     serverId: string,
     event: SessionTitleChangedEvent,
   ): void {
     for (const tabId of applySessionTitleChange(this, serverId, event)) {
-      this.autoNamedTabs.add(tabId)
+      this.metadataFinalizedTabs.add(tabId)
     }
   }
 
   /**
-   * Name a thread from the prompt that opened it, once its agent session id
-   * exists to persist against. Silent on failure: the prompt-derived title the
-   * tab already shows is a fine fallback.
+   * Name a thread and describe its session-born ticket from the opening prompt,
+   * once its agent session id exists to persist against. Silent on failure: the
+   * prompt-derived title and empty ticket body are valid fallbacks.
    */
-  private async autoNameSession(tabId: string): Promise<void> {
+  private async generateSessionMetadata(tabId: string): Promise<void> {
     const tab = this.tabs[tabId]
     const session = this.sessionFor(tabId)
     const agentSessionId = session?.agentSessionId
     if (!tab || !session || !agentSessionId) return
-    if (this.autoNamedTabs.has(tabId)) return
+    if (this.metadataFinalizedTabs.has(tabId)) return
 
     if (tab.titleCustom) {
       // A name typed into a tab before its session existed had nowhere to
       // persist — this is the first moment there's a session id to hang it on.
-      this.autoNamedTabs.add(tabId)
-      await this.apiFor(tabId).setSessionTitle(agentSessionId, tab.title).catch(() => {})
+      this.metadataFinalizedTabs.add(tabId)
+      await this.apiFor(tabId).setSessionTitle(agentSessionId, tab.title, 'manual').catch(() => {})
       return
     }
     if (!this.settings.autoRenameSessions) return
@@ -649,20 +684,22 @@ export class WorkspaceContext {
     // resumed thread either has a name already or was deliberately left unnamed.
     const userMessages = session.messages.filter((message) => message.role === 'user' && message.content)
     if (userMessages.length !== 1) return
-    this.autoNamedTabs.add(tabId)
+    this.metadataFinalizedTabs.add(tabId)
 
-    const title = await this.apiFor(tabId)
-      .generateSessionTitle(userMessages[0].content, session.workingDirectory)
+    const metadata = await this.apiFor(tabId)
+      .generateSessionMetadata(userMessages[0].content, session.workingDirectory)
       .catch(() => null)
-    if (!title) return
+    if (!metadata) return
 
     // The tab may have been closed, reset, renamed by hand, or resumed into a
     // different session while the naming round trip was in flight.
     const currentTab = this.tabs[tabId]
     if (!currentTab || currentTab.titleCustom) return
     if (this.sessionFor(tabId)?.agentSessionId !== agentSessionId) return
-    currentTab.title = title
-    await this.apiFor(tabId).setSessionTitle(agentSessionId, title).catch(() => {})
+    currentTab.title = metadata.title
+    await this.apiFor(tabId)
+      .setSessionTitle(agentSessionId, metadata.title, 'generated', metadata.description)
+      .catch(() => {})
   }
 
   /** Rename a tab's session by hand. An empty name clears back to the derived title. */
@@ -675,9 +712,9 @@ export class WorkspaceContext {
     // there falls the display back to the session's first prompt.
     tab.title = trimmed || 'New Tab'
     tab.titleCustom = !!trimmed
-    this.autoNamedTabs.add(tabId)
+    this.metadataFinalizedTabs.add(tabId)
     if (session?.agentSessionId) {
-      await this.apiFor(tabId).setSessionTitle(session.agentSessionId, trimmed || null)
+      await this.apiFor(tabId).setSessionTitle(session.agentSessionId, trimmed || null, 'manual')
     }
   }
 
@@ -716,6 +753,7 @@ export class WorkspaceContext {
       permissionMode: inheritedPermissionMode,
       sessionSkills: activeSession?.sessionSkills ?? [],
       pluginCommands: this.pluginCommands,
+      pendingTaskId: options.taskId ?? null,
     })
     const tab = makeTab(session.id, { id: tabId })
     this.sessions[session.id] = session
@@ -737,6 +775,122 @@ export class WorkspaceContext {
     return tabId
   }
 
+  /** The task the session on screen belongs to. */
+  get activeRootTaskId(): string | null {
+    return this.tasksStore.taskForSession(this.activeSession?.agentSessionId)?.id
+      ?? this.activeSession?.pendingTaskId
+      ?? null
+  }
+
+  /** Open the shared new-tab home without registering a real tab yet. When the
+   *  current session belongs to a task, the new session stays under that task. */
+  async createDraftTab(cwd?: string, options: CreateTabOptions = {}): Promise<string> {
+    let preservedInput: InputState | undefined
+    const sourceTabId = this.draftTabId ? this.draftSourceTabId : this.activeTabId || null
+    const sourceSessionForTask = sourceTabId ? this.sessionFor(sourceTabId) : null
+    const sourceRootTaskId = this.tasksStore.taskForSession(sourceSessionForTask?.agentSessionId)?.id
+      ?? sourceSessionForTask?.pendingTaskId
+      ?? null
+    const activeRootTaskId = sourceRootTaskId ?? this.activeRootTaskId
+    const activeSession = sourceSessionForTask ?? this.activeSession
+    const draftSourceTabId = this.draftTabId ? this.draftSourceTabId : this.activeTabId || null
+    if (this.draftTabId) {
+      const draftSession = this.sessionFor(this.draftTabId)
+      const existingTaskMode = draftSession?.pendingTaskId
+        ? 'existing'
+        : draftSession?.taskCreationDisabled
+          ? 'none'
+          : 'new'
+      const requestedTaskMode = options.withoutTask
+        ? 'none'
+        : !options.freshTask && activeRootTaskId
+          ? 'existing'
+          : 'new'
+      if (existingTaskMode === requestedTaskMode) {
+        requestInputFocus({ tabId: this.draftTabId })
+        return this.draftTabId
+      }
+      // The task/session shortcuts retarget the local draft; they do not start a
+      // new composition. Carry the whole input state so text, attachments and
+      // references survive changing between those destinations.
+      preservedInput = this.tabs[this.draftTabId]?.input
+      this.discardDraftTab()
+    }
+    const sourceSession = options.freshTask ? null : activeSession
+    const workingDirectory = options.freshTask
+      ? activeSession?.gitContext?.repoRoot
+        ?? (activeSession?.workingDirectory && activeSession.workingDirectory !== '~'
+          ? activeSession.workingDirectory
+          : undefined)
+        ?? this.globalDefaults.workingDirectory
+        ?? this.staticInfo?.projectPath
+        ?? this.staticInfo?.workspacePath
+        ?? '~'
+      : cwd ?? sourceSession?.workingDirectory
+        ?? this.globalDefaults.workingDirectory
+        ?? this.staticInfo?.projectPath
+        ?? this.staticInfo?.workspacePath
+        ?? '~'
+    const sourceConfig = sourceSession?.modelConfig ?? this.globalDefaults.modelConfig
+    const provider = (sourceSession?.provider ?? this.settings.activeAgent) as AgentId
+    const inheritedGitContext = options.freshTask
+      ? null
+      : options.gitContext === undefined
+        ? cwd === undefined
+          ? sourceSession?.gitContext ?? this.globalDefaults.gitContext
+          : null
+        : options.gitContext
+    const worktreeRequested = options.worktreeRequested
+      ?? (options.freshTask
+        ? this.settings.worktreeEnabled
+        : !inheritedGitContext?.worktreePath && this.settings.worktreeEnabled)
+    const session = makeSession(this.settings, {
+      serverId: sourceSession?.serverId ?? serverConnections.connectionFor()?.serverId ?? LOCAL_SERVER_ID,
+      provider,
+      workingDirectory,
+      gitContext: inheritedGitContext ? { ...inheritedGitContext } : null,
+      worktreeBaseBranch: worktreeRequested ? inheritedGitContext?.targetBranch ?? null : null,
+      modelConfig: {
+        ...sourceConfig,
+        reasoningEffort: this.defaultReasoningEffortFor(provider, sourceConfig.modelId),
+      },
+      permissionMode: this.globalDefaults.permissionMode,
+      sessionSkills: sourceSession?.sessionSkills ?? [],
+      pluginCommands: this.pluginCommands,
+      pendingTaskId: options.freshTask || options.withoutTask ? null : activeRootTaskId,
+      taskCreationDisabled: options.withoutTask ?? false,
+    })
+    const tabId = uuid()
+    this.sessions[session.id] = session
+    this.tabs[tabId] = makeTab(
+      session.id,
+      preservedInput ? { id: tabId, input: preservedInput } : { id: tabId },
+    )
+    this.draftSourceTabId = draftSourceTabId
+    this.draftTabVia = options.via ?? 'click'
+    this.draftTabId = tabId
+    if (options.activate !== false) {
+      this.setActiveTab(tabId)
+      this.isExpanded = true
+      this.resetOverlays({ closeArtifact: true })
+    }
+    void this.environment.refreshTab(this, { tabId, worktreeRequested })
+    void this.refreshPluginCommands(workingDirectory, tabId)
+    if (options.activate !== false) requestInputFocus({ tabId })
+    return tabId
+  }
+
+  private discardDraftTab(): void {
+    const tabId = this.draftTabId
+    if (!tabId) return
+    if (this.splitChatTabId === tabId) this.closeSplitPane()
+    const sessionId = this.tabs[tabId]?.sessionId
+    delete this.tabs[tabId]
+    if (sessionId) delete this.sessions[sessionId]
+    this.draftTabId = null
+    this.draftSourceTabId = null
+  }
+
   /** Author an automation in a low-reasoning session with no tab routing state. */
   async createAutomationDraftSession(prompt: string, cwd: string): Promise<string> {
     const provider = this.settings.activeAgent as AgentId
@@ -756,7 +910,7 @@ export class WorkspaceContext {
     const src = this.activeSession
     const projectRoot = src?.gitContext?.repoRoot
       ?? (src?.workingDirectory && src.workingDirectory !== '~' ? worktreeProjectRoot(src.workingDirectory) : undefined)
-    const tabId = await this.createTab(projectRoot, { worktreeRequested: true })
+    const tabId = await this.createDraftTab(projectRoot, { worktreeRequested: true })
     const session = this.sessionFor(tabId)
     if (!session) return
     // Always branch off the project root, even when the source tab was itself
@@ -1083,6 +1237,15 @@ export class WorkspaceContext {
   }
 
   closeTab(tabId: string, via: Via = 'click'): void {
+    if (tabId === this.draftTabId) {
+      const returnTabId = this.draftSourceTabId
+      this.discardDraftTab()
+      const nextTabId = returnTabId && this.tabs[returnTabId] ? returnTabId : this.tabOrder.at(-1)
+      if (nextTabId) this.setActiveTab(nextTabId)
+      else this.activeTabId = ''
+      requestInputFocus()
+      return
+    }
     const serverId = this.sessionFor(tabId)?.serverId
     this.apiFor(tabId).closeTab(this.ctxFor(tabId))
     if (this.splitChatTabId === tabId) this.closeSplitPane()
@@ -1133,6 +1296,7 @@ export class WorkspaceContext {
     // Preserve the reactive array identity so closing one tab only invalidates the
     // removed index instead of rebuilding every tab-strip item.
     if (closedTabIndex !== -1) this.tabOrder.splice(closedTabIndex, 1)
+    removePersistedTab(tabId, this.durableActiveTabId)
     track('tab_closed', { via })
   }
 
@@ -1165,7 +1329,7 @@ export class WorkspaceContext {
       tab.title = 'New Tab'
       tab.titleCustom = false
     }
-    this.autoNamedTabs.delete(targetTabId)
+    this.metadataFinalizedTabs.delete(targetTabId)
     this.clearStreamingText(targetTabId)
     if (session.workingDirectory && !session.gitContext) {
       void this.environment.refreshTab(this, { tabId: targetTabId })
@@ -1435,7 +1599,7 @@ export class WorkspaceContext {
     session.messages.push({ id: nextMsgId(), role: 'system' as const, content, timestamp: Date.now() })
   }
 
-  private promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; taskId?: string; goalObjective?: string }): void {
+  private promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; taskId?: string; skipTaskCreation?: boolean; goalObjective?: string }): void {
     const api = this.apiFor(tabId)
     api.createTab(tabId)
       .then(() => this.config.pendingSessionStartTarget(tabId))
@@ -1469,21 +1633,21 @@ export class WorkspaceContext {
     projectPath?: string,
     tabId?: string,
     delivery: PromptDelivery = 'steer',
-  ): void {
+  ): boolean {
     if (!tabId && this.tabOrder.length === 0) {
       const sessionStartTargetResolution = this.config.pendingSessionStartTarget()
       if (sessionStartTargetResolution) {
         void sessionStartTargetResolution.then(() => this.sendMessage(prompt, projectPath, tabId, delivery))
-        return
+        return true
       }
       this.createTabFromDefaults()
     }
     const targetTabId = tabId ?? this.activeTabId
     const tab = this.tabs[targetTabId]
     const session = this.sessionFor(targetTabId)
-    if (!tab || !session) return
-    if (session.status === 'connecting') return
-    if (session.readOnlyReason) return
+    if (!tab || !session) return false
+    if (session.status === 'connecting') return false
+    if (session.readOnlyReason) return false
 
     if (
       window.solus.getPlatform() === 'web'
@@ -1492,20 +1656,35 @@ export class WorkspaceContext {
     ) {
       window.dispatchEvent(new CustomEvent('solus:open-server-connect'))
       toasts.info('Connect a host to start working')
-      return
+      return false
+    }
+
+    const resolvedPath = projectPath || session.workingDirectory
+    if (
+      !session.pendingHostDispatch
+      && session.serverId !== LOCAL_SERVER_ID
+      && (!resolvedPath || resolvedPath === '~')
+    ) {
+      toasts.error('Choose a project on the remote host before sending')
+      return false
+    }
+
+    if (targetTabId === this.draftTabId) {
+      this.addTabToOrder(targetTabId)
+      this.draftTabId = null
+      this.draftSourceTabId = null
+      track('tab_created', {
+        via: this.draftTabVia,
+        worktree: !!session.worktreeBaseBranch && !session.gitContext?.worktreePath,
+      })
     }
 
     if (session.pendingHostDispatch) {
       session.status = 'connecting'
       void this.prepareHostDispatchAndSend(targetTabId, prompt, projectPath, delivery)
-      return
+      return true
     }
 
-    const resolvedPath = projectPath || session.workingDirectory
-    if (session.serverId !== LOCAL_SERVER_ID && (!resolvedPath || resolvedPath === '~')) {
-      toasts.error('Choose a project on the remote host before sending')
-      return
-    }
     const isBusy = isSessionBusyStatus(session.status)
     const input = tab.input
 
@@ -1598,10 +1777,15 @@ export class WorkspaceContext {
       clientPromptId,
       delivery,
       imageAttachments,
-      taskId: session.boundTaskId ?? undefined,
+      taskId:
+        session.pendingTaskId ??
+        this.tasksStore.taskForSession(session.agentSessionId)?.id ??
+        undefined,
+      skipTaskCreation: session.taskCreationDisabled || undefined,
       goalObjective: isFirstMessage ? session.pendingGoalObjective ?? undefined : undefined,
     })
     requestConversationScrollToBottom(targetTabId)
+    return true
   }
 
   private async prepareHostDispatchAndSend(
@@ -1991,15 +2175,17 @@ export class WorkspaceContext {
   }
 
   /** Start a fresh session bound to a task. Mirrors openWorkAndStartSession: open
-   *  a clean tab in the task's project, attach `boundTaskId` (shows the chip and
-   *  makes the first send carry `taskId`, which the main process hydrates +
-   *  injects), and focus the input so the user can type their first message. */
+   *  a clean tab in the task's project, initialize `pendingTaskId` (shows the
+   *  chip and makes the first send carry `taskId`, which the main process
+   *  hydrates + injects), and focus the input for the user's first message. */
   async openTaskSession(task: Task): Promise<void> {
-    const cwd = this.tasksProjectCwd ?? this.staticInfo?.workspacePath ?? '~'
-    const tabId = await this.createTab(cwd)
-    const s = this.sessionFor(tabId)
-    if (s) s.boundTaskId = task.id
-    this.router.close('tasks')
+    // The task's own project, not the one on screen: the sidebar spans projects,
+    // so the row you clicked is often not in the one the status bar names.
+    const cwd = task.projectKey ?? this.tasksProjectCwd ?? this.staticInfo?.workspacePath ?? '~'
+    await this.createTab(cwd, { taskId: task.id })
+    // Whichever page led here — the list or one task's page — steps aside for
+    // the conversation it just started.
+    this.router.closeGroup('page')
     requestInputFocus()
   }
 
@@ -2011,45 +2197,40 @@ export class WorkspaceContext {
     const resumeSid = links?.[links.length - 1]?.sessionId
     if (!resumeSid) return void this.openTaskSession(task)
 
-    const cwd = this.tasksProjectCwd ?? this.staticInfo?.workspacePath ?? '~'
     const openTab = this.tabOrder.find((t) => {
       const s = this.sessionFor(t)
       return s?.agentSessionId === resumeSid || s?.forkedFromSessionId === resumeSid
     })
     if (openTab) this.selectTab(openTab)
     else {
-      await this.resumeSession({
-        provider: this.settings.activeAgent,
-        sessionId: resumeSid,
-        slug: null,
-        firstMessage: task.title,
-        lastTimestamp: task.updatedAt,
-        size: 0,
-        cwd,
-        projectPath: cwd,
-      })
+      // The task link stores a session id, not its agent backend. Resolve the
+      // indexed record before resuming instead of assigning whichever provider
+      // happens to be selected now; loading a Claude transcript through Codex
+      // (or vice versa) returns an empty conversation.
+      const meta = await window.solus.getSessionInfo(resumeSid).catch(() => null)
+      if (meta) await this.resumeSession(meta)
     }
-    // Re-attach the binding so the chip + follow-up taskId injection come back
-    // even though boundTaskId is renderer-only and resets across reloads.
-    const s = this.sessionFor(this.activeTabId)
-    if (s) s.boundTaskId = task.id
-    this.router.close('tasks')
+    this.router.closeGroup('page')
     requestInputFocus()
   }
 
-  /** Jump to a task from the command palette: the task id is the Tasks route's
-   *  param, so the page opens straight into that detail. */
-  goToTask(taskId: string): void {
-    this.showPage({ name: 'tasks', params: { taskId } }, 'palette', 'tasks')
+  /** Open one task's page. Its own route, so it deep-links, joins history and
+   *  can be opened in a split. */
+  goToTask(taskId: string, via: Via = 'palette'): void {
+    this.showPage({ name: 'task', params: { taskId } }, via, 'tasks')
   }
 
   openTasks(via: Via = 'click'): void {
     this.showPage({ name: 'tasks', params: {} }, via, 'tasks')
   }
 
-  /** Open the standalone create-task modal for a project. */
-  openTaskComposer(cwd: string): void {
-    this.ui.taskComposer = { cwd }
+  /** Open the standalone create-task modal. Current-project entry points may
+   * preserve the active tab's branch/worktree; explicit project picks do not. */
+  openTaskComposer(cwd: string, useActiveEnvironment = false): void {
+    const activeContext = this.taskCreationContext
+    this.ui.taskComposer = useActiveEnvironment && activeContext?.projectKey === worktreeProjectRoot(cwd)
+      ? activeContext
+      : taskCreationContextFor(cwd, null)
   }
 
   // ─── Pull Requests page ───
@@ -2250,23 +2431,29 @@ export class WorkspaceContext {
   }
 
   /**
-   * Open a PR review in a companion pane. The route is entered before the (slow)
+   * Open a PR review as the page. The route is entered before the (slow)
    * fetch/checkout so the click gets a real surface rather than a blank pane;
    * the descriptor's `resolve` fills that same mounted surface in place when the
    * worktree lands. Re-entering a PR already in the router's payload cache skips
    * the fetch entirely.
+   *
+   * The review replaces the list in the leading pane rather than docking beside
+   * it: `prReview` shares the `page` exclusive group with `prs`, so navigating
+   * here *is* leaving the list. The way back and the way sideways live in the
+   * review's own chrome band (see PrDetailChrome).
    */
   private async openPrReviewRoute(
     number: number,
     title: string | undefined,
     ctx: IpcContext,
-    opts: { maximize?: boolean; via?: Via } = {},
+    opts: { tab?: PrReviewTab; via?: Via } = {},
   ): Promise<PrReviewContext | null> {
-    this.prsStore.prReviewTab = 'activity'
+    // The row's verb picks the tab: an inbox row that says Review lands on the
+    // diff, everything else on Activity.
+    this.prsStore.prReviewTab = opts.tab ?? 'activity'
     const ref = this.prReviewRef(number, title, ctx)
-    const pane = this.router.navigate(ref, { target: 'aside', via: opts.via })
-    this.geometry.open(pane.id, 0.7)
-    if (opts.maximize) this.geometry.maximize(pane.id)
+    this.router.navigate(ref, { target: this.router.leadingPane.id, via: opts.via })
+    this.isExpanded = true
     track('surface_viewed', { surface: 'pr_review', via: opts.via })
     this.prsStore.prefetchReview(ctx, number)
     try {
@@ -2296,10 +2483,7 @@ export class WorkspaceContext {
     // Switch to the editor layout up front so the click registers immediately.
     if (this.window.viewMode !== 'editor') await this.window.setViewMode('editor')
     const ctx = opts.ctx ?? this.ctx
-    // A cold entry (palette, deep link) reveals the review at full size over a
-    // resting conversation, rather than beside whatever was open.
-    this.router.navigate(CHAT_ROUTE, { target: this.router.leadingPane.id })
-    const pr = await this.openPrReviewRoute(number, title, ctx, { maximize: true, via: opts.via })
+    const pr = await this.openPrReviewRoute(number, title, ctx, { via: opts.via })
     if (pr && opts.openChat) await this.openPrReviewChat(pr)
   }
 
@@ -2310,12 +2494,32 @@ export class WorkspaceContext {
     return { pr }
   }
 
-  /** Dock a PR selected from the PR inbox. Preparation may be slow, but it never
-   * replaces the leading page; stale results are ignored when selection moves. */
-  async dockPrReview(number: number, title?: string, opts: { ctx?: IpcContext } = {}): Promise<void> {
+  /** Open a PR picked from the list. It replaces the list rather than docking
+   *  beside it; `tab` is the landing tab the picked row's verb promised. */
+  async openPrReview(
+    number: number,
+    title?: string,
+    opts: { ctx?: IpcContext; tab?: PrReviewTab } = {},
+  ): Promise<void> {
     if (this.router.params('prReview')?.number === number) return
     beginPrReviewProfile(number)
-    await this.openPrReviewRoute(number, title, opts.ctx ?? this.ctx)
+    await this.openPrReviewRoute(number, title, opts.ctx ?? this.ctx, { tab: opts.tab })
+  }
+
+  /** Step to the PR before or after the open one, in the list's own order —
+   *  what J / K and the chrome band's stepper walk. */
+  stepPrReview(delta: number, ctx: IpcContext = this.ctx): void {
+    const open = this.router.params('prReview')?.number
+    const order = this.prsStore.listOrder
+    if (open === undefined || order.length === 0) return
+    const index = order.indexOf(open)
+    if (index === -1) return
+    const next = order[(index + delta + order.length) % order.length]
+    if (next === open) return
+    void this.openPrReview(next, this.prsStore.get(next)?.title, {
+      ctx,
+      tab: this.prsStore.prReviewTab,
+    })
   }
 
   /** Create (once), activate, and reveal the chat associated with a PR review. */
@@ -2365,17 +2569,36 @@ export class WorkspaceContext {
     return tabId
   }
 
-  /** Restore the split: the conversation leads, the review stops filling the
-   *  window and sits beside it. */
+  /** Split the review: it keeps leading, and its conversation opens beside it.
+   *  The chat and the popped-out diff share the aside, so revealing one puts
+   *  the other away — the review is what you are always looking at. */
   private revealConversationBesideReview(): void {
-    this.router.navigate(CHAT_ROUTE, { target: this.router.leadingPane.id })
-    this.geometry.restore()
+    this.router.close('prDiff')
+    const pane = this.router.navigate(CHAT_ROUTE, { target: 'aside' })
+    this.geometry.open(pane.id, 0.5)
     this.isExpanded = true
   }
 
-  /** Close the review surface. Its agent chat remains an ordinary workspace tab. */
+  /** Pop the open review's diff out beside it, so the activity feed and the
+   *  change read together. Closing it returns the review to Activity. */
+  openPrDiff(number: number, ctx: IpcContext = this.ctx): void {
+    const pane = this.router.navigate(
+      { name: 'prDiff', params: { number, cwd: ctx.session.projectPath ?? undefined } },
+      { target: 'aside' },
+    )
+    this.geometry.open(pane.id, 0.5)
+    this.isExpanded = true
+  }
+
+  closePrDiff(): void {
+    this.router.close('prDiff')
+  }
+
+  /** Leave the review for the list it was opened from. Its agent chat remains an
+   *  ordinary workspace tab. */
   exitPrReview(): void {
-    this.router.close('prReview')
+    this.router.close('prDiff')
+    this.openPrs(this.router.params('prReview')?.cwd ?? null)
   }
 
   // ─── Settings page ───
@@ -2500,6 +2723,12 @@ export class WorkspaceContext {
   /** Show a generated review walkthrough. It takes the leading pane so a
    *  focus-hunk diff can open beside it. */
   enterReview(key: string, scope: 'branch' | 'session' = 'branch', sourceTabId?: string): void {
+    if (scope === 'session' && sourceTabId) {
+      reviewGuideStore.markOpened(
+        this.apiFor(sourceTabId),
+        sessionGuideIdentity(this.sessionFor(sourceTabId)),
+      )
+    }
     this.router.navigate(
       { name: 'review', params: { key, scope, sourceTabId } },
       { target: this.router.leadingPane.id },
@@ -2508,4 +2737,4 @@ export class WorkspaceContext {
 
 }
 
-export const [getWorkspaceContext, setWorkspaceContext] = createContext<WorkspaceContext>()
+export const [getWorkspaceContext, setWorkspaceContext] = createAppContext<WorkspaceContext>('workspace')

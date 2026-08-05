@@ -4,12 +4,15 @@ import { setConnectionState } from '@client-core/connection-state'
 import { installWsBackedSolusApi, localServerTarget, resolveActiveServerTarget, type SolusServerTarget } from '@client-core/server-connection'
 import { serverConnections } from '@client-core/server-connections'
 import { renderConnecting, renderFatal } from './boot-scene'
+import { startScrollReveal } from './lib/scroll-reveal'
 import { setTabPersistenceServerInstallationId } from './contexts/workspace/tab-persistence'
 import type { LocalConnectionInfo, NativeSolusAPI } from '../preload'
 
 window.addEventListener('unhandledrejection', (event) => {
   if (event.reason instanceof TransportDisconnectedError) event.preventDefault()
 })
+
+startScrollReveal()
 
 const root = document.getElementById('root')!
 

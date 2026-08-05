@@ -3,7 +3,6 @@
   import {
     ArrowBendDownRightIcon,
     ArrowUpIcon,
-    SquareIcon,
     XIcon,
   } from "phosphor-svelte";
   import {
@@ -14,8 +13,8 @@
     getWindowContext,
     runtime,
     savedPrompts,
-    toasts,
   } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import type {
     PlanReference,
     PromptDelivery,
@@ -82,6 +81,9 @@
       (isPrimary && session.focusedChatTabId === null),
   );
   const sess = $derived(session.sessionFor(targetTabId));
+  const isFreshTaskDraft = $derived(
+    session.isFreshTaskDraft(targetTabId),
+  );
   const input = $derived(session.inputFor(targetTabId));
   const pendingPlan = $derived(
     pendingPlanForPrompt(sess, session.planStore.plans),
@@ -277,19 +279,6 @@
   );
   function unbindWork() {
     if (sess) sess.boundWorkId = null;
-    composerEl?.focus();
-  }
-  // Task this session was started from — its hydrated ticket was injected at
-  // session start. The title comes from the tasks store when it's loaded for
-  // this project; otherwise we fall back to the bare id.
-  const boundTask = $derived(
-    sess?.boundTaskId
-      ? (session.tasksStore.tasks.find((t) => t.id === sess.boundTaskId) ??
-          null)
-      : null,
-  );
-  function unbindTask() {
-    if (sess) sess.boundTaskId = null;
     composerEl?.focus();
   }
   const isVoiceWaiting = $derived(
@@ -837,22 +826,8 @@
   function sendPrompt(
     prompt: string,
     options: { refocus?: boolean; delivery?: PromptDelivery } = {},
-  ) {
-    savePromptToHistory(prompt);
-    input.text = "";
-    resetHistoryNavigation();
-    composerEl?.clearEditor();
-    if (mode === "pill") {
-      session.isExpanded = true;
-    }
-    // A saved prompt that has now been sent has served its purpose. This is the
-    // one composer send funnel, and the draft is already gone by here, so the
-    // paths where sendMessage bails have lost the draft either way.
-    const sentSavedPromptId = input.savedPromptId;
-    input.savedPromptId = null;
-    if (sentSavedPromptId && composerProjectRoot) {
-      void savedPrompts.remove(composerProjectRoot, sentSavedPromptId);
-    }
+  ): boolean {
+    let accepted = true;
     if (pendingPlan) {
       // Match the plan surface's Revise action: answer the held ExitPlanMode
       // request, keep the provider in plan mode, and send this text as feedback
@@ -867,21 +842,43 @@
         answersForQuestionNote(pendingQuestion, prompt),
       );
     } else {
-      session.sendMessage(
+      accepted = session.sendMessage(
         prompt || "See attached files",
         undefined,
-        tabId,
+        targetTabId || undefined,
         options.delivery,
       );
+    }
+
+    if (!accepted) {
+      if (options.refocus !== false) refocusComposer();
+      return false;
+    }
+
+    savePromptToHistory(prompt);
+    input.text = "";
+    resetHistoryNavigation();
+    composerEl?.clearEditor();
+    if (mode === "pill") {
+      session.isExpanded = true;
+    }
+    const sentSavedPromptId = input.savedPromptId;
+    input.savedPromptId = null;
+    if (sentSavedPromptId && composerProjectRoot) {
+      void savedPrompts.remove(composerProjectRoot, sentSavedPromptId);
     }
 
     if (options.refocus !== false) {
       refocusComposer();
     }
+    return true;
   }
 
-  function handleSend(delivery: PromptDelivery = "steer") {
-    if (isReadOnly) return;
+  function handleSend(
+    delivery: PromptDelivery = "steer",
+    options: { refocus?: boolean } = {},
+  ): boolean {
+    if (isReadOnly) return false;
     let prompt = inputText.trim();
     if (
       !prompt &&
@@ -890,12 +887,12 @@
       workRefs.length === 0 &&
       sessionRefs.length === 0
     )
-      return;
-    if (isConnecting) return;
+      return false;
+    if (isConnecting) return false;
 
     if (/^\/goal(?:\s|$)/.test(prompt)) {
       void handleGoalCommand(prompt.slice("/goal".length));
-      return;
+      return false;
     }
 
     // Mobile keyboards sometimes autocorrect the skill name and insert it as
@@ -914,10 +911,10 @@
       composerEl?.clearEditor();
       executeCommand(solusCommand.cmd, solusCommand.argument);
       refocusComposer();
-      return;
+      return false;
     }
 
-    sendPrompt(prompt, { delivery });
+    return sendPrompt(prompt, { delivery, refocus: options.refocus });
   }
 
   function navigateHistory(delta: -1 | 1) {
@@ -965,7 +962,17 @@
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend(e.altKey ? "queue" : "steer");
+      const shouldStartAnotherTask =
+        e.ctrlKey && !e.altKey && !e.metaKey && isFreshTaskDraft;
+      const accepted = handleSend(e.altKey ? "queue" : "steer", {
+        refocus: !shouldStartAnotherTask,
+      });
+      if (shouldStartAnotherTask && accepted) {
+        void session.createDraftTab(undefined, {
+          freshTask: true,
+          via: "keybinding",
+        });
+      }
     }
   }
 
@@ -996,11 +1003,6 @@
     }
   }
 
-  function handleInterrupt() {
-    session.interruptTab(targetTabId);
-    session.apiFor(targetTabId).stopTab(session.ctxFor(targetTabId));
-    refocusComposer();
-  }
 </script>
 
 <div
@@ -1022,29 +1024,6 @@
           class="shrink-0 flex items-center justify-center rounded hover:bg-(--solus-accent-border) -mr-0.5 p-0.5"
           onclick={unbindWork}
           aria-label="Stop working on this work"
-          title="Unbind"
-        >
-          <XIcon size={11} />
-        </button>
-      </div>
-    </div>
-  {/if}
-
-  {#if sess?.boundTaskId}
-    <div class="flex pt-1.5">
-      <div
-        class="inline-flex items-center gap-1.5 rounded-lg bg-(--solus-accent-light) px-2 py-1 text-[0.6875rem] font-medium text-(--solus-accent) max-w-full"
-        data-testid="bound-task-chip"
-      >
-        <span class="opacity-70 shrink-0">Working on:</span>
-        <span class="truncate"
-          >{boundTask?.title ?? `#${sess.boundTaskId}`}</span
-        >
-        <button
-          type="button"
-          class="shrink-0 flex items-center justify-center rounded hover:bg-(--solus-accent-border) -mr-0.5 p-0.5"
-          onclick={unbindTask}
-          aria-label="Stop working on this task"
           title="Unbind"
         >
           <XIcon size={11} />
@@ -1119,13 +1098,8 @@
   {#if !leadingActions}
     {@render savedPromptsControl()}
   {/if}
-  {#if isBusy && (isMobile || !isPrimary)}
-    {@render stopButton()}
-  {/if}
-  {#if !(isMobile && isBusy)}
-    {@render voiceButtons()}
-    {@render sendButton()}
-  {/if}
+  {@render voiceButtons()}
+  {@render sendButton()}
 {/snippet}
 
 {#snippet editorOrWaveform()}
@@ -1217,29 +1191,12 @@
             ? { label: "Steer this response · Queue next with ⌥Enter", shortcut: "Enter" }
             : isBusy
               ? "Queue message (Enter)"
-              : "Send (Enter)"}
+              : isFreshTaskDraft
+                ? "Send (Enter) · Start another task (Ctrl+Enter)"
+                : "Send (Enter)"}
       />
     </TooltipUI.Root>
   {/if}
-{/snippet}
-
-{#snippet stopButton()}
-  <TooltipUI.Root>
-    <TooltipUI.Trigger>
-      {#snippet child({ props: tooltipProps })}
-        <button {...tooltipProps}
-    onmousedown={(e) => e.preventDefault()}
-    onclick={handleInterrupt}
-    data-testid="mobile-stop-button"
-    class="w-9 h-9 rounded-full flex items-center justify-center text-(--solus-text-on-accent) bg-(--solus-stop-bg) shadow-[0_0.125rem_0.5rem_rgba(239,68,68,0.24),0_0.0625rem_0.125rem_rgba(0,0,0,0.2)] transition-[box-shadow,transform,background] duration-150 active:scale-[0.94] hover:bg-(--solus-stop-hover)"
-    aria-label="Stop current task"
-  >
-    <SquareIcon size={11} weight="fill" />
-  </button>
-      {/snippet}
-    </TooltipUI.Trigger>
-    <TooltipUI.Content value={"Stop current task"} />
-  </TooltipUI.Root>
 {/snippet}
 
 {#snippet voiceButtons()}

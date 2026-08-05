@@ -1,6 +1,9 @@
-import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { EventEmitter } from 'events'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { AgentBackend, PermissionResponder, RunHandle } from '../../src/main/agents/agent-backend'
 import type { AgentRunRequest, AgentRunSessionState } from '../../src/main/agents/agent-runner'
 import type { BuiltHandoff, BuildHandoffDeps } from '../../src/main/agents/session-handoff'
@@ -10,10 +13,25 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 let ControlPlane: typeof import('../../src/main/control-plane')['ControlPlane']
 let solusToolbox: typeof import('../../src/main/agents/tools/solus-toolbox')['solusToolbox']
+let closeDb: typeof import('../../src/main/db')['closeDb']
+let listTasks: typeof import('../../src/main/tasks/task-store')['listTasks']
 type ControlPlaneInstance = import('../../src/main/control-plane').ControlPlane
+const previousDataDir = process.env.SOLUS_DATA_DIR
+let dataDir = ''
 beforeAll(async () => {
+  dataDir = mkdtempSync(join(tmpdir(), 'solus-control-plane-device-tabs-'))
+  process.env.SOLUS_DATA_DIR = dataDir
   ;({ ControlPlane } = await import('../../src/main/control-plane'))
   ;({ solusToolbox } = await import('../../src/main/agents/tools/solus-toolbox'))
+  ;({ closeDb } = await import('../../src/main/db'))
+  ;({ listTasks } = await import('../../src/main/tasks/task-store'))
+})
+
+afterAll(() => {
+  closeDb()
+  rmSync(dataDir, { recursive: true, force: true })
+  if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
+  else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
 const GRACE_MS = 5 * 60_000
@@ -461,9 +479,10 @@ describe('ControlPlane headless sessions', () => {
     expect(tabWatchKeys.size).toBe(0)
   })
 
-  test('exposes an automation session at init while completion stays attached to the same run', async () => {
+  test('runs an automation without minting a task while keeping task tools available to the agent', async () => {
     const env = setup()
     planes.push(env.controlPlane)
+    const taskIdsBeforeRun = (await listTasks()).tasks.map((task) => task.id)
 
     const lifecycle = await env.controlPlane.startAutomationSession({
       prompt: 'Run unattended',
@@ -481,6 +500,10 @@ describe('ControlPlane headless sessions', () => {
     expect(selectedNames).toContain('list_works')
     expect(selectedNames).toContain('create_session')
     expect(selectedNames).toContain('list_tasks')
+    // WHY: firing an automation is not itself task creation. The unattended
+    // agent may still decide its work merits a task and call the explicit tool.
+    expect(selectedNames).toContain('create_task')
+    expect((await listTasks()).tasks.map((task) => task.id)).toEqual(taskIdsBeforeRun)
     for (const automationToolName of [
       'create_automation',
       'list_automations',

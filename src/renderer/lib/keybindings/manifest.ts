@@ -5,7 +5,9 @@ export const KEYBINDINGS = {
   // ── Global ─────────────────────────────────────────────────────────────────
   'global.open-host-project': { combo: { mod: true, code: 'KeyO' }, web: { alt: true, code: 'KeyO' }, scope: 'global', label: 'Open project on current host', group: 'General' },
   'global.select-project':    { combo: { mod: true, shift: true, code: 'KeyO' },        scope: 'global',             label: 'Open project',             group: 'General' },
-  'global.new-tab':           { combo: { mod: true, code: 'KeyT' }, web: { alt: true, shift: true, code: 'KeyT' }, scope: 'global', label: 'New tab',                  group: 'Tabs' },
+  'global.new-task':          { combo: { mod: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyN' }, scope: 'global', label: 'New task',                 group: 'Tasks' },
+  'global.new-session-without-task': { combo: { mod: true, shift: true, code: 'KeyN' }, scope: 'global', label: 'New session without task', group: 'Tasks' },
+  'global.new-session':       { combo: { mod: true, code: 'KeyT' }, web: { alt: true, shift: true, code: 'KeyT' }, scope: 'global', label: 'New session in task',       group: 'Tasks' },
   'global.new-split-chat':    { combo: { alt: true, shift: true, code: 'Slash' },          scope: 'global',             label: 'Toggle split chat',        group: 'Tabs' },
   'global.fork-tab':          { combo: { alt: true, code: 'KeyF' },                       scope: 'global',             label: 'Fork session',             group: 'Tabs' },
   'global.next-tab':          { combo: { ctrl: true, code: 'Tab' }, web: { alt: true, shift: true, code: 'ArrowRight' }, scope: 'global', label: 'Next branch / tab',     group: 'Tabs' },
@@ -33,7 +35,6 @@ export const KEYBINDINGS = {
   'global.history-forward':   { combo: { mod: true, code: 'BracketRight' },             scope: 'global',             label: 'Forward',                  group: 'Navigation' },
   'global.session-picker':    { combo: { mod: true, code: 'KeyP' }, web: { alt: true, shift: true, code: 'KeyR' }, scope: 'global', label: 'Session picker',           group: 'Navigation' },
   'global.session-picker-j': { combo: { alt: true, shift: true, code: 'KeyJ' },          scope: 'global',             label: 'Session picker (alt)',     group: 'Navigation' },
-  'global.filter-tasks':      { combo: { mod: true, shift: true, code: 'KeyF' },          scope: 'global',             label: 'Filter tasks by project',  group: 'Navigation' },
   'global.cycle-perm-mode':   { combo: { alt: true, shift: true, code: 'Tab' },           scope: 'global',             label: 'Cycle permission mode',    group: 'Agent' },
   'global.cycle-model':       { combo: { alt: true, shift: true, code: 'KeyM' },          scope: 'global',             label: 'Cycle model',              group: 'Agent' },
   'global.cycle-agent':       { combo: { alt: true, shift: true, code: 'KeyG' },          scope: 'global',             label: 'Cycle agent',              group: 'Agent' },
@@ -46,6 +47,8 @@ export const KEYBINDINGS = {
   'global.git-open-terminal': { combo: { alt: true, shift: true, code: 'KeyY' },          scope: 'global',             label: 'Open worktree in terminal', group: 'Git' },
   'global.show-shortcuts':    { combo: { mod: true, code: 'Slash' },                      scope: 'global',             label: 'Keyboard shortcuts',       group: 'General' },
   'global.command-palette':   { combo: { mod: true, code: 'KeyK' },                       scope: 'global',             label: 'Command palette',          group: 'General' },
+  'global.project-search':    { combo: { mod: true, shift: true, code: 'KeyF' },           scope: 'global',             label: 'Search in project',        group: 'Navigation' },
+  'global.go-to-file':        { combo: { mod: true, code: 'KeyE' },                        scope: 'global',             label: 'Go to file',               group: 'Navigation' },
 
   // ── Voice (global, gated by viewMode + not read-only) ──────────────────────
   'voice.toggle-mode':        { combo: { alt: true, shift: true, code: 'KeyV' },          scope: 'global',             label: 'Toggle voice mode',        group: 'Voice' },
@@ -196,6 +199,13 @@ export const KEYBINDINGS = {
 
   // ── Command palette ────────────────────────────────────────────────────────
   'command-palette.close':        { combo: { code: 'Escape' },                             scope: 'command-palette',    label: 'Close',                    group: 'Palette' },
+
+  // ── Project search ─────────────────────────────────────────────────────────
+  'go-to-file.close':             { combo: { code: 'Escape' },                             scope: 'go-to-file',         label: 'Close',                    group: 'Search' },
+  'project-search.close':         { combo: { code: 'Escape' },                             scope: 'project-search',     label: 'Close',                    group: 'Search' },
+  'project-search.match-case':    { combo: { alt: true, code: 'KeyC' },                    scope: 'project-search',     label: 'Match case',               group: 'Search' },
+  'project-search.whole-word':    { combo: { alt: true, code: 'KeyW' },                    scope: 'project-search',     label: 'Match whole word',         group: 'Search' },
+  'project-search.regex':         { combo: { alt: true, code: 'KeyR' },                    scope: 'project-search',     label: 'Use regular expression',   group: 'Search' },
 
   // ── Shortcuts help modal ───────────────────────────────────────────────────
   'shortcuts-help.close':         { combo: { code: 'Escape' },                             scope: 'shortcuts-help',     label: 'Close',                    group: 'Modal' },

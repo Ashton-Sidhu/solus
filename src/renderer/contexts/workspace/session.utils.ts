@@ -55,6 +55,7 @@ const SOLUS_TOOL_KEYS = new Set([
   'create_task',
   'comment_task',
   'link_task_session',
+  'link_task',
   'list_prs',
   'read_pr',
   'list_pr_threads',

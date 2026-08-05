@@ -1,6 +1,7 @@
 <script lang="ts">
   import { PauseIcon, PencilSimpleIcon, PlayIcon, TrashIcon } from "phosphor-svelte";
-  import { getWorkspaceContext, toasts } from "../../contexts";
+  import { getWorkspaceContext } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
   import PanelSection from "./PanelSection.svelte";

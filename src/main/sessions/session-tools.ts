@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { getSessionMessages, listProjectRoots, searchIndexedSessions } from '../db/session-indexer'
 import { formatPendingInputReport } from './session-report'
 import { MODEL_PROFILES } from '../../shared/types'
-import type { AgentConversationUpdate, AgentId, NormalizedEvent, PlanDescriptor, PromptDelivery, ReasoningEffort, SessionMeta, SessionStatus } from '../../shared/types'
+import type { AgentConversationUpdate, AgentId, AgentTarget, NormalizedEvent, PlanDescriptor, PromptDelivery, ReasoningEffort, SessionMeta, SessionStatus } from '../../shared/types'
 import type { SessionLoadMessage } from '../../shared/session-history'
 
 const log = createLogger('sessions', 'session-tools.ts')
@@ -60,6 +60,7 @@ export interface AgentConversationWatchRequest {
 }
 
 export interface SessionController {
+  listAgentTargets?(): Promise<AgentTarget[]>
   listSessions(providers: AgentId[], projectPath: string): Promise<SessionMeta[]>
   getSessionInfo(sessionId: string): Promise<SessionMeta | null>
   loadSessionTail(provider: AgentId, sessionId: string, projectPath: string | undefined, limit: number): Promise<SessionLoadMessage[]>
@@ -80,6 +81,13 @@ export interface SessionController {
   loadPlanContent(provider: AgentId, sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null>
   listPlans(provider: AgentId, projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]>
   invalidatePlanCaches(sessionId: string): void
+  recordSessionDelegation?(input: {
+    childSessionId: string
+    parentSessionId: string
+    exchangeId: string
+    intent: 'delegate' | 'fire_and_forget'
+    createdAt: number
+  }): boolean | Promise<boolean>
 }
 
 let sessionController: SessionController | null = null
@@ -113,9 +121,9 @@ export interface SessionToolDeps {
 const createSessionShape = {
   prompt: z.string().describe('The prompt the new session starts running immediately.'),
   agent_provider: z
-    .enum(AGENT_PROVIDER_VALUES)
+    .string()
     .optional()
-    .describe("Which agent runs the session: 'claude-code' (default) or 'codex'. Defaults to the calling session's provider."),
+    .describe("Which configured agent runs the session. Defaults to the calling session's provider; call list_agent_targets for current provider and model ids."),
   model_id: z
     .string()
     .min(1)
@@ -136,6 +144,8 @@ const createSessionShape = {
     .enum(['delegate', 'fire_and_forget'])
     .describe("Required intent — there is no default; choose deliberately. 'delegate': you need the new session's reply to continue your own work — finish your turn and its first reply arrives here later as a [session report]. 'fire_and_forget': the user just wants the task started ('kick off', 'launch', 'in the background', 'don't wait') — no report will arrive and you must not wait or poll for one; if you genuinely need to catch up later, use read_session."),
 }
+
+const listAgentTargetsShape = {}
 
 const listSessionsShape = {
   project_path: z.string().optional().describe('Project path to list sessions for. Defaults to the calling session cwd.'),
@@ -186,7 +196,9 @@ const stopSessionShape = {
 }
 
 export const CREATE_SESSION_DESC =
-  "Create a NEW Solus chat session that starts running the given prompt right away on its own agent, model, and reasoning level. The required `mode` declares your intent: 'delegate' when you need the new session's answer to continue your own work — finish your turn and its first reply arrives here later as a [session report]; 'fire_and_forget' when the user asked to kick off / launch / run something in the background and does not need you to see the result — tell the user the session was started and move on; no report will come, and you must NOT poll read_session or wait for it; the user follows the session through its card. model_id is required and must be a valid model id for the chosen provider. A live agent-conversation card tracks the session's progress in this conversation in both modes. Call it once per session you want to start. Returns the new session id."
+  "Create a NEW Solus chat session that starts running the given prompt right away on its own agent, model, and reasoning level. The required `mode` declares your intent: 'delegate' when you need the new session's answer to continue your own work — finish your turn and its first reply arrives here later as a [session report]; 'fire_and_forget' when the user asked to kick off / launch / run something in the background and does not need you to see the result — tell the user the session was started and move on; no report will come, and you must NOT poll read_session or wait for it; the user follows the session through its card. model_id is required and must be valid for the chosen configured provider; call list_agent_targets for current choices. A live agent-conversation card tracks the session's progress in this conversation in both modes. Call it once per session you want to start. Returns the new session id."
+const LIST_AGENT_TARGETS_DESC =
+  'List the agent providers and models currently configured on this Solus host for create_session, including runtime availability and supported reasoning levels. Use this before choosing a cross-provider target.'
 const LIST_SESSIONS_DESC =
   'List Solus sessions for this project so an orchestrator can observe worker status. By default excludes the calling session and returns only active/busy sessions.'
 const SEARCH_SESSIONS_DESC =
@@ -206,8 +218,30 @@ function reasoning(value: unknown, fallback: ReasoningEffort): ReasoningEffort {
   return (REASONING_VALUES as readonly string[]).includes(String(value)) ? (value as ReasoningEffort) : fallback
 }
 
-function provider(value: unknown, fallback: AgentId): AgentId {
-  return (AGENT_PROVIDER_VALUES as readonly string[]).includes(String(value)) ? (value as AgentId) : fallback
+function fallbackAgentTargets(): AgentTarget[] {
+  return AGENT_PROVIDER_VALUES.map((agentProvider) => {
+    const profiles = MODEL_PROFILES[agentProvider] ?? {}
+    const models = Object.entries(profiles).map(([id, profile]) => ({
+      id,
+      label: profile.label,
+      reasoningLevels: profile.reasoningLevels,
+      defaultReasoningEffort: profile.defaultReasoningEffort,
+      defaultContextWindow: profile.defaultContextWindow,
+    }))
+    return {
+      provider: agentProvider,
+      label: agentProvider === 'claude-code' ? 'Claude Code' : 'Codex',
+      available: true,
+      defaultModel: models.find((model) => profiles[model.id]?.isDefault)?.id ?? models[0]?.id ?? '',
+      models,
+    }
+  })
+}
+
+async function listAgentTargets(): Promise<AgentTarget[]> {
+  return sessionController?.listAgentTargets
+    ? await sessionController.listAgentTargets()
+    : fallbackAgentTargets()
 }
 
 function truncate(text: string, max: number): string {
@@ -317,6 +351,11 @@ export async function executeSessionTool(
   deps: SessionToolDeps = {},
 ): Promise<SessionToolResult> {
   try {
+    if (name === 'list_agent_targets') {
+      const targets = await listAgentTargets()
+      return { ok: true, text: JSON.stringify({ targets }, null, 2) }
+    }
+
     if (name === 'list_sessions') {
       if (!sessionController) return { ok: false, text: 'list_sessions is unavailable — no session controller is wired.' }
       const projectPath = typeof args.project_path === 'string' && args.project_path.trim()
@@ -594,22 +633,30 @@ export async function executeSessionTool(
       return { ok: false, text: 'create_session is unavailable — it requires the app to be running with an active control plane.' }
     }
 
-    const p = provider(args.agent_provider ?? deps.ctx?.agentProvider, 'claude-code')
-    const profiles = MODEL_PROFILES[p] ?? {}
+    const requestedProvider = String(args.agent_provider ?? deps.ctx?.agentProvider ?? 'claude-code')
+    const targets = await listAgentTargets()
+    const target = targets.find((candidate) => candidate.provider === requestedProvider)
+    if (!target) {
+      return { ok: false, text: `Unknown agent provider "${requestedProvider}". Call list_agent_targets for current choices.` }
+    }
+    if (!target.available) {
+      return { ok: false, text: `Agent provider "${requestedProvider}" is unavailable${target.unavailableReason ? `: ${target.unavailableReason}` : '.'}` }
+    }
+    const p = target.provider
 
     const modelId = typeof args.model_id === 'string' ? args.model_id.trim() : ''
     if (!modelId) return { ok: false, text: 'create_session requires model_id.' }
-    if (!profiles[modelId]) {
-      return { ok: false, text: `Unknown model "${modelId}" for ${p}. Valid models: ${Object.keys(profiles).join(', ') || '(none)'}.` }
+    const profile = target.models.find((model) => model.id === modelId)
+    if (!profile) {
+      return { ok: false, text: `Unknown model "${modelId}" for ${p}. Valid models: ${target.models.map((model) => model.id).join(', ') || '(none)'}.` }
     }
-    const profile = profiles[modelId]
 
-    const reasoningEffort = reasoning(args.reasoning_effort, profile?.defaultReasoningEffort ?? 'medium')
-    if (profile && !profile.reasoningLevels.includes(reasoningEffort)) {
+    const reasoningEffort = reasoning(args.reasoning_effort, profile.defaultReasoningEffort)
+    if (profile.reasoningLevels.length > 0 && !profile.reasoningLevels.includes(reasoningEffort)) {
       return { ok: false, text: `Model "${modelId}" does not support reasoning level "${reasoningEffort}". Supported: ${profile.reasoningLevels.join(', ')}.` }
     }
 
-    const contextWindow = profile?.defaultContextWindow ?? null
+    const contextWindow = profile.defaultContextWindow
     const cwd = typeof args.cwd === 'string' && args.cwd.trim() ? args.cwd : (deps.ctx?.cwd ?? '~')
     const title = prompt.length > 80 ? prompt.slice(0, 80) : prompt
 
@@ -658,9 +705,25 @@ export async function executeSessionTool(
     const created = await findSession(agentSessionId)
     deps.onAgentConversationUpdate?.({ phase: 'attached', exchangeId, agentSessionId, cwd: created?.cwd })
 
+    const callerSessionId = deps.ctx?.sessionId
+    if (callerSessionId && sessionController?.recordSessionDelegation) {
+      try {
+        await sessionController.recordSessionDelegation({
+          childSessionId: agentSessionId,
+          parentSessionId: callerSessionId,
+          exchangeId,
+          intent: mode,
+          createdAt: dispatchedAt,
+        })
+      } catch (error) {
+        // The child is already running. Lineage is useful metadata, but failure
+        // to record it must not strand or fail a successfully-created session.
+        log.warn('session_delegation_record_failed', { sessionId: agentSessionId, error: String(error) })
+      }
+    }
+
     // The renderer's agent-conversation card always gets the first reply; the model's
     // [session report] only fires in delegate mode.
-    const callerSessionId = deps.ctx?.sessionId
     const notifyModel = mode === 'delegate'
     if (callerSessionId && sessionController) {
       sessionController.watchSessionSettled(agentSessionId, callerSessionId, {
@@ -706,6 +769,7 @@ function sessionAgentTool(
 }
 
 export const listSessionsAgentTool = sessionAgentTool('list_sessions', LIST_SESSIONS_DESC, listSessionsShape, false)
+export const listAgentTargetsAgentTool = sessionAgentTool('list_agent_targets', LIST_AGENT_TARGETS_DESC, listAgentTargetsShape, false)
 export const readSessionAgentTool = sessionAgentTool('read_session', READ_SESSION_DESC, readSessionShape, false)
 export const searchSessionsAgentTool = sessionAgentTool('search_sessions', SEARCH_SESSIONS_DESC, searchSessionsShape, false)
 export const createSessionAgentTool = sessionAgentTool('create_session', CREATE_SESSION_DESC, createSessionShape, false)
@@ -714,6 +778,7 @@ export const waitForSessionAgentTool = sessionAgentTool('wait_for_session', WAIT
 export const stopSessionAgentTool = sessionAgentTool('stop_session', STOP_SESSION_DESC, stopSessionShape, false)
 
 export const sessionAgentTools: AgentTool[] = [
+  listAgentTargetsAgentTool,
   listSessionsAgentTool,
   readSessionAgentTool,
   searchSessionsAgentTool,

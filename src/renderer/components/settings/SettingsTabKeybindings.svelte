@@ -12,7 +12,8 @@
   } from "../../lib/keybindings/match";
   import type { BindingDef, KeyCombo, Scope } from "../../lib/keybindings/types";
   import type { AppGlobalShortcuts, AppShortcutCombo } from "../../../shared/types";
-  import { getSettingsContext, getWindowContext, toasts } from "../../contexts";
+  import { getSettingsContext, getWindowContext } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import SettingsSection from "./SettingsSection.svelte";
 

@@ -68,7 +68,7 @@
       >
     </div>
   {:else if loading}
-    <div class="flex flex-1 flex-col gap-3 overflow-y-auto px-[1.125rem] pb-4 pt-1 [scrollbar-width:thin]">
+    <div class="flex flex-1 flex-col gap-3 overflow-y-auto px-[1.125rem] pb-4 pt-1">
       <Skeleton class="ml-auto h-8 w-[62%] rounded-xl" />
       <div class="flex flex-col gap-2 py-2">
         <Skeleton class="h-3 w-[82%] rounded-[0.375rem]" />
@@ -77,7 +77,7 @@
       <Skeleton class="ml-auto h-8 w-[48%] rounded-xl" />
     </div>
   {:else}
-    <div class="flex flex-1 flex-col overflow-y-auto px-[1.125rem] pb-4 pt-0.5 [scrollbar-width:thin]">
+    <div class="flex flex-1 flex-col overflow-y-auto px-[1.125rem] pb-4 pt-0.5">
       {#if preview?.firstUserMessage}
         <div class="flex justify-end pb-1.5 pt-3">
           <span

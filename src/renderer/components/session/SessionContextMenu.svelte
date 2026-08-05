@@ -9,9 +9,11 @@
     StopCircleIcon,
     XIcon,
   } from "phosphor-svelte";
-  import { getWorkspaceContext, toasts } from "../../contexts";
+  import { getWorkspaceContext } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as ContextMenu from "../ui/context-menu";
+  import { selectSessionRename } from "./lib/session-context-menu";
 
   interface Props {
     x: number;
@@ -28,7 +30,7 @@
     onOpenInSplit?: () => void;
     /** Override for "Rename" — the sidebar edits its row in place instead of
      *  opening the dialog every other surface uses. */
-    onStartRename?: () => void;
+    onStartRename?: (tabId: string) => void;
     /** What the sidebar's rows moved off themselves and into this menu. Omitted
      *  everywhere else: a pill-mode tab has no user-set "done". */
     rowActions?: {
@@ -104,11 +106,14 @@
   }
 
   function startRename() {
-    const targetTabId = tabId;
-    const startInPlace = onStartRename;
-    onClose();
-    if (startInPlace) startInPlace();
-    else if (targetTabId) session.ui.sessionRename = { tabId: targetTabId };
+    selectSessionRename({
+      tabId,
+      onStartRename,
+      onDefaultRename: (targetTabId) => {
+        session.ui.sessionRename = { tabId: targetTabId };
+      },
+      onClose,
+    });
   }
 
   function openInSplit() {

@@ -26,6 +26,7 @@ import { closeDb } from './db'
 import { startSessionIndexer, stopSessionIndexer } from './db/session-indexer'
 import { createShutdownCoordinator } from './shutdown-coordinator'
 import { captureServerEvent, shutdownAnalytics } from './analytics'
+import { shutdownOtel } from './otel'
 import { handleArtifactRequest } from './artifact-protocol'
 import { LOCAL_DEVICE_LABEL } from './server/server'
 
@@ -110,7 +111,7 @@ let sessionIndexerStartTimer: ReturnType<typeof setTimeout> | null = null
 const shutdownCoordinator = createShutdownCoordinator({
   shutdown: async () => {
     forceQuit = true
-    await Promise.all([core?.shutdown(), shutdownAnalytics()])
+    await Promise.all([core?.shutdown(), shutdownAnalytics(), shutdownOtel()])
   },
   quit: () => app.quit(),
   forceQuit: () => app.exit(0),
@@ -453,7 +454,12 @@ function createEditorWindow(): BrowserWindow {
     minWidth: 640,
     minHeight: 480,
     // Frameless look with real traffic lights on macOS; standard frame elsewhere.
-    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : {}),
+    ...(process.platform === 'darwin'
+      ? {
+          titleBarStyle: 'hiddenInset' as const,
+          trafficLightPosition: { x: 16, y: 18 },
+        }
+      : {}),
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#18181b' : '#fafafa',
     show: false,
     icon: join(__dirname, '../../resources/icon.icns'),

@@ -16,7 +16,7 @@ import {
 import type { DiscoveredServer, ProjectIdentity } from '../../../shared/types'
 import type { SolusAPI } from '../../../preload'
 import { requestInputFocus } from '../../lib/inputFocus'
-import { toasts } from '../app/toast.store.svelte'
+import { toasts } from '../../lib/toasts'
 import {
   compareNearbyHosts,
   filterUnsavedDiscoveredServers,

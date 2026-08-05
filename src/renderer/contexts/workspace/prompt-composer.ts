@@ -57,16 +57,17 @@ export class PromptComposer {
         fullPrompt = fullPrompt ? `${fullPrompt}\n\n${boundBlock}` : boundBlock
       }
     }
-    if (session.boundTaskId) {
-      // The full ticket (body + comments + linked PRs) is hydrated and injected
-      // server-side on the *first* prompt only. Re-affirm the binding by reference
-      // on every follow-up so the agent doesn't lose the thread mid-session and
-      // can re-fetch the live state via read_task — mirrors the bound-work block.
-      const boundTask = this.tasksStore.tasks.find((t) => t.id === session.boundTaskId)
+    const taskId = session.pendingTaskId ?? this.tasksStore.taskForSession(session.agentSessionId)?.id
+    if (taskId) {
+      // The full ticket (body + comments + linked PRs) is hydrated into the run's
+      // system prompt server-side, which a remote host can only do for a task it
+      // owns. Naming the binding in the prompt keeps the thread readable there and
+      // tells the agent where to re-fetch live state — mirrors the bound-work block.
+      const boundTask = this.tasksStore.tasks.find((task) => task.id === taskId)
       const title = boundTask ? ` "${boundTask.title}"` : ''
       const taskBlock = [
-        `[Working On Task${title} (task_id: ${session.boundTaskId})]`,
-        `Call read_task with task_id "${session.boundTaskId}" to read the latest status, comments, and linked PRs; call update_task_status to move it.`,
+        `[Working On Task${title} (task_id: ${taskId})]`,
+        `Call read_task with task_id "${taskId}" to read the latest status, comments, and linked PRs; call update_task_status to move it. Do not mark tasks as done unless explicitly told to.`,
       ].join('\n')
       fullPrompt = fullPrompt ? `${fullPrompt}\n\n${taskBlock}` : taskBlock
     }

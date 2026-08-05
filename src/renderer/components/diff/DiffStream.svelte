@@ -33,7 +33,10 @@
   import DiffInlineComment from "./DiffInlineComment.svelte";
   import DiffThreadComment from "./DiffThreadComment.svelte";
   import { getInlineCommentDraft } from "./diff-comment-draft.store.svelte";
-  import { DiffCollapseState, appendDiffErgonomicsLabel } from "./lib/diff-ergonomics";
+  import {
+    DiffCollapseState,
+    appendDiffErgonomicsLabel,
+  } from "./lib/diff-ergonomics";
   import type { DiffReviewThread } from "./lib/interdiff-annotations";
 
   type AnnotationMeta =
@@ -293,7 +296,8 @@
     const wasCollapsed = item.collapsed === true;
 
     const file = fileDiffs.find((candidate) => candidate.name === filePath);
-    if (wasCollapsed && file && collapseState.expandFormat(file)) item.fileDiff = file;
+    if (wasCollapsed && file && collapseState.expandFormat(file))
+      item.fileDiff = file;
     collapseState.setCollapsed(filePath, !wasCollapsed);
     item.collapsed = !wasCollapsed;
     item.version = nextVersion(item);
@@ -303,13 +307,18 @@
     if (itemTop != null && itemTop < codeView.getScrollTop()) {
       codeView.scrollTo({ type: "item", id: filePath, align: "start" });
     }
-
   }
   function expandFormatHunks(filePath: string) {
     if (!codeView) return;
     const file = fileDiffs.find((candidate) => candidate.name === filePath);
     const item = codeView.getItem(filePath);
-    if (!file || !item || item.type !== "diff" || !collapseState.expandFormat(file)) return;
+    if (
+      !file ||
+      !item ||
+      item.type !== "diff" ||
+      !collapseState.expandFormat(file)
+    )
+      return;
     item.fileDiff = file;
     item.version = nextVersion(item);
     codeView.updateItem(item);
@@ -467,8 +476,16 @@
     const file = fileDiffs.find((candidate) => candidate.name === filePath);
     const moved = moveAnalysis.byFile.get(filePath);
     const unreviewed = collapseState.isUnreviewed(filePath);
-    if (file) appendDiffErgonomicsLabel(wrap, file, moved, unreviewed,
-      collapseState.hasCollapsedFormat(file) ? () => expandFormatHunks(filePath) : null);
+    if (file)
+      appendDiffErgonomicsLabel(
+        wrap,
+        file,
+        moved,
+        unreviewed,
+        collapseState.hasCollapsedFormat(file)
+          ? () => expandFormatHunks(filePath)
+          : null,
+      );
     const kind = placeholderByPath.get(filePath);
     if (kind) {
       const label = document.createElement("span");
@@ -490,9 +507,11 @@
     const firstFilePath = fileDiffs[0]?.name;
     for (const item of codeView?.getRenderedItems() ?? []) {
       item.element.style.backgroundColor = "transparent";
-      if (item.id === firstFilePath) delete item.element.dataset.solusFileBoundary;
+      if (item.id === firstFilePath)
+        delete item.element.dataset.solusFileBoundary;
       else item.element.dataset.solusFileBoundary = "";
-      if (collapseState.isUnreviewed(item.id)) item.element.dataset.solusUnreviewed = "";
+      if (collapseState.isUnreviewed(item.id))
+        item.element.dataset.solusUnreviewed = "";
       else delete item.element.dataset.solusUnreviewed;
     }
   }
@@ -514,7 +533,7 @@
       theme: getDiffThemeName(isDark),
       themeType: isDark ? ("dark" as const) : ("light" as const),
       diffStyle,
-      diffIndicators: "bars" as const,
+      diffIndicators: "none" as const,
       // Token (word-level) highlighting within changed lines; "none" falls back
       // to plain line-level backgrounds when the user toggles it off.
       lineDiffType: "none" as const,
@@ -545,7 +564,12 @@
       unsafeCSS: `${DIFFS_THEME_CSS}\n${DIFF_FIND_HIGHLIGHT_CSS}`,
       onPostRender: () => {
         paintItemBackgrounds();
-        if (codeView) decorateMovedLines(codeView.getRenderedItems(), moveAnalysis, diffStyle);
+        if (codeView)
+          decorateMovedLines(
+            codeView.getRenderedItems(),
+            moveAnalysis,
+            diffStyle,
+          );
         scheduleFindRepaint();
       },
       renderHeaderPrefix: (
@@ -808,7 +832,6 @@
 <div
   bind:this={rootEl}
   class="diff-stream-root flex-1 min-h-0 min-w-0 relative"
-  style="scrollbar-width:thin"
 ></div>
 
 <!--
@@ -960,18 +983,28 @@
   }
 
   :global(.diff-ergonomics-label) {
-    border: 0; background: transparent; padding: 0; margin-right: 0.375rem;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    margin-right: 0.375rem;
     color: var(--solus-text-tertiary);
-    font-size: 0.625rem; font-style: italic; white-space: nowrap;
+    font-size: 0.625rem;
+    font-style: italic;
+    white-space: nowrap;
   }
 
-  :global(button.diff-ergonomics-label) { cursor: pointer; }
+  :global(button.diff-ergonomics-label) {
+    cursor: pointer;
+  }
   :global(.diff-ergonomics-label.is-unreviewed) {
-    color: var(--solus-accent); font-style: normal; font-weight: 600;
+    color: var(--solus-accent);
+    font-style: normal;
+    font-weight: 600;
   }
 
   :global([data-solus-unreviewed]) {
-    box-shadow: inset 0.125rem 0 0 color-mix(in srgb, var(--solus-accent) 70%, transparent);
+    box-shadow: inset 0.125rem 0 0
+      color-mix(in srgb, var(--solus-accent) 70%, transparent);
   }
 
   /* Virtualized items cannot take a real border without changing their measured

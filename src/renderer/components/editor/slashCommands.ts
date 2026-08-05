@@ -180,7 +180,7 @@ export const SlashCommandExtension = Extension.create({
     return {
       ArrowDown: () => this.storage.onArrowDown?.() ?? false,
       ArrowUp: () => this.storage.onArrowUp?.() ?? false,
-      Tab: () => this.storage.onArrowDown?.() ?? false,
+      Tab: () => this.storage.onEnter?.() ?? false,
       'Shift-Tab': () => this.storage.onArrowUp?.() ?? false,
       Enter: () => this.storage.onEnter?.() ?? false,
       Escape: () => this.storage.onEscape?.() ?? false,

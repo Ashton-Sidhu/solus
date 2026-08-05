@@ -169,7 +169,7 @@
           </div>
 
           {#if summary && summary.state !== "none"}
-            <div class="max-h-[19rem] overflow-y-auto p-1.5 [scrollbar-width:thin]">
+            <div class="max-h-[19rem] overflow-y-auto p-1.5">
               {#if summary.required.length > 0}
                 <p class="px-2 pt-1 pb-0.5 text-[9.5px] font-medium tracking-[0.08em] text-muted-foreground uppercase">Required</p>
                 {#each summary.required as item (item.id)}

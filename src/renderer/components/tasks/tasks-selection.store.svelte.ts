@@ -3,10 +3,10 @@ import { createContext } from 'svelte'
 import type { Task } from '../../../shared/task-types'
 
 /**
- * Multi-select state for the Tasks list view. Owned by TasksPage and shared down
- * to every TaskCard via context, so the selection no longer threads through
- * EpicGroup (a pure pass-through) as `selectedIds` / `selectionActive` /
- * `onToggleSelect` props. Board view never selects, so its cards simply ignore it.
+ * Multi-select state for the Tasks list view. Owned by TasksPage and published
+ * on context so a row's checkbox reads it without the selection threading down
+ * as `selectedIds` / `selectionActive` / `onToggleSelect` props. The board is a
+ * single-selection surface and ignores it.
  */
 export class TasksSelectionStore {
   /** Currently selected task ids. Reactive so cards re-render on change. */

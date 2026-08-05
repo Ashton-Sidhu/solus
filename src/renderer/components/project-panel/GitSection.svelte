@@ -13,8 +13,8 @@
     getWorkspaceContext,
     getSettingsContext,
     getAgentContext,
-    toasts,
   } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { resolveReviewAgent } from "../../lib/reviewAgent";

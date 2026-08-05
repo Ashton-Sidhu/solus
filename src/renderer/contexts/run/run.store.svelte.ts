@@ -1,4 +1,4 @@
-import { createContext } from 'svelte'
+import { createAppContext } from '../app/create-app-context'
 import { worktreeProjectRoot, type RunLogBatch, type RunLogLine, type RunProjectStatus, type RunStatus } from '../../../shared/types'
 import { MAX_RENDERER_RUN_LOG_LINES, mergeRunLogBackfill } from './lib/run-log-buffer'
 import { serverConnections } from '@client-core/server-connections'
@@ -195,4 +195,4 @@ export class RunStore {
   }
 }
 
-export const [getRunStore, setRunStore] = createContext<RunStore>()
+export const [getRunStore, setRunStore] = createAppContext<RunStore>('run')

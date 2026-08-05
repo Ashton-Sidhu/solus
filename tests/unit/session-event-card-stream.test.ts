@@ -8,7 +8,12 @@ afterEach(() => {
   else (globalThis as unknown as { $state: unknown }).$state = previousState
 })
 
-async function createReducer(messages: Message[], isTabVisible = true) {
+async function createReducer(
+  messages: Message[],
+  isTabVisible = true,
+  hydrateForSession: (sessionId: string) => Promise<unknown> = async () => null,
+  trackSessionStart: (taskId: string, sessionId: string) => void = () => {},
+) {
   ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
   const { SessionEventReducer } = await import('../../src/renderer/contexts/workspace/session-event-reducer.svelte')
   const session = {
@@ -25,6 +30,7 @@ async function createReducer(messages: Message[], isTabVisible = true) {
       forEachSiblingTab: () => {},
     },
     settings: { rateLimitBehavior: 'ask' },
+    tasksStore: { hydrateForSession, trackSessionStart },
     workStreamTracker: { sweep: () => {} },
     isTabVisible: () => isTabVisible,
     closePlanModal: () => {},
@@ -35,6 +41,38 @@ async function createReducer(messages: Message[], isTabVisible = true) {
 }
 
 describe('SessionEventReducer card stream boundaries', () => {
+  test('keeps provisional task ownership until the durable session link hydrates', async () => {
+    let tracked: [string, string] | null = null
+    let finishHydration!: (value: object) => void
+    const hydration = new Promise<object>((resolve) => {
+      finishHydration = resolve
+    })
+    const { reducer, session } = await createReducer(
+      [],
+      true,
+      () => hydration,
+      (taskId, sessionId) => { tracked = [taskId, sessionId] },
+    )
+    session.pendingTaskId = 'subtask-1'
+
+    reducer.apply('tab-1', {
+      type: 'session_init',
+      sessionId: 'agent-session-1',
+      model: 'gpt-test',
+      skills: [],
+    })
+
+    // WHY: clearing this before hydration resolves gives the sidebar one frame
+    // where the new subtask is rendered as an unrelated loose session.
+    expect(tracked).toEqual(['subtask-1', 'agent-session-1'])
+    expect(session.pendingTaskId).toBe('subtask-1')
+
+    finishHydration({})
+    await hydration
+    await Promise.resolve()
+    expect(session.pendingTaskId).toBeNull()
+  })
+
   test('advances the visible startup lifecycle from connection to thinking', async () => {
     const { reducer, session } = await createReducer([])
     session.currentActivity = 'Starting session...'

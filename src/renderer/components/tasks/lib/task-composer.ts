@@ -12,7 +12,7 @@ import type { TaskKind, TaskPriority, TaskStatus } from '../../../../shared/task
  *  survive closing/reopening the modal (and window reloads) within a run, but
  *  must NOT outlive an app restart — a stale fragment resurrected days later
  *  reads as a bug, not a convenience. */
-export interface ComposerDraft {
+interface ComposerDraft {
   title: string
   body: string
   dueDate: string
@@ -45,7 +45,7 @@ export function loadDraft(): ComposerDraft | null {
       body: d.body ?? '',
       dueDate: d.dueDate ?? '',
       priority: (d.priority as TaskPriority) ?? '',
-      status: (d.status as TaskStatus) ?? 'open',
+      status: (d.status as TaskStatus) ?? 'todo',
       kind: d.kind === 'epic' ? 'epic' : 'task',
       parentId: d.parentId ?? '',
       labels: Array.isArray(d.labels) ? d.labels : [],
@@ -98,7 +98,7 @@ function isoDay(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export interface DuePreset {
+interface DuePreset {
   label: string
   iso: string
 }

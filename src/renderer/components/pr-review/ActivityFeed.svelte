@@ -5,6 +5,7 @@
     GitPullRequestIcon,
     ArrowRightIcon,
     ArrowUpIcon,
+    PencilSimpleIcon,
   } from "phosphor-svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { CommentEditor } from "../ui/comment-editor";
@@ -17,7 +18,8 @@
     PrConversationItem,
     PrReviewer,
   } from "../../../shared/providers";
-  import { getWorkspaceContext, toasts } from "../../contexts";
+  import { getWorkspaceContext } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
   import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
@@ -58,6 +60,7 @@
     onJump,
     onRefreshThreads,
     getCtx,
+    masthead,
   }: {
     pr: PrActivityTarget;
     /** Review threads, owned by the parent so the Diff tab and this timeline
@@ -81,6 +84,10 @@
      *  project (the PRs page's project switcher, embedded review panes).
      *  Defaults to the active tab's context. */
     getCtx?: () => IpcContext;
+    /** The shared detail masthead — status pill, refs and the content tabs.
+     *  Rendered by the host above this tab's title so the same row appears
+     *  whichever tab is showing. */
+    masthead?: import("svelte").Snippet;
   } = $props();
 
   const session = getWorkspaceContext();
@@ -106,6 +113,11 @@
 
   let composer = $state("");
   let posting = $state(false);
+  let editing = $state(false);
+  let titleDraft = $state("");
+  let bodyDraft = $state("");
+  let saving = $state(false);
+  let titleInput = $state<HTMLInputElement | null>(null);
   let addressingComments = $state(false);
   // The provider token's login — who a posted comment will belong to. Empty
   // until the (cached) lookup resolves or when it fails; the avatar then shows
@@ -147,7 +159,7 @@
   // A PR opened by number alone (deep link, `#123` in a message) carries no
   // title until detail lands — hold the masthead's space instead of letting the
   // heading collapse and shove everything below it up a line.
-  const prTitle = $derived(pr.title || detail?.title || "");
+  const prTitle = $derived(detail?.title || pr.title || "");
   const authorName = $derived(detail?.author ?? pr.owner ?? "");
   const authorAvatarUrl = $derived(
     detail?.authorAvatarUrl ?? pr.authorAvatarUrl ?? "",
@@ -158,6 +170,21 @@
   const viewerAvatarUrl = $derived(
     viewerLogin && viewerLogin === authorName ? authorAvatarUrl : "",
   );
+  // Size of the change, stated once under the title. The rail lists the files;
+  // this line only says how big a read this is before you commit to one.
+  const filesLabel = $derived(
+    changedFiles.length === 1 ? "1 file" : `${changedFiles.length} files`,
+  );
+  const diffStat = $derived.by(() => {
+    let additions = 0;
+    let deletions = 0;
+    for (const f of changedFiles) {
+      additions += f.additions;
+      deletions += f.deletions;
+    }
+    return { additions, deletions };
+  });
+
   const baseRef = $derived(pr.baseRef ?? detail?.baseRef ?? "");
   const headBranch = $derived(pr.headRef ?? detail?.headRef ?? "");
   const prUrl = $derived(
@@ -364,6 +391,42 @@
     }
   }
 
+  async function beginEditing() {
+    if (!detail) return;
+    titleDraft = prTitle;
+    bodyDraft = detail.body;
+    editing = true;
+    await tick();
+    titleInput?.focus();
+    titleInput?.select();
+  }
+
+  function cancelEditing() {
+    editing = false;
+    requestInputFocus();
+  }
+
+  async function savePullRequest() {
+    const title = titleDraft.trim();
+    if (!detail || !title || saving) return;
+    saving = true;
+    try {
+      detail = await session.prsStore.updatePullRequest(feedCtx(), pr.number, {
+        title,
+        body: bodyDraft,
+      });
+      editing = false;
+      toasts.success("Pull request updated");
+    } catch (err) {
+      toasts.error(
+        `Couldn't update pull request: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      saving = false;
+      requestInputFocus();
+    }
+  }
+
   /** Queue this PR's review guide in the background (guides are opt-in now);
    *  progress lands back in the shared store's guide-status map. */
   function generateGuide() {
@@ -421,7 +484,7 @@
   }
 </script>
 
-<div class="h-full min-h-0 overflow-y-auto bg-card">
+<div class="h-full min-h-0 overflow-y-auto bg-background">
     {#if anyLoadFailed}
       <div
         class="mx-auto w-full max-w-[min(1384px,100%)] px-[clamp(20px,2.6vw,56px)] pt-4"
@@ -445,12 +508,22 @@
         </div>
       </div>
     {/if}
+    {#if masthead}
+      <!-- Same centred measure and gutters as the content row below, so the
+           status pill and the tabs line up with the title and the right rail
+           instead of floating out at the pane's edges on wide windows. -->
+      <div
+        class="mx-auto w-full max-w-[min(1384px,100%)] px-[clamp(20px,2.6vw,56px)] pt-[clamp(20px,1.8vw,32px)]"
+      >
+        {@render masthead()}
+      </div>
+    {/if}
     <!-- Capped measure: on wide windows the column centers instead of the
          title and a sparse timeline stretching toward a distant rail. The row
          is the size container the rail queries, so the rail folds under the
          main column on narrow panes instead of disappearing. -->
     <div
-      class="@container mx-auto flex w-full max-w-[min(1384px,100%)] flex-wrap gap-[clamp(24px,3vw,64px)] px-[clamp(20px,2.6vw,56px)] pt-[clamp(20px,1.8vw,32px)] pb-[clamp(32px,3vw,56px)]"
+      class="@container mx-auto flex w-full max-w-[min(1384px,100%)] flex-wrap gap-[clamp(24px,3vw,64px)] px-[clamp(20px,2.6vw,56px)] {masthead ? 'pt-3.5' : 'pt-[clamp(20px,1.8vw,32px)]'} pb-[clamp(32px,3vw,56px)]"
     >
       <!-- ── Main column: title, meta, description, activity, composer ── -->
       <main class="flex min-w-0 max-w-[1000px] flex-[1_1_520px] flex-col">
@@ -460,27 +533,45 @@
              rail (prActions below), which folds under this column rather than
              hiding, so they are reachable at every width. -->
         <header>
-          <p
-            class="flex items-center gap-2 font-mono text-[9.5px] tracking-widest text-muted-foreground uppercase"
-          >
-            <GitPullRequestIcon size={10} class="shrink-0 text-primary" />
-            <span class="min-w-0 truncate"
-              >{pr.repo ? `${pr.repo} ` : ""}#{pr.number}</span
+          {#if !masthead}
+            <p
+              class="flex items-center gap-2 font-mono text-[9.5px] tracking-widest text-muted-foreground uppercase"
             >
-          </p>
+              <GitPullRequestIcon size={10} class="shrink-0 text-primary" />
+              <span class="min-w-0 truncate"
+                >{pr.repo ? `${pr.repo} ` : ""}#{pr.number}</span
+              >
+            </p>
+          {/if}
 
-          {#if prTitle}
+          {#if editing}
+            <input
+              bind:this={titleInput}
+              bind:value={titleDraft}
+              class="{masthead ? '' : 'mt-3.5'} w-full rounded-lg border border-border bg-card px-3 py-2 text-[24px] leading-[1.28] font-semibold tracking-[-0.018em] outline-none transition-colors focus:border-ring"
+              aria-label="Pull request title"
+              onkeydown={(event) => {
+                if (event.key === "Escape") cancelEditing();
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  void savePullRequest();
+                }
+              }}
+            />
+          {:else if prTitle}
             <h1
-              class="mt-3 text-[27px] leading-[1.25] font-semibold tracking-[-0.02em] text-pretty"
+              class="{masthead ? '' : 'mt-3.5'} text-[24px] leading-[1.28] font-semibold tracking-[-0.018em] text-pretty"
             >
               {prTitle}
             </h1>
           {:else}
-            <Skeleton class="mt-3 h-[34px] w-2/3 max-w-[560px] rounded-lg bg-muted" />
+            <Skeleton
+              class="{masthead ? '' : 'mt-3.5'} h-[31px] w-2/3 max-w-[560px] rounded-lg bg-muted"
+            />
           {/if}
 
           <div
-            class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-[12.5px] text-muted-foreground"
+            class="mt-[11px] flex flex-wrap items-center gap-x-[9px] gap-y-2 text-[11.5px] text-muted-foreground"
           >
             <span class="flex min-w-0 items-center gap-2">
               <PrAvatar
@@ -493,11 +584,13 @@
                 <span class="shrink-0">opened {openedTime}</span>
               {/if}
             </span>
-            {#if baseRef}
+            {#if baseRef && !masthead}
               <span class="opacity-40" aria-hidden="true">·</span>
               <!-- head → base, reading in merge direction ("move-func into main").
                    A filled mono pill: the refs are literals you might type, so
-                   they get a surface of their own rather than sitting in prose. -->
+                   they get a surface of their own rather than sitting in prose.
+                   Only when the masthead is absent — it states the refs itself,
+                   and one line above the title is enough. -->
               <span
                 class="flex min-w-0 items-center gap-1.5 rounded-md bg-muted px-2 py-1 font-mono text-[10.5px] text-muted-foreground"
               >
@@ -506,6 +599,19 @@
                   <ArrowRightIcon size={10} class="shrink-0" aria-hidden="true" />
                 {/if}
                 <span class="truncate text-foreground">{baseRef}</span>
+              </span>
+            {/if}
+            {#if !filesLoading && changedFiles.length > 0}
+              <span class="opacity-40" aria-hidden="true">·</span>
+              <span class="shrink-0 font-mono">{filesLabel}</span>
+              <span class="opacity-40" aria-hidden="true">·</span>
+              <span class="shrink-0 font-mono tabular-nums">
+                <span class="text-[color:color-mix(in_oklch,var(--success)_62%,var(--foreground))]"
+                  >+{diffStat.additions}</span
+                >
+                <span class="text-[color:color-mix(in_oklch,var(--failure)_70%,var(--foreground))]"
+                  >−{diffStat.deletions}</span
+                >
               </span>
             {/if}
             {#if stackChain.length > 1}
@@ -526,11 +632,56 @@
                 {/each}
               </span>
             {/if}
+            {#if detail && !editing}
+              <span class="flex-1"></span>
+              <Button
+                type="button"
+                variant="ghost"
+                class="h-7 cursor-pointer gap-1.5 rounded-lg px-2.5 text-[11.5px] text-muted-foreground hover:text-foreground"
+                title="Edit pull request title and description"
+                onclick={beginEditing}
+              >
+                <PencilSimpleIcon size={12} />
+                Edit
+              </Button>
+            {/if}
           </div>
         </header>
 
         <!-- PR description belongs to the PR header, not the activity stream. -->
-        {#if detailLoading}
+        {#if editing}
+          <div
+            class="mt-6 rounded-xl border border-border bg-card p-3 shadow-[0_1px_2px_rgba(0,0,0,0.03)]"
+          >
+            <CommentEditor
+              value={bodyDraft}
+              onValueChange={(markdown) => (bodyDraft = markdown)}
+              enterInsertsNewline
+              maxHeight={420}
+              placeholder="Describe this pull request…"
+              class="[&_.cm-content]:![min-height:9rem] [&_.cm-content]:![padding:0.5rem] [&_.cm-content]:![font-weight:400]"
+            />
+            <div class="mt-3 flex items-center justify-end gap-2 border-t border-border pt-3">
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={saving}
+                class="h-8 cursor-pointer rounded-lg px-3 text-[12.5px] text-muted-foreground"
+                onclick={cancelEditing}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={saving || !titleDraft.trim()}
+                class="h-8 cursor-pointer rounded-lg px-3 text-[12.5px] font-medium disabled:cursor-not-allowed disabled:opacity-50"
+                onclick={savePullRequest}
+              >
+                {saving ? "Saving…" : "Save changes"}
+              </Button>
+            </div>
+          </div>
+        {:else if detailLoading}
           <div class="mt-8 flex flex-col gap-2.5">
             <Skeleton class="h-3 w-full rounded bg-muted" />
             <Skeleton class="h-3 w-11/12 rounded bg-muted" />
@@ -633,9 +784,12 @@
              than a ringed panel; the timeline already carries the page's only
              hairlines, so a second outline here reads as chrome. The send
              button is a tinted accent square, not a solid fill: at this size a
-             saturated block outweighs everything above it. -->
+             saturated block outweighs everything above it.
+             The surface is the card fill inside a half-pixel ring rather than a
+             muted fill: the composer is the one place on this page you write
+             into, so it sits *on* the canvas instead of being cut out of it. -->
         <div
-          class="mt-8 flex items-center gap-3 rounded-xl bg-muted px-3.5 py-2.5 transition-shadow focus-within:shadow-[0_0_0_3px_color-mix(in_oklab,var(--ring)_14%,transparent)]"
+          class="mt-8 flex items-center gap-3 rounded-[10px] bg-card px-3.5 py-2.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] transition-shadow focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_0_0_3px_color-mix(in_oklab,var(--ring)_14%,transparent)]"
         >
           <PrAvatar
             name={viewerLogin || "?"}

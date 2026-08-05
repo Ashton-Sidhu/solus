@@ -1,42 +1,52 @@
 <script lang="ts">
-  import { STATUS_META, BOARD_COLUMNS } from "./lib/tasks-api";
+  import { BOARD_COLUMNS } from "./lib/tasks-api";
   import { Skeleton } from "../ui/skeleton";
 
-  // Mirrors TaskBoard's column chrome (real labels + status dots) while the task
-  // list loads, swapping cards for shimmer placeholders. A fixed per-column card
-  // plan keeps the silhouette stable across renders (no random reflow).
-  // Card title widths per column (% of row), one entry per placeholder card.
+  // Mirrors TaskBoard's column chrome (real labels, real wells) while the tasks
+  // load, swapping cards for shimmer placeholders. A fixed per-column card plan
+  // keeps the silhouette stable across renders (no random reflow); the widths
+  // are title lengths as a percentage of the card.
   const PLAN: Record<string, number[]> = {
-    open: [72, 54, 64],
-    in_progress: [60, 78],
-    done: [66, 48],
+    in_progress: [72, 54, 64],
+    in_review: [60, 78],
+    todo: [66, 48, 70],
+    done: [58],
   };
 </script>
 
 <div
-  class="-mx-1.5 flex gap-3 overflow-x-hidden pb-2"
+  class="flex min-h-0 flex-1 items-stretch gap-2.5 overflow-hidden pt-1.5"
   aria-busy="true"
   aria-label="Loading tasks"
 >
   {#each BOARD_COLUMNS as col (col.status)}
-    <div class="flex min-w-[15.5rem] max-w-[20rem] flex-1 flex-col p-1.5">
-      <!-- Column header (real label + dot, like the live board) -->
-      <div class="flex items-center gap-2 px-2 pb-2.5 pt-1">
-        <span class="block size-2 shrink-0 rounded-full {STATUS_META[col.status].dotClass}"></span>
-        <span class="text-[0.8125rem] font-semibold tracking-[-0.01em] text-(--solus-text-primary)">{col.label}</span>
-        <span class="h-[1.0625rem] w-[1.375rem] rounded-full bg-(--solus-surface-hover)"></span>
+    <div
+      class="flex h-full min-h-0 max-w-[21.25rem] min-w-[14rem] flex-1 basis-[15.25rem] flex-col"
+    >
+      <div class="flex h-[30px] shrink-0 items-center gap-2 pr-1 pl-0.5">
+        <span
+          class="text-[9.5px] font-medium tracking-[.12em] text-muted-foreground uppercase"
+        >
+          {col.label}
+        </span>
       </div>
 
-      <!-- Placeholder cards -->
-      <div class="flex flex-col gap-2">
-        {#each PLAN[col.status] as width (width)}
+      <div
+        class="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden rounded-[14px] bg-[var(--wash-1)] p-2 pb-5 shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_6%,transparent)]"
+      >
+        {#each PLAN[col.status] ?? [64] as width, i (i)}
           <div
-            class="rounded-[0.625rem] bg-(--solus-popover-bg) px-3 py-3 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_2px_8px_rgba(0,0,0,0.04)] ring-1 ring-black/5 dark:shadow-none dark:ring-white/10"
+            class="flex shrink-0 flex-col gap-2 rounded-xl bg-card px-3 pt-[11px] pb-2.5 shadow-[0_0_0_.5px_var(--hairline-strong),0_1px_2px_-1px_rgba(24,20,16,.10),0_6px_14px_-10px_rgba(24,20,16,.20)]"
           >
-            <div class="flex flex-col gap-2">
-              <Skeleton class="h-2.5 w-(--skeleton-w) rounded-[0.375rem]" style="--skeleton-w: {width}%" />
-              <Skeleton class="h-2.5 w-(--skeleton-w) rounded-[0.375rem]" style="--skeleton-w: {Math.max(28, width - 22)}%" />
-            </div>
+            <Skeleton class="h-2 w-10 rounded-full" />
+            <Skeleton
+              class="h-2.5 w-(--skeleton-w) rounded-full"
+              style="--skeleton-w: {width}%"
+            />
+            <Skeleton
+              class="h-2.5 w-(--skeleton-w) rounded-full"
+              style="--skeleton-w: {Math.max(28, width - 22)}%"
+            />
           </div>
         {/each}
       </div>

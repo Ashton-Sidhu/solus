@@ -11,6 +11,8 @@ export type TokenVariant =
   | 'session'
   | 'work'
   | 'pr'
+  | 'task'
+  | 'automation'
   | 'file'
   | 'slash'
 
@@ -41,7 +43,7 @@ const SVG_ATTRS = {
   'stroke-linejoin': 'round',
 } as const
 
-export const TOKEN_ICONS: Record<'plan' | 'planAccepted' | 'planRejected' | 'work' | 'pr' | 'session', IconArray> = {
+export const TOKEN_ICONS: Record<'plan' | 'planAccepted' | 'planRejected' | 'work' | 'pr' | 'session' | 'task' | 'automation', IconArray> = {
   // message-square
   session: [`${SVG_NS} svg`, { ...SVG_ATTRS },
     ['path', { d: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' }],
@@ -78,5 +80,14 @@ export const TOKEN_ICONS: Record<'plan' | 'planAccepted' | 'planRejected' | 'wor
     ['circle', { cx: '18', cy: '18', r: '3' }],
     ['path', { d: 'M18 15V8a2 2 0 0 0-2-2h-4' }],
     ['path', { d: 'm15 3-3 3 3 3' }],
+  ],
+  // square-check-big
+  task: [`${SVG_NS} svg`, { ...SVG_ATTRS },
+    ['path', { d: 'M21 10.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' }],
+    ['path', { d: 'm8 11 3 3 8-8' }],
+  ],
+  // zap
+  automation: [`${SVG_NS} svg`, { ...SVG_ATTRS },
+    ['path', { d: 'M13 2 4 14h7l-1 8 9-12h-7z' }],
   ],
 }

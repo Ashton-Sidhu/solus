@@ -2,7 +2,7 @@ import type { ProjectConfig } from '../../../shared/types'
 import { listProjectIdentities } from '../../project-config/project-identities'
 import { loadProjectConfig, saveProjectConfig } from '../../project-config/project-config'
 import { deleteProject, listProjects, recordProject } from '../../project-config/projects-manifest'
-import { invalidateTaskProvider } from '../../tasks/task-service'
+import { invalidateTaskProvider } from '../../tasks/upstream'
 import type { SolusServer } from '../server'
 
 export function registerProjectConfigHandlers(server: SolusServer): void {

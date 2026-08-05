@@ -9,7 +9,8 @@
     XIcon,
   } from "phosphor-svelte";
   import type { Automation } from "../../../shared/types";
-  import { getWorkspaceContext, toasts } from "../../contexts";
+  import { getWorkspaceContext } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import { folderLabel, triggerSummary } from "./lib/automation-format";
   import {
     AUTOMATION_TEMPLATES,

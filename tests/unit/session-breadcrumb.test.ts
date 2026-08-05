@@ -1,8 +1,26 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  breadcrumbLeafLabels,
   projectNote,
   statusColor,
 } from '../../src/renderer/components/conversation/lib/session-breadcrumb'
+
+describe('breadcrumbLeafLabels', () => {
+  it('names each kind of draft path without duplicating placeholder labels', () => {
+    expect(breadcrumbLeafLabels('Fix reconnect', 'Session', 'existing-task')).toEqual({
+      task: 'Fix reconnect',
+      session: 'New session',
+    })
+    expect(breadcrumbLeafLabels('Session', 'Session', 'new-task')).toEqual({
+      task: 'New task',
+      session: 'New session',
+    })
+    expect(breadcrumbLeafLabels('Session', 'Session', 'no-task')).toEqual({
+      task: null,
+      session: 'New session',
+    })
+  })
+})
 
 describe('statusColor', () => {
   it('distinguishes user attention, provider delay, active work, and failure', () => {

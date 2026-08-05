@@ -1,4 +1,4 @@
-import { createContext } from 'svelte'
+import { createAppContext } from './create-app-context'
 import type { VoiceModelStatus } from '../../../shared/types'
 
 export class VoiceModelStore {
@@ -30,4 +30,4 @@ export function formatVoiceModelBytes(bytes: number | undefined): string {
   return `${Math.round(bytes / 1024 / 1024)} MB`
 }
 
-export const [getVoiceModelStore, setVoiceModelStore] = createContext<VoiceModelStore>()
+export const [getVoiceModelStore, setVoiceModelStore] = createAppContext<VoiceModelStore>('voice-model')

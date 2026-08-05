@@ -3,7 +3,8 @@
   import { CheckCircleIcon, LinkSimpleIcon, XIcon } from "phosphor-svelte";
   import { defaultDeviceLabel, normalizeServerUrl, pairServer, parsePairLink, urlHost } from "@client-core/pairing";
   import type { SavedServer } from "@client-core/server-registry";
-  import { serversStore, toasts } from "../../contexts";
+  import { serversStore } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import * as Tabs from "../ui/tabs";
   import { Input } from "../ui/input";
   import { messageFor } from "./lib/setup-rpc";

@@ -10,7 +10,7 @@
   import WebMobileLayout from "./WebMobileLayout.svelte";
   import WebDesktopLayout from "./WebDesktopLayout.svelte";
   import { registerBackOverlay } from "../lib/back-stack.svelte";
-  import { toasts } from "../lib/toast.store.svelte";
+  import { toasts, type ToastId } from "@renderer/lib/toasts";
   import { webState } from "../lib/web-state.svelte";
   import {
     FILE_PREVIEW_EVENT,
@@ -51,7 +51,7 @@
   const isMobile = $derived(runtime.isMobileViewport);
 
   let connectionTimer: ReturnType<typeof setTimeout> | null = null;
-  let connectionToastId: number | null = null;
+  let connectionToastId: ToastId | null = null;
   let connectionToastKind: "blocked" | "lost" | null = null;
 
   function showConnectionLostToast() {
@@ -89,7 +89,7 @@
 
     if (status === "disconnected" || status === "connecting" || status === "reconnecting") {
       const ownsActiveToast = connectionToastId !== null &&
-        untrack(() => toasts.active?.id === connectionToastId);
+        untrack(() => toasts.isActive(connectionToastId));
       if (ownsActiveToast) {
         if (connectionToastKind === "blocked") showConnectionLostToast();
         return;
@@ -323,8 +323,8 @@
         {/await}
       {:else}
         <div class="flex min-h-0 flex-1 flex-col">
-          {#if session.tabOrder.length === 0 && !router.at("folio")}
-            <NewTabHome />
+          {#if (session.tabOrder.length === 0 || session.draftTabId) && !router.at("folio")}
+            <NewTabHome tab={session.tabs[session.activeTabId]} />
           {/if}
           {#each session.tabOrder as tId (tId)}
             <div

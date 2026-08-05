@@ -6,6 +6,7 @@ import {
   hasVisibleTurnBody,
   itemKey,
   needsLiveRow,
+  runIsLive,
 } from '../../src/renderer/components/conversation/lib/turns'
 
 let clock = 1_000
@@ -365,6 +366,20 @@ describe('turn collapse', () => {
     expect(turns.map((turn) => turn.live)).toEqual([false, true])
   })
 
+  test('a rate limit reported as the turn lands does not fold the answer away', () => {
+    const [turn] = turnsFor([
+      msg({ role: 'user', content: 'rescope the spec' }),
+      tool('Read', '{"file_path":"spec.md"}'),
+      msg({ role: 'assistant', content: 'Rescoped — it now reads as a build plan.' }),
+      msg({ role: 'system', content: 'Rate limit warning (seven_day).', rateLimitNotice: true }),
+    ])
+
+    // The notice is a fact about the run, so it must not be read as the end of
+    // the answer — the answer stays on screen and the notice sits under it.
+    expect(turn.body.map((item) => item.kind)).toEqual(['tool-group'])
+    expect(turn.tail.map((item) => item.kind)).toEqual(['assistant', 'system'])
+  })
+
   test('each user message opens its own turn', () => {
     const turns = turnsFor([
       msg({ role: 'user', content: 'first' }),
@@ -486,4 +501,34 @@ describe('a run that ended early', () => {
     expect(turn.end).toMatchObject({ kind: 'no-reply', cause: '', detail: '' })
   })
 
+})
+
+describe('a run parked on a card has not ended', () => {
+  test('keeps the turn live while a question, permission or plan is unanswered', () => {
+    // WHY: the pending tool call is the last thing in the turn, so nothing lands
+    // in `tail`. Reading these statuses as "ended" folds the whole turn — the
+    // reasoning the card asks the reader about vanishes behind a summary row and
+    // only comes back once they answer, which is the one moment they need it.
+    expect(runIsLive('awaiting_input', false)).toBe(true)
+    expect(runIsLive('awaiting_plan', false)).toBe(true)
+    expect(runIsLive('running', false)).toBe(true)
+  })
+
+  test('a settled run folds, and text still streaming holds the fold off', () => {
+    expect(runIsLive('completed', false)).toBe(false)
+    expect(runIsLive('completed', true)).toBe(true)
+  })
+
+  test('the pending tool call leaves nothing in the tail to save the narration', () => {
+    // WHY: this is the shape the fix guards. If `running` were false here the
+    // reader would be left with a summary row and the question card alone.
+    const [turn] = turnsFor([
+      msg({ role: 'user', content: 'snapshot or hold?' }),
+      msg({ role: 'assistant', content: 'Two ways to go about this.' }),
+      tool('AskUserQuestion', '{"questions":[]}', false),
+    ], true)
+
+    expect(turn.tail).toHaveLength(0)
+    expect(turn.live).toBe(true)
+  })
 })

@@ -15,7 +15,8 @@
   import MenuSearch from "@renderer/components/ui/menu/menu-search.svelte";
   import MenuFooter from "@renderer/components/ui/menu/menu-footer.svelte";
   import Kbd from "@renderer/components/ui/Kbd.svelte";
-  import { getWorkspaceContext, savedPrompts, toasts } from "../../contexts";
+  import { getWorkspaceContext, savedPrompts } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import {
     useKeybinding,
     useScope,

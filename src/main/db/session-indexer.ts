@@ -37,6 +37,12 @@ interface SessionRow {
   model: string | null
   reasoning_effort: string | null
   project_root: string | null
+  parent_session_id: string | null
+  root_session_id: string | null
+  delegation_exchange_id: string | null
+  delegation_depth: number | null
+  delegation_intent: string | null
+  delegation_created_at: number | null
 }
 
 /** The git-root that groups a repo with all its worktrees. Pure path op:
@@ -555,6 +561,21 @@ export function sessionIndexReady(): boolean {
 }
 
 function rowToSession(row: SessionRow): SessionMeta {
+  const delegation = row.parent_session_id
+    && row.root_session_id
+    && row.delegation_exchange_id
+    && row.delegation_depth !== null
+    && (row.delegation_intent === 'delegate' || row.delegation_intent === 'fire_and_forget')
+    && row.delegation_created_at !== null
+    ? {
+        parentSessionId: row.parent_session_id,
+        rootSessionId: row.root_session_id,
+        exchangeId: row.delegation_exchange_id,
+        depth: row.delegation_depth,
+        intent: row.delegation_intent,
+        createdAt: row.delegation_created_at,
+      }
+    : undefined
   return {
     provider: row.provider === 'claude' ? 'claude-code' : (row.provider as AgentId),
     sessionId: row.session_id,
@@ -569,12 +590,15 @@ function rowToSession(row: SessionRow): SessionMeta {
     model: row.model ?? undefined,
     reasoningEffort: (row.reasoning_effort as SessionMeta['reasoningEffort']) ?? undefined,
     projectRoot: row.project_root ?? undefined,
+    delegation,
   }
 }
 
 const SESSION_SELECT = `
   session_id, provider, cwd, project_path, is_worktree, slug, first_message,
-  custom_title, last_timestamp, size, model, reasoning_effort, project_root
+  custom_title, last_timestamp, size, model, reasoning_effort, project_root,
+  parent_session_id, root_session_id, delegation_exchange_id, delegation_depth,
+  delegation_intent, delegation_created_at
 `
 
 export function getIndexedSession(sessionId: string): SessionMeta | null {
@@ -795,6 +819,12 @@ export function searchIndexedSessions(
         s.model,
         s.reasoning_effort,
         s.project_root,
+        s.parent_session_id,
+        s.root_session_id,
+        s.delegation_exchange_id,
+        s.delegation_depth,
+        s.delegation_intent,
+        s.delegation_created_at,
         snippet(session_fts, 0, '', '', '…', 64) AS snippet,
         session_messages.id AS message_id,
         session_messages.ts AS hit_ts,

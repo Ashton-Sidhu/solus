@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import type { AgentRun, AgentRunRequest } from '../../src/main/agents/agent-runner'
-import { generateTitleWith, sanitizeTitle } from '../../src/main/sessions/session-title'
+import { generateMetadataWith, sanitizeTitle } from '../../src/main/sessions/session-title'
 
 /** A dispatcher that answers the way a backend would: `submitted` is the title
  *  handed to the capture tool (omitted = the tool is never called), `prose` is
  *  the run's final text. */
-function dispatcherAnswering(options: { submitted?: string; prose?: string }) {
+function dispatcherAnswering(options: { submitted?: { title: string; description: string }; prose?: string }) {
   const requests: AgentRunRequest[] = []
   return {
     requests,
@@ -13,7 +13,7 @@ function dispatcherAnswering(options: { submitted?: string; prose?: string }) {
       requests.push(request)
       const done = (async () => {
         if (options.submitted !== undefined) {
-          await request.tools[0].execute({ title: options.submitted } as never, {} as never)
+          await request.tools[0].execute(options.submitted as never, {} as never)
         }
         return {
           sessionId: null,
@@ -58,35 +58,45 @@ describe('sanitizeTitle', () => {
   })
 })
 
-describe('generateTitleWith', () => {
+describe('generateMetadataWith', () => {
   test('takes the name from the tool call, not the prose around it', async () => {
     // WHY: the whole point of submitting through the tool is that a model free
     // to also chat can't get its commentary onto the tab.
     const dispatcher = dispatcherAnswering({
-      submitted: 'Auth Redirect Loop',
+      submitted: {
+        title: 'Auth Redirect Loop',
+        description: 'Stop the login page from repeatedly redirecting authenticated users.',
+      },
       prose: "Sure! I've named it for you.",
     })
-    expect(await generateTitleWith(dispatcher, 'codex', 'the login page loops forever', '/repo'))
-      .toBe('Auth Redirect Loop')
+    expect(await generateMetadataWith(dispatcher, 'codex', 'the login page loops forever', '/repo'))
+      .toEqual({
+        title: 'Auth Redirect Loop',
+        description: 'Stop the login page from repeatedly redirecting authenticated users.',
+      })
   })
 
-  test('falls back to the answer text when the model never calls the tool', async () => {
-    // Codex drops custom tools on older CLIs, so text has to stay a live path.
+  test('requires both structured fields rather than inventing a ticket description', async () => {
+    // WHY: a title-only fallback would leave the new session-born ticket empty,
+    // violating the metadata generation contract while appearing successful.
     const dispatcher = dispatcherAnswering({ prose: 'Worktree Cleanup' })
-    expect(await generateTitleWith(dispatcher, 'codex', 'delete stale worktrees', '/repo'))
-      .toBe('Worktree Cleanup')
+    expect(await generateMetadataWith(dispatcher, 'codex', 'delete stale worktrees', '/repo')).toBeNull()
   })
 
   test('names the run with the backend\'s cheap model at its lowest effort', async () => {
     // WHY: naming a thread is a chore, not a turn — it must never draft the
     // session's real model or spend reasoning tokens on a five-word answer.
-    const dispatcher = dispatcherAnswering({ submitted: 'Session Renaming' })
-    await generateTitleWith(dispatcher, 'codex', 'let me rename sessions', '/repo')
+    const dispatcher = dispatcherAnswering({
+      submitted: { title: 'Session Renaming', description: 'Allow users to rename sessions.' },
+    })
+    await generateMetadataWith(dispatcher, 'codex', 'let me rename sessions', '/repo')
     expect(dispatcher.requests[0].model).toBe('gpt-5.6-luna')
     expect(dispatcher.requests[0].reasoningEffort).toBe('low')
 
-    const claude = dispatcherAnswering({ submitted: 'Session Renaming' })
-    await generateTitleWith(claude, 'claude-code', 'let me rename sessions', '/repo')
+    const claude = dispatcherAnswering({
+      submitted: { title: 'Session Renaming', description: 'Allow users to rename sessions.' },
+    })
+    await generateMetadataWith(claude, 'claude-code', 'let me rename sessions', '/repo')
     expect(claude.requests[0].model).toBe('claude-haiku-4-5-20251001')
   })
 })

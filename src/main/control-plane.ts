@@ -25,7 +25,10 @@ import { isWorkspacePath } from './workspace'
 import { RateLimitState } from './rate-limits'
 import { AttentionService, attentionActionForStatus } from './attention/attention-service'
 import type { AttentionKind } from '../shared/attention-types'
-import { getTask, formatTaskContext, startTaskWork } from './tasks/task-service'
+import { prepareSessionTask } from './tasks/task-sessions'
+import { Task } from './tasks/task'
+import { tasksForSession } from './tasks/task-sessions'
+import { formatTaskContext } from './tasks/task-context'
 import { getIndexedSession, persistIndexedSessionStart } from './db/session-indexer'
 import {
   buildSessionAwaitingInputReport,
@@ -67,7 +70,7 @@ import type {
 import { defaultContextWindowFor, encodePathAsFolder, gitCheckoutFromState, isSessionBusyStatus, isSteerableStatus } from '../shared/types'
 import { solusDir } from './platform/paths'
 import type { SessionLoadMessage, SessionPreviewResult } from '../shared/session-history'
-import type { Task } from '../shared/task-types'
+import { taskWorktreeKey } from '../shared/task-types'
 
 const MAX_QUEUE_DEPTH = 32
 const TEXT_FLUSH_INTERVAL_MS = 300
@@ -282,6 +285,9 @@ export class ControlPlane extends EventEmitter {
         // Link the originating tab to the freshly-issued session.
         const initHandle = backend.getSessionHandle(event.sessionId)
         const pendingStart = initHandle ? this.pendingStarts.get(initHandle) : undefined
+        const firstDispatchRun = pendingStart?.run.input.agentSessionId
+          ? undefined
+          : pendingStart?.run
         const initTabId = initHandle?.sourceTabId
         const initTab = initTabId ? this.tabs.get(initTabId) : undefined
         const pendingHandoff = initTabId ? this.pendingHandoffs.get(initTabId) : undefined
@@ -365,6 +371,9 @@ export class ControlPlane extends EventEmitter {
         if (backend.id === 'claude-code' && goalObjective) {
           initializedGoal = this.claudeGoals.get(event.sessionId)
             ?? this.claudeGoals.create({ threadId: event.sessionId, objective: goalObjective })
+        }
+        if (firstDispatchRun?.options.taskId) {
+          void this._linkPreparedTask(firstDispatchRun, event.sessionId)
         }
         this._notifyActiveWork()
       }
@@ -1456,6 +1465,7 @@ export class ControlPlane extends EventEmitter {
       options: {
         prompt,
         displayPrompt: prompt,
+        skipTaskCreation: true,
         delivery: 'queue',
         via: 'automation',
         automationId,
@@ -1652,6 +1662,7 @@ export class ControlPlane extends EventEmitter {
       options: {
         prompt: req.prompt,
         displayPrompt: req.prompt,
+        skipTaskCreation: true,
         via: 'automation',
         automationId: req.automationId,
         automationName: req.automationName,
@@ -1689,6 +1700,9 @@ export class ControlPlane extends EventEmitter {
   private async _startRunLifecycle(request: SessionRunRequest): Promise<SessionRunLifecycle> {
     const runStartedAt = Date.now()
     const { handle, run } = await this._launchRun(request)
+    if (handle.sessionId && !run.input.agentSessionId && run.options.taskId) {
+      await this._linkPreparedTask(run, handle.sessionId)
+    }
     const agentSessionId = handle.sessionId
       ? Promise.resolve({ agentSessionId: handle.sessionId })
       : new Promise<{ agentSessionId: string }>((resolve, reject) => {
@@ -2156,18 +2170,40 @@ export class ControlPlane extends EventEmitter {
       this._notifyActiveWork()
     }
 
-    // Session started from a task: hydrate the ticket and prepend its full
-    // context to the prompt so the agent already knows it. Server-side (not in
-    // the renderer like bound works) because the renderer's task cache lacks the
-    // hydrated comments / linked PRs that getTask pulls. Only on a brand-new
-    // session, and the original text is preserved as displayPrompt so the user
-    // message stays clean.
-    if (options.taskId && !effectiveInput.agentSessionId) {
-      const task = await this._injectTaskContext(effectiveInput.workingDirectory, options)
-      // Fire-and-forget the write-back (move to In Progress + "started in Solus"
-      // comment). Best-effort: a provider failure must not delay or block the run,
-      // so we don't await it and swallow errors.
-      void this._writeBackTaskStart(effectiveInput.workingDirectory, options.taskId, task ?? undefined)
+    // A first dispatch becomes or binds a local task before the provider starts.
+    // The store returns null for a resumed provider session, which structurally
+    // enforces the clean-slate/no-backfill rule.
+    if (!options.skipTaskCreation && pendingHandoff && !options.taskId) {
+      const existingTask = await tasksForSession(pendingHandoff.fromSessionId)
+      if (existingTask) options.taskId = existingTask.task.id
+    }
+    const task = options.skipTaskCreation
+      ? null
+      : await prepareSessionTask({
+        // A provider handoff is a new backend conversation, not a new Solus
+        // session. Treat the prior provider id as the structural no-mint gate;
+        // the existing task link (when present) is copied on session_init.
+        existingAgentSessionId:
+          effectiveInput.agentSessionId ?? pendingHandoff?.fromSessionId ?? null,
+        existingTaskId: options.taskId,
+        projectKey: resolvedProjectPath,
+        worktreeKey: taskWorktreeKey(resolvedProjectPath, effectiveGitCtx),
+        prompt: options.displayPrompt ?? options.prompt,
+        branch: effectiveGitCtx?.branch ?? null,
+      })
+    if (task) options.taskId = task.id
+    // The ticket is scaffolding the agent works from, not something the user
+    // typed, so it rides the system prompt rather than the transcript. As a
+    // prompt prefix it was read back as the user's own turn on reload, and a
+    // session's whole history folds behind one row when its first turn has no
+    // user message to lead it. Re-hydrated on every dispatch: the system prompt
+    // is rebuilt per run, so the agent sees the task's live status and comments
+    // instead of a snapshot taken when the session opened.
+    if (options.taskId) {
+      const context = await this._taskSystemContext(options.taskId)
+      if (context) {
+        options.systemPrompt = [options.systemPrompt, context].filter(Boolean).join('\n\n')
+      }
     }
 
     const sourceTabId = request.sourceTabId
@@ -2239,31 +2275,30 @@ export class ControlPlane extends EventEmitter {
     return { handle, run: activeRun }
   }
 
-  /** Hydrate the bound task and prepend its context to the prompt, keeping the
-   *  original text as displayPrompt. A hydration failure must not block the
-   *  session — we log and start without the context rather than throwing. */
-  private async _injectTaskContext(cwd: string, options: PromptOptions): Promise<Task | null> {
-    if (!options.taskId) return null
+  private async _linkPreparedTask(run: SessionRunRequest, sessionId: string): Promise<void> {
+    const taskId = run.options.taskId
+    if (!taskId) return
     try {
-      const task = await getTask(cwd, options.taskId)
-      const context = formatTaskContext(task)
-      if (!options.displayPrompt) options.displayPrompt = options.prompt
-      options.prompt = options.prompt ? `${context}\n\n${options.prompt}` : context
-      return task
+      await (await Task.byId(taskId)).linkSession(sessionId, 'working', {
+        branch: run.input.gitContext?.branch ?? null,
+        originSessionId: sessionId,
+      })
     } catch (err) {
-      log.warn('task_context_injection_failed', { taskId: options.taskId, error: String(err) })
-      return null
+      log.error('task_session_link_failed', { taskId, sessionId, error: String(err) })
     }
   }
 
-  /** Push the narrow write-back when a session starts from a task (In Progress +
-   *  a "started in Solus" comment). Best-effort — provider failures (offline,
-   *  read-only token, local provider with no comments) are logged, not surfaced. */
-  private async _writeBackTaskStart(cwd: string, taskId: string, knownTask?: Task): Promise<void> {
+  /** Hydrate the local task into the packet appended to the run's system prompt. */
+  private async _taskSystemContext(taskId: string): Promise<string | null> {
     try {
-      await startTaskWork(cwd, taskId, knownTask)
+      const details = await (await Task.byId(taskId)).details()
+      const parentDetails = details.task.parentId
+        ? await (await Task.byId(details.task.parentId)).details()
+        : null
+      return formatTaskContext(details, parentDetails)
     } catch (err) {
-      log.warn('task_write_back_failed', { taskId, error: String(err) })
+      log.warn('task_context_injection_failed', { taskId, error: String(err) })
+      return null
     }
   }
 

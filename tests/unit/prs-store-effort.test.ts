@@ -147,4 +147,45 @@ describe('PR list effort metadata', () => {
 
     expect(detailCalls).toBe(PR_CACHE_MAX_ENTRIES + 2)
   })
+
+  test('publishes edited PR content to the list and detail cache', async () => {
+    // WHY: saving from Activity must update every mounted PR surface instead of
+    // leaving the list title and a warm detail cache on the pre-edit snapshot.
+    installStateRune()
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        solus: {
+          prList: async () => ({ items: [listItem()], page: 1, hasMore: false }),
+          prGetEfforts: async () => [],
+          prUpdate: async () => ({
+            ...listItem(),
+            title: 'Edited title',
+            body: 'Edited description',
+            updatedAt: '2026-01-02T00:00:00Z',
+          }),
+          prChecks: async () => { throw new Error('not relevant') },
+          prGuideMetadata: async () => { throw new Error('not relevant') },
+        },
+      },
+    })
+    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+    await store.loadAll(ctx)
+
+    await store.updatePullRequest(ctx, 33, {
+      title: 'Edited title',
+      body: 'Edited description',
+    })
+
+    expect(store.get(33)).toMatchObject({
+      title: 'Edited title',
+      body: 'Edited description',
+    })
+    expect(store.cachedActivity(ctx, 33).detail).toMatchObject({
+      title: 'Edited title',
+      body: 'Edited description',
+    })
+  })
 })

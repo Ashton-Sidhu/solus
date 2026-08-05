@@ -244,6 +244,197 @@ CREATE INDEX saved_prompts_by_project ON saved_prompts(project_root, created_at 
   `
 ALTER TABLE sessions ADD COLUMN custom_title TEXT;
 `,
+  // Tasks become a Solus-owned, local-first record. This is intentionally a
+  // clean-slate migration: provider-mirrored tasks and renderer-written session
+  // bindings belong to the retired model and must not be interpreted as native
+  // task history. Existing sessions are not walked or backfilled here.
+  `
+DROP TABLE IF EXISTS tasks;
+DROP TABLE IF EXISTS task_session_links;
+DROP TABLE IF EXISTS task_cache;
+
+CREATE TABLE tasks (
+  id TEXT PRIMARY KEY,
+  short_id INTEGER UNIQUE,
+  project_key TEXT,
+  parent_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  title_source TEXT NOT NULL DEFAULT 'prompt',
+  body TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'inbox',
+  kind TEXT NOT NULL DEFAULT 'task',
+  assignee TEXT,
+  due_date TEXT,
+  priority TEXT,
+  labels TEXT NOT NULL DEFAULT '[]',
+  branch TEXT,
+  pr TEXT,
+  worktree_key TEXT,
+  source TEXT NOT NULL DEFAULT 'user',
+  origin_session_id TEXT,
+  origin_automation_id TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  triaged_at INTEGER,
+  done_at INTEGER
+);
+CREATE INDEX tasks_by_project ON tasks(project_key, status, updated_at DESC);
+CREATE INDEX tasks_by_status ON tasks(status, created_at DESC);
+CREATE INDEX tasks_parent ON tasks(parent_id);
+CREATE INDEX tasks_by_worktree ON tasks(worktree_key, status, updated_at DESC);
+
+CREATE TABLE task_session_links (
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'working',
+  branch TEXT,
+  pr TEXT,
+  injected_at INTEGER,
+  linked_at INTEGER NOT NULL,
+  PRIMARY KEY (task_id, session_id)
+);
+CREATE INDEX task_session_links_by_session ON task_session_links(session_id);
+
+CREATE TABLE task_comments (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  author TEXT,
+  source TEXT NOT NULL DEFAULT 'local',
+  external_id TEXT,
+  origin_session_id TEXT,
+  body TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  dirty INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX task_comments_by_task ON task_comments(task_id, created_at);
+
+CREATE TABLE task_links (
+  task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  external_key TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  url TEXT NOT NULL,
+  external_updated_at TEXT,
+  snapshot TEXT,
+  dirty_fields TEXT NOT NULL DEFAULT '[]',
+  sync_state TEXT NOT NULL DEFAULT 'ok',
+  sync_error TEXT,
+  last_synced_at INTEGER
+);
+CREATE UNIQUE INDEX task_links_external ON task_links(provider, external_key, external_id);
+`,
+  // Task links and task activity. `task_links` becomes the generic "linked
+  // anything" edge — docs/works, plans, automations and PRs — which is what the
+  // name always read as. Its previous occupant was an external-ticket-sync
+  // mirror that nothing ever wrote, so it is provably empty and dropped here
+  // rather than migrated; external sync, when it lands, gets its own table.
+  //
+  // `target_scope` is the qualifier a bare key lacks: a PR number is only
+  // unique within a repo, and a plan is identified by (session, tool use). It
+  // is NOT NULL DEFAULT '' rather than nullable because SQLite permits NULLs in
+  // a non-INTEGER primary key column, which would silently break uniqueness.
+  //
+  // `title`/`url` are a snapshot taken at link time so a row always renders,
+  // even for a PR or a deleted target. Live titles are re-derived at read time
+  // by LEFT JOIN for the kinds whose targets live in this database.
+  `
+DROP TABLE IF EXISTS task_links;
+
+CREATE TABLE task_links (
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  target_scope TEXT NOT NULL DEFAULT '',
+  target_key TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  url TEXT,
+  created_by TEXT NOT NULL DEFAULT 'user',
+  origin_session_id TEXT,
+  linked_at INTEGER NOT NULL,
+  PRIMARY KEY (task_id, kind, target_scope, target_key)
+);
+CREATE INDEX task_links_by_target ON task_links(kind, target_scope, target_key);
+
+CREATE TABLE task_events (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  actor TEXT NOT NULL DEFAULT 'user',
+  actor_label TEXT,
+  from_value TEXT,
+  to_value TEXT,
+  target_kind TEXT,
+  target_scope TEXT,
+  target_key TEXT,
+  target_title TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX task_events_by_task ON task_events(task_id, created_at, id);
+
+INSERT INTO task_links(task_id, kind, target_scope, target_key, title, url, created_by, linked_at)
+  SELECT
+    id,
+    'pr',
+    COALESCE(project_key, ''),
+    CAST(json_extract(pr, '$.number') AS TEXT),
+    '#' || CAST(json_extract(pr, '$.number') AS TEXT),
+    json_extract(pr, '$.url'),
+    'migration',
+    updated_at
+  FROM tasks
+  WHERE pr IS NOT NULL
+    AND json_valid(pr)
+    AND json_extract(pr, '$.number') IS NOT NULL
+    AND json_extract(pr, '$.number') > 0;
+
+INSERT INTO task_events(id, task_id, kind, actor, to_value, created_at)
+  SELECT
+    'backfill-' || id,
+    id,
+    'created',
+    CASE source
+      WHEN 'user' THEN 'user'
+      WHEN 'session' THEN 'agent'
+      WHEN 'agent' THEN 'agent'
+      WHEN 'automation' THEN 'automation'
+      ELSE 'system'
+    END,
+    status,
+    created_at
+  FROM tasks;
+`,
+  // Upstream providers remain remote-owned, but their last successful list is
+  // retained so a temporary auth/network failure does not make those rows
+  // disappear beside native Solus tasks. Scope is part of the key because an
+  // assignee-filtered read must never replace the project's complete snapshot.
+  `
+CREATE TABLE upstream_task_cache (
+  project_key TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  fetched_at INTEGER NOT NULL,
+  truncated INTEGER,
+  tasks TEXT NOT NULL,
+  PRIMARY KEY (project_key, provider, scope)
+);
+`,
+  // `task_comments.dirty` was a speculative upstream-push flag nothing ever
+  // read or set.
+  `
+ALTER TABLE task_comments DROP COLUMN dirty;
+`,
+  // Sessions created by another session remain ordinary provider sessions;
+  // these columns only preserve Solus orchestration lineage. Keeping them on
+  // the indexed row makes every existing session listing surface receive the
+  // relationship without a parallel cache or N+1 lookup.
+  `
+ALTER TABLE sessions ADD COLUMN parent_session_id TEXT;
+ALTER TABLE sessions ADD COLUMN root_session_id TEXT;
+ALTER TABLE sessions ADD COLUMN delegation_exchange_id TEXT;
+ALTER TABLE sessions ADD COLUMN delegation_depth INTEGER;
+ALTER TABLE sessions ADD COLUMN delegation_intent TEXT;
+ALTER TABLE sessions ADD COLUMN delegation_created_at INTEGER;
+CREATE INDEX sessions_by_parent ON sessions(parent_session_id, last_timestamp DESC);
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

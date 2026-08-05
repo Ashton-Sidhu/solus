@@ -54,7 +54,8 @@ export interface RouteParams {
    *  chat. `sessionId` is the agent's own id — what a notification knows about
    *  a conversation, resolved to whichever tab is holding it. */
   chat: { tabId?: string; sessionId?: string }
-  tasks: { taskId?: string }
+  tasks: Record<string, never>
+  task: { taskId: string }
   prs: { projectPath?: string }
   reviewMode: Record<string, never>
   settings: { tab?: SettingsTab; projectCwd?: string }
@@ -66,6 +67,7 @@ export interface RouteParams {
   goal: { tabId: string }
   review: { key: string; scope: 'branch' | 'session'; sourceTabId?: string }
   prReview: { number: number; title?: string; cwd?: string }
+  prDiff: { number: number; cwd?: string }
   // The working directory and checkout a viewer runs against are derived from
   // its source tab's environment, not carried: they are live Git state, and a
   // route that pinned them would go stale the moment the branch moved.
@@ -102,6 +104,9 @@ export interface RouteDescriptor<K extends RouteName> {
   serialize: (params: RouteParams[K]) => string
   placement: Placement
   exclusiveGroup?: ExclusiveGroup
+  /** The surface draws a shared-height header that consumes the window-control
+   *  lead inset itself. Page outlets must not add a second titlebar-height pad. */
+  ownsTitlebarChrome?: boolean
   /** Mounted once and hidden, never unmounted by navigation. The outlet skips
    *  route-driven mounting for these; their pool owns the lifecycle. */
   keepAlive?: boolean
@@ -168,11 +173,22 @@ export const ROUTES = defineRoutes({
     component: () => import('../../../components/conversation/ConversationPane.svelte'),
   },
   tasks: {
-    parse: (s) => ({ taskId: optional(s) }),
-    serialize: (p) => p.taskId ?? '',
+    parse: () => ({}),
+    serialize: () => '',
     placement: 'any',
     exclusiveGroup: 'page',
     component: () => import('../../../components/tasks/TasksPage.svelte'),
+  },
+  // One task, deep-linkable. It replaces the list in place rather than sitting
+  // beside it: the page is the full-width two-column detail, and its own
+  // breadcrumb is the way back.
+  task: {
+    parse: (s) => (s ? { taskId: s } : null),
+    serialize: (p) => p.taskId,
+    placement: 'any',
+    exclusiveGroup: 'page',
+    ownsTitlebarChrome: true,
+    component: () => import('../../../components/tasks/task-page/TaskPage.svelte'),
   },
   prs: {
     parse: (s) => ({ projectPath: optional(s) }),
@@ -186,6 +202,7 @@ export const ROUTES = defineRoutes({
     serialize: () => '',
     placement: 'any',
     exclusiveGroup: 'page',
+    ownsTitlebarChrome: true,
     component: () => import('../../../components/review-mode/ReviewModeHost.svelte'),
   },
   settings: {
@@ -269,10 +286,27 @@ export const ROUTES = defineRoutes({
     // The title is display-only: it is superseded by the resolved review, so it
     // stays out of the URL rather than becoming a stale thing to keep in sync.
     serialize: (p) => (p.cwd ? `${p.number}/${p.cwd}` : String(p.number)),
-    placement: 'aside',
-    defaultWeight: 0.7,
+    // A pull request is a place inside the list, not a panel beside it: opening
+    // one replaces the list in the leading pane, and the chrome band's crumb —
+    // not a second copy of the list in a sidebar — is the way back and sideways.
+    placement: 'any',
+    exclusiveGroup: 'page',
+    ownsTitlebarChrome: true,
     component: () => import('../../../components/pr-review/PrReviewRoutePane.svelte'),
     resolve: (params, ctx) => ctx.api.prOpenReview(ctx.ipc(params.cwd), params.number),
+  },
+  prDiff: {
+    parse: (s) => {
+      const [number, ...rest] = s.split('/')
+      if (!/^\d+$/.test(number)) return null
+      return { number: Number(number), cwd: optional(rest.join('/')) }
+    },
+    serialize: (p) => (p.cwd ? `${p.number}/${p.cwd}` : String(p.number)),
+    // The review leads; its diff pops out beside it, so the activity feed and
+    // the change are readable together. Shares the aside with the review's chat.
+    placement: 'aside',
+    defaultWeight: 0.5,
+    component: () => import('../../../components/pr-review/PrDiffPane.svelte'),
   },
   diff: {
     parse: (s) => {
@@ -298,13 +332,19 @@ export const ROUTES = defineRoutes({
     component: () => import('../../../components/files/FilesTreePane.svelte'),
   },
   fileEditor: {
+    // `<tab>/<line|->/<path>`. The line sits in a fixed slot because a path may
+    // contain anything a filesystem allows, including a `:12` suffix. A second
+    // segment that is neither `-` nor digits is a path segment from a location
+    // serialized before the slot existed, so it parses as a line-less open.
     parse: (s) => {
-      const [sourceTabId, ...rest] = s.split('/')
-      const path = rest.join('/')
+      const [sourceTabId, marker, ...rest] = s.split('/')
+      const hasLineSlot = marker === '-' || /^\d+$/.test(marker ?? '')
+      const path = hasLineSlot ? rest.join('/') : [marker, ...rest].join('/')
       if (!sourceTabId || !path) return null
-      return { sourceTabId, path }
+      const line = hasLineSlot && marker !== '-' ? Number(marker) : undefined
+      return line === undefined ? { sourceTabId, path } : { sourceTabId, path, line }
     },
-    serialize: (p) => `${p.sourceTabId}/${p.path}`,
+    serialize: (p) => `${p.sourceTabId}/${p.line ?? '-'}/${p.path}`,
     placement: 'overlay',
     defaultWeight: 0.6,
     component: () => import('../../../components/files/FileEditorHostPane.svelte'),

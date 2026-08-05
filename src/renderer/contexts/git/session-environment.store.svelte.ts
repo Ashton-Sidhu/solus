@@ -1,4 +1,4 @@
-import { createContext } from 'svelte'
+import { createAppContext } from '../app/create-app-context'
 import { gitCheckoutFromState, type GitCheckout, type GitState, type IpcContext, type Session, type WorktreeEntry } from '../../../shared/types'
 import { formatBranchDisplayName } from '../../lib/git-context'
 
@@ -490,4 +490,4 @@ export class SessionEnvironmentStore {
   }
 }
 
-export const [getSessionEnvironmentStore, setSessionEnvironmentStore] = createContext<SessionEnvironmentStore>()
+export const [getSessionEnvironmentStore, setSessionEnvironmentStore] = createAppContext<SessionEnvironmentStore>('session-environment')

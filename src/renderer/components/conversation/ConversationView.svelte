@@ -61,6 +61,7 @@
     hasVisibleTurnBody,
     itemKey,
     needsLiveRow,
+    runIsLive,
     type GroupedItem,
   } from "./lib/turns";
   import { SvelteMap } from "svelte/reactivity";
@@ -126,9 +127,7 @@
       ? serversStore.statusFor(sess.serverId)
       : "online",
   );
-  const streamingText = $derived(
-    session.streamingTextFor(tabId, isVisible),
-  );
+  const streamingText = $derived(session.streamingTextFor(tabId, isVisible));
 
   // ─── Breadcrumb — the window band that replaced the session tab strip ───
   // One line that always says where you are, so it belongs to the window rather
@@ -137,14 +136,8 @@
   const showBreadcrumb = $derived(isEditorMode && isVisible && !forceVisible);
   // The band floats over the transcript, so the thread reserves its own room
   // instead of being pushed down: 46px of band plus the gap under it.
-  const CRUMB_OFFSET = 54;
+  const CRUMB_OFFSET = 58;
   let stripMenu = $state<{ tabId: string; x: number; y: number } | null>(null);
-  // Anchor the session menu under the kebab rather than at a pointer position —
-  // it can be opened from the keyboard too.
-  function openSessionMenu(menuTabId: string, anchor: HTMLElement) {
-    const rect = anchor.getBoundingClientRect();
-    stripMenu = { tabId: menuTabId, x: rect.left, y: rect.bottom + 4 };
-  }
 
   // ── Smooth typewriter reveal ──────────────────────────────────────────────
   // Text arrives in coarse ~300ms batches (control-plane TEXT_FLUSH_INTERVAL_MS).
@@ -361,6 +354,20 @@
     } finally {
       loadingOlder = false;
     }
+
+    // A restored window can contain hundreds of tool events that collapse into
+    // only a few completed-turn rows. In that case there is no scrollbar and
+    // therefore no scroll event to request the history that precedes the
+    // window. Keep backfilling until the user has an actual scroll range (or
+    // the complete transcript is mounted).
+    if (
+      isVisible &&
+      el.clientHeight > 0 &&
+      el.scrollHeight <= el.clientHeight &&
+      (hasOlder || sess?.historyTruncated)
+    ) {
+      void maybeLoadOlder();
+    }
   }
 
   function handleScroll() {
@@ -416,8 +423,7 @@
   $effect(() => {
     void scrollTrigger;
     const questionCount = sess?.questionQueue?.length ?? 0;
-    const questionMounted =
-      previousQuestionCount === 0 && questionCount > 0;
+    const questionMounted = previousQuestionCount === 0 && questionCount > 0;
     previousQuestionCount = questionCount;
     if (isVisible && isNearBottom) {
       if (questionMounted) {
@@ -608,11 +614,9 @@
     }
   });
 
-  const isRunning = $derived(
-    sess?.status === "running" || sess?.status === "connecting",
-  );
   const isInterrupted = $derived(sess?.status === "interrupted");
   const isAwaitingPlan = $derived(sess?.status === "awaiting_plan");
+  const isAwaitingInput = $derived(sess?.status === "awaiting_input");
   const currentActivity = $derived(sess ? computeCurrentActivity(sess) : "");
   const activityLabel = $derived(
     isAwaitingPlan ? "Awaiting plan approval" : currentActivity || undefined,
@@ -624,7 +628,7 @@
 
   // §16 — a turn collapses to one row when it ends. Until then it renders the
   // transcript it always did, in the order it happened.
-  const isTurnLive = $derived(isRunning || isAwaitingPlan || !!liveStreamContent);
+  const isTurnLive = $derived(runIsLive(sess?.status, !!liveStreamContent));
   const turns = $derived(buildTurns(displayGrouped, { running: isTurnLive }));
   // Scrollback and history loads must not replay two hundred entry animations;
   // only the turns at the live end of the transcript animate in.
@@ -669,8 +673,7 @@
 
     const foldedTurn = turns.find(
       (turn) =>
-        turn.body.length > 0 &&
-        turnContainsMessage(turn.body, match.messageId),
+        turn.body.length > 0 && turnContainsMessage(turn.body, match.messageId),
     );
     if (foldedTurn && !foldedTurn.live) {
       turnExpansion.set(foldedTurn.id, true);
@@ -685,11 +688,7 @@
     // without fighting an in-flight message-level scroll.
     target?.scrollIntoView({ block: "center" });
     await tick();
-    const activeRange = findHighlighter.update(
-      messagesEl,
-      findQuery,
-      match,
-    );
+    const activeRange = findHighlighter.update(messagesEl, findQuery, match);
     const activeRect = activeRange?.getBoundingClientRect();
     const scrollRect = scrollEl?.getBoundingClientRect();
     if (activeRect && scrollRect && scrollEl) {
@@ -749,26 +748,11 @@
     }
     const query = findQuery;
     const matches = conversationFindMatches;
-    if (findIndex >= matches.length) findIndex = Math.max(0, matches.length - 1);
+    if (findIndex >= matches.length)
+      findIndex = Math.max(0, matches.length - 1);
     void tick().then(() =>
       findHighlighter.update(messagesEl, query, matches[findIndex] ?? null),
     );
-  });
-
-  // The pending plan whose approval the session is blocked on — used to jump
-  // straight to it from the awaiting-plan footer below.
-  const pendingPlanId = $derived.by(() => {
-    if (!sess) return undefined;
-    for (let i = sess.messages.length - 1; i >= 0; i--) {
-      const m = sess.messages[i];
-      if (
-        m.role === "plan" &&
-        m.planId &&
-        planStore.get(m.planId)?.status === "pending"
-      )
-        return m.planId;
-    }
-    return undefined;
   });
 
   function handleRetry() {
@@ -777,20 +761,13 @@
 
   const sessionChangedFiles = $derived(sess?.sessionChangedFiles ?? []);
 
-  useKeybinding(
-    "conversation.find",
-    () => openFind(),
-    { enabled: () => tabId === session.focusedChatTabId },
-  );
+  useKeybinding("conversation.find", () => openFind(), {
+    enabled: () => tabId === session.focusedChatTabId,
+  });
 
-  useKeybinding(
-    "conversation.close-find",
-    closeFind,
-    {
-      enabled: () =>
-        findOpen && tabId === session.focusedChatTabId,
-    },
-  );
+  useKeybinding("conversation.close-find", closeFind, {
+    enabled: () => findOpen && tabId === session.focusedChatTabId,
+  });
 
   useKeybinding(
     "conversation.scroll-top",
@@ -870,6 +847,15 @@
     const content = messagesEl;
     if (!el || !content) return;
     const ro = new ResizeObserver(() => {
+      if (
+        isVisible &&
+        el.clientHeight > 0 &&
+        el.scrollHeight <= el.clientHeight &&
+        (hasOlder || sess?.historyTruncated)
+      ) {
+        void maybeLoadOlder();
+        return;
+      }
       if (isNearBottom && isVisible && !holdScroll) {
         el.scrollTop = el.scrollHeight;
       }
@@ -930,13 +916,23 @@
         <DesktopTowerIcon size={13} />
       {/snippet}
       {remoteStatus === "connecting" ? "Reconnecting to" : "Can’t reach"}
-      <span class="font-mono text-[0.75rem]">{remoteServer?.label ?? "remote host"}</span>
+      <span class="font-mono text-[0.75rem]"
+        >{remoteServer?.label ?? "remote host"}</span
+      >
       {#snippet actions()}
         {#if remoteStatus !== "connecting"}
-          <button type="button" class="status-row-action" onclick={() => serversStore.retryActive()}>
+          <button
+            type="button"
+            class="status-row-action"
+            onclick={() => serversStore.retryActive()}
+          >
             Reconnect
           </button>
-          <button type="button" class="status-row-action" onclick={() => serversStore.useLocalHost()}>
+          <button
+            type="button"
+            class="status-row-action"
+            onclick={() => serversStore.useLocalHost()}
+          >
             Run locally
           </button>
         {/if}
@@ -946,8 +942,6 @@
 {/if}
 
 {#if tab && sess && sess.loadingHistory}
-  <ConversationSkeleton />
-{:else if tab && sess && sess.agentSessionId && sess.messages.length === 0 && !sess.statusCard}
   <ConversationSkeleton />
 {:else if tab && sess && sess.messages.length === 0 && !sess.statusCard}
   <NewTabHome {tab} />
@@ -961,7 +955,7 @@
   >
     <div class="cv-root relative {isEditorMode ? 'flex-1 min-h-0' : ''}">
       {#if showBreadcrumb}
-        <SessionBreadcrumb {tabId} onSessionMenu={openSessionMenu} />
+        <SessionBreadcrumb {tabId} />
       {/if}
       {#if findOpen}
         <div class="absolute top-2 right-3 z-20">
@@ -1027,279 +1021,291 @@
                 ? 'space-y-3'
                 : 'space-y-2'}"
             >
-            {#each turns as turn, turnIdx (turn.id)}
-              {@const skipMotion = turnIdx < animatedTurnStart}
-              {@const isLastTurn = turnIdx === turns.length - 1}
-              {@const expanded =
-                turnExpansion.get(turn.id) ??
-                (isLastTurn &&
-                  turn.end?.kind === "failed" &&
-                  hasVisibleTurnBody(turn))}
-              {@const live = turn.live}
-              <!-- A steer leaves earlier turns live too, and only the last one is
-                   where the run is actually working. -->
-              {@const working = live && isLastTurn}
-              <!-- A stop says nothing about the work, so it never stands in for
+              {#each turns as turn, turnIdx (turn.id)}
+                {@const skipMotion = turnIdx < animatedTurnStart}
+                {@const isLastTurn = turnIdx === turns.length - 1}
+                {@const expanded =
+                  turnExpansion.get(turn.id) ??
+                  (isLastTurn &&
+                    turn.end?.kind === "failed" &&
+                    hasVisibleTurnBody(turn))}
+                {@const live = turn.live}
+                <!-- A steer leaves earlier turns live too, and only the last one is
+                   where the run is actually working. A turn parked on a question
+                   or permission stays live so nothing folds, but the card is what
+                   the run is doing — no spinner claims otherwise. -->
+                {@const working = live && isLastTurn && !isAwaitingInput}
+                <!-- A stop says nothing about the work, so it never stands in for
                    the summary row: the row reports what ran and discloses it,
                    and the stop's own divider follows the turn's content below.
                    A failure keeps its row either way — it carries the error. -->
-              {@const hasSummaryRow =
-                !live &&
-                (turn.body.length > 0 || turn.end?.kind === "failed")}
-              {#if turn.lead}
-                {@render transcriptItem(turn.lead, skipMotion)}
-              {/if}
-              <!-- The row only exists once the turn is over; until then the
+                {@const hasSummaryRow =
+                  !live &&
+                  (turn.body.length > 0 || turn.end?.kind === "failed")}
+                {#if turn.lead}
+                  {@render transcriptItem(turn.lead, skipMotion)}
+                {/if}
+                <!-- The row only exists once the turn is over; until then the
                    transcript below renders exactly as it always did.
                    Retry re-runs the last prompt, so only the last turn can
                    honestly offer it; an older stop is history. -->
-              {#if hasSummaryRow}
-                <TurnActivityRow
-                  {turn}
-                  live={false}
-                  {expanded}
-                  attempt={isLastTurn ? (sess.retryAttempt ?? 1) : 1}
-                  onToggle={() => toggleTurn(turn.id, expanded)}
-                  onRetry={turn.end?.kind === "failed" && isLastTurn
-                    ? handleRetry
-                    : undefined}
-                />
-              {/if}
-              <!-- Folding hides this block, it never unmounts it — so ending a
+                {#if hasSummaryRow}
+                  <TurnActivityRow
+                    {turn}
+                    live={false}
+                    {expanded}
+                    attempt={isLastTurn ? (sess.retryAttempt ?? 1) : 1}
+                    onToggle={() => toggleTurn(turn.id, expanded)}
+                    onRetry={turn.end?.kind === "failed" && isLastTurn
+                      ? handleRetry
+                      : undefined}
+                  />
+                {/if}
+                <!-- Folding hides this block, it never unmounts it — so ending a
                    turn costs one reflow instead of rebuilding every subtree in
                    it, and expanding hands the same view straight back. -->
-              {#if turn.body.length > 0}
-                <div
-                  class="turn-body {runtime.isMobileViewport
-                    ? 'space-y-3'
-                    : 'space-y-2'}"
-                  class:is-folded={!live && !expanded}
-                  class:is-open={!live && expanded}
-                >
-                  {#each turn.body as item, itemIdx (itemKey(item))}
-                    {#if item.kind === "tool-group"}
-                      <!-- §16 — the transcript keeps its order, but the row at
+                {#if turn.body.length > 0}
+                  <div
+                    class="turn-body {runtime.isMobileViewport
+                      ? 'space-y-3'
+                      : 'space-y-2'}"
+                    class:is-folded={!live && !expanded}
+                    class:is-open={!live && expanded}
+                  >
+                    {#each turn.body as item, itemIdx (itemKey(item))}
+                      {#if item.kind === "tool-group"}
+                        <!-- §16 — the transcript keeps its order, but the row at
                            the tail of a working turn is where the run *is*: it
                            takes the spinner rather than letting a second row
                            saying "Thinking" stack underneath it. -->
-                      <ToolGroupItem
-                        tools={item.messages}
-                        {skipMotion}
-                        working={working && itemIdx === turn.body.length - 1}
-                        {activityLabel}
-                        turnStart={working ? sess.currentTurnStart : null}
-                        waitingOn={working ? agentsAwaitingReply(turn.body) : []}
-                      />
-                    {:else}
+                        <ToolGroupItem
+                          tools={item.messages}
+                          {skipMotion}
+                          working={working && itemIdx === turn.body.length - 1}
+                          {activityLabel}
+                          turnStart={working ? sess.currentTurnStart : null}
+                          waitingOn={working
+                            ? agentsAwaitingReply(turn.body)
+                            : []}
+                        />
+                      {:else}
+                        {@render transcriptItem(item, skipMotion)}
+                      {/if}
+                    {/each}
+                  </div>
+                {/if}
+                {#if !live && !expanded && turn.visibleWhenCollapsed.length > 0}
+                  <div
+                    class={runtime.isMobileViewport ? "space-y-3" : "space-y-2"}
+                  >
+                    {#each turn.visibleWhenCollapsed as item (itemKey(item))}
                       {@render transcriptItem(item, skipMotion)}
-                    {/if}
-                  {/each}
-                </div>
-              {/if}
-              {#if !live && !expanded && turn.visibleWhenCollapsed.length > 0}
-                <div
-                  class={runtime.isMobileViewport ? "space-y-3" : "space-y-2"}
-                >
-                  {#each turn.visibleWhenCollapsed as item (itemKey(item))}
-                    {@render transcriptItem(item, skipMotion)}
-                  {/each}
-                </div>
-              {/if}
-              {#if hasSummaryRow && turn.tail.length > 0}
-                <div class="turn-rule"></div>
-              {/if}
-              {#each turn.tail as item (itemKey(item))}
-                {@render transcriptItem(item, skipMotion)}
-              {/each}
-              <!-- §17's transient endings, in the place they happened: after
+                    {/each}
+                  </div>
+                {/if}
+                {#if hasSummaryRow && turn.tail.length > 0}
+                  <div class="turn-rule"></div>
+                {/if}
+                {#each turn.tail as item (itemKey(item))}
+                  {@render transcriptItem(item, skipMotion)}
+                {/each}
+                <!-- §17's transient endings, in the place they happened: after
                    everything the turn produced, never in front of it. -->
-              {#if !live && turn.end && turn.end.kind !== "failed"}
-                <TurnEndDivider
-                  end={turn.end}
-                  onRetry={isLastTurn ? handleRetry : undefined}
-                  {skipMotion}
-                />
-              {/if}
-              <!-- Only when nothing else is reporting the run: a tool group at
+                {#if !live && turn.end && turn.end.kind !== "failed"}
+                  <TurnEndDivider
+                    end={turn.end}
+                    onRetry={isLastTurn ? handleRetry : undefined}
+                    {skipMotion}
+                  />
+                {/if}
+                <!-- Only when nothing else is reporting the run: a tool group at
                    the tail already carries the spinner, and streaming text is
                    itself the evidence that work is happening. -->
-              {#if working && needsLiveRow(turn)}
-                <TurnActivityRow
-                  {turn}
-                  live
-                  {activityLabel}
-                  turnStart={sess.currentTurnStart}
-                  expanded={false}
-                  attempt={sess.retryAttempt ?? 1}
-                  onToggle={() => {}}
-                />
-              {/if}
-            {/each}
+                {#if working && needsLiveRow(turn)}
+                  <TurnActivityRow
+                    {turn}
+                    live
+                    {activityLabel}
+                    turnStart={sess.currentTurnStart}
+                    expanded={false}
+                    attempt={sess.retryAttempt ?? 1}
+                    onToggle={() => {}}
+                  />
+                {/if}
+              {/each}
             </div>
           {/if}
 
-{#snippet transcriptItem(item: GroupedItem, skipMotion: boolean)}
-              {#if item.kind === "user"}
-                <UserMessageBubble message={item.message} {skipMotion} />
-              {:else if item.kind === "live-assistant"}
-                <!-- Nothing appears while a message is streaming; the rail
+          {#snippet transcriptItem(item: GroupedItem, skipMotion: boolean)}
+            {#if item.kind === "user"}
+              <UserMessageBubble message={item.message} {skipMotion} />
+            {:else if item.kind === "live-assistant"}
+              <!-- Nothing appears while a message is streaming; the rail
                      arrives with the last token. -->
+              <div
+                class="py-2 relative {skipMotion || item.settledMessageId
+                  ? ''
+                  : 'animate-msg-in-side'}"
+                data-testid="assistant-message"
+              >
                 <div
-                  class="py-2 relative {skipMotion ||
-                  item.settledMessageId
+                  class="cv-msg-body min-w-0"
+                  data-conversation-message-content
+                  data-conversation-message-id={item.settledMessageId}
+                >
+                  <div
+                    class="prose-cloud prose-reading prose-transcript min-w-0"
+                  >
+                    <SvelteMarkdown
+                      source={item.content}
+                      streaming
+                      options={assistantMarkdownOptions}
+                      renderers={markdownRenderers}
+                      sanitizeUrl={markdownSanitizeUrl}
+                    />
+                  </div>
+                </div>
+              </div>
+            {:else if item.kind === "assistant"}
+              {@const displayContent = item.message.content.trim()}
+              {#if displayContent && item.message.id !== settlingCommittedId}
+                <!-- The rail hangs in the column's left margin and aligns with
+                       the bottom of the assistant message. -->
+                <div
+                  class="py-2 relative cv-rail-host {skipMotion ||
+                  finalizedStreamMessageIds[item.message.id]
                     ? ''
                     : 'animate-msg-in-side'}"
                   data-testid="assistant-message"
                 >
+                  {#if !runtime.isMobileViewport}
+                    <MessageHoverRail
+                      timestamp={item.message.timestamp}
+                      text={displayContent}
+                    />
+                  {/if}
                   <div
                     class="cv-msg-body min-w-0"
                     data-conversation-message-content
-                    data-conversation-message-id={item.settledMessageId}
+                    data-conversation-message-id={item.message.id}
                   >
-                    <div class="prose-cloud prose-reading prose-transcript min-w-0">
-                      <SvelteMarkdown
-                        source={item.content}
-                        streaming
-                        options={assistantMarkdownOptions}
-                        renderers={markdownRenderers}
-                        sanitizeUrl={markdownSanitizeUrl}
-                      />
-                    </div>
+                    {@render assistantBody(displayContent)}
                   </div>
                 </div>
-              {:else if item.kind === "assistant"}
-                {@const displayContent = item.message.content.trim()}
-                {#if displayContent && item.message.id !== settlingCommittedId}
-                  <!-- The rail hangs in the column's left margin and aligns with
-                       the bottom of the assistant message. -->
-                  <div
-                    class="py-2 relative cv-rail-host {skipMotion ||
-                    finalizedStreamMessageIds[item.message.id]
-                      ? ''
-                      : 'animate-msg-in-side'}"
-                    data-testid="assistant-message"
-                  >
-                    {#if !runtime.isMobileViewport}
-                      <MessageHoverRail
-                        timestamp={item.message.timestamp}
-                        text={displayContent}
-                      />
-                    {/if}
-                    <div
-                      class="cv-msg-body min-w-0"
-                      data-conversation-message-content
-                      data-conversation-message-id={item.message.id}
-                    >
-                      {@render assistantBody(displayContent)}
-                    </div>
-                  </div>
-                {/if}
-              {:else if item.kind === "tool-group"}
-                <ToolGroupItem tools={item.messages} {skipMotion} />
-              {:else if item.kind === "subagent-group"}
-                <SubagentGroup messages={item.messages} {tabId} {skipMotion} />
-              {:else if item.kind === "system"}
-                {#if item.message.forkSourceSessionId}
-                  <TranscriptDivider
-                    glyphClass="text-(--solus-accent)"
-                    titleClass="text-(--solus-accent)"
-                    ariaLabel="Navigate to source session"
-                    onclick={() =>
-                      navigateToSourceSession(item.message.forkSourceSessionId!)}
-                    testid="fork-session-message"
-                    {skipMotion}
-                  >
-                    {#snippet glyph()}<GitForkIcon size={12} />{/snippet}
-                    Forked from
-                    {#snippet title()}"{item.message.forkSourceTitle || "session"}"{/snippet}
-                  </TranscriptDivider>
-                {:else if item.message.worktreeMovedTo}
-                  <TranscriptDivider
-                    glyphClass="text-(--solus-accent)"
-                    titleClass="text-(--solus-accent)"
-                    testid="worktree-moved-message"
-                    {skipMotion}
-                  >
-                    {#snippet glyph()}<TreeStructureIcon size={12} />{/snippet}
-                    Continued in worktree
-                    {#snippet title()}{item.message.worktreeMovedTo}{/snippet}
-                  </TranscriptDivider>
-                {:else if item.message.newSessionForPlanId}
-                  <!-- The implementation run keeps none of the planning
+              {/if}
+            {:else if item.kind === "tool-group"}
+              <ToolGroupItem tools={item.messages} {skipMotion} />
+            {:else if item.kind === "subagent-group"}
+              <SubagentGroup messages={item.messages} {tabId} {skipMotion} />
+            {:else if item.kind === "system"}
+              {#if item.message.forkSourceSessionId}
+                <TranscriptDivider
+                  glyphClass="text-(--solus-accent)"
+                  titleClass="text-(--solus-accent)"
+                  ariaLabel="Navigate to source session"
+                  onclick={() =>
+                    navigateToSourceSession(item.message.forkSourceSessionId!)}
+                  testid="fork-session-message"
+                  {skipMotion}
+                >
+                  {#snippet glyph()}<GitForkIcon size={12} />{/snippet}
+                  Forked from
+                  {#snippet title()}"{item.message.forkSourceTitle ||
+                      "session"}"{/snippet}
+                </TranscriptDivider>
+              {:else if item.message.worktreeMovedTo}
+                <TranscriptDivider
+                  glyphClass="text-(--solus-accent)"
+                  titleClass="text-(--solus-accent)"
+                  testid="worktree-moved-message"
+                  {skipMotion}
+                >
+                  {#snippet glyph()}<TreeStructureIcon size={12} />{/snippet}
+                  Continued in worktree
+                  {#snippet title()}{item.message.worktreeMovedTo}{/snippet}
+                </TranscriptDivider>
+              {:else if item.message.newSessionForPlanId}
+                <!-- The implementation run keeps none of the planning
                        session's context, only the plan. Stating that is what
                        separates a deliberate restart from a lost thread. -->
-                  {@const acceptedPlan = planStore.get(
-                    item.message.newSessionForPlanId,
-                  )}
-                  <TranscriptDivider
-                    glyphClass="text-(--solus-accent)"
-                    titleClass="text-(--solus-accent)"
-                    timestamp={item.message.timestamp}
-                    testid="plan-new-session-message"
-                    {skipMotion}
-                  >
-                    {#snippet glyph()}<PlusCircleIcon size={12} />{/snippet}
-                    New session implementing
-                    {#snippet title()}"{acceptedPlan?.title || "the plan"}"{/snippet}
-                  </TranscriptDivider>
-                {:else}
-                  <!-- Cancellations, interrupts and errors alike: centred between
+                {@const acceptedPlan = planStore.get(
+                  item.message.newSessionForPlanId,
+                )}
+                <TranscriptDivider
+                  glyphClass="text-(--solus-accent)"
+                  titleClass="text-(--solus-accent)"
+                  timestamp={item.message.timestamp}
+                  testid="plan-new-session-message"
+                  {skipMotion}
+                >
+                  {#snippet glyph()}<PlusCircleIcon size={12} />{/snippet}
+                  New session implementing
+                  {#snippet title()}"{acceptedPlan?.title ||
+                      "the plan"}"{/snippet}
+                </TranscriptDivider>
+              {:else}
+                <!-- Cancellations, interrupts and errors alike: centred between
                        hairlines, never a bubble and never tinted. A transient
                        state is not a message, so it gets no fill of its own. -->
-                  <TranscriptDivider timestamp={item.message.timestamp} {skipMotion}>
-                    {noticeText(item.message.content)}
-                  </TranscriptDivider>
-                {/if}
-              {:else if item.kind === "plan"}
-                {@const plan = item.message.planId
-                  ? planStore.get(item.message.planId)
-                  : undefined}
-                <PlanMessageItem
-                  ref={{
-                    kind: "plan",
-                    id: plan?.id,
-                    title: plan?.title,
-                    content: plan?.content,
-                    timestamp: plan?.timestamp,
-                    comments: plan?.comments,
-                    status: plan?.status,
-                    bookmarked: plan?.bookmarked,
-                  }}
+                <TranscriptDivider
+                  timestamp={item.message.timestamp}
                   {skipMotion}
-                />
-              {:else if item.kind === "document"}
-                {@const work = session.worksStore.get(
-                  item.message.workRef?.workId ?? "",
-                )}
-                <PlanMessageItem
-                  ref={{
-                    kind: "document",
-                    id: item.message.workRef?.workId,
-                    title: work?.title ?? item.message.workRef?.title,
-                    content: work?.content,
-                    updatedAt: work?.updatedAt,
-                    workType: work?.type ?? item.message.workRef?.workType,
-                    streaming: item.message.workRef?.workId
-                      ? session.worksStore.streaming[
-                          item.message.workRef.workId
-                        ]
-                      : false,
-                  }}
-                  {skipMotion}
-                />
-              {:else if item.kind === "automation" && item.message.automationRef}
-                <AutomationRefCard
-                  ref={item.message.automationRef}
-                  {skipMotion}
-                />
-              {:else if item.kind === "task" && item.message.taskRef}
-                <TaskRefCard ref={item.message.taskRef} {skipMotion} />
-              {:else if item.kind === "agent-conversation-group"}
-                <AgentConversationGroup messages={item.messages} {tabId} {skipMotion} />
-              {:else if item.kind === "artifact" && item.message.artifact}
-                <ArtifactView artifact={item.message.artifact} {skipMotion} />
+                >
+                  {noticeText(item.message.content)}
+                </TranscriptDivider>
               {/if}
-{/snippet}
+            {:else if item.kind === "plan"}
+              {@const plan = item.message.planId
+                ? planStore.get(item.message.planId)
+                : undefined}
+              <PlanMessageItem
+                ref={{
+                  kind: "plan",
+                  id: plan?.id,
+                  title: plan?.title,
+                  content: plan?.content,
+                  timestamp: plan?.timestamp,
+                  comments: plan?.comments,
+                  status: plan?.status,
+                  bookmarked: plan?.bookmarked,
+                }}
+                {skipMotion}
+              />
+            {:else if item.kind === "document"}
+              {@const work = session.worksStore.get(
+                item.message.workRef?.workId ?? "",
+              )}
+              <PlanMessageItem
+                ref={{
+                  kind: "document",
+                  id: item.message.workRef?.workId,
+                  title: work?.title ?? item.message.workRef?.title,
+                  content: work?.content,
+                  updatedAt: work?.updatedAt,
+                  workType: work?.type ?? item.message.workRef?.workType,
+                  streaming: item.message.workRef?.workId
+                    ? session.worksStore.streaming[item.message.workRef.workId]
+                    : false,
+                }}
+                {skipMotion}
+              />
+            {:else if item.kind === "automation" && item.message.automationRef}
+              <AutomationRefCard
+                ref={item.message.automationRef}
+                {skipMotion}
+              />
+            {:else if item.kind === "task" && item.message.taskRef}
+              <TaskRefCard ref={item.message.taskRef} {skipMotion} />
+            {:else if item.kind === "agent-conversation-group"}
+              <AgentConversationGroup
+                messages={item.messages}
+                {tabId}
+                {skipMotion}
+              />
+            {:else if item.kind === "artifact" && item.message.artifact}
+              <ArtifactView artifact={item.message.artifact} {skipMotion} />
+            {/if}
+          {/snippet}
 
           {#if sess.statusCard}
             <StatusCard card={sess.statusCard} />
@@ -1362,9 +1368,7 @@
           class="activity-strip flex items-end gap-1.5 absolute pointer-events-none"
           class:activity-strip-editor={isEditorMode}
           class:activity-strip-pill={!isEditorMode}
-          style="bottom:{isEditorMode
-            ? 3
-            : 16}px;height:2rem;z-index:7"
+          style="bottom:{isEditorMode ? 3 : 16}px;height:2rem;z-index:7"
         >
           <div
             bind:clientWidth={activityReservedWidth}

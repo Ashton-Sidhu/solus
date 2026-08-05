@@ -1,4 +1,4 @@
-import { createContext } from 'svelte'
+import { createAppContext } from './create-app-context'
 import { MODEL_PROFILES } from '../../../shared/types'
 import type { StatusBarCtx, AgentId, Session } from '../../../shared/types'
 import type { AgentContext } from './agent.context.svelte'
@@ -57,4 +57,4 @@ export class StatusBarContext {
   }
 }
 
-export const [getStatusBarContext, setStatusBarContext] = createContext<StatusBarContext>()
+export const [getStatusBarContext, setStatusBarContext] = createAppContext<StatusBarContext>('status-bar')
