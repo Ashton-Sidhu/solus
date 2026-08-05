@@ -27,6 +27,14 @@ import type { NumberedPrChecksSummary } from '../../../shared/checks-rpc-types'
 
 const log = createLogger('main', 'github-provider')
 
+/** GitHub's file status vocabulary folded onto git's status letters. `copied`,
+ *  `changed` and `unchanged` have no letter of their own and read as edits. */
+const GITHUB_FILE_STATUS: Record<string, ChangedFileStat['status']> = {
+  added: 'A',
+  removed: 'D',
+  renamed: 'R',
+}
+
 // ─── GraphQL documents ────────────────────────────────────────────────────────
 // REST can't report a thread's resolution state, and there is no REST mutation to
 // resolve/unresolve — so threads and their lifecycle go through GraphQL (§6.3).
@@ -706,6 +714,7 @@ class GitHubProvider implements ReviewProvider {
       path: f.filename,
       additions: f.additions,
       deletions: f.deletions,
+      status: GITHUB_FILE_STATUS[f.status] ?? 'M',
     }))
   }
 

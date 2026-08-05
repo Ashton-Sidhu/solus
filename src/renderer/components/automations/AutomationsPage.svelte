@@ -1,10 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import {
-    PlusIcon,
-    StarIcon,
-    ArrowsClockwiseIcon,
-  } from "phosphor-svelte";
+  import { StarIcon } from "phosphor-svelte";
   import type { Automation } from "../../../shared/types";
   import { getWorkspaceContext, getWindowContext, runtime } from "../../contexts";
   import { toasts } from "../../lib/toasts";
@@ -14,19 +10,22 @@
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { matchesOpenProjects } from "../../lib/sessionUtils";
-  import { PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
-  import PageEmpty from "../ui/PageEmpty.svelte";
-  import { folderLabel } from "./lib/automation-format";
+  import { Button } from "../ui/button";
+  import SegmentedControl from "../ui/SegmentedControl.svelte";
+  import SortMenu from "../ui/SortMenu.svelte";
+  import {
+    ListEmpty,
+    ListFilterBar,
+    ListGroup,
+    ListPage,
+    ListSkeleton,
+    type ListFilterSpec,
+    type ListSummaryStat,
+  } from "../ui/list-page";
+  import { folderLabel, relativeTime } from "./lib/automation-format";
   import AutomationBuilder from "./AutomationBuilder.svelte";
   import AutomationLaunchpad from "./AutomationLaunchpad.svelte";
   import AutomationRow from "./AutomationRow.svelte";
-  import PageShell from "../ui/PageShell.svelte";
-  import PageHeader from "../ui/PageHeader.svelte";
-  import SearchField from "../ui/search-field";
-  import SegmentedControl from "../ui/SegmentedControl.svelte";
-  import SectionLabel from "../ui/SectionLabel.svelte";
-  import SortMenu from "../ui/SortMenu.svelte";
-  import { Skeleton } from "../ui/skeleton";
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
@@ -43,9 +42,21 @@
     | { kind: "edit"; automation: Automation | null };
   let view = $state<View>({ kind: "list" });
 
-  // Scoped to the projects with open sessions in the sidebar; falls back to the
-  // status bar's project path when no sessions are open (handled by the getter).
-  const scopeRoots = $derived(session.openProjectScopeRoots);
+  // ── Project scope ──
+  // One project at a time, like Tasks and Pull requests: `null` follows the
+  // project being worked in, a key pins the list to another open one. Scoping
+  // still goes through the project's *roots* rather than its key, so an
+  // automation whose cwd is a worktree of that repo stays with its project.
+  let pinnedProjectKey = $state<string | null>(null);
+  const projects = $derived(session.openProjects);
+  const activeProject = $derived(
+    projects.find((p) => p.key === pinnedProjectKey) ??
+      projects.find((p) => p.key === session.galleryProjectPath) ??
+      projects[0],
+  );
+  const projectOptions = $derived(
+    projects.map((p) => ({ projectKey: p.key, label: p.label })),
+  );
 
   // ── Command bar: search + status filter + favourites + sort ──
   type StatusFilter = "all" | "active" | "paused";
@@ -71,11 +82,28 @@
   let statusFilter = $state<StatusFilter>("all");
   let showStarred = $state(false);
   let sortMode = $state<SortMode>("recent");
-  let searchEl = $state<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  let searchEl = $state<HTMLInputElement | null>(null);
+  // The highlighted row — what ↵ opens and ␣ pauses. Arrow keys only move it;
+  // nothing is fetched or mounted until a row is actually opened.
+  let selectedId = $state<string | null>(null);
+  let collapsedGroups = $state<Record<string, boolean>>({});
 
-  // The visible universe: automations under a currently-open project.
+  // Tick the clock so "next run in 4 hr" and the rows' ages keep counting down
+  // instead of freezing at load.
+  let now = $state(Date.now());
+  $effect(() => {
+    if (!open) return;
+    const interval = setInterval(() => (now = Date.now()), 30_000);
+    return () => clearInterval(interval);
+  });
+
+  // The visible universe: automations belonging to the scoped project.
   const scoped = $derived(
-    store.items.filter((a) => matchesOpenProjects(a.action.cwd, scopeRoots)),
+    activeProject
+      ? store.items.filter((a) =>
+          matchesOpenProjects(a.action.cwd, activeProject.roots),
+        )
+      : [],
   );
 
   const counts = $derived.by(() => {
@@ -92,9 +120,27 @@
   ]);
 
   const isInitialLoading = $derived(!store.loaded && store.loading);
-  // The zero-state owns the primary CTA, so the header hides its New button and
-  // the command bar (search/filter noise with nothing to filter) while it shows.
+  // The zero-state owns the page, so the header hides its New button and the
+  // command bar (search/filter noise with nothing to filter) while it shows.
   const showEmpty = $derived(!isInitialLoading && counts.all === 0);
+
+  // The lead statistic is what the page is for — how much is running unattended
+  // — and it is the only coloured text in the header.
+  const summary = $derived.by<ListSummaryStat[]>(() => {
+    const soonest = scoped
+      .filter((a) => a.enabled && a.nextRunAt)
+      .map((a) => a.nextRunAt!)
+      .sort()[0];
+    return [
+      { label: `${counts.active} active`, tint: "running" },
+      { label: `${counts.paused} paused` },
+      {
+        label: soonest
+          ? `next run ${relativeTime(soonest, now)}`
+          : "nothing scheduled",
+      },
+    ];
+  });
 
   // Flat, filtered, sorted list. Sections are built from this result so search,
   // starred-only, and status tabs still apply before grouping.
@@ -144,6 +190,21 @@
     );
   });
 
+  const listFilters = $derived<ListFilterSpec[]>([
+    {
+      key: "starred",
+      label: "Starred",
+      icon: StarIcon,
+      count: scoped.filter((a) => a.favorite).length,
+      active: showStarred,
+      toggle: () => (showStarred = !showStarred),
+    },
+  ]);
+
+  const footCount = $derived(
+    `${automations.length} automation${automations.length === 1 ? "" : "s"}`,
+  );
+
   $effect(() => {
     if (open) {
       // Reset the command bar each time the page opens.
@@ -151,6 +212,7 @@
       statusFilter = "all";
       showStarred = false;
       sortMode = "recent";
+      selectedId = null;
       // Deep-link: jump straight into one automation's editor when the route
       // names one (e.g. from the project panel or a "Sent via automation"
       // badge); the bare route lands on the list.
@@ -209,6 +271,16 @@
     view = { kind: "list" };
   }
 
+  // A different project is a different list, so nothing about how the old one
+  // was being read survives the switch.
+  function selectProject(projectKey: string) {
+    pinnedProjectKey =
+      projectKey === session.galleryProjectPath ? null : projectKey;
+    clearFilters();
+    selectedId = null;
+    collapsedGroups = {};
+  }
+
   function clearFilters() {
     query = "";
     statusFilter = "all";
@@ -245,11 +317,59 @@
       onDismiss: () => void store.commitPending(),
     });
   }
+
+  // ── List keyboard nav ── the four keys the footer rail advertises.
+  function onListKeydown(e: KeyboardEvent) {
+    const inField = e.target instanceof HTMLElement && e.target.closest("input, textarea");
+    const selected = automations.find((a) => a.id === selectedId) ?? null;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      if (automations.length === 0) return;
+      e.preventDefault();
+      const index = selected ? automations.indexOf(selected) : -1;
+      const next =
+        e.key === "ArrowDown"
+          ? Math.min(index + 1, automations.length - 1)
+          : Math.max(index - 1, 0);
+      selectedId = automations[next].id;
+    } else if (e.key === "Enter" && selected && !inField) {
+      e.preventDefault();
+      startEdit(selected);
+    } else if (e.key === " " && selected && !inField) {
+      e.preventDefault();
+      void store.setEnabled(selected.id, !selected.enabled);
+    }
+  }
 </script>
+
+{#snippet filterBar()}
+  <ListFilterBar
+    bind:query
+    bind:searchEl
+    placeholder="Search automations…"
+    filters={listFilters}
+  >
+    {#snippet trailing()}
+      <SegmentedControl
+        variant="bar"
+        compact
+        options={statusSegments}
+        isActive={(v) => statusFilter === v}
+        onSelect={(v) => (statusFilter = v)}
+        ariaLabel="Filter by status"
+      />
+      <SortMenu
+        bind:value={sortMode}
+        options={SORT_OPTIONS}
+        ariaLabel="Sort automations"
+        class="h-7 gap-1.5 rounded-[10px] px-2.5 text-[13px] font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
+      />
+    {/snippet}
+  </ListFilterBar>
+{/snippet}
 
 {#if open}
   <div
-    class="@container relative flex min-h-0 flex-1 flex-col overflow-hidden bg-(--solus-container-bg) focus:outline-none"
+    class="@container relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background focus:outline-none"
     role="dialog"
     aria-label="Automations"
     tabindex="-1"
@@ -258,168 +378,107 @@
       <!-- ── Full-page automation detail / editor ── -->
       <AutomationBuilder automation={view.automation} onDone={backToList} />
     {:else}
-      {#snippet automationStats()}
-        <span class="flex items-center gap-1.5">
-          <span
-            class="size-1.5 shrink-0 rounded-full bg-(--solus-art-positive)"
-            aria-hidden="true"
-          ></span>
-          <span class="tabular-nums">{counts.active} active</span>
-        </span>
-        <span class="opacity-40" aria-hidden="true">·</span>
-        <span class="tabular-nums">{counts.paused} paused</span>
-        <span class="opacity-40" aria-hidden="true">·</span>
-        <span class="tabular-nums">{counts.all} total</span>
-      {/snippet}
-      <PageShell>
-        <PageHeader
-          title="Automations"
-          subtitle={automationStats}
-          size="large"
-          onClose={close}
-        >
-          {#snippet icon()}
-            <!-- The cycle, not a bolt: an automation is recurring work, not fast work. -->
-            <ArrowsClockwiseIcon size={11} weight="bold" />
-          {/snippet}
-          {#snippet actions()}
-            {#if !showEmpty}
-              <button
-                type="button"
-                class="inline-flex h-[2.125rem] shrink-0 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-primary pr-[0.9375rem] pl-3 text-[0.78125rem] font-semibold text-primary-foreground transition-[filter] duration-100 hover:brightness-[1.07]"
-                onclick={startCreate}
-                data-testid="automation-new"
+      <ListPage
+        projects={projectOptions}
+        activeProjectKey={activeProject?.key ?? ""}
+        emptyProjectLabel="No project"
+        onSelectProject={selectProject}
+        title="Automations"
+        {summary}
+        primaryAction={showEmpty
+          ? undefined
+          : { label: "New automation", shortcut: "⌘N", run: startCreate }}
+        onClose={close}
+        filters={showEmpty ? undefined : filterBar}
+        hints={[
+          { key: "↵", label: "Open" },
+          { key: "⌘N", label: "New" },
+          { key: "/", label: "Search" },
+          { key: "␣", label: "Pause" },
+        ]}
+        count={showEmpty ? undefined : footCount}
+      >
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div onkeydown={onListKeydown} role="presentation">
+          {#if isInitialLoading}
+            <ListSkeleton plan={[[52, 38, 44, 30]]} identWidth={110} />
+          {:else if showEmpty}
+            <!-- No CTA of its own — the launchpad directly below is the call to
+                 action, so a button here would only compete with it. -->
+            <div
+              class="mt-3.5 flex max-w-[600px] flex-col gap-2.5 rounded-[14px] bg-[var(--wash-1)] px-6 py-[26px]"
+            >
+              <span
+                class="text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase"
+                >Nothing running yet</span
               >
-                <PlusIcon size={12} weight="bold" />
-                <span>New</span>
-              </button>
-            {/if}
-          {/snippet}
-        </PageHeader>
-
-        <!-- ── Command bar: search + status segments + starred + sort ── -->
-        {#if !showEmpty}
-          <div class="flex min-w-0 flex-wrap items-center gap-2.5 pt-1 pb-4">
-            <SearchField
-              bind:ref={searchEl}
-              bind:value={query}
-              placeholder="Search automations…"
-              class="h-8 min-w-0 flex-1 basis-0 rounded-lg border-0 bg-muted px-3 py-0 @max-[44rem]:basis-0"
-            />
-            <SegmentedControl
-              variant="bar"
-              options={statusSegments}
-              isActive={(v) => statusFilter === v}
-              onSelect={(v) => (statusFilter = v)}
-              ariaLabel="Filter by status"
-            />
-            <div class="ml-auto flex shrink-0 items-center gap-2">
-              <button
-                type="button"
-                class="inline-flex size-[2.125rem] shrink-0 cursor-pointer items-center justify-center rounded-[0.5625rem] border transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] {showStarred
-                  ? 'border-transparent bg-secondary text-secondary-foreground'
-                  : 'border-[color-mix(in_srgb,var(--solus-container-border)_80%,transparent)] bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground'}"
-                onclick={() => (showStarred = !showStarred)}
-                aria-pressed={showStarred}
-                aria-label="Starred automations"
-                title="Starred automations"
+              <h2
+                class="text-[19.5px] leading-[1.35] font-semibold tracking-[-.014em] text-pretty"
               >
-                <StarIcon size={14} weight={showStarred ? "fill" : "regular"} />
-              </button>
-              <SortMenu
-                bind:value={sortMode}
-                options={SORT_OPTIONS}
-                ariaLabel="Sort automations"
-                class="h-[2.125rem] gap-1.5 rounded-[0.5625rem] border border-[color-mix(in_srgb,var(--solus-container-border)_80%,transparent)] bg-transparent px-2.5 py-0 text-[12.5px] font-normal text-muted-foreground hover:bg-muted hover:text-foreground"
-              />
+                What would you rather not do again next week?
+              </h2>
+              <p
+                class="max-w-[56ch] text-[13px] leading-[1.65] text-pretty text-muted-foreground"
+              >
+                Say it once. An agent runs it against your repo on the cadence
+                you pick, and leaves a run you can review.
+              </p>
             </div>
-          </div>
-        {/if}
-
-        <!-- ── Body: the list ── -->
-        {#if isInitialLoading}
-          <div
-            class="-mx-3 flex flex-col gap-1 pt-1"
-            role="status"
-            aria-label="Loading automations"
-          >
-            {#each [28, 38, 22, 32] as width, i (i)}
-              <div class="flex items-center gap-3 rounded-[0.625rem] px-3 py-3" aria-hidden="true">
-                <Skeleton class="size-7 shrink-0 rounded-[0.5rem] bg-(--solus-surface-hover)" style="animation-delay: {i * 120}ms" />
-                <span class="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <Skeleton class="h-2.5 rounded-full bg-(--solus-surface-hover)" style="width: {width}%; animation-delay: {i * 120}ms" />
-                  <Skeleton class="h-2 rounded-full bg-(--solus-surface-hover) opacity-60" style="width: {Math.round(width * 0.6)}%; animation-delay: {i * 120}ms" />
-                </span>
-                <Skeleton class="ml-auto h-2.5 w-20 shrink-0 rounded-full bg-(--solus-surface-hover)" style="animation-delay: {i * 120}ms" />
-              </div>
-            {/each}
-          </div>
-        {:else if counts.all === 0}
-          <!-- No CTA of its own — the launchpad directly below is the call to
-               action, so a button here would only compete with it. -->
-          <div class="flex max-w-[40rem] flex-col gap-3.5 pt-3.5 pb-2">
-            <span
-              class="text-[0.65625rem] font-semibold tracking-[0.13em] text-[color-mix(in_srgb,var(--solus-text-tertiary)_85%,transparent)] uppercase"
-              >Nothing running yet</span
-            >
-            <h2
-              class="text-[1.8125rem] leading-[1.15] font-semibold tracking-[-0.032em] text-pretty text-(--solus-text-primary)"
-            >
-              What would you rather not do again next week?
-            </h2>
-            <p class="text-sm leading-[1.65] text-pretty text-(--solus-text-tertiary)">
-              Say it once. An agent runs it against your repo on the cadence you
-              pick, and leaves a run you can review.
-            </p>
-          </div>
-        {:else if automations.length === 0}
-          <PageEmpty title="No automations match.">
-            Try a different search or filter.
-            {#snippet actions()}
-              <button
-                type="button"
-                class={PAGE_SECONDARY_BTN}
-                onclick={clearFilters}
-              >
-                Clear filters
-              </button>
-            {/snippet}
-          </PageEmpty>
-        {:else}
-          <div class="flex flex-col">
+          {:else if automations.length === 0}
+            <ListEmpty title="No automations match.">
+              Try a different search or filter.
+              {#snippet actions()}
+                <Button
+                  type="button"
+                  class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  onclick={clearFilters}
+                >
+                  Clear filters
+                </Button>
+              {/snippet}
+            </ListEmpty>
+          {:else}
             {#each automationSections as section (section.id)}
-              <SectionLabel label={section.label} count={section.items.length} />
-              <ul
-                class="-mx-3 flex flex-col"
-                role="list"
-                aria-label={section.label}
+              <ListGroup
+                label={section.label}
+                count={section.items.length}
+                open={!collapsedGroups[section.id]}
+                onToggle={() =>
+                  (collapsedGroups = {
+                    ...collapsedGroups,
+                    [section.id]: !collapsedGroups[section.id],
+                  })}
               >
-                {#each section.items as a (a.id)}
-                  <li>
-                    <AutomationRow
-                      automation={a}
-                      onOpen={startEdit}
-                      onToggleEnabled={toggleEnabled}
-                      onRunNow={runNow}
-                      onCancelRun={cancelRun}
-                      onToggleFavorite={toggleFavorite}
-                      onDelete={deleteAutomation}
-                    />
-                  </li>
-                {/each}
-              </ul>
+                <ul class="flex flex-col" role="list" aria-label={section.label}>
+                  {#each section.items as a (a.id)}
+                    <li>
+                      <AutomationRow
+                        automation={a}
+                        {now}
+                        selected={selectedId === a.id}
+                        onOpen={startEdit}
+                        onToggleEnabled={toggleEnabled}
+                        onRunNow={runNow}
+                        onCancelRun={cancelRun}
+                        onToggleFavorite={toggleFavorite}
+                        onDelete={deleteAutomation}
+                      />
+                    </li>
+                  {/each}
+                </ul>
+              </ListGroup>
             {/each}
-          </div>
-        {/if}
+          {/if}
 
-        <!-- ── Launchpad: describe it, or start from a template. Shown in both
-             states — a workspace with automations still starts new ones here. -->
-        {#if !isInitialLoading}
-          <div class={showEmpty ? "pt-8.5" : "pt-12"}>
-            <AutomationLaunchpad onOpen={startEdit} onCreateBlank={startCreate} />
-          </div>
-        {/if}
-      </PageShell>
+          <!-- ── Launchpad: describe it, or start from a template. Shown in both
+               states — a workspace with automations still starts new ones here. -->
+          {#if !isInitialLoading}
+            <div class={showEmpty ? "pt-[22px]" : "pt-[30px]"}>
+              <AutomationLaunchpad onOpen={startEdit} onCreateBlank={startCreate} />
+            </div>
+          {/if}
+        </div>
+      </ListPage>
     {/if}
   </div>
 {/if}

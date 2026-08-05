@@ -34,19 +34,20 @@ interface TaskSessionLinkRow {
   /** Legacy capture — populated by earlier versions, read-only today. */
   pr: string | null
   linked_at: number
-  /** Joined from `sessions` on the session-keyed reads; absent on attempt reads. */
-  session_title?: string | null
-  session_provider?: string | null
-  last_activity_at?: number | null
+  /** Joined from `sessions` by `LINK_SELECT`, which is the only way links are
+   *  read. Null when the session is not in the index yet. */
+  session_title: string | null
+  session_provider: string | null
+  last_activity_at: number | null
 }
 
 function linkFromRow(row: TaskSessionLinkRow): TaskSessionLink {
   return {
     taskId: row.task_id,
     sessionId: row.session_id,
-    ...(row.session_title == null ? {} : { sessionTitle: row.session_title }),
-    ...(row.session_provider == null ? {} : { provider: row.session_provider }),
-    ...(row.last_activity_at == null ? {} : { lastActivityAt: row.last_activity_at }),
+    sessionTitle: row.session_title ?? null,
+    provider: row.session_provider ?? null,
+    lastActivityAt: row.last_activity_at ?? null,
     role: row.role,
     ...(row.branch === null ? {} : { branch: row.branch }),
     ...(row.pr === null ? {} : { pr: jsonValue<TaskPr | undefined>(row.pr, undefined) }),
@@ -104,34 +105,28 @@ export function writeSessionLink(
   }
 }
 
-/** One task's attempts, oldest-linked last. */
-export function attemptsForTask(taskId: string, db: DatabaseSync = database()): TaskSessionLink[] {
-  const rows = db.prepare(`
-    SELECT * FROM task_session_links
-    WHERE task_id = ?
-    ORDER BY linked_at DESC, session_id
-  `).all(taskId) as unknown as TaskSessionLinkRow[]
-  return rows.map(linkFromRow)
-}
+/** The one way session links are read. Every link the renderer sees comes from
+ * here, joined to its session's display metadata: a second reader that skipped
+ * the join once already shipped a sidebar full of sessions named after their
+ * parent task and a task panel full of raw session ids. */
+const LINK_SELECT = `
+  SELECT
+    task_session_links.*,
+    COALESCE(sessions.custom_title, sessions.first_message) AS session_title,
+    sessions.provider AS session_provider,
+    sessions.last_timestamp AS last_activity_at
+  FROM task_session_links
+  LEFT JOIN sessions ON sessions.session_id = task_session_links.session_id
+`
 
-/** Task-keyed attempts for either one task or the complete global store, with
- * session titles joined in for display. */
-export async function taskSessions(taskId?: string): Promise<Record<string, TaskSessionLink[]>> {
-  const select = `
-    SELECT
-      task_session_links.*,
-      COALESCE(sessions.custom_title, sessions.first_message) AS session_title,
-      sessions.provider AS session_provider,
-      sessions.last_timestamp AS last_activity_at
-    FROM task_session_links
-    LEFT JOIN sessions ON sessions.session_id = task_session_links.session_id
-  `
+/** Task-keyed attempts for either one task or the complete global store. */
+export function taskSessions(taskId?: string): Record<string, TaskSessionLink[]> {
   const rows = (taskId
-    ? getDb().prepare(`${select}
+    ? getDb().prepare(`${LINK_SELECT}
         WHERE task_session_links.task_id = ?
         ORDER BY task_session_links.linked_at, task_session_links.session_id
       `).all(taskId)
-    : getDb().prepare(`${select}
+    : getDb().prepare(`${LINK_SELECT}
         ORDER BY task_session_links.linked_at, task_session_links.task_id, task_session_links.session_id
       `).all()) as unknown as TaskSessionLinkRow[]
   const links: Record<string, TaskSessionLink[]> = {}
@@ -156,7 +151,7 @@ export async function tasksForSession(sessionId: string): Promise<TaskForSession
   const rootId = parent?.id ?? task.id
   const subtasks = listTaskChildren(rootId)
   const siblings = task.parentId ? subtasks.filter((subtask) => subtask.id !== task.id) : []
-  const attemptsByTask = await taskSessions()
+  const attemptsByTask = taskSessions()
   const attempts = [rootId, ...subtasks.map((subtask) => subtask.id)]
     .flatMap((id) => attemptsByTask[id] ?? [])
   return { task, parent, subtasks, siblings, attempts }
@@ -174,6 +169,8 @@ interface PrepareSessionTaskInput {
   existingAgentSessionId?: string | null
   /** Bind this task instead of minting a new one. */
   existingTaskId?: string | null
+  /** Mint the session-born task as a direct child of this task. */
+  parentTaskId?: string | null
   sessionId?: string
   projectKey?: string | null
   worktreeKey?: string | null
@@ -193,6 +190,10 @@ export async function prepareSessionTask(input: PrepareSessionTaskInput): Promis
     const db = database()
     const now = Date.now()
     const existingTaskId = normalizedOptional(input.existingTaskId)
+    const parentTaskId = normalizedOptional(input.parentTaskId)
+    if (existingTaskId && parentTaskId) {
+      throw new Error('A session cannot bind an existing task and create a subtask at the same time.')
+    }
     const projectKey = normalizedOptional(input.projectKey)
     const worktreeKey = normalizedOptional(input.worktreeKey)
     let task: Task
@@ -221,7 +222,7 @@ export async function prepareSessionTask(input: PrepareSessionTaskInput): Promis
       task = writeTask(db, {
         title: promptTitle(input),
         projectKey,
-        parentId: null,
+        parentId: parentTaskId,
         status: 'in_progress',
         worktreeKey,
         branch: input.branch,
@@ -241,7 +242,11 @@ export async function prepareSessionTask(input: PrepareSessionTaskInput): Promis
     }
     return task
   })
-  emitChanged()
+  // A provider session id is not available during the usual pre-launch mint.
+  // Publishing that half-finished record makes clients briefly render both the
+  // durable task and its still-loose session. The later linkSession write emits
+  // once the task and session can be read as one coherent sidebar snapshot.
+  if (input.sessionId) emitChanged()
   return task
 }
 

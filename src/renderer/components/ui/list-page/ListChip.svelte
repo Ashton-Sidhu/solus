@@ -14,7 +14,7 @@
 </script>
 
 <span
-  class="inline-flex h-[19px] shrink-0 items-center rounded-md px-[7px] text-[10.5px] font-medium tracking-[.03em] {chip.mono
+  class="inline-flex h-[19px] shrink-0 items-center rounded-md px-[7px] text-[11px] font-[450] tracking-[.02em] {chip.mono
     ? 'font-mono'
     : ''}"
   style="background: {skin.background}; color: {skin.color}; box-shadow: {skin.boxShadow}"

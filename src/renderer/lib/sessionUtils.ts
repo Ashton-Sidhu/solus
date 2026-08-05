@@ -1,12 +1,13 @@
 import {
-  HandPalmIcon,
-  ClipboardTextIcon,
+  ChatTeardropIcon,
+  FileTextIcon,
   SpinnerGapIcon,
   CheckCircleIcon,
   XCircleIcon,
   StopCircleIcon,
   ClockIcon,
 } from 'phosphor-svelte'
+import type { TaskSessionLink } from '../../shared/task-types'
 import type { Tab, Session, SessionMeta, SessionStatus, Plan } from '../../shared/types'
 import type { TabGroupMode } from '../contexts'
 
@@ -81,9 +82,9 @@ export function attentionLabel(state: AttentionState): string {
 
 export function getAttentionIcon(state: AttentionState): StatusIcon | null {
   if (state === 'awaiting')
-    return { component: HandPalmIcon, color: 'var(--solus-status-permission)', spin: false }
+    return { component: ChatTeardropIcon, color: 'var(--solus-status-permission)', spin: false }
   if (state === 'awaiting_plan')
-    return { component: ClipboardTextIcon, color: 'var(--solus-status-running)', spin: false }
+    return { component: FileTextIcon, color: 'var(--solus-status-running)', spin: false }
   if (state === 'queued')
     return { component: ClockIcon, color: 'var(--solus-status-permission)', spin: false }
   if (state === 'error')
@@ -204,9 +205,9 @@ export function branchKeyFor(sess: Session | undefined): string {
 
 export function getStatusIcon(status: SessionStatus): StatusIcon | null {
   if (status === 'awaiting_input')
-    return { component: HandPalmIcon, color: 'var(--solus-status-permission)', spin: false }
+    return { component: ChatTeardropIcon, color: 'var(--solus-status-permission)', spin: false }
   if (status === 'awaiting_plan')
-    return { component: ClipboardTextIcon, color: 'var(--solus-status-running)', spin: false }
+    return { component: FileTextIcon, color: 'var(--solus-status-running)', spin: false }
   if (status === 'rate_limited')
     return { component: ClockIcon, color: 'var(--solus-status-permission)', spin: false }
   if (status === 'running' || status === 'connecting')
@@ -363,4 +364,69 @@ export function findOpenTabForSession(
     if (sess?.agentSessionId === sessionId && (!provider || sess.provider === provider)) return tabId
   }
   return null
+}
+
+/** What the attempt surfaces need from the workspace to resolve a provider
+ *  session id onto a mounted tab. `sessionFor` rather than a `sessions` index
+ *  read: the workspace registry can answer for tabs the plain record can't. */
+export interface OpenSessionLookup {
+  tabs: Record<string, Tab>
+  sessions: Record<string, Session>
+  tabOrder: string[]
+  sessionFor(tabId: string): Session | undefined
+}
+
+/** The mounted tab running a provider session, paired with its live state.
+ *  Null when the session has no tab open — the ordinary case for a task's
+ *  earlier attempts, which are read from their durable link instead. */
+export function openSessionFor(
+  sessionId: string,
+  workspace: OpenSessionLookup,
+): { tabId: string; tab: Tab; session: Session } | null {
+  const tabId = findOpenTabForSession(
+    sessionId,
+    workspace.tabs,
+    workspace.sessions,
+    workspace.tabOrder,
+  )
+  if (!tabId) return null
+  const tab = workspace.tabs[tabId]
+  const session = workspace.sessionFor(tabId)
+  return tab && session ? { tabId, tab, session } : null
+}
+
+/** The title a mounted tab is currently showing for a session, or null when
+ *  nothing is open for it. An open session can be renamed, or have named itself
+ *  from its first prompt, long before the history index catches up — so this
+ *  outranks the title stored on the durable link. */
+export function liveSessionTitle(
+  sessionId: string,
+  workspace: OpenSessionLookup,
+): string | null {
+  const open = openSessionFor(sessionId, workspace)
+  return open ? sessionTitle(open.session, open.tab) : null
+}
+
+/**
+ * The one naming rule for a task attempt, used by every surface that lists one
+ * (task page, project rail, session sidebar).
+ *
+ * The order is freshest-source-first: a mounted tab knows the live name, the
+ * durable link knows an indexed one, and the owning task's name is still a
+ * better answer than a provider UUID. The short id is the last resort and
+ * should now be unreachable in practice — `taskSessions()` always joins the
+ * session index — so seeing one in the UI means a session is genuinely not
+ * indexed yet, not that a read dropped the column.
+ */
+export function sessionDisplayName(input: {
+  link: Pick<TaskSessionLink, 'sessionId' | 'sessionTitle'>
+  liveTitle?: string | null
+  taskTitle?: string | null
+}): string {
+  return (
+    input.liveTitle?.trim() ||
+    input.link.sessionTitle?.trim() ||
+    input.taskTitle?.trim() ||
+    input.link.sessionId.slice(0, 8)
+  )
 }

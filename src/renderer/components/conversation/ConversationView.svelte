@@ -3,8 +3,8 @@
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import {
-    ClipboardTextIcon,
     DesktopTowerIcon,
+    FileTextIcon,
     GitForkIcon,
     PlusCircleIcon,
     TreeStructureIcon,
@@ -14,6 +14,7 @@
     getWorkspaceContext,
     getPlanStore,
     createSessionHistoryStore,
+    getSettingsContext,
     getWindowContext,
     runtime,
     cloudflareStore,
@@ -44,7 +45,9 @@
   import CodeBlock from "../ui/CodeBlock.svelte";
   import CodeSpan from "../ui/CodeSpan.svelte";
   import MarkdownLink from "./MarkdownLink.svelte";
+  import MarkdownImage from "./MarkdownImage.svelte";
   import ProgressTracker from "./ProgressTracker.svelte";
+  import DiffSummaryCard from "./DiffSummaryCard.svelte";
   import ConversationMinimap from "./ConversationMinimap.svelte";
   import { FindBar } from "../ui/find-bar";
   import { previewText } from "./lib/minimap";
@@ -74,10 +77,12 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
+  import { setMarkdownImageContext } from "./lib/markdown-image";
 
   const markdownRenderers = {
     code: CodeBlock,
     codespan: CodeSpan,
+    image: MarkdownImage,
     link: MarkdownLink,
   };
 
@@ -87,6 +92,7 @@
   const session = getWorkspaceContext();
   const outerScrollbar = getOuterScrollbarContext();
   const planStore = getPlanStore();
+  const settings = getSettingsContext();
   const windowCtx = getWindowContext();
   const sourceSessionHistory = createSessionHistoryStore();
   $effect(() => () => sourceSessionHistory.cancel());
@@ -117,6 +123,7 @@
 
   const tab = $derived(session.tabs[tabId]);
   const sess = $derived(session.sessionFor(tabId));
+  setMarkdownImageContext(() => sess?.workingDirectory);
   const remoteServer = $derived(
     sess?.serverId && sess.serverId !== LOCAL_SERVER_ID
       ? serversStore.servers.find((server) => server.id === sess.serverId)
@@ -760,6 +767,24 @@
   }
 
   const sessionChangedFiles = $derived(sess?.sessionChangedFiles ?? []);
+  const latestTurnSnapshot = $derived(session.turnSnapshots[tabId]?.at(-1));
+  const latestTurnScope = $derived(
+    latestTurnSnapshot
+      ? ({ kind: "turn", index: latestTurnSnapshot.index } as const)
+      : null,
+  );
+  // The turn's closing summary: what the run touched, standing at the end of the
+  // transcript while the user is still only reading it. It steps aside when the
+  // next ask actually lands in the transcript — not on the first keystroke,
+  // because the summary is usually what the composer is being typed *about*.
+  const hasAskedAgain = $derived(sess?.messages.at(-1)?.role === "user");
+  const showTurnDiffSummary = $derived(
+    settings.showDiffSummaryAfterTurn &&
+    !isTurnLive &&
+    !hasAskedAgain &&
+    latestTurnSnapshot !== undefined &&
+    latestTurnSnapshot.filesChanged > 0,
+  );
 
   useKeybinding("conversation.find", () => openFind(), {
     enabled: () => tabId === session.focusedChatTabId,
@@ -1209,7 +1234,9 @@
                   {skipMotion}
                 >
                   {#snippet glyph()}<GitForkIcon size={12} />{/snippet}
-                  Forked from
+                  {item.message.forkSourceRunning
+                    ? "Forked mid-run from"
+                    : "Forked from"}
                   {#snippet title()}"{item.message.forkSourceTitle ||
                       "session"}"{/snippet}
                 </TranscriptDivider>
@@ -1341,6 +1368,18 @@
           {/if}
           <QueuedPromptGroup tabId={tab.id} />
 
+          {#if showTurnDiffSummary && latestTurnScope}
+            <!-- Stands off the turn it reports on: the summary is a footnote to
+                 the last message, not the next line of it. -->
+            <div class="flex justify-center pt-3 animate-msg-in-up">
+              <DiffSummaryCard
+                {tabId}
+                scope={latestTurnScope}
+                onOpenDiff={(filePath) => session.showDiff(tabId, latestTurnScope, filePath)}
+              />
+            </div>
+          {/if}
+
           <div class="min-h-[6.25rem]"></div>
         </div>
       </div>
@@ -1382,7 +1421,7 @@
                  this strip. -->
             {#if isAwaitingPlan}
               <span class="flex items-center gap-1.5">
-                <ClipboardTextIcon
+                <FileTextIcon
                   size={11}
                   weight="bold"
                   style="color:var(--solus-status-running)"

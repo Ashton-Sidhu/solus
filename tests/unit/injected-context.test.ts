@@ -17,7 +17,6 @@ const details = {
     pr: null,
   },
   comments: [{ author: 'ashton', body: 'still broken on reload' }],
-  attempts: [],
   subtasks: [],
 } as unknown as TaskDetails
 

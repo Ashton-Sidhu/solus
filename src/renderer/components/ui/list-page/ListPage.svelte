@@ -15,7 +15,6 @@
     type ListProjectOption,
     type ListSummaryStat,
   } from "./list-page";
-  import ListHintBand from "./ListHintBand.svelte";
   import ListProjectSwitcher from "./ListProjectSwitcher.svelte";
 
   /**
@@ -91,8 +90,6 @@
     actions,
     filters,
     children,
-    hints = [],
-    count,
     scrollEl = $bindable(null),
     contentOwnsScroll = false,
     contentHeight = $bindable(0),
@@ -108,26 +105,25 @@
 </script>
 
 <div
-  class="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-[12.5px] text-foreground"
+  class="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-[13px] text-foreground"
 >
   <div
     class="mx-auto flex min-h-0 w-full max-w-[72rem] flex-1 flex-col px-8 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4"
   >
     <!-- ── Head: title block + action cluster ── -->
-    <div class="flex shrink-0 items-end justify-between gap-8 pt-[42px] pb-[22px]">
+    <div
+      class="flex shrink-0 items-end justify-between gap-8 pt-[42px] pb-[22px]"
+    >
       <div class="flex min-w-0 flex-col gap-[9px]">
-        <ListProjectSwitcher
-          {projects}
-          {activeProjectKey}
-          emptyLabel={emptyProjectLabel}
-          onSelect={onSelectProject}
-        />
-
-        <h1 class="text-[27px] font-semibold tracking-[-.021em] whitespace-nowrap">
+        <h1
+          class="text-[27px] font-semibold tracking-[-.021em] whitespace-nowrap"
+        >
           {title}
         </h1>
 
-        <div class="flex items-center gap-2 text-[11.5px] text-muted-foreground">
+        <div
+          class="flex items-center gap-2 text-[12px] text-muted-foreground"
+        >
           {#each summary as stat, i (stat.label)}
             {#if i > 0}<span class="opacity-35" aria-hidden="true">·</span>{/if}
             <span
@@ -143,6 +139,13 @@
       </div>
 
       <div class="flex shrink-0 items-center gap-2">
+        <ListProjectSwitcher
+          {projects}
+          {activeProjectKey}
+          emptyLabel={emptyProjectLabel}
+          onSelect={onSelectProject}
+        />
+
         {#if onViewChange}
           <div
             class="flex items-center gap-0.5 rounded-full bg-[var(--wash-2)] p-0.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
@@ -151,7 +154,7 @@
           >
             <button
               type="button"
-              class="flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full border-0 px-[13px] text-xs tracking-[-.005em] transition-colors duration-150 {segment(
+              class="flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full border-0 px-[13px] text-[13px] tracking-[-.005em] transition-colors duration-150 {segment(
                 !isInbox,
               )}"
               onclick={() => onViewChange?.("global")}
@@ -162,7 +165,7 @@
             </button>
             <button
               type="button"
-              class="flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full border-0 px-[13px] text-xs tracking-[-.005em] transition-colors duration-150 {segment(
+              class="flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full border-0 px-[13px] text-[13px] tracking-[-.005em] transition-colors duration-150 {segment(
                 isInbox,
               )}"
               onclick={() => onViewChange?.("inbox")}
@@ -171,7 +174,7 @@
               <TrayIcon size={12} class="shrink-0" />
               {inboxLabel}
               <span
-                class="rounded-full px-[5px] py-px font-mono text-[10px] tabular-nums {isInbox
+                class="rounded-full px-[5px] py-px font-mono text-[11px] tabular-nums {isInbox
                   ? 'bg-[color-mix(in_oklch,var(--primary)_15%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
                   : 'bg-[var(--wash-3)] text-muted-foreground'}"
               >
@@ -202,19 +205,26 @@
         {#if primaryAction}
           <button
             type="button"
-            class="flex h-[30px] cursor-pointer items-center gap-[7px] rounded-[10px] border-0 bg-primary px-[13px] text-[12.5px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]"
+            class="flex h-[30px] cursor-pointer items-center gap-[7px] rounded-[10px] border-0 bg-primary px-[13px] text-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]"
             onclick={primaryAction.run}
           >
             <PlusIcon size={12} weight="bold" class="shrink-0" />
             {primaryAction.label}
             {#if primaryAction.shortcut}
-              <span class="font-mono text-[10.5px] opacity-80">{primaryAction.shortcut}</span>
+              <span class="font-mono text-[11px] opacity-80"
+                >{primaryAction.shortcut}</span
+              >
             {/if}
           </button>
         {/if}
 
         {#if onClose}
-          <button type="button" class={PAGE_ICON_BTN} onclick={onClose} aria-label="Close">
+          <button
+            type="button"
+            class={PAGE_ICON_BTN}
+            onclick={onClose}
+            aria-label="Close"
+          >
             <XIcon size={14} />
           </button>
         {/if}
@@ -234,6 +244,4 @@
       {@render children()}
     </div>
   </div>
-
-  <ListHintBand {hints} {count} />
 </div>

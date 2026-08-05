@@ -6,7 +6,6 @@
     TerminalWindowIcon,
     ArrowsOutSimpleIcon,
     ArrowsClockwiseIcon,
-    ArrowSquareOutIcon,
     GitForkIcon,
     TreeStructureIcon,
     SquareIcon,
@@ -31,7 +30,6 @@
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import { KEYBINDINGS, type BindingId } from "../../lib/keybindings/manifest";
   import { formatCombo } from "../../lib/keybindings/match";
-  import { openInConfiguredEditor } from "../../lib/openExternalEditor";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {
@@ -42,6 +40,7 @@
   import Kbd from "../ui/Kbd.svelte";
   import * as Popover from "../ui/popover";
   import ActionOrbProgress from "./ActionOrbProgress.svelte";
+  import DiffSummaryCard from "../conversation/DiffSummaryCard.svelte";
   import { actionOrbWouldOverflow } from "./lib/action-orb-layout";
   import "./ActionOrb.css";
 
@@ -72,7 +71,6 @@
     label: string;
     title: string;
   };
-  type FileStat = { additions: number; deletions: number };
 
   const session = getWorkspaceContext();
   const environmentStore = getSessionEnvironmentStore();
@@ -95,18 +93,6 @@
     environmentStore
       .statusFor(gitCwd)
       ?.uncommittedChanges.files.map((file) => file.path) ?? [],
-  );
-  const projectRoot = $derived.by(() => {
-    const ctxProjectPath = session.ctxFor(tabId).session.projectPath;
-    return (
-      ctxProjectPath ||
-      sess?.gitContext?.repoRoot ||
-      sess?.workingDirectory ||
-      ""
-    );
-  });
-  const displayRoot = $derived(
-    sess?.gitContext?.worktreePath || sess?.gitContext?.repoRoot || projectRoot,
   );
   const showDesktopActions = $derived(!runtime.isMobileViewport);
   const showNativeDesktopActions = $derived(
@@ -159,7 +145,9 @@
       ? `Runs on ${remoteHost.label} — not available for remote sessions`
       : "Open session in terminal",
   );
-  const showFork = $derived(!!sess?.agentSessionId && !isRunning);
+  // Forking mid-turn is allowed: the fork branches from the source's last
+  // settled turn rather than the one still being written.
+  const showFork = $derived(!!sess?.agentSessionId);
   const showContinueWorktree = $derived(
     !!sess?.agentSessionId && !isRunning && !sess?.gitContext?.worktreePath,
   );
@@ -258,7 +246,6 @@
   // delay lets the pointer cross the gap into the popover without it dismissing.
   let stepsOpen = $state(false);
   let reviewFilesOpen = $state(false);
-  let fileStats = $state<Record<string, FileStat>>({});
   const itemIndices = $derived.by(() => {
     let idx = 0;
     return {
@@ -303,16 +290,6 @@
       ? focusedAction
       : preferredAction,
   );
-  const totalFileStats = $derived.by(() => {
-    let additions = 0;
-    let deletions = 0;
-    for (const path of sessionChangedFiles) {
-      const stats = statsFor(path);
-      additions += stats?.additions ?? 0;
-      deletions += stats?.deletions ?? 0;
-    }
-    return { additions, deletions };
-  });
   const orbBadge = $derived.by((): OrbBadge | null => {
     if (hasActionInFlight)
       return { kind: "running", label: "", title: "Action running" };
@@ -426,105 +403,9 @@
       window.removeEventListener("solus:review-changed-files", handler);
   });
 
-  $effect(() => {
-    if (
-      !reviewFilesOpen ||
-      !hasSessionChanges ||
-      tabId !== session.focusedChatTabId
-    ) {
-      fileStats = {};
-      return;
-    }
-    const fingerprint = changesFingerprint;
-    const livePaths = [...sessionChangedFiles];
-    const ctx = session.ctxFor(tabId);
-    let cancelled = false;
-    session.apiFor(tabId).diffStats(ctx, { scope: { kind: "session" }, livePaths }).then((files) => {
-      if (cancelled || fingerprint !== changesFingerprint) return;
-      const nextStats: Record<string, FileStat> = {};
-      for (const file of files) {
-        nextStats[file.path] = {
-          additions: file.additions,
-          deletions: file.deletions,
-        };
-      }
-      fileStats = nextStats;
-    }).catch(() => {
-      if (!cancelled) fileStats = {};
-    });
-    return () => {
-      cancelled = true;
-    };
-  });
-
-  function handleOpenFiles() {
-    const opened = openInConfiguredEditor(session.ctxFor(tabId), {
-      filePaths: uncommittedFiles,
-      editorId: theme.defaultEditor,
-      terminalId: theme.defaultTerminal,
-      cwd: sess?.workingDirectory,
-    });
-    if (opened) closeExpanded();
-  }
-
-  function handleOpenFileDiff(path: string) {
-    session.showDiff(tabId, { kind: "session" }, displayPath(path));
+  function handleOpenDiffSummary(filePath?: string) {
+    session.showDiff(tabId, { kind: "session" }, filePath);
     closeExpanded();
-  }
-
-  function stripPathBase(path: string, base?: string | null): string {
-    if (!base || !path.startsWith("/")) return path;
-    const normalizedBase = base.replace(/\/$/, "");
-    if (!normalizedBase) return path;
-    if (path === normalizedBase) return "";
-    return path.startsWith(`${normalizedBase}/`)
-      ? path.slice(normalizedBase.length + 1)
-      : path;
-  }
-
-  function displayPath(path: string): string {
-    const trimmed = path.replace(/^\.\//, "");
-    if (!trimmed.startsWith("/")) {
-      const cwd = sess?.workingDirectory?.replace(/\/$/, "") ?? "";
-      const root = displayRoot.replace(/\/$/, "");
-      if (cwd && root && cwd !== root && cwd.startsWith(`${root}/`)) {
-        const cwdRelative = cwd.slice(root.length + 1);
-        if (trimmed === cwdRelative || trimmed.startsWith(`${cwdRelative}/`))
-          return trimmed;
-        return `${cwdRelative}/${trimmed}`.replace(/^\.\//, "");
-      }
-      return trimmed;
-    }
-    const withoutWorktree = stripPathBase(
-      trimmed,
-      sess?.gitContext?.worktreePath,
-    );
-    if (withoutWorktree !== trimmed) return withoutWorktree;
-    const withoutProject = stripPathBase(trimmed, projectRoot);
-    if (withoutProject !== trimmed) return withoutProject;
-    const withoutRepo = stripPathBase(trimmed, sess?.gitContext?.repoRoot);
-    if (withoutRepo !== trimmed) return withoutRepo;
-    return stripPathBase(trimmed, sess?.workingDirectory).replace(/^\.\//, "");
-  }
-
-  function fileName(path: string): string {
-    const relativePath = displayPath(path);
-    const parts = relativePath.split("/").filter(Boolean);
-    return parts[parts.length - 1] ?? relativePath;
-  }
-
-  function fileDir(path: string): string {
-    const relativePath = displayPath(path);
-    const idx = relativePath.lastIndexOf("/");
-    return idx > 0 ? relativePath.slice(0, idx + 1) : "";
-  }
-
-  function statsFor(path: string): FileStat {
-    const relativePath = displayPath(path);
-    return (
-      fileStats[path] ??
-      fileStats[relativePath] ?? { additions: 0, deletions: 0 }
-    );
   }
 
   function handleOpenTerminal() {
@@ -839,96 +720,19 @@
           }}
         >
           <Popover.Content
-            class="files-pop progress-popover gap-0 p-0"
+            class="files-pop progress-popover p-0"
             side="top"
             sideOffset={11}
             style={`--orb-scale: calc(var(--solus-font-scale, 1) * ${orbScreenScale})`}
             role="dialog"
             aria-label="Review changed files"
           >
-            <div
-              class="files-pop-head grid grid-cols-[auto_minmax(0,1fr)_auto] items-center"
-            >
-              <span
-                class="files-pop-icon inline-flex items-center justify-center"
-                aria-hidden="true"
-              >
-                <FilesIcon size={18} weight="regular" />
-              </span>
-              <div
-                class="files-pop-title-block flex min-w-0 items-baseline gap-[calc(0.5rem_*_var(--orb-scale))]"
-              >
-                <span
-                  class="files-pop-title truncate text-(--solus-text-primary) [font-size:var(--pop-title-size)] leading-[1.25] font-semibold tracking-normal"
-                  >{sessionChangedFiles.length} file{sessionChangedFiles.length !==
-                  1
-                    ? "s"
-                    : ""}</span
-                >
-                <span
-                  class="files-pop-subtitle inline-flex shrink-0 items-center gap-[calc(0.25rem_*_var(--orb-scale))] text-(--solus-text-tertiary) [font-size:var(--pop-meta-size)] leading-[1.25] font-medium tabular-nums"
-                >
-                  <span class="files-pop-add text-(--solus-art-positive)"
-                    >+{totalFileStats.additions}</span
-                  >
-                  <span class="files-pop-del text-(--solus-art-negative)"
-                    >-{totalFileStats.deletions}</span
-                  >
-                </span>
-              </div>
-              <TooltipUI.Root>
-                <TooltipUI.Trigger>
-                  {#snippet child({ props: tooltipProps })}
-                    <button {...tooltipProps}
-                class="files-pop-primary inline-flex cursor-pointer items-center justify-center whitespace-nowrap bg-[color-mix(in_srgb,var(--solus-container-bg)_54%,transparent)] font-secondary text-(--solus-text-secondary)"
-                onclick={handleOpenFiles}
-                disabled={!theme.defaultEditor}
-                title={theme.defaultEditor
-                  ? "Open files in editor"
-                  : "Choose a default editor in settings"}
-                aria-label="Open files in editor"
-              >
-                <ArrowSquareOutIcon size={15} weight="regular" />
-                <span>Open files in editor</span>
-              </button>
-                  {/snippet}
-                </TooltipUI.Trigger>
-                <TooltipUI.Content value={theme.defaultEditor
-                  ? "Open files in editor"
-                  : "Choose a default editor in settings"} />
-              </TooltipUI.Root>
-            </div>
-            <div class="files-pop-list overflow-auto">
-              {#each sessionChangedFiles as path (path)}
-                {@const stats = statsFor(path)}
-                <button
-                  class="files-pop-row grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_calc(4.25rem_*_var(--orb-scale))] items-center border-0 bg-transparent text-left"
-                  type="button"
-                  onclick={() => handleOpenFileDiff(path)}
-                  aria-label={`Open diff for ${displayPath(path)}`}
-                >
-                  <span
-                    class="files-pop-path min-w-0 truncate text-(--solus-text-primary) [font-size:var(--pop-body-size)] leading-[1.35] font-medium"
-                  >
-                    <span
-                      class="files-pop-dir font-normal text-(--solus-text-tertiary)"
-                      >{fileDir(path)}</span
-                    >{fileName(path)}
-                  </span>
-                  <span
-                    class="files-pop-stats inline-flex justify-end gap-[calc(0.25rem_*_var(--orb-scale))] [font-size:var(--pop-meta-size)] [font-weight:550] tabular-nums"
-                    aria-label={`${stats.additions} additions, ${stats.deletions} deletions`}
-                  >
-                    <span class="files-pop-add text-(--solus-art-positive)"
-                      >+{stats.additions}</span
-                    >
-                    <span class="files-pop-del text-(--solus-art-negative)"
-                      >-{stats.deletions}</span
-                    >
-                  </span>
-                </button>
-              {/each}
-            </div>
+            <DiffSummaryCard
+              {tabId}
+              changedFiles={sessionChangedFiles}
+              onOpenDiff={handleOpenDiffSummary}
+              embedded
+            />
           </Popover.Content>
           <Popover.Trigger>
             {#snippet child({ props })}

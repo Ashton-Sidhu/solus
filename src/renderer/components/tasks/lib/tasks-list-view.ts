@@ -31,13 +31,32 @@ const SOLUS_FALLBACK: ListPerson = {
  * Lifecycle state is carried by the section a row sits in, so it costs no row
  * width and sorts the page for you. Fixed order — the further down, the less it
  * wants your attention.
+ *
+ * These double as the status filter's options: one entry per state a person
+ * would name, which is why `inbox` (untriaged) sits inside Todo, while finished
+ * and abandoned work is split — "I closed this without doing it" is a different
+ * answer from "I did it", and either one may be the one you came looking for.
  */
-const GROUPS: { key: string; label: string; statuses: TaskStatus[] }[] = [
+export const TASK_STATUS_GROUPS: { key: string; label: string; statuses: TaskStatus[] }[] = [
   { key: 'in_progress', label: 'In progress', statuses: ['in_progress'] },
   { key: 'in_review', label: 'In review', statuses: ['in_review'] },
   { key: 'todo', label: 'Todo', statuses: ['inbox', 'todo'] },
-  { key: 'done', label: 'Done', statuses: ['done', 'dropped'] },
+  { key: 'done', label: 'Done', statuses: ['done'] },
+  { key: 'dropped', label: 'Closed', statuses: ['dropped'] },
 ]
+
+/** What a list opens on: live work only. Finished and abandoned work is history
+ *  — reachable in one click, but never in the way of what is still moving. */
+export const OPEN_TASK_STATUS_KEYS = ['in_progress', 'in_review', 'todo']
+
+/** Expand picked group keys into the raw statuses a row is matched against. */
+export function taskStatusesFor(keys: readonly string[]): Set<TaskStatus> {
+  const statuses = new Set<TaskStatus>()
+  for (const group of TASK_STATUS_GROUPS) {
+    if (keys.includes(group.key)) for (const status of group.statuses) statuses.add(status)
+  }
+  return statuses
+}
 
 /** `T-412`, the human-referenceable per-install id. Falls back to a short slice
  *  of the uuid so the column is never blank and never ragged. */
@@ -120,6 +139,10 @@ export interface BoardCardSpec {
   key: string
   ident: string
   source: ListRowSource
+  /** Drives the card's status glyph. The column already says this, but the card
+   *  travels — under the cursor mid-drag, and in a column you may have scrolled
+   *  past the head of — so it carries its own mark. */
+  lifecycle: TaskStatus
   title: string
   /** The Done column's titles step back — they are history, not work. */
   dimmed: boolean
@@ -141,6 +164,7 @@ export function taskBoardCard(task: Task, activeSessions: number, now: number): 
     key: task.id,
     ident: identFor(task),
     source: sourceFor(task),
+    lifecycle: task.status,
     title: task.title,
     dimmed: task.status === 'done' || task.status === 'dropped',
     status: metaFor(task, activeSessions),
@@ -159,7 +183,7 @@ export function taskGroups(
   sessionsFor: (taskId: string) => number,
   now: number,
 ): ListGroupSpec[] {
-  return GROUPS.map((group) => ({
+  return TASK_STATUS_GROUPS.map((group) => ({
     key: group.key,
     label: group.label,
     rows: tasks
@@ -168,7 +192,11 @@ export function taskGroups(
   })).filter((group) => group.rows.length > 0)
 }
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+/** Closed work, either way it closed. The board dims both and the card's meta
+ *  line calls both "closed"; only the filter tells them apart. */
+export function isDone(task: Task): boolean {
+  return task.status === 'done' || task.status === 'dropped'
+}
 
 interface TaskInboxActions {
   open: (task: Task) => void
@@ -183,18 +211,25 @@ interface TaskInboxActions {
  *
  * Tasks are local records with a single viewer, so "needs you" is derived from
  * lifecycle rather than from an assignee identity: work that has reached review,
- * then work that is assigned and idle, then what closed recently. There is no
+ * then work that is assigned and idle, then what is running. There is no
  * mentions group, because local tasks have no mention feed to read.
+ *
+ * Every group is a status, so the page's status filter reaches in here too and
+ * the queue holds only the states asked for. Closed work is a group like any
+ * other, and off by default — an inbox is a list of decisions, and finished
+ * work is not one.
  */
 export function taskInboxGroups(
   tasks: Task[],
   sessionsFor: (taskId: string) => number,
   now: number,
   actions: TaskInboxActions,
+  statuses: Set<TaskStatus>,
 ): InboxGroupSpec[] {
   const groups: InboxGroupSpec[] = []
+  const shown = tasks.filter((task) => statuses.has(task.status))
 
-  const needsYou = tasks.filter((task) => task.status === 'in_review')
+  const needsYou = shown.filter((task) => task.status === 'in_review')
   if (needsYou.length > 0) {
     groups.push({
       key: 'needs',
@@ -216,7 +251,7 @@ export function taskInboxGroups(
 
   // Assigned, not done, and nothing running — the agent is not going to move
   // these on its own, so they are waiting on a person.
-  const waiting = tasks.filter(
+  const waiting = shown.filter(
     (task) =>
       (task.status === 'todo' || task.status === 'inbox') &&
       sessionsFor(task.id) === 0,
@@ -237,7 +272,7 @@ export function taskInboxGroups(
     })
   }
 
-  const running = tasks.filter((task) => task.status === 'in_progress' && sessionsFor(task.id) > 0)
+  const running = shown.filter((task) => task.status === 'in_progress' && sessionsFor(task.id) > 0)
   if (running.length > 0) {
     groups.push({
       key: 'running',
@@ -253,14 +288,13 @@ export function taskInboxGroups(
     })
   }
 
-  const doneRecently = tasks.filter(
-    (task) => (task.status === 'done' || task.status === 'dropped') && now - task.updatedAt < WEEK_MS,
-  )
-  if (doneRecently.length > 0) {
+  const closed = shown.filter(isDone)
+  if (closed.length > 0) {
     groups.push({
       key: 'done',
-      label: 'Done recently',
-      rows: [...doneRecently]
+      label: 'Done',
+      note: 'newest first',
+      rows: [...closed]
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .map((task) => ({
           ...inboxRowBase(task, 0, now),

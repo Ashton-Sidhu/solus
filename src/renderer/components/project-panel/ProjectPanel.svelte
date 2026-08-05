@@ -18,6 +18,7 @@
   import {
     ArrowsClockwiseIcon,
     CheckIcon,
+    ClockIcon,
     PlusIcon,
     SidebarSimpleIcon,
     WarningCircleIcon,
@@ -28,11 +29,12 @@
   import GoalSection from "./GoalSection.svelte";
   import EnvironmentSection from "./EnvironmentSection.svelte";
   import GitSection from "./GitSection.svelte";
-  import WorksSection from "./WorksSection.svelte";
+  import TaskSection from "./TaskSection.svelte";
   import AutomationsSection from "./AutomationsSection.svelte";
   import { buildAutomationBoard } from "./lib/automation-board";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
-  import { sessionWorks } from "./lib/session-works";
+  import { taskRef } from "../tasks/task-page/lib/task-page";
+  import { taskRefTooltip } from "./lib/rail-task-card";
   import { matchesOpenProjects } from "../../lib/sessionUtils";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import { comboHint } from "../../lib/keybindings/manifest";
@@ -105,16 +107,16 @@
   const gitCtx = $derived(panelEnvironment.checkout);
   const gitCwd = $derived(panelEnvironment.cwd);
 
-  // Works the focused session created or updated — derived from the same messages
-  // that drive the conversation, so it's correct live and after a history reload.
-  const sessionWorkItems = $derived(
+  // The task the focused session is working. `pendingTaskId` covers the window
+  // between "started from a task" and the first agent session id existing, so
+  // the card is there from the tab's first frame rather than after the first send.
+  const panelTask = $derived(
     panelSession
-      ? sessionWorks(
-          panelSession.messages,
-          session.worksStore.works,
-          panelSession.agentSessionId,
-        )
-      : [],
+      ? (panelSession.pendingTaskId
+          ? session.tasksStore.taskForId(panelSession.pendingTaskId)
+          : null) ??
+        session.tasksStore.taskForSession(panelSession.agentSessionId)
+      : null,
   );
 
   // Automations scoped to the focused project (its repo root, worktree, and cwd),
@@ -134,12 +136,11 @@
       ),
     ),
   );
-  // The works store is "active project" scoped and otherwise only populated
-  // lazily (when Folio or the work picker opens). Hydrating a session from disk
-  // does not load it, so without this the Works section is empty on a cold
-  // reload until something else loads the store. Load only when the focused
-  // project's resolved Git cwd changes so focus events within a pane do not
-  // churn the project-scoped stores.
+  // The automations store is otherwise only populated lazily (when the
+  // Automations page opens), so hydrating a session from disk would leave the
+  // section empty on a cold reload. Load only when the focused project's
+  // resolved Git cwd changes so focus events within a pane do not churn the
+  // project-scoped stores.
   let loadedProjectCwd = $state<string>();
   const shouldLoadProject = $derived(
     active && open && !isUnconfiguredCwd(gitCwd) && gitCwd !== loadedProjectCwd,
@@ -148,7 +149,6 @@
     if (!shouldLoadProject || !gitCwd) return;
     loadedProjectCwd = gitCwd;
     void automationsStore.loadAll();
-    if (cwd) void session.worksStore.loadAll(cwd);
   });
 
   // A split chat mounts a second rail, so both instances register these ids and
@@ -185,6 +185,19 @@
         ? { splitProjectPanelCollapsed: collapsedSections }
         : { projectPanelCollapsed: collapsedSections },
     );
+  }
+
+  function completeTask() {
+    const task = panelTask;
+    if (!task) return;
+    void session.tasksStore
+      .setStatus(task.id, "done")
+      .catch((err) =>
+        toasts.error(
+          `Couldn't complete the task: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
+    requestInputFocus();
   }
 
   type RefreshState = "idle" | "spinning" | "success" | "error";
@@ -278,6 +291,52 @@
   </span>
 {/snippet}
 
+{#snippet taskHeaderExtra()}
+  <!-- The card's own header carries the task's short ref in mono, the way the
+       Git card carries a branch: the one machine-readable name for what the
+       card is about, and the card's only way out to the task page. Complete and
+       Snooze follow it as glyphs, then the section's own disclosure caret. -->
+  <span class="header-extra">
+    <button
+      class="cursor-pointer font-mono text-[0.65625rem] tracking-[.02em] underline decoration-[color-mix(in_oklch,var(--foreground)_22%,transparent)] underline-offset-[3px] opacity-85 transition-colors hover:text-(--solus-text-primary) hover:opacity-100"
+      type="button"
+      title={panelTask ? taskRefTooltip(panelTask) : "Open task page"}
+      onclick={(e) => {
+        e.stopPropagation();
+        if (panelTask) session.goToTask(panelTask.id, "click");
+      }}
+    >
+      {panelTask ? taskRef(panelTask) : ""}
+    </button>
+    <!-- Completing a task in Solus only moves its status — no session is
+         stopped by it — so the button acts rather than confirming. -->
+    <button
+      class="tiny-icon"
+      type="button"
+      title="Mark complete"
+      aria-label="Mark task complete"
+      onclick={(e) => {
+        e.stopPropagation();
+        completeTask();
+      }}
+    >
+      <CheckIcon size={12} />
+    </button>
+    <!-- Snooze has no behaviour behind it yet — the same placeholder the
+         sidebar's task row keeps, so the header geometry is not re-tuned the
+         day tasks can be snoozed. -->
+    <button
+      class="tiny-icon"
+      type="button"
+      title="Snooze"
+      aria-label="Snooze task"
+      onclick={(e) => e.stopPropagation()}
+    >
+      <ClockIcon size={12} />
+    </button>
+  </span>
+{/snippet}
+
 {#snippet automationsHeaderExtra()}
   <span class="header-extra">
     <Button
@@ -340,13 +399,20 @@
         onToggle={() => toggleSection("goal")}
       />
     {/if}
-    {#if sessionWorkItems.length > 0}
+    {#if panelTask}
+      <!-- The header carries the whole of the task's identity — label, ref and
+           actions — so the card's body is only its two lists. -->
       <PanelSection
-        title="Works"
-        collapsed={collapsedSections.works}
-        onToggle={() => toggleSection("works")}
+        title="Task"
+        collapsed={collapsedSections.task}
+        onToggle={() => toggleSection("task")}
+        headerExtra={taskHeaderExtra}
       >
-        <WorksSection items={sessionWorkItems} />
+        <TaskSection
+          task={panelTask}
+          projectCwd={panelTask.projectKey ?? cwd}
+          currentSessionId={panelSession?.agentSessionId ?? null}
+        />
       </PanelSection>
     {/if}
     {#if automationBoard.total > 0}

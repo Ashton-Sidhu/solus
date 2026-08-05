@@ -6,7 +6,9 @@
 
   /** Borderless sort trigger + listbox dropdown for command bars. */
   interface Props {
-    options: { value: T; label: string }[];
+    /** A `count` is listed beside the option in the menu, never on the trigger —
+     *  the trigger names the choice, the menu says how much each one holds. */
+    options: { value: T; label: string; count?: number }[];
     value: T;
     ariaLabel?: string;
     /** Overrides on the trigger — e.g. the PR bar's filled 32px form. */
@@ -46,7 +48,12 @@
       <DropdownMenu.RadioGroup bind:value>
       {#each options as opt (opt.value)}
         <DropdownMenu.RadioItem value={opt.value}>
-          {opt.label}
+          <span class="min-w-0 flex-1 truncate">{opt.label}</span>
+          {#if opt.count !== undefined}
+            <span class="font-mono text-[11px] tabular-nums text-muted-foreground opacity-60">
+              {opt.count}
+            </span>
+          {/if}
         </DropdownMenu.RadioItem>
       {/each}
       </DropdownMenu.RadioGroup>

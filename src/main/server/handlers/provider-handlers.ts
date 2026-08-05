@@ -440,6 +440,21 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       ...(title !== undefined ? { title } : {}),
       ...(patch.body !== undefined ? { body: patch.body } : {}),
     })
+    const sessionId = ctx.session.agentSessionId
+    if (sessionId) {
+      await Task.linkArtifactForSession(sessionId, {
+        kind: 'pr',
+        targetScope: ctx.session.projectPath || ctx.session.workingDirectory,
+        targetKey: String(number),
+        title: updated.title,
+      }).catch((error) => {
+        log.warn('task_pr_link_failed', {
+          sessionId,
+          number,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+    }
     const cwd = ctx.session.projectPath || ctx.session.workingDirectory
     if (cwd) deps.events.broadcast('prs.invalidated', { projectRoot: cwd })
     return updated

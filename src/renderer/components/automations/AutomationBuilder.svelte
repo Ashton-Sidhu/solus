@@ -77,11 +77,11 @@
   const RAIL_BLOCK =
     "flex min-w-0 flex-col gap-3 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]";
   const STAT_LABEL =
-    "text-[0.65625rem] font-semibold tracking-[0.09em] text-muted-foreground uppercase";
-  const STAT_VALUE = "text-[0.84375rem] font-[550] tracking-[-0.01em]";
+    "text-[11px] font-[450] tracking-[0.09em] text-muted-foreground uppercase";
+  const STAT_VALUE = "text-[14px] font-[550] tracking-[-0.01em]";
   // Pill actions in the title row. Both sit at 2.0625rem so they read as one
   // pair; only "Run now" carries fill.
-  const PILL = "h-[2.0625rem] shrink-0 rounded-full text-xs";
+  const PILL = "h-[2.0625rem] shrink-0 rounded-full text-[13px]";
   // Sidebar background — also used by the inline pane container. Kept a hair
   // warmer than the page so the pane reads as its own surface.
   const SIDEBAR_PANEL_BG =
@@ -497,7 +497,7 @@
 
 {#snippet saveStatus()}
   <span
-    class="inline-flex shrink-0 items-center gap-[0.3125rem] text-[0.6875rem] whitespace-nowrap text-muted-foreground select-none"
+    class="inline-flex shrink-0 items-center gap-[0.3125rem] text-[12px] whitespace-nowrap text-muted-foreground select-none"
     aria-live="polite"
     role="status"
   >
@@ -522,7 +522,7 @@
     class="flex h-(--solus-chrome-row-h) shrink-0 items-center justify-between gap-3 border-b border-border/45 pr-[max(0.875rem,var(--solus-pane-chrome-inset,0px))] pl-[max(1.25rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <Breadcrumb.Root class="min-w-0">
-      <Breadcrumb.List class="min-w-0 flex-nowrap gap-[0.4375rem] text-xs">
+      <Breadcrumb.List class="min-w-0 flex-nowrap gap-[0.4375rem] text-[13px]">
         <Breadcrumb.Item>
           <Breadcrumb.Link class={CRUMB_LINK}>
             {#snippet child({ props })}
@@ -561,12 +561,12 @@
           aria-hidden="true"
         ></span>
         <span
-          class="text-[0.6875rem] font-semibold tracking-[0.1em] uppercase {enabled
+          class="text-[12px] font-[450] tracking-[0.09em] uppercase {enabled
             ? 'text-[color:color-mix(in_oklab,var(--chart-3)_72%,var(--foreground))]'
             : 'text-muted-foreground'}">{enabled ? "Active" : "Paused"}</span
         >
         {#if scheduleNote}
-          <span class="truncate text-[0.6875rem] text-muted-foreground"
+          <span class="truncate text-[12px] text-muted-foreground"
             >· {scheduleNote}</span
           >
         {/if}
@@ -673,7 +673,7 @@
               ></span>
             {/each}
           </div>
-          <span class="text-[0.75rem] whitespace-nowrap text-muted-foreground">
+          <span class="text-[13px] whitespace-nowrap text-muted-foreground">
             {health.clean} of {health.total} clean
           </span>
         </div>
@@ -687,7 +687,7 @@
   <div class="mt-8.5 flex flex-col gap-4.5">
     <div class="flex items-baseline gap-2.5">
       <span class={EYEBROW}>Instructions</span>
-      <span class="text-[0.71875rem] text-muted-foreground/80"
+      <span class="text-[12px] text-muted-foreground/80"
         >given to the agent on every run</span
       >
     </div>
@@ -719,13 +719,13 @@
     {:else}
       <button
         type="button"
-        class="-ml-1.5 cursor-pointer self-start rounded-lg border-0 bg-transparent px-1.5 py-1 text-[0.9375rem] text-muted-foreground transition-colors duration-100 hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
+        class="-ml-1.5 cursor-pointer self-start rounded-lg border-0 bg-transparent px-1.5 py-1 text-[16px] text-muted-foreground transition-colors duration-100 hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
         onclick={beginEdit}>Write what the agent should do each run…</button
       >
     {/if}
 
     <div
-      class="mt-1.5 flex flex-wrap items-center gap-3 text-[0.71875rem] text-muted-foreground/88"
+      class="mt-1.5 flex flex-wrap items-center gap-3 text-[12px] text-muted-foreground/88"
     >
       {#each metaBits as bit, i (i)}
         {#if i > 0}<span class="opacity-40" aria-hidden="true">·</span>{/if}

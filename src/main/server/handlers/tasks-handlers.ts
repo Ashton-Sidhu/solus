@@ -50,6 +50,13 @@ export function registerTasksHandlers(server: SolusServer): void {
     return listTasks(filter)
   })
 
+  server.register('tasksSidebarSnapshot', () => {
+    // Keep both reads inside one synchronous handler turn. This is the
+    // renderer's atomic ownership boundary; focused callers can still use the
+    // older list/link methods independently.
+    return { tasks: listTasks().tasks, sessionsByTask: taskSessions() }
+  })
+
   server.register('tasksGet', async (args) => {
     const [id] = args as [string]
     return (await Task.byId(id)).details()

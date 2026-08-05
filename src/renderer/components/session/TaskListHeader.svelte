@@ -21,22 +21,22 @@
   const segment =
     "flex size-6 cursor-pointer items-center justify-center rounded-[0.4375rem] transition-[background,color] duration-150";
   const segmentOn =
-    "bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] text-foreground";
+    "bg-[color-mix(in_oklch,var(--foreground)_8%,transparent)] text-foreground";
   const segmentOff =
-    "text-muted-foreground hover:bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)]";
+    "text-muted-foreground hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)]";
 </script>
 
 <!-- The label starts on the same 10px inset every other row's content does, so
      the column keeps one left edge from the new-task bar down to the footer. -->
 <div class="flex h-[2.625rem] flex-shrink-0 items-center gap-[0.5625rem] px-6">
   <span
-    class="overflow-hidden text-[0.59375rem] font-semibold tracking-[0.12em] text-ellipsis whitespace-nowrap text-[color-mix(in_oklch,var(--foreground)_60%,transparent)] uppercase"
+    class="overflow-hidden text-[0.59375rem] font-semibold tracking-[0.12em] text-ellipsis whitespace-nowrap text-[color-mix(in_oklch,var(--foreground)_68%,transparent)] uppercase"
     >{label}</span
   >
   <!-- A pill rather than a bare figure: it is the total the section is named
        for, not a per-row count, so it reads as part of the label. -->
   <span
-    class="rounded-full bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)] px-1.5 py-0.5 font-mono text-[0.59375rem] text-[color-mix(in_oklch,var(--foreground)_60%,transparent)] tabular-nums"
+    class="rounded-full bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] px-1.5 py-0.5 font-mono text-[0.59375rem] text-[color-mix(in_oklch,var(--foreground)_68%,transparent)] tabular-nums"
     >{count}</span
   >
   <div

@@ -532,6 +532,9 @@ export interface Session {
   /** Renderer-only context for wording the live activity row without making an
    *  established session sound like it reconnects before every turn. */
   currentTurnStart: TurnStartKind | null
+  /** Renderer-local start of the turn in flight. Set optimistically on Send so
+   *  elapsed UI does not wait for host preparation or a provider echo. */
+  currentTurnStartedAt: number | null
   isStreamingText: boolean
   isReconnecting: boolean
   permissionQueue: PermissionRequest[]
@@ -601,6 +604,10 @@ export interface Session {
    * the active task. Once the provider session exists, task_session_links is
    * authoritative instead. */
   pendingTaskId: string | null
+  /** Set on a fork: the top-level task its source session works. The fork's own
+   * task is minted as a subtask of it at first dispatch, so until then the fork
+   * has no task of its own — only the parent it will hang under. */
+  pendingParentTaskId: string | null
   /** The user explicitly chose "No task" for this not-yet-started session. */
   taskCreationDisabled?: boolean
   /** Set when this session is the chat tab of a PR review (worktree = PR head).
@@ -830,6 +837,9 @@ export interface Message {
   forkSourceSessionId?: string
   /** Snapshot of the source session title at fork time. */
   forkSourceTitle?: string
+  /** Set when the source was mid-turn at fork time, so the copied transcript
+   *  stops at the last settled turn. */
+  forkSourceRunning?: boolean
   /** Set on the divider system message when a session is moved into a worktree;
    *  holds the new worktree branch name. */
   worktreeMovedTo?: string
@@ -1228,6 +1238,10 @@ export interface PromptOptions {
    *  hydrates the ticket into the run's system prompt, so the agent works from
    *  the task's live state without it entering the transcript. */
   taskId?: string
+  /** Set on a fresh session when its automatically-created task should be a
+   *  direct child of an existing top-level task. Mutually exclusive with
+   *  `taskId`; task nesting remains limited to one level. */
+  parentTaskId?: string
   /** Explicitly keep a fresh session outside the task system. Without this,
    *  an unbound first dispatch creates a local task from the prompt. */
   skipTaskCreation?: boolean

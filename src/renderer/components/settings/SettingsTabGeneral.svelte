@@ -115,6 +115,7 @@
     { id: "projects-base", keywords: ["project", "projects", "folder", "directory", "base", "start", "open", "picker", "path"] },
     { id: "worktree", keywords: ["git", "worktree", "branch", "isolate", "session"] },
     { id: "auto-rename", keywords: ["rename", "name", "title", "session", "tab", "auto", "summarize"] },
+    { id: "turn-diff-summary", keywords: ["diff", "summary", "changed", "files", "turn", "transcript"] },
     { id: "analytics", keywords: ["analytics", "telemetry", "tracking", "privacy", "data"] },
   ];
 
@@ -366,7 +367,7 @@
 
 <SettingsSection
   label="Workspace"
-  visible={["projects-base", "worktree", "auto-rename"].some(isVisible)}
+  visible={["projects-base", "worktree", "auto-rename", "turn-diff-summary"].some(isVisible)}
 >
   <SettingsRow
     label="Projects folder"
@@ -432,6 +433,21 @@
         onCheckedChange={(next) => theme.update({ autoRenameSessions: next })}
         size="default"
         aria-label="Toggle automatic session naming"
+      />
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    label="Show changed files after turns"
+    description="Render a compact diff summary at the end of completed turns."
+    visible={isVisible("turn-diff-summary")}
+  >
+    {#snippet control()}
+      <Switch
+        checked={theme.showDiffSummaryAfterTurn}
+        onCheckedChange={(next) => theme.update({ showDiffSummaryAfterTurn: next })}
+        size="default"
+        aria-label="Toggle changed files summaries after turns"
       />
     {/snippet}
   </SettingsRow>

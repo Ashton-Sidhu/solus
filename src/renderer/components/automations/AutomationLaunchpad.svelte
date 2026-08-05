@@ -145,62 +145,58 @@
 </script>
 
 <div class="flex flex-col">
-  <div class="flex items-center gap-3.5">
+  <!-- Same 30px heading line the list's groups use, so the launchpad reads as
+       the next section of the page rather than a panel bolted underneath it. -->
+  <div class="flex h-[30px] items-center gap-2.5 px-1.5">
     <span
-      class="text-[0.65625rem] font-semibold tracking-[0.13em] text-(--solus-text-tertiary) uppercase"
+      class="text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase"
       >Describe it, or start from a template</span
     >
-    <span
-      class="h-px flex-1 bg-[color-mix(in_srgb,var(--solus-container-border)_45%,transparent)]"
-      aria-hidden="true"
-    ></span>
+    <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
   </div>
 
   {#if draftPrompt !== null}
     <!-- Handed off. The automation itself arrives in the list on its own once
          the agent saves it; this card tracks that arrival. -->
     <div
-      class="mt-4.5 rounded-xl border border-[color-mix(in_srgb,var(--solus-container-border)_82%,transparent)] bg-(--solus-input-pill-bg)"
+      class="mt-2 rounded-[14px] bg-card shadow-[0_0_0_.5px_var(--hairline-strong)]"
     >
-      <div class="flex items-start gap-3.5 p-[0.9375rem] pr-3.5">
+      <div class="flex items-start gap-[11px] pt-3.5 pr-2 pb-3 pl-3">
         <span
-          class="grid size-7 shrink-0 place-items-center rounded-lg bg-[color-mix(in_srgb,var(--solus-accent)_12%,transparent)] text-(--solus-accent)"
+          class="grid size-6 shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--running)_13%,transparent)] text-[var(--running)]"
           aria-hidden="true"
         >
           {#if savedDraft}
-            <CheckIcon size={14} weight="bold" />
+            <CheckIcon size={12} weight="bold" />
           {:else}
             <CircleNotchIcon
-              size={14}
+              size={12}
               class="animate-spin [animation-duration:0.9s]"
             />
           {/if}
         </span>
-        <span class="flex min-w-0 flex-1 flex-col gap-1.5 pt-0.5">
+        <span class="flex min-w-0 flex-1 flex-col gap-[5px] pt-px">
           <span class="flex flex-wrap items-center gap-2.5">
-            <span
-              class="text-[0.84375rem] font-semibold tracking-[-0.015em] text-(--solus-text-primary)"
-            >
+            <span class="text-[14px] font-semibold tracking-[-.01em]">
               {savedDraft
                 ? "Automation drafted in a session"
                 : "Creating this automation in a session…"}
             </span>
             {#if draftingSessionId}
-              <span
-                class="font-mono text-[0.71875rem] tracking-[-0.01em] text-[color-mix(in_srgb,var(--solus-text-tertiary)_88%,transparent)]"
+              <span class="font-mono text-[11px] text-muted-foreground opacity-80"
                 >{draftingSessionId.slice(0, 8)}</span
               >
             {/if}
           </span>
           <span
-            class="block max-w-[40rem] text-[0.78125rem] leading-[1.55] text-pretty text-(--solus-text-tertiary)"
+            class="block max-w-[70ch] text-[13px] leading-[1.6] text-pretty text-muted-foreground"
             >“{draftPrompt}”</span
           >
         </span>
-        <span class="flex shrink-0 items-center gap-1.5 pt-px">
+        <span class="flex shrink-0 items-center gap-1.5">
           <button
             type="button"
-            class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-(--solus-accent) px-3.5 text-[0.75rem] font-semibold text-[var(--solus-accent-contrast,#fff)] transition-[filter,opacity] duration-100 hover:brightness-[1.07] disabled:cursor-not-allowed disabled:opacity-45"
+            class="flex h-7 cursor-pointer items-center gap-[7px] rounded-[10px] border-0 bg-primary px-3 text-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] disabled:pointer-events-none disabled:opacity-45"
             onclick={() => void openDraftingSession()}
             disabled={!draftingSessionId}
           >
@@ -209,37 +205,35 @@
           </button>
           <button
             type="button"
-            class="grid size-7.5 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-(--solus-text-tertiary) transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
+            class="grid size-[26px] cursor-pointer place-items-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground"
             onclick={dismissDraft}
             aria-label="Dismiss"
             title="Dismiss"
           >
-            <XIcon size={13} />
+            <XIcon size={11} />
           </button>
         </span>
       </div>
       <div
-        class="flex flex-col gap-2.5 border-t border-[color-mix(in_srgb,var(--solus-container-border)_42%,transparent)] px-[0.9375rem] pt-3 pb-3.5 pl-14"
+        class="flex flex-col gap-2 border-t border-[var(--hairline)] pt-[11px] pr-3.5 pb-3 pl-12"
       >
         {#each draftSteps as step (step.label)}
           {#if step.state === "done"}
             <span
-              class="flex items-center gap-2.5 text-[0.78125rem] text-(--solus-text-secondary)"
+              class="flex items-center gap-[9px] text-[13px] text-[color-mix(in_oklch,var(--foreground)_78%,var(--muted-foreground))]"
             >
               <span
-                class="grid size-3.5 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--solus-art-3)_20%,transparent)] text-(--solus-art-3)"
+                class="grid size-[13px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--success)_20%,transparent)] text-[var(--success)]"
                 aria-hidden="true"
               >
-                <CheckIcon size={9} weight="bold" />
+                <CheckIcon size={8} weight="bold" />
               </span>
               {step.label}
             </span>
           {:else if step.state === "active"}
-            <span
-              class="flex items-center gap-2.5 text-[0.78125rem] font-medium text-(--solus-text-primary)"
-            >
+            <span class="flex items-center gap-[9px] text-[13px] font-medium">
               <span
-                class="grid size-3.5 shrink-0 place-items-center text-(--solus-accent)"
+                class="grid size-[13px] shrink-0 place-items-center text-[var(--running)]"
                 aria-hidden="true"
               >
                 <CircleNotchIcon
@@ -251,25 +245,18 @@
             </span>
           {:else}
             <span
-              class="flex items-center gap-2.5 text-[0.78125rem] text-[color-mix(in_srgb,var(--solus-text-tertiary)_62%,transparent)]"
+              class="flex items-center gap-[9px] text-[13px] text-[color-mix(in_oklch,var(--muted-foreground)_62%,transparent)]"
             >
-              <span
-                class="grid size-3.5 shrink-0 place-items-center"
-                aria-hidden="true"
-              >
-                <span class="size-1.5 rounded-full bg-current"></span>
+              <span class="grid size-[13px] shrink-0 place-items-center" aria-hidden="true">
+                <span class="size-[5px] rounded-full bg-[var(--idle)]"></span>
               </span>
               {step.label}
             </span>
           {/if}
         {/each}
         {#if savedDraft}
-          <span
-            class="mt-0.5 text-[0.78125rem] leading-[1.55] text-pretty text-(--solus-text-tertiary)"
-          >
-            Saved as <span class="font-semibold text-(--solus-text-primary)"
-              >{savedDraft.name}</span
-            >
+          <span class="mt-0.5 text-[13px] leading-[1.6] text-pretty text-muted-foreground">
+            Saved as <span class="font-semibold text-foreground">{savedDraft.name}</span>
             · {triggerSummary(savedDraft.trigger)}. Open the session to review
             the instructions before it runs.
           </span>
@@ -278,9 +265,9 @@
     </div>
   {:else}
     <div
-      class="mt-4.5 flex h-[3.4375rem] w-full items-center gap-3 rounded-xl border border-[color-mix(in_srgb,var(--solus-container-border)_75%,transparent)] bg-(--solus-input-pill-bg) pr-2 pl-4 transition-[border-color] duration-150 focus-within:border-[color-mix(in_srgb,var(--solus-accent)_45%,transparent)]"
+      class="mt-2 flex h-[46px] w-full items-center gap-2.5 rounded-xl bg-card pr-1.5 pl-3 shadow-[inset_0_0_0_.5px_var(--hairline-strong)] transition-shadow duration-150 focus-within:shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
     >
-      <PencilSimpleIcon size={15} class="shrink-0 text-(--solus-accent)" />
+      <PencilSimpleIcon size={13} class="shrink-0 text-[var(--primary)]" />
       <input
         type="text"
         bind:value={description}
@@ -292,68 +279,72 @@
         }}
         placeholder="Describe the automation…"
         aria-label="Describe the automation"
-        class="min-w-0 flex-1 border-0 bg-transparent text-sm text-(--solus-text-primary) placeholder:text-(--solus-text-tertiary) focus:outline-none"
+        class="min-w-0 flex-1 border-0 bg-transparent text-[13px] tracking-[-.005em] caret-[var(--primary)] outline-none placeholder:text-muted-foreground"
       />
       <button
         type="button"
-        class="inline-flex h-9 shrink-0 cursor-pointer items-center rounded-full border-0 bg-(--solus-accent) px-[0.9375rem] text-[0.78125rem] font-semibold text-[var(--solus-accent-contrast,#fff)] transition-[filter,opacity] duration-100 hover:brightness-[1.07] disabled:cursor-not-allowed disabled:opacity-45"
+        class="flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] rounded-[10px] border-0 bg-primary px-[13px] text-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] disabled:pointer-events-none disabled:opacity-45"
         onclick={submitDescription}
         disabled={!description.trim()}
       >
-        Create
+        Create<span class="font-mono text-[11px] opacity-80">↵</span>
       </button>
     </div>
   {/if}
 
-  <div
-    class="-mx-3.5 mt-6.5 flex flex-col border-t border-[color-mix(in_srgb,var(--solus-container-border)_42%,transparent)]"
-  >
+  <div class="mt-[18px] flex flex-col border-t border-[var(--hairline)]">
     {#each AUTOMATION_TEMPLATES as template, i (template.id)}
       <button
         type="button"
-        class="flex cursor-pointer items-center gap-[1.125rem] border-x-0 border-t-0 border-b border-[color-mix(in_srgb,var(--solus-container-border)_42%,transparent)] bg-transparent px-3.5 py-4 text-left transition-colors duration-150 hover:bg-(--solus-surface-hover) disabled:cursor-wait disabled:opacity-60"
+        class="group flex cursor-pointer items-center gap-4 rounded-[10px] border-x-0 border-t-0 border-b border-[var(--hairline)] bg-transparent px-2.5 py-[13px] text-left transition-colors duration-150 hover:bg-[var(--wash-1)] disabled:cursor-wait disabled:opacity-60"
         onclick={() => seedTemplate(template)}
         disabled={seedingId !== null}
       >
         <span
-          class="w-6.5 shrink-0 pt-px text-right font-mono text-[0.6875rem] font-medium tracking-[0.04em] text-[color-mix(in_srgb,var(--solus-text-tertiary)_75%,transparent)]"
+          class="w-5 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground opacity-55"
           >{String(i + 1).padStart(2, "0")}</span
         >
         <span
-          class="shrink-0 basis-[15.625rem] text-[0.875rem] font-semibold tracking-[-0.018em] text-(--solus-text-primary) @max-[56rem]:basis-auto"
+          class="w-[236px] shrink-0 text-[13px] font-[450] tracking-[-.005em] text-pretty @max-[56rem]:w-auto"
           >{template.name}</span
         >
         <span
-          class="min-w-0 flex-1 text-[0.78125rem] leading-[1.5] text-pretty text-(--solus-text-tertiary) @max-[56rem]:hidden"
+          class="min-w-0 flex-1 text-[12px] leading-[1.55] text-pretty text-muted-foreground @max-[56rem]:hidden"
           >{template.description}</span
         >
         <span
-          class="flex shrink-0 basis-[10.5rem] items-center justify-end gap-1.5 font-mono text-[0.71875rem] tracking-[-0.01em] text-(--solus-text-tertiary) @max-[56rem]:hidden"
+          class="flex w-[150px] shrink-0 items-center justify-end gap-1.5 font-mono text-[11px] whitespace-nowrap text-muted-foreground opacity-80 @max-[56rem]:hidden"
         >
           {#if template.trigger.type === "manual"}
-            <PlayIcon size={10} weight="fill" class="shrink-0" />
+            <PlayIcon size={9} weight="fill" class="shrink-0" />
           {:else}
-            <ClockIcon size={11} class="shrink-0" />
+            <ClockIcon size={10} class="shrink-0" />
           {/if}
           {triggerSummary(template.trigger)}
+        </span>
+        <span
+          class="flex h-6 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[12px] text-muted-foreground opacity-0 shadow-[0_0_0_.5px_var(--hairline-strong)] transition-opacity duration-150 group-hover:opacity-100"
+          aria-hidden="true"
+        >
+          Use
+          <ArrowRightIcon size={10} weight="bold" />
         </span>
       </button>
     {/each}
   </div>
 
-  <div class="-mx-3.5 flex items-center gap-3 px-3.5 pt-4.5">
-    <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-      <span
-        class="text-[0.84375rem] font-semibold tracking-[-0.015em] text-(--solus-text-primary)"
+  <div class="flex items-center gap-3 px-2.5 pt-3.5">
+    <span class="flex min-w-0 flex-1 flex-col gap-[3px]">
+      <span class="text-[13px] font-[450] tracking-[-.005em]"
         >Start from scratch</span
       >
-      <span class="text-[0.78125rem] text-(--solus-text-tertiary)"
+      <span class="text-[12px] text-muted-foreground"
         >Write your own instructions and pick when they run.</span
       >
     </span>
     <button
       type="button"
-      class="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--solus-container-border)_85%,transparent)] bg-transparent px-3.5 text-xs font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
+      class="flex h-7 shrink-0 cursor-pointer items-center gap-[7px] rounded-[10px] border-0 bg-transparent px-3 text-[13px] text-muted-foreground shadow-[0_0_0_.5px_var(--hairline-strong)] transition-colors duration-150 hover:bg-[var(--wash-1)] hover:text-foreground"
       onclick={onCreateBlank}
     >
       New automation

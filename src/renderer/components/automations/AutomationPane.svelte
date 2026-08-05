@@ -27,7 +27,7 @@
   {#key automation?.id ?? "new"}
     {#await import("./AutomationBuilder.svelte")}
       <div
-        class="grid h-full min-h-32 w-full place-items-center text-xs text-(--solus-text-tertiary)"
+        class="grid h-full min-h-32 w-full place-items-center text-[13px] text-(--solus-text-tertiary)"
         role="status"
       >
         Loading automation…

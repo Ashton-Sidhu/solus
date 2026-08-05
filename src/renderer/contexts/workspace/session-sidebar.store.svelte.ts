@@ -5,13 +5,16 @@ import type { Task } from '../../../shared/task-types'
 import {
   activeSidebarTask,
   buildProjectSummaries,
+  compareTaskCreationOrder,
   groupTasks,
-  holdSidebarTaskOrder,
   prChipFor as resolvePrChip,
   reconcileSidebarTasks,
+  sidebarChildLabel,
   shouldShowSidebarChild,
   shouldShowDurableSidebarTask,
   showsProjectLine as projectLineVisible,
+  sortTasksByCreation,
+  sortSidebarRowsBySessionOrder,
   sortTasks,
   taskStatusFor,
   type PrChip,
@@ -22,6 +25,7 @@ import {
 import {
   findOpenTabForSession,
   getAttentionState,
+  sessionDisplayName,
   sessionTitle,
   type AttentionState,
 } from '../../lib/sessionUtils'
@@ -45,6 +49,7 @@ import {
 const TURN_START_SCAN_DEPTH = 200
 
 function turnStartedAt(sess: Session): number {
+  if (sess.currentTurnStartedAt) return sess.currentTurnStartedAt
   const messages = sess.messages
   const floor = Math.max(0, messages.length - TURN_START_SCAN_DEPTH)
   for (let i = messages.length - 1; i >= floor; i--) {
@@ -56,6 +61,10 @@ function turnStartedAt(sess: Session): number {
 
 function lastActivityAt(sess: Session): number {
   return sess.messages.at(-1)?.timestamp ?? 0
+}
+
+function firstActivityAt(sess: Session): number {
+  return sess.messages.find((message) => message.timestamp)?.timestamp ?? Number.MAX_SAFE_INTEGER
 }
 
 export type SidebarSessionChild = {
@@ -96,24 +105,29 @@ function maxAttention(current: AttentionState, next: AttentionState): AttentionS
   return attentionRank[next] > attentionRank[current] ? next : current
 }
 
-/** The sort key that holds a row still. Local task ids are time-ordered, so they
- *  break the tie for records that predate `createdAt`. */
-function byCreation(a: Task, b: Task): number {
-  const created = (a.createdAt ?? 0) - (b.createdAt ?? 0)
-  return created !== 0 ? created : a.id.localeCompare(b.id)
-}
-
 function projectLabel(projectKey: string): string {
   return projectKey === '~' ? '~' : projectKey.replace(/\/$/, '').split('/').at(-1) ?? '~'
 }
 
 export class SessionSidebarStore {
   private taskModelsById = new Map<string, SidebarTask>()
-  private taskOrderIds: string[] = []
 
   /** Pinned sessions, most-recently-pinned first. Loaded on bootstrap, mutated by pin/unpin. */
   pinnedSessions = $state<PinnedSession[]>([])
   visibleTabIds: string[] = $derived.by(() => this.session.tabOrder.filter((id) => this.session.tabs[id]))
+
+  /** Which tab, if any, has a given provider session mounted. Built once per
+   *  pass: every task row needs this answer for each of its linked sessions, and
+   *  scanning the open tabs per lookup made the column O(tasks × sessions × tabs)
+   *  on every stream tick. */
+  private tabIdBySessionId: Map<string, string> = $derived.by(() => {
+    const bySessionId = new Map<string, string>()
+    for (const tabId of this.visibleTabIds) {
+      const sessionId = this.session.sessionFor(tabId)?.agentSessionId
+      if (sessionId) bySessionId.set(sessionId, tabId)
+    }
+    return bySessionId
+  })
 
   /** The user's own "I am finished with this", which nothing else in the app
    *  knows. Deliberately not persisted: a completed task stays for the session
@@ -121,8 +135,8 @@ export class SessionSidebarStore {
   private doneTaskIds = new SvelteSet<string>()
 
   /** Durable tasks remain in the task board after their sidebar row is closed.
-   *  This is persisted view state only: dismissing a row must not rewrite the
-   *  task's lifecycle status. An open session always makes the task visible again. */
+   *  This is persisted view state only: closing a row must not rewrite the
+   *  task's lifecycle status. A later, explicitly opened tab restores it. */
   private dismissedRowKeys = new SvelteSet<string>(loadDismissedSidebarRowKeys())
 
   /** Tabs opened for a task that have not dispatched yet, so no durable link
@@ -135,8 +149,7 @@ export class SessionSidebarStore {
       // `session_init` assigns the provider id before the durable task link has
       // finished hydrating. The provisional task id must keep owning the tab
       // during that handoff or the row briefly changes shape in the sidebar.
-      if (!sess?.pendingTaskId) continue
-      const task = this.session.tasksStore.tasks.find((candidate) => candidate.id === sess.pendingTaskId)
+      const task = this.pendingTaskFor(sess)
       if (!task) continue
       const rootTaskId = task.parentId ?? task.id
       const tabIds = byTaskId.get(rootTaskId)
@@ -146,9 +159,20 @@ export class SessionSidebarStore {
     return byTaskId
   })
 
+  /** The task a not-yet-dispatched tab already belongs to: the one it was opened
+   *  for, or — for a fork, whose own subtask is minted at first dispatch — the
+   *  parent it will hang under. */
+  private pendingTaskFor(session: Session | null | undefined): Task | undefined {
+    const taskId = session?.pendingTaskId ?? session?.pendingParentTaskId
+    if (!taskId) return undefined
+    return this.session.tasksStore.tasks.find((candidate) => candidate.id === taskId)
+  }
+
   /** A root task's child records, in the order they were created. */
   private childrenOf(taskId: string): Task[] {
-    return [...(this.session.tasksStore.byParent.get(taskId) ?? [])].sort(byCreation)
+    return [...(this.session.tasksStore.byParent.get(taskId) ?? [])].sort(
+      compareTaskCreationOrder,
+    )
   }
 
   /** Every sidebar task, unfiltered and unsorted — the rail's counts and the
@@ -162,13 +186,9 @@ export class SessionSidebarStore {
       return reconcileSidebarTasks(this.taskModelsById, [])
     }
 
-    const openTabBySessionId = new Map<string, string>()
-    for (const tabId of this.visibleTabIds) {
-      const sessionId = this.session.sessionFor(tabId)?.agentSessionId
-      if (sessionId) openTabBySessionId.set(sessionId, tabId)
-    }
+    const openTabBySessionId = this.tabIdBySessionId
 
-    const durableTasks = this.session.tasksStore.tasks
+    const durableTasks = sortTasksByCreation(this.session.tasksStore.tasks)
       .filter((task) => {
         const isDismissed = this.dismissedRowKeys.has(task.id)
         const hasOpenSession = isDismissed && (
@@ -181,10 +201,6 @@ export class SessionSidebarStore {
         )
         return shouldShowDurableSidebarTask(task, isDismissed, hasOpenSession)
       })
-      // The store hands tasks back most-recently-touched first, which would haul
-      // a row up the column every time its agent said anything. The sidebar is a
-      // place: rows sit in the order they were created.
-      .sort(byCreation)
       .map((task): SidebarTask => {
         const children = this.childrenOf(task.id)
         const taskTree = [task, ...children]
@@ -250,6 +266,7 @@ export class SessionSidebarStore {
           status: task.status === 'done' || task.status === 'dropped' ? 'done' : taskStatusFor(attention),
           attention,
           unread,
+          createdAt: task.createdAt ?? task.updatedAt,
           activityAt,
           runStartedAt,
           tabIds,
@@ -265,10 +282,7 @@ export class SessionSidebarStore {
       const tab = this.session.tabs[tabId]
       if (!session || !tab) continue
       const linkedTask = this.session.tasksStore.taskForSession(session.agentSessionId)
-      const pendingTask = session.pendingTaskId
-        ? this.session.tasksStore.tasks.find((task) => task.id === session.pendingTaskId)
-        : undefined
-      if (linkedTask || pendingTask) continue
+      if (linkedTask || this.pendingTaskFor(session)) continue
 
       const environment = this.session.environment.environmentFor(tabId)
       const projectKey = environmentProjectKey(environment, session.projectGroupPath)
@@ -286,14 +300,20 @@ export class SessionSidebarStore {
         status: taskStatusFor(attention, markedDone),
         attention,
         unread: tab.hasUnread && !markedDone,
+        createdAt: firstActivityAt(session),
         activityAt: lastActivityAt(session),
         runStartedAt: attention === 'running' ? turnStartedAt(session) : 0,
         tabIds: [tabId],
       })
     }
 
-    const reconciled = reconcileSidebarTasks(this.taskModelsById, [...durableTasks, ...looseTasks])
-    return holdSidebarTaskOrder(this.taskOrderIds, reconciled)
+    return reconcileSidebarTasks(
+      this.taskModelsById,
+      sortSidebarRowsBySessionOrder(
+        [...durableTasks, ...looseTasks],
+        this.visibleTabIds,
+      ),
+    )
   })
 
   /** Every open project, with the counts and the lead task the breadcrumb's
@@ -321,9 +341,7 @@ export class SessionSidebarStore {
     const sess = this.session.sessionFor(tabId)
     const tab = this.session.tabs[tabId]
     if (!sess || !tab) return null
-    const pendingTask = sess.pendingTaskId
-      ? this.session.tasksStore.tasks.find((task) => task.id === sess.pendingTaskId)
-      : undefined
+    const pendingTask = this.pendingTaskFor(sess)
     const existingTask = activeSidebarTask(
       this.allTasks,
       tabId,
@@ -347,6 +365,7 @@ export class SessionSidebarStore {
       status: taskStatusFor(attention),
       attention,
       unread: false,
+      createdAt: firstActivityAt(sess),
       activityAt: lastActivityAt(sess),
       runStartedAt: attention === 'running' ? turnStartedAt(sess) : 0,
       tabIds: [tabId],
@@ -478,7 +497,24 @@ export class SessionSidebarStore {
     }
   }
 
+  /** Each row's children, computed once for the whole column. Building this list
+   *  walks the task tree, its links and every mounted tab behind them, so a row
+   *  that recomputed it on each render — as the sidebar's markup did — paid that
+   *  walk again for every unrelated invalidation, and handed its subtree a fresh
+   *  array identity each time. One derived pass keeps both costs at one. */
+  private sessionsByTaskId: Map<string, SidebarSessionChild[]> = $derived.by(() => {
+    const byTaskId = new Map<string, SidebarSessionChild[]>()
+    for (const task of this.allTasks) byTaskId.set(task.id, this.buildSessionsFor(task))
+    return byTaskId
+  })
+
   sessionsFor(task: SidebarTask): SidebarSessionChild[] {
+    // A breadcrumb can ask about a draft tab that owns no row in the column yet,
+    // so a miss still answers rather than reporting the task as empty.
+    return this.sessionsByTaskId.get(task.id) ?? this.buildSessionsFor(task)
+  }
+
+  private buildSessionsFor(task: SidebarTask): SidebarSessionChild[] {
     if (!task.taskId) return task.tabIds.map((tabId) => this.childForTab(tabId))
     const root = this.session.tasksStore.tasks.find((candidate) => candidate.id === task.taskId)
     if (!root) return []
@@ -498,13 +534,21 @@ export class SessionSidebarStore {
       if (seenSessionIds.has(link.sessionId)) continue
       seenSessionIds.add(link.sessionId)
       const projectKey = record.projectKey ?? root.projectKey ?? undefined
-      const tabId = this.openTabIdForSessionId(link.sessionId)
+      const tabId = this.tabIdBySessionId.get(link.sessionId)
       const dismissalKey = record.parentId ? `task:${record.id}` : `session:${link.sessionId}`
-      if (!shouldShowSidebarChild(this.dismissedRowKeys.has(dismissalKey), !!tabId)) continue
+      if (!shouldShowSidebarChild(
+        this.dismissedRowKeys.has(dismissalKey),
+        !!tabId,
+        record.status === 'done',
+      )) continue
       if (tabId) {
         const child = this.childForTab(tabId)
         children.push({
           ...child,
+          label: sidebarChildLabel(
+            record,
+            sessionDisplayName({ link, liveTitle: child.label, taskTitle: record.title }),
+          ),
           taskId: record.id,
           sessionId: link.sessionId,
           projectKey,
@@ -519,7 +563,7 @@ export class SessionSidebarStore {
         sessionId: link.sessionId,
         projectKey,
         branchName: record.branch ?? null,
-        label: link.sessionTitle ?? record.title,
+        label: sidebarChildLabel(record, sessionDisplayName({ link, taskTitle: record.title })),
         attention: null,
         serverId: null,
         runStartedAt: 0,
@@ -537,8 +581,10 @@ export class SessionSidebarStore {
         : undefined
       const dismissalKey = pendingTask?.parentId ? `task:${pendingTask.id}` : `tab:${tabId}`
       if (this.dismissedRowKeys.has(dismissalKey)) continue
+      const child = this.childForTab(tabId)
       children.push({
-        ...this.childForTab(tabId),
+        ...child,
+        label: pendingTask ? sidebarChildLabel(pendingTask, child.label) : child.label,
         taskId: pendingTask?.id ?? root.id,
         projectKey: pendingTask?.projectKey ?? root.projectKey ?? undefined,
         dismissalKey,
@@ -546,11 +592,28 @@ export class SessionSidebarStore {
       })
     }
 
-    return children
-  }
+    // A subtask is part of the task tree before it has a provider session.
+    // Keep those rows visible and selectable; selecting one starts its first
+    // session through the existing no-session child path.
+    for (const record of this.childrenOf(root.id)) {
+      if (children.some((child) => child.taskId === record.id)) continue
+      const dismissalKey = `task:${record.id}`
+      if (this.dismissedRowKeys.has(dismissalKey)) continue
+      children.push({
+        taskId: record.id,
+        projectKey: record.projectKey ?? root.projectKey ?? undefined,
+        branchName: record.branch ?? null,
+        label: record.title,
+        attention: null,
+        serverId: null,
+        runStartedAt: 0,
+        reviewGuideStatus: null,
+        dismissalKey,
+        isSubtask: true,
+      })
+    }
 
-  private openTabIdForSessionId(sessionId: string): string | undefined {
-    return this.visibleTabIds.find((tabId) => this.session.sessionFor(tabId)?.agentSessionId === sessionId)
+    return children
   }
 
   selectTab(tabId: string): void {
@@ -626,9 +689,8 @@ export class SessionSidebarStore {
     if (!this.doneTaskIds.delete(taskId)) this.doneTaskIds.add(taskId)
   }
 
-  /** Remove a row from the sidebar without changing its durable task status.
-   *  Loose rows disappear with their tabs; durable rows need an explicit
-   *  dismissal because the task store continues to own the task. */
+  /** Close a sidebar task's mounted tabs while keeping its durable sessions
+   *  available to resume from history. */
   closeTask(task: SidebarTask): void {
     this.doneTaskIds.delete(task.id)
     if (task.taskId) {
@@ -638,14 +700,29 @@ export class SessionSidebarStore {
     this.closeTabs(task.tabIds)
   }
 
-  /** Hide one task-tree child and close only its mounted tab. Child task and
-   * session records remain durable and can still be reached from the task page. */
+  /** Close one task-tree child's mounted tab while keeping its durable session. */
   closeChild(child: SidebarSessionChild): void {
     if (child.dismissalKey) {
       this.dismissedRowKeys.add(child.dismissalKey)
       persistDismissedSidebarRow(child.dismissalKey)
     }
     if (child.tabId) this.closeTabs([child.tabId])
+  }
+
+  /** Keyboard dismissal targets a mounted row by tab id. Durable children hide
+   *  independently; a loose session owns its whole temporary task row. */
+  closeSidebarTab(tabId: string): void {
+    for (const task of this.allTasks) {
+      const child = this.sessionsFor(task).find((candidate) => candidate.tabId === tabId)
+      if (task.taskId && child) {
+        this.closeChild(child)
+        return
+      }
+      if (task.tabIds.includes(tabId)) {
+        this.closeTask(task)
+        return
+      }
+    }
   }
 
   /** Pin or unpin the session backing a tab. No-op for tabs without an agent session. */
@@ -676,7 +753,7 @@ export class SessionSidebarStore {
     if (task.taskId) await this.session.tasksStore.update(task.taskId, { title })
     const leadTabId = task.taskId
       ? (this.session.tasksStore.sessionsByTask.get(task.taskId) ?? [])
-          .map((link) => this.openTabIdForSessionId(link.sessionId))
+          .map((link) => this.tabIdBySessionId.get(link.sessionId))
           .find((tabId) => tabId !== undefined)
       : task.tabIds[0]
     if (leadTabId) await this.renameSession(leadTabId, title)

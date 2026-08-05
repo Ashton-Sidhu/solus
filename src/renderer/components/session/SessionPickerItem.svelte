@@ -10,6 +10,7 @@
     type PickerEntry,
     type StatusIcon,
   } from "../../lib/sessionUtils";
+  import { highlightRuns } from "../../lib/searchHighlight";
   import type { AgentId } from "../../../shared/types";
 
   const settings = getSettingsContext();
@@ -18,14 +19,16 @@
     item: PickerEntry;
     isSelected: boolean;
     isActiveTab?: boolean;
+    /** The picker's live search term, so the row can mark what matched. */
+    query?: string;
     onSelect: () => void;
     onHover: () => void;
   }
-  let { item, isSelected, onSelect, onHover }: Props = $props();
+  let { item, isSelected, query = "", onSelect, onHover }: Props = $props();
 
-  const title = $derived(entryTitle(item));
+  const titleRuns = $derived(highlightRuns(entryTitle(item), query));
 
-  const byline = $derived(entryByline(item));
+  const bylineRuns = $derived(highlightRuns(entryByline(item), query));
 
   const statusIcon = $derived.by<StatusIcon | null>(() => {
     if (item.kind === "open") {
@@ -82,10 +85,12 @@
   );
 </script>
 
+<!-- A stationary pointer must not reclaim selection as keyboard scrolling moves
+     virtualized rows underneath it. -->
 <button
   class="group relative flex h-full w-full cursor-pointer items-center border-none bg-transparent px-2 text-left focus-visible:outline-none"
   onclick={onSelect}
-  onmouseenter={onHover}
+  onmousemove={onHover}
 >
   <div
     class="relative flex w-full items-center rounded-[0.625rem] px-3 py-1.5 group-focus-visible:shadow-[inset_0.125rem_0_0_var(--solus-accent),0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_22%,transparent)]
@@ -126,7 +131,11 @@
         <span
           class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.8125rem] leading-[1.3] tracking-[-0.01em] text-[var(--solus-text-primary)] {isSelected
             ? 'font-[550]'
-            : 'font-[450]'}">{title}</span
+            : 'font-[450]'}"
+          >{#each titleRuns as run, i (i)}{#if run.hit}<mark
+                class="rounded-[3px] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
+                >{run.text}</mark
+              >{:else}{run.text}{/if}{/each}</span
         >
         {#if isOpen}
           <span
@@ -139,7 +148,10 @@
       <div class="flex min-w-0 items-center gap-3">
         <span
           class="min-w-0 flex-shrink overflow-hidden text-ellipsis whitespace-nowrap text-[0.6875rem] tracking-[0.005em] text-[var(--solus-text-tertiary)]"
-          >{byline}</span
+          >{#each bylineRuns as run, i (i)}{#if run.hit}<mark
+                class="rounded-[3px] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
+                >{run.text}</mark
+              >{:else}{run.text}{/if}{/each}</span
         >
         {#if timeAgo}
           <span

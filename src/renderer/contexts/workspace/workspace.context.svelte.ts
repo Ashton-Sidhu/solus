@@ -38,7 +38,7 @@ import { type GitRefreshResult, type SessionEnvironmentStore } from '../git/sess
 import { makeSession, makeTab, makeInputState } from './session.factories'
 import { removeDraft, removePersistedTab } from './tab-persistence'
 import { applySessionTitleChange } from './session-title-change'
-import { applyRuntimeConfig, nextMsgId } from './session.utils'
+import { applyRuntimeConfig, findLastUserIndex, nextMsgId } from './session.utils'
 import type { DiffScope } from '../../../shared/git-types'
 import type { FilePreviewRequest } from '../../lib/filePreview'
 import { gitCheckoutFromState, isSessionBusyStatus, isSolusWorktreePath, isSteerableStatus, worktreeProjectRoot } from '../../../shared/types'
@@ -923,7 +923,9 @@ export class WorkspaceContext {
     if (refreshedContext?.targetBranch) session.worktreeBaseBranch = refreshedContext.targetBranch
   }
 
-  /** Fork a session into a new tab. The fork inherits all messages and resumes on first prompt. */
+  /** Fork a session into a new tab. The fork inherits the transcript through the
+   *  source's last settled turn, resumes on first prompt, and lands as a subtask
+   *  of whatever task the source is working. */
   async forkTab(sourceTabId: string, options: ForkTabOptions = {}): Promise<string | null> {
     const sourceTab = this.tabs[sourceTabId]
     const sourceSession = this.sessionFor(sourceTabId)
@@ -933,7 +935,16 @@ export class WorkspaceContext {
     await this.apiFor(sourceTabId).createTab(tabId)
 
     const originalTitle = sourceTab?.title || 'session'
-    const copiedMessages: Message[] = sourceSession.messages.map((m) => ({ ...m, id: uuid() }))
+    // Forking mid-turn branches from the last settled point, not from the turn
+    // still being written: its messages are half-formed (tools still spinning)
+    // and the fork's own first prompt lands later anyway. Cut the in-flight turn
+    // out of the copy and say so on the divider.
+    const sourceIsRunning = sourceSession.status === 'running' || sourceSession.status === 'connecting'
+    const inFlightFrom = sourceIsRunning ? findLastUserIndex(sourceSession.messages) : -1
+    const settledMessages = inFlightFrom === -1
+      ? sourceSession.messages
+      : sourceSession.messages.slice(0, inFlightFrom)
+    const copiedMessages: Message[] = settledMessages.map((m) => ({ ...m, id: uuid() }))
     const forkInfoMsg: Message = {
       id: uuid(),
       role: 'system',
@@ -941,7 +952,19 @@ export class WorkspaceContext {
       timestamp: Date.now(),
       forkSourceSessionId: sourceSession.agentSessionId,
       forkSourceTitle: originalTitle,
+      ...(inFlightFrom === -1 ? {} : { forkSourceRunning: true }),
     }
+
+    // A fork is another attempt at the same goal, so it belongs under the source's
+    // task rather than beside it as a loose session. Nesting is one level deep:
+    // forking a subtask's session adds a sibling under their shared parent.
+    const sourceTask = this.tasksStore.taskForSession(sourceSession.agentSessionId)
+      ?? (sourceSession.pendingTaskId
+        ? this.tasksStore.tasks.find((task) => task.id === sourceSession.pendingTaskId)
+        : undefined)
+      ?? (sourceSession.pendingParentTaskId
+        ? this.tasksStore.tasks.find((task) => task.id === sourceSession.pendingParentTaskId)
+        : undefined)
 
     const forkedSession = makeSession(this.settings, {
       agentSessionId: sourceSession.agentSessionId,
@@ -958,6 +981,8 @@ export class WorkspaceContext {
       worktreeBaseBranch: sourceSession.worktreeBaseBranch,
       sessionSkills: [...sourceSession.sessionSkills],
       pluginCommands: this.pluginCommands,
+      pendingParentTaskId: sourceTask ? sourceTask.parentId ?? sourceTask.id : null,
+      taskCreationDisabled: sourceSession.taskCreationDisabled,
     })
 
     const forkTab = makeTab(forkedSession.id, { id: tabId, title: `Fork: ${originalTitle}` })
@@ -1454,6 +1479,7 @@ export class WorkspaceContext {
           limit: RESTORED_TRANSCRIPT_LIMIT,
         }),
         this.attachRuntimeSession(tabId),
+        this.tasksStore.ensureSessionBinding(meta.sessionId).catch(() => null),
       ])
 
       const session = currentResumeTarget()
@@ -1599,7 +1625,7 @@ export class WorkspaceContext {
     session.messages.push({ id: nextMsgId(), role: 'system' as const, content, timestamp: Date.now() })
   }
 
-  private promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; taskId?: string; skipTaskCreation?: boolean; goalObjective?: string }): void {
+  private promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; taskId?: string; parentTaskId?: string; skipTaskCreation?: boolean; goalObjective?: string }): void {
     const api = this.apiFor(tabId)
     api.createTab(tabId)
       .then(() => this.config.pendingSessionStartTarget(tabId))
@@ -1680,6 +1706,9 @@ export class WorkspaceContext {
     }
 
     if (session.pendingHostDispatch) {
+      // Host checkout can take several seconds. The turn starts when the user
+      // sends, not when that preparation eventually produces a provider echo.
+      session.currentTurnStartedAt = Date.now()
       session.status = 'connecting'
       void this.prepareHostDispatchAndSend(targetTabId, prompt, projectPath, delivery)
       return true
@@ -1740,11 +1769,12 @@ export class WorkspaceContext {
       input.workRefs = []
       input.sessionRefs = []
     } else {
+      const sentAt = session.currentTurnStartedAt ?? Date.now()
       const userMsg: Message = {
         id: clientPromptId,
         role: 'user' as const,
         content: prompt,
-        timestamp: Date.now(),
+        timestamp: sentAt,
         clientPromptId,
         attachments,
         planRefs,
@@ -1752,6 +1782,7 @@ export class WorkspaceContext {
         sessionRefs,
       }
       session.currentTurnStart = isFirstMessage ? 'fresh' : 'follow_up'
+      session.currentTurnStartedAt = sentAt
       session.currentActivity = session.currentTurnStart === 'fresh'
         ? 'Starting session...'
         : 'Resuming...'
@@ -1781,6 +1812,10 @@ export class WorkspaceContext {
         session.pendingTaskId ??
         this.tasksStore.taskForSession(session.agentSessionId)?.id ??
         undefined,
+      // Only until the fork's own subtask exists — the two are mutually exclusive.
+      parentTaskId: session.pendingTaskId || this.tasksStore.taskForSession(session.agentSessionId)
+        ? undefined
+        : session.pendingParentTaskId ?? undefined,
       skipTaskCreation: session.taskCreationDisabled || undefined,
       goalObjective: isFirstMessage ? session.pendingGoalObjective ?? undefined : undefined,
     })
@@ -1868,6 +1903,7 @@ export class WorkspaceContext {
       if (superseded()) return
       const message = error instanceof Error ? error.message : String(error)
       session.status = 'idle'
+      session.currentTurnStartedAt = null
       session.statusCard = buildRemoteDispatchCard({
         tabId,
         hostLabel: pending.hostLabel,
@@ -1908,6 +1944,7 @@ export class WorkspaceContext {
 
     session.status = 'connecting'
     session.currentTurnStart = 'follow_up'
+    session.currentTurnStartedAt = Date.now()
     session.currentActivity = 'Resuming...'
     session.provider = session.provider ?? this.settings.activeAgent
     session.latestCheckpointId = null

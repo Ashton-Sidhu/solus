@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { SessionHistoryLoader } from '../../src/renderer/lib/sessionPickerHistory'
+import { updateSessionHistoryStatus } from '../../src/renderer/contexts/workspace/session-history.store.svelte'
 import { takeSessionScanBatch } from '../../src/main/server/session-scan'
 import type { SessionMeta } from '../../src/shared/types'
 
@@ -18,6 +19,16 @@ function session(index: number): SessionMeta {
 }
 
 describe('session history loading', () => {
+  test('a closed running session keeps receiving live status in picker history', () => {
+    // WHY: closing a task unloads its tab, not its provider run. The history
+    // row becomes the only place where the user can see that background state.
+    const sessions = [session(1)]
+
+    updateSessionHistoryStatus(sessions, 'session-1', 'running')
+
+    expect(sessions[0].status).toBe('running')
+  })
+
   test('a bounded home load requests only the needed provider rows without opening a scan stream', async () => {
     const calls: unknown[][] = []
     let subscriptions = 0

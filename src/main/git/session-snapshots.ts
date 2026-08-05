@@ -478,7 +478,7 @@ export async function getEpisodeNumstat(
 ): Promise<ChangedFileStat[]> {
   const out = await withWorkingTreeIndex(workTree, repoRoot, (env) =>
     runAsync('git',
-      ['-c', 'core.quotepath=false', 'diff', baseSha, '--numstat'],
+      ['-c', 'core.quotepath=false', 'diff', baseSha, '--numstat', '--summary'],
       workTree,
       { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER },
     ),
@@ -486,17 +486,38 @@ export async function getEpisodeNumstat(
   return parseChangedFileStats(out)
 }
 
-/** Parse `git diff --numstat` output into the renderer's compact file model. */
+/**
+ * Parse `git diff --numstat --summary` output into the renderer's compact file
+ * model. The numstat block carries the counts; the trailing summary block is the
+ * only thing that says whether a file was created, deleted or renamed — anything
+ * it does not name is a modification.
+ */
 export function parseChangedFileStats(out: string): ChangedFileStat[] {
   const files: ChangedFileStat[] = []
+  const statuses = new Map<string, ChangedFileStat['status']>()
   for (const line of out.split('\n')) {
     if (!line) continue
+    // Summary lines are the indented tail of the output; numstat lines are not.
+    if (line.startsWith(' ')) {
+      const summary = line.match(/^ (create|delete) mode \d+ (.*)$/)
+      if (summary) {
+        statuses.set(summary[2], summary[1] === 'create' ? 'A' : 'D')
+        continue
+      }
+      const renamed = line.match(/^ rename (.*) \(\d+%\)$/)
+      if (renamed) statuses.set(resolveNumstatPath(renamed[1]), 'R')
+      continue
+    }
     const parts = line.split('\t')
     if (parts.length < 3) continue
     // Binary files report `-` for both counts; parseInt → NaN → 0.
     const additions = parseInt(parts[0], 10) || 0
     const deletions = parseInt(parts[1], 10) || 0
-    files.push({ path: resolveNumstatPath(parts[2]), additions, deletions })
+    files.push({ path: resolveNumstatPath(parts[2]), additions, deletions, status: 'M' })
+  }
+  for (const file of files) {
+    const status = statuses.get(file.path)
+    if (status) file.status = status
   }
   return files
 }
@@ -736,7 +757,7 @@ export async function getDiffStats(
   if (scope.kind === 'working-tree') {
     if (!workTree) return []
     const out = await withWorkingTreeIndex(workTree, repoRoot, (env) =>
-      runAsync('git', ['-c', 'core.quotepath=false', 'diff', 'HEAD', '--numstat'], workTree, {
+      runAsync('git', ['-c', 'core.quotepath=false', 'diff', 'HEAD', '--numstat', '--summary'], workTree, {
         env,
         maxBuffer: COMBINED_DIFF_MAX_BUFFER,
       }),
@@ -757,7 +778,7 @@ export async function getDiffStats(
       try {
         if (live.baseSha === live.treeSha) return []
         const out = await runAsync('git',
-          ['-c', 'core.quotepath=false', 'diff', live.baseSha, live.treeSha, '--numstat'],
+          ['-c', 'core.quotepath=false', 'diff', live.baseSha, live.treeSha, '--numstat', '--summary'],
           repoRoot,
           { maxBuffer: COMBINED_DIFF_MAX_BUFFER },
         )
@@ -771,7 +792,7 @@ export async function getDiffStats(
   const range = await resolveScope(repoRoot, sessionId, scope)
   if (!range || range.from === range.to) return []
   const out = await runAsync('git',
-    ['-c', 'core.quotepath=false', 'diff', range.from, range.to, '--numstat'],
+    ['-c', 'core.quotepath=false', 'diff', range.from, range.to, '--numstat', '--summary'],
     repoRoot,
     { maxBuffer: COMBINED_DIFF_MAX_BUFFER },
   )

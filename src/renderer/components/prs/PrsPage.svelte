@@ -26,7 +26,6 @@
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { serverConnections } from "@client-core/server-connections";
-  import SegmentedControl from "../ui/SegmentedControl.svelte";
   import SortMenu from "../ui/SortMenu.svelte";
   import { Button } from "../ui/button";
   import PageEmpty from "../ui/PageEmpty.svelte";
@@ -38,20 +37,21 @@
     ListPage,
     ListRow,
     ListSkeleton,
+    ListStatusMenu,
     VirtualList,
     virtualGroupItems,
     type ListFilterSpec,
     type ListPageView,
+    type ListStatusOption,
   } from "../ui/list-page";
+  import { filterPrs, sortPrs, type PrSortMode } from "./lib/pr-utils";
   import {
-    filterPrs,
-    sortPrs,
-    type PrStateFilter,
-    type PrSortMode,
-  } from "./lib/pr-utils";
-  import {
+    PR_STATUS_OPTIONS,
+    OPEN_PR_STATUS_KEYS,
+    prFetchScope,
     prGroups,
     prInboxGroups,
+    prStatusOf,
     type PrRowContext,
   } from "./lib/prs-list-view";
   import type { PrReviewTab } from "../../contexts/prs/prs.store.svelte";
@@ -126,21 +126,14 @@
     { value: "effort", label: "Effort" },
   ];
 
-  const STATE_TABS: { value: PrStateFilter; label: string }[] = [
-    { value: "open", label: "Open" },
-    { value: "closed", label: "Closed" },
-    { value: "all", label: "All" },
-  ];
-
-  const counts = $derived.by(() => {
-    let openCount = 0;
-    let closed = 0;
-    for (const pr of store.items) {
-      if (pr.state === "open") openCount++;
-      else closed++;
-    }
-    return { all: store.items.length, open: openCount, closed };
-  });
+  // The statuses the list and the inbox are showing, and the fetch scope they
+  // imply — merged and closed pull requests are a separate page on the host, so
+  // asking for them has to widen the load before anything can be filtered.
+  const statuses = $derived(new Set(listView.statusKeys));
+  const fetchScope = $derived(prFetchScope(listView.statusKeys));
+  const openCount = $derived(
+    store.items.filter((pr) => pr.state === "open").length,
+  );
 
   // ── The shared row grammar's view of a PR ──
   // `isMine` needs the connected viewer's login; until `loadViewer` lands it
@@ -158,14 +151,14 @@
           ? store.items.filter((pr) => pr.needsMyReview)
           : store.items,
         listView.query,
-        listView.stateFilter,
+        fetchScope,
       ),
       listView.sortMode,
     ),
   );
 
   const filtered = $derived.by(() => {
-    let rows = searched;
+    let rows = searched.filter((pr) => statuses.has(prStatusOf(pr)));
     if (listView.minesOnly) rows = rows.filter((pr) => rowContext.isMine(pr));
     if (listView.failingOnly) {
       rows = rows.filter((pr) => {
@@ -194,7 +187,7 @@
             `https://github.com/${repo.owner}/${repo.repo}/pull/${pr.number}`,
           );
       },
-    }),
+    }, statuses),
   );
   const inboxVirtualItems = $derived(
     virtualGroupItems(inboxGroups, (row) => row.key),
@@ -250,6 +243,16 @@
     },
   ]);
 
+  // A status the page has not fetched can't be counted, so its count reads 0
+  // until it is picked and the widened fetch lands. Better than a blank, and it
+  // corrects itself the moment the answer exists.
+  const statusOptions = $derived<ListStatusOption[]>(
+    PR_STATUS_OPTIONS.map((option) => ({
+      ...option,
+      count: searched.filter((pr) => prStatusOf(pr) === option.value).length,
+    })),
+  );
+
   // The lead statistic is the reason to be on this page — how much is waiting on
   // you — and it is the only coloured text in the header.
   const summary = $derived.by(() => {
@@ -260,7 +263,7 @@
         pr.needsMyReview &&
         !rowContext.isMine(pr),
     ).length;
-    const openCount = counts.open;
+    const totalOpen = openCount;
     const mergedRecently = store.items.filter(
       (pr) =>
         pr.state === "merged" &&
@@ -268,7 +271,7 @@
     ).length;
     return [
       { label: `${awaiting} awaiting your review`, tint: "warning" as const },
-      { label: `${openCount} open` },
+      { label: `${totalOpen} open` },
       { label: `${mergedRecently} merged this month` },
     ];
   });
@@ -326,7 +329,7 @@
         requestedProjectPath && requestedProjectPath !== currentProjectPath
           ? requestedProjectPath
           : null;
-      store.filter = { state: listView.stateFilter };
+      store.filter = { state: fetchScope };
       void store.loadAll(prsCtx());
       void store
         .loadViewer(prsCtx())
@@ -495,14 +498,20 @@
   }
 
   function refreshList() {
-    store.filter = { state: listView.stateFilter };
+    store.filter = { state: fetchScope };
     void store.loadAll(prsCtx(), { force: true });
   }
 
-  function onStateFilterChange(state: PrStateFilter) {
+  // Narrowing within what is already loaded is free; widening past it is a
+  // fetch. Only reload when the scope actually moves, so toggling Draft off and
+  // on doesn't re-hit the host.
+  function onStatusChange(next: string[]) {
+    const scope = prFetchScope(next);
+    const refetch = scope !== fetchScope;
     store.needsReviewOnly = false;
-    listView.stateFilter = state;
-    store.filter = { state };
+    listView.statusKeys = next;
+    if (!refetch) return;
+    store.filter = { state: scope };
     void store.loadAll(prsCtx());
   }
 
@@ -577,13 +586,13 @@
       transition:fly={{ y: -4, duration: 160 }}
     >
       <span
-        class="font-mono text-[10px] tabular-nums whitespace-nowrap text-muted-foreground"
+        class="font-mono text-[11px] tabular-nums whitespace-nowrap text-muted-foreground"
       >
         {selected.length} selected
       </span>
       <Button
         type="button"
-        class="inline-flex h-[26px] shrink-0 cursor-pointer items-center rounded-lg border-0 bg-transparent px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        class="inline-flex h-[26px] shrink-0 cursor-pointer items-center rounded-lg border-0 bg-transparent px-2 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         onclick={clearReviewSelection}
         aria-label={`Clear ${selected.length} selected pull requests`}
       >
@@ -591,7 +600,7 @@
       </Button>
       <Button
         type="button"
-        class="inline-flex h-[26px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+        class="inline-flex h-[26px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
         disabled={guideEligible.length === 0}
         onclick={generateGuides}
         aria-label={`Generate ${guideEligible.length} review guides in the background`}
@@ -609,7 +618,7 @@
       <Button
         type="button"
         onclick={openReviewMode}
-        class="inline-flex h-[26px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-primary px-2.5 text-xs font-medium text-primary-foreground transition-[filter] duration-100 hover:brightness-[1.07]"
+        class="inline-flex h-[26px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-primary px-2.5 text-[13px] font-medium text-primary-foreground transition-[filter] duration-100 hover:brightness-[1.07]"
       >
         <PlayIcon size={12} weight="fill" class="shrink-0" />
         <span>Review</span>
@@ -628,24 +637,18 @@
     filters={view === "global" ? listFilters : []}
   >
     {#snippet trailing()}
+      <ListStatusMenu
+        options={statusOptions}
+        selected={listView.statusKeys}
+        onChange={onStatusChange}
+        ariaLabel="Filter pull requests by status"
+      />
       {#if view === "global"}
-        <SegmentedControl
-          variant="bar"
-          compact
-          options={STATE_TABS.map((t) => ({
-            ...t,
-            count:
-              listView.stateFilter === t.value ? counts[t.value] : undefined,
-          }))}
-          isActive={(v) => listView.stateFilter === v}
-          onSelect={onStateFilterChange}
-          ariaLabel="Filter by state"
-        />
         <SortMenu
           bind:value={listView.sortMode}
           options={SORT_OPTIONS}
           ariaLabel="Sort pull requests"
-          class="h-7 gap-1.5 rounded-[10px] px-2.5 text-xs font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
+          class="h-7 gap-1.5 rounded-[10px] px-2.5 text-[13px] font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
         />
       {/if}
     {/snippet}
@@ -698,7 +701,7 @@
             {#snippet actions()}
               <Button
                 type="button"
-                class="inline-flex h-[34px] cursor-pointer items-center gap-2 rounded-lg border-0 bg-muted px-3 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                class="inline-flex h-[34px] cursor-pointer items-center gap-2 rounded-lg border-0 bg-muted px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
                 onclick={refreshList}
               >
                 <ArrowsClockwiseIcon size={13} class="shrink-0" />
@@ -716,7 +719,7 @@
               items={inboxVirtualItems}
               height={contentHeight}
               itemSize={(index) =>
-                inboxVirtualItems[index].kind === "header" ? 36 : 54}
+                inboxVirtualItems[index].kind === "header" ? 36 : 55}
               keyOf={(item) => item.key}
               activeKey={inboxActiveKey}
               scrollOffset={listView.scrollTop}
@@ -761,12 +764,12 @@
             {#snippet actions()}
               <Button
                 type="button"
-                class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
                 onclick={() => {
                   listView.query = "";
                   listView.minesOnly = false;
                   listView.failingOnly = false;
-                  onStateFilterChange("open");
+                  onStatusChange([...OPEN_PR_STATUS_KEYS]);
                 }}
               >
                 Clear filters
@@ -815,7 +818,7 @@
                     {#snippet leading()}
                       <button
                         type="button"
-                        class="mr-2 grid size-4 shrink-0 cursor-pointer place-items-center rounded border-0 text-[10px] transition-opacity {reviewSelection.has(
+                        class="mr-2 grid size-4 shrink-0 cursor-pointer place-items-center rounded border-0 text-[11px] transition-opacity {reviewSelection.has(
                           Number(item.row.key),
                         )
                           ? 'bg-primary text-primary-foreground opacity-100'
@@ -839,7 +842,7 @@
                 <div use:loadMoreSentinel class="flex items-center justify-center py-3">
                   <Button
                     type="button"
-                    class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                    class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={store.loadingMore}
                     onclick={() => void store.loadMore(prsCtx())}
                   >

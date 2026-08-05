@@ -13,7 +13,7 @@ import {
   requireTask,
   taskFromRow,
 } from './task-store'
-import { attemptsForTask, writeSessionLink, type SessionLinkDetails } from './task-sessions'
+import { writeSessionLink, type SessionLinkDetails } from './task-sessions'
 import type {
   Task as TaskRecord,
   TaskComment,
@@ -23,7 +23,6 @@ import type {
   TaskLinkInput,
   TaskLinkKind,
   TaskPriority,
-  TaskSessionLink,
   TaskSessionRole,
   TaskSource,
   TaskStatus,
@@ -128,6 +127,22 @@ export class Task implements TaskRecord {
     return row ? Task.byId(row.task_id) : null
   }
 
+  /** Attach an object produced inside a session to that session's owning task.
+   * Sessions without a task are intentionally left alone (for example, legacy
+   * conversations that predate session-born tasks). */
+  static async linkArtifactForSession(
+    sessionId: string,
+    input: Omit<TaskLinkInput, 'createdBy' | 'originSessionId'>,
+  ): Promise<TaskDetails | null> {
+    const task = await Task.forSession(sessionId)
+    if (!task) return null
+    return task.link({
+      ...input,
+      createdBy: 'agent',
+      originSessionId: sessionId,
+    }, { actor: 'agent', actorLabel: sessionId })
+  }
+
   /** The plain serializable shape. Everything crossing RPC returns this. */
   record(): TaskRecord {
     return { ...this } as TaskRecord
@@ -144,7 +159,6 @@ export class Task implements TaskRecord {
       task: this.record(),
       subtasks: listTaskChildren(this.id),
       comments: commentsForTask(this.id, db),
-      attempts: attemptsForTask(this.id, db),
       links: readTaskLinks(db, this.id),
       events: readTaskEvents(db, this.id),
     }
@@ -156,10 +170,6 @@ export class Task implements TaskRecord {
 
   async events(): Promise<TaskEvent[]> {
     return readTaskEvents(database(), this.id)
-  }
-
-  async sessions(): Promise<TaskSessionLink[]> {
-    return attemptsForTask(this.id, database())
   }
 
   async update(patch: TaskUpdatePatch, actor: EventActor = { actor: 'user' }): Promise<this> {
@@ -326,13 +336,21 @@ export class Task implements TaskRecord {
   /** Shared persistence for the three workspace-owned link kinds. Their public
    * methods keep target identity explicit instead of exposing storage keys. */
   private async linkWorkspaceObject(input: TaskLinkInput, actor: EventActor): Promise<TaskDetails> {
-    withTx(() => {
+    const changed = withTx(() => {
       const db = database()
       requireTask(this.id, db)
+      const existing = db.prepare(`
+        SELECT 1 FROM task_links
+        WHERE task_id = ? AND kind = ? AND target_scope = ? AND target_key = ?
+      `).get(this.id, input.kind, input.targetScope ?? '', input.targetKey)
+      if (existing) return false
       writeTaskLink(db, this.id, input, actor)
+      return true
     })
-    emitChanged()
-    this.refresh()
+    if (changed) {
+      emitChanged()
+      this.refresh()
+    }
     return this.details()
   }
 

@@ -105,6 +105,10 @@ export const KEYBINDINGS = {
   'workspace.next':               { combo: { code: 'ArrowDown' }, repeatable: true,        scope: 'workspace',          label: 'Next',                     group: 'Navigate' },
   'workspace.prev':               { combo: { code: 'ArrowUp' }, repeatable: true,          scope: 'workspace',          label: 'Previous',                 group: 'Navigate' },
   'workspace.toggle-pin':         { combo: { alt: true, code: 'KeyP' },                    scope: 'workspace',          label: 'Pin / unpin',              group: 'Workspace' },
+  // The peek is a pointer affordance, so the keyboard gets its own: the same
+  // card, pinned, on the focused row. No hover state is ever required to reach
+  // information.
+  'workspace.peek':               { combo: { code: 'Space' },                              scope: 'workspace',          label: 'Peek',                     group: 'Workspace' },
 
   // ── Plan review ────────────────────────────────────────────────────────────
   'plan-review.approve-ask':      { combo: { alt: true, code: 'KeyY' },                    scope: 'plan-action-bar',    label: 'Approve (ask mode)',       group: 'Review' },

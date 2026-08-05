@@ -41,11 +41,11 @@
 <div class="flex min-w-0 flex-col gap-3">
   <div class="flex items-baseline justify-between gap-2.5">
     <span
-      class="text-[0.6875rem] font-semibold tracking-[0.1em] text-muted-foreground uppercase"
+      class="text-[12px] font-[450] tracking-[0.09em] text-muted-foreground uppercase"
       >History</span
     >
     {#if runs.length > 0}
-      <span class="text-[0.6875rem] text-[color:color-mix(in_oklab,var(--muted-foreground)_80%,transparent)]">
+      <span class="text-[12px] text-[color:color-mix(in_oklab,var(--muted-foreground)_80%,transparent)]">
         {runs.length}
         {runs.length === 1 ? "run" : "runs"}
       </span>
@@ -53,7 +53,7 @@
   </div>
 
   {#if runs.length === 0}
-    <p class="m-0 text-[0.78125rem] leading-normal text-muted-foreground">
+    <p class="m-0 text-[13px] leading-normal text-muted-foreground">
       No runs yet. Use Run now to test it.
     </p>
   {:else}
@@ -75,12 +75,12 @@
             aria-hidden="true"
           ></span>
           <span
-            class="min-w-0 flex-1 truncate text-[0.75rem] {failed
+            class="min-w-0 flex-1 truncate text-[13px] {failed
               ? 'text-[var(--solus-status-error,#e53e3e)]'
               : 'text-[color:color-mix(in_oklab,var(--foreground)_82%,var(--muted-foreground))]'}"
             >{summary(run)}</span
           >
-          <span class="shrink-0 text-[0.6875rem] tabular-nums text-muted-foreground"
+          <span class="shrink-0 text-[12px] tabular-nums text-muted-foreground"
             >{runDate(run.startedAt) || relativeTime(run.startedAt)}</span
           >
         </button>
@@ -91,7 +91,7 @@
     {#if hiddenCount > 0 || expanded}
       <button
         type="button"
-        class="-mx-2 mt-0.5 inline-flex h-7 cursor-pointer items-center gap-1.5 self-start rounded-lg border-0 bg-transparent px-2 text-[0.71875rem] font-[550] text-muted-foreground transition-colors duration-100 hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
+        class="-mx-2 mt-0.5 inline-flex h-7 cursor-pointer items-center gap-1.5 self-start rounded-lg border-0 bg-transparent px-2 text-[12px] font-[550] text-muted-foreground transition-colors duration-100 hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
         onclick={onToggle}
         aria-expanded={expanded}
       >

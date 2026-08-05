@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import { encodePathAsFolder } from '../../src/shared/types'
 import type { AgentTarget, SessionMeta, SessionStatus } from '../../src/shared/types'
+import type { SessionCreateRequest } from '../../src/main/sessions/session-tools'
 
 // session-tools imports the indexer, which imports node:sqlite (absent under
 // Bun's test runtime). Shim with bun:sqlite before dynamically importing the SUT.
@@ -14,10 +15,14 @@ type ToolsModule = typeof import('../../src/main/sessions/session-tools')
 type IndexerModule = typeof import('../../src/main/db/session-indexer')
 type DelegationsModule = typeof import('../../src/main/sessions/session-delegations')
 type DbModule = typeof import('../../src/main/db')
+type TaskStoreModule = typeof import('../../src/main/tasks/task-store')
+type TaskSessionsModule = typeof import('../../src/main/tasks/task-sessions')
 let tools: ToolsModule
 let indexer: IndexerModule
 let delegations: DelegationsModule
 let closeDb: DbModule['closeDb']
+let taskStore: TaskStoreModule
+let taskSessions: TaskSessionsModule
 
 const CWD = '/Users/test/proj'
 const PROJECT = encodePathAsFolder(CWD)
@@ -30,6 +35,8 @@ beforeAll(async () => {
   indexer = await import('../../src/main/db/session-indexer')
   delegations = await import('../../src/main/sessions/session-delegations')
   ;({ closeDb } = await import('../../src/main/db'))
+  taskStore = await import('../../src/main/tasks/task-store')
+  taskSessions = await import('../../src/main/tasks/task-sessions')
 })
 afterAll(() => {
   closeDb?.()
@@ -64,12 +71,13 @@ interface FakeController {
   metaValue: SessionMeta | null
   promptDisposition?: 'started' | 'steered' | 'queued'
   targets?: AgentTarget[]
+  sessions?: SessionMeta[]
 }
 
 function installController(state: FakeController): void {
   tools.setSessionController({
     listAgentTargets: async () => state.targets ?? [],
-    listSessions: async () => [],
+    listSessions: async () => state.sessions ?? [],
     getSessionInfo: async () => state.metaValue,
     loadSessionTail: async () => [],
     liveStatus: () => state.liveStatusValue,
@@ -316,6 +324,81 @@ describe('create_session executor', () => {
       parentSessionId: 'parent-session',
       intent: 'delegate',
     }])
+  })
+
+  test('passes explicit task ownership through and reports the created subtask', async () => {
+    // WHY: orchestrators need one atomic operation that both starts a worker
+    // and places its work beneath the correct task. Requiring a follow-up link
+    // can race the worker's first prompt and loses the parent relationship.
+    let request: SessionCreateRequest | undefined
+    tools.setSessionCreator(async (input) => {
+      request = input
+      return { agentSessionId: 'spawned-subtask', taskId: 'child-task' }
+    })
+
+    const result = await tools.executeSessionTool('create_session', {
+      prompt: 'Implement focused tests',
+      agent_provider: 'claude-code',
+      model_id: 'claude-sonnet-5',
+      mode: 'delegate',
+      parent_task_id: 'parent-task',
+    }, {
+      ctx: { agentProvider: 'codex', cwd: CWD, sessionId: 'parent-session' },
+    })
+
+    expect(result.ok).toBe(true)
+    expect(request).toMatchObject({ parentTaskId: 'parent-task', taskId: null })
+    expect(result.text).toContain('Bound to task child-task, a new subtask of parent-task')
+  })
+
+  test('rejects conflicting task and parent task ownership', async () => {
+    installCreator('not-created')
+    const result = await tools.executeSessionTool('create_session', {
+      prompt: 'Ambiguous work',
+      agent_provider: 'claude-code',
+      model_id: 'claude-sonnet-5',
+      mode: 'delegate',
+      task_id: 'existing-task',
+      parent_task_id: 'parent-task',
+    }, {
+      ctx: { agentProvider: 'codex', cwd: CWD, sessionId: 'parent-session' },
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.text).toContain('either task_id or parent_task_id')
+  })
+})
+
+describe('session task context', () => {
+  test('list and read expose a worker subtask and its parent', async () => {
+    // WHY: orchestration tools should reveal task ownership without requiring
+    // a second task lookup for every worker session.
+    const parent = await taskStore.createTask({ title: 'Coordinate release', projectKey: CWD })
+    const child = await taskSessions.prepareSessionTask({
+      parentTaskId: parent.id,
+      sessionId: 'target-1',
+      projectKey: CWD,
+      prompt: 'Verify the release',
+    })
+    const session = meta({ status: 'running' })
+    const state: FakeController = {
+      calls: { watch: [] },
+      liveStatusValue: 'running',
+      metaValue: session,
+      sessions: [session],
+    }
+    installController(state)
+
+    const listed = await tools.executeSessionTool('list_sessions', {}, {
+      ctx: { agentProvider: 'codex', cwd: CWD, sessionId: 'me' },
+    })
+    const read = await tools.executeSessionTool('read_session', { session_id: 'target-1' }, {
+      ctx: { agentProvider: 'codex', cwd: CWD, sessionId: 'me' },
+    })
+
+    expect(listed.text).toContain(`${child!.id} [in_progress] Verify the release (subtask of ${parent.id})`)
+    expect(read.text).toContain(`task: ${child!.id} [in_progress] Verify the release`)
+    expect(read.text).toContain(`parent task: ${parent.id} [todo] Coordinate release`)
   })
 })
 

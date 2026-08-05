@@ -16,6 +16,7 @@ import type { PrGuideMetadata, PrGuideStatus } from '../../../shared/review'
 import type { PrChecksSnapshot } from '../../../shared/checks-rpc-types'
 import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@client-core/server-connections'
+import { OPEN_PR_STATUS_KEYS } from '../../components/prs/lib/prs-list-view'
 
 const PR_CACHE_TTL_MS = 30_000
 export const PR_CACHE_MAX_ENTRIES = 64
@@ -34,8 +35,9 @@ export type PrReviewTab = 'activity' | 'guide' | 'diff'
  *  the reading position and not merely the query. */
 export interface PrListView {
   query: string
-  /** The *fetch* scope, not a display filter — the server pages per state. */
-  stateFilter: 'open' | 'closed' | 'all'
+  /** The lifecycle states the list and the inbox are showing. Also decides the
+   *  *fetch* scope, since the server pages open and closed separately. */
+  statusKeys: string[]
   sortMode: 'updated' | 'created' | 'effort'
   minesOnly: boolean
   failingOnly: boolean
@@ -46,7 +48,7 @@ export interface PrListView {
 
 const EMPTY_LIST_VIEW: PrListView = {
   query: '',
-  stateFilter: 'open',
+  statusKeys: [...OPEN_PR_STATUS_KEYS],
   sortMode: 'updated',
   minesOnly: false,
   failingOnly: false,

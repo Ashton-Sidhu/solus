@@ -11,7 +11,7 @@ afterEach(() => {
 async function createReducer(
   messages: Message[],
   isTabVisible = true,
-  hydrateForSession: (sessionId: string) => Promise<unknown> = async () => null,
+  refreshSessionBinding: (sessionId: string) => Promise<unknown> = async () => null,
   trackSessionStart: (taskId: string, sessionId: string) => void = () => {},
 ) {
   ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
@@ -30,7 +30,7 @@ async function createReducer(
       forEachSiblingTab: () => {},
     },
     settings: { rateLimitBehavior: 'ask' },
-    tasksStore: { hydrateForSession, trackSessionStart },
+    tasksStore: { refreshSessionBinding, trackSessionStart },
     workStreamTracker: { sweep: () => {} },
     isTabVisible: () => isTabVisible,
     closePlanModal: () => {},
@@ -155,6 +155,28 @@ describe('SessionEventReducer card stream boundaries', () => {
       content: 'Use the smaller implementation',
       delivery: 'steer',
     })
+  })
+
+  test('starts elapsed timing before a provider-originated prompt is echoed', async () => {
+    const { reducer, session } = await createReducer([])
+    session.currentTurnStartedAt = null
+    const before = Date.now()
+
+    reducer.apply('tab-1', { type: 'status_change', status: 'connecting' })
+
+    // WHY: status commonly arrives before user_message for remote and watched
+    // sessions. The sidebar must show its timer from the first running state.
+    expect(session.currentTurnStartedAt).toBeGreaterThanOrEqual(before)
+    const startedAt = session.currentTurnStartedAt
+
+    reducer.apply('tab-1', {
+      type: 'user_message',
+      text: 'Do the remote work',
+    })
+    expect(session.currentTurnStartedAt).toBe(startedAt)
+
+    reducer.apply('tab-1', { type: 'status_change', status: 'completed' })
+    expect(session.currentTurnStartedAt).toBeNull()
   })
 
   test('reconciles identical outbound prompts by client id and preserves presentation data', async () => {

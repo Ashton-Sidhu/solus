@@ -1,6 +1,7 @@
 export { default as ListPage } from './ListPage.svelte'
 export { default as ListFilterBar } from './ListFilterBar.svelte'
 export { default as ListGroup } from './ListGroup.svelte'
+export { default as ListStatusMenu } from './ListStatusMenu.svelte'
 export { default as ListRow } from './ListRow.svelte'
 export { default as InboxRow } from './InboxRow.svelte'
 export { default as ListChip } from './ListChip.svelte'

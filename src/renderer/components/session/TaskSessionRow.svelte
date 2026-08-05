@@ -102,7 +102,7 @@
 <!-- One step in from the task title's spine, with no plate of its own: the
      connector carries the hierarchy, so nothing here needs a box. -->
 <div
-  class="group/session relative flex h-[2.875rem] cursor-pointer items-center gap-[0.5625rem] rounded-[0.6875rem] pr-2 transition-[background] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] {grouped
+  class="group/session relative -mr-1 flex h-[2.875rem] cursor-pointer items-center gap-[0.5625rem] rounded-[0.6875rem] pr-2 transition-[background] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] {grouped
     ? 'pl-10'
     : 'pl-8'}"
   role="treeitem"
@@ -212,24 +212,30 @@
             </span>
           {/if}
 
-          {#if hasGlyph(status)}
-            <TaskStatusGlyph
-              {status}
-              size={13}
-              label={attentionLabel(session.attention)}
-            />
-          {:else if elapsed}
-            <!-- The clock on the current session joins its elbow in terracotta,
-                 so the row you are reading states its own state in one
-                 colour. -->
-            <span
-              class="shrink-0 font-mono text-[0.65625rem] tabular-nums {selected
-                ? 'text-primary'
-                : 'text-muted-foreground'}">{elapsed}</span
-            >
-          {:else if showsUnreadDot}
-            <UnreadDot size={6} />
-          {/if}
+          <!-- Match the task row's state column while preserving the child
+               row's slightly smaller glyph sizes. -->
+          <span
+            class="flex min-w-[0.875rem] shrink-0 items-center justify-center"
+          >
+            {#if hasGlyph(status)}
+              <TaskStatusGlyph
+                {status}
+                size={13}
+                label={attentionLabel(session.attention)}
+              />
+            {:else if elapsed}
+              <!-- The clock on the current session joins its elbow in terracotta,
+                   so the row you are reading states its own state in one
+                   colour. -->
+              <span
+                class="shrink-0 font-mono text-[0.65625rem] tabular-nums {selected
+                  ? 'text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))]'
+                  : 'text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]'}">{elapsed}</span
+              >
+            {:else if showsUnreadDot}
+              <UnreadDot size={6} />
+            {/if}
+          </span>
         </span>
       {/if}
 
@@ -283,7 +289,7 @@
          machine, because a subtask can be running somewhere its siblings are
          not. -->
     <span
-      class="mt-1 flex max-w-full items-center gap-[0.375rem] text-[0.6875rem] text-muted-foreground"
+      class="mt-1 flex max-w-full items-center gap-[0.375rem] text-[0.6875rem] text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]"
     >
       {#if session.branchName}
         <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"

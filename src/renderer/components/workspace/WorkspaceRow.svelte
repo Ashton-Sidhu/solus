@@ -1,77 +1,275 @@
 <script lang="ts">
-  import { AsteriskIcon, FileTextIcon, GraphIcon, PushPinIcon, TrashIcon } from "phosphor-svelte";
+  import {
+    ArrowSquareOutIcon,
+    AsteriskIcon,
+    ChatCircleIcon,
+    ColumnsIcon,
+    FileTextIcon,
+    GraphIcon,
+    PresentationIcon,
+    PushPinIcon,
+    TrashIcon,
+  } from "phosphor-svelte";
+  import ClaudeIcon from "../ClaudeIcon.svelte";
+  import OpenAIBlossom from "../pickers/OpenAIBlossom.svelte";
   import type { WorkspaceItem } from "./lib/workspace-items";
-  import { formatLedgerTime } from "./lib/workspace-items";
+  import {
+    formatGeneratedDate,
+    formatGeneratedFull,
+    formatLedgerTime,
+  } from "./lib/workspace-items";
+  import { highlightRuns } from "../../lib/searchHighlight";
 
-  /** One ledger row — the same 46px rhythm for every artifact, pinned or not.
-   *  Type is a coloured glyph, status is a word in a fixed column. */
+  /** One ledger row — the same 44px rhythm for every artifact, pinned or not.
+   *  Type is a coloured glyph, never a badge; status is a word in a fixed
+   *  column, never a dot or a pill.
+   *
+   *  The row carries provenance rather than prose: the body is what the peek is
+   *  for, so the space it used to take goes to the session that generated the
+   *  artifact and the date it was generated on. */
   interface Props {
     item: WorkspaceItem;
     selected: boolean;
-    compact: boolean;
     /** Set while the ledger spans more than one project — the row then names
      *  the project it came from, which is otherwise implied by the scope. */
     showProject: boolean;
+    /** Active free-text query, marked inside the title. */
+    query: string;
+    /** The origin session's name once the index has it; the chip stands in with
+     *  a neutral word until then, and disappears where there is no session. */
+    sessionLabel: string | null;
     onOpen: () => void;
     onTogglePin: () => void;
     /** Absent on plans — a plan is a session artifact and has no delete. */
     onDelete?: () => void;
-    onHover?: () => void;
+    /** Opens the session the artifact came from. */
+    onOpenSession?: () => void;
+    /** Pins that same session into a companion pane instead. */
+    onOpenSessionSplit?: () => void;
+    /** Pointer resting here — the peek hangs off this element, not the cursor.
+     *  Hovering never selects, so this is the whole of what hover does. */
+    onPeek?: (row: HTMLElement) => void;
+    onPeekLeave?: () => void;
   }
 
-  let { item, selected, compact, showProject, onOpen, onTogglePin, onDelete, onHover }: Props =
-    $props();
+  let {
+    item,
+    selected,
+    showProject,
+    query,
+    sessionLabel,
+    onOpen,
+    onTogglePin,
+    onDelete,
+    onOpenSession,
+    onOpenSessionSplit,
+    onPeek,
+    onPeekLeave,
+  }: Props = $props();
 
   const statusLabel = $derived(
     item.status ? item.status.charAt(0).toUpperCase() + item.status.slice(1) : "",
   );
+  const titleRuns = $derived(highlightRuns(item.title, query));
+  const generated = $derived(formatGeneratedDate(item.createdAt));
+
+  // 12px glyph in a 16px box. A plan wears its agent's logo — Claude's mark in
+  // primary, Codex's in its own black — and the generic asterisk when the
+  // provider is unknown.
+  //
+  // Works take the two Solus brand hues that carry no lifecycle meaning: teal
+  // for written artifacts, dusty blue for drawn ones. Amber and sage are spoken
+  // for elsewhere — they read as "needs you" and "done" on every other surface,
+  // so a document must not wear them. Never filled, never duotone.
+  const GLYPH_COLOR = {
+    claude: "text-primary",
+    plan: "text-primary",
+    doc: "text-[color-mix(in_oklch,var(--chart-4)_66%,var(--foreground))]",
+    slides: "text-[color-mix(in_oklch,var(--chart-4)_66%,var(--foreground))]",
+    diagram: "text-[color-mix(in_oklch,var(--chart-5)_66%,var(--foreground))]",
+    // Codex's mark is solid black, so it takes the white plate it wears
+    // everywhere else in Solus rather than a text colour — that is what keeps
+    // it legible in dark mode.
+    codex: "",
+  } as const;
 </script>
 
+<!-- Hover is the inset 999px wash so it composites over a selected row instead
+     of replacing its fill; selection is --wash-2 and nothing else. Keyboard
+     focus is the 1px inset ring at 45% primary every focused field takes. -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="ledger-row"
-  class:compact
-  class:selected
+  class="group flex h-11 cursor-pointer items-center gap-2 rounded-[10px] pr-3 pl-2.5 transition-shadow duration-150 select-none hover:shadow-[inset_0_0_0_999px_var(--wash-1)] focus-visible:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--primary)_45%,transparent)] focus-visible:outline-none {selected
+    ? 'bg-[var(--wash-2)]'
+    : ''}"
   data-selected={selected ? "true" : null}
   role="option"
   aria-selected={selected}
   tabindex="-1"
   onclick={onOpen}
-  onmouseenter={onHover}
+  onpointerenter={(e) => {
+    if (e.pointerType === "mouse") onPeek?.(e.currentTarget as HTMLElement);
+  }}
+  onpointerleave={(e) => {
+    if (e.pointerType === "mouse") onPeekLeave?.();
+  }}
 >
-  <span class="row-glyph row-glyph--{item.type}" aria-hidden="true">
-    {#if item.type === "plan"}
-      <AsteriskIcon size={12} weight="bold" />
-    {:else if item.type === "diagram"}
+  <span
+    class="flex w-4 shrink-0 items-center justify-center {GLYPH_COLOR[item.glyph]}"
+    aria-hidden="true"
+  >
+    {#if item.glyph === "claude"}
+      <ClaudeIcon size={12} />
+    {:else if item.glyph === "codex"}
+      <span class="flex size-4 items-center justify-center rounded-full bg-white">
+        <OpenAIBlossom size={11} />
+      </span>
+    {:else if item.glyph === "plan"}
+      <AsteriskIcon size={12} />
+    {:else if item.glyph === "diagram"}
       <GraphIcon size={12} />
+    {:else if item.glyph === "slides"}
+      <PresentationIcon size={12} />
     {:else}
       <FileTextIcon size={12} />
     {/if}
   </span>
-  <span class="row-title">{item.title}</span>
-  {#if !compact}
-    <span class="row-snippet">{item.snippet}</span>
-  {/if}
-  <span class="row-fill"></span>
-  <span class="row-actions" class:row-actions--pinned={item.pinned}>
+
+  <!-- Title and session split the row's slack 3:2 rather than the title taking
+       all of it. Letting the title alone grow parked the whole tail against the
+       right edge and opened a dead band across the middle of every row; sharing
+       the growth closes that band and spends it on the one other column with
+       prose in it. Ellipsis, never wraps. -->
+  <span class="min-w-0 flex-[3] truncate text-[13px] font-[450] tracking-[-.005em]">
+    {#each titleRuns as run, i (i)}{#if run.hit}<mark
+          class="rounded-[3px] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
+          >{run.text}</mark
+        >{:else}{run.text}{/if}{/each}
+  </span>
+
+  <!-- Where it came from: the session that generated the artifact. It reads as
+       a field like every other — full colour, no chip — and only becomes two
+       targets under the pointer, where "Open" and "Open in split" replace the
+       chat glyph. It grows with the row instead of sitting at a fixed measure,
+       because a session name is the one column here with prose in it — every
+       other column holds a number or a single word. The cap keeps it from
+       running away on an ultrawide window, where the name has long since fit. -->
+  <span class="flex min-w-0 max-w-[26rem] flex-[2] items-center gap-[5px]">
+    {#if item.sessionId}
+      <ChatCircleIcon size={12} class="shrink-0 opacity-70" />
+      <span class="min-w-0 flex-1 truncate text-[12px]" title={sessionLabel ?? undefined}>
+        {sessionLabel ?? "Session"}
+      </span>
+      <!-- The two ways back in. The slot is reserved at rest, so the name has
+           the same measure whether or not the pointer is here. -->
+      <span
+        class="flex w-11 shrink-0 justify-end gap-0.5 opacity-0 transition-opacity duration-150 group-focus-within:opacity-100 group-hover:opacity-100"
+      >
+        {#if onOpenSession}
+          <button
+            type="button"
+            class="flex size-[22px] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-3)] hover:text-foreground"
+            onclick={(e) => {
+              e.stopPropagation();
+              onOpenSession();
+            }}
+            aria-label="Open session"
+            title="Open session{sessionLabel ? ` — ${sessionLabel}` : ''}"
+          >
+            <ArrowSquareOutIcon size={12} />
+          </button>
+        {/if}
+        {#if onOpenSessionSplit}
+          <button
+            type="button"
+            class="flex size-[22px] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-3)] hover:text-foreground"
+            onclick={(e) => {
+              e.stopPropagation();
+              onOpenSessionSplit();
+            }}
+            aria-label="Open session in split"
+            title="Open session in split"
+          >
+            <ColumnsIcon size={12} />
+          </button>
+        {/if}
+      </span>
+    {/if}
+  </span>
+
+  <!-- Generated on: absolute, so it never reads as a second copy of the
+       relative activity time at the row's end. -->
+  <span
+    class="w-[4.5rem] shrink-0 text-right text-[12px]"
+    title={generated ? `Generated ${formatGeneratedFull(item.createdAt)}` : ""}
+  >
+    {generated}
+  </span>
+
+  <!-- Pin keeps the row's inner action slot: it is the row's own state, it is
+       the frequent one, and it is harmless. On a pinned row it stays visible
+       and turns primary; it is not filled in. Delete is not here — it sits at
+       the far edge of the row, past status and time. -->
+  <span class="flex shrink-0">
     <button
       type="button"
-      class="row-action"
-      class:row-action--active={item.pinned}
+      class="flex size-[22px] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent transition-[background-color,color,opacity] duration-150 hover:bg-[var(--wash-3)] focus-visible:opacity-100 {item.pinned
+        ? 'text-[color-mix(in_oklch,var(--primary)_78%,var(--foreground))] opacity-100'
+        : 'text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'} {selected
+        ? 'opacity-100'
+        : ''}"
       onclick={(e) => {
         e.stopPropagation();
         onTogglePin();
       }}
       aria-label={item.pinned ? "Unpin" : "Pin"}
-      title={item.pinned ? "Unpin" : "Pin (⌥P)"}
+      title={item.pinned ? "Unpin (⌥P)" : "Pin (⌥P)"}
     >
-      <PushPinIcon size={12} weight={item.pinned ? "fill" : "regular"} />
+      <PushPinIcon size={12} />
     </button>
+  </span>
+
+  {#if showProject}
+    <span class="w-[4rem] shrink-0 truncate text-right text-[12px]" title={item.cwd}>
+      {item.projectLabel}
+    </span>
+  {/if}
+
+  <!-- Each trailing field is sized to the longest thing it can actually hold —
+       "Jul 15, 2025", "Accepted", "Jul 15" — rather than to a shared column
+       width. Right-aligned text in an oversized box pays for the slack on its
+       left, which is what spread the tail across the row; matching the measure
+       to the content pulls them back into one cluster. None of them is faded:
+       these are the facts a person scans the ledger for, and the title leads on
+       weight instead. Pending is the one coloured word — the one live state. -->
+  <span
+    class="w-[3.75rem] shrink-0 text-right text-[12px] tracking-[.03em] {item.status ===
+    'pending'
+      ? 'font-medium text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]'
+      : ''}"
+  >
+    {statusLabel}
+  </span>
+  <span
+    class="w-[2.75rem] shrink-0 text-right font-mono text-[12px] tabular-nums"
+    title="Last activity {formatGeneratedFull(item.timestamp)}"
+  >
+    {formatLedgerTime(item.timestamp)}
+  </span>
+
+  <!-- Delete lives past every column, at the row's outer edge — roughly 130px
+       of status and time separate it from the pin, so the two can no longer be
+       confused for one another under a moving cursor. The slot is reserved at
+       rest rather than inserted on hover, so no column shifts when the trash
+       appears, and it stays empty on plans, which have no delete. -->
+  <span class="flex w-[22px] shrink-0 justify-end">
     {#if onDelete}
       <button
         type="button"
-        class="row-action row-action--danger"
+        class="flex size-[22px] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground opacity-0 transition-[background-color,color,opacity] duration-150 group-focus-within:opacity-100 group-hover:opacity-60 hover:bg-[color-mix(in_oklch,var(--failure)_10%,transparent)] hover:text-[var(--failure)] hover:opacity-100! focus-visible:opacity-100 {selected
+          ? 'opacity-60'
+          : ''}"
         onclick={(e) => {
           e.stopPropagation();
           onDelete();
@@ -83,158 +281,4 @@
       </button>
     {/if}
   </span>
-  {#if showProject}
-    <span class="row-project" title={item.cwd}>{item.projectLabel}</span>
-  {/if}
-  <span class="row-status" class:row-status--pending={item.status === "pending"}>
-    {statusLabel}
-  </span>
-  <span class="row-time">{formatLedgerTime(item.timestamp)}</span>
 </div>
-
-<style>
-  .ledger-row {
-    display: flex;
-    align-items: center;
-    gap: 0.6875rem;
-    height: 2.875rem;
-    padding: 0 0.625rem;
-    margin: 0 -0.625rem;
-    border-radius: 0.5625rem;
-    cursor: pointer;
-    user-select: none;
-    transition: background 0.12s ease;
-  }
-  .ledger-row.compact {
-    height: 2.125rem;
-  }
-  .ledger-row:hover {
-    background: color-mix(in srgb, var(--muted) 62%, transparent);
-  }
-  /* Selection is a wash plus a 2px inset spine, not a border — a border would
-     shift the row rhythm. */
-  .ledger-row.selected {
-    background: color-mix(in srgb, var(--primary) 9%, transparent);
-    box-shadow: inset 0.125rem 0 0 var(--primary);
-  }
-  .ledger-row:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 0.125rem color-mix(in srgb, var(--ring) 55%, transparent);
-  }
-
-  .row-glyph {
-    flex: 0 0 auto;
-    width: 1rem;
-    height: 1rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .row-glyph--plan {
-    color: var(--primary);
-  }
-  .row-glyph--doc {
-    color: var(--chart-2);
-  }
-  .row-glyph--diagram {
-    color: var(--chart-3);
-  }
-
-  .row-title {
-    flex: 0 1 auto;
-    min-width: 0;
-    font-size: 0.8438rem;
-    font-weight: 500;
-    letter-spacing: -0.008em;
-    color: var(--solus-text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .row-snippet {
-    flex: 1 1 0;
-    min-width: 0;
-    font-size: 0.7813rem;
-    color: color-mix(in srgb, var(--solus-text-tertiary) 88%, transparent);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .row-fill {
-    flex: 1 1 0;
-  }
-
-  .row-actions {
-    flex: 0 0 auto;
-    display: flex;
-    gap: 0.125rem;
-    opacity: 0;
-    transition: opacity 0.12s ease;
-  }
-  .ledger-row:hover .row-actions,
-  .ledger-row.selected .row-actions,
-  .ledger-row:focus-within .row-actions,
-  .row-actions--pinned {
-    opacity: 1;
-  }
-  .row-action {
-    width: 1.375rem;
-    height: 1.375rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    border-radius: 0.375rem;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    cursor: pointer;
-    transition:
-      background 0.12s ease,
-      color 0.12s ease;
-  }
-  .row-action:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-  .row-action--active {
-    color: var(--solus-accent);
-  }
-  .row-action--danger:hover {
-    background: color-mix(in srgb, var(--destructive) 14%, transparent);
-    color: var(--destructive);
-  }
-
-  .row-project {
-    flex: 0 0 auto;
-    max-width: 5.5rem;
-    text-align: right;
-    font-size: 0.6875rem;
-    color: color-mix(in srgb, var(--solus-text-tertiary) 88%, transparent);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  /* Fixed column so dates stay in a straight line even when status is blank. */
-  .row-status {
-    flex: 0 0 4.5rem;
-    text-align: right;
-    font-size: 0.625rem;
-    font-weight: 500;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: color-mix(in srgb, var(--solus-text-tertiary) 78%, transparent);
-  }
-  .row-status--pending {
-    font-weight: 600;
-    color: var(--solus-accent);
-  }
-  .row-time {
-    flex: 0 0 2.875rem;
-    text-align: right;
-    font-size: 0.7188rem;
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    color: var(--solus-text-tertiary);
-    white-space: nowrap;
-  }
-</style>

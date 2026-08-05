@@ -2,9 +2,9 @@
   import { fade } from "svelte/transition";
   import {
     ChatTeardropIcon,
+    ClockIcon,
     FileTextIcon,
-    HourglassIcon,
-    WarningIcon,
+    XCircleIcon,
   } from "phosphor-svelte";
   import { hasGlyph, type TaskStatus } from "./lib/task-list";
 
@@ -31,15 +31,19 @@
   );
 
   // A speech bubble for a question — the agent asking you something, which no
-  // punctuation mark conveys as directly — and a triangle for a run that died.
+  // punctuation mark conveys as directly — a page for a plan waiting to be read,
+  // the same glyph the plan card itself carries, and a crossed circle for a run
+  // that died: a triangle warns about what might happen, an X reports what did.
+  // Same glyph per state as the breadcrumb, tab strip and project rail, which
+  // all read from `sessionUtils`.
   const Glyph = $derived(
     status === "question"
       ? ChatTeardropIcon
       : status === "plan"
         ? FileTextIcon
         : status === "error"
-          ? WarningIcon
-          : HourglassIcon,
+          ? XCircleIcon
+          : ClockIcon,
   );
 </script>
 

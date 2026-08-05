@@ -39,6 +39,11 @@
       done?: boolean;
       onToggleDone?: () => void;
     } | null;
+    /** A sidebar can dismiss its row without closing the mounted tab. Other
+     *  surfaces keep the ordinary workspace close behavior. */
+    onCloseTab?: (tabId: string) => void;
+    closeTabLabel?: string;
+    closeTabIsDestructive?: boolean;
     onClose: () => void;
   }
 
@@ -51,6 +56,9 @@
     onOpenInSplit,
     onStartRename,
     rowActions = null,
+    onCloseTab,
+    closeTabLabel = "Close Tab",
+    closeTabIsDestructive = true,
     onClose,
   }: Props = $props();
 
@@ -133,7 +141,9 @@
   function closeTab() {
     const targetTabId = tabId;
     onClose();
-    if (targetTabId) session.closeTab(targetTabId);
+    if (!targetTabId) return;
+    if (onCloseTab) onCloseTab(targetTabId);
+    else session.closeTab(targetTabId);
   }
 </script>
 
@@ -216,9 +226,12 @@
       {/if}
     {/if}
     {#if tabId}
-      <ContextMenu.Item variant="destructive" onSelect={closeTab}>
+      <ContextMenu.Item
+        variant={closeTabIsDestructive ? "destructive" : "default"}
+        onSelect={closeTab}
+      >
         <XIcon />
-        Close Tab
+        {closeTabLabel}
       </ContextMenu.Item>
     {/if}
   </ContextMenu.Content>

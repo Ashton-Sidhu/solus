@@ -25,9 +25,8 @@ import { isWorkspacePath } from './workspace'
 import { RateLimitState } from './rate-limits'
 import { AttentionService, attentionActionForStatus } from './attention/attention-service'
 import type { AttentionKind } from '../shared/attention-types'
-import { prepareSessionTask } from './tasks/task-sessions'
+import { prepareSessionTask, taskSessions, tasksForSession } from './tasks/task-sessions'
 import { Task } from './tasks/task'
-import { tasksForSession } from './tasks/task-sessions'
 import { formatTaskContext } from './tasks/task-context'
 import { getIndexedSession, persistIndexedSessionStart } from './db/session-indexer'
 import {
@@ -110,7 +109,7 @@ interface QueuedRequest {
 
 interface PendingStart {
   run: SessionRunRequest
-  resolve: (value: { agentSessionId: string }) => void
+  resolve: (value: { agentSessionId: string; taskId?: string }) => void
   reject: (reason: Error) => void
 }
 
@@ -121,7 +120,7 @@ interface AgentConversationWatch extends AgentConversationWatchRequest {
 }
 
 export interface SessionRunLifecycle {
-  agentSessionId: Promise<{ agentSessionId: string }>
+  agentSessionId: Promise<{ agentSessionId: string; taskId?: string }>
   done: Promise<{ output?: string }>
   cancel: () => void
   disposition: 'started' | 'steered' | 'queued'
@@ -285,7 +284,10 @@ export class ControlPlane extends EventEmitter {
         // Link the originating tab to the freshly-issued session.
         const initHandle = backend.getSessionHandle(event.sessionId)
         const pendingStart = initHandle ? this.pendingStarts.get(initHandle) : undefined
-        const firstDispatchRun = pendingStart?.run.input.agentSessionId
+        // A fork carries the source's id to branch from, but the provider issues
+        // a brand new conversation here — so this init is its first dispatch, and
+        // the task minted for it still needs linking.
+        const firstDispatchRun = pendingStart?.run.input.agentSessionId && !pendingStart.run.input.forked
           ? undefined
           : pendingStart?.run
         const initTabId = initHandle?.sourceTabId
@@ -317,7 +319,10 @@ export class ControlPlane extends EventEmitter {
               },
             }
             this.activeRunRequests.set(event.sessionId, initializedRun)
-            pendingStart.resolve({ agentSessionId: event.sessionId })
+            pendingStart.resolve({
+              agentSessionId: event.sessionId,
+              ...(pendingStart.run.options.taskId ? { taskId: pendingStart.run.options.taskId } : {}),
+            })
           }
           if (initTab && !initTab.sessionId) {
             initTab.sessionId = event.sessionId
@@ -338,6 +343,7 @@ export class ControlPlane extends EventEmitter {
             encodePathAsFolder(runReqInput.workingDirectory),
             runReqInput.model,
             runReqInput.reasoningEffort,
+            firstDispatchRun?.options.displayPrompt ?? firstDispatchRun?.options.prompt ?? null,
           )
         }
         if (existingSession) {
@@ -393,6 +399,19 @@ export class ControlPlane extends EventEmitter {
           this._setStatus({ sessionId: session.sessionId }, 'awaiting_input')
           this._fireAwaitingInputWatchers(session.sessionId, 'awaiting_input')
         } else if (event.type === 'plan') {
+          if (event.planToolUseId) {
+            void Task.linkArtifactForSession(session.sessionId, {
+              kind: 'plan',
+              targetScope: session.sessionId,
+              targetKey: event.planToolUseId,
+            }).catch((error) => {
+              log.warn('task_plan_link_failed', {
+                sessionId: session.sessionId,
+                planToolUseId: event.planToolUseId,
+                error: error instanceof Error ? error.message : String(error),
+              })
+            })
+          }
           session.hasPendingInput = true
           session.pendingInputEvents.push(event)
           this.questionIdToSession.set(event.questionId, session.sessionId)
@@ -1578,7 +1597,9 @@ export class ControlPlane extends EventEmitter {
     contextWindow: number | null
     cwd: string
     worktreeBaseBranch?: string | null
-  }): Promise<{ agentSessionId: string }> {
+    taskId?: string | null
+    parentTaskId?: string | null
+  }): Promise<{ agentSessionId: string; taskId?: string }> {
     const input: SessionRunInput = {
       provider: req.provider,
       agentSessionId: null,
@@ -1610,7 +1631,12 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.tasks,
         solusToolbox.prs,
       ),
-      options: { prompt: req.prompt, displayPrompt: req.prompt },
+      options: {
+        prompt: req.prompt,
+        displayPrompt: req.prompt,
+        ...(req.taskId ? { taskId: req.taskId } : {}),
+        ...(req.parentTaskId ? { parentTaskId: req.parentTaskId } : {}),
+      },
     })
     return lifecycle.agentSessionId
   }
@@ -1704,8 +1730,11 @@ export class ControlPlane extends EventEmitter {
       await this._linkPreparedTask(run, handle.sessionId)
     }
     const agentSessionId = handle.sessionId
-      ? Promise.resolve({ agentSessionId: handle.sessionId })
-      : new Promise<{ agentSessionId: string }>((resolve, reject) => {
+      ? Promise.resolve({
+          agentSessionId: handle.sessionId,
+          ...(run.options.taskId ? { taskId: run.options.taskId } : {}),
+        })
+      : new Promise<{ agentSessionId: string; taskId?: string }>((resolve, reject) => {
           this.pendingStarts.set(handle, {
             run,
             resolve,
@@ -2183,9 +2212,14 @@ export class ControlPlane extends EventEmitter {
         // A provider handoff is a new backend conversation, not a new Solus
         // session. Treat the prior provider id as the structural no-mint gate;
         // the existing task link (when present) is copied on session_init.
-        existingAgentSessionId:
-          effectiveInput.agentSessionId ?? pendingHandoff?.fromSessionId ?? null,
+        // A fork carries its source's id purely to branch from, and the provider
+        // mints a fresh conversation for it — so it is a first dispatch, not the
+        // resume the no-backfill rule exists to exclude.
+        existingAgentSessionId: isForkingSession
+          ? null
+          : effectiveInput.agentSessionId ?? pendingHandoff?.fromSessionId ?? null,
         existingTaskId: options.taskId,
+        parentTaskId: options.parentTaskId,
         projectKey: resolvedProjectPath,
         worktreeKey: taskWorktreeKey(resolvedProjectPath, effectiveGitCtx),
         prompt: options.displayPrompt ?? options.prompt,
@@ -2295,7 +2329,7 @@ export class ControlPlane extends EventEmitter {
       const parentDetails = details.task.parentId
         ? await (await Task.byId(details.task.parentId)).details()
         : null
-      return formatTaskContext(details, parentDetails)
+      return formatTaskContext(details, parentDetails, taskSessions(taskId)[taskId] ?? [])
     } catch (err) {
       log.warn('task_context_injection_failed', { taskId, error: String(err) })
       return null

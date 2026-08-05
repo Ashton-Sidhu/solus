@@ -83,7 +83,7 @@
 
     <!-- Slot 2 -->
     <span
-      class="shrink-0 font-mono text-[10.5px] tabular-nums text-muted-foreground opacity-80"
+      class="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground opacity-80"
       style="width: {identWidth}px"
     >
       {row.ident}
@@ -91,7 +91,7 @@
 
     <!-- Slot 3 — the only full-strength text in the row. -->
     <span
-      class="max-w-[520px] truncate text-[12.5px] font-medium tracking-[-.005em]"
+      class="max-w-[520px] truncate text-[13px] font-[450] tracking-[-.005em]"
       title={row.title}
     >
       {row.title}
@@ -108,7 +108,7 @@
     <!-- Slot 6 -->
     {#if row.meta}
       <span
-        class="shrink-0 font-mono text-[10.5px] whitespace-nowrap text-muted-foreground opacity-80"
+        class="shrink-0 font-mono text-[11px] whitespace-nowrap text-muted-foreground opacity-80"
       >
         {row.meta}
       </span>
@@ -120,7 +120,7 @@
     {/each}
     {#if participants.overflow > 0}
       <span
-        class="flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--wash-3)] font-mono text-[9.5px] font-semibold text-muted-foreground"
+        class="flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--wash-3)] font-mono text-[11px] font-[450] text-muted-foreground"
         title="{participants.overflow} more"
       >
         +{participants.overflow}
@@ -129,7 +129,7 @@
 
     <!-- Slot 8 — relative always; the timestamp lives in the tooltip. -->
     <span
-      class="w-8 shrink-0 text-right font-mono text-[10.5px] tabular-nums text-muted-foreground opacity-75"
+      class="w-8 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground opacity-75"
       title={row.timeTitle}
     >
       {row.time}

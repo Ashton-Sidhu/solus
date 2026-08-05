@@ -1,4 +1,4 @@
-import type { AgentId, IpcContext, SessionMeta } from '../../../shared/types'
+import type { AgentId, IpcContext, SessionMeta, SessionStatus } from '../../../shared/types'
 import { serverConnections } from '@client-core/server-connections'
 import {
   SessionHistoryLoader,
@@ -13,6 +13,15 @@ interface SessionHistoryStoreLoadOptions {
   scopeKey?: string
   onBatch?: (sessions: SessionMeta[]) => void
   limitPerProvider?: number
+}
+
+export function updateSessionHistoryStatus(
+  sessions: SessionMeta[],
+  sessionId: string,
+  status: SessionStatus,
+): void {
+  const session = sessions.find((candidate) => candidate.sessionId === sessionId)
+  if (session) session.status = status
 }
 
 function defaultHistoryLoaderOptions(): SessionHistoryLoaderOptions {
@@ -48,6 +57,11 @@ export class SessionHistoryStore {
 
   merge(sessions: SessionMeta[]): void {
     this.sessions = sortedDedupedHistorySessions([...this.sessions, ...sessions])
+  }
+
+  /** Keep an unmounted session's picker row live without rebuilding history. */
+  updateStatus(sessionId: string, status: SessionStatus): void {
+    updateSessionHistoryStatus(this.sessions, sessionId, status)
   }
 
   async load({

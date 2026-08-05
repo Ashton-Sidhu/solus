@@ -5,18 +5,21 @@
   import { runtime } from "../../contexts";
 
   /** Search field with token chips. A typed `key:value` becomes a chip on
-   *  space; chips and the rail facets are the same filter state, so removing a
-   *  chip clears the facet and vice versa. */
+   *  space; backspace at the caret deletes the chip whole. Chips and the filter
+   *  row's facets are the same filter state, so removing a chip clears the facet
+   *  and selecting a facet writes the chip. */
   interface Props {
     filter: WorkspaceFilter;
-    /** Item count for the placeholder ("Search 418 plans, docs and diagrams…"). */
+    /** Item count for the placeholder ("Search 418 artifacts in solus…"). */
     totalCount: number;
+    /** The scope the placeholder names. */
+    scopeLabel: string;
     /** Match count shown while a query is active; null hides it. */
     matches: number | null;
     ref?: HTMLInputElement | null;
   }
 
-  let { filter, totalCount, matches, ref = $bindable(null) }: Props = $props();
+  let { filter, totalCount, scopeLabel, matches, ref = $bindable(null) }: Props = $props();
 
   const chips = $derived(filterChips(filter));
 
@@ -60,12 +63,17 @@
   }
 </script>
 
-<div class="search-shell" class:has-query={!!filter.text || chips.length > 0}>
-  <MagnifyingGlassIcon size={15} class="shrink-0 text-(--solus-text-tertiary)" />
+<!-- The field takes the focus ring every other Solus field takes: 45% primary,
+     no glow, no offset. -->
+<div
+  class="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-[10px] px-[9px] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
+>
+  <MagnifyingGlassIcon size={12} class="shrink-0 text-muted-foreground opacity-70" />
+
   {#each chips as chip (chip.key)}
     <button
       type="button"
-      class="search-chip"
+      class="flex h-[19px] shrink-0 cursor-pointer items-center gap-1 rounded-md border-0 bg-[color-mix(in_oklch,var(--primary)_13%,transparent)] pr-[5px] pl-[7px] font-mono text-[11px] font-medium tracking-[.03em] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))] transition-colors duration-150 hover:bg-[color-mix(in_oklch,var(--primary)_20%,transparent)]"
       onclick={() => clearChip(filter, chip.key)}
       aria-label={`Remove filter ${chip.token}`}
       title="Remove filter"
@@ -74,84 +82,28 @@
       <XIcon size={9} weight="bold" />
     </button>
   {/each}
+
   <input
     bind:this={ref}
     value={filter.text}
     type="text"
-    class="search-input"
+    class="w-full min-w-16 border-0 bg-transparent text-[13px] caret-[var(--primary)] outline-none placeholder:text-muted-foreground [@media(pointer:coarse)]:text-base"
     placeholder={chips.length > 0
       ? "Filter…"
-      : `Search ${totalCount > 0 ? `${totalCount} ` : ""}plans, docs and diagrams…`}
+      : `Search ${totalCount > 0 ? `${totalCount} ` : ""}artifacts in ${scopeLabel}…`}
+    aria-label="Search artifacts"
     oninput={handleInput}
     onkeydown={handleKeydown}
   />
+
   {#if matches !== null}
-    <span class="search-matches">{matches} {matches === 1 ? "match" : "matches"}</span>
+    <span class="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground opacity-75">
+      {matches} {matches === 1 ? "match" : "matches"}
+    </span>
+  {:else}
+    <span
+      class="shrink-0 rounded-md bg-[var(--wash-2)] px-[7px] py-[3px] font-mono text-[11px] tracking-[.04em] text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent),inset_0_-1px_0_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
+      aria-hidden="true">/</span
+    >
   {/if}
 </div>
-
-<style>
-  .search-shell {
-    flex: 1 1 auto;
-    min-width: 0;
-    height: 2.5rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5625rem;
-    padding: 0 0.75rem 0 0.875rem;
-    border-radius: 0.6875rem;
-    background: var(--solus-container-bg);
-    border: 0.0625rem solid color-mix(in srgb, var(--solus-container-border) 75%, transparent);
-    transition: border-color 0.12s ease, box-shadow 0.12s ease;
-  }
-  .search-shell:focus-within {
-    border-color: color-mix(in srgb, var(--solus-accent) 45%, transparent);
-    box-shadow: 0 0 0 0.1875rem color-mix(in srgb, var(--solus-accent) 10%, transparent);
-  }
-
-  .search-chip {
-    flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    padding: 0.1875rem 0.3125rem 0.1875rem 0.4375rem;
-    border: none;
-    border-radius: 0.375rem;
-    background: color-mix(in srgb, var(--solus-accent) 13%, transparent);
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    font-size: 0.7188rem;
-    font-weight: 600;
-    color: var(--solus-accent);
-    cursor: pointer;
-  }
-  .search-chip:hover {
-    background: color-mix(in srgb, var(--solus-accent) 20%, transparent);
-  }
-
-  .search-input {
-    flex: 1 1 auto;
-    min-width: 4rem;
-    border: none;
-    background: transparent;
-    font-family: inherit;
-    font-size: 0.8438rem;
-    color: var(--solus-text-primary);
-    outline: none;
-  }
-  .search-input::placeholder {
-    color: color-mix(in srgb, var(--solus-text-tertiary) 72%, transparent);
-  }
-  /* Touch devices zoom the viewport when focusing an input under 16px. */
-  @media (pointer: coarse) {
-    .search-input {
-      font-size: 16px;
-    }
-  }
-
-  .search-matches {
-    flex: 0 0 auto;
-    font-size: 0.7188rem;
-    color: var(--solus-text-tertiary);
-    white-space: nowrap;
-  }
-</style>

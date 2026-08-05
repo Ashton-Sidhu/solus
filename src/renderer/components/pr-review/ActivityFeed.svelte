@@ -788,13 +788,20 @@
              The surface is the card fill inside a half-pixel ring rather than a
              muted fill: the composer is the one place on this page you write
              into, so it sits *on* the canvas instead of being cut out of it. -->
+        <!-- Sticky over the scroll region so the field follows you through a
+             long timeline instead of sitting at the far bottom, with a scrim so
+             events dissolve into the canvas rather than being clipped by a
+             hard edge. Matches the task page composer. -->
         <div
-          class="mt-8 flex items-center gap-3 rounded-[10px] bg-card px-3.5 py-2.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] transition-shadow focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_0_0_3px_color-mix(in_oklab,var(--ring)_14%,transparent)]"
+          class="sticky bottom-0 z-10 mt-8 pt-2.5 pb-[22px] [background:linear-gradient(to_bottom,transparent,var(--background)_22px)]"
+        >
+        <div
+          class="flex items-center gap-3 rounded-[10px] bg-card px-3.5 py-2.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_1px_2px_rgba(24,20,16,.05)] transition-shadow focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_0_0_3px_color-mix(in_oklab,var(--ring)_14%,transparent)]"
         >
           <PrAvatar
             name={viewerLogin || "?"}
             url={viewerAvatarUrl}
-            size="size-6 text-[10.5px]"
+            size="size-[25px] text-[10px]"
           />
           <CommentEditor
             value={composer}
@@ -816,6 +823,7 @@
           >
             <ArrowUpIcon size={13} weight="bold" />
           </Button>
+        </div>
         </div>
       </main>
 

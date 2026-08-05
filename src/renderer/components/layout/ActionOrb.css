@@ -593,109 +593,10 @@
 
   /* ── Changed files review popover ── */
 
+  /* Wide enough that a nested row — indent, folder chain, filename, counts —
+     lands well short of truncating, which is the whole point of the tree. */
   .files-pop {
-    width: min(calc(48rem * var(--orb-scale)), calc(100vw - 2.5rem));
-    max-height: min(calc(28rem * var(--orb-scale)), calc(100vh - 8rem));
-  }
-
-  .files-pop-head {
-    gap: calc(0.875rem * var(--orb-scale));
-    padding: calc(0.875rem * var(--orb-scale)) calc(1rem * var(--orb-scale));
-    border-bottom: 0.0313rem solid
-      color-mix(in srgb, var(--solus-container-border) 32%, transparent);
-  }
-
-  .files-pop-icon {
-    width: calc(2rem * var(--orb-scale));
-    height: calc(2rem * var(--orb-scale));
-    border-radius: calc(0.75rem * var(--orb-scale));
-    background: color-mix(in srgb, var(--solus-text-tertiary) 8%, transparent);
-    color: var(--solus-text-secondary);
-  }
-
-  .files-pop-icon > svg {
-    width: calc(1rem * var(--orb-scale));
-    height: calc(1rem * var(--orb-scale));
-  }
-
-  .files-pop-primary {
-    border: 0.0313rem solid
-      color-mix(in srgb, var(--solus-container-border) 55%, transparent);
-    gap: calc(0.375rem * var(--orb-scale));
-    min-height: calc(2.25rem * var(--orb-scale));
-    padding: 0 calc(0.6875rem * var(--orb-scale));
-    border-radius: calc(0.6875rem * var(--orb-scale));
-    font-size: var(--pop-meta-size);
-    font-weight: 550;
-    transition:
-      background 0.15s ease,
-      color 0.15s ease,
-      box-shadow 0.15s ease,
-      transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-
-  .files-pop-primary:hover {
-    color: var(--solus-text-primary);
-    background: color-mix(in srgb, var(--solus-container-bg) 72%, transparent);
-    box-shadow:
-      inset 0 0.0625rem 0 0 color-mix(in srgb, white 10%, transparent),
-      0 0.125rem 0.5rem rgba(0, 0, 0, 0.1);
-  }
-
-  .files-pop-primary:active {
-    transform: scale(0.96);
-  }
-
-  .files-pop-primary:focus-visible {
-    outline: none;
-    color: var(--solus-text-primary);
-    box-shadow:
-      inset 0 0.0625rem 0 0 color-mix(in srgb, white 10%, transparent),
-      0 0.125rem 0.5rem rgba(0, 0, 0, 0.1),
-      0 0 0 0.1875rem color-mix(in srgb, var(--solus-accent) 18%, transparent);
-  }
-
-  .files-pop-primary:disabled {
-    opacity: 0.38;
-    cursor: not-allowed;
-  }
-
-  .files-pop-primary:disabled:active {
-    transform: none;
-  }
-
-  .files-pop-list {
-    max-height: min(calc(22rem * var(--orb-scale)), calc(100vh - 14rem));
-    padding: calc(0.5rem * var(--orb-scale)) 0;
-  }
-
-  .files-pop-row {
-    gap: calc(0.875rem * var(--orb-scale));
-    min-height: calc(2.5rem * var(--orb-scale));
-    padding: calc(0.25rem * var(--orb-scale)) calc(1rem * var(--orb-scale));
-    transition:
-      background 0.15s ease,
-      box-shadow 0.15s ease;
-  }
-
-  .files-pop-row:hover {
-    background: var(--solus-surface-hover);
-  }
-
-  .files-pop-row:focus-visible {
-    outline: none;
-    background: var(--solus-surface-hover);
-    box-shadow: inset 0 0 0 0.125rem
-      color-mix(in srgb, var(--solus-accent) 24%, transparent);
-  }
-
-  .files-pop-stats {
-    min-width: calc(4.25rem * var(--orb-scale));
-  }
-
-  .files-pop-primary > svg {
-    width: calc(0.9375rem * var(--orb-scale));
-    height: calc(0.9375rem * var(--orb-scale));
+    width: min(calc(44rem * var(--orb-scale)), calc(100vw - 2.5rem));
   }
 
   @media (max-width: 520px) {
@@ -703,26 +604,6 @@
       bottom: 4rem;
       width: calc(100vw - 1rem);
     }
-
-    .files-pop-head {
-      grid-template-columns: auto minmax(0, 1fr);
-    }
-
-    .files-pop-primary {
-      grid-column: 1 / -1;
-      width: 100%;
-    }
-
-    .files-pop-row {
-      grid-template-columns: minmax(0, 1fr) auto;
-    }
-
-    .files-pop-stats {
-      grid-column: 1;
-      grid-row: 2;
-      justify-content: flex-start;
-    }
-
   }
 
   /* ── Review progress popover ── */

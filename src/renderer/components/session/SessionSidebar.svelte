@@ -16,10 +16,7 @@
     PlusIcon,
   } from "phosphor-svelte";
   import type { PinnedSession } from "../../../shared/types";
-  import {
-    getWorkspaceContext,
-    getSessionSidebarStore,
-  } from "../../contexts";
+  import { getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import SidePanel from "../layout/SidePanel.svelte";
@@ -107,20 +104,9 @@
   // not tasks — but they sit on the same spine: their icons occupy the 16px
   // column a task's disclosure lives in, and their labels start exactly where a
   // task title does, so the whole column reads as one list of one shape.
-  const navRow =
-    "group flex h-9 w-full cursor-pointer items-center gap-[0.6875rem] rounded-[0.5625rem] bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_82%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)] hover:text-foreground";
-  const navRowActive = "text-foreground";
-  const navIcon = "flex shrink-0 items-center";
-  const navLabel = "flex-1 text-left text-[0.84375rem] tracking-[-0.006em]";
-  const navHint =
-    "shrink-0 font-mono text-[0.65625rem] opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70";
-  const navBeta =
-    "ml-1.5 inline-flex items-center rounded-[0.3125rem] px-[0.3125rem] py-0.5 align-middle font-mono text-[0.5625rem] leading-none font-medium tracking-[0.07em] text-primary uppercase bg-[color-mix(in_oklch,var(--primary)_13%,transparent)]";
   // A static total, in the same muted mono as every other number in the column.
   // A filled badge here would be the brightest thing above the list and would
   // compete with the status marks, which are what the eye is meant to count.
-  const navCount =
-    "shrink-0 font-mono text-[0.6875rem] text-muted-foreground opacity-60 tabular-nums";
 
   function toggleExpand(taskId: string) {
     if (expandedTaskIds.has(taskId)) expandedTaskIds.delete(taskId);
@@ -177,12 +163,24 @@
 
   /** A task-row activation has two explicit effects: toggle its disclosure,
    *  then navigate to its best session. The stable task id keeps the first
-   *  effect independent from any branch/session changes caused by the second. */
+   *  effect independent from any branch/session changes caused by the second.
+   *
+   *  The two are also worlds apart in cost. Disclosure is a few rows in this
+   *  column; navigation swaps the conversation, the diff pane and the focused
+   *  input, and for a task with nothing mounted it waits on an IPC round trip
+   *  first. Run in the same tick they land in one paint, so the caret appears
+   *  only once the whole app has finished switching — which is what made the
+   *  tree feel slow. The disclosure gets its own frame, and navigation follows
+   *  on the next one, by which time the row has already answered the click. */
   function activateTask(task: SidebarTask) {
     if (hasDisclosure(sidebarStore.sessionsFor(task))) toggleExpand(task.id);
-    void sidebarStore.selectTask(task);
-    requestInputFocus();
-    onSessionSelect?.();
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        void sidebarStore.selectTask(task);
+        requestInputFocus();
+        onSessionSelect?.();
+      });
+    });
   }
 
   function renameSidebarItem(
@@ -210,31 +208,11 @@
     requestInputFocus();
   }
 
-  function closeTabs(tabIds: string[]) {
-    const closingTabIds = new Set(tabIds);
-    for (const task of sidebarStore.allTasks) {
-      if (task.tabIds.every((tabId) => closingTabIds.has(tabId))) {
-        expandedTaskIds.delete(task.id);
-      }
-    }
-    sidebarStore.closeTabs(tabIds);
-    requestInputFocus();
-  }
-
-  /** Same rule one level down: a session still working confirms before it goes. */
+  /** Closing removes the mounted tab. The durable session remains resumable
+   *  from the session picker. */
   function closeSession(tabId: string) {
-    const child = sidebarStore.childForTab(tabId);
-    if (child.attention !== "running") {
-      closeTabs([tabId]);
-      return;
-    }
-    toasts.show({
-      message: `Stop “${child.label}” and close it?`,
-      actions: [
-        { label: "Stop and close", onAction: () => closeTabs([tabId]) },
-        { label: "Keep open", onAction: () => requestInputFocus() },
-      ],
-    });
+    sidebarStore.closeSidebarTab(tabId);
+    requestInputFocus();
   }
 
   /** The check is the only state the user sets themselves — it says "I am
@@ -244,10 +222,15 @@
     requestInputFocus();
   }
 
-  async function finishTask(task: SidebarTask) {
+  /** Completion changes the task lifecycle and unloads its mounted sessions.
+   * Their durable history remains available to resume later. */
+  async function completeTask(task: SidebarTask) {
     try {
       if (task.taskId) await session.tasksStore.setStatus(task.taskId, "done");
-      removeTask(task);
+      else sidebarStore.toggleTaskDone(task.id);
+      expandedTaskIds.delete(task.id);
+      sidebarStore.closeTask(task);
+      requestInputFocus();
     } catch (error) {
       toasts.error(
         `Couldn't complete task: ${error instanceof Error ? error.message : String(error)}`,
@@ -256,29 +239,18 @@
     }
   }
 
-  function completeTask(task: SidebarTask) {
-    if (task.status !== "running") {
-      void finishTask(task);
-      return;
-    }
-    toasts.show({
-      message: `Stop the work in “${task.title}” and mark it completed?`,
-      actions: [
-        { label: "Stop and complete", onAction: () => void finishTask(task) },
-        { label: "Keep working", onAction: () => requestInputFocus() },
-      ],
-    });
-  }
-
   function removeChild(child: SidebarSessionChild) {
     sidebarStore.closeChild(child);
     requestInputFocus();
   }
 
-  async function finishChild(child: SidebarSessionChild) {
+  async function completeChild(child: SidebarSessionChild) {
     try {
-      if (child.taskId) await session.tasksStore.setStatus(child.taskId, "done");
-      removeChild(child);
+      if (child.taskId)
+        await session.tasksStore.setStatus(child.taskId, "done");
+      else if (child.tabId) sidebarStore.toggleTaskDone(child.tabId);
+      sidebarStore.closeChild(child);
+      requestInputFocus();
     } catch (error) {
       toasts.error(
         `Couldn't complete subtask: ${error instanceof Error ? error.message : String(error)}`,
@@ -287,32 +259,8 @@
     }
   }
 
-  function completeChild(child: SidebarSessionChild) {
-    if (child.attention !== "running") {
-      void finishChild(child);
-      return;
-    }
-    toasts.show({
-      message: `Stop “${child.label}” and mark the subtask completed?`,
-      actions: [
-        { label: "Stop and complete", onAction: () => void finishChild(child) },
-        { label: "Keep working", onAction: () => requestInputFocus() },
-      ],
-    });
-  }
-
   function closeChild(child: SidebarSessionChild) {
-    if (child.attention !== "running") {
-      removeChild(child);
-      return;
-    }
-    toasts.show({
-      message: `Stop “${child.label}” and remove it from the sidebar?`,
-      actions: [
-        { label: "Stop and remove", onAction: () => removeChild(child) },
-        { label: "Keep open", onAction: () => requestInputFocus() },
-      ],
-    });
+    removeChild(child);
   }
 
   function removeTask(task: SidebarTask) {
@@ -321,28 +269,10 @@
     requestInputFocus();
   }
 
-  /** Removing an idle task is silent. Removing one with an agent still working
-   *  asks first and names what it would stop, because the run cannot be got
-   *  back once the tab is gone. */
+  /** Closing a task unloads its mounted sessions. Their durable history remains
+   *  available from the session picker and task page. */
   function closeTask(task: SidebarTask) {
-    if (task.status !== "running") {
-      removeTask(task);
-      return;
-    }
-
-    const running = task.tabIds.filter(
-      (tabId) => sidebarStore.childForTab(tabId).attention === "running",
-    ).length;
-    toasts.show({
-      message: `Stop ${running === 1 ? "the run" : `${running} runs`} in “${task.title}” and remove it from the sidebar?`,
-      actions: [
-        {
-          label: "Stop and remove",
-          onAction: () => removeTask(task),
-        },
-        { label: "Keep open", onAction: () => requestInputFocus() },
-      ],
-    });
+    removeTask(task);
   }
 
   /** The tree drives itself off the DOM rather than a mirrored index: the rows
@@ -372,7 +302,7 @@
           ? rows.findLastIndex(
               (row, at) => at < index && row.dataset.projectKey !== undefined,
             )
-        : -1;
+          : -1;
 
     const intent = treeKeyIntent(
       event.key,
@@ -405,8 +335,8 @@
         requestInputFocus();
         break;
       case "close":
-        // Both paths confirm on their own when something is still working, so
-        // ⌫ never kills a run off a single keystroke.
+        // Sidebar dismissal never stops the run, so keyboard and pointer paths
+        // have the same presentation-only behavior.
         if (task) closeTask(task);
         else if (focused!.dataset.tabId) closeSession(focused!.dataset.tabId);
         break;
@@ -533,23 +463,22 @@
   onAction={onToggleCollapse}
   actionTooltip={`Collapse sidebar (${comboHint("global.toggle-sidebar")})`}
   actionAriaLabel="Collapse sidebar"
-  background="var(--solus-sidebar-surface)"
+  background="color-mix(in oklch, var(--card) 99%, var(--foreground))"
 >
-  <!-- The one filled control in the column, and the only place terracotta
-       appears outside a status mark. A top highlight and a short cast beneath
-       make it read as a physical key rather than a coloured plate. -->
-  <div class="flex-shrink-0 px-3.5 pt-0.5 pb-4">
+  <!-- The one filled control in the column, kept compact so it leads without
+       overpowering the navigation below it. -->
+  <div class="flex-shrink-0 px-3.5 pt-0.5 pb-2.5">
     <button
-      class="flex h-[2.625rem] w-full cursor-pointer items-center gap-[0.5625rem] rounded-[0.6875rem] bg-primary px-3 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_4px_14px_-8px_color-mix(in_oklch,var(--primary)_90%,transparent)] transition-[filter] duration-150 hover:brightness-105"
+      class="relative flex h-[2.375rem] w-full cursor-pointer items-center gap-[0.4375rem] rounded-[0.5625rem] bg-[color-mix(in_oklch,var(--primary)_92%,var(--card))] px-2.5 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_3px_10px_-8px_color-mix(in_oklch,var(--primary)_72%,transparent)] transition-[filter,scale] before:absolute before:inset-x-0 before:-inset-y-px before:content-[''] hover:brightness-105 active:scale-[0.96]"
       onclick={newTask}
     >
-      <PlusIcon size={16} class="shrink-0" />
+      <PlusIcon size={14} class="shrink-0" />
       <span
-        class="text-[0.875rem] font-medium tracking-[-0.008em] whitespace-nowrap"
+        class="text-[0.78125rem] font-medium tracking-[-0.004em] whitespace-nowrap"
         >New task</span
       >
       <span
-        class="ml-auto rounded-md bg-white/15 px-1.5 py-0.5 font-mono text-[0.65625rem]"
+        class="ml-auto rounded-[0.3125rem] bg-white/10 px-1.5 py-0.5 font-mono text-[0.625rem]"
         >{comboHint("global.new-task")}</span
       >
     </button>
@@ -560,42 +489,40 @@
       <Sidebar.Menu class="gap-0.5">
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
-            class="{navRow} {session.router.at('folio') ? navRowActive : ''}"
+            class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-[0.5625rem] bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at('folio') ? 'text-foreground' : ''}"
             isActive={session.router.at("folio")}
             onclick={() => session.toggleFolio()}
           >
-            <span class={navIcon}><BooksIcon size={16} /></span>
-            <span class={navLabel}>Workspace</span>
-            <span class={navHint}>{comboHint("global.toggle-workspace")}</span>
+            <span class="flex shrink-0 items-center"><BooksIcon size={16} /></span>
+            <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]">Workspace</span>
+            <span class="shrink-0 font-mono text-[0.65625rem] opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70">{comboHint("global.toggle-workspace")}</span>
           </Sidebar.MenuButton>
         </Sidebar.MenuItem>
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
-            class="{navRow} {session.router.at('automations')
-              ? navRowActive
-              : ''}"
+            class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-[0.5625rem] bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at('automations') ? 'text-foreground' : ''}"
             isActive={session.router.at("automations")}
             onclick={() => session.toggleAutomations()}
           >
-            <span class={navIcon}><ArrowsClockwiseIcon size={16} /></span>
-            <span class={navLabel}>Automations</span>
-            <span class={navHint}>{comboHint("global.toggle-automations")}</span
+            <span class="flex shrink-0 items-center"><ArrowsClockwiseIcon size={16} /></span>
+            <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]">Automations</span>
+            <span class="shrink-0 font-mono text-[0.65625rem] opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70">{comboHint("global.toggle-automations")}</span
             >
           </Sidebar.MenuButton>
         </Sidebar.MenuItem>
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
-            class="{navRow} {session.router.at('prs') ? navRowActive : ''}"
+            class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-[0.5625rem] bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at('prs') ? 'text-foreground' : ''}"
             isActive={session.router.at("prs")}
             onclick={togglePrs}
           >
-            <span class={navIcon}><GitPullRequestIcon size={16} /></span>
-            <span class={navLabel}
-              >Pull requests<span class={navBeta}>Beta</span></span
+            <span class="flex shrink-0 items-center"><GitPullRequestIcon size={16} /></span>
+            <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]"
+              >Pull requests<span class="ml-1.5 inline-flex items-center rounded-[0.3125rem] px-[0.3125rem] py-0.5 align-middle font-mono text-[0.5625rem] leading-none font-medium tracking-[0.07em] text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))] uppercase bg-[color-mix(in_oklch,var(--primary)_13%,transparent)]">Beta</span></span
             >
             {#if needsReviewCount > 0}
               <span
-                class={navCount}
+                class="shrink-0 font-mono text-[0.6875rem] text-muted-foreground opacity-60 tabular-nums"
                 title={`${needsReviewCount} pull ${needsReviewCount === 1 ? "request needs" : "requests need"} your review`}
                 aria-label={`${needsReviewCount} need your review`}
                 >{needsReviewCount > 99 ? "99+" : needsReviewCount}</span
@@ -605,26 +532,26 @@
         </Sidebar.MenuItem>
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
-            class="{navRow} {session.router.at('tasks') ? navRowActive : ''}"
+            class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-[0.5625rem] bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at('tasks') ? 'text-foreground' : ''}"
             isActive={session.router.at("tasks")}
             onclick={() => session.toggleTasks()}
           >
-            <span class={navIcon}><ListChecksIcon size={16} /></span>
-            <span class={navLabel}>Tasks<span class={navBeta}>Beta</span></span>
-            <span class={navHint}>{comboHint("global.toggle-tasks")}</span>
+            <span class="flex shrink-0 items-center"><ListChecksIcon size={16} /></span>
+            <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]">Tasks<span class="ml-1.5 inline-flex items-center rounded-[0.3125rem] px-[0.3125rem] py-0.5 align-middle font-mono text-[0.5625rem] leading-none font-medium tracking-[0.07em] text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))] uppercase bg-[color-mix(in_oklch,var(--primary)_13%,transparent)]">Beta</span></span>
+            <span class="shrink-0 font-mono text-[0.65625rem] opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70">{comboHint("global.toggle-tasks")}</span>
           </Sidebar.MenuButton>
         </Sidebar.MenuItem>
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
-            class={navRow}
+            class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-[0.5625rem] bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
             onclick={() =>
               window.dispatchEvent(
                 new CustomEvent("solus:toggle-session-picker"),
               )}
           >
-            <span class={navIcon}><ClockIcon size={16} /></span>
-            <span class={navLabel}>History</span>
-            <span class={navHint}>{comboHint("global.session-picker")}</span>
+            <span class="flex shrink-0 items-center"><ClockIcon size={16} /></span>
+            <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]">History</span>
+            <span class="shrink-0 font-mono text-[0.65625rem] opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70">{comboHint("global.session-picker")}</span>
           </Sidebar.MenuButton>
         </Sidebar.MenuItem>
       </Sidebar.Menu>
@@ -632,7 +559,9 @@
   </Sidebar.Group>
 
   <!-- One of the two hairlines in the whole panel. -->
-  <div class="mx-3.5 mt-[1.125rem] h-[0.03125rem] flex-shrink-0 bg-sidebar-border"></div>
+  <div
+    class="mx-3.5 mt-[1.125rem] h-[0.03125rem] flex-shrink-0 bg-sidebar-border"
+  ></div>
 
   <div class="flex-shrink-0">
     <TaskListHeader
@@ -698,11 +627,11 @@
               letterClass="text-[0.53125rem]"
             />
             <span
-              class="shrink-0 text-[0.59375rem] font-semibold tracking-[0.1em] text-[color-mix(in_oklch,var(--foreground)_62%,transparent)] uppercase"
+              class="shrink-0 text-[0.59375rem] font-semibold tracking-[0.1em] text-[color-mix(in_oklch,var(--foreground)_68%,transparent)] uppercase"
               >{group.projectLabel}</span
             >
             <span
-              class="h-[0.03125rem] flex-1 bg-[color-mix(in_oklch,var(--foreground)_9%,transparent)]"
+              class="h-[0.03125rem] flex-1 bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)]"
             ></span>
             <span
               class="shrink-0 font-mono text-[0.625rem] text-muted-foreground opacity-45 tabular-nums"
@@ -744,12 +673,12 @@
       {#if sidebarStore.pinnedSessions.length > 0}
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
-            class={navRow}
+            class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-[0.5625rem] bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
             onclick={() => (savedSessionsOpen = !savedSessionsOpen)}
           >
-            <span class={navIcon}><PushPinIcon size={16} weight="fill" /></span>
-            <span class={navLabel}>Saved sessions</span>
-            <span class={navCount}>{sidebarStore.pinnedSessions.length}</span>
+            <span class="flex shrink-0 items-center"><PushPinIcon size={16} weight="fill" /></span>
+            <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]">Saved sessions</span>
+            <span class="shrink-0 font-mono text-[0.6875rem] text-muted-foreground opacity-60 tabular-nums">{sidebarStore.pinnedSessions.length}</span>
             <CaretRightIcon
               size={11}
               class="shrink-0 transition-transform duration-150 {savedSessionsOpen
@@ -792,7 +721,8 @@
                 <span
                   class="min-w-0 flex-1 overflow-hidden text-[0.78125rem] text-ellipsis whitespace-nowrap {isActive
                     ? 'font-[560] text-foreground'
-                    : 'text-muted-foreground'}">{pin.title}</span
+                    : 'text-[color-mix(in_oklch,var(--foreground)_88%,transparent)]'}"
+                  >{pin.title}</span
                 >
                 <button
                   class="hidden size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-[color,background] duration-[120ms] group-hover/pin:flex hover:bg-accent hover:text-foreground"
@@ -813,16 +743,16 @@
       {/if}
       <Sidebar.MenuItem>
         <Sidebar.MenuButton
-          class="{navRow} {session.router.at('settings') ? navRowActive : ''}"
+          class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-[0.5625rem] bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at('settings') ? 'text-foreground' : ''}"
           isActive={session.router.at("settings")}
           onclick={() => session.showSettings()}
         >
           <span
-            class="{navIcon} motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:rotate-90"
+            class="flex shrink-0 items-center motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:rotate-90"
             ><GearIcon size={16} /></span
           >
-          <span class={navLabel}>Settings</span>
-          <span class={navHint}>{comboHint("global.settings")}</span>
+          <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]">Settings</span>
+          <span class="shrink-0 font-mono text-[0.65625rem] opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70">{comboHint("global.settings")}</span>
         </Sidebar.MenuButton>
       </Sidebar.MenuItem>
     </Sidebar.Menu>
@@ -894,6 +824,9 @@
             ? () => session.interruptTab(menuTabId)
             : undefined,
       }}
+      onCloseTab={closeSession}
+      closeTabLabel="Remove from Sidebar"
+      closeTabIsDestructive={false}
       onClose={closeSessionContextMenu}
     />
   {:else}

@@ -43,6 +43,8 @@ export class WorkspacePage {
     return this.dialog.locator('[role="option"]')
   }
 
+  /** Delete sits at the row's outer edge, past status and time — far from the
+   *  pin, so a missed pin cannot destroy a document. */
   deleteButtons(): Locator {
     return this.dialog.getByRole('button', { name: 'Delete document' })
   }
@@ -69,9 +71,10 @@ export class WorkspacePage {
     return this.dialog.getByRole('button', { name: 'Filter by status' })
   }
 
-  /** The preview pane beside the ledger. Only rendered on a wide workspace —
-   *  the container query folds it away below ~71rem. */
+  /** The hover peek — a transient card anchored to a row, portalled to the body
+   *  so it is never clipped by the ledger. It exists only while the pointer
+   *  rests on a row (380ms), so callers must hover first. */
   peek(): Locator {
-    return this.dialog.getByTestId('workspace-peek')
+    return this.page.getByTestId('workspace-peek')
   }
 }

@@ -1,84 +1,82 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import SvelteMarkdown from "@humanspeak/svelte-markdown";
-  import { PushPinIcon, TrashIcon } from "phosphor-svelte";
   import type { WorkspaceItem } from "./lib/workspace-items";
+  import { formatPeekAge } from "./lib/workspace-items";
+  import { highlightRuns } from "../../lib/searchHighlight";
+  import { peekBody, peekBox, peekOutline } from "./lib/workspace-peek";
   import { parseDiagram, summarizeDiagram } from "../../../shared/diagram-types";
   import { getWorkspaceContext, getPlanStore } from "../../contexts";
-  import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
-  import { PAGE_ICON_BTN, PAGE_PRIMARY_BTN, PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
-  import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
-  import { cn } from "../../lib/tw";
-  import MarkdownLink from "../conversation/MarkdownLink.svelte";
-  import TranscriptChip from "../conversation/TranscriptChip.svelte";
-  import { githubMarkdownRenderers } from "../ui/markdown-renderers";
-  import PageEmpty from "../ui/PageEmpty.svelte";
+  import { portal } from "../portal";
 
-  /** The peek pane: reads the selected artifact without leaving the list.
-   *  Header · title · origin + age · the artifact itself, clipped · footer
-   *  actions. It reads; it never edits. */
+  /** The hover peek: a transient card hanging off the row's title column.
+   *  Nothing is reserved and nothing is clicked — it exists only while the
+   *  pointer rests, and it reads; it never edits.
+   *
+   *  It is detached furniture, so it takes the app's popover surface — border,
+   *  fill and drop shadow together — rather than the flat ring the ledger's own
+   *  wells use. Without all three it lies flat against the rows behind it. */
   interface Props {
-    item: WorkspaceItem | null;
-    onOpen: () => void;
-    onTogglePin: () => void;
-    onDelete?: () => void;
-    onResume: () => void;
+    item: WorkspaceItem;
+    /** The row the card is anchored to. */
+    anchor: HTMLElement;
+    /** The scroll area the card is clamped inside. */
+    ledger: HTMLElement;
+    /** Active free-text query — the body shows the passage that matched. */
+    query: string;
+    /** ⇧ held, or opened from the keyboard: the card takes pointer events. */
+    pinned: boolean;
   }
 
-  let { item, onOpen, onTogglePin, onDelete, onResume }: Props = $props();
+  let { item, anchor, ledger, query, pinned }: Props = $props();
 
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
 
   const KIND_LABELS = { plan: "Plan", doc: "Doc", diagram: "Diagram" } as const;
 
-  // Body content loads lazily (debounced) as the selection moves; until it
-  // arrives the ledger snippet stands in for the preview.
+  // The artifact's own text, loaded once the card is already open. Until it
+  // lands the ledger snippet stands in — a hover card never shows a spinner.
   let loadedContent = $state<{ id: string; content: string } | null>(null);
 
   $effect(() => {
     const current = item;
-    if (!current) return;
     if (untrack(() => loadedContent?.id) === current.id) return;
-    const timer = setTimeout(() => {
-      void loadContent(current);
-    }, 150);
-    return () => clearTimeout(timer);
+    void loadContent(current);
   });
 
   async function loadContent(target: WorkspaceItem) {
     if (target.source.kind === "work") {
-      const work = await session.worksStore.ensureContent(target.id, "workspace-peek");
+      const work = await session.worksStore.ensureContent(
+        target.id,
+        "workspace-peek",
+      );
       if (work) loadedContent = { id: target.id, content: work.content };
       return;
     }
-    // Sibling revisions stay unloaded — a preview needs the plan, not the
-    // revision dropdown behind it.
     await session.loadPlanContent(target.source.descriptor);
-    loadedContent = { id: target.id, content: planStore.get(target.id)?.content ?? "" };
+    loadedContent = {
+      id: target.id,
+      content: planStore.get(target.id)?.content ?? "",
+    };
   }
 
-  const content = $derived(item && loadedContent?.id === item.id ? loadedContent.content : null);
-  const diagramSummary = $derived.by(() => {
-    if (!item || item.type !== "diagram" || !content) return "";
+  const content = $derived(
+    loadedContent?.id === item.id ? loadedContent.content : null,
+  );
+  const body = $derived(peekBody(item, content, query));
+  const bodyRuns = $derived(highlightRuns(body, query));
+  const outline = $derived(peekOutline(item, content));
+  /** Counts are not structure — on a diagram they ride the meta line. */
+  const diagramCounts = $derived.by(() => {
+    if (item.type !== "diagram" || !content) return "";
     try {
       return summarizeDiagram(parseDiagram(content));
     } catch {
       return "";
     }
   });
-
-  /** The ledger's own status words — the peek sits beside it and must read the
-   *  same, so "pending" stays "Pending" here rather than the transcript's
-   *  "Proposed". */
-  const statusChip = $derived(
-    item?.status === "accepted"
-      ? { label: "Accepted", state: "positive" as const }
-      : item?.status === "rejected"
-        ? { label: "Rejected", state: "destructive" as const }
-        : item?.status === "pending"
-          ? { label: "Pending", state: "active" as const }
-          : null,
+  const statusLabel = $derived(
+    item.status ? item.status.charAt(0).toUpperCase() + item.status.slice(1) : "",
   );
 
   function projectShort(cwd: string): string {
@@ -87,236 +85,152 @@
     return dir.split("/").at(-1) || "~";
   }
 
-  const resumeLabel = $derived.by(() => {
-    if (!item) return null;
-    if (item.type === "plan") return "Resume session";
-    const work = item.source.kind === "work" ? item.source.work : null;
-    return work?.sessionIds?.length || work?.sessionId ? "Open chat" : null;
+  // ── Anchoring ──
+  let height = $state(0);
+  const box = $derived.by(() => {
+    // Measured height decides whether the card flips, so it is a dependency of
+    // the box, not an afterthought applied to it.
+    const h = height;
+    item.id;
+    return peekBox(
+      anchor.getBoundingClientRect(),
+      ledger.getBoundingClientRect(),
+      h,
+    );
   });
+  /** Placed only once it has been measured — a card that paints below the row
+   *  and then flips above it reads as a glitch. */
+  const placed = $derived(height > 0);
 </script>
 
-<div class="peek" data-testid="workspace-peek">
-  {#if item}
-    <div class="peek-header">
-      <span class="peek-kind">{KIND_LABELS[item.type]}</span>
-      {#if statusChip}
-        <TranscriptChip state={statusChip.state}>{statusChip.label}</TranscriptChip>
-      {/if}
-      <span class="peek-fill"></span>
-      <button
-        type="button"
-        class={cn(PAGE_ICON_BTN, item.pinned && "text-(--solus-accent)")}
-        onclick={onTogglePin}
-        aria-label={item.pinned ? "Unpin" : "Pin"}
-        title={item.pinned ? "Unpin" : "Pin (⌥P)"}
+<div
+  use:portal={document.body}
+  bind:clientHeight={height}
+  class="fixed z-50 flex flex-col gap-2 rounded-[14px] border border-[var(--solus-popover-border)] bg-[var(--solus-popover-bg)] p-[12px_14px_11px] text-left shadow-[shadow:var(--solus-popover-shadow)] backdrop-blur-[14px] {placed
+    ? 'peek-in'
+    : 'invisible'} {pinned ? '' : 'pointer-events-none'}"
+  style="left:{box.left}px; top:{box.top}px; width:{box.width}px"
+  role="tooltip"
+  data-testid="workspace-peek"
+>
+  <!-- Kind · origin · age, then the plan's status word in its own colour. The
+       title is not repeated — it is two pixels above, in the row. -->
+  <div class="flex items-center gap-2 text-[11px] text-muted-foreground">
+    <span class="text-[10px] font-[450] tracking-[.09em] uppercase">
+      {KIND_LABELS[item.type]}
+    </span>
+    <span class="opacity-35" aria-hidden="true">·</span>
+    <span class="truncate font-mono opacity-85" title={item.cwd}>
+      {projectShort(item.cwd)}
+    </span>
+    <span class="opacity-35" aria-hidden="true">·</span>
+    <span class="shrink-0">{formatPeekAge(item.timestamp)}</span>
+    {#if statusLabel}
+      <span class="opacity-35" aria-hidden="true">·</span>
+      <span
+        class="shrink-0 {item.status === 'pending'
+          ? 'font-medium text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]'
+          : ''}"
       >
-        <PushPinIcon size={13} weight={item.pinned ? "fill" : "regular"} />
-      </button>
-      {#if onDelete}
-        <button
-          type="button"
-          class={cn(
-            PAGE_ICON_BTN,
-            "[&:hover:not(:disabled)]:bg-[color-mix(in_srgb,var(--destructive)_14%,transparent)] [&:hover:not(:disabled)]:text-(--destructive)",
-          )}
-          onclick={onDelete}
-          aria-label="Delete document"
-          title="Delete (⌥⌫)"
-        >
-          <TrashIcon size={13} />
-        </button>
+        {statusLabel}
+      </span>
+    {/if}
+    {#if diagramCounts}
+      <span class="opacity-35" aria-hidden="true">·</span>
+      <span class="truncate">{diagramCounts}</span>
+    {/if}
+  </div>
+
+  {#if item.type === "diagram"}
+    <!-- The one place imagery appears: the graph fit to the card's width, in
+         place of the body. The frame is reserved at rest rather than inserted
+         when the JSON lands, so the card does not jump its own height — and it
+         holds an empty wash, never a spinner. -->
+    <div class="h-[240px] overflow-hidden rounded-[10px] bg-[var(--wash-1)]">
+      {#if content}
+        {#await import("../diagram/DiagramThumbnail.svelte") then thumbModule}
+          {@const DiagramThumbnail = thumbModule.default}
+          <DiagramThumbnail {content} />
+        {/await}
       {/if}
     </div>
-
-    <div class="peek-title">{item.title}</div>
-    <div class="peek-meta">
-      <span title={item.cwd}>{projectShort(item.cwd)}</span>
-      <span class="peek-meta-sep">·</span>
-      <span>{formatTimeAgoFromTimestamp(item.timestamp) ?? ""}</span>
+  {:else if body}
+    <div class="peek-body text-[12px] leading-[1.6] text-muted-foreground text-pretty">
+      {#each bodyRuns as run, i (i)}{#if run.hit}<mark
+            class="rounded-[3px] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
+            >{run.text}</mark
+          >{:else}{run.text}{/if}{/each}
     </div>
-
-    <!-- The artifact itself, clipped at the pane and faded out: a peek is a
-         reference to a page, not the page. -->
-    <div class="peek-body" class:peek-body--canvas={item.type === "diagram"}>
-      {#if item.type === "diagram"}
-        <!-- A framed window onto the canvas: the thumbnail draws its own
-             backdrop and centres the map, so it wants a box to fill, not a
-             strip to be cropped by. -->
-        <div class="peek-canvas">
-          {#if content}
-            {#await import("../diagram/DiagramThumbnail.svelte")}
-              <div class="peek-canvas-pending" role="status" aria-label="Loading diagram preview"></div>
-            {:then thumbModule}
-              {@const DiagramThumbnail = thumbModule.default}
-              <DiagramThumbnail {content} />
-            {/await}
-          {:else}
-            <div class="peek-canvas-pending" role="status" aria-label="Loading diagram preview"></div>
-          {/if}
-        </div>
-        {#if diagramSummary}
-          <div class="peek-caption">{diagramSummary}</div>
-        {/if}
-      {:else if content}
-        <!-- The doc shell's own DOM, so the preview inherits the document
-             face rather than a second prose style: root › column › editor ›
-             ProseMirror is exactly what every rule in index.css is written
-             against. `doc-peek` rescales it for the column. -->
-        <div class="doc-shell-root doc-peek">
-          <div class="doc-shell-column solus-doc-editor">
-            <div class="ProseMirror">
-              <SvelteMarkdown
-                source={content}
-                renderers={{ ...githubMarkdownRenderers, link: MarkdownLink }}
-                sanitizeUrl={markdownSanitizeUrl}
-              />
-            </div>
-          </div>
-        </div>
-        <div class="peek-body-fade" aria-hidden="true"></div>
-      {:else if item.snippet}
-        <div class="peek-snippet">{item.snippet}</div>
-      {/if}
-    </div>
-
-    <div class="peek-actions">
-      <button type="button" class={cn(PAGE_PRIMARY_BTN, "flex-1 justify-center")} onclick={onOpen}>
-        Open
-      </button>
-      {#if resumeLabel}
-        <button type="button" class={PAGE_SECONDARY_BTN} onclick={onResume}>{resumeLabel}</button>
-      {/if}
-    </div>
-  {:else}
-    <PageEmpty compact>Select an item to preview it here.</PageEmpty>
   {/if}
+
+  <div class="h-px bg-[var(--hairline)]" aria-hidden="true"></div>
+
+  <div class="flex gap-[22px]">
+    <div class="flex flex-1 flex-col gap-[5px]">
+      {#each outline.lines as line (line.n)}
+        <span class="flex items-baseline gap-2 text-[11px] leading-[1.4]">
+          <span
+            class="font-mono text-[10px] tabular-nums text-muted-foreground opacity-70"
+            >{line.n}</span
+          >
+          <span
+            class="truncate text-[color-mix(in_oklch,var(--foreground)_74%,transparent)]"
+            >{line.text}</span
+          >
+        </span>
+      {/each}
+      {#if outline.more > 0}
+        <span class="pl-[26px] text-[11px] leading-[1.4] text-muted-foreground">
+          +{outline.more} more
+        </span>
+      {/if}
+    </div>
+    <!-- Text, not keycaps: keycaps at this size in a transient card read as
+         clickable, and nothing in here is. -->
+    <span
+      class="shrink-0 self-end text-[10.5px] text-muted-foreground opacity-75"
+    >
+      ⏎ open · ⇧ hold to pin open
+    </span>
+  </div>
 </div>
 
 <style>
-  .peek {
-    flex: 0 0 42.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.6875rem;
-    padding: 1.25rem 1.25rem 1.125rem;
-    border-left: 0.0625rem solid color-mix(in srgb, var(--solus-container-border) 55%, transparent);
-    background: color-mix(in srgb, var(--muted) 28%, var(--solus-container-bg));
-    overflow: hidden;
-  }
-
-  .peek-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .peek-kind {
-    font-size: 0.6563rem;
-    font-weight: 500;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--solus-text-tertiary);
-  }
-  .peek-fill {
-    flex: 1 1 auto;
-  }
-
-  .peek-title {
-    font-size: 1.0625rem;
-    font-weight: 640;
-    letter-spacing: -0.024em;
-    line-height: 1.28;
-    color: var(--solus-text-primary);
-    overflow-wrap: break-word;
-  }
-  .peek-meta {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.7188rem;
-    color: var(--solus-text-tertiary);
-  }
-  .peek-meta-sep {
-    opacity: 0.4;
-  }
-
+  /* Three lines, then it stops — the card is a reference to a page, not the
+     page. */
   .peek-body {
-    position: relative;
-    flex: 1 1 auto;
-    min-height: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
     overflow: hidden;
   }
-  /* The pane's own background, not the transcript card's — the gradient has to
-     land on what is actually behind it or it reads as a grey band. */
-  .peek-body-fade {
-    position: absolute;
-    inset-inline: 0;
-    bottom: 0;
-    height: 3rem;
-    pointer-events: none;
-    background: linear-gradient(
-      to bottom,
-      transparent,
-      color-mix(in srgb, var(--muted) 28%, var(--solus-container-bg))
-    );
-  }
-  .peek-snippet {
-    font-size: 0.7813rem;
-    line-height: 1.6;
-    color: var(--solus-text-tertiary);
-    text-wrap: pretty;
-  }
 
-  .peek-body--canvas {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+  /* First open only. Swapping rows keeps the element mounted, so the card never
+     re-animates as the pointer walks the ledger. */
+  .peek-in {
+    animation: peek-pop 0.16s ease-out;
   }
-  /* The frame is what makes it read as a rendered canvas rather than loose
-     artwork on the pane wash. The thumbnail sizes itself to this box and
-     centres the map inside it, so no svg overrides here.
-
-     Landscape, and explicitly not `flex: 1`: an architecture diagram is wide,
-     and letting the frame stretch down the column fits that wide drawing into
-     a tall box — which shrinks it to a sliver with dead canvas above and
-     below. The frame takes the diagram's shape and gives the rest of the
-     column back. */
-  .peek-canvas {
-    flex: 0 0 auto;
-    aspect-ratio: 3 / 2;
-    border-radius: 0.625rem;
-    border: 0.0625rem solid color-mix(in srgb, var(--solus-container-border) 70%, transparent);
-    overflow: hidden;
-  }
-  .peek-canvas-pending {
-    width: 100%;
-    height: 100%;
-    background: color-mix(in srgb, var(--solus-surface-primary) 28%, var(--solus-container-bg));
-    animation: peek-canvas-breathe 1.6s ease-in-out infinite;
-  }
-  @keyframes peek-canvas-breathe {
-    0%,
-    100% {
-      opacity: 0.55;
+  @keyframes peek-pop {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.985);
     }
-    50% {
+    to {
       opacity: 1;
+      transform: none;
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .peek-canvas-pending {
-      animation: none;
-      opacity: 0.7;
+    .peek-in {
+      animation: peek-fade 0.16s ease-out;
     }
-  }
-  .peek-caption {
-    flex-shrink: 0;
-    font-size: 0.75rem;
-    color: var(--solus-text-tertiary);
-  }
-
-  .peek-actions {
-    flex-shrink: 0;
-    display: flex;
-    gap: 0.5rem;
+    @keyframes peek-fade {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
   }
 </style>

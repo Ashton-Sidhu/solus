@@ -623,10 +623,18 @@ describe('WorkspaceContext resumed-session tab creation', () => {
     }
     workspace.ctxFor = () => ({ session: {} })
     workspace.attachRuntimeSession = async () => {}
+    workspace.eventReducer = { rebuildAgentConversations: () => {} }
     workspace.environment = { refreshTab: async () => null }
     workspace.recomputeChangedFiles = () => {}
     workspace.refreshPluginCommands = async () => {}
     workspace.planStore = { hydrateAnnotations: async () => {} }
+    let hydratedTaskSessionId: string | null = null
+    workspace.tasksStore = {
+      ensureSessionBinding: async (sessionId: string) => {
+        hydratedTaskSessionId = sessionId
+        return null
+      },
+    }
     workspace.resetOverlays = () => {}
 
     const tabId = await workspace.resumeSession({
@@ -649,6 +657,7 @@ describe('WorkspaceContext resumed-session tab creation', () => {
     })
     expect(registry.sessions['resumed-session'].agentSessionId).toBe('resumed-agent-session')
     expect(registry.tabs['resumed-tab'].title).toBe('Resumed work')
+    expect(hydratedTaskSessionId).toBe('resumed-agent-session')
   })
 })
 
@@ -691,6 +700,7 @@ describe('Session bootstrap Git ordering', () => {
       runtimeSyncing: false,
       ctxFor: () => ({ session: {} }),
       reconcileQueuedPrompts: () => {},
+      refreshThreadGoal: async () => {},
       environment: {
         refreshTab: async () => {
           order.push('git:start')

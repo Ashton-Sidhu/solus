@@ -86,23 +86,23 @@
     >
       {@render checkIcon(item)}
       <span class="min-w-0 flex-1">
-        <span class="block truncate text-[11px] font-medium text-foreground">{item.name}</span>
+        <span class="block truncate text-[12px] font-[450] text-foreground">{item.name}</span>
         {#if item.appName}
-          <span class="block truncate text-[9.5px] text-muted-foreground">{item.appName}</span>
+          <span class="block truncate text-[10px] text-muted-foreground">{item.appName}</span>
         {/if}
       </span>
-      <span class="shrink-0 text-[10.5px] text-muted-foreground">{checkResultLabel(item)}</span>
+      <span class="shrink-0 text-[11px] text-muted-foreground">{checkResultLabel(item)}</span>
     </button>
   {:else}
     <div class="flex items-center gap-2 rounded-lg px-2 py-1.5">
       {@render checkIcon(item)}
       <span class="min-w-0 flex-1">
-        <span class="block truncate text-[11px] font-medium text-foreground">{item.name}</span>
+        <span class="block truncate text-[12px] font-[450] text-foreground">{item.name}</span>
         {#if item.appName}
-          <span class="block truncate text-[9.5px] text-muted-foreground">{item.appName}</span>
+          <span class="block truncate text-[10px] text-muted-foreground">{item.appName}</span>
         {/if}
       </span>
-      <span class="shrink-0 text-[10.5px] text-muted-foreground">{checkResultLabel(item)}</span>
+      <span class="shrink-0 text-[11px] text-muted-foreground">{checkResultLabel(item)}</span>
     </div>
   {/if}
 {/snippet}
@@ -129,8 +129,8 @@
             type="button"
             aria-label={`${display.label}: ${display.tooltip}`}
             class={pill
-              ? `inline-flex h-auto cursor-pointer items-center gap-1.5 rounded-full border-0 bg-[color:color-mix(in_oklab,currentColor_14%,transparent)] px-2 py-1 text-[10.5px] font-medium tabular-nums transition-colors ${tone}`
-              : `inline-flex h-auto cursor-pointer items-center gap-1 rounded-full border-0 bg-[color:color-mix(in_oklab,currentColor_12%,transparent)] px-2 py-0.5 text-[10.5px] font-medium tabular-nums transition-colors ${tone}`}
+              ? `inline-flex h-auto cursor-pointer items-center gap-1.5 rounded-full border-0 bg-[color:color-mix(in_oklab,currentColor_14%,transparent)] px-2 py-1 text-[11px] font-medium tabular-nums transition-colors ${tone}`
+              : `inline-flex h-auto cursor-pointer items-center gap-1 rounded-full border-0 bg-[color:color-mix(in_oklab,currentColor_12%,transparent)] px-2 py-0.5 text-[11px] font-medium tabular-nums transition-colors ${tone}`}
             title={display.tooltip}
           >
             {#if pill}
@@ -160,31 +160,31 @@
       >
         <div role="dialog" aria-label="Check details">
           <div class="border-b border-border px-3 py-2">
-            <p class="text-[11px] font-medium text-foreground">{display.label}</p>
+            <p class="text-[12px] font-[450] text-foreground">{display.label}</p>
             {#if summary}
-              <p class="mt-0.5 text-[10.5px] tabular-nums text-muted-foreground">{checksCounts(summary)}</p>
+              <p class="mt-0.5 text-[11px] tabular-nums text-muted-foreground">{checksCounts(summary)}</p>
             {:else}
-              <p class="mt-0.5 text-pretty text-[10.5px] text-muted-foreground">{display.tooltip}</p>
+              <p class="mt-0.5 text-pretty text-[11px] text-muted-foreground">{display.tooltip}</p>
             {/if}
           </div>
 
           {#if summary && summary.state !== "none"}
             <div class="max-h-[19rem] overflow-y-auto p-1.5">
               {#if summary.required.length > 0}
-                <p class="px-2 pt-1 pb-0.5 text-[9.5px] font-medium tracking-[0.08em] text-muted-foreground uppercase">Required</p>
+                <p class="px-2 pt-1 pb-0.5 text-[10px] font-[450] tracking-[0.09em] text-muted-foreground uppercase">Required</p>
                 {#each summary.required as item (item.id)}
                   {@render checkRow(item)}
                 {/each}
               {/if}
               {#if summary.optional.length > 0}
-                <p class="px-2 pt-2 pb-0.5 text-[9.5px] font-medium tracking-[0.08em] text-muted-foreground uppercase">Optional</p>
+                <p class="px-2 pt-2 pb-0.5 text-[10px] font-[450] tracking-[0.09em] text-muted-foreground uppercase">Optional</p>
                 {#each summary.optional as item (item.id)}
                   {@render checkRow(item)}
                 {/each}
               {/if}
             </div>
           {:else if summary?.state === "none"}
-            <p class="px-3 py-3 text-pretty text-[11px] leading-relaxed text-muted-foreground">No CI checks are configured for this pull request.</p>
+            <p class="px-3 py-3 text-pretty text-[12px] leading-relaxed text-muted-foreground">No CI checks are configured for this pull request.</p>
           {/if}
         </div>
       </Popover.Content>

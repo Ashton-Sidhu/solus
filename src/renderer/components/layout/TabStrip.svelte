@@ -15,7 +15,7 @@
     CaretRightIcon,
     ChatsIcon,
     FunnelSimpleIcon,
-    HandPalmIcon,
+    ChatTeardropIcon,
     SpinnerGapIcon,
     CheckCircleIcon,
     XCircleIcon,
@@ -74,7 +74,7 @@
 
   const GROUP_VISUAL: Record<StatusGroupKey, GroupVisual> = {
     waiting: {
-      icon: HandPalmIcon,
+      icon: ChatTeardropIcon,
       color: "var(--solus-status-permission)",
       spin: false,
     },

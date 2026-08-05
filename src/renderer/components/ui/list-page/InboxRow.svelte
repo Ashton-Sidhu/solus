@@ -40,7 +40,7 @@
 </script>
 
 <div
-  class="group flex min-h-[54px] w-full items-center gap-[11px] rounded-[10px] py-[9px] pr-3 pl-2 transition-shadow duration-150 {selected
+  class="group flex h-[55px] w-full items-center gap-[11px] rounded-[10px] py-2 pr-3 pl-2 transition-shadow duration-150 {selected
     ? 'bg-[var(--wash-2)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)]'
     : 'hover:bg-[var(--wash-1)]'}"
   data-selected={selected}
@@ -57,20 +57,20 @@
     <span class="flex min-w-0 flex-1 flex-col gap-[3px]">
       <span class="flex min-w-0 items-center gap-2">
         <span
-          class="truncate text-[12.5px] tracking-[-.005em] {row.unread
-            ? 'font-semibold text-foreground'
-            : 'font-medium text-[color-mix(in_oklch,var(--foreground)_72%,transparent)]'}"
+          class="truncate text-[13px] leading-[19px] tracking-[-.005em] {row.unread
+            ? 'font-medium text-foreground'
+            : 'font-[450] text-[color-mix(in_oklch,var(--foreground)_72%,transparent)]'}"
           title={row.title}
         >
           {row.title}
         </span>
         <span
-          class="shrink-0 font-mono text-[10.5px] tabular-nums text-muted-foreground opacity-80"
+          class="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground opacity-80"
         >
           {row.ident}
         </span>
       </span>
-      <span class="truncate text-[11.5px] leading-[1.55] text-muted-foreground">
+      <span class="truncate text-[12px] leading-[17px] text-muted-foreground">
         {row.context}
       </span>
     </span>
@@ -82,7 +82,7 @@
       <ListChip {chip} />
     {/each}
     <span
-      class="w-8 shrink-0 text-right font-mono text-[10.5px] tabular-nums text-muted-foreground opacity-75"
+      class="w-8 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground opacity-75"
       title={row.timeTitle}
     >
       {row.time}
@@ -94,7 +94,7 @@
     {#if row.secondary}
       <button
         type="button"
-        class="flex h-[26px] cursor-pointer items-center rounded-md border-0 bg-card px-2.5 text-[11.5px] font-medium text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] transition-colors hover:text-foreground"
+        class="flex h-[26px] cursor-pointer items-center rounded-md border-0 bg-card px-2.5 text-[12px] font-medium text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] transition-colors hover:text-foreground"
         onclick={row.secondary.run}
       >
         {row.secondary.label}
@@ -103,14 +103,14 @@
     {#if row.primary}
       <button
         type="button"
-        class="flex h-[26px] cursor-pointer items-center gap-1.5 rounded-md border-0 px-2.5 text-[11.5px] font-medium transition-[background-color] {hot
+        class="flex h-[26px] cursor-pointer items-center gap-1.5 rounded-md border-0 px-2.5 text-[12px] font-medium transition-[background-color] {hot
           ? 'bg-primary text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]'
           : 'bg-card text-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:bg-[var(--wash-2)]'}"
         onclick={row.primary.run}
       >
         {row.primary.label}
         {#if row.primary.shortcut}
-          <span class="font-mono text-[10px] opacity-70">{row.primary.shortcut}</span>
+          <span class="font-mono text-[11px] opacity-70">{row.primary.shortcut}</span>
         {/if}
       </button>
     {/if}

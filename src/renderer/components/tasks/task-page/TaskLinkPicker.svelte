@@ -118,14 +118,14 @@
     <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
       {#each results as group (group.menuKind)}
         <div
-          class="px-2 pt-2 pb-1 text-[9.5px] font-medium tracking-[.12em] text-muted-foreground uppercase"
+          class="px-2 pt-2 pb-1 text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase"
         >
           {group.label}
         </div>
         {#each group.items as item (item.id)}
           <button
             type="button"
-            class="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-md px-2 text-[12.5px] hover:bg-[var(--wash-2)]"
+            class="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-md px-2 text-[13px] hover:bg-[var(--wash-2)]"
             onclick={() => pick(item)}
           >
             <svg
@@ -141,17 +141,17 @@
               aria-hidden="true"><path d={item.icon} /></svg
             >
             <span class="min-w-0 flex-1 truncate text-left">{item.title}</span>
-            <span class="shrink-0 text-[11px] text-muted-foreground opacity-70">{item.meta}</span>
+            <span class="shrink-0 text-[12px] text-muted-foreground opacity-70">{item.meta}</span>
           </button>
         {/each}
       {:else}
-        <div class="px-2 py-6 text-center text-[11.5px] text-muted-foreground">
+        <div class="px-2 py-6 text-center text-[12px] text-muted-foreground">
           {query ? "Nothing matches." : "Nothing to link yet."}
         </div>
       {/each}
     </div>
     <div
-      class="flex shrink-0 items-center gap-2 border-t border-[var(--hairline)] px-3.5 py-2 text-[10.5px] text-muted-foreground"
+      class="flex shrink-0 items-center gap-2 border-t border-[var(--hairline)] px-3.5 py-2 text-[11px] text-muted-foreground"
     >
       {Object.values(KIND_LABEL).join(" · ")}
       <span class="flex-1"></span>

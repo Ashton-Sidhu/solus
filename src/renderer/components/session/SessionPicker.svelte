@@ -308,12 +308,11 @@
     if (entry.kind === "open") {
       const sessionId = entry.session.agentSessionId;
       if (sessionId)
-        void session.tasksStore.hydrateForSession(sessionId).catch(() => null);
+        void session.tasksStore.ensureSessionBinding(sessionId).catch(() => null);
       if (!keepOpen) session.selectTab(entry.tabId);
     } else {
-      void session.tasksStore
-        .hydrateForSession(entry.meta.sessionId)
-        .catch(() => null);
+      // resumeSession hydrates the lightweight task/session tree alongside the
+      // selected transcript. Do not issue the same metadata request twice.
       void session.resumeSession(entry.meta, { background: keepOpen });
     }
     if (!keepOpen) close();
@@ -375,8 +374,9 @@
     history.cancel();
   });
 
-  onMount(() =>
-    serverConnections.eventsFor().subscribe('session.indexChanged', (event) => {
+  onMount(() => {
+    const events = serverConnections.eventsFor();
+    const unsubscribeIndex = events.subscribe('session.indexChanged', (event) => {
       if (!open || event.provider !== "codex") return;
       const affectsScope = historyScopeRoots.some((root) =>
         event.projectPaths.some(
@@ -387,8 +387,16 @@
         ),
       );
       if (affectsScope) void loadHistory(historySources, historyScopeKey);
-    }),
-  );
+    });
+    const unsubscribeStatus = events.subscribe(
+      'session.statusChanged',
+      (event) => history.updateStatus(event.sessionId, event.status),
+    );
+    return () => {
+      unsubscribeIndex();
+      unsubscribeStatus();
+    };
+  });
 </script>
 
 <svelte:window bind:innerWidth={viewportWidth} />
@@ -501,6 +509,7 @@
               <SessionPickerItem
                 item={filteredItems[index]}
                 isSelected={index === selectedIndex}
+                {query}
                 onSelect={() => handleSelect(filteredItems[index])}
                 onHover={() => {
                   selectedIndex = index;
@@ -521,6 +530,7 @@
         title={previewTitle}
         byline={previewByline}
         timeAgo={previewTimeAgo}
+        {query}
         hiddenCount={preview.hiddenCount}
         onContinue={() => {
           const entry = filteredItems[selectedIndex];

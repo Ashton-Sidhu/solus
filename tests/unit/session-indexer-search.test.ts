@@ -46,11 +46,22 @@ function msg(role: string, content: string, timestamp: number): SessionLoadMessa
 
 describe('getIndexedSession', () => {
   test('resolves a non-resident session written by persistIndexedSessionStart', () => {
-    indexer.persistIndexedSessionStart('sess-1', 'codex', '/Users/test/proj', PROJECT, 'gpt-5.5', 'high')
+    indexer.persistIndexedSessionStart(
+      'sess-1',
+      'codex',
+      '/Users/test/proj',
+      PROJECT,
+      'gpt-5.5',
+      'high',
+      'Fix task session labels',
+    )
     const meta = indexer.getIndexedSession('sess-1')
     expect(meta).not.toBeNull()
     expect(meta!.sessionId).toBe('sess-1')
     expect(meta!.provider).toBe('codex')
+    // WHY: task links join this row immediately after session_init, before the
+    // provider history indexer has had a chance to rediscover the transcript.
+    expect(meta!.firstMessage).toBe('Fix task session labels')
     expect(meta!.model).toBe('gpt-5.5')
     expect(meta!.reasoningEffort).toBe('high')
   })

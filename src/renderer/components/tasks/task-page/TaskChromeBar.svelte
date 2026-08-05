@@ -2,6 +2,7 @@
   import { ArrowsClockwiseIcon, CircleNotchIcon } from "phosphor-svelte";
   import type { Task } from "../../../../shared/task-types";
   import { taskProviderLabel, taskRef } from "./lib/task-page";
+  import CopyButton from "../../ui/CopyButton.svelte";
 
   interface Props {
     task: Task;
@@ -56,9 +57,10 @@
     Tasks
   </button>
   <span class="px-[3px] text-[13px] opacity-30" aria-hidden="true">/</span>
-  <span class="flex h-7 items-center rounded px-[7px] font-mono text-[12.5px] tracking-[-.005em]">
+  <span class="flex h-7 items-center rounded px-[7px] font-mono text-[13px] tracking-[-.005em]">
     {taskRef(task)}
   </span>
+  <CopyButton text={task.id} title="Copy task ID" iconOnly />
 
   <span class="flex-1"></span>
 
@@ -82,7 +84,7 @@
   {#if onOpenSource}
     <button
       type="button"
-      class="mr-2 flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full px-2.5 text-[11.5px] text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)] transition-colors hover:bg-[var(--wash-1)] hover:text-foreground"
+      class="mr-2 flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full px-2.5 text-[12px] text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)] transition-colors hover:bg-[var(--wash-1)] hover:text-foreground"
       onclick={onOpenSource}
       title={`Open in ${providerLabel}`}
       aria-label={`Open task in ${providerLabel}`}
@@ -105,7 +107,7 @@
     </button>
   {:else}
     <span
-      class="mr-2 flex h-[26px] items-center gap-[7px] rounded-full px-2.5 text-[11.5px] text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)]"
+      class="mr-2 flex h-[26px] items-center gap-[7px] rounded-full px-2.5 text-[12px] text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)]"
       title="This task lives only in Solus"
     >
       <svg

@@ -159,9 +159,13 @@ export class SessionEventReducer {
         // sidebar never projects this session as loose between the two states.
         const pendingTaskId = session.pendingTaskId
         if (pendingTaskId) this.deps.tasksStore.trackSessionStart(pendingTaskId, event.sessionId)
-        void this.deps.tasksStore.hydrateForSession(event.sessionId)
+        void this.deps.tasksStore.refreshSessionBinding(event.sessionId)
           .then((task) => {
-            if (task && session.pendingTaskId === pendingTaskId) session.pendingTaskId = null
+            if (!task) return
+            if (session.pendingTaskId === pendingTaskId) session.pendingTaskId = null
+            // The fork's subtask now exists and owns the nesting the provisional
+            // parent stood in for.
+            session.pendingParentTaskId = null
           })
           .catch(() => null)
         this.deps.onSessionInitialized?.(tabId)
@@ -543,6 +547,7 @@ export class SessionEventReducer {
         }
         // A real user turn starts a new attempt, including provider-originated
         // prompts such as in-thread automations that have no optimistic bubble.
+        session.currentTurnStartedAt ??= Date.now()
         session.terminalFailure = null
         this.agentConversations.closeTurn(session)
         session.messages.push({
@@ -652,6 +657,14 @@ export class SessionEventReducer {
 
       case 'status_change':
         session.status = event.status
+        if (event.status === 'connecting' || event.status === 'running') {
+          // Remote/provider-originated turns may announce their status before
+          // their user_message arrives. Start the visible clock at that first
+          // evidence of work instead of leaving the sidebar margin blank.
+          session.currentTurnStartedAt ??= Date.now()
+        } else if (FINISHED_STATUSES.has(event.status) || event.status === 'idle') {
+          session.currentTurnStartedAt = null
+        }
         // The status card tracks the pre-run setup phase (worktree creation,
         // session handshake), which only lives while 'connecting'. Once we
         // leave that state the card's job is done — clear it so the agent's
@@ -1053,6 +1066,7 @@ export class SessionEventReducer {
   resetSessionRunState(session: Session): void {
     session.currentActivity = ''
     session.currentTurnStart = null
+    session.currentTurnStartedAt = null
     session.isStreamingText = false
     session.isReconnecting = false
     session.permissionQueue = []

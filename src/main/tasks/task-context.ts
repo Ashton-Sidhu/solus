@@ -1,12 +1,15 @@
-import type { TaskDetails } from '../../shared/task-types'
+import type { TaskDetails, TaskSessionLink } from '../../shared/task-types'
 
 /** Render the local task packet appended to the system prompt of every run on a
- *  task-backed session. */
+ *  task-backed session. Attempts are passed in rather than read off `details`:
+ *  session links have exactly one reader, `taskSessions()`, whose join is what
+ *  gives each link its display metadata. */
 export function formatTaskContext(
   details: TaskDetails,
   parentDetails: TaskDetails | null = null,
+  attempts: readonly TaskSessionLink[] = [],
 ): string {
-  const { task, comments, attempts } = details
+  const { task, comments } = details
   const lines = [
     `[Working On Task — "${task.title}" (task_id: ${task.id}, status: ${task.status})]`,
   ]
@@ -45,7 +48,11 @@ export function formatTaskContext(
   if (attempts.length) {
     lines.push('', 'Prior attempts:')
     for (const attempt of attempts) {
-      const facts = [attempt.branch, attempt.pr?.url].filter(Boolean).join(' — ')
+      // The link carries the indexed session name, so say which attempt this
+      // was rather than making the agent match a bare UUID against nothing.
+      const facts = [attempt.sessionTitle, attempt.branch, attempt.pr?.url]
+        .filter(Boolean)
+        .join(' — ')
       lines.push(`- session ${attempt.sessionId}${facts ? ` — ${facts}` : ''}`)
     }
   }

@@ -1,7 +1,9 @@
 <script lang="ts">
   import type { TaskStatus } from "../../../shared/task-types";
-  import { ListAvatar, ListChip, SourceLogo } from "../ui/list-page";
+  import { ListAvatar, SourceLogo } from "../ui/list-page";
+  import { avatarTint, chipSkin } from "../ui/list-page/list-page";
   import type { BoardCardSpec } from "./lib/tasks-list-view";
+  import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
 
   /** One card on the kanban board ("Tasks page" spec, board layout).
    *
@@ -15,24 +17,33 @@
   interface Props {
     card: BoardCardSpec;
     selected?: boolean;
-    /** This card is the one being dragged; it fades and lets the slot lead. */
-    dragging?: boolean;
+    /** Just moved — ringed briefly so the eye can follow it to its new slot. */
+    flashing?: boolean;
+    /** This is the copy riding the cursor, not a card in a column: it takes the
+     *  lifted shadow and answers to nothing. */
+    floating?: boolean;
+    /** False while the board is filtered — the card can still change column,
+     *  but its slot within one isn't the user's to set. */
+    canReorder?: boolean;
     onSelect: () => void;
     /** 1 / 2 / 3 on a focused card move it without reaching for the pointer. */
     onSetStatus: (status: TaskStatus) => void;
+    /** ⌥ + an arrow moves the card itself. Returns whether the board took it. */
+    onMove: (key: string) => boolean;
     onContextMenu?: (event: MouseEvent) => void;
-    onDragStart: (event: DragEvent) => void;
-    onDragEnd: () => void;
+    onPress: (event: PointerEvent) => void;
   }
   let {
     card,
     selected = false,
-    dragging = false,
+    flashing = false,
+    floating = false,
+    canReorder = true,
     onSelect,
     onSetStatus,
+    onMove,
     onContextMenu,
-    onDragStart,
-    onDragEnd,
+    onPress,
   }: Props = $props();
 
   // The three columns worth a keystroke. In review is a decision, not a nudge,
@@ -44,19 +55,41 @@
   };
 
   const hasFooter = $derived(card.chips.length > 0 || card.people.length > 0);
+
+  /**
+   * The board's chip is a pill with a dot rather than the list's ring-and-text
+   * tile: a card's footer sits under two lines of prose, and a small mark of
+   * colour separates labels from each other faster than a second ring would.
+   * A neutral chip's dot takes the same hashed tint an avatar does, so one
+   * label reads the same colour everywhere it appears.
+   */
+  const chips = $derived(
+    card.chips.map((chip) => ({
+      label: chip.label,
+      color: chip.tint ? chipSkin(chip.tint).color : "var(--muted-foreground)",
+      dot: chip.tint
+        ? chipSkin(chip.tint).color
+        : `color-mix(in oklch, var(${avatarTint(chip.label)}) 62%, transparent)`,
+    })),
+  );
 </script>
 
 <div
   role="button"
-  tabindex="0"
-  draggable="true"
+  tabindex={floating ? -1 : 0}
   data-task-card={card.key}
-  class="group relative flex w-full shrink-0 cursor-pointer flex-col items-stretch gap-1.5 overflow-hidden rounded-xl bg-card px-3 pt-[11px] pb-2.5 text-left transition-[box-shadow,transform,opacity] duration-150 ease-out hover:-translate-y-px hover:shadow-[0_0_0_.5px_var(--hairline-strong),0_1px_2px_-1px_rgba(24,20,16,.10),0_12px_26px_-12px_rgba(24,20,16,.26)] focus-visible:-translate-y-px focus-visible:shadow-[0_0_0_.5px_var(--hairline-strongest),0_1px_2px_-1px_rgba(24,20,16,.10),0_12px_26px_-12px_rgba(24,20,16,.26)] focus-visible:outline-none {selected
-    ? '-translate-y-px shadow-[0_0_0_.5px_var(--hairline-strongest),0_1px_2px_-1px_rgba(24,20,16,.10),0_12px_26px_-12px_rgba(24,20,16,.26)]'
-    : 'shadow-[0_0_0_.5px_var(--hairline-strong),0_1px_2px_-1px_rgba(24,20,16,.10),0_6px_14px_-10px_rgba(24,20,16,.20)]'} {dragging
-    ? 'opacity-40'
-    : ''}"
-  title="Open task · 1/2/3 set status"
+  class="group relative flex w-full shrink-0 flex-col items-stretch gap-[7px] overflow-hidden rounded-[10px] bg-card px-2.5 py-[9px] text-left select-none {floating
+    ? 'cursor-grabbing shadow-[0_0_0_1px_color-mix(in_oklch,var(--foreground)_18%,transparent),0_4px_12px_-6px_rgba(24,20,16,.22)]'
+    : 'cursor-pointer transition-[box-shadow,transform] duration-150 ease-out hover:-translate-y-px hover:shadow-[0_0_0_.5px_var(--hairline-strong),0_1px_2px_-1px_rgba(24,20,16,.10),0_12px_26px_-12px_rgba(24,20,16,.26)] focus-visible:-translate-y-px focus-visible:shadow-[0_0_0_.5px_var(--hairline-strongest),0_1px_2px_-1px_rgba(24,20,16,.10),0_12px_26px_-12px_rgba(24,20,16,.26)] focus-visible:outline-none'} {flashing
+    ? 'shadow-[0_0_0_1px_color-mix(in_oklch,var(--primary)_55%,transparent),0_0_0_4px_color-mix(in_oklch,var(--primary)_12%,transparent)]'
+    : selected
+      ? '-translate-y-px shadow-[0_0_0_.5px_var(--hairline-strongest),0_1px_2px_-1px_rgba(24,20,16,.10),0_12px_26px_-12px_rgba(24,20,16,.26)]'
+      : floating
+        ? ''
+        : 'shadow-[0_0_0_.5px_var(--hairline-strong),0_1px_2px_-1px_rgba(24,20,16,.10),0_6px_14px_-10px_rgba(24,20,16,.20)]'}"
+  title={canReorder
+    ? "Open task · drag to reorder · ⌥↑↓ ⌥←→ move · 1/2/3 set status"
+    : "Open task · drag to change column · clear the search to reorder"}
   onclick={onSelect}
   onkeydown={(event) => {
     // The page also listens for Enter to open its selected row, so a key this
@@ -67,6 +100,12 @@
       onSelect();
       return;
     }
+    if (event.altKey && event.key.startsWith("Arrow")) {
+      if (!onMove(event.key)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     const next = QUICK_STATUS[event.key];
     if (next) {
       event.preventDefault();
@@ -75,22 +114,22 @@
     }
   }}
   oncontextmenu={onContextMenu}
-  ondragstart={onDragStart}
-  ondragend={onDragEnd}
+  onpointerdown={onPress}
 >
   <!-- Where it lives, and when it last moved. -->
   <span class="flex min-w-0 items-center gap-1.5">
+    <TaskStatusGlyph status={card.lifecycle} />
     {#if card.source.id !== "local"}
       <SourceLogo source={card.source.id} title={card.source.title} />
     {/if}
     <span
-      class="shrink-0 font-mono text-[10px] tracking-[.02em] tabular-nums text-muted-foreground opacity-60"
+      class="shrink-0 font-mono text-[11px] tracking-[.02em] tabular-nums text-muted-foreground opacity-60"
     >
       {card.ident}
     </span>
     <span class="flex-1"></span>
     <span
-      class="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground opacity-[.55]"
+      class="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground opacity-[.55]"
       title={card.timeTitle}
     >
       {card.time}
@@ -100,7 +139,7 @@
   <!-- The only full-strength text on the card. It wraps rather than truncates —
        a column is tall, and a half-read title is worth less than a second line. -->
   <span
-    class="text-[12.5px] leading-[1.4] font-medium tracking-[-.008em] text-pretty {card.dimmed
+    class="text-[13px] leading-[1.42] font-[450] tracking-[-.006em] text-pretty {card.dimmed
       ? 'text-[color-mix(in_oklch,var(--foreground)_62%,transparent)]'
       : 'text-foreground'}"
   >
@@ -109,26 +148,43 @@
 
   {#if card.status}
     <span
-      class="truncate text-[11px] tracking-[-.002em] {card.live
+      class="flex min-w-0 items-center gap-[5px] text-[11px] tracking-[-.002em] {card.live
         ? 'text-[color-mix(in_oklch,var(--running)_66%,var(--foreground))]'
         : card.attention
           ? 'text-[color-mix(in_oklch,var(--primary)_76%,var(--foreground))]'
           : 'text-muted-foreground'}"
     >
-      {card.status}
+      <!-- The one moving thing on the board. It rides the status line's colour,
+           so "an agent is on this" is a glance rather than a read. -->
+      {#if card.live}
+        <span class="animate-pulse-dot size-1 shrink-0 rounded-full bg-current"></span>
+      {/if}
+      <span class="truncate">{card.status}</span>
     </span>
   {/if}
 
   {#if hasFooter}
-    <span
-      class="mt-[3px] flex min-w-0 items-center gap-[5px] border-t border-[var(--hairline)] pt-2"
-    >
-      {#each card.chips as chip (chip.label)}
-        <ListChip {chip} />
+    <span class="mt-px flex min-w-0 items-center gap-[5px]">
+      {#each chips as chip (chip.label)}
+        <span
+          class="inline-flex h-[18px] shrink-0 items-center gap-[5px] rounded-full py-0 pr-[7px] pl-1.5 text-[11px] font-[450] tracking-[.01em] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)]"
+          style:color={chip.color}
+        >
+          <span class="size-[5px] shrink-0 rounded-full" style:background={chip.dot}></span>
+          {chip.label}
+        </span>
       {/each}
       <span class="flex-1"></span>
-      {#each card.people as person (person.id)}
-        <ListAvatar {person} />
+      <!-- Assignees lap each other and ring in the card's own fill, so a row of
+           them reads as one group instead of three separate marks. -->
+      {#each card.people as person, index (person.id)}
+        <span
+          class="flex shrink-0 rounded-full shadow-[0_0_0_2px_var(--card)] {index > 0
+            ? '-ml-1.5'
+            : ''}"
+        >
+          <ListAvatar {person} size={19} />
+        </span>
       {/each}
     </span>
   {/if}

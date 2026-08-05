@@ -16,12 +16,13 @@
 </script>
 
 <!--
-  A solid dot, not an outline mark. The status glyphs are silhouettes because
-  each has to say *which* thing it wants; unread has only one thing to say, so
-  it spends a shape with no interior to read and lets colour do the work. It
-  sits in the same margin column as the glyphs, and like them it is exempt from
-  the list's focus falloff — the whole point is that it holds at full contrast
-  on a row that has otherwise stepped back.
+  A ring, not a filled disc. The status glyphs are silhouettes because each has
+  to say *which* thing it wants; unread has only one thing to say, so it spends
+  a shape with no interior detail and lets colour do the work. It sits in the
+  same margin column as the glyphs, and like them it is exempt from the list's
+  focus falloff — the whole point is that it holds at full contrast on a row
+  that has otherwise stepped back, which is why the stroke stays the mark's full
+  colour rather than a mix.
 -->
 <span
   class="flex shrink-0 items-center justify-center"
@@ -32,6 +33,6 @@
   transition:fade={{ duration: reduceMotion ? 0 : 120 }}
 >
   <span
-    class="block size-full rounded-full bg-(--solus-status-unread)"
+    class="block size-full rounded-full border-[1.25px] border-(--solus-status-unread)"
   ></span>
 </span>

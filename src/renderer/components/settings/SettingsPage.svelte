@@ -291,7 +291,13 @@
     </div>
   </div>
 {:else}
-  <div class="flex h-full overflow-hidden [--settings-header-height:2.875rem]">
+  <!-- The nav column's lead: the window-control band, plus the 7px the session
+       sidebar gets for free from its floating card (4px shell gutter + 1px
+       border + its own 2px top pad) and this flush column does not. That lands
+       the first control on the exact y the sidebar's first row occupies. -->
+  <div
+    class="flex h-full overflow-hidden [--settings-nav-lead:calc(var(--solus-page-top-inset,0px)+0.4375rem)]"
+  >
     <!-- Width and surface are the session sidebar's, not a second measure: the
          settings column replaces it in place, so the shell must not shift. -->
     <Sidebar.Provider
@@ -302,24 +308,25 @@
         role="navigation"
         aria-label="Settings"
         collapsible="none"
-        class="border-r border-r-sidebar-border bg-(--solus-sidebar-surface)"
+        class="border-r border-r-sidebar-border bg-[color-mix(in_oklch,var(--card)_99%,var(--foreground))]"
       >
-        <!-- The nav column has no header of its own, so it opens with the same
-             empty band the content header occupies. That puts the search field's
-             top edge on the header's bottom border instead of floating a row
-             above it. (Traffic-light clearance is the page outlet's job — see
-             `page-surface--inset` in ui/Pane.svelte — not this strip's.) -->
-        <Sidebar.Header class="gap-0 p-0 px-3 pb-3">
-          <div class="h-(--settings-header-height) shrink-0"></div>
+        <!-- Two measurements are borrowed, not invented: the lead band above the
+             first control, and the 1.1875rem row inset. Together they land the
+             search field on the exact x/y the session sidebar's first row
+             occupies, so switching between the two doesn't move the column.
+             (The page owns its titlebar chrome, so the window-control clearance
+             lives in that lead rather than as an outlet pad above the whole
+             surface — that is what lets this column reach the window's top.) -->
+        <Sidebar.Header class="gap-0 p-0 px-[1.1875rem] pt-(--settings-nav-lead) pb-3">
           <SearchField
             bind:ref={searchInputEl}
             bind:value={searchQuery}
             placeholder="Search settings"
-            class="basis-auto rounded border-border bg-card px-2 py-1.5 shadow-xs [&_input]:text-[0.75rem]"
+            class="w-full basis-auto rounded border-border bg-card px-2 py-1.5 shadow-xs [&_input]:text-[0.75rem]"
           />
         </Sidebar.Header>
         <Sidebar.Content
-          class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-px px-3 pb-4"
+          class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-px px-[1.1875rem] pb-4"
         >
           {#each groupedTabs as section (section.group)}
             <Sidebar.Group class="p-0">
@@ -354,7 +361,7 @@
         </Sidebar.Content>
         {#if session.staticInfo?.version}
           <Sidebar.Footer
-            class="shrink-0 flex-row items-center gap-1.5 border-t border-t-sidebar-border px-3 pt-2 pb-2.5 text-[0.625rem] text-muted-foreground"
+            class="shrink-0 flex-row items-center gap-1.5 border-t border-t-sidebar-border px-[1.1875rem] pt-2 pb-2.5 text-[0.625rem] text-muted-foreground"
           >
             <span>v{session.staticInfo.version}</span>
             {#if session.staticInfo.email}
@@ -367,14 +374,16 @@
     </Sidebar.Provider>
 
     <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <!-- The page title lives in the window's own chrome row — the same band
+           every other full-page surface titles itself in — not in a second strip
+           below it, and not above the sections, where a duplicate of it pushed
+           the first setting a screenful down. -->
       <header
-        class="h-(--settings-header-height) border-b border-b-border flex items-center justify-between gap-3 px-[clamp(2rem,3vw,3rem)] shrink-0"
+        class="h-(--solus-chrome-row-h) border-b border-b-border flex items-center justify-between gap-3 px-[clamp(2rem,3vw,3rem)] shrink-0"
       >
-        <Breadcrumb.Root class="min-w-0">
-          <Breadcrumb.List class="gap-2 min-w-0 flex-nowrap text-[0.75rem]">
-            <Breadcrumb.Item>Settings</Breadcrumb.Item>
-            <Breadcrumb.Separator class="opacity-50">&#8260;</Breadcrumb.Separator>
-            {#if openHostLabel}
+        {#if openHostLabel}
+          <Breadcrumb.Root class="min-w-0">
+            <Breadcrumb.List class="gap-2 min-w-0 flex-nowrap text-[0.8125rem]">
               <Breadcrumb.Item class="min-w-0">
                 <Breadcrumb.Link class="truncate">
                   {#snippet child({ props })}
@@ -389,19 +398,29 @@
               </Breadcrumb.Item>
               <Breadcrumb.Separator class="opacity-50">&#8260;</Breadcrumb.Separator>
               <Breadcrumb.Item class="min-w-0">
-                <Breadcrumb.Page class="font-medium truncate"
+                <Breadcrumb.Page
+                  class="font-semibold truncate text-foreground tracking-[-0.006em]"
                   >{openHostLabel}</Breadcrumb.Page
                 >
               </Breadcrumb.Item>
-            {:else}
-              <Breadcrumb.Item class="min-w-0">
-                <Breadcrumb.Page class="font-medium truncate"
-                  >{activeTabMeta.label}</Breadcrumb.Page
-                >
-              </Breadcrumb.Item>
-            {/if}
-          </Breadcrumb.List>
-        </Breadcrumb.Root>
+            </Breadcrumb.List>
+          </Breadcrumb.Root>
+        {:else}
+          <div class="flex min-w-0 items-baseline gap-2.5">
+            <h1
+              class="shrink-0 text-[0.8125rem] font-semibold tracking-[-0.006em] text-foreground"
+            >
+              {activeTabMeta.label}
+            </h1>
+            <span
+              class="h-2.5 w-px shrink-0 self-center bg-border"
+              aria-hidden="true"
+            ></span>
+            <p class="min-w-0 truncate text-[0.75rem] text-muted-foreground">
+              {activeTabMeta.description}
+            </p>
+          </div>
+        {/if}
         <Button
           variant="ghost"
           size="icon-sm"
@@ -421,17 +440,7 @@
         <!-- Fluid reading column: grows with the window between 45rem and 72rem.
              `w-full` keeps it from overflowing narrow panes — max-width only caps. -->
         <div class="mx-auto w-full max-w-[clamp(45rem,66vw,72rem)] pt-8 pb-16">
-          {#if !openHostLabel}
-            <h1
-              class="text-[clamp(1.25rem,1.15rem+0.35vw,1.5rem)] font-semibold tracking-tight text-foreground"
-            >
-              {activeTabMeta.label}
-            </h1>
-            <p class="mt-1 text-[0.8125rem] text-muted-foreground">
-              {activeTabMeta.description}
-            </p>
-          {/if}
-          <div class:mt-8={!openHostLabel} class="flex flex-col gap-7">
+          <div class="flex flex-col gap-7">
             {@render tabContent()}
           </div>
         </div>

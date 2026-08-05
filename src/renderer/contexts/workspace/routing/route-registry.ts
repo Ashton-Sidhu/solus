@@ -217,6 +217,9 @@ export const ROUTES = defineRoutes({
     serialize: (p) => (p.projectCwd ? `${p.tab ?? 'projects'}/${p.projectCwd}` : p.tab ?? ''),
     placement: 'any',
     exclusiveGroup: 'page',
+    // The nav column paints to the window's top edge, so the page clears the
+    // window controls inside its own header band rather than being padded down.
+    ownsTitlebarChrome: true,
     component: () => import('../../../components/settings/SettingsPage.svelte'),
   },
   folio: {
@@ -224,6 +227,10 @@ export const ROUTES = defineRoutes({
     serialize: () => '',
     placement: 'any',
     exclusiveGroup: 'page',
+    // The facet rail is its own surface colour and paints to the window's top
+    // edge, so an outlet-level pad would read as the rail failing to reach it.
+    // The rail and the head clear the window controls inside themselves.
+    ownsTitlebarChrome: true,
     component: () => import('../../../components/workspace/WorkspacePage.svelte'),
   },
   automations: {

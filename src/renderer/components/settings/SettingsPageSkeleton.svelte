@@ -11,18 +11,19 @@
 </script>
 
 <div
-  class="flex h-full overflow-hidden [--settings-header-height:2.875rem]"
+  class="flex h-full overflow-hidden [--settings-nav-lead:calc(var(--solus-page-top-inset,0px)+0.4375rem)]"
   role="status"
   aria-label="Loading settings"
 >
   <div
-    class="hidden w-[clamp(14.75rem,13vw,17rem)] shrink-0 flex-col bg-sidebar border-r border-r-sidebar-border md:flex"
+    class="hidden w-[clamp(18.75rem,24vw,22.5rem)] shrink-0 flex-col bg-[color-mix(in_oklch,var(--card)_99%,var(--foreground))] border-r border-r-sidebar-border md:flex"
   >
-    <div class="px-3 pb-3">
-      <div class="h-(--settings-header-height) shrink-0"></div>
-      <Skeleton class="h-7 w-full rounded-md opacity-70" />
+    <div class="px-[1.1875rem] pt-(--settings-nav-lead) pb-3">
+      <Skeleton class="h-8 w-full rounded opacity-70" />
     </div>
-    <div class="flex flex-1 min-h-0 flex-col gap-px overflow-hidden px-3 pb-4">
+    <div
+      class="flex flex-1 min-h-0 flex-col gap-px overflow-hidden px-[1.1875rem] pb-4"
+    >
       {#each NAV_GROUPS as group, g (g)}
         <Skeleton
           class="mt-4 mb-1.5 ml-2 h-2 rounded-[0.1875rem] opacity-45"
@@ -43,20 +44,18 @@
 
   <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
     <header
-      class="flex h-(--settings-header-height) shrink-0 items-center justify-between gap-3 border-b border-b-border px-[clamp(2rem,3vw,3rem)]"
+      class="flex h-(--solus-chrome-row-h) shrink-0 items-center justify-between gap-3 border-b border-b-border px-[clamp(2rem,3vw,3rem)]"
     >
-      <div class="flex items-center gap-2">
-        <Skeleton class="h-2.5 w-12 rounded-[0.1875rem] opacity-50" />
+      <div class="flex items-center gap-2.5">
         <Skeleton class="h-2.5 w-16 rounded-[0.1875rem] opacity-70" />
+        <Skeleton class="h-2.5 w-40 rounded-[0.1875rem] opacity-45" />
       </div>
       <Skeleton class="size-4 shrink-0 rounded-[0.25rem] opacity-50" />
     </header>
 
     <div class="flex-1 overflow-hidden px-[clamp(2rem,3vw,3rem)]">
       <div class="mx-auto w-full max-w-[clamp(45rem,66vw,72rem)] pt-8 pb-16">
-        <Skeleton class="h-5 w-44 rounded-[0.25rem] opacity-80" />
-        <Skeleton class="mt-2.5 h-2.5 w-72 rounded-[0.1875rem] opacity-50" />
-        <div class="mt-8 flex flex-col gap-7">
+        <div class="flex flex-col gap-7">
           {#each ROW_WIDTHS as width, i (i)}
             <div class="flex flex-col gap-3">
               <Skeleton class="h-2.5 w-24 rounded-[0.1875rem] opacity-45" />

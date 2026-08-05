@@ -30,6 +30,13 @@ export function hasGlyph(status: TaskStatus): boolean {
   return status !== 'running' && status !== 'idle' && status !== 'done'
 }
 
+/** Unread output outranks work in flight in the task margin. Once the user
+ * clears it, the still-running task falls back to its live indicator. States
+ * that are explicitly waiting on the user remain more urgent than unread. */
+export function showsUnreadIndicator(status: TaskStatus, unread: boolean): boolean {
+  return unread && (status === 'idle' || status === 'running')
+}
+
 /**
  * Whether a task row opens onto anything. Several sessions obviously do; so does
  * a single one that belongs to a *subtask*, because the row above it is named
@@ -39,6 +46,17 @@ export function hasGlyph(status: TaskStatus): boolean {
  */
 export function hasDisclosure(sessions: readonly { isSubtask?: boolean }[]): boolean {
   return sessions.length > 1 || sessions.some((session) => session.isSubtask)
+}
+
+/** A child-task row represents the durable subtask, not the provider session
+ * executing it. Root-task attempts remain session-named so multiple attempts
+ * are distinguishable — `sessionName` is the shared `sessionDisplayName`, which
+ * has already resolved the live tab, the indexed title and the task fallback. */
+export function sidebarChildLabel(
+  task: Pick<Task, 'parentId' | 'title'>,
+  sessionName: string,
+): string {
+  return task.parentId ? task.title : sessionName
 }
 
 export type ReviewGuideIndicatorStatus = 'generating' | 'ready' | null
@@ -116,10 +134,12 @@ export interface SidebarTask {
   /** The raw state behind `status`, kept so glyphs can be labelled in the
    *  app's own words rather than the sidebar's narrower vocabulary. */
   attention: AttentionState
-  /** True while a session finished with output the user has not seen. Earns a
-   *  dot in the margin, and only while the row is otherwise at rest — a task
-   *  that is asking or working has something louder to report. */
+  /** True while a session has output the user has not seen. Earns a dot in the
+   *  margin ahead of idle or running state; clearing it reveals a run still in
+   *  flight. States waiting on the user remain more urgent. */
   unread: boolean
+  /** Durable creation position shared by task-backed and legacy loose rows. */
+  createdAt: number
   /** Sort tie-break: most recent activity first. */
   activityAt: number
   /** Start of the turn in flight, for the elapsed readout. 0 unless running. */
@@ -127,21 +147,25 @@ export interface SidebarTask {
   tabIds: string[]
 }
 
-/** Lifecycle changes never remove a durable task from the sidebar. Only child
- * tasks (which render under their root) and an explicit sidebar dismissal keep
- * a row out; opening a session restores an explicitly dismissed task. */
+/** Only child tasks (which render under their root) and an explicit sidebar
+ * dismissal keep a row out. Open work restores an ordinary dismissal, but a
+ * completed task stays dismissed even while its separate session keeps running. */
 export function shouldShowDurableSidebarTask(
   task: Task,
   isDismissed: boolean,
   hasOpenSession: boolean,
 ): boolean {
-  return !task.parentId && (!isDismissed || hasOpenSession)
+  return !task.parentId && (!isDismissed || (hasOpenSession && task.status !== 'done'))
 }
 
-/** A dismissed child stays gone after its tab closes, but explicitly reopening
- * that session restores the row so the active work never becomes unreachable. */
-export function shouldShowSidebarChild(isDismissed: boolean, hasOpenTab: boolean): boolean {
-  return !isDismissed || hasOpenTab
+/** A dismissed child normally returns with an explicitly reopened tab. A child
+ * dismissed by completion stays out while that already-running tab continues. */
+export function shouldShowSidebarChild(
+  isDismissed: boolean,
+  hasOpenTab: boolean,
+  isCompleted = false,
+): boolean {
+  return !isDismissed || (hasOpenTab && !isCompleted)
 }
 
 /** Resolve the breadcrumb's task without putting a local-only draft into the
@@ -185,6 +209,7 @@ export function reconcileSidebarTasks(
       previous.status === next.status &&
       previous.attention === next.attention &&
       previous.unread === next.unread &&
+      previous.createdAt === next.createdAt &&
       previous.activityAt === next.activityAt &&
       previous.runStartedAt === next.runStartedAt &&
       previous.tabIds.length === next.tabIds.length &&
@@ -202,31 +227,44 @@ export function reconcileSidebarTasks(
   return reconciled
 }
 
-/** Keep the sidebar in insertion order even when its source projection changes
- * shape or arrives in a different order. Existing rows retain their slot;
- * genuinely new rows are appended, and removed rows leave the ledger. */
-export function holdSidebarTaskOrder(
-  orderedIds: string[],
+/** Oldest first. `shortId` is allocated monotonically, so it preserves the
+ * creation order of records written in the same millisecond. A ULID's random
+ * suffix is only a deterministic final fallback, not a creation sequence. */
+export function compareTaskCreationOrder(a: Task, b: Task): number {
+  const created = (a.createdAt ?? 0) - (b.createdAt ?? 0)
+  if (created !== 0) return created
+  if (a.shortId !== undefined && b.shortId !== undefined) {
+    return a.shortId - b.shortId
+  }
+  return a.id.localeCompare(b.id)
+}
+
+/** The sidebar's durable order. Copy before sorting so a renderer projection
+ * never mutates the task store that every other mounted surface shares. */
+export function sortTasksByCreation(tasks: readonly Task[]): Task[] {
+  return [...tasks].sort(compareTaskCreationOrder)
+}
+
+/** Rebuild the sidebar from the persisted session order without privileging
+ * task-backed rows over loose sessions. A task with several sessions occupies
+ * the position of its first tab; durable rows with no open tab follow the open
+ * sessions in their creation order. */
+export function sortSidebarRowsBySessionOrder(
   tasks: SidebarTask[],
+  tabOrder: readonly string[],
 ): SidebarTask[] {
-  const taskById = new Map(tasks.map((task) => [task.id, task]))
-  const retainedIds = new Set<string>()
-
-  for (let index = orderedIds.length - 1; index >= 0; index -= 1) {
-    const id = orderedIds[index]
-    if (!taskById.has(id)) orderedIds.splice(index, 1)
-    else retainedIds.add(id)
+  const tabPosition = new Map(tabOrder.map((tabId, index) => [tabId, index]))
+  const positionFor = (task: SidebarTask): number => {
+    let position = Number.MAX_SAFE_INTEGER
+    for (const tabId of task.tabIds) {
+      position = Math.min(position, tabPosition.get(tabId) ?? Number.MAX_SAFE_INTEGER)
+    }
+    return position
   }
 
-  for (const task of tasks) {
-    if (retainedIds.has(task.id)) continue
-    orderedIds.push(task.id)
-    retainedIds.add(task.id)
-  }
-
-  return orderedIds.flatMap((id) => {
-    const task = taskById.get(id)
-    return task ? [task] : []
+  return [...tasks].sort((a, b) => {
+    const position = positionFor(a) - positionFor(b)
+    return position !== 0 ? position : a.createdAt - b.createdAt
   })
 }
 

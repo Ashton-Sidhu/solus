@@ -1,4 +1,4 @@
-import type { Task, TaskComment, TaskDetails, TaskSessionLink } from '../../../shared/task-types'
+import type { Task, TaskComment, TaskDetails } from '../../../shared/task-types'
 
 interface UpstreamComment {
   id?: unknown
@@ -29,18 +29,13 @@ function upstreamComments(task: Task): TaskComment[] {
 }
 
 /** Adapt a hydrated provider ticket to the local task page's detail contract. */
-export function upstreamTaskDetails(
-  task: Task,
-  knownTasks: Task[],
-  attempts: TaskSessionLink[],
-): TaskDetails {
+export function upstreamTaskDetails(task: Task, knownTasks: Task[]): TaskDetails {
   const childIds = new Set(task.childIds ?? [])
   return {
     task,
     subtasks: knownTasks.filter((candidate) =>
       candidate.parentId === task.id || childIds.has(candidate.id)),
     comments: upstreamComments(task),
-    attempts,
     links: [],
     events: [],
   }

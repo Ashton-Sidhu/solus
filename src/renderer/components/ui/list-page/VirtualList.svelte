@@ -33,6 +33,19 @@
     onAfterScroll,
   }: Props = $props();
 
+  /** The vendored list caches every item offset and only rebuilds that cache
+   *  when `itemSize` or `itemCount` changes *by identity*. A grouped list
+   *  changes composition without changing length — one row moves between
+   *  groups, a header swaps places with a row — and a plain arrow prop never
+   *  changes identity, so headers end up drawn at row offsets and rows collide.
+   *  Re-wrapping the callback whenever `items` changes forces the rebuild. */
+  const sizeForIndex = $derived.by(() => {
+    void items;
+    return typeof itemSize === "function"
+      ? (index: number) => itemSize(index)
+      : itemSize;
+  });
+
   const activeIndex = $derived(
     activeKey === null || activeKey === undefined
       ? undefined
@@ -46,7 +59,7 @@
       width="100%"
       {height}
       itemCount={items.length}
-      {itemSize}
+      itemSize={sizeForIndex}
       {estimatedItemSize}
       getKey={(index: number) => keyOf(items[index])}
       scrollToIndex={activeIndex !== undefined && activeIndex >= 0 ? activeIndex : undefined}

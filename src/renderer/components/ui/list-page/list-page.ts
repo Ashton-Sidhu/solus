@@ -145,6 +145,17 @@ export interface ListFilterSpec {
   toggle: () => void
 }
 
+/**
+ * One lifecycle state a list can be filtered to. `value` is the page's own
+ * status key — a task's `done`, a PR's `merged` — so the menu never has to know
+ * what a status *means*, only how many rows carry it.
+ */
+export interface ListStatusOption {
+  value: string
+  label: string
+  count: number
+}
+
 export interface ListKeyHint {
   key: string
   label: string

@@ -5,6 +5,7 @@
   import CodeBlock from "../ui/CodeBlock.svelte";
   import CodeSpan from "../ui/CodeSpan.svelte";
   import MarkdownLink from "./MarkdownLink.svelte";
+  import MarkdownImage from "./MarkdownImage.svelte";
   import MarkdownText from "./MarkdownText.svelte";
   import ToolGroupItem from "./ToolGroupItem.svelte";
   import {
@@ -39,6 +40,7 @@
   const markdownRenderers = {
     code: CodeBlock,
     codespan: CodeSpan,
+    image: MarkdownImage,
     link: MarkdownLink,
     rawtext: MarkdownText,
   };

@@ -2,36 +2,13 @@ import { describe, expect, test } from 'bun:test'
 import {
   taskPageCapabilities,
   taskProviderLabel,
-  taskSessionLabel,
 } from '../../src/renderer/components/tasks/task-page/lib/task-page'
 import { taskRow } from '../../src/renderer/components/tasks/lib/tasks-list-view'
 import { upstreamTaskDetails } from '../../src/renderer/contexts/tasks/upstream-task-details'
 import type { Task } from '../../src/shared/task-types'
 
-describe('task page session labels', () => {
-  test('prefers the live title while the history index is catching up', () => {
-    // WHY: a newly started attempt is mounted before its persisted session
-    // metadata exists, but the task page must still show the title users see
-    // on the tab and in the session sidebar.
-    expect(taskSessionLabel({ sessionId: 'session-123', linkedAt: 1 }, 'Fix task labels')).toBe(
-      'Fix task labels',
-    )
-  })
-
-  test('uses persisted metadata for closed sessions', () => {
-    expect(
-      taskSessionLabel({
-        sessionId: 'session-123',
-        sessionTitle: 'Indexed session name',
-        linkedAt: 1,
-      }),
-    ).toBe('Indexed session name')
-  })
-
-  test('shows the session id rather than claiming the session is untitled', () => {
-    expect(taskSessionLabel({ sessionId: 'session-123', linkedAt: 1 })).toBe('session-123')
-  })
-})
+// Attempt naming is `sessionDisplayName`, shared by every surface that lists a
+// session — see session-utils.test.ts.
 
 describe('task page provider labels', () => {
   test('identifies GitHub as the owner of an upstream task', () => {
@@ -119,7 +96,7 @@ describe('upstream task details', () => {
       },
     }
 
-    expect(upstreamTaskDetails(task, [task], [])).toMatchObject({
+    expect(upstreamTaskDetails(task, [task])).toMatchObject({
       task,
       links: [],
       events: [],

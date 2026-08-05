@@ -3,18 +3,19 @@
   import type { TaskSessionLink } from "../../../../shared/task-types";
   import * as TooltipUI from "../../ui/tooltip";
   import { getWorkspaceContext } from "../../../contexts";
-  import { findOpenTabForSession, getAttentionState, sessionTitle } from "../../../lib/sessionUtils";
+  import { getAttentionState, openSessionFor, sessionTitle } from "../../../lib/sessionUtils";
   import { taskSessionRow } from "./lib/task-page";
 
   interface Props {
     sessions: TaskSessionLink[];
+    taskTitle: string;
     onOpen: (sessionId: string) => void;
     onOpenSplit: (sessionId: string) => void;
     onStop: (sessionId: string) => void;
     onNewSession: () => void;
   }
 
-  let { sessions, onOpen, onOpenSplit, onStop, onNewSession }: Props = $props();
+  let { sessions, taskTitle, onOpen, onOpenSplit, onStop, onNewSession }: Props = $props();
 
   const session = getWorkspaceContext();
   const now = Date.now();
@@ -23,20 +24,14 @@
   // one live fact the row acts on (Stop). Everything else comes off the link.
   const rows = $derived(
     sessions.map((link) => {
-      const tabId = findOpenTabForSession(
-        link.sessionId,
-        session.tabs,
-        session.sessions,
-        session.tabOrder,
-      );
-      const tab = tabId ? session.tabs[tabId] : undefined;
-      const live = tabId ? session.sessionFor(tabId) : undefined;
+      const open = openSessionFor(link.sessionId, session);
       return taskSessionRow(
         link,
-        live && tab ? sessionTitle(live, tab) : null,
-        live?.provider ?? null,
-        !!live && !!tab && getAttentionState(live, tab) === "running",
+        open ? sessionTitle(open.session, open.tab) : null,
+        open?.session.provider ?? null,
+        !!open && getAttentionState(open.session, open.tab) === "running",
         now,
+        taskTitle,
       );
     }),
   );
@@ -44,16 +39,16 @@
 
 <div class="flex flex-col gap-[7px] pt-[26px]">
   <div class="flex items-center gap-2.5">
-    <span class="text-[9.5px] font-medium tracking-[.12em] text-muted-foreground uppercase">
+    <span class="text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase">
       Sessions
     </span>
-    <span class="font-mono text-[10px] tabular-nums text-muted-foreground opacity-70">
+    <span class="font-mono text-[11px] tabular-nums text-muted-foreground opacity-70">
       {sessions.length}
     </span>
     <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
     <button
       type="button"
-      class="flex h-[22px] cursor-pointer items-center gap-1.5 rounded-md px-2 text-[11.5px] font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
+      class="flex h-[22px] cursor-pointer items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
       onclick={onNewSession}
     >
       <svg
@@ -102,10 +97,10 @@
               title="Running"
             ></span>
           {/if}
-          <span class="min-w-0 truncate text-[12.5px] tracking-[-.006em]">{row.title}</span>
+          <span class="min-w-0 truncate text-[13px] tracking-[-.006em]">{row.title}</span>
         </span>
 
-        <span class="w-[104px] shrink-0 truncate text-[11px] text-muted-foreground opacity-75">
+        <span class="w-[104px] shrink-0 truncate text-[12px] text-muted-foreground opacity-75">
           {row.agent}
         </span>
 
@@ -113,7 +108,7 @@
              so the row never carries a column of unlabelled icons. -->
         <span class="relative flex w-[88px] shrink-0 items-center justify-end">
           <span
-            class="text-[11px] whitespace-nowrap text-muted-foreground opacity-70 transition-opacity group-hover:opacity-0"
+            class="text-[12px] whitespace-nowrap text-muted-foreground opacity-70 transition-opacity group-hover:opacity-0"
           >
             {row.date}
           </span>

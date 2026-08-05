@@ -8,11 +8,13 @@ import {
   formatElapsed,
   groupTasks,
   hasDisclosure,
+  sidebarChildLabel,
   hasGlyph,
   prChipFor,
   projectInitial,
   reconcileSidebarTasks,
   shouldShowDurableSidebarTask,
+  showsUnreadIndicator,
   showsProjectLine,
   sortTasks,
   taskStatusFor,
@@ -50,6 +52,7 @@ function task(
     status,
     attention: null,
     unread: false,
+    createdAt: 0,
     activityAt: 0,
     runStartedAt: 0,
     tabIds: [key],
@@ -90,8 +93,14 @@ describe('shouldShowDurableSidebarTask', () => {
     expect(shouldShowDurableSidebarTask(durableTask('dropped'), false, false)).toBe(true)
   })
 
-  it('keeps explicit dismissal reversible by opening a session', () => {
-    const task = durableTask('done')
+  it('keeps a completed task dismissed while its session continues running', () => {
+    // Completion removes the task row, not the run. An open session therefore
+    // must not revive the completed row just because it is still producing work.
+    expect(shouldShowDurableSidebarTask(durableTask('done'), true, true)).toBe(false)
+  })
+
+  it('restores an open task when a new session explicitly reopens it', () => {
+    const task = durableTask('in_progress')
     expect(shouldShowDurableSidebarTask(task, true, false)).toBe(false)
     expect(shouldShowDurableSidebarTask(task, true, true)).toBe(true)
   })
@@ -270,6 +279,21 @@ describe('hasGlyph', () => {
   })
 })
 
+describe('showsUnreadIndicator', () => {
+  it('shows unread ahead of a running task, then reveals running once read', () => {
+    // A task can aggregate an unread reply from one session and a live run from
+    // another. The unread reply needs attention first; clearing it must expose
+    // the run that never stopped underneath it.
+    expect(showsUnreadIndicator('running', true)).toBe(true)
+    expect(showsUnreadIndicator('running', false)).toBe(false)
+  })
+
+  it('does not hide a state that is explicitly waiting on the user', () => {
+    expect(showsUnreadIndicator('question', true)).toBe(false)
+    expect(showsUnreadIndicator('error', true)).toBe(false)
+  })
+})
+
 describe('prChipFor', () => {
   it('matches a task to its PR on the head ref', () => {
     expect(prChipFor('run-host-selection', [pr()])).toEqual({
@@ -355,6 +379,22 @@ describe('hasDisclosure', () => {
 
   it('opens any task holding more than one session', () => {
     expect(hasDisclosure([{}, {}])).toBe(true)
+  })
+})
+
+describe('sidebarChildLabel', () => {
+  it('names a subtask row after the subtask instead of its provider session', () => {
+    expect(sidebarChildLabel(
+      durableTask('in_progress', { title: 'Verify the release', parentId: 'parent' }),
+      'Session Task Sidebar',
+    )).toBe('Verify the release')
+  })
+
+  it('keeps root-task attempts distinguishable by session name', () => {
+    expect(sidebarChildLabel(
+      durableTask('in_progress', { title: 'Ship the release' }),
+      'Second attempt',
+    )).toBe('Second attempt')
   })
 })
 

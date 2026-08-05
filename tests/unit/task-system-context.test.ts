@@ -156,4 +156,32 @@ describe('task context on a task-bound dispatch', () => {
     // The base instructions still lead; the ticket is appended to them.
     expect(run.systemPrompt?.indexOf('[Working On Task')).toBeGreaterThan(0)
   })
+
+  test('create_session mints a subtask and injects its parent context before the worker starts', async () => {
+    // WHY: parent_task_id must affect the first run atomically. Linking after
+    // creation is too late because the worker may already have planned against
+    // an unrelated top-level task packet.
+    const parent = await createTask({
+      title: 'Ship task-aware session tools',
+      body: 'Coordinate the implementation as explicit subtasks.',
+      projectKey: process.cwd(),
+    })
+    const backend = new FakeBackend()
+    const controlPlane = new ControlPlane(new Map<AgentId, AgentBackend>([['codex', backend]]))
+    planes.push(controlPlane)
+
+    const created = await controlPlane.createSession({
+      prompt: 'Add session tool coverage',
+      provider: 'codex',
+      modelId: 'test-model',
+      reasoningEffort: 'medium',
+      contextWindow: null,
+      cwd: process.cwd(),
+      parentTaskId: parent.id,
+    })
+
+    expect(created.taskId).toBeDefined()
+    expect(backend.inputs[0].systemPrompt).toContain('Parent task:')
+    expect(backend.inputs[0].systemPrompt).toContain(parent.title)
+  })
 })

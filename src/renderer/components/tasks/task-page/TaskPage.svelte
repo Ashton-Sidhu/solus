@@ -8,6 +8,7 @@
   import { getWorkspaceContext } from "../../../contexts";
   import { findOpenTabForSession } from "../../../lib/sessionUtils";
   import { toasts } from "../../../lib/toasts";
+  import { setMarkdownImageContext } from "../../conversation/lib/markdown-image";
   import {
     useKeybinding,
     useScope,
@@ -37,6 +38,7 @@
   const links = $derived(details?.links ?? []);
   const sessions = $derived(store.sessionsByTask.get(taskId) ?? []);
   const projectCwd = $derived(task?.projectKey ?? session.tasksProjectCwd ?? undefined);
+  setMarkdownImageContext(() => projectCwd);
   const projectLabel = $derived(
     projectCwd ? (projectCwd.split("/").pop() ?? projectCwd) : "Inbox",
   );
@@ -181,7 +183,7 @@
 </script>
 
 <div
-  class="@container relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background text-[12.5px]"
+  class="@container relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background text-[13px]"
   role="dialog"
   aria-label="Task"
   tabindex="-1"
@@ -221,6 +223,7 @@
           {#if sessions.length}
             <TaskSessionsList
               {sessions}
+              taskTitle={task.title}
               onOpen={openSession}
               onOpenSplit={openSessionSplit}
               onStop={stopSession}
@@ -245,7 +248,7 @@
       </div>
     </div>
   {:else}
-    <div class="flex flex-1 items-center justify-center text-[12.5px] text-muted-foreground">
+    <div class="flex flex-1 items-center justify-center text-[13px] text-muted-foreground">
       {store.loaded ? "That task no longer exists." : "Loading…"}
     </div>
   {/if}

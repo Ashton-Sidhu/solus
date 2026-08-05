@@ -5,11 +5,11 @@
   import type { ListProjectOption } from "./list-page";
 
   /**
-   * The list page's scope control, standing where the eyebrow used to ("List
-   * pages" spec): the project a list is reading is the one fact above the
-   * title, and it is also the control that changes it. Quiet until hovered —
-   * it is a label first and a button second — and both list pages share it so
-   * Tasks and Pull requests scope the same way.
+   * The list page's scope control. It sits at the head of the action cluster
+   * rather than on its own row above the title, so the scope stays stated and
+   * changeable without spending a band of vertical space on it. Quiet until
+   * hovered — it is a label first and a button second — and both list pages
+   * share it so Tasks and Pull requests scope the same way.
    */
   interface Props {
     projects: ListProjectOption[];
@@ -69,7 +69,7 @@
   }
 </script>
 
-<div class="relative -ml-[7px] shrink-0 self-start">
+<div class="relative shrink-0">
   <!-- The scrim closes the menu on the next click anywhere, so the trigger has
        no dismissal logic of its own. -->
   {#if menuOpen}
@@ -94,7 +94,7 @@
       {/key}
     {/if}
     <span
-      class="max-w-[340px] truncate text-[13px] font-medium tracking-[-.005em]"
+      class="max-w-[180px] truncate text-[13px] font-[450] tracking-[-.005em]"
     >
       {active?.label ?? emptyLabel}
     </span>
@@ -108,7 +108,7 @@
 
   {#if menuOpen}
     <div
-      class="menu-surface absolute top-[31px] left-0 z-40 w-[308px] p-[5px]"
+      class="menu-surface absolute top-[31px] right-0 z-40 w-[308px] p-[5px]"
       role="menu"
       tabindex="-1"
     >
@@ -123,14 +123,14 @@
           <input
             bind:this={queryEl}
             bind:value={query}
-            class="w-full border-0 bg-transparent text-[12.5px] outline-none"
+            class="w-full border-0 bg-transparent text-[13px] outline-none"
             placeholder="Find a project…"
           />
         </div>
       {/if}
 
       <div
-        class="px-[9px] pt-[5px] pb-1 text-[9px] font-medium tracking-[.09em] text-muted-foreground uppercase"
+        class="px-[9px] pt-[5px] pb-1 text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase"
       >
         Projects
       </div>
@@ -162,13 +162,13 @@
       {/each}
 
       {#if matches.length === 0}
-        <div class="px-[9px] pt-3 pb-3.5 text-xs text-muted-foreground">
+        <div class="px-[9px] pt-3 pb-3.5 text-[13px] text-muted-foreground">
           No project matches.
         </div>
       {/if}
 
       <div
-        class="mt-0.5 flex items-center border-t border-[var(--hairline)] px-[9px] pt-[7px] pb-1 text-[11px] text-muted-foreground"
+        class="mt-0.5 flex items-center border-t border-[var(--hairline)] px-[9px] pt-[7px] pb-1 text-[12px] text-muted-foreground"
       >
         Switching clears search and filters
       </div>

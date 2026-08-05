@@ -9,6 +9,7 @@ import { reapplyLayout } from '../../shared/diagram-layout'
 import type { AgentId } from '../../shared/types'
 import { createLogger } from '../logger'
 import type { AgentTool } from '../agents/tools/agent-tool'
+import { Task } from '../tasks/task'
 
 const log = createLogger('folio', 'work-tools.ts')
 
@@ -187,6 +188,20 @@ export async function executeWorkTool(
         deps.ctx?.cwd ?? '~',
       )
 
+      if (deps.ctx?.sessionId) {
+        await Task.linkArtifactForSession(deps.ctx.sessionId, {
+          kind: 'work',
+          targetKey: created.id,
+          title: created.title,
+        }).catch((error) => {
+          log.warn('task_work_link_failed', {
+            sessionId: deps.ctx?.sessionId,
+            workId: created.id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        })
+      }
+
       deps.onWorkCreated?.({
         workId: created.id,
         title: created.title,
@@ -221,6 +236,20 @@ export async function executeWorkTool(
 
       const preview = workPreview(existing.type, content)
       const saved = await agentSaveWork(workId, { content, preview, ...(title !== undefined ? { title } : {}) }, deps.ctx?.cwd)
+
+      if (deps.ctx?.sessionId) {
+        await Task.linkArtifactForSession(deps.ctx.sessionId, {
+          kind: 'work',
+          targetKey: saved.id,
+          title: saved.title,
+        }).catch((error) => {
+          log.warn('task_work_link_failed', {
+            sessionId: deps.ctx?.sessionId,
+            workId: saved.id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        })
+      }
 
       deps.onWorkUpdated?.({
         workId: saved.id,

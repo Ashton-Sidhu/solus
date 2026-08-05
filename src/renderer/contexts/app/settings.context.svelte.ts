@@ -11,7 +11,7 @@ import { MOBILE_QUERY } from './runtime.svelte'
 export type ThemeMode = 'system' | 'light' | 'dark'
 
 export type RateLimitBehavior = 'ask' | 'queue' | 'continue' | 'stop'
-export type ProjectPanelSectionId = 'goal' | 'environment' | 'git' | 'run' | 'works' | 'automations' | 'tasks'
+export type ProjectPanelSectionId = 'goal' | 'environment' | 'git' | 'run' | 'task' | 'automations'
 const DEFAULT_PROJECT_PANEL_COLLAPSED: Record<ProjectPanelSectionId, boolean> = {
   // The section only exists while a goal is set, so it opens on arrival — a
   // collapsed default would hide the thing the user just asked to see.
@@ -19,9 +19,10 @@ const DEFAULT_PROJECT_PANEL_COLLAPSED: Record<ProjectPanelSectionId, boolean> = 
   environment: false,
   git: false,
   run: false,
-  works: false,
+  // The card only exists while the session is bound to a task, so it opens on
+  // arrival — the same reasoning as the goal section above.
+  task: false,
   automations: true,
-  tasks: true,
 }
 
 /** Default height (px) of the bottom run-log dock. */
@@ -56,6 +57,7 @@ export type SettingsFields = {
   rateLimitBehavior: RateLimitBehavior
   worktreeEnabled: boolean
   autoRenameSessions: boolean
+  showDiffSummaryAfterTurn: boolean
   fontFamily: AppFontFamily
   fontSize: number
   codeFontFamily: AppCodeFontFamily
@@ -243,6 +245,7 @@ function loadSettings(): SettingsFields {
         rateLimitBehavior: (['ask', 'queue', 'continue', 'stop'].includes(parsed.rateLimitBehavior) ? parsed.rateLimitBehavior : 'ask') as RateLimitBehavior,
         worktreeEnabled: typeof parsed.worktreeEnabled === 'boolean' ? parsed.worktreeEnabled : false,
         autoRenameSessions: typeof parsed.autoRenameSessions === 'boolean' ? parsed.autoRenameSessions : true,
+        showDiffSummaryAfterTurn: typeof parsed.showDiffSummaryAfterTurn === 'boolean' ? parsed.showDiffSummaryAfterTurn : true,
         fontFamily: VALID_FONT_FAMILIES.includes(parsed.fontFamily) ? parsed.fontFamily : 'inter',
         fontSize: typeof parsed.fontSize === 'number' && parsed.fontSize >= 8 ? parsed.fontSize : DEFAULT_FONT_SIZE,
         codeFontFamily: VALID_CODE_FONT_FAMILIES.includes(parsed.codeFontFamily) ? parsed.codeFontFamily : 'jetbrains-mono',
@@ -281,6 +284,7 @@ function loadSettings(): SettingsFields {
     rateLimitBehavior: 'ask',
     worktreeEnabled: false,
     autoRenameSessions: true,
+    showDiffSummaryAfterTurn: true,
     fontFamily: 'inter',
     fontSize: DEFAULT_FONT_SIZE,
     codeFontFamily: 'jetbrains-mono',
@@ -318,6 +322,7 @@ export class SettingsContext {
   rateLimitBehavior = $state<RateLimitBehavior>('ask')
   worktreeEnabled = $state(false)
   autoRenameSessions = $state(true)
+  showDiffSummaryAfterTurn = $state(true)
   fontFamily = $state<AppFontFamily>('inter')
   fontSize = $state(13)
   codeFontFamily = $state<AppCodeFontFamily>('jetbrains-mono')
@@ -357,6 +362,7 @@ export class SettingsContext {
     this.rateLimitBehavior = saved.rateLimitBehavior
     this.worktreeEnabled = saved.worktreeEnabled
     this.autoRenameSessions = saved.autoRenameSessions
+    this.showDiffSummaryAfterTurn = saved.showDiffSummaryAfterTurn
     this.fontFamily = saved.fontFamily
     this.fontSize = saved.fontSize
     this.codeFontFamily = saved.codeFontFamily
@@ -451,6 +457,8 @@ export class SettingsContext {
     if (patch.rateLimitBehavior !== undefined) this.rateLimitBehavior = patch.rateLimitBehavior
     if (patch.worktreeEnabled !== undefined) this.worktreeEnabled = patch.worktreeEnabled
     if (patch.autoRenameSessions !== undefined) this.autoRenameSessions = patch.autoRenameSessions
+    if (patch.showDiffSummaryAfterTurn !== undefined)
+      this.showDiffSummaryAfterTurn = patch.showDiffSummaryAfterTurn
     if (patch.fontFamily !== undefined) {
       this.fontFamily = patch.fontFamily
       applyFontFamily(this.fontFamily)
@@ -518,6 +526,7 @@ export class SettingsContext {
         rateLimitBehavior: this.rateLimitBehavior,
         worktreeEnabled: this.worktreeEnabled,
         autoRenameSessions: this.autoRenameSessions,
+        showDiffSummaryAfterTurn: this.showDiffSummaryAfterTurn,
         fontFamily: this.fontFamily,
         fontSize: this.fontSize,
         codeFontFamily: this.codeFontFamily,

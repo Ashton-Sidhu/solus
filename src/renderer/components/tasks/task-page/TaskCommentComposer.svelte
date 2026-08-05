@@ -1,7 +1,8 @@
 <script lang="ts">
   import type { AgentId } from "../../../../shared/types";
   import { getAgentContext, getWorkspaceContext } from "../../../contexts";
-  import PromptEditor from "../../ui/PromptEditor.svelte";
+  import DocumentPromptEditor from "../../editor/DocumentPromptEditor.svelte";
+  import { Button } from "../../ui/button";
 
   interface Props {
     onSubmit: (body: string) => Promise<void>;
@@ -16,16 +17,21 @@
   );
   const editorCwd = $derived(session.tasksProjectCwd ?? undefined);
 
+  let editorEl: ReturnType<typeof DocumentPromptEditor> | null = $state(null);
   let draft = $state("");
+  let hasContent = $state(false);
   let posting = $state(false);
-  const canSend = $derived(draft.trim().length > 0 && !posting);
+  const canSend = $derived(hasContent && !posting);
 
   async function send() {
     if (!canSend) return;
+    const body = editorEl?.getMarkdown().trim() ?? draft.trim();
+    if (!body) return;
     posting = true;
     try {
-      await onSubmit(draft.trim());
+      await onSubmit(body);
       draft = "";
+      hasContent = false;
     } finally {
       posting = false;
     }
@@ -33,58 +39,51 @@
 </script>
 
 <!-- Sticky over the scroll region, with a scrim so rows dissolve into the canvas
-     rather than being clipped by a hard edge. -->
+     rather than being clipped by a hard edge. The pill itself matches the PR
+     composer: one row that grows with the text, the send affordance a tinted
+     accent square rather than a footer bar of chrome. -->
 <div
   class="sticky bottom-0 z-10 pt-2.5 pb-[22px] [background:linear-gradient(to_bottom,transparent,var(--background)_22px)]"
 >
   <div
-    class="rounded-[14px] bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_1px_2px_rgba(24,20,16,.05)]"
+    class="flex items-end gap-3 rounded-[10px] bg-card px-3.5 py-2.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_1px_2px_rgba(24,20,16,.05)] transition-shadow focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_0_0_3px_color-mix(in_oklab,var(--ring)_14%,transparent)]"
   >
-    <div class="px-3.5 pt-3 pb-1">
-      <PromptEditor
-        value={draft}
-        onValueChange={(v) => (draft = v)}
-        enterInsertsNewline
-        disabled={posting}
-        placeholder="Leave a comment. @ to mention, # to link a task."
-        pluginCommands={session.pluginCommands}
-        provider={editorProvider}
-        workingDirectory={editorCwd}
-        onPlanRefClick={(planId) => session.openPlanModal(planId)}
-        onWorkRefClick={(workId, title) => session.openWorkModal(workId, title)}
-        onPrRefClick={(number, title) =>
-          void session.enterPrReview(number, title, {
-            ctx: editorCwd ? session.ctxForDirectory(editorCwd) : session.ctx,
-          })}
-        menuPlacement="up"
-        maxHeight={200}
-        class="text-[13px] leading-[1.7]"
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            e.stopPropagation();
-            void send();
-          }
-        }}
-      />
-    </div>
-    <div class="flex items-center gap-2.5 border-t border-[var(--hairline)] py-2.5 pr-[11px] pl-3.5">
-      <span class="flex-1"></span>
-      <span class="text-[11px] text-muted-foreground opacity-75">
-        {draft.trim() ? "" : "Markdown supported"}
-      </span>
-      <button
-        type="button"
-        class="flex h-[30px] cursor-pointer items-center gap-[7px] rounded-[10px] bg-primary px-[13px] text-[12.5px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-opacity duration-150 {canSend
-          ? 'opacity-100'
-          : 'opacity-45'}"
-        onclick={send}
-        disabled={!canSend}
-        title="Comment (⌘↵)"
-      >
-        Comment
-        <span class="font-mono text-[10.5px] opacity-80">⌘⏎</span>
-      </button>
-    </div>
+    <DocumentPromptEditor
+      bind:this={editorEl}
+      value={draft}
+      onValueChange={(v) => (draft = v)}
+      onInput={() => (hasContent = !(editorEl?.getEditor()?.isEmpty ?? true))}
+      readOnly={posting}
+      dragHandle={false}
+      placeholder="Leave a comment. @ to mention, # to link a task."
+      pluginCommands={session.pluginCommands}
+      provider={editorProvider}
+      workingDirectory={editorCwd}
+      onPlanRefClick={(planId) => session.openPlanModal(planId)}
+      onWorkRefClick={(workId, title) => session.openWorkModal(workId, title)}
+      onPrRefClick={(number, title) =>
+        void session.enterPrReview(number, title, {
+          ctx: editorCwd ? session.ctxForDirectory(editorCwd) : session.ctx,
+        })}
+      menuPlacement="up"
+      maxHeight={160}
+      class="doc-prompt-compact min-w-0 flex-1"
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+          e.preventDefault();
+          e.stopPropagation();
+          void send();
+        }
+      }}
+    />
+    <Button
+      type="button"
+      class="flex h-[28px] shrink-0 cursor-pointer items-center rounded-lg border-0 bg-[color:color-mix(in_oklab,var(--primary)_14%,transparent)] px-3 text-[12.5px] font-medium text-primary transition-colors hover:bg-[color:color-mix(in_oklab,var(--primary)_22%,transparent)] disabled:cursor-not-allowed disabled:opacity-40"
+      disabled={!canSend}
+      title="Comment · ⌘↵"
+      onclick={send}
+    >
+      Comment
+    </Button>
   </div>
 </div>

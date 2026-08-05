@@ -3,11 +3,19 @@
   import { FileTextIcon } from "phosphor-svelte";
   import CodeSpan from "../../ui/CodeSpan.svelte";
   import MarkdownLink from "../MarkdownLink.svelte";
+  import MarkdownImage from "../MarkdownImage.svelte";
   import { markdownSanitizeUrl } from "../../../lib/markdownSanitize";
   import { assistantMarkdownOptions } from "../lib/assistant-markdown";
   import { replyArtefact, wordCount, type AgentMessage } from "./lib/agent-conversation";
   import AgentCodeBlock from "./AgentCodeBlock.svelte";
   import AgentTypingDots from "./AgentTypingDots.svelte";
+
+  const markdownRenderers = {
+    code: AgentCodeBlock,
+    codespan: CodeSpan,
+    image: MarkdownImage,
+    link: MarkdownLink,
+  };
 
   /**
    * One message: a label saying who said it, then the body. Both sides are
@@ -135,7 +143,7 @@
             <SvelteMarkdown
               source={message.text}
               options={assistantMarkdownOptions}
-              renderers={{ code: AgentCodeBlock, codespan: CodeSpan, link: MarkdownLink }}
+              renderers={markdownRenderers}
               sanitizeUrl={markdownSanitizeUrl}
             />
           {/if}

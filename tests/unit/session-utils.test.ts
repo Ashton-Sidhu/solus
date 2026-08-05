@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test'
+import type { TaskSessionLink } from '../../src/shared/task-types'
 import type { DiffComment, Session, SessionStatus } from '../../src/shared/types'
 import {
   computeCurrentActivity,
   formatDiffInlineComments,
 } from '../../src/renderer/contexts/workspace/session.utils'
-import { findOpenTabForSession } from '../../src/renderer/lib/sessionUtils'
+import { findOpenTabForSession, sessionDisplayName } from '../../src/renderer/lib/sessionUtils'
 
 function diffComment(selectedCode: string): DiffComment {
   return {
@@ -88,5 +89,52 @@ describe('findOpenTabForSession', () => {
         'codex',
       ),
     ).toBe('tab-1')
+  })
+})
+
+describe('sessionDisplayName', () => {
+  const link = (overrides: Partial<TaskSessionLink> = {}): TaskSessionLink => ({
+    sessionId: 'e1dbb2b0-3c2f-4f7a-9a51-0c4a1f2b7d33',
+    sessionTitle: null,
+    provider: null,
+    lastActivityAt: null,
+    linkedAt: 1,
+    ...overrides,
+  })
+
+  test('prefers the live title while the history index is catching up', () => {
+    // WHY: a newly started attempt is mounted before its persisted session
+    // metadata exists, but every surface must still show the title the user
+    // already sees on the tab.
+    expect(sessionDisplayName({
+      link: link({ sessionTitle: 'Indexed name' }),
+      liveTitle: 'Fix task labels',
+    })).toBe('Fix task labels')
+  })
+
+  test('names a closed attempt from the metadata joined onto its link', () => {
+    // WHY: this is the whole reason links carry session metadata — an attempt
+    // with no mounted tab is the common case on a task opened from history.
+    expect(sessionDisplayName({
+      link: link({ sessionTitle: 'Indexed session name' }),
+      taskTitle: 'Owning task',
+    })).toBe('Indexed session name')
+  })
+
+  test('falls back to the owning task before it ever shows an id', () => {
+    // WHY: session_init and provider-history indexing are independent, and
+    // their brief race must not expose a provider UUID anywhere in the UI.
+    expect(sessionDisplayName({ link: link(), taskTitle: 'Fix task labels' }))
+      .toBe('Fix task labels')
+  })
+
+  test('every surface answers identically for the same link', () => {
+    // WHY: three surfaces each had their own fallback chain, so one missing
+    // title produced three different wrong labels and read as three bugs.
+    // One function is the point; this pins that they cannot drift again.
+    const unnamed = link()
+    expect(sessionDisplayName({ link: unnamed })).toBe('e1dbb2b0')
+    expect(sessionDisplayName({ link: unnamed, liveTitle: '   ' }))
+      .toBe('e1dbb2b0')
   })
 })

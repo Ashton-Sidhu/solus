@@ -464,7 +464,14 @@
   // Pages that own an edge-to-edge surface: each ends in its own footer band or
   // full-bleed background, so the card gutter would read as that background
   // failing to reach the window edge rather than as breathing room.
-  const FLUSH_PAGES = new Set(["settings", "tasks", "task", "prs", "prReview"]);
+  const FLUSH_PAGES = new Set([
+    "settings",
+    "tasks",
+    "task",
+    "prs",
+    "prReview",
+    "folio",
+  ]);
   const pageFlush = $derived(FLUSH_PAGES.has(leadingRef?.name ?? ""));
   const autoSecondaryWidth = $derived.by(() =>
     clampSecondaryPaneWidth(
@@ -618,13 +625,13 @@
   );
 
   // Collapse the session sidebar while a full-width overlay is up — a secondary
-  // pane, review guide, Workspace, or Settings — and restore it on close, the
-  // same way the diff panel reclaims the width.
+  // pane, review guide, or Settings — and restore it on close, the same way the
+  // diff panel reclaims the width. The Workspace is not one of them: it dropped
+  // its own left rail, so it no longer competes for the sidebar's width.
   $effect(() => {
     if (
       secondaryCollapsesSidebar ||
       primaryReviewOpen ||
-      router.at("folio") ||
       router.at("settings")
     ) {
       if (sidebarOpen) {

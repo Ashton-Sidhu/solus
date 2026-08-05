@@ -8,6 +8,17 @@ export type WorkspaceItemType = 'plan' | 'doc' | 'diagram'
 
 export type PlanStatus = 'pending' | 'accepted' | 'rejected'
 
+/**
+ * The row's leading mark. Type keys the facet; the glyph keys the artifact's
+ * own identity, so the two are separate fields. A plan wears the logo of the
+ * agent that wrote it — a person scanning the ledger is usually looking for
+ * "the plan Codex made", not "a plan" — and falls back to the generic plan mark
+ * when the provider is unknown. Works keep the icons Solus already uses for
+ * them in the project panel, slides included, even though slides file under the
+ * Docs facet.
+ */
+export type WorkspaceGlyph = 'claude' | 'codex' | 'plan' | 'doc' | 'slides' | 'diagram'
+
 /** One row of the Workspace ledger — a plan descriptor or a work, normalized
  *  to a single shape so grouping, filtering, and keyboard nav treat every
  *  artifact identically. */
@@ -15,10 +26,17 @@ export type WorkspaceItem = {
   /** Plan: `planKey(sessionId, planToolUseId)`. Work: the work id. */
   id: string
   type: WorkspaceItemType
+  glyph: WorkspaceGlyph
   title: string
   snippet: string
   /** Last-activity epoch ms (plan timestamp / work updatedAt). */
   timestamp: number
+  /** When the artifact was first written, epoch ms. Equal to `timestamp` for a
+   *  plan, which is generated once and never edited in place. */
+  createdAt: number
+  /** The session that generated it — the row links back to it. Null on a work
+   *  that was created by hand rather than by an agent. */
+  sessionId: string | null
   pinned: boolean
   /** Sort key inside the Pinned group (newest pin first). */
   pinnedAt: number
@@ -43,9 +61,12 @@ export function planItem(d: PlanDescriptor, project: WorkspaceProject): Workspac
     projectLabel: project.label,
     id: planKey(d.sessionId, d.planToolUseId),
     type: 'plan',
+    glyph: d.provider === 'claude-code' ? 'claude' : d.provider === 'codex' ? 'codex' : 'plan',
     title: d.title || 'Untitled plan',
     snippet: d.excerpt,
     timestamp: d.timestamp,
+    createdAt: d.timestamp,
+    sessionId: d.sessionId,
     pinned: d.bookmarked,
     pinnedAt: d.bookmarkedAt ?? d.timestamp,
     cwd: d.cwd,
@@ -56,14 +77,20 @@ export function planItem(d: PlanDescriptor, project: WorkspaceProject): Workspac
 
 export function workItem(w: Work, project: WorkspaceProject): WorkspaceItem {
   const updated = new Date(w.updatedAt).getTime() || 0
+  // The newest collaborator is the session a reader wants to land in; the
+  // legacy single `sessionId` covers works written before that list existed.
+  const origin = w.sessionIds?.at(-1) ?? w.sessionId ?? null
   return {
     projectKey: project.key,
     projectLabel: project.label,
     id: w.id,
     type: w.type === 'diagram' ? 'diagram' : 'doc',
+    glyph: w.type === 'diagram' ? 'diagram' : w.type === 'slides' ? 'slides' : 'doc',
     title: w.title || 'Untitled document',
     snippet: w.type === 'diagram' ? '' : w.preview,
     timestamp: updated,
+    createdAt: new Date(w.createdAt).getTime() || updated,
+    sessionId: origin,
     pinned: !!w.pinned,
     pinnedAt: updated,
     cwd: w.cwd,
@@ -141,6 +168,20 @@ export function groupItems(items: WorkspaceItem[]): { pinned: WorkspaceItem[]; g
     group.items.push(item)
   }
   return { pinned, groups }
+}
+
+// ─── Sorting ───
+
+/** The ledger's one sort axis. `recent` is the default the filter bar names. */
+export type SortOrder = 'recent' | 'oldest'
+
+/** Order the ledger. Group order follows from item order — `groupItems` emits
+ *  buckets in first-seen order — so oldest-first reverses the date buckets too,
+ *  which is what a reader asking for the oldest work expects to see first. */
+export function sortItems(items: WorkspaceItem[], order: SortOrder): WorkspaceItem[] {
+  return [...items].sort((a, b) =>
+    order === 'oldest' ? a.timestamp - b.timestamp : b.timestamp - a.timestamp,
+  )
 }
 
 // ─── Filtering + search tokens ───
@@ -242,4 +283,35 @@ export function formatLedgerTime(timestamp: number): string {
   const days = Math.floor(hours / 24)
   if (days < 7) return `${days}d`
   return new Date(timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+/** The row's generated column: the calendar date the artifact was written,
+ *  absolute so it never reads as a second copy of the relative activity time.
+ *  The year appears only once it stops being this one. */
+export function formatGeneratedDate(timestamp: number, now = new Date()): string {
+  if (!timestamp) return ''
+  const date = new Date(timestamp)
+  const sameYear = date.getFullYear() === now.getFullYear()
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  })
+}
+
+/** The tooltip behind that column — the full moment, since the column itself is
+ *  deliberately coarse. */
+export function formatGeneratedFull(timestamp: number): string {
+  if (!timestamp) return ''
+  return new Date(timestamp).toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  })
+}
+
+/** The peek's age line: "50m ago" while the ledger time is relative, and the
+ *  bare date once it has crossed into "Jul 15". */
+export function formatPeekAge(timestamp: number): string {
+  const time = formatLedgerTime(timestamp)
+  return /^\d/.test(time) ? `${time} ago` : time
 }

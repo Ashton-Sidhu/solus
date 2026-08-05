@@ -4,8 +4,11 @@
    * the same 30px row and differ only by their leading glyph and trailing slot:
    * a count on a category, freshness or state on an item — never both.
    */
+  import Icon from "@iconify/svelte";
   import { getPopoverLayer } from "../popoverLayer.svelte";
   import { portal } from "../portal";
+  import { fileTypeIcon } from "../../lib/fileTypeIcon";
+  import { ensureIconCollections } from "../diagram/iconify";
   import { GLYPH } from "../editor/unified-autocomplete/kinds";
   import {
     isSelectable,
@@ -45,6 +48,7 @@
   }: Props = $props();
 
   const layer = getPopoverLayer();
+  ensureIconCollections();
 
   /* The spec's 394px was drawn against a 780px composer. Rather than fix the
      width and have it read narrow in a wide pane, the menu takes the composer's
@@ -193,6 +197,10 @@
 
 {#snippet row(entry: SelectableRow, index: number)}
   {@const selected = index === selectedIndex}
+  {@const iconName =
+    entry.type === "item" && entry.item.token.kind === "file"
+      ? fileTypeIcon(entry.item.token.path)
+      : null}
   <button
     type="button"
     role="option"
@@ -205,13 +213,17 @@
   >
     <span
       class="flex w-4 shrink-0 items-center justify-center text-(--solus-text-tertiary)"
-      >{@render glyph(
-        entry.type === "category"
-          ? entry.icon
-          : entry.type === "item"
-            ? entry.item.icon
-            : entry.icon,
-      )}</span
+      >{#if iconName}
+        <Icon icon={iconName} width="14" height="14" />
+      {:else}
+        {@render glyph(
+          entry.type === "category"
+            ? entry.icon
+            : entry.type === "item"
+              ? entry.item.icon
+              : entry.icon,
+        )}
+      {/if}</span
     >
 
     {#if entry.type === "deadEnd"}

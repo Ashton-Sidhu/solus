@@ -30,15 +30,15 @@
     {#each hints as hint (hint.key)}
       <span class="flex items-center gap-1.5">
         <span
-          class="rounded-md bg-[var(--wash-2)] px-[7px] py-[3px] font-mono text-[10.5px] tracking-[.04em] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent),inset_0_-1px_0_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
+          class="rounded-md bg-[var(--wash-2)] px-[7px] py-[3px] font-mono text-[11px] tracking-[.04em] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent),inset_0_-1px_0_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
           >{hint.key}</span
         >
-        <span class="text-[11px] text-muted-foreground">{hint.label}</span>
+        <span class="text-[12px] text-muted-foreground">{hint.label}</span>
       </span>
     {/each}
     <span class="flex-1"></span>
     {#if count}
-      <span class="font-mono text-[10.5px] tabular-nums text-muted-foreground opacity-75">
+      <span class="font-mono text-[11px] tabular-nums text-muted-foreground opacity-75">
         {count}
       </span>
     {/if}

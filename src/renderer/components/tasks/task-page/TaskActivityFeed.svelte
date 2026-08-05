@@ -1,10 +1,14 @@
 <script lang="ts">
-  import SvelteMarkdown from "@humanspeak/svelte-markdown";
+  import SvelteMarkdown, {
+    type SanitizeUrlFn,
+  } from "@humanspeak/svelte-markdown";
   import type { TaskComment, TaskEvent } from "../../../../shared/task-types";
   import { githubMarkdownExtensions } from "../../../lib/githubMarkdown";
   import { markdownSanitizeUrl } from "../../../lib/markdownSanitize";
+  import MarkdownImage from "../../conversation/MarkdownImage.svelte";
   import { githubMarkdownRenderers } from "../../ui/markdown-renderers";
   import { authorInitials, relativeTime } from "../lib/tasks-api";
+  import { isInlineTaskImageUrl } from "./lib/task-image";
   import { activityFeed, eventLine } from "./lib/task-page";
 
   interface Props {
@@ -14,6 +18,18 @@
 
   let { comments, events }: Props = $props();
 
+  const taskMarkdownRenderers = {
+    ...githubMarkdownRenderers,
+    image: MarkdownImage,
+  };
+  // The task editor embeds pasted screenshots as data URLs. Keep that exception
+  // image-only and raster-only; links, SVG, and arbitrary payloads still use
+  // the shared protocol allowlist.
+  const taskMarkdownSanitizeUrl: SanitizeUrlFn = (url, context) => {
+    if (context.type === "image" && isInlineTaskImageUrl(url)) return url;
+    return markdownSanitizeUrl(url, context);
+  };
+
   let filter = $state<"all" | "comments">("all");
 
   const entries = $derived(activityFeed(comments, events));
@@ -22,7 +38,7 @@
   );
 
   const SEGMENT =
-    "h-[22px] cursor-pointer rounded-full px-2.5 text-[11.5px] transition-colors duration-150";
+    "h-[22px] cursor-pointer rounded-full px-2.5 text-[12px] transition-colors duration-150";
   const SEGMENT_ON =
     "bg-card text-foreground font-medium shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)]";
   const SEGMENT_OFF = "text-muted-foreground";
@@ -43,7 +59,7 @@
 <div class="pt-7">
   <div class="flex items-center gap-2.5 pb-1">
     <span
-      class="text-[9.5px] font-medium tracking-[.12em] text-muted-foreground uppercase"
+      class="text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase"
     >
       Activity
     </span>
@@ -101,11 +117,11 @@
           <span
             class="flex min-h-[25px] min-w-0 flex-1 flex-wrap items-center gap-2"
           >
-            <span class="text-[11.5px] leading-[1.55] text-muted-foreground"
+            <span class="text-[12px] leading-[1.55] text-muted-foreground"
               >{line.text}</span
             >
             <span
-              class="font-mono text-[10.5px] text-muted-foreground opacity-60"
+              class="font-mono text-[11px] text-muted-foreground opacity-60"
             >
               {relativeTime(entry.at)}
             </span>
@@ -116,7 +132,7 @@
         {@const agent = isAgent(comment)}
         <div class="relative flex gap-3 py-3">
           <span
-            class="flex size-[25px] shrink-0 items-center justify-center rounded-full text-[9.5px] font-semibold tracking-[.02em] shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
+            class="flex size-[25px] shrink-0 items-center justify-center rounded-full text-[10px] font-medium tracking-[.02em] shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
             style={agent
               ? "background:color-mix(in oklch, var(--primary) 15%, transparent);color:color-mix(in oklch, var(--primary) 78%, var(--foreground))"
               : "background:color-mix(in oklch, var(--chart-1) 22%, transparent);color:color-mix(in oklch, var(--chart-1) 72%, var(--foreground))"}
@@ -149,19 +165,19 @@
           </span>
           <span class="flex min-w-0 flex-1 flex-col gap-1.5">
             <span class="flex min-h-[25px] flex-wrap items-center gap-2">
-              <span class="text-[12.5px] font-semibold tracking-[-.005em]">
+              <span class="text-[13px] font-medium tracking-[-.005em]">
                 {authorName(comment)}
               </span>
               {#if comment.originSessionId}
                 <span
-                  class="rounded-full px-1.5 py-px font-mono text-[10px] tracking-[.03em]"
+                  class="rounded-full px-1.5 py-px font-mono text-[11px] tracking-[.03em]"
                   style="background:color-mix(in oklch, var(--primary) 13%, transparent);color:color-mix(in oklch, var(--primary) 82%, var(--foreground))"
                 >
                   {comment.originSessionId.slice(0, 8)}
                 </span>
               {/if}
               <span
-                class="font-mono text-[10.5px] text-muted-foreground opacity-60"
+                class="font-mono text-[11px] text-muted-foreground opacity-60"
               >
                 {relativeTime(comment.createdAt)}
               </span>
@@ -170,15 +186,15 @@
               <SvelteMarkdown
                 source={comment.body}
                 extensions={githubMarkdownExtensions}
-                renderers={githubMarkdownRenderers}
-                sanitizeUrl={markdownSanitizeUrl}
+                renderers={taskMarkdownRenderers}
+                sanitizeUrl={taskMarkdownSanitizeUrl}
               />
             </div>
           </span>
         </div>
       {/if}
     {:else}
-      <div class="py-3 pl-9 text-[11.5px] text-muted-foreground">
+      <div class="py-3 pl-9 text-[12px] text-muted-foreground">
         {filter === "comments" ? "No comments yet." : "No activity yet."}
       </div>
     {/each}

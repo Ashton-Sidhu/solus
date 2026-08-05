@@ -4,7 +4,6 @@ import type {
   Task,
   TaskCreateInput,
   TaskDetails,
-  TaskForSessionResult,
   TaskLinkInput,
   TaskLinkKind,
   TaskProviderStatus,
@@ -135,8 +134,13 @@ export class TasksStore {
     return load
   }
 
+  /** `loaded` means "the first attempt finished", which is what the spinners
+   *  read — but a failed attempt must not stand in for a successful one here,
+   *  or one bad snapshot latches every task surface empty for the rest of the
+   *  session: no sidebar tree, no subtasks, no rail card. Retry while the last
+   *  attempt is still the failed one. */
   ensureLoaded(): Promise<void> {
-    if (this.loaded) return Promise.resolve()
+    if (this.loaded && !this.error) return Promise.resolve()
     return this.loadPromise ?? this.load()
   }
 
@@ -146,15 +150,16 @@ export class TasksStore {
     this.error = null
     const load = (async () => {
       try {
-        const result = await window.solus.tasksList()
-        this.tasks.splice(0, this.tasks.length, ...result.tasks)
-        await this.loadLinks()
-        // Task records and their session links form one sidebar snapshot. Marking
-        // the store loaded between these requests lets restored sessions render
-        // briefly as unrelated loose rows before their durable links arrive.
+        const snapshot = await window.solus.tasksSidebarSnapshot()
+        this.tasks.splice(0, this.tasks.length, ...snapshot.tasks)
+        this.replaceLinks(snapshot.sessionsByTask)
         this.loaded = true
         this.refreshedAt = Date.now()
       } catch (err) {
+        // Every task surface reads this one snapshot, so a silent failure
+        // presents as "the sidebar lost my tasks" or "the card vanished"
+        // rather than as a failed read. Say so.
+        console.error('tasks sidebar snapshot load failed', err)
         this.error = err instanceof Error ? err.message : String(err)
         this.loaded = true
       } finally {
@@ -203,55 +208,90 @@ export class TasksStore {
     return load
   }
 
-  async loadLinks(): Promise<void> {
-    try {
-      const links = await window.solus.tasksSessions()
-      this.sessionsByTask.clear()
-      this.taskIdBySessionId.clear()
-      for (const [taskId, list] of Object.entries(links)) {
-        this.sessionsByTask.set(taskId, list)
-        for (const link of list) this.taskIdBySessionId.set(link.sessionId, taskId)
-      }
-    } catch {
-      // Task rows remain useful without attempt links; a later invalidation retries.
+  private replaceLinks(links: Record<string, TaskSessionLink[]>): void {
+    this.sessionsByTask.clear()
+    this.taskIdBySessionId.clear()
+    for (const [taskId, list] of Object.entries(links)) {
+      this.sessionsByTask.set(taskId, list)
+      for (const link of list) this.taskIdBySessionId.set(link.sessionId, taskId)
     }
   }
 
   /** Expose the binding on the session-init frame while the authoritative
    * task-session read is still in flight. The host has already persisted this
    * association; the optimistic entry lets every task surface show live work
-   * immediately and is replaced by hydrateForSession's richer link data. */
+   * immediately and is replaced by the next authoritative sidebar snapshot.
+   *
+   * The display fields are genuinely unknown here rather than merely omitted:
+   * the session has not reached the index yet, and a just-started session is
+   * always mounted, so every surface names it from its live tab regardless. */
   trackSessionStart(taskId: string, sessionId: string): void {
     this.taskIdBySessionId.set(sessionId, taskId)
     const attempts = this.sessionsByTask.get(taskId) ?? []
     if (attempts.some((attempt) => attempt.sessionId === sessionId)) return
     this.sessionsByTask.set(taskId, [
       ...attempts,
-      { taskId, sessionId, linkedAt: Date.now() },
+      {
+        taskId,
+        sessionId,
+        sessionTitle: null,
+        provider: null,
+        lastActivityAt: null,
+        linkedAt: Date.now(),
+      },
     ])
   }
 
-  async hydrateForSession(sessionId: string): Promise<TaskForSessionResult | null> {
-    const result = await window.solus.tasksForSession(sessionId)
-    if (!result) return null
-    for (const task of [result.parent, result.task, ...result.subtasks, ...result.siblings]) {
+  /** Hydrate the complete lightweight tree for an opened session even when the
+   * global snapshot already knows its owner. The targeted read carries sibling
+   * subtasks and every linked session's display metadata; none of it requires a
+   * transcript. Fall back to a fresh global snapshot only when that focused
+   * read cannot resolve a newly-created link. */
+  async ensureSessionBinding(sessionId: string): Promise<Task | null> {
+    await (this.loadPromise ?? this.ensureLoaded())
+    const existing = this.taskForSession(sessionId)
+    const hydrated = await this.hydrateSessionTree(sessionId)
+    if (hydrated) return hydrated
+    if (existing) return existing
+    await this.load()
+    return this.taskForSession(sessionId)
+  }
+
+  /** The two-level tree a session belongs to — its task, that task's parent,
+   * and every subtask under the root, each by name. The global snapshot
+   * carries all of them whenever it succeeds; this is the read that still
+   * answers when it did not, so a session restored from disk never renders as
+   * a loose row beside a parent whose subtasks are missing. */
+  private async hydrateSessionTree(sessionId: string): Promise<Task | null> {
+    const tree = await window.solus.tasksForSession(sessionId).catch(() => null)
+    if (!tree) return null
+    for (const task of [tree.parent, tree.task, ...tree.subtasks, ...tree.siblings]) {
       if (task) this.replace(task.id, task)
     }
-    this.taskIdBySessionId.set(sessionId, result.task.id)
-    if (result.attempts.length) {
-      const attemptsByTask = new Map<string, TaskSessionLink[]>()
-      for (const attempt of result.attempts) {
-        const taskId = attempt.taskId ?? result.task.id
-        const attempts = attemptsByTask.get(taskId)
-        if (attempts) attempts.push(attempt)
-        else attemptsByTask.set(taskId, [attempt])
-        this.taskIdBySessionId.set(attempt.sessionId, taskId)
+    this.taskIdBySessionId.set(sessionId, tree.task.id)
+    for (const attempt of tree.attempts) {
+      const taskId = attempt.taskId ?? tree.task.id
+      const attempts = this.sessionsByTask.get(taskId)
+      if (!attempts) this.sessionsByTask.set(taskId, [attempt])
+      else {
+        // Overwrite rather than skip: the entry already there may be the
+        // optimistic one from `trackSessionStart`, which carries no display
+        // metadata. This read is authoritative, so it upgrades in place.
+        const index = attempts.findIndex((existing) => existing.sessionId === attempt.sessionId)
+        if (index === -1) attempts.push(attempt)
+        else attempts[index] = attempt
       }
-      for (const [taskId, attempts] of attemptsByTask) {
-        this.sessionsByTask.set(taskId, attempts)
-      }
+      this.taskIdBySessionId.set(attempt.sessionId, taskId)
     }
-    return result
+    return tree.task
+  }
+
+  /** Guarantee that a snapshot starts after any cold load already in flight.
+   * New session links use this after their optimistic same-frame projection. */
+  async refreshSessionBinding(sessionId: string): Promise<Task | null> {
+    await (this.loadPromise ?? this.ensureLoaded())
+    await this.load()
+    return this.taskForSession(sessionId)
   }
 
   async setStatus(id: string, status: TaskStatus): Promise<void> {
@@ -290,11 +330,7 @@ export class TasksStore {
       const cwd = this.upstreamCwd(task)
       const updated = await window.solus.tasksCommentUpstream(cwd, id, body)
       this.replace(id, updated)
-      this.detailsByTask.set(id, upstreamTaskDetails(
-        updated,
-        this.tasksForProject(cwd),
-        this.sessionsByTask.get(id) ?? [],
-      ))
+      this.detailsByTask.set(id, upstreamTaskDetails(updated, this.tasksForProject(cwd)))
       return updated
     }
     const details = await window.solus.tasksComment(id, body)
@@ -324,11 +360,7 @@ export class TasksStore {
       if (!cwd) throw new Error(`Project not found for upstream task ${id}.`)
       const updated = await window.solus.tasksGetUpstream(cwd, id)
       this.replace(id, updated)
-      const details = upstreamTaskDetails(
-        updated,
-        this.tasksForProject(cwd),
-        this.sessionsByTask.get(id) ?? [],
-      )
+      const details = upstreamTaskDetails(updated, this.tasksForProject(cwd))
       this.detailsByTask.set(id, details)
       return details
     }
@@ -357,14 +389,13 @@ export class TasksStore {
     return task.projectKey
   }
 
+  /** Tasks and their detail payload only. Session links are not part of a
+   * detail read — `sessionsByTask` is written by the snapshot and the focused
+   * session-tree read, and nothing else, so no surface can narrow it by opening. */
   private reconcileDetails(details: TaskDetails): void {
     this.replace(details.task.id, details.task)
     for (const subtask of details.subtasks) this.replace(subtask.id, subtask)
     this.detailsByTask.set(details.task.id, details)
-    if (details.attempts.length) {
-      this.sessionsByTask.set(details.task.id, details.attempts)
-      for (const attempt of details.attempts) this.taskIdBySessionId.set(attempt.sessionId, details.task.id)
-    }
   }
 
   private replace(id: string, updated: Task): void {

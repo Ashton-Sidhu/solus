@@ -239,11 +239,14 @@ export interface TaskEvent {
   createdAt: number
 }
 
+/** The detail read deliberately carries no session links. Attempts live in one
+ * place — the renderer's `sessionsByTask`, fed by `taskSessions()` — because a
+ * second copy on this object could only ever disagree with it, and the detail
+ * surfaces that would render it are the ones that overwrite it. */
 export interface TaskDetails {
   task: Task
   subtasks: Task[]
   comments: TaskComment[]
-  attempts: TaskSessionLink[]
   links: TaskLink[]
   /** Newest-last, capped at `TASK_EVENT_LIMIT`. Merge with `comments` by
    *  timestamp to build the activity feed. */
@@ -256,6 +259,14 @@ export interface TaskForSessionResult {
   subtasks: Task[]
   siblings: Task[]
   attempts: TaskSessionLink[]
+}
+
+/** One authoritative renderer snapshot for native task rows and their session
+ * ownership. These collections are read together so the sidebar never has to
+ * reconcile independently timed task and link responses. */
+export interface TaskSidebarSnapshot {
+  tasks: Task[]
+  sessionsByTask: Record<string, TaskSessionLink[]>
 }
 
 /** One comment on a task, as providers surface it (also the shape stored in a
@@ -332,12 +343,17 @@ export const TASKS_AUTH_ERROR_PREFIX = '[tasks-auth] '
 export interface TaskSessionLink {
   taskId?: string
   sessionId: string
-  /** Display title from the indexed session's custom title or first message. */
-  sessionTitle?: string | null
+  /** Display title from the indexed session's custom title or first message.
+   *  Required, not optional: a reader that skips the `sessions` join produces a
+   *  link that is structurally identical to a complete one, and every display
+   *  surface then silently falls back to the owning task's name or a raw
+   *  session id. Stating the field forces that read to fail at compile time
+   *  instead. `null` means "the session is not indexed yet" — a real answer. */
+  sessionTitle: string | null
   /** Agent that ran the session, as the session index stores it (`claude`,
-   *  `codex`, `opencode`). Absent for a link whose session is not indexed yet. */
-  provider?: string | null
-  lastActivityAt?: number | null
+   *  `codex`, `opencode`). Null for a link whose session is not indexed yet. */
+  provider: string | null
+  lastActivityAt: number | null
   role?: TaskSessionRole
   branch?: string
   pr?: TaskPr

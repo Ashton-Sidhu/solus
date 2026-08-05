@@ -43,7 +43,13 @@
     type TaskSort,
   } from "./lib/tasks-api";
   import { taskCreationContextFor } from "./lib/task-creation-context";
-  import { taskGroups, taskInboxGroups } from "./lib/tasks-list-view";
+  import {
+    OPEN_TASK_STATUS_KEYS,
+    TASK_STATUS_GROUPS,
+    taskGroups,
+    taskInboxGroups,
+    taskStatusesFor,
+  } from "./lib/tasks-list-view";
   import { PAGE_PRIMARY_BTN, PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
   import {
     InboxRow,
@@ -53,10 +59,12 @@
     ListPage,
     ListRow,
     ListSkeleton,
+    ListStatusMenu,
     VirtualList,
     virtualGroupItems,
     type ListFilterSpec,
     type ListPageView,
+    type ListStatusOption,
   } from "../ui/list-page";
   import PageEmpty from "../ui/PageEmpty.svelte";
   import SortMenu from "../ui/SortMenu.svelte";
@@ -130,6 +138,12 @@
   let runningOnly = $state(false);
   let overdueOnly = $state(false);
   let assignedOnly = $state(false);
+  // Which lifecycle states the list and the inbox are showing. Opens on live
+  // work only, so finished and dropped tasks stay out of the way until asked
+  // for. The board is exempt — its columns *are* this filter, and a kanban
+  // whose last column is always empty reads as broken.
+  let statusKeys = $state<string[]>([...OPEN_TASK_STATUS_KEYS]);
+  const statuses = $derived(taskStatusesFor(statusKeys));
   let searchEl = $state<HTMLInputElement | null>(null);
   let contentHeight = $state(0);
   let selectedKey = $state<string | null>(null);
@@ -145,6 +159,7 @@
     runningOnly = false;
     overdueOnly = false;
     assignedOnly = false;
+    statusKeys = [...OPEN_TASK_STATUS_KEYS];
   }
 
   const SORT_OPTIONS: { value: TaskSort; label: string }[] = [
@@ -207,11 +222,19 @@
 
   const visibleTasks = $derived.by(() => {
     let rows = searched;
+    if (!boardLayout) rows = rows.filter((task) => statuses.has(task.status));
     if (runningOnly) rows = rows.filter((task) => sessionsFor(task.id) > 0);
     if (overdueOnly) rows = rows.filter(isOverdue);
     if (assignedOnly) rows = rows.filter((task) => !!task.assignee);
     return sortTasks(rows);
   });
+
+  // The board's manual order renumbers the column a card lands in, so it only
+  // means anything when `visibleTasks` *is* the board. (The status filter is
+  // exempt — the board already ignores it.)
+  const boardUnfiltered = $derived(
+    !query.trim() && !runningOnly && !overdueOnly && !assignedOnly,
+  );
 
   function sortTasks(tasks: Task[]): Task[] {
     const rank = (task: Task) =>
@@ -238,7 +261,7 @@
       start: onStart,
       resume: onResume,
       markDone: (task) => void onSetStatus(task, "done"),
-    }),
+    }, statuses),
   );
   const inboxVirtualItems = $derived(
     virtualGroupItems(inboxGroups, (row) => row.key),
@@ -290,6 +313,19 @@
       toggle: () => (assignedOnly = !assignedOnly),
     },
   ]);
+
+  // Counts are over the searched set, not the status-filtered one — the number
+  // beside a status has to say what picking it would show, which is exactly the
+  // question a filter that is currently hiding it needs to answer.
+  const statusOptions = $derived<ListStatusOption[]>(
+    TASK_STATUS_GROUPS.map((group) => ({
+      value: group.key,
+      label: group.label,
+      count: (view === "global" ? searched : projectTasks).filter((task) =>
+        group.statuses.includes(task.status),
+      ).length,
+    })),
+  );
 
   // The title block's three facts, lead first — the lead is the one that should
   // pull you in, and the only coloured text in the header.
@@ -611,12 +647,22 @@
     filters={view === "global" ? filters : []}
   >
     {#snippet trailing()}
+      <!-- The board plots every status as a column of its own, so a status
+           filter there would only ever empty one. -->
+      {#if !boardLayout}
+        <ListStatusMenu
+          options={statusOptions}
+          selected={statusKeys}
+          onChange={(next) => (statusKeys = next)}
+          ariaLabel="Filter tasks by status"
+        />
+      {/if}
       {#if view === "global"}
         <SortMenu
           bind:value={sort}
           options={SORT_OPTIONS}
           ariaLabel="Sort tasks"
-          class="h-7 gap-1.5 rounded-[10px] px-2.5 text-xs font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
+          class="h-7 gap-1.5 rounded-[10px] px-2.5 text-[13px] font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
         />
       {/if}
     {/snippet}
@@ -628,7 +674,7 @@
   {#if task}
     <button
       type="button"
-      class="mr-2 grid size-4 shrink-0 cursor-pointer place-items-center rounded border-0 text-[10px] transition-opacity {selection.has(
+      class="mr-2 grid size-4 shrink-0 cursor-pointer place-items-center rounded border-0 text-[11px] transition-opacity {selection.has(
         taskId,
       )
         ? 'bg-primary text-primary-foreground opacity-100'
@@ -751,7 +797,7 @@
               items={inboxVirtualItems}
               height={contentHeight}
               itemSize={(index) =>
-                inboxVirtualItems[index].kind === "header" ? 36 : 54}
+                inboxVirtualItems[index].kind === "header" ? 36 : 55}
               keyOf={(item) => item.key}
               activeKey={inboxActiveKey}
             >
@@ -790,6 +836,8 @@
         {:else if layout === "board"}
           <TaskBoard
             tasks={visibleTasks}
+            projectKey={cwd}
+            canReorder={boardUnfiltered}
             {selectedKey}
             onOpen={(task) => {
               selectedKey = task.id;
@@ -879,7 +927,7 @@
           role="toolbar"
           aria-label="Bulk actions"
         >
-          <span class="px-1.5 text-[0.75rem] font-semibold tabular-nums">
+          <span class="px-1.5 text-[13px] font-medium tabular-nums">
             {selection.size} selected
           </span>
           <span
@@ -889,7 +937,7 @@
           {#each BOARD_COLUMNS as col (col.status)}
             <button
               type="button"
-              class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-[0.6875rem] font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
+              class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-[12px] font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
               onclick={() => bulkSetStatus(col.status)}
               title={`Set ${col.label}`}
             >
@@ -906,7 +954,7 @@
           ></span>
           <button
             type="button"
-            class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-[0.6875rem] font-medium text-[#cf222e] transition-colors duration-100 hover:bg-[#cf222e]/10 [.dark_&]:text-[#f85149] [.dark_&]:hover:bg-[#f85149]/10"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-[12px] font-medium text-[#cf222e] transition-colors duration-100 hover:bg-[#cf222e]/10 [.dark_&]:text-[#f85149] [.dark_&]:hover:bg-[#f85149]/10"
             onclick={bulkDelete}
             title="Delete selected"
           >
@@ -919,7 +967,7 @@
           ></span>
           <button
             type="button"
-            class="cursor-pointer rounded-full border-0 bg-transparent px-2 py-1 text-[0.6875rem] font-medium text-(--solus-text-tertiary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
+            class="cursor-pointer rounded-full border-0 bg-transparent px-2 py-1 text-[12px] font-medium text-(--solus-text-tertiary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
             onclick={() => selection.clear()}
             title="Clear selection (Esc)"
           >

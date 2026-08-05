@@ -324,6 +324,9 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   // bind round-trip. Tabs are already registered with the server by this point
   // (_attachRuntimeTabs), so environment registration is safe here.
   const environmentRefresh = ctx.environment.refreshTab(ctx, { tabId: snapTab.tabId }).catch(() => null)
+  const taskHydration = snapTab.agentSessionId
+    ? ctx.tasksStore.ensureSessionBinding(snapTab.agentSessionId).catch(() => null)
+    : Promise.resolve(null)
 
   if (snapTab.agentSessionId || snapTab.handoffFrom) {
     if (!hasConversation(session)) {
@@ -431,5 +434,5 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
     void ctx.refreshThreadGoal(snapTab.tabId)
   }
 
-  await environmentRefresh
+  await Promise.all([environmentRefresh, taskHydration])
 }

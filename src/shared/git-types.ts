@@ -47,6 +47,8 @@ export interface ChangedFileStat {
   path: string
   additions: number
   deletions: number
+  /** Added / Modified / Deleted / Renamed, as the diff summary's status slot. */
+  status: 'A' | 'M' | 'D' | 'R'
 }
 
 export type DiffScope =

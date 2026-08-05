@@ -51,6 +51,41 @@ const GROUP_LABELS: Record<PrGroupKey, string> = {
 
 const GROUP_ORDER: PrGroupKey[] = ['review', 'open', 'draft', 'merged', 'closed']
 
+/**
+ * The lifecycle states the list can be filtered to. "Awaiting your review" is
+ * not one of them: it is a group, not a state — a PR is open whether or not it
+ * happens to be waiting on you — and the Yours chip already cuts that axis.
+ */
+export type PrStatusKey = 'open' | 'draft' | 'merged' | 'closed'
+
+export const PR_STATUS_OPTIONS: { value: PrStatusKey; label: string }[] = [
+  { value: 'open', label: 'Open' },
+  { value: 'draft', label: 'Draft' },
+  { value: 'merged', label: 'Merged' },
+  { value: 'closed', label: 'Closed' },
+]
+
+/** What the list opens on: what can still be landed. */
+export const OPEN_PR_STATUS_KEYS: PrStatusKey[] = ['open', 'draft']
+
+export function prStatusOf(pr: PullRequestSummary): PrStatusKey {
+  if (pr.state === 'merged') return 'merged'
+  if (pr.state === 'closed') return 'closed'
+  return pr.draft ? 'draft' : 'open'
+}
+
+/**
+ * The *fetch* scope a status selection needs. The host pages open and closed
+ * pull requests separately, so asking for a merged PR is not a display filter —
+ * it has to widen what the page loads before it can hide anything.
+ */
+export function prFetchScope(statuses: readonly string[]): 'open' | 'closed' | 'all' {
+  const wantsOpen = statuses.includes('open') || statuses.includes('draft')
+  const wantsClosed = statuses.includes('merged') || statuses.includes('closed')
+  if (wantsOpen && wantsClosed) return 'all'
+  return wantsClosed ? 'closed' : 'open'
+}
+
 /** `+248 −96`, compacted past a thousand so the column can't be pushed wide by
  *  one enormous PR. */
 export function diffSize(pr: PullRequestSummary): string {
@@ -105,8 +140,6 @@ export function prGroups(
   })).filter((group) => group.rows.length > 0)
 }
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000
-
 export interface PrInboxActions {
   review: (pr: PullRequestSummary) => void
   open: (pr: PullRequestSummary) => void
@@ -118,20 +151,25 @@ export interface PrInboxActions {
  *
  * Three groups, derived from what the list fetch already knows: what is waiting
  * on your review, what is waiting on *you* to move your own PR along (failing
- * checks, requested changes), and what closed recently. There is no mentions
- * group — review-comment mentions need a notifications fetch the PR list
- * doesn't make.
+ * checks, requested changes), and what has landed. There is no mentions group —
+ * review-comment mentions need a notifications fetch the PR list doesn't make.
+ *
+ * The page's status filter reaches in here too, so the queue holds only the
+ * states asked for. Landed work is off by default: an inbox is a list of
+ * decisions, and a merged PR is not one.
  */
 export function prInboxGroups(
   prs: PullRequestSummary[],
   ctx: PrRowContext,
   now: number,
   actions: PrInboxActions,
+  statuses: Set<string>,
 ): InboxGroupSpec[] {
   const groups: InboxGroupSpec[] = []
   const updated = (pr: PullRequestSummary) => Date.parse(pr.updatedAt) || 0
+  const shown = prs.filter((pr) => statuses.has(prStatusOf(pr)))
 
-  const needsYou = prs.filter(
+  const needsYou = shown.filter(
     (pr) => pr.state === 'open' && !pr.draft && pr.needsMyReview && !ctx.isMine(pr),
   )
   if (needsYou.length > 0) {
@@ -157,7 +195,7 @@ export function prInboxGroups(
   }
 
   // Your own open PRs whose checks are red — nothing else is going to move them.
-  const yoursBlocked = prs.filter((pr) => {
+  const yoursBlocked = shown.filter((pr) => {
     if (pr.state !== 'open' || !ctx.isMine(pr)) return false
     const checks = ctx.checks(pr.number)
     return !!checks && checks.headSha === pr.headSha && checks.state === 'failing'
@@ -178,14 +216,13 @@ export function prInboxGroups(
     })
   }
 
-  const recentlyMerged = prs.filter(
-    (pr) => (pr.state === 'merged' || pr.state === 'closed') && now - updated(pr) < WEEK_MS,
-  )
-  if (recentlyMerged.length > 0) {
+  const landed = shown.filter((pr) => pr.state === 'merged' || pr.state === 'closed')
+  if (landed.length > 0) {
     groups.push({
       key: 'done',
-      label: 'Done recently',
-      rows: [...recentlyMerged]
+      label: 'Done',
+      note: 'newest first',
+      rows: [...landed]
         .sort((a, b) => updated(b) - updated(a))
         .map((pr) => ({
           ...inboxRowBase(pr, now),

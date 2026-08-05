@@ -622,15 +622,17 @@ export function persistIndexedSessionStart(
   projectPath: string,
   model: string,
   reasoningEffort: ReasoningEffort,
+  firstMessage: string | null = null,
 ): void {
   getDb().prepare(`
     INSERT INTO sessions(
       session_id, provider, cwd, project_path, project_key, project_root, is_worktree,
       slug, first_message, last_timestamp, message_count, size, model, reasoning_effort
     )
-    VALUES (?, ?, ?, ?, NULL, ?, ?, NULL, NULL, ?, 0, 0, ?, ?)
+    VALUES (?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, 0, 0, ?, ?)
     ON CONFLICT(session_id) DO UPDATE SET
       project_root = COALESCE(sessions.project_root, excluded.project_root),
+      first_message = COALESCE(sessions.first_message, excluded.first_message),
       model = COALESCE(sessions.model, excluded.model),
       reasoning_effort = COALESCE(sessions.reasoning_effort, excluded.reasoning_effort)
   `).run(
@@ -640,6 +642,7 @@ export function persistIndexedSessionStart(
     projectPath,
     projectRootFor(cwd),
     projectPath.includes(SOLUS_WORKTREE_ENCODED_MARKER) ? 1 : 0,
+    firstMessage,
     Date.now(),
     model,
     reasoningEffort,

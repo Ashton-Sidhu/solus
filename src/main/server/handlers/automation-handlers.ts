@@ -10,6 +10,26 @@ import {
   loadRun,
 } from '../../automations/automations-store'
 import { triggerAutomationRun, cancelAutomationRun } from '../../automations/automation-runner'
+import { Task } from '../../tasks/task'
+import { createLogger } from '../../logger'
+
+const log = createLogger('main', 'automation-handlers')
+
+async function linkAutomationToSessionTask(automation: Awaited<ReturnType<typeof loadAutomation>>): Promise<void> {
+  const sessionId = automation?.createdBy.sessionId
+  if (!automation || !sessionId) return
+  await Task.linkArtifactForSession(sessionId, {
+    kind: 'automation',
+    targetKey: automation.id,
+    title: automation.name,
+  }).catch((error) => {
+    log.warn('task_automation_link_failed', {
+      sessionId,
+      automationId: automation.id,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  })
+}
 
 /** RPC surface for the renderer to drive the same automation operations the
  *  agent tools expose. Phase 1: run-now only (no scheduling). */
@@ -22,7 +42,9 @@ export function registerAutomationHandlers(server: SolusServer): void {
       boolean | undefined,
       AutomationTrigger | undefined,
     ]
-    return createAutomation(name, action, createdBy, enabled ?? true, trigger ?? { type: 'manual' })
+    const automation = await createAutomation(name, action, createdBy, enabled ?? true, trigger ?? { type: 'manual' })
+    await linkAutomationToSessionTask(automation)
+    return automation
   })
 
   server.register('automationList', async () => listAutomations())
@@ -37,7 +59,9 @@ export function registerAutomationHandlers(server: SolusServer): void {
       string,
       { name?: string; enabled?: boolean; favorite?: boolean; action?: Partial<AutomationAction>; trigger?: AutomationTrigger },
     ]
-    return updateAutomation(id, patch)
+    const automation = await updateAutomation(id, patch)
+    await linkAutomationToSessionTask(automation)
+    return automation
   })
 
   server.register('automationDelete', async (args) => {
@@ -47,7 +71,9 @@ export function registerAutomationHandlers(server: SolusServer): void {
 
   server.register('automationSetEnabled', async (args) => {
     const [id, enabled] = args as [string, boolean]
-    return updateAutomation(id, { enabled })
+    const automation = await updateAutomation(id, { enabled })
+    await linkAutomationToSessionTask(automation)
+    return automation
   })
 
   server.register('automationRun', async (args) => {

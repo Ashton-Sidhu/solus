@@ -2,16 +2,39 @@ import type { SolusServer } from '../server'
 import { createWork, duplicateWork, saveWork, loadWork, listWorks, deleteWork, agentSaveWork, loadWorkPrevious, revertWork, setWorkPinned, promoteWorkToProject, linkWorkSession } from '../../folio/works'
 import { loadWorkAnnotations, saveWorkAnnotations } from '../../folio/work-annotations'
 import type { AgentId, Work, WorkAnnotations } from '../../../shared/types'
+import { Task } from '../../tasks/task'
+import { createLogger } from '../../logger'
+
+const log = createLogger('main', 'folio-handlers')
+
+async function linkWorkToSessionTasks(work: Work): Promise<void> {
+  const sessionIds = work.sessionIds ?? (work.sessionId ? [work.sessionId] : [])
+  await Promise.all(sessionIds.map((sessionId) => Task.linkArtifactForSession(sessionId, {
+    kind: 'work',
+    targetKey: work.id,
+    title: work.title,
+  }).catch((error) => {
+    log.warn('task_work_link_failed', {
+      sessionId,
+      workId: work.id,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  })))
+}
 
 export function registerFolioHandlers(server: SolusServer): void {
   server.register('createWork', async (args) => {
     const [title, type, content, preview, sessionId, agentProvider, cwd, id] = args as [string, 'doc' | 'slides' | 'diagram', string | undefined, string | undefined, string | undefined, AgentId, string | undefined, string | undefined]
-    return createWork(title, type, content, preview, sessionId, agentProvider, cwd, id)
+    const work = await createWork(title, type, content, preview, sessionId, agentProvider, cwd, id)
+    await linkWorkToSessionTasks(work)
+    return work
   })
 
   server.register('saveWork', async (args) => {
     const [id, updates, cwd] = args as [string, Partial<Pick<Work, 'title' | 'preview' | 'content'>>, string | undefined]
-    return saveWork(id, updates, cwd)
+    const work = await saveWork(id, updates, cwd)
+    await linkWorkToSessionTasks(work)
+    return work
   })
 
   server.register('loadWork', async (args) => {
@@ -37,6 +60,8 @@ export function registerFolioHandlers(server: SolusServer): void {
   server.register('linkWorkSession', async (args) => {
     const [id, sessionId, cwd] = args as [string, string, string | undefined]
     await linkWorkSession(id, sessionId, cwd)
+    const work = await loadWork(id, cwd)
+    if (work) await linkWorkToSessionTasks(work)
   })
 
   server.register('loadWorkAnnotations', async (args) => {
@@ -51,7 +76,9 @@ export function registerFolioHandlers(server: SolusServer): void {
 
   server.register('agentSaveWork', async (args) => {
     const [id, updates, cwd] = args as [string, Partial<Pick<Work, 'title' | 'preview' | 'content'>>, string | undefined]
-    return agentSaveWork(id, updates, cwd)
+    const work = await agentSaveWork(id, updates, cwd)
+    await linkWorkToSessionTasks(work)
+    return work
   })
 
   server.register('loadWorkPrevious', async (args) => {
@@ -61,7 +88,9 @@ export function registerFolioHandlers(server: SolusServer): void {
 
   server.register('revertWork', async (args) => {
     const [id, cwd] = args as [string, string | undefined]
-    return revertWork(id, cwd)
+    const work = await revertWork(id, cwd)
+    if (work) await linkWorkToSessionTasks(work)
+    return work
   })
 
   server.register('setWorkPinned', async (args) => {

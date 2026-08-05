@@ -927,23 +927,25 @@
     >
         <div class="relative flex h-full min-h-0 min-w-0">
         {#if findOpen}
-          <FindBar
-            bind:this={findBarRef}
-            query={findQuery}
-            current={findMatches.length === 0 ? 0 : findIndex + 1}
-            total={findMatches.length}
-            placeholder="Find in diff"
-            ariaLabel="Find in diff"
-            debounceMs={120}
-            onQueryChange={(v) => {
-              findQuery = v;
-              findIndex = 0;
-              void revealFirstMatch();
-            }}
-            onNext={() => findNav(1)}
-            onPrev={() => findNav(-1)}
-            onClose={closeFind}
-          />
+          <div class="absolute top-2 right-3 z-20">
+            <FindBar
+              bind:this={findBarRef}
+              query={findQuery}
+              current={findMatches.length === 0 ? 0 : findIndex + 1}
+              total={findMatches.length}
+              placeholder="Find in diff"
+              ariaLabel="Find in diff"
+              debounceMs={120}
+              onQueryChange={(v) => {
+                findQuery = v;
+                findIndex = 0;
+                void revealFirstMatch();
+              }}
+              onNext={() => findNav(1)}
+              onPrev={() => findNav(-1)}
+              onClose={closeFind}
+            />
+          </div>
         {/if}
         <DiffStream
           bind:this={streamRef}

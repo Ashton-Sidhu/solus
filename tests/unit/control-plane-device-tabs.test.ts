@@ -1231,4 +1231,21 @@ describe('ControlPlane device-scoped tab watches', () => {
     )
     expect(env.controlPlane.attention.get('session-1')).toBeUndefined()
   })
+
+  test('closing the last tab leaves a running provider session alive', () => {
+    // WHY: Close unloads presentation state. It must not become an implicit
+    // Stop action for work that should continue headlessly.
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.seedSession('session-1', { status: 'running' })
+    env.registerWatch('tab-a', 'ws:a', 'device-1', 'session-1')
+
+    env.controlPlane.closeTab(
+      { session: { tabId: 'tab-a' } } as IpcContext,
+      { clientId: 'ws:a', deviceId: 'device-1' },
+    )
+
+    expect(env.controlPlane.liveSessionStatus('session-1')).toBe('running')
+    expect(env.backend.running.has('session-1')).toBe(true)
+  })
 })

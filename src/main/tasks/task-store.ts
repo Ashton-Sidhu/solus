@@ -273,7 +273,7 @@ export function writeTask(db: DatabaseSync, input: TaskCreateInput & {
   return taskFromRow(requireTask(id, db))
 }
 
-export async function listTasks(filter: TaskListFilter = {}): Promise<TaskListResult> {
+export function listTasks(filter: TaskListFilter = {}): TaskListResult {
   const clauses: string[] = []
   const params: Array<string | null> = []
   const hasProjectKey = Object.prototype.hasOwnProperty.call(filter, 'projectKey')

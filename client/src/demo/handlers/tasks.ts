@@ -56,6 +56,10 @@ export function registerTasksHandlers(backend: DemoServer, store: DemoStore): vo
       }),
     }
   })
+  backend.register('tasksSidebarSnapshot', () => ({
+    tasks: store.listTasks().tasks,
+    sessionsByTask: store.taskSessions(),
+  }))
   backend.register('tasksGet', (args) => taskDetails(store, args[0] as string))
   backend.register('tasksSessions', (args) => {
     const [taskId] = args as [string | undefined]

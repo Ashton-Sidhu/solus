@@ -258,6 +258,7 @@ export const RPC_INVOKE_METHODS = [
   'tasksUpdateUpstream',
   'tasksCommentUpstream',
   'tasksList',
+  'tasksSidebarSnapshot',
   'tasksGet',
   'tasksCreate',
   'tasksUpdate',

@@ -6,20 +6,24 @@
     TrashIcon,
     PencilSimpleIcon,
     StarIcon,
-    CursorIcon,
-    AsteriskIcon,
+    ClockIcon,
+    CircleNotchIcon,
   } from "phosphor-svelte";
   import type { Automation } from "../../../shared/types";
-  import { PAGE_ICON_BTN } from "../../lib/page-chrome";
-  import {
-    triggerSummary,
-    relativeTime,
-    cadenceMark,
-    folderLabel,
-  } from "./lib/automation-format";
+  import { compactRelativeTime } from "../ui/list-page";
+  import { triggerSummary, folderLabel } from "./lib/automation-format";
 
+  /** One line of the automations list, in the shared list-page row grammar:
+   *  a 20px status tile, the name, the machine facts, then a right end that
+   *  states the cadence and the last run at rest and swaps them for the verbs
+   *  on hover. Lifecycle lives in the tile's tint and in the group heading —
+   *  never in a badge, which would cost row width to say what the section
+   *  already says. */
   interface Props {
     automation: Automation;
+    /** Ticking clock from the page, so the age column counts up on its own. */
+    now: number;
+    selected?: boolean;
     onOpen: (a: Automation) => void;
     onToggleEnabled: (a: Automation, e: Event) => void;
     onRunNow: (a: Automation, e: Event) => void;
@@ -29,6 +33,8 @@
   }
   let {
     automation: a,
+    now,
+    selected = false,
     onOpen,
     onToggleEnabled,
     onRunNow,
@@ -37,209 +43,177 @@
     onDelete,
   }: Props = $props();
 
-  const stateBtnClass =
-    "grid size-7 shrink-0 cursor-pointer place-items-center rounded-[0.4375rem] border-0 bg-transparent text-(--solus-text-tertiary) transition-[background-color,color] duration-100 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:outline-none [@media(pointer:coarse)]:size-11";
-  const dangerIconBtnClass = `${PAGE_ICON_BTN} [&:hover:not(:disabled)]:bg-[color-mix(in_srgb,var(--solus-status-error,#e53e3e)_14%,transparent)] [&:hover:not(:disabled)]:text-[var(--solus-status-error,#e53e3e)]`;
+  const actBtn =
+    "grid size-6 shrink-0 cursor-pointer place-items-center rounded-[7px] border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-3)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40";
 
   const tone = $derived(
-    !a.enabled
-      ? "paused"
-      : a.lastRunStatus === "failed"
-        ? "error"
-        : a.lastRunStatus === "running"
-          ? "running"
-          : "on",
+    a.lastRunStatus === "running"
+      ? "running"
+      : !a.enabled
+        ? "paused"
+        : a.lastRunStatus === "failed"
+          ? "failed"
+          : a.trigger.type === "manual"
+            ? "manual"
+            : "scheduled",
   );
+  // One status token in, one fill/glyph pair out — no row picks a background
+  // and a text colour separately and drifts from the chips beside it.
+  const tile = $derived(
+    {
+      running: "bg-[color-mix(in_oklch,var(--running)_14%,transparent)] text-[var(--running)]",
+      failed: "bg-[color-mix(in_oklch,var(--failure)_13%,transparent)] text-[color-mix(in_oklch,var(--failure)_70%,var(--foreground))]",
+      scheduled: "bg-[color-mix(in_oklch,var(--running)_14%,transparent)] text-[var(--running)]",
+      manual: "bg-[var(--wash-3)] text-muted-foreground",
+      paused: "bg-[var(--wash-3)] text-muted-foreground",
+    }[tone],
+  );
+  const schedule = $derived(triggerSummary(a.trigger));
   const toneLabel = $derived(
     tone === "running"
       ? "Running"
-      : tone === "error"
+      : tone === "failed"
         ? "Last run failed"
         : tone === "paused"
           ? "Paused"
           : "Active",
   );
-  const mark = $derived(cadenceMark(a.trigger));
-  const schedule = $derived(triggerSummary(a.trigger));
-  const lastRunLabel = $derived(
-    a.lastRunStatus === "running"
-      ? "Running now"
-      : a.lastRunStatus === "failed" && a.lastRunAt
-        ? `Failed ${relativeTime(a.lastRunAt)}`
-        : a.lastRunAt
-          ? `Last ran ${relativeTime(a.lastRunAt)}`
-          : "",
-  );
+  const age = $derived(compactRelativeTime(a.lastRunAt, now));
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
-  class="group relative flex cursor-pointer items-center gap-3.5 rounded-[0.6875rem] px-3 py-3 transition-colors duration-150 ease-in-out hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-accent-light) focus-visible:outline-none {a.enabled
-    ? ''
-    : 'opacity-60'}"
-  role="button"
-  tabindex="0"
-  onclick={() => onOpen(a)}
-  onkeydown={(e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      onOpen(a);
-    }
-  }}
+  class="group relative flex h-11 w-full items-center rounded-[10px] pr-2 pl-2.5 transition-shadow duration-150 {selected
+    ? 'bg-[var(--wash-2)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)]'
+    : 'hover:bg-[var(--wash-1)]'} {a.enabled ? '' : 'opacity-70'}"
+  data-selected={selected}
 >
-  <!-- Cadence tile — the automation's rhythm as a mark ("9a", "MON", "30m").
-       Status rides on the tile's material, not a separate indicator: accent +
-       breathing halo while running, error tint when the last run failed,
-       dashed when paused. -->
-  <span
-    class="relative grid size-[1.875rem] shrink-0 place-items-center rounded-[0.5rem] font-mono text-[0.625rem] font-semibold tracking-[0.02em] uppercase tabular-nums transition-colors duration-150 {tone ===
-    'running'
-      ? 'bg-(--solus-accent-light) text-(--solus-accent) shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)]'
-      : tone === 'error'
-        ? 'bg-(--solus-status-error-bg) text-(--solus-status-error) shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-status-error)_28%,transparent)]'
-        : tone === 'paused'
-          ? 'border border-dashed border-(--solus-container-border) text-(--solus-text-tertiary)'
-          : 'bg-[color-mix(in_srgb,var(--solus-text-primary)_6%,transparent)] text-(--solus-text-secondary) shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-text-primary)_9%,transparent)]'}"
-    role="img"
-    aria-label="{schedule} — {toneLabel}"
-    title="{schedule} — {toneLabel}"
+  <button
+    type="button"
+    class="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-[11px] border-0 bg-transparent p-0 text-left focus-visible:outline-none"
+    onclick={() => onOpen(a)}
   >
-    {#if tone === "running"}
-      <span
-        class="animate-breathing pointer-events-none absolute inset-0 rounded-[0.5rem] shadow-[0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-accent)_45%,transparent)]"
-        aria-hidden="true"
-      ></span>
-    {/if}
-    {#if mark.kind === "manual"}
-      <CursorIcon size={13} />
-    {:else if mark.kind === "expr"}
-      <AsteriskIcon size={11} weight="bold" />
-    {:else}
-      {mark.text}
-    {/if}
-  </span>
-
-  <!-- Name + agent badge, with folder and last-run state on a quieter second
-       line, set in the mono face so it reads as machine facts. -->
-  <div class="min-w-0 flex-1">
-    <div class="flex items-baseline gap-2">
-      <span
-        class="truncate text-[0.90625rem] font-semibold tracking-[-0.015em] text-(--solus-text-primary)"
-        >{a.name}</span
-      >
-      {#if a.createdBy.kind === "agent"}
-        <span
-          class="shrink-0 rounded bg-(--solus-surface-hover) px-1.5 py-px text-[0.59375rem] font-semibold tracking-[0.09em] text-(--solus-text-tertiary) uppercase"
-          title="Created by an agent">agent</span
-        >
-      {/if}
-    </div>
-    <div
-      class="mt-0.5 flex items-center gap-1.5 font-mono text-[0.75rem] text-(--solus-text-tertiary)"
+    <!-- Slot 1 — cadence kind as a glyph, status as the tile's tint. -->
+    <span
+      class="flex size-5 shrink-0 items-center justify-center rounded-full shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_8%,transparent)] {tile}"
+      title="{schedule} — {toneLabel}"
     >
-      <span class="truncate">{folderLabel(a.action.cwd)}</span>
-      {#if lastRunLabel}
-        <span class="opacity-50" aria-hidden="true">·</span>
-        <span
-          class="shrink-0 {a.lastRunStatus === 'failed'
-            ? 'text-[var(--solus-status-error,#e53e3e)]'
-            : a.lastRunStatus === 'running'
-              ? 'text-(--solus-accent)'
-              : ''}">{lastRunLabel}</span
-        >
+      {#if tone === "running"}
+        <CircleNotchIcon size={11} class="animate-spin [animation-duration:0.9s]" />
+      {:else if a.trigger.type === "manual"}
+        <PlayIcon size={9} weight="fill" />
+      {:else}
+        <ClockIcon size={10} />
       {/if}
-    </div>
-  </div>
+    </span>
 
-  <!-- Right: schedule + secondary actions, then the always-visible pause /
-       resume / stop state control. -->
-  <div class="flex flex-shrink-0 items-center gap-1.5">
-    <div class="relative flex items-center justify-end">
+    <!-- Slot 2 — the only full-strength text in the row. -->
+    <span
+      class="max-w-[330px] shrink-0 truncate text-[13px] font-[450] tracking-[-.005em]"
+      title={a.name}
+    >
+      {a.name}
+    </span>
+
+    <!-- Slot 3 — where it runs, and who wrote it. -->
+    <span class="min-w-0 truncate font-mono text-[11px] text-muted-foreground opacity-75">
+      {folderLabel(a.action.cwd)}{a.createdBy.kind === "agent" ? " · agent" : ""}
+    </span>
+
+    <span class="flex-1"></span>
+
+    <!-- Slots 4 and 5 — what it does and when it last did it. They step aside
+         for the verbs rather than sharing the line with them, so the right end
+         is never two things at once. -->
+    <span
+      class="flex shrink-0 items-center gap-2 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
+    >
       <span
-        class="text-[0.8125rem] whitespace-nowrap text-[color-mix(in_srgb,var(--solus-text-primary)_70%,var(--solus-text-tertiary))] transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
+        class="w-[156px] text-right font-mono text-[11px] whitespace-nowrap text-muted-foreground opacity-85"
       >
         {schedule}
       </span>
-      <div
-        class="pointer-events-none absolute right-0 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+      <span
+        class="w-11 text-right font-mono text-[11px] tabular-nums text-muted-foreground opacity-70"
       >
-        <button
-          type="button"
-          class="{PAGE_ICON_BTN} {a.favorite
-            ? 'text-[var(--solus-art-2,#c9883f)] [&:hover:not(:disabled)]:bg-[color-mix(in_srgb,var(--solus-art-2,#c9883f)_14%,transparent)] [&:hover:not(:disabled)]:text-[var(--solus-art-2,#c9883f)]'
-            : ''}"
-          onclick={(e) => onToggleFavorite(a, e)}
-          aria-label={a.favorite ? "Unstar" : "Star"}
-          aria-pressed={a.favorite}
-          title={a.favorite ? "Unstar" : "Star"}
-        >
-          <StarIcon size={13} weight={a.favorite ? "fill" : "regular"} />
-        </button>
-        <button
-          type="button"
-          class={PAGE_ICON_BTN}
-          onclick={(e) => onRunNow(a, e)}
-          disabled={!a.enabled || a.lastRunStatus === "running"}
-          aria-label="Run now"
-          title="Run now"
-        >
-          <PlayIcon size={13} weight="fill" />
-        </button>
-        <button
-          type="button"
-          class={PAGE_ICON_BTN}
-          onclick={(e) => {
-            e.stopPropagation();
-            onOpen(a);
-          }}
-          aria-label="Edit"
-          title="Edit"
-        >
-          <PencilSimpleIcon size={13} />
-        </button>
-        <button
-          type="button"
-          class={dangerIconBtnClass}
-          onclick={(e) => onDelete(a, e)}
-          aria-label="Delete"
-          title="Delete"
-        >
-          <TrashIcon size={13} />
-        </button>
-      </div>
-    </div>
+        {age}
+      </span>
+    </span>
+  </button>
 
+  <div
+    class="pointer-events-none absolute right-2 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+  >
+    <button
+      type="button"
+      class="{actBtn} {a.favorite ? 'text-[var(--warning)]' : ''}"
+      onclick={(e) => onToggleFavorite(a, e)}
+      aria-label={a.favorite ? "Unstar" : "Star"}
+      aria-pressed={a.favorite}
+      title={a.favorite ? "Unstar" : "Star"}
+    >
+      <StarIcon size={12} weight={a.favorite ? "fill" : "regular"} />
+    </button>
+    <button
+      type="button"
+      class={actBtn}
+      onclick={(e) => onRunNow(a, e)}
+      disabled={!a.enabled || a.lastRunStatus === "running"}
+      aria-label="Run now"
+      title="Run now"
+    >
+      <PlayIcon size={12} weight="fill" />
+    </button>
+    <button
+      type="button"
+      class={actBtn}
+      onclick={(e) => {
+        e.stopPropagation();
+        onOpen(a);
+      }}
+      aria-label="Edit"
+      title="Edit"
+    >
+      <PencilSimpleIcon size={12} />
+    </button>
     {#if a.lastRunStatus === "running"}
       <button
         type="button"
-        class="{stateBtnClass} bg-[color-mix(in_srgb,var(--solus-status-error,#e53e3e)_12%,transparent)] text-[var(--solus-status-error,#e53e3e)] hover:bg-[color-mix(in_srgb,var(--solus-status-error,#e53e3e)_20%,transparent)] hover:text-[var(--solus-status-error,#e53e3e)] focus-visible:bg-[color-mix(in_srgb,var(--solus-status-error,#e53e3e)_20%,transparent)] focus-visible:text-[var(--solus-status-error,#e53e3e)]"
+        class="{actBtn} text-[var(--failure)] hover:text-[var(--failure)]"
         onclick={(e) => onCancelRun(a, e)}
         aria-label="Stop run"
         title="Stop this run"
       >
-        <StopIcon size={13} weight="fill" />
+        <StopIcon size={12} weight="fill" />
       </button>
     {:else if a.enabled}
       <button
         type="button"
-        class={stateBtnClass}
+        class={actBtn}
         onclick={(e) => onToggleEnabled(a, e)}
         aria-label="Pause automation"
         title="Pause — stop running on schedule"
       >
-        <PauseIcon size={13} weight="fill" />
+        <PauseIcon size={12} weight="fill" />
       </button>
     {:else}
       <button
         type="button"
-        class="{stateBtnClass} text-(--solus-accent) hover:bg-(--solus-accent-light) hover:text-(--solus-accent) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-accent)"
+        class="{actBtn} text-[var(--running)] hover:text-[var(--running)]"
         onclick={(e) => onToggleEnabled(a, e)}
         aria-label="Resume automation"
         title="Resume — run on schedule again"
       >
-        <PlayIcon size={13} weight="fill" />
+        <PlayIcon size={12} weight="fill" />
       </button>
     {/if}
+    <button
+      type="button"
+      class="{actBtn} hover:bg-[color-mix(in_oklch,var(--failure)_13%,transparent)] hover:text-[var(--failure)]"
+      onclick={(e) => onDelete(a, e)}
+      aria-label="Delete"
+      title="Delete"
+    >
+      <TrashIcon size={12} />
+    </button>
   </div>
 </div>

@@ -141,50 +141,6 @@ export function triggerSummary(trigger: AutomationTrigger): string {
   }
 }
 
-/** The compact rhythm mark for the list row's leading tile — the automation's
- *  cadence at a glance, never its status. `manual` and `expr` have no honest
- *  short form, so the row draws a glyph for those instead of text. */
-export type CadenceMark =
-  | { kind: 'text'; text: string }
-  | { kind: 'manual' }
-  | { kind: 'expr' }
-
-/** Hour of day as a 2-3 character mark: "9a", "12p", "11p". Minutes are dropped
- *  on purpose — the exact time is spelled out beside the row. */
-function hourMark(hh: number): string {
-  const h12 = hh % 12 === 0 ? 12 : hh % 12
-  return `${h12}${hh < 12 ? 'a' : 'p'}`
-}
-
-export function cadenceMark(trigger: AutomationTrigger): CadenceMark {
-  switch (trigger.type) {
-    case 'manual':
-      return { kind: 'manual' }
-    case 'once': {
-      const d = new Date(trigger.runAt)
-      // A slash keeps a one-off date from reading as a day-of-month mark.
-      return Number.isNaN(d.getTime())
-        ? { kind: 'expr' }
-        : { kind: 'text', text: `${d.getMonth() + 1}/${d.getDate()}` }
-    }
-    case 'interval': {
-      const { value, unit } = intervalParts(trigger.everyMinutes)
-      return { kind: 'text', text: `${value}${unit[0]}` }
-    }
-    case 'cron': {
-      const f = parseSimpleCron(trigger.expr)
-      if (!f || f.mon !== '*') return { kind: 'expr' }
-      if (f.dom === '*' && f.dow === '*') return { kind: 'text', text: hourMark(f.hh) }
-      if (f.dom === '*' && /^[0-6]$/.test(f.dow)) {
-        const short = WEEKDAYS.find((w) => w.value === Number(f.dow))?.short
-        return short ? { kind: 'text', text: short } : { kind: 'expr' }
-      }
-      if (/^\d+$/.test(f.dom) && f.dow === '*') return { kind: 'text', text: ordinal(Number(f.dom)) }
-      return { kind: 'expr' }
-    }
-  }
-}
-
 /** The next `count` fire instants of a draft trigger, for the builder's schedule
  *  preview. Returns null for an invalid cron expression (doubling as instant
  *  client-side validation), and [] for triggers with nothing to preview

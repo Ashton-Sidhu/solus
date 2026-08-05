@@ -8,6 +8,8 @@ import { formatPendingInputReport } from './session-report'
 import { MODEL_PROFILES } from '../../shared/types'
 import type { AgentConversationUpdate, AgentId, AgentTarget, NormalizedEvent, PlanDescriptor, PromptDelivery, ReasoningEffort, SessionMeta, SessionStatus } from '../../shared/types'
 import type { SessionLoadMessage } from '../../shared/session-history'
+import { Task } from '../tasks/task'
+import { listTaskChildren } from '../tasks/task-store'
 
 const log = createLogger('sessions', 'session-tools.ts')
 
@@ -36,9 +38,13 @@ export interface SessionCreateRequest {
   contextWindow: number | null
   cwd: string
   worktreeBaseBranch?: string | null
+  /** Reuse an existing task as another working session attempt. */
+  taskId?: string | null
+  /** Create the session-born task as a direct child of this task. */
+  parentTaskId?: string | null
 }
 
-export type SessionCreator = (req: SessionCreateRequest) => Promise<{ agentSessionId: string }>
+export type SessionCreator = (req: SessionCreateRequest) => Promise<{ agentSessionId: string; taskId?: string }>
 
 let sessionCreator: SessionCreator | null = null
 export function setSessionCreator(creator: SessionCreator): void {
@@ -140,6 +146,14 @@ const createSessionShape = {
     .string()
     .optional()
     .describe('Optional base branch to create an isolated worktree for the new session.'),
+  task_id: z
+    .string()
+    .optional()
+    .describe('Optional existing local task id to bind as another working session attempt. Mutually exclusive with parent_task_id.'),
+  parent_task_id: z
+    .string()
+    .optional()
+    .describe('Optional top-level local task id. The new session gets a new subtask beneath it, titled from the prompt. Mutually exclusive with task_id.'),
   mode: z
     .enum(['delegate', 'fire_and_forget'])
     .describe("Required intent — there is no default; choose deliberately. 'delegate': you need the new session's reply to continue your own work — finish your turn and its first reply arrives here later as a [session report]. 'fire_and_forget': the user just wants the task started ('kick off', 'launch', 'in the background', 'don't wait') — no report will arrive and you must not wait or poll for one; if you genuinely need to catch up later, use read_session."),
@@ -196,15 +210,15 @@ const stopSessionShape = {
 }
 
 export const CREATE_SESSION_DESC =
-  "Create a NEW Solus chat session that starts running the given prompt right away on its own agent, model, and reasoning level. The required `mode` declares your intent: 'delegate' when you need the new session's answer to continue your own work — finish your turn and its first reply arrives here later as a [session report]; 'fire_and_forget' when the user asked to kick off / launch / run something in the background and does not need you to see the result — tell the user the session was started and move on; no report will come, and you must NOT poll read_session or wait for it; the user follows the session through its card. model_id is required and must be valid for the chosen configured provider; call list_agent_targets for current choices. A live agent-conversation card tracks the session's progress in this conversation in both modes. Call it once per session you want to start. Returns the new session id."
+  "Create a NEW Solus chat session that starts running the given prompt right away on its own agent, model, and reasoning level. Task ownership is explicit: pass `task_id` to run another attempt for an existing task, or `parent_task_id` to create a new subtask under a top-level task; omit both for an independent top-level task. The required `mode` declares your intent: 'delegate' when you need the new session's answer to continue your own work — finish your turn and its first reply arrives here later as a [session report]; 'fire_and_forget' when the user asked to kick off / launch / run something in the background and does not need you to see the result — tell the user the session was started and move on; no report will come, and you must NOT poll read_session or wait for it; the user follows the session through its card. model_id is required and must be valid for the chosen configured provider; call list_agent_targets for current choices. A live agent-conversation card tracks the session's progress in this conversation in both modes. Call it once per session you want to start. Returns the new session id and its task id."
 const LIST_AGENT_TARGETS_DESC =
   'List the agent providers and models currently configured on this Solus host for create_session, including runtime availability and supported reasoning levels. Use this before choosing a cross-provider target.'
 const LIST_SESSIONS_DESC =
-  'List Solus sessions for this project so an orchestrator can observe worker status. By default excludes the calling session and returns only active/busy sessions.'
+  'List Solus sessions for this project, including their bound task or subtask, so an orchestrator can observe worker status. By default excludes the calling session and returns only active/busy sessions.'
 const SEARCH_SESSIONS_DESC =
   "Full-text search over ALL your past Solus conversations (every project and its worktrees). Reach for this WHENEVER the user refers to a prior discussion — 'the X thread', 'when we talked about Y', 'like we decided before', 'that thing we found' — instead of answering from memory. Put the topic in `query`; leave `project` unset (topic and working directory routinely differ — see that param). Each result carries a clickable session link and a `session id`; take that id and call `read_session` (pass your query as `match`) to load the full conversation before you answer."
 const READ_SESSION_DESC =
-  'Load a Solus session by id: its status plus message bodies. Two uses — (1) inspect a worker\'s progress or whether it awaits input; (2) after search_sessions surfaces a past conversation, read it in full to ground your answer. By default returns the latest tail; pass `match` (typically the same text you searched for) to jump to the relevant passage of a long session instead.'
+  'Load a Solus session by id: its status, bound task/subtask context, and message bodies. Two uses — (1) inspect a worker\'s progress or whether it awaits input; (2) after search_sessions surfaces a past conversation, read it in full to ground your answer. By default returns the latest tail; pass `match` (typically the same text you searched for) to jump to the relevant passage of a long session instead.'
 const PROMPT_SESSION_DESC =
   "Send a prompt into another Solus session by session id. Choose delivery: 'steer' only when the target's work in progress should change now—for example to correct, interrupt, redirect, constrain, or reprioritize its current approach. Choose 'queue' for independent or sequential follow-up that should begin after the current turn; queue is the default. Steering is consumed at the provider's next decision point rather than cancelling the session, and automatically falls back to queueing if the turn is ending or cannot be steered. By default, the target's reply arrives later in this conversation as a [session report]; set notify_on_completion to false for fire-and-forget. Completion watchers do not survive app restart, so use read_session to catch up. Cannot target your own session."
 const WAIT_FOR_SESSION_DESC =
@@ -278,6 +292,32 @@ function resolveProject(
 
 function isBusy(status: SessionStatus | undefined): boolean {
   return status === 'connecting' || status === 'running' || status === 'awaiting_input' || status === 'awaiting_plan' || status === 'rate_limited'
+}
+
+async function taskContextForSession(sessionId: string): Promise<{
+  summary: string
+  details: string[]
+} | null> {
+  const boundTask = await Task.forSession(sessionId)
+  if (!boundTask) return null
+  const task = boundTask.record()
+  const parent = task.parentId ? (await Task.byId(task.parentId)).record() : null
+  const subtasks = listTaskChildren(parent?.id ?? task.id)
+  const siblings = parent ? subtasks.filter((candidate) => candidate.id !== task.id) : []
+  const relationship = parent ? `subtask of ${parent.id}` : 'top-level task'
+  const details = [`task: ${task.id} [${task.status}] ${task.title} (${relationship})`]
+  if (parent) details.push(`parent task: ${parent.id} [${parent.status}] ${parent.title}`)
+  const related = parent ? siblings : subtasks
+  if (related.length) {
+    details.push(parent ? 'sibling subtasks:' : 'subtasks:')
+    for (const relatedTask of related) {
+      details.push(`- ${relatedTask.id} [${relatedTask.status}] ${relatedTask.title}`)
+    }
+  }
+  return {
+    summary: `${task.id} [${task.status}] ${task.title} (${relationship})`,
+    details,
+  }
 }
 
 export async function findSession(sessionId: string): Promise<SessionMeta | null> {
@@ -371,9 +411,11 @@ export async function executeSessionTool(
         .filter((meta) => status === 'all' || (meta.sessionId !== calling && isBusy(meta.status)))
         .slice(0, limit)
       if (!filtered.length) return { ok: true, text: 'No matching sessions.' }
-      const lines = filtered.map((meta) => {
+      const taskContexts = await Promise.all(filtered.map((meta) => taskContextForSession(meta.sessionId)))
+      const lines = filtered.map((meta, index) => {
         const self = meta.sessionId === calling ? ' (this session)' : ''
-        return `${sessionLink(meta)}${self}  [${meta.status ?? 'idle'}]  ${meta.provider}  ${meta.cwd}  "${truncate(meta.firstMessage ?? '', 80)}"  (${meta.lastTimestamp})`
+        const task = taskContexts[index]
+        return `${sessionLink(meta)}${self}  [${meta.status ?? 'idle'}]  ${meta.provider}  ${meta.cwd}  "${truncate(meta.firstMessage ?? '', 80)}"  (${meta.lastTimestamp})${task ? `\n  task: ${task.summary}` : '\n  task: (unbound)'}`
       })
       return { ok: true, text: `Sessions:\n${lines.join('\n')}` }
     }
@@ -414,6 +456,7 @@ export async function executeSessionTool(
       }
       const stuck = status === 'awaiting_input' ? ' — awaiting input/permission' : status === 'awaiting_plan' ? ' — awaiting plan approval' : ''
       const pendingInput = formatPendingInputReport(sessionController.pendingInputEvents(sessionId))
+      const taskContext = await taskContextForSession(sessionId)
       return {
         ok: true,
         text: [
@@ -423,6 +466,7 @@ export async function executeSessionTool(
           ...(meta.model ? [`model: ${meta.model}${meta.reasoningEffort ? ` (reasoning: ${meta.reasoningEffort})` : ''}`] : []),
           `cwd: ${meta.cwd}`,
           `lastTimestamp: ${meta.lastTimestamp}`,
+          ...(taskContext ? taskContext.details : ['task: (unbound)']),
           '',
           ...(pendingInput ? [`Pending input:\n${pendingInput}`, ''] : []),
           ...(bodyNote ? [bodyNote] : []),
@@ -663,6 +707,13 @@ export async function executeSessionTool(
     const worktreeBaseBranch = typeof args.worktree_base_branch === 'string' && args.worktree_base_branch.trim()
       ? args.worktree_base_branch.trim()
       : null
+    const taskId = typeof args.task_id === 'string' && args.task_id.trim() ? args.task_id.trim() : null
+    const parentTaskId = typeof args.parent_task_id === 'string' && args.parent_task_id.trim()
+      ? args.parent_task_id.trim()
+      : null
+    if (taskId && parentTaskId) {
+      return { ok: false, text: 'create_session accepts either task_id or parent_task_id, not both.' }
+    }
     const exchangeId = randomUUID()
     const dispatchedAt = Date.now()
 
@@ -685,8 +736,19 @@ export async function executeSessionTool(
     })
 
     let agentSessionId: string
+    let createdTaskId: string | undefined
     try {
-      ;({ agentSessionId } = await sessionCreator({ prompt, provider: p, modelId, reasoningEffort, contextWindow, cwd, worktreeBaseBranch }))
+      ;({ agentSessionId, taskId: createdTaskId } = await sessionCreator({
+        prompt,
+        provider: p,
+        modelId,
+        reasoningEffort,
+        contextWindow,
+        cwd,
+        worktreeBaseBranch,
+        taskId,
+        parentTaskId,
+      }))
     } catch (err: any) {
       // Settle the card rather than leaving it dispatching forever.
       deps.onAgentConversationUpdate?.({
@@ -736,9 +798,12 @@ export async function executeSessionTool(
     const followUp = notifyModel
       ? " Its first reply will arrive in this conversation as a [session report] — finish your turn rather than polling (pending reports are lost if the app restarts; use read_session to catch up)."
       : ' Fire-and-forget: no report will arrive here. Do not wait or poll — the user follows the session through its card.'
+    const taskNote = createdTaskId
+      ? ` Bound to task ${createdTaskId}${parentTaskId ? `, a new subtask of ${parentTaskId}` : ''}.`
+      : ''
     return {
       ok: true,
-      text: `Created session ${sessionLink({ provider: p, sessionId: agentSessionId, slug: null, cwd })} running on ${p}/${modelId} (reasoning: ${reasoningEffort}). A card to open it was added to the conversation.${followUp}`,
+      text: `Created session ${sessionLink({ provider: p, sessionId: agentSessionId, slug: null, cwd })} running on ${p}/${modelId} (reasoning: ${reasoningEffort}).${taskNote} A card to open it was added to the conversation.${followUp}`,
     }
   } catch (err: any) {
     log.error('session_tool_failed', { tool: name, error: err instanceof Error ? err.message : String(err) })

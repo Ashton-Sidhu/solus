@@ -142,7 +142,7 @@
       />
     </div>
     {#if schedule.cronInvalid}
-      <p class="m-0 text-right text-[0.6875rem] text-[var(--solus-status-error,#e53e3e)]">
+      <p class="m-0 text-right text-[12px] text-[var(--solus-status-error,#e53e3e)]">
         Invalid cron expression.
       </p>
     {/if}

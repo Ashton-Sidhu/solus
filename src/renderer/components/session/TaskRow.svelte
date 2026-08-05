@@ -29,6 +29,7 @@
     aggregateReviewGuideStatus,
     hasDisclosure,
     hasGlyph,
+    showsUnreadIndicator,
     type PrChip as PrChipModel,
     type SidebarTask,
   } from "./lib/task-list";
@@ -112,12 +113,13 @@
   // A task with no server on it has nothing open, and nothing open runs here.
   const isRemote = $derived(!!host && !host.local);
 
-  // With no session rows on screen this row *is* the session you are reading, so
-  // it carries the current-session weight and terracotta clock itself. The test
-  // is whether anything discloses, not whether sessions exist: a task with one
-  // plain session under it never draws a child row, so that row would otherwise
-  // be the only selected session in the pane that says nothing about it.
-  const isCurrentSession = $derived(onPath && !disclosable);
+  // With no session rows on screen this row stands in for the session you are
+  // reading, so it carries the current-session weight and terracotta clock
+  // itself. Two ways that happens: the task discloses nothing (a lone plain
+  // session *is* this row), or it discloses but sits collapsed — a minimized
+  // task must still say that the session you are reading is one of its own,
+  // since the child row that would otherwise say so is not on screen.
+  const isCurrentSession = $derived(onPath && (!disclosable || !expanded));
   const titleIsEmphasized = $derived(
     isCurrentSession || hasGlyph(task.status),
   );
@@ -133,26 +135,29 @@
           !(hasSessions && expanded),
   );
 
+  // Unread output wins over a live run until it is cleared. A state explicitly
+  // waiting on the user still wins over unread.
+  const showsUnreadDot = $derived(
+    showsUnreadIndicator(task.status, task.unread),
+  );
+
   // A number can only date one turn. Once several sessions are running under
   // the task there is no single clock to report, so the row says *that* work is
   // in flight and leaves the durations to the session rows that own them.
-  const spinning = $derived(task.status === "running" && sessions.length > 1);
-
-  // Unread is the quietest thing the margin can say, so it only gets the column
-  // when nothing louder wants it: a task that is asking, working, or that you
-  // have already ticked off has a better answer to "what about this row?".
-  const showsUnreadDot = $derived(task.unread && task.status === "idle");
+  const spinning = $derived(
+    task.status === "running" && !showsUnreadDot && sessions.length > 1,
+  );
 
   // Ticks each second, tabular figures, so the row never reflows around it.
   let now = $state(Date.now());
   $effect(() => {
-    if (task.status !== "running" || spinning) return;
+    if (task.status !== "running" || showsUnreadDot || spinning) return;
     return liveActivityClock.subscribe((value) => {
       now = value;
     });
   });
   const elapsed = $derived(
-    task.status === "running" && !spinning && task.runStartedAt
+    task.status === "running" && !showsUnreadDot && !spinning && task.runStartedAt
       ? formatElapsed(now - task.runStartedAt)
       : "",
   );
@@ -164,7 +169,6 @@
       hasGlyph(task.status) ||
       spinning ||
       !!elapsed ||
-      task.status === "done" ||
       showsUnreadDot,
   );
 
@@ -191,7 +195,7 @@
 -->
 <div class="group/task">
   <div
-    class="group/row relative flex cursor-pointer items-center gap-[0.5625rem] rounded-[0.6875rem] pr-2 transition-[background] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] {grouped
+    class="group/row relative -mr-1 flex cursor-pointer items-center gap-[0.5625rem] rounded-[0.6875rem] pr-2 transition-[background] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] {grouped
       ? 'pl-2.5'
       : 'pl-[0.125rem]'} {showProjectLine ? 'h-[3.25rem]' : 'h-[2.125rem]'}"
     role="treeitem"
@@ -307,44 +311,41 @@
                 <BookOpenTextIcon size={13} weight="fill" />
               </span>
             {/if}
-            {#if hasGlyph(task.status)}
-              <TaskStatusGlyph
-                status={task.status}
-                label={attentionLabel(task.attention)}
-              />
-            {:else if spinning}
-              <!-- Work in flight and work finished are the same axis, so they
-                   share a colour: the pane's one cool tone, which terracotta is
-                   never spent on. The spinner is that dot still turning. -->
-              <span
-                class="flex shrink-0 items-center text-chart-5"
-                role="img"
-                aria-label={attentionLabel(task.attention)}
-              >
-                <SpinnerGapIcon size={13} class="animate-spin" />
-              </span>
-            {:else if elapsed}
-              <!-- One session running, so running spends a number rather than a
-                   glyph. When that session is the one you are reading, the
-                   clock joins the selected elbow in terracotta — the same rule
-                   one level down. -->
-              <span
-                class="shrink-0 font-mono text-[0.65625rem] tabular-nums {isCurrentSession
-                  ? 'text-primary'
-                  : 'text-muted-foreground'}">{elapsed}</span
-              >
-            {:else if task.status === "done"}
-              <!-- The same cool tone the spinner turns in: the work it was
-                   running for, now stopped. -->
-              <span
-                class="size-1.5 shrink-0 rounded-full bg-chart-5"
-                role="img"
-                aria-label="Completed"
-                title="Completed"
-              ></span>
-            {:else if showsUnreadDot}
-              <UnreadDot />
-            {/if}
+            <!-- State marks vary slightly in silhouette and optical size, but
+                 their centres share one column down the tree. -->
+            <span
+              class="flex min-w-[0.875rem] shrink-0 items-center justify-center"
+            >
+              {#if showsUnreadDot}
+                <UnreadDot />
+              {:else if hasGlyph(task.status)}
+                <TaskStatusGlyph
+                  status={task.status}
+                  label={attentionLabel(task.attention)}
+                />
+              {:else if spinning}
+                <!-- Work in flight and work finished are the same axis, so they
+                     share a colour: the pane's one cool tone, which terracotta is
+                     never spent on. The spinner is that dot still turning. -->
+                <span
+                  class="flex shrink-0 items-center text-chart-5"
+                  role="img"
+                  aria-label={attentionLabel(task.attention)}
+                >
+                  <SpinnerGapIcon size={13} class="animate-spin" />
+                </span>
+              {:else if elapsed}
+                <!-- One session running, so running spends a number rather than a
+                     glyph. When that session is the one you are reading, the
+                     clock joins the selected elbow in terracotta — the same rule
+                     one level down. -->
+                <span
+                  class="shrink-0 font-mono text-[0.65625rem] tabular-nums {isCurrentSession
+                    ? 'text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))]'
+                    : 'text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]'}">{elapsed}</span
+                >
+              {/if}
+            </span>
           </span>
         {/if}
 
@@ -396,7 +397,7 @@
              group header already names the project, so grouped rows drop the
              line entirely. -->
         <span
-          class="mt-1 flex max-w-full items-center gap-[0.375rem] text-[0.6875rem] text-muted-foreground"
+          class="mt-1 flex max-w-full items-center gap-[0.375rem] text-[0.6875rem] text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]"
         >
           {#if hasRoot}
             <ProjectFavicon
@@ -434,7 +435,7 @@
       <!-- The spine drops out of the caret above and stops on the last row's
            own elbow, so the tree reads as ending rather than running off. -->
       <span
-        class="absolute top-0 bottom-10 w-px bg-[color-mix(in_oklch,var(--foreground)_9%,transparent)] {grouped
+        class="absolute top-0 bottom-10 w-px bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] {grouped
           ? 'left-[1.125rem]'
           : 'left-2.5'}"
       ></span>

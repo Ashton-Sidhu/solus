@@ -86,6 +86,31 @@ describe('native task migration', () => {
 })
 
 describe('native task CRUD', () => {
+  test('publishes a session-born task only after its provider session is linked', async () => {
+    // WHY: a pre-launch task without a session link appears beside the loose
+    // renderer session as a duplicate row until session_init links the two.
+    let changes = 0
+    const unsubscribe = taskStore.onTasksChanged(() => changes++)
+    try {
+      const task = await taskSessions.prepareSessionTask({
+        projectKey: '/workspace/solus',
+        prompt: 'Start one coherent task row',
+      })
+
+      expect(task).not.toBeNull()
+      expect(changes).toBe(0)
+
+      await (await tasks.Task.byId(task!.id)).linkSession('provider-session', 'working')
+
+      expect(changes).toBe(1)
+      expect(await taskSessions.tasksForSession('provider-session')).toMatchObject({
+        task: { id: task!.id },
+      })
+    } finally {
+      unsubscribe()
+    }
+  })
+
   test('stores the six-state lifecycle and global inbox independently of project paths', async () => {
     // WHY: projectKey is a logical path used by history/sidebar grouping; it is
     // opaque store data and NULL, not a legacy hash, is the global inbox.
@@ -216,6 +241,35 @@ describe('session minting and durable links', () => {
     })
   })
 
+  test('links session artifacts to the owning task exactly once', async () => {
+    // WHY: artifacts created or edited by an agent must remain discoverable
+    // from its task without repeated edits producing duplicate activity.
+    const task = await taskSessions.prepareSessionTask({
+      sessionId: 'session-with-artifacts',
+      projectKey: '/workspace/solus',
+      prompt: 'Create the task artifacts',
+    })
+
+    const link = {
+      kind: 'work' as const,
+      targetKey: 'work-from-session',
+      title: 'Session notes',
+    }
+    await tasks.Task.linkArtifactForSession('session-with-artifacts', link)
+    await tasks.Task.linkArtifactForSession('session-with-artifacts', link)
+
+    const details = await (await tasks.Task.byId(task!.id)).details()
+    expect(details.links).toEqual([
+      expect.objectContaining({
+        kind: 'work',
+        targetKey: 'work-from-session',
+        createdBy: 'agent',
+        originSessionId: 'session-with-artifacts',
+      }),
+    ])
+    expect(details.events.filter((event) => event.kind === 'linked')).toHaveLength(1)
+  })
+
   test('keeps independent sessions as top-level tasks even when they share a worktree', async () => {
     // WHY: a worktree is execution context shared by many unrelated sessions.
     // Inferring hierarchy from it makes every later session appear under the
@@ -291,6 +345,34 @@ describe('session minting and durable links', () => {
     ])
   })
 
+  test('can mint a session-born subtask beneath an explicit parent', async () => {
+    // WHY: agent-created worker sessions must carry task hierarchy at first
+    // dispatch so their initial system prompt already names the parent and
+    // sibling work instead of relying on a racy follow-up link.
+    const parent = await taskStore.createTask({
+      title: 'Ship task-aware tools',
+      projectKey: '/workspace/solus',
+    })
+
+    const child = await taskSessions.prepareSessionTask({
+      parentTaskId: parent.id,
+      sessionId: 'session-child-worker',
+      projectKey: '/workspace/solus',
+      prompt: 'Add focused coverage',
+    })
+
+    expect(child).toMatchObject({
+      parentId: parent.id,
+      title: 'Add focused coverage',
+      status: 'in_progress',
+      source: 'session',
+    })
+    expect(await taskSessions.tasksForSession('session-child-worker')).toMatchObject({
+      task: { id: child!.id, parentId: parent.id },
+      parent: { id: parent.id },
+    })
+  })
+
   test('task session links include indexed session title and activity', async () => {
     // WHY: closed attempts have no mounted renderer session, so the sidebar
     // needs their persisted display metadata on the durable task link.
@@ -318,6 +400,24 @@ describe('session minting and durable links', () => {
         lastActivityAt: 1_725_000_000_000,
       }),
     ])
+  })
+
+  test('the detail read carries no session links at all', async () => {
+    // WHY: a task's attempts have exactly one reader, `taskSessions()`, whose
+    // join is what gives every link its display metadata. A second copy on the
+    // detail payload was written straight over the renderer's good links by
+    // whichever surface opened first, renaming every session in the sidebar
+    // after its parent task and every row in the task panel after its id.
+    // Not "kept in sync" — absent, so the disagreement cannot be expressed.
+    const task = await taskSessions.prepareSessionTask({
+      sessionId: 'session-detail',
+      projectKey: '/workspace/solus',
+      prompt: 'A task with one attempt',
+    })
+
+    const details = await (await tasks.Task.byId(task!.id)).details()
+    expect(details).not.toHaveProperty('attempts')
+    expect((await taskSessions.taskSessions(task!.id))[task!.id]).toHaveLength(1)
   })
 
   test('performs no write for any dispatch with an existing provider session', async () => {
@@ -406,7 +506,7 @@ describe('session minting and durable links', () => {
       branch: 'feature/bound',
       originSessionId: 'provider-session',
     })
-    expect(detail.attempts).toEqual([
+    expect((await taskSessions.taskSessions(task.id))[task.id]).toEqual([
       expect.objectContaining({ sessionId: 'bound-session', branch: 'feature/bound' }),
     ])
   })

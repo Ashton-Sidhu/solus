@@ -69,14 +69,14 @@ test.describe('Workspace page', () => {
     await expect(page.getByRole('menuitemradio')).toHaveCount(1)
   })
 
-  test('previews the selected artifact as the document itself, not a paraphrase', async ({ page, electronApp }) => {
+  test('previews the artifact the pointer rests on, and nothing before it rests', async ({ page, electronApp }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
     const workspace = new WorkspacePage(page)
     await app.waitForAppReady()
 
-    // The peek is a wide-layout affordance — the container query folds it away
-    // below ~71rem, so pin a width the pane is guaranteed to clear.
+    // The card is 540px wide and clamps inside the ledger — give it a window
+    // where the ledger is wider than that, as any real desktop is.
     await electronApp.evaluate(({ BrowserWindow }) => {
       BrowserWindow.getAllWindows()[0]?.setSize(1600, 1000)
     })
@@ -88,17 +88,23 @@ test.describe('Workspace page', () => {
     await workspace.waitForOpen()
     await expect(workspace.items().first()).toBeVisible({ timeout: 5_000 })
 
-    // The first row is selected on open, so the peek is already loading it. It
-    // must render the markdown — a heading element and a table, not a blob of
-    // stripped text — which is what makes the preview a preview.
+    // Nothing is reserved and nothing is clicked: with the pointer away from
+    // the ledger there is no preview surface on the page at all.
+    await page.mouse.move(4, 4)
+    await expect(workspace.peek()).toHaveCount(0)
+
+    // Resting on a row floats the card, reading the document's own prose — not
+    // the row's snippet paraphrased — and naming the way out of it.
+    await workspace.items().first().hover()
     const peek = workspace.peek()
-    await expect(peek).toBeVisible()
-    await expect(peek.locator('h1')).toHaveText('Mock Test Document', { timeout: 5_000 })
-    await expect(peek.locator('table')).toBeVisible()
-    await expect(peek.getByRole('button', { name: 'Open' })).toBeVisible()
+    await expect(peek).toBeVisible({ timeout: 5_000 })
+    await expect(peek).toContainText('This is a test document created by the mock agent.', {
+      timeout: 5_000,
+    })
+    await expect(peek).toContainText('⏎ open')
   })
 
-  test('keeps a hovered artifact selected while its preview loads', async ({ page, electronApp }) => {
+  test('peeking never moves the ledger selection', async ({ page, electronApp }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
     const workspace = new WorkspacePage(page)
@@ -117,15 +123,15 @@ test.describe('Workspace page', () => {
     await workspace.waitForOpen()
     const rows = workspace.items()
     await expect(rows).toHaveCount(2)
+    await expect(rows.first()).toHaveAttribute('aria-selected', 'true')
 
-    // Prime intentional pointer movement, then move to the other row. The
-    // preview begins its lazy load after 150ms; selection must survive that
-    // data refresh instead of snapping back to index zero.
-    await rows.first().hover()
+    // Selection is a click and a keyboard cursor; hovering is neither. Walking
+    // the ledger with the pointer must leave the keyboard's place untouched, or
+    // peeking costs you your position in a 400-row list.
     await rows.nth(1).hover()
-    await expect(rows.nth(1)).toHaveAttribute('aria-selected', 'true')
-    await expect(workspace.peek().locator('h1')).toHaveText('Mock Test Document', { timeout: 5_000 })
-    await expect(rows.nth(1)).toHaveAttribute('aria-selected', 'true')
+    await expect(workspace.peek()).toBeVisible({ timeout: 5_000 })
+    await expect(rows.first()).toHaveAttribute('aria-selected', 'true')
+    await expect(rows.nth(1)).toHaveAttribute('aria-selected', 'false')
   })
 
   test('can be toggled closed and reopened via the keyboard shortcut', async ({ page }) => {

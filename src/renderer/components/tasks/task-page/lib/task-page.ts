@@ -11,6 +11,7 @@ import type {
   TaskSessionLink,
   TaskStatus,
 } from '../../../../../shared/task-types'
+import { sessionDisplayName } from '../../../../lib/sessionUtils'
 import { PRIORITY_META, STATUS_META } from '../../lib/tasks-api'
 
 /** `color-mix` against the foreground, the design's one recipe for turning a
@@ -21,14 +22,6 @@ export function statusColor(token: string, strength = 62): string {
 
 export function statusTextColor(status: TaskStatus): string {
   return statusColor(STATUS_META[status]?.token ?? '--idle')
-}
-
-/** Name a task attempt from the freshest source available. Open sessions can
- * have a renderer title before the history index catches up; closed sessions
- * use the metadata hydrated onto the link. The id is the honest final fallback
- * for a link whose indexed session is not available. */
-export function taskSessionLabel(link: TaskSessionLink, liveTitle?: string | null): string {
-  return liveTitle?.trim() || link.sessionTitle?.trim() || link.sessionId
 }
 
 export interface TaskSessionRow {
@@ -71,6 +64,7 @@ export function taskSessionRow(
   liveProvider: string | null,
   running: boolean,
   now: number,
+  taskTitle?: string | null,
 ): TaskSessionRow {
   // The link is written when the session is first bound to the task, so its
   // timestamp is when the attempt started.
@@ -79,7 +73,7 @@ export function taskSessionRow(
   const provider = liveProvider ?? link.provider
   return {
     sessionId: link.sessionId,
-    title: taskSessionLabel(link, liveTitle),
+    title: sessionDisplayName({ link, liveTitle, taskTitle }),
     agent: provider ? (AGENT_LABELS[provider] ?? provider) : '',
     date: (thisYear ? DAY : DAY_WITH_YEAR).format(started),
     dateFull: FULL.format(started),

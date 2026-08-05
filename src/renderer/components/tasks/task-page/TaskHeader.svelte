@@ -52,7 +52,7 @@
 
 <div class="flex items-center gap-[13px] pb-[11px]">
   <span
-    class="inline-flex items-center gap-1.5 text-xs font-medium tracking-[-.005em]"
+    class="inline-flex items-center gap-1.5 text-[13px] font-[450] tracking-[-.005em]"
     style="color:{statusTextColor(task.status)}"
   >
     <svg
@@ -69,7 +69,7 @@
     {status.label}
   </span>
   <span class="h-[11px] w-px bg-[var(--hairline-strong)]" aria-hidden="true"></span>
-  <span class="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+  <span class="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground">
     <span class="flex h-[9px] shrink-0 items-end gap-[1.5px]" aria-hidden="true">
       {#each bars as bar (bar.height)}
         <span
@@ -82,7 +82,7 @@
   </span>
   {#if openedAt}
     <span class="h-[11px] w-px bg-[var(--hairline-strong)]" aria-hidden="true"></span>
-    <span class="font-mono text-[11px] text-muted-foreground opacity-75">opened {openedAt}</span>
+    <span class="font-mono text-[12px] text-muted-foreground opacity-75">opened {openedAt}</span>
   {/if}
 </div>
 
@@ -106,7 +106,7 @@
   </h1>
 {/if}
 
-<div class="task-description-prose max-w-[84ch] pt-[18px]">
+<div class="task-description-prose pt-[18px]">
   <DocumentPromptEditor
     value={bodyDraft}
     onValueChange={(v) => (bodyDraft = v)}

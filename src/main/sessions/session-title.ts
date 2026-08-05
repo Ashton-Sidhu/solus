@@ -22,7 +22,7 @@ function buildSessionMetadataPrompt(promptText: string): string {
   return [
     'Summarize the input into a chat thread name and a ticket description.',
     `Submit both by calling ${SESSION_METADATA_TOOL_NAME} exactly once — that call is your whole answer.`,
-    'The name is 2-5 words in Title Case naming the concrete task.',
+    'The name is 4-7 words in Title Case naming the concrete task.',
     'The description is a concise Markdown paragraph stating the requested outcome and important context.',
     'Write the description as the ticket itself, not as commentary about the input or the user.',
     'Do not explain, reason, acknowledge, mention the task, or write any prose.',

@@ -36,9 +36,9 @@
   let labelDraft = $state("");
 
   const ROW = "flex h-[34px] items-center";
-  const ROW_LABEL = "w-[78px] shrink-0 pl-0.5 text-[11.5px] text-muted-foreground";
+  const ROW_LABEL = "w-[78px] shrink-0 pl-0.5 text-[12px] text-muted-foreground";
   const VALUE_BTN =
-    "flex h-[34px] flex-1 cursor-pointer items-center gap-2 rounded-md px-2 text-xs hover:bg-[var(--wash-2)]";
+    "flex h-[34px] flex-1 cursor-pointer items-center gap-2 rounded-md px-2 text-[13px] hover:bg-[var(--wash-2)]";
   const GROUP = "flex flex-col gap-1 px-3.5 pt-[15px] pb-4";
 
   function addLabel() {
@@ -142,9 +142,9 @@
     <div class={ROW}>
       <span class={ROW_LABEL}>Assignee</span>
       {#if task.assignee}
-        <span class="flex h-[34px] flex-1 items-center gap-2 px-2 text-xs">
+        <span class="flex h-[34px] flex-1 items-center gap-2 px-2 text-[13px]">
           <span
-            class="flex size-[18px] shrink-0 items-center justify-center rounded-full text-[8.5px] font-semibold shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
+            class="flex size-[18px] shrink-0 items-center justify-center rounded-full text-[9px] font-medium shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
             style="background:color-mix(in oklch, var(--chart-1) 22%, transparent);color:color-mix(in oklch, var(--chart-1) 72%, var(--foreground))"
           >
             {authorInitials(task.assignee)}
@@ -152,7 +152,7 @@
           {task.assignee}
         </span>
       {:else}
-        <span class="flex h-[34px] flex-1 items-center px-2 text-xs text-muted-foreground">
+        <span class="flex h-[34px] flex-1 items-center px-2 text-[13px] text-muted-foreground">
           Unassigned
         </span>
       {/if}
@@ -160,7 +160,7 @@
 
     <div class={ROW}>
       <span class={ROW_LABEL}>Project</span>
-      <span class="flex h-[34px] min-w-0 flex-1 items-center gap-2 px-2 text-xs">
+      <span class="flex h-[34px] min-w-0 flex-1 items-center gap-2 px-2 text-[13px]">
         <span
           class="size-3 shrink-0 rounded bg-[color-mix(in_oklch,var(--chart-4)_55%,transparent)]"
           aria-hidden="true"
@@ -174,7 +174,7 @@
       <span class="flex min-w-0 flex-1 flex-wrap items-center gap-1 pt-1 pl-2">
         {#each task.labels as label (label)}
           <span
-            class="inline-flex h-[19px] items-center gap-1 rounded-full px-1.5 text-[10.5px] font-medium tracking-[.02em] text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)]"
+            class="inline-flex h-[19px] items-center gap-1 rounded-full px-1.5 text-[11px] font-[450] tracking-[.02em] text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)]"
           >
             {label}
             {#if canEdit}
@@ -191,7 +191,7 @@
         {/each}
         {#if canEdit}
           <input
-            class="h-[19px] min-w-[60px] flex-1 bg-transparent text-[10.5px] text-muted-foreground outline-none placeholder:text-muted-foreground/70"
+            class="h-[19px] min-w-[60px] flex-1 bg-transparent text-[11px] text-muted-foreground outline-none placeholder:text-muted-foreground/70"
             bind:value={labelDraft}
             placeholder="Add a label…"
             onblur={addLabel}
@@ -211,13 +211,13 @@
       {#if canEditPlanningFields}
         <input
           type="date"
-          class="h-[34px] flex-1 cursor-pointer rounded-md bg-transparent px-2 font-mono text-[11.5px] text-muted-foreground outline-none hover:bg-[var(--wash-2)] hover:text-foreground"
+          class="h-[34px] flex-1 cursor-pointer rounded-md bg-transparent px-2 font-mono text-[12px] text-muted-foreground outline-none hover:bg-[var(--wash-2)] hover:text-foreground"
           value={task.dueDate ?? ""}
           onchange={(e) => onSave({ dueDate: e.currentTarget.value || null })}
           aria-label="Target date"
         />
       {:else}
-        <span class="flex h-[34px] flex-1 items-center px-2 font-mono text-[11.5px] text-muted-foreground">
+        <span class="flex h-[34px] flex-1 items-center px-2 font-mono text-[12px] text-muted-foreground">
           {task.dueDate ?? "None"}
         </span>
       {/if}
@@ -227,7 +227,7 @@
   {#if branches.length}
     <div class="{GROUP} gap-[11px] border-t-[.5px] border-[var(--hairline)]">
       <span
-        class="pl-0.5 text-[9.5px] font-medium tracking-[.14em] text-muted-foreground uppercase"
+        class="pl-0.5 text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase"
       >
         Work
       </span>
@@ -238,7 +238,7 @@
         <span class="flex min-w-0 flex-1 flex-col gap-px py-[3px]">
           {#each branches as branch (branch)}
             <span
-              class="flex h-7 items-center rounded-md px-2 font-mono text-[11.5px] text-muted-foreground"
+              class="flex h-7 items-center rounded-md px-2 font-mono text-[12px] text-muted-foreground"
             >
               <span class="min-w-0 truncate">{branch}</span>
             </span>
@@ -251,13 +251,13 @@
   <div
     class="flex items-center gap-2 border-t-[.5px] border-[var(--hairline)] px-4 pt-[13px] pb-3.5"
   >
-    <span class="text-[11px] text-muted-foreground opacity-80">Created</span>
-    <span class="font-mono text-[10.5px] text-muted-foreground opacity-65">
+    <span class="text-[12px] text-muted-foreground opacity-80">Created</span>
+    <span class="font-mono text-[11px] text-muted-foreground opacity-65">
       {task.createdAt ? relativeTime(task.createdAt) : "—"}
     </span>
     <span class="flex-1"></span>
-    <span class="text-[11px] text-muted-foreground opacity-80">Updated</span>
-    <span class="font-mono text-[10.5px] text-muted-foreground opacity-65">
+    <span class="text-[12px] text-muted-foreground opacity-80">Updated</span>
+    <span class="font-mono text-[11px] text-muted-foreground opacity-65">
       {relativeTime(task.updatedAt)}
     </span>
   </div>

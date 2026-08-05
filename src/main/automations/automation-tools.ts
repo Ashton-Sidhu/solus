@@ -13,6 +13,7 @@ import {
 } from './automations-store'
 import { validateTrigger } from './automation-schedule'
 import { hasActiveRun, triggerAutomationRun } from './automation-runner'
+import { Task } from '../tasks/task'
 
 const log = createLogger('automations', 'automation-tools.ts')
 
@@ -255,6 +256,19 @@ export async function executeAutomationTool(
           ? 'Trigger it with run_automation.'
           : `Scheduled (${created.trigger.type})${created.nextRunAt ? `; next run ${created.nextRunAt}` : ''}.`
       const where = created.action.sessionId ? ' Runs in this chat thread with full context.' : ''
+      if (deps.ctx?.sessionId) {
+        await Task.linkArtifactForSession(deps.ctx.sessionId, {
+          kind: 'automation',
+          targetKey: created.id,
+          title: created.name,
+        }).catch((error) => {
+          log.warn('task_automation_link_failed', {
+            sessionId: deps.ctx?.sessionId,
+            automationId: created.id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        })
+      }
       deps.onAutomationSaved?.(created)
       return { ok: true, text: `Created automation "${created.name}" (id: ${created.id}). ${when}${where}` }
     }
@@ -294,6 +308,19 @@ export async function executeAutomationTool(
         ...(Object.keys(actionPatch).length ? { action: actionPatch } : {}),
         ...(triggerPatch ? { trigger: triggerPatch } : {}),
       })
+      if (updated && deps.ctx?.sessionId) {
+        await Task.linkArtifactForSession(deps.ctx.sessionId, {
+          kind: 'automation',
+          targetKey: updated.id,
+          title: updated.name,
+        }).catch((error) => {
+          log.warn('task_automation_link_failed', {
+            sessionId: deps.ctx?.sessionId,
+            automationId: updated.id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        })
+      }
       if (updated) deps.onAutomationSaved?.(updated)
       return { ok: true, text: `Updated automation "${updated?.name}".` }
     }
