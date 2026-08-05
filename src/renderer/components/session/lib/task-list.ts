@@ -147,25 +147,21 @@ export interface SidebarTask {
   tabIds: string[]
 }
 
-/** Only child tasks (which render under their root) and an explicit sidebar
- * dismissal keep a row out. Open work restores an ordinary dismissal, but a
- * completed task stays dismissed even while its separate session keeps running. */
+/** Two things keep a row out: it is a child task, which renders under its root,
+ * or the user dismissed it. Lifecycle status is not one of them — completing a
+ * task removes its row by writing that same dismissal, so an open session
+ * restores a finished task exactly as it restores any other. */
 export function shouldShowDurableSidebarTask(
   task: Task,
   isDismissed: boolean,
   hasOpenSession: boolean,
 ): boolean {
-  return !task.parentId && (!isDismissed || (hasOpenSession && task.status !== 'done'))
+  return !task.parentId && (!isDismissed || hasOpenSession)
 }
 
-/** A dismissed child normally returns with an explicitly reopened tab. A child
- * dismissed by completion stays out while that already-running tab continues. */
-export function shouldShowSidebarChild(
-  isDismissed: boolean,
-  hasOpenTab: boolean,
-  isCompleted = false,
-): boolean {
-  return !isDismissed || (hasOpenTab && !isCompleted)
+/** Same rule one level down: a dismissed child returns with a reopened tab. */
+export function shouldShowSidebarChild(isDismissed: boolean, hasOpenTab: boolean): boolean {
+  return !isDismissed || hasOpenTab
 }
 
 /** Resolve the breadcrumb's task without putting a local-only draft into the

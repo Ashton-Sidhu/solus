@@ -8,7 +8,6 @@
   import { PAGE_ICON_BTN } from "../../lib/page-chrome";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import PaneChrome from "../ui/PaneChrome.svelte";
-  import PendingReviewTray from "../pr-review/PendingReviewTray.svelte";
   import { PromptComposer, type PromptComposerSubmit } from "../ui/prompt-composer";
   import GuideSurface from "./GuideSurface.svelte";
   import { GuideLoader } from "./lib/guide-loader.svelte";
@@ -172,13 +171,6 @@
     onCommentSave={(c) => reviewDrafts.save(c)}
     onCommentDelete={(id) => reviewDrafts.remove(id)}
   />
-
-  {#if reviewDrafts.drafts.length > 0}
-    <PendingReviewTray
-      drafts={reviewDrafts.drafts}
-      onRemove={(id) => reviewDrafts.remove(id)}
-    />
-  {/if}
 
   {#if !loader.loading && loader.guide}
     <div

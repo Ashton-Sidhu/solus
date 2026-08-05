@@ -7,11 +7,8 @@ describe('sidebar child visibility', () => {
   })
 
   test('restores a dismissed child while its session is explicitly open', () => {
+    // Completing a subtask dismisses its row the same way removing one does, so
+    // reopening that session must bring the child back either way.
     expect(shouldShowSidebarChild(true, true)).toBe(true)
-  })
-
-  test('keeps a completed child dismissed while its session continues running', () => {
-    // Task completion and session execution are independent lifecycles.
-    expect(shouldShowSidebarChild(true, true, true)).toBe(false)
   })
 })

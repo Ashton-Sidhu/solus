@@ -88,15 +88,17 @@ describe('activeSidebarTask', () => {
 describe('shouldShowDurableSidebarTask', () => {
   it('keeps completed and dropped tasks until the user explicitly removes them', () => {
     // Status and age describe the task lifecycle, not whether its sidebar row
-    // exists. The explicit remove action is the only way a root row leaves.
+    // exists. The explicit remove action is the only way a root row leaves —
+    // completing one is that same action, which is why nothing here reads status.
     expect(shouldShowDurableSidebarTask(durableTask('done'), false, false)).toBe(true)
     expect(shouldShowDurableSidebarTask(durableTask('dropped'), false, false)).toBe(true)
   })
 
-  it('keeps a completed task dismissed while its session continues running', () => {
-    // Completion removes the task row, not the run. An open session therefore
-    // must not revive the completed row just because it is still producing work.
-    expect(shouldShowDurableSidebarTask(durableTask('done'), true, true)).toBe(false)
+  it('restores a completed task when one of its sessions is reopened', () => {
+    // WHY: completion removes the row by dismissing it, so reopening a session
+    // has to bring the task back. Hiding a finished task on status instead left
+    // the reopened conversation mounted with no row — and unloaded again.
+    expect(shouldShowDurableSidebarTask(durableTask('done'), true, true)).toBe(true)
   })
 
   it('restores an open task when a new session explicitly reopens it', () => {

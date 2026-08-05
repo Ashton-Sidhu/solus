@@ -90,9 +90,12 @@
     renamingTabId = target.taskId ? null : (target.tabId ?? null);
   }
 
+  /** Leaving the editor hands the caret back to the composer, so abandoning a
+   *  rename lands you where committing one does rather than nowhere. */
   function cancelRename(): void {
     renamingTabId = null;
     renamingTaskId = null;
+    requestInputFocus();
   }
   let savedSessionsOpen = $state(false);
 
@@ -194,7 +197,6 @@
     } else if (child.tabId) {
       void sidebarStore.renameSession(child.tabId, next);
     }
-    requestInputFocus();
   }
 
   function selectSession(child: SidebarSessionChild) {
@@ -222,8 +224,10 @@
     requestInputFocus();
   }
 
-  /** Completion changes the task lifecycle and unloads its mounted sessions.
-   * Their durable history remains available to resume later. */
+  /** Completion writes the lifecycle status, then clears the row exactly the way
+   * the remove action does — the task and its subtasks leave the column and
+   * their mounted conversations unload. Nothing about the status hides a row, so
+   * reopening any of those sessions brings the task back like any other. */
   async function completeTask(task: SidebarTask) {
     try {
       if (task.taskId) await session.tasksStore.setStatus(task.taskId, "done");

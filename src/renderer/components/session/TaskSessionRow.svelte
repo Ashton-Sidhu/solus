@@ -163,14 +163,16 @@
          neither — and sitting *in* the title's line is what keeps them on it
          without a hand-tuned offset to drift out of date. The box is pinned to
          the title's own line height so a taller mark (a 24px action button)
-         overflows it symmetrically instead of pushing the branch line down;
-         while renaming, the input sets the height instead. -->
-    <span
-      class="flex items-center gap-[0.5625rem] {renaming ? '' : 'h-[1.125rem]'}"
-    >
+         overflows it symmetrically instead of pushing the branch line down —
+         the rename wash included, which is why the height holds while renaming
+         rather than being handed to the input. -->
+    <span class="flex h-[1.125rem] items-center gap-[0.5625rem]">
       {#if renaming}
         <SessionNameInput
           value={session.label}
+          class="text-[0.8125rem] {titleIsEmphasized
+            ? 'font-semibold tracking-[-0.008em]'
+            : 'tracking-[-0.006em]'}"
           onCommit={onRename}
           onCancel={onRenameCancel}
         />

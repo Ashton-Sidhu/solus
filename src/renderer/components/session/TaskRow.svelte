@@ -249,18 +249,17 @@
            neither; sitting *in* the title's line keeps them on it with no
            hand-tuned offset to drift out of date. The box is pinned to the
            title's own line height so a taller mark (a 24px action button)
-           overflows it symmetrically rather than pushing the project line down;
-           while renaming, the input sets the height instead. -->
-      <span
-        class="flex items-center gap-[0.5625rem] {renamingLead
-          ? ''
-          : 'h-[1.1875rem]'}"
-      >
+           overflows it symmetrically rather than pushing the project line down —
+           the rename wash included, which is why the height holds while
+           renaming rather than being handed to the input. -->
+      <span class="flex h-[1.1875rem] items-center gap-[0.5625rem]">
         <!-- The one thing the eye scans. The title truncates; nothing else does. -->
         {#if renamingLead}
           <SessionNameInput
             value={task.title}
-            class="text-[0.8125rem]"
+            class="text-[0.84375rem] tracking-[-0.008em] {titleIsEmphasized
+              ? 'font-[560]'
+              : ''}"
             onCommit={(next) => onRename(null, next)}
             onCancel={onRenameCancel}
           />

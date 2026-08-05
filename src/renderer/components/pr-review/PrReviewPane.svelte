@@ -20,13 +20,15 @@
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { serverConnections } from "@client-core/server-connections";
-  import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
+  import {
+    useKeybinding,
+    useScope,
+  } from "../../lib/keybindings/use-keybinding.svelte";
   import GuideSurface from "../review/GuideSurface.svelte";
   import { GuideLoader } from "../review/lib/guide-loader.svelte";
   import DiffPanel from "../diff/DiffPanel.svelte";
   import ActivityFeed from "./ActivityFeed.svelte";
   import type { PrActivityTarget } from "./lib/activity-data";
-  import PendingReviewTray from "./PendingReviewTray.svelte";
   import SubmitReviewModal from "./SubmitReviewModal.svelte";
   import SinceReviewBar from "./SinceReviewBar.svelte";
   import { prReviewState } from "./lib/pr-review.store.svelte";
@@ -127,13 +129,15 @@
       fallbackCtx: () => targetCtx ?? session.ctx,
       ctxForDirectory: (path) => session.ctxForDirectory(path),
       stackedPrsEnabled: () => settings.stackedPrsEnabled,
-      resolveDiffBase: (number, baseRef) => stacks.resolveDiffBase(number, baseRef),
+      resolveDiffBase: (number, baseRef) =>
+        stacks.resolveDiffBase(number, baseRef),
       loadStacks: (ctx) => stacks.load(ctx),
       loadThreads: (ctx, number, force) =>
         session.prsStore.loadThreads(ctx, number, { force }),
       loadInterdiff: (ctx, target, force) =>
         session.prsStore.loadInterdiff(ctx, target, { force }),
-      diffStats: (ctx, scope) => window.solus.diffStats(ctx, { scope }).then((f) => f.length),
+      diffStats: (ctx, scope) =>
+        window.solus.diffStats(ctx, { scope }).then((f) => f.length),
       replyThread: (ctx, number, threadId, body) =>
         window.solus.prReplyThread(ctx, number, threadId, body),
       resolveThread: async (ctx, number, threadId, resolved) => {
@@ -182,7 +186,8 @@
     const backgroundStatus = untrack(() =>
       session.prsStore.guideStatusFor(target.number),
     );
-    if (backgroundStatus === "queued" || backgroundStatus === "generating") return;
+    if (backgroundStatus === "queued" || backgroundStatus === "generating")
+      return;
     const generateIfMissing = settings.generatePrGuidesOnOpen;
     void untrack(() => guideLoader.load(false, generateIfMissing));
   });
@@ -316,17 +321,20 @@
     const currentNumber = target.number;
     const prCwd = pr?.worktreePath;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const unsub = serverConnections.eventsFor().subscribe('prs.invalidated', ({ projectRoot: changedCwd }) => {
-      const paneCtx = prCtx();
-      const ctxCwd = paneCtx.session.projectPath || paneCtx.session.workingDirectory;
-      if (changedCwd !== ctxCwd && changedCwd !== prCwd) return;
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        if (target.number !== currentNumber) return;
-        loadThreads(true);
-        activityFeedRef?.refresh();
-      }, 500);
-    });
+    const unsub = serverConnections
+      .eventsFor()
+      .subscribe("prs.invalidated", ({ projectRoot: changedCwd }) => {
+        const paneCtx = prCtx();
+        const ctxCwd =
+          paneCtx.session.projectPath || paneCtx.session.workingDirectory;
+        if (changedCwd !== ctxCwd && changedCwd !== prCwd) return;
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          if (target.number !== currentNumber) return;
+          loadThreads(true);
+          activityFeedRef?.refresh();
+        }, 500);
+      });
     return () => {
       unsub();
       clearTimeout(timer);
@@ -464,7 +472,11 @@
   // review and scroll it to the file, so the explanation stays on screen.
   let diffPanelRef: DiffPanel | null = $state(null);
 
-  function jumpToDiff(path?: string, line?: number | null, side: "old" | "new" = "new") {
+  function jumpToDiff(
+    path?: string,
+    line?: number | null,
+    side: "old" | "new" = "new",
+  ) {
     if (!headless) {
       // A jump from the guide keeps the guide: you asked to see one file while
       // reading the narrative, not to leave it.
@@ -480,7 +492,9 @@
     mountedDiff = true;
     if (path) {
       // First visit mounts the panel on this tick; navigate once it exists.
-      void tick().then(() => diffPanelRef?.navigateTo(path, line ?? undefined, side));
+      void tick().then(() =>
+        diffPanelRef?.navigateTo(path, line ?? undefined, side),
+      );
     }
     requestInputFocus();
   }
@@ -556,7 +570,9 @@
     return "open";
   });
 
-  const position = $derived(session.prsStore.listOrder.indexOf(target.number) + 1);
+  const position = $derived(
+    session.prsStore.listOrder.indexOf(target.number) + 1,
+  );
   const footCount = $derived(
     position > 0
       ? `#${target.number} · ${position} of ${session.prsStore.listOrder.length}`
@@ -654,7 +670,9 @@
                     type="button"
                     class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground"
                     onclick={onToggleMaximize}
-                    aria-label={maximized ? "Restore panel size" : "Maximize panel"}
+                    aria-label={maximized
+                      ? "Restore panel size"
+                      : "Maximize panel"}
                   >
                     {#if maximized}
                       <ArrowsInIcon size={13} />
@@ -694,9 +712,14 @@
         {#if !guideEnabled}
           <div class="grid h-full place-items-center px-8 text-center">
             <div class="max-w-sm">
-              <p class="text-[13px] font-medium">Guide skipped for this quick review</p>
-              <p class="mt-1.5 text-pretty text-[12.5px] leading-[1.6] text-muted-foreground">
-                The complete diff is ready in view 3. Activity and Diff remain fully available.
+              <p class="text-[13px] font-medium">
+                Guide skipped for this quick review
+              </p>
+              <p
+                class="mt-1.5 text-pretty text-[12.5px] leading-[1.6] text-muted-foreground"
+              >
+                The complete diff is ready in view 3. Activity and Diff remain
+                fully available.
               </p>
             </div>
           </div>
@@ -728,7 +751,12 @@
             comments={diffComments}
             onCommentSave={saveDiffComment}
             onCommentDelete={removeDraft}
-            meta={{ repo: pr.repo, number: pr.number, baseRef: pr.baseRef, branch: pr.headRef }}
+            meta={{
+              repo: pr.repo,
+              number: pr.number,
+              baseRef: pr.baseRef,
+              branch: pr.headRef,
+            }}
             emptyHint={guideEmptyHint}
             generationStatus={guideStatus}
             onGenerate={generateGuide}
@@ -774,19 +802,22 @@
             isWorktree
             onClose={() => select(showingFullDiff ? "activity" : "guide")}
             embedded
-            onToggleMaximize={onToggleMaximize}
+            {onToggleMaximize}
             initialScope={diffScope}
             patchOverride={isSinceReviewMode ? (interdiff?.patch ?? "") : null}
             emptyState={isSinceReviewMode
               ? {
                   title: "No patch changes since your review",
-                  description: "The PR head moved, but its effective patch stayed the same.",
+                  description:
+                    "The PR head moved, but its effective patch stayed the same.",
                 }
               : undefined}
             externalComments={diffComments}
             onExternalCommentSave={saveDiffComment}
             onExternalCommentDelete={removeDraft}
-            reviewThreads={isSinceReviewMode ? sinceReviewThreads : reviewThreads}
+            reviewThreads={isSinceReviewMode
+              ? sinceReviewThreads
+              : reviewThreads}
             onThreadReply={replyToThread}
             onThreadResolve={resolveThread}
           />
@@ -815,15 +846,6 @@
 
   {#if !headless}
     <ListHintBand {hints} count={footCount} fullWidth />
-  {/if}
-
-  {#if drafts.length > 0}
-    <PendingReviewTray
-      {drafts}
-      onSubmit={() => (showSubmit = true)}
-      onRemove={removeDraft}
-      onJump={jumpToDiff}
-    />
   {/if}
 </section>
 

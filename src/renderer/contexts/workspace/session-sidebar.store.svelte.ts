@@ -536,11 +536,7 @@ export class SessionSidebarStore {
       const projectKey = record.projectKey ?? root.projectKey ?? undefined
       const tabId = this.tabIdBySessionId.get(link.sessionId)
       const dismissalKey = record.parentId ? `task:${record.id}` : `session:${link.sessionId}`
-      if (!shouldShowSidebarChild(
-        this.dismissedRowKeys.has(dismissalKey),
-        !!tabId,
-        record.status === 'done',
-      )) continue
+      if (!shouldShowSidebarChild(this.dismissedRowKeys.has(dismissalKey), !!tabId)) continue
       if (tabId) {
         const child = this.childForTab(tabId)
         children.push({
@@ -749,13 +745,19 @@ export class SessionSidebarStore {
     if (sessionId && this.isPinned(sessionId)) await this.loadPinnedSessions()
   }
 
+  /** A durable task is named by its own record, and that is the whole write: the
+   *  sessions under it keep the names they earned. Carrying the new title down
+   *  into the lead session as well stamped a manual title onto a conversation
+   *  the user never renamed, and reshaped its row out from under them.
+   *
+   *  A loose row has no record to name — the tab it stands for *is* its name, so
+   *  there the session rename is the rename. */
   async renameTask(task: SidebarTask, title: string): Promise<void> {
-    if (task.taskId) await this.session.tasksStore.update(task.taskId, { title })
-    const leadTabId = task.taskId
-      ? (this.session.tasksStore.sessionsByTask.get(task.taskId) ?? [])
-          .map((link) => this.tabIdBySessionId.get(link.sessionId))
-          .find((tabId) => tabId !== undefined)
-      : task.tabIds[0]
+    if (task.taskId) {
+      await this.session.tasksStore.update(task.taskId, { title })
+      return
+    }
+    const leadTabId = task.tabIds[0]
     if (leadTabId) await this.renameSession(leadTabId, title)
   }
 
