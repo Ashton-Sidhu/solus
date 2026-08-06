@@ -66,13 +66,13 @@ export class IpcContextBuilder {
     const globalDefaults = this.deps.globalDefaults
     const staticInfo = session ? null : this.deps.staticInfo()
     const workingDirectory = session
-      ? session.workingDirectory
+      ? session.run.workingDirectory
       : globalDefaults.workingDirectory
         || staticInfo?.projectPath
         || staticInfo?.workspacePath
         || '~'
-    const modelConfig = session ? session.modelConfig : globalDefaults.modelConfig
-    const gitContext = session ? session.gitContext : globalDefaults.gitContext
+    const modelConfig = session ? session.run.modelConfig : globalDefaults.modelConfig
+    const gitContext = session ? session.run.gitContext : globalDefaults.gitContext
     const sessionExtras = session
       ? {
           forked: session.forked ?? false,
@@ -86,7 +86,7 @@ export class IpcContextBuilder {
 
     return {
       tabId,
-      provider: session ? session.provider ?? null : null,
+      provider: session ? session.run.provider ?? null : null,
       agentSessionId: session ? session.agentSessionId : null,
       handoffFrom: session?.handoffFrom,
       status: session ? session.status : 'idle',
@@ -97,9 +97,9 @@ export class IpcContextBuilder {
       reasoningEffort: modelConfig.reasoningEffort,
       contextWindow: modelConfig.contextWindow,
       fastMode: modelConfig.fastMode,
-      permissionMode: session ? session.permissionMode : globalDefaults.permissionMode,
+      permissionMode: session ? session.run.permissionMode : globalDefaults.permissionMode,
       gitContext: gitContext ? { ...gitContext } : null,
-      worktreeBaseBranch: session ? session.worktreeBaseBranch : globalDefaults.worktreeBaseBranch,
+      worktreeBaseBranch: session ? session.run.worktreeBaseBranch : globalDefaults.worktreeBaseBranch,
       sessionChangedFiles: session ? [...session.sessionChangedFiles] : [],
       readOnlyReason: session ? session.readOnlyReason : null,
       latestCheckpointId: session ? session.latestCheckpointId : null,

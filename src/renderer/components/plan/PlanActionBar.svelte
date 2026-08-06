@@ -36,8 +36,8 @@
   let menuOpen = $state(false)
   let triggerEl: HTMLButtonElement | null = $state(null)
   const sess = $derived(session.sessionFor(session.activeTabId))
-  const hasGit = $derived(!!sess?.gitContext)
-  const alreadyInWorktree = $derived(!!sess?.gitContext?.worktreePath)
+  const hasGit = $derived(!!sess?.run.gitContext)
+  const alreadyInWorktree = $derived(!!sess?.run.gitContext?.worktreePath)
   let useWorktree = $state(false)
   let startNewSession = $state(true)
   const showWorktreeToggle = $derived((hasGit || forceShowWorktreeToggle) && !alreadyInWorktree)
@@ -107,7 +107,7 @@
     bind:value={actionComment}
     bind:collapsed
     tabId={session.activeTabId}
-    workingDirectory={sess?.workingDirectory}
+    workingDirectory={sess?.run.workingDirectory}
     menuPlacement="up"
     placeholder={isMobile ? "Add a note…" : "Add a note… (⌥L)"}
   >

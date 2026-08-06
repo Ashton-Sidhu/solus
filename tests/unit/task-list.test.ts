@@ -2,7 +2,6 @@ import { describe, expect, it } from 'bun:test'
 import type { PullRequestSummary } from '../../src/shared/providers'
 import type { Task } from '../../src/shared/task-types'
 import {
-  activeSidebarTask,
   aggregateReviewGuideStatus,
   buildProjectSummaries,
   formatElapsed,
@@ -59,31 +58,6 @@ function task(
     ...overrides,
   }
 }
-
-describe('activeSidebarTask', () => {
-  it('keeps a draft out of the sidebar projection while resolving its inherited task', () => {
-    const inheritedTask = task('task-row', 'idle', {
-      taskId: 'task-root',
-      tabIds: ['source-tab'],
-    })
-
-    expect(
-      activeSidebarTask([inheritedTask], 'draft-tab', 'draft-tab', 'task-root'),
-    ).toBe(inheritedTask)
-    expect(inheritedTask.tabIds).toEqual(['source-tab'])
-  })
-
-  it('does not assign an unrelated non-draft tab by task id', () => {
-    const inheritedTask = task('task-row', 'idle', {
-      taskId: 'task-root',
-      tabIds: ['source-tab'],
-    })
-
-    expect(
-      activeSidebarTask([inheritedTask], 'other-tab', 'draft-tab', 'task-root'),
-    ).toBeNull()
-  })
-})
 
 describe('shouldShowDurableSidebarTask', () => {
   it('keeps completed and dropped tasks until the user explicitly removes them', () => {

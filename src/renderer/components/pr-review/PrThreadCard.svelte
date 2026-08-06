@@ -39,7 +39,7 @@
 
   // Comment bodies are GitHub markdown — same pipeline + `.prose-pr`
   // typography as the PR description and the timeline's conversation rows.
-  const bodyProseClass = "github-markdown prose-cloud prose-pr prose-pr-comment";
+  const bodyProseClass = "github-markdown prose-cloud prose-pr";
 
   let replying = $state(false);
   let replyText = $state("");

@@ -15,11 +15,11 @@ export function contextLimit(session: Session | null | undefined): number {
   const usage = session.contextUsage
   if (usage?.windowTokens && usage.windowTokens > 0) return usage.windowTokens
   if (usage?.compactAtTokens && usage.compactAtTokens > 0) return usage.compactAtTokens
-  if (session.modelConfig.contextWindow && session.modelConfig.contextWindow > 0) {
-    return session.modelConfig.contextWindow
+  if (session.run.modelConfig.contextWindow && session.run.modelConfig.contextWindow > 0) {
+    return session.run.modelConfig.contextWindow
   }
-  const provider = (session.provider ?? 'claude-code') as AgentId
-  const model = session.sessionModel ?? session.modelConfig.modelId
+  const provider = (session.run.provider ?? 'claude-code') as AgentId
+  const model = session.sessionModel ?? session.run.modelConfig.modelId
   const profile = model ? MODEL_PROFILES[provider]?.[model] : undefined
   return profile?.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW
 }

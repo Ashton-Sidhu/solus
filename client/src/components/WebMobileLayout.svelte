@@ -290,7 +290,7 @@
       onfocusin={() => (inputFocused = true)}
       onfocusout={() => (inputFocused = false)}
     >
-      <InputBar mode="pill">
+      <InputBar mode="pill" prompt={session.inputFor(session.activeTabId)}>
         {#snippet leadingActions()}
           <button
             class="mobile-pill-plus"

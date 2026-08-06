@@ -1,5 +1,5 @@
 import { createAppContext } from '../app/create-app-context'
-import { gitCheckoutFromState, type GitCheckout, type GitState, type IpcContext, type Session, type WorktreeEntry } from '../../../shared/types'
+import { gitCheckoutFromState, type GitCheckout, type GitState, type IpcContext, type RunConfig, type Session, type WorktreeEntry } from '../../../shared/types'
 import { formatBranchDisplayName } from '../../lib/git-context'
 
 export interface GitProjectRefs {
@@ -117,16 +117,22 @@ export class SessionEnvironmentStore {
     return this.apiByCwd.get(cwd) ?? window.solus
   }
 
-  /** One projection for every surface that displays a session's environment. */
-  environmentFor(tabId?: string | null): SessionEnvironment {
+  /**
+   * One projection for every surface that displays where a session runs.
+   *
+   * Takes the run config rather than a tab id: an environment is a function of
+   * three of its fields and nothing else, so a session draft — which has no tab
+   * and no session — projects through exactly the same path as a started tab.
+   * `undefined` means "nothing chosen yet", which falls back to the app defaults.
+   */
+  environmentFor(run?: RunConfig | null): SessionEnvironment {
     if (!this.workspace) throw new Error('SessionEnvironmentStore must be bound to a workspace')
-    const session = tabId ? this.workspace.sessionFor(tabId) : undefined
-    const attachedCheckout = session ? session.gitContext : this.workspace.globalDefaults.gitContext
-    const worktreeBaseBranch = session
-      ? session.worktreeBaseBranch
+    const attachedCheckout = run ? run.gitContext : this.workspace.globalDefaults.gitContext
+    const worktreeBaseBranch = run
+      ? run.worktreeBaseBranch
       : this.workspace.globalDefaults.worktreeBaseBranch
-    const cwd = session?.gitContext?.worktreePath
-      ?? session?.workingDirectory
+    const cwd = run?.gitContext?.worktreePath
+      ?? run?.workingDirectory
       ?? this.workspace.globalDefaults.gitContext?.worktreePath
       ?? this.workspace.globalDefaults.workingDirectory
     const status = this.statusFor(cwd)
@@ -175,8 +181,8 @@ export class SessionEnvironmentStore {
     const tabId = opts.tabId ?? workspace.activeTabId
     const session = workspace.sessionFor(tabId)
     const cwd = opts.cwd
-      ?? session?.gitContext?.worktreePath
-      ?? session?.workingDirectory
+      ?? session?.run.gitContext?.worktreePath
+      ?? session?.run.workingDirectory
       ?? workspace.globalDefaults.gitContext?.worktreePath
       ?? workspace.globalDefaults.workingDirectory
     const level = opts.level ?? 'status'
@@ -184,9 +190,9 @@ export class SessionEnvironmentStore {
     const api = session ? (workspace.apiFor?.(tabId) ?? window.solus) : window.solus
     this.bindCwd(cwd, api)
 
-    const worktreePath = session?.gitContext?.worktreePath
+    const worktreePath = session?.run.gitContext?.worktreePath
     const worktreeRequested = opts.worktreeRequested
-      ?? (session ? !!session.worktreeBaseBranch : workspace.settings.worktreeEnabled)
+      ?? (session ? !!session.run.worktreeBaseBranch : workspace.settings.worktreeEnabled)
     // On a genuinely cold load nothing can render a session's environment until
     // Git answers: the sidebar can't group it, the home can't offer the worktree
     // toggle. Land identity first — repo + branch, all O(1) — and let the
@@ -194,12 +200,12 @@ export class SessionEnvironmentStore {
     // nothing re-keys or flickers. A cold target has no checkout yet, so the
     // provisional answer is always a plain branch.
     const coldTarget = session
-      ? session.gitContext === null
+      ? session.run.gitContext === null
       : workspace.tabOrder.length === 0 && !workspace.globalDefaults.gitContext
     if (coldTarget && this.statusFor(cwd) === undefined) {
       const identity = await api.gitIdentity(cwd).catch(() => null)
       const current = workspace.sessionFor(tabId)
-      const currentCwd = current?.gitContext?.worktreePath ?? current?.workingDirectory
+      const currentCwd = current?.run.gitContext?.worktreePath ?? current?.run.workingDirectory
       const stale = session
         ? current !== session || currentCwd !== cwd
         : workspace.globalDefaults.workingDirectory !== cwd
@@ -209,8 +215,8 @@ export class SessionEnvironmentStore {
           worktreeBaseBranch: worktreeRequested ? identity.targetBranch : null,
         }
         if (session) {
-          session.gitContext = provisional.gitContext
-          session.worktreeBaseBranch = provisional.worktreeBaseBranch
+          session.run.gitContext = provisional.gitContext
+          session.run.worktreeBaseBranch = provisional.worktreeBaseBranch
         } else {
           workspace.config.applyGlobalStartTarget(provisional)
         }
@@ -221,7 +227,7 @@ export class SessionEnvironmentStore {
       force: opts.force,
       worktreePath,
       worktreeRequested,
-      fallbackGitContext: session?.gitContext ?? null,
+      fallbackGitContext: session?.run.gitContext ?? null,
     })
     if (!resolved.target) {
       return { status: false, details: false, refs: false, registration: false, ok: false, error: gitFailure('Couldn’t read the working tree', resolved.error) }
@@ -234,12 +240,12 @@ export class SessionEnvironmentStore {
     const supersededError = 'The environment changed during refresh — try again.'
     if (session) {
       const current = workspace.sessionFor(tabId)
-      const currentCwd = current?.gitContext?.worktreePath ?? current?.workingDirectory
+      const currentCwd = current?.run.gitContext?.worktreePath ?? current?.run.workingDirectory
       if (current !== session || currentCwd !== cwd) {
         return { status: true, details: false, refs: false, registration: false, ok: false, error: supersededError }
       }
-      session.gitContext = gitContext
-      session.worktreeBaseBranch = worktreeBaseBranch
+      session.run.gitContext = gitContext
+      session.run.worktreeBaseBranch = worktreeBaseBranch
       let registrationError: string | undefined
       try {
         await api.gitRegisterEnvironment(

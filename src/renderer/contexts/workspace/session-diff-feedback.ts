@@ -99,16 +99,16 @@ export async function submitDiffFeedbackToNewSession(ctx: WorkspaceContext, opts
   const newTabId = await ctx.createTab()
   const sourceSession = ctx.sessionFor(sourceTabId)
   const newSession = ctx.sessionFor(newTabId)
-  if (sourceSession?.workingDirectory && newSession) {
-    newSession.workingDirectory = sourceSession.workingDirectory
+  if (sourceSession?.run.workingDirectory && newSession) {
+    newSession.run.workingDirectory = sourceSession.run.workingDirectory
   }
-  if (newSession && opts.provider) newSession.provider = opts.provider
+  if (newSession && opts.provider) newSession.run.provider = opts.provider
   if (newSession && opts.modelConfig) {
-    newSession.modelConfig.modelId = opts.modelConfig.modelId
-    newSession.modelConfig.reasoningEffort = opts.modelConfig.reasoningEffort
+    newSession.run.modelConfig.modelId = opts.modelConfig.modelId
+    newSession.run.modelConfig.reasoningEffort = opts.modelConfig.reasoningEffort
   }
   if (newSession && opts.useWorktree) {
-    newSession.worktreeBaseBranch = sourceSession?.gitContext?.targetBranch ?? null
+    newSession.run.worktreeBaseBranch = sourceSession?.run.gitContext?.targetBranch ?? null
   }
 
   const parts: string[] = []

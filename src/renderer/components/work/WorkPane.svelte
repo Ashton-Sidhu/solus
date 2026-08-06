@@ -35,8 +35,8 @@
           return {
             sessionId: sess.agentSessionId || "",
             title: session.tabs[openTab]?.title || "Unnamed session",
-            provider: sess.provider || "claude-code",
-            cwd: sess.workingDirectory,
+            provider: sess.run.provider || "claude-code",
+            cwd: sess.run.workingDirectory,
           };
         }
       }
@@ -96,7 +96,7 @@
   });
 
   const promoteTargetRoot = $derived(
-    sess?.gitContext?.worktreePath ?? sess?.gitContext?.repoRoot ?? sess?.workingDirectory ?? "",
+    sess?.run.gitContext?.worktreePath ?? sess?.run.gitContext?.repoRoot ?? sess?.run.workingDirectory ?? "",
   );
 
   function refreshFromAgent() {
@@ -114,7 +114,7 @@
   }
 
   async function handleRevert() {
-    const reverted = await window.solus.revertWork(params.workId, sess?.workingDirectory);
+    const reverted = await window.solus.revertWork(params.workId, sess?.run.workingDirectory);
     if (!reverted) return;
     const existing = session.worksStore.get(params.workId);
     if (existing) {

@@ -20,7 +20,8 @@ async function createReducer(
     status: 'running',
     messages,
     outboundPrompts: [],
-  } as Session
+    run: {},
+  } as unknown as Session
   const tab = { id: 'tab-1', sessionId: 'session-1' } as Tab
   const reducer = new SessionEventReducer({
     registry: {

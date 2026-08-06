@@ -47,7 +47,7 @@
   // card's 12px type by the compact modifier. Sizes/colour can't be set with
   // utilities here: the `.prose-cloud` rules are unlayered and win.
   const bodyProseClass =
-    "github-markdown prose-cloud prose-pr prose-pr-comment prose-pr-compact mt-0.5";
+    "github-markdown prose-cloud prose-pr prose-pr-compact mt-0.5";
 
   let replying = $state(false);
   let replyText = $state("");

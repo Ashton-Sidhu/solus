@@ -71,7 +71,7 @@
   const provider = $derived(meta?.provider ?? ref.provider);
   const agentName = $derived(agentLabel(provider));
   const title = $derived(agentConversationTitle(ref, meta));
-  const serverId = $derived(session.sessionFor(tabId)?.serverId);
+  const serverId = $derived(session.sessionFor(tabId)?.run.serverId);
   const provenance = $derived(
     provenanceLine(ref, meta, hostLabelFor(serverId)),
   );

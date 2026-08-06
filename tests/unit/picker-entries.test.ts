@@ -31,13 +31,15 @@ function tab(overrides: Partial<Tab> = {}): Tab {
   return { id: 'tab-1', sessionId: 'sess-1', title: 'New Tab', ...overrides } as Tab
 }
 
-function session(overrides: Partial<Session> = {}): Session {
+function session(run: Partial<Session['run']> = {}): Session {
   return {
     agentSessionId: 'agent-1',
-    provider: 'claude-code',
+    run: {
+      provider: 'claude-code',
+      workingDirectory: '/repo/project-beta',
+      ...run,
+    } as Session['run'],
     messages: [],
-    workingDirectory: '/repo/project-beta',
-    ...overrides,
   } as Session
 }
 
@@ -119,7 +121,7 @@ describe('SearchTextCache', () => {
     const s = session({ workingDirectory: '/repo/project-beta' })
 
     const before = cache.get(openEntry(t, s))
-    s.workingDirectory = '/repo/project-beta-worktree'
+    s.run.workingDirectory = '/repo/project-beta-worktree'
     const after = cache.get(openEntry(t, s))
 
     expect(after).not.toBe(before)

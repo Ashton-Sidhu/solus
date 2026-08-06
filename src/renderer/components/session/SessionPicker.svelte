@@ -131,9 +131,11 @@
 
   const effectiveProjectPath = $derived(statusBar.ctx.workingDirectory);
 
+  // The picker offers sessions to return to. A composer that has yet to send
+  // anything is not one, however ordinary its tab is everywhere else.
   const openTabEntries: PickerEntry[] = $derived(
     session.tabOrder
-      .filter((id) => session.tabs[id] && session.sessionFor(id))
+      .filter((id) => session.tabs[id] && session.sessionFor(id) && !session.isDraftTab(id))
       .map((id) => ({
         kind: "open" as const,
         tabId: id,

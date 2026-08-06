@@ -96,7 +96,7 @@
         // while the agent stays put — notably Claude, whose skills are sourced
         // live — isn't discoverable until the next switch. Re-fetch now.
         const cwd =
-          workspace.activeSession?.workingDirectory ??
+          workspace.activeSession?.run.workingDirectory ??
           workspace.globalDefaults.workingDirectory;
         void workspace.refreshPluginCommands(cwd);
       } else {

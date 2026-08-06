@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     ArrowsCounterClockwiseIcon,
+    CaretDownIcon,
     CheckCircleIcon,
     ChatCircleIcon,
     GitCommitIcon,
@@ -66,7 +67,7 @@
   // Comment/review bodies are GitHub markdown — same pipeline *and* the same
   // `.prose-pr` typography as the description above them. Sizes/colour can't be
   // set with utilities here: the `.prose-cloud` rules are unlayered and win.
-  const bodyProseClass = "github-markdown prose-cloud prose-pr prose-pr-comment mt-1.5";
+  const bodyProseClass = "github-markdown prose-cloud prose-pr mt-1.5";
 
   // Which commit runs are expanded past their preview, keyed by event key.
   // Mutated in place ($state proxies are deeply reactive); stale keys from a
@@ -78,10 +79,44 @@
     requestInputFocus();
   }
 
+  // Which comment bodies are folded away to their header row, keyed the same
+  // way. Bodies start open — a CI bot's screenful is worth folding once you've
+  // read it, but nothing here is hidden by default. Focus stays on the toggle
+  // rather than returning to the composer: it is the control you press again to
+  // undo the fold.
+  const collapsedComments = $state<Record<string, boolean>>({});
+
+  function toggleComment(key: string) {
+    collapsedComments[key] = !collapsedComments[key];
+  }
+
   function commentTs(createdAt: string): number {
     return new Date(createdAt).getTime();
   }
 </script>
+
+<!-- The fold control: quiet until the row is hovered or the body is already
+     folded, so a read-through timeline shows no chrome at all. -->
+{#snippet collapseToggle(key: string, author: string)}
+  {@const collapsed = collapsedComments[key] ?? false}
+  <Button
+    type="button"
+    variant="ghost"
+    size="icon-xs"
+    aria-expanded={!collapsed}
+    aria-label="{collapsed ? 'Expand' : 'Collapse'} comment from {author}"
+    class="-mr-1 shrink-0 cursor-pointer text-muted-foreground opacity-0 transition-[opacity,color] hover:text-foreground focus-visible:opacity-100 group-hover/comment:opacity-100 {collapsed
+      ? 'opacity-100'
+      : ''}"
+    onclick={() => toggleComment(key)}
+  >
+    <CaretDownIcon
+      size={12}
+      weight="bold"
+      class="transition-transform duration-150 {collapsed ? '-rotate-90' : ''}"
+    />
+  </Button>
+{/snippet}
 
 <!-- The spine: a 1px rail under 22px nodes, so every row's content column
      starts 30px in (node + gap) and the rail runs through the node centers. -->
@@ -227,6 +262,8 @@
       {:else}
         {@const milestone = reviewMilestone(event.comment)}
         {@const ts = commentTs(event.comment.createdAt)}
+        {@const eventKey = activityEventKey(event)}
+        {@const hasBody = event.comment.body.trim().length > 0}
         {#if milestone}
           <!-- Milestone verdict: the single most important event in a PR's
                life — tinted node + bold headline, no badge (the headline IS
@@ -243,10 +280,11 @@
                 <ArrowsCounterClockwiseIcon size={13} weight="bold" />
               {/if}
             </span>
-            <div class="min-w-0 flex-1 pt-1">
-              <p class="text-[13px] font-medium">
-                {event.comment.author}
-                {milestone.headline}<TooltipUI.Root>
+            <div class="group/comment min-w-0 flex-1 pt-1">
+              <p class="flex items-start gap-2 text-[13px] font-medium">
+                <span class="min-w-0 flex-1">
+                  {event.comment.author}
+                  {milestone.headline}<TooltipUI.Root>
                   <TooltipUI.Trigger>
                     {#snippet child({ props: tooltipProps })}
                       <span {...tooltipProps}
@@ -258,8 +296,12 @@
                   </TooltipUI.Trigger>
                   <TooltipUI.Content value={formatAbsoluteTimestamp(ts)} />
                 </TooltipUI.Root>
+                </span>
+                {#if hasBody}
+                  {@render collapseToggle(eventKey, event.comment.author)}
+                {/if}
               </p>
-              {#if event.comment.body.trim()}
+              {#if hasBody && !collapsedComments[eventKey]}
                 <div class={bodyProseClass}>
                   <SvelteMarkdown
                     source={event.comment.body}
@@ -281,8 +323,9 @@
                 size="size-[22px] text-[9.5px]"
               />
             </span>
-            <div class="min-w-0 flex-1 pt-0.5">
-              <div class="text-[13px]">
+            <div class="group/comment min-w-0 flex-1 pt-0.5">
+              <div class="flex items-start gap-2 text-[13px]">
+                <span class="min-w-0 flex-1">
                 <span class="font-medium text-foreground"
                   >{event.comment.author}</span
                 >
@@ -303,8 +346,12 @@
                     <PrReviewStateBadge state={event.comment.reviewState} />
                   </span>
                 {/if}
+                </span>
+                {#if hasBody}
+                  {@render collapseToggle(eventKey, event.comment.author)}
+                {/if}
               </div>
-              {#if event.comment.body.trim()}
+              {#if hasBody && !collapsedComments[eventKey]}
                 <div class={bodyProseClass}>
                   <SvelteMarkdown
                     source={event.comment.body}

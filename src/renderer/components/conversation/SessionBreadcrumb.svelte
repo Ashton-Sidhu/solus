@@ -63,7 +63,7 @@
   const current = $derived(sessions.find((child) => child.tabId === tabId));
   const displayedSession = $derived(session.sessionFor(tabId));
   const draftMode = $derived.by((): BreadcrumbDraftMode => {
-    if (tabId !== session.draftTabId) return null;
+    if (!session.isDraftTab(tabId)) return null;
     if (displayedSession?.taskCreationDisabled) return "no-task";
     return displayedSession?.pendingTaskId ? "existing-task" : "new-task";
   });
@@ -88,10 +88,10 @@
   // Null while the session runs on this machine — the default the band never
   // needs to spell out.
   const hostAffinity = $derived(
-    serversStore.affinityFor(session.sessionFor(tabId)?.serverId),
+    serversStore.affinityFor(session.sessionFor(tabId)?.run.serverId),
   );
   const hostLabel = $derived(
-    serversStore.hostFor(session.sessionFor(tabId)?.serverId)?.label ?? "",
+    serversStore.hostFor(session.sessionFor(tabId)?.run.serverId)?.label ?? "",
   );
 
   // The project crumb is a click, not a hover: it is the one move that changes
@@ -339,7 +339,7 @@
           <!-- Hover to switch: a crumb is a menu. The menu stays open while the
                pointer is inside it, so switching is hover, read, click. -->
           <Breadcrumb.Item
-            class="relative min-w-0 max-w-[12rem] shrink @max-[52rem]:max-w-[8rem]"
+            class="relative min-w-0 max-w-[12rem] shrink @max-[68rem]:max-w-[8rem] @max-[52rem]:max-w-[6rem]"
             onmouseenter={() => (menu = "task")}
             onmouseleave={() => (menu = null)}
           >
@@ -436,8 +436,10 @@
           >
         {/if}
 
+        <!-- Capped like the task crumb: on a laptop band the leaf otherwise
+             keeps the whole remainder and pushes the trailing actions off. -->
         <Breadcrumb.Item
-          class="relative min-w-0 shrink"
+          class="relative min-w-0 max-w-[20rem] shrink @max-[68rem]:max-w-[12rem] @max-[52rem]:max-w-[9rem]"
           onmouseenter={() => (menu = "session")}
           onmouseleave={() => (menu = null)}
         >

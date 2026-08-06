@@ -25,8 +25,8 @@ export function resolveAutocompleteScope(
   return {
     tabId,
     workingDirectory:
-      session?.gitContext?.worktreePath ??
+      session?.run.gitContext?.worktreePath ??
       workingDirectory ??
-      session?.workingDirectory,
+      session?.run.workingDirectory,
   }
 }

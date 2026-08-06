@@ -35,12 +35,14 @@ describe('GitActions sync', () => {
 
     const { GitActions } = await import('../../src/renderer/lib/git-actions.svelte')
     const session = {
-      workingDirectory: '/repo',
-      gitContext: {
-        repoRoot: '/repo',
-        branch: 'feature',
-        targetBranch: 'main',
-      },
+      run: {
+        workingDirectory: '/repo',
+        gitContext: {
+          repoRoot: '/repo',
+          branch: 'feature',
+          targetBranch: 'main',
+        },
+      } as Session['run'],
     } as Session
     const refreshes: Array<{ tabId?: string; cwd?: string; level?: string }> = []
     const actions = new GitActions(
@@ -51,7 +53,7 @@ describe('GitActions sync', () => {
       } as any,
       'tab-1',
       {
-        environmentFor: () => ({ cwd: '/repo', checkout: session.gitContext }),
+        environmentFor: () => ({ cwd: '/repo', checkout: session.run.gitContext }),
         refreshTab: async (_workspace, options) => {
           refreshes.push(options)
           return { status: true, details: true, refs: true, registration: true, ok: true }
@@ -85,8 +87,10 @@ describe('GitActions commit and push', () => {
     })
     const { GitActions } = await import('../../src/renderer/lib/git-actions.svelte')
     const session = {
-      workingDirectory: '/repo',
-      gitContext: { repoRoot: '/repo', branch: 'feature', targetBranch: 'main' },
+      run: {
+        workingDirectory: '/repo',
+        gitContext: { repoRoot: '/repo', branch: 'feature', targetBranch: 'main' },
+      } as Session['run'],
     } as Session
     const refreshes: unknown[] = []
     const actions = new GitActions(
@@ -97,7 +101,7 @@ describe('GitActions commit and push', () => {
       } as any,
       'tab-1',
       {
-        environmentFor: () => ({ cwd: '/repo', checkout: session.gitContext }),
+        environmentFor: () => ({ cwd: '/repo', checkout: session.run.gitContext }),
         refreshTab: async (_workspace: unknown, options: unknown) => {
           refreshes.push(options)
           return { status: true, details: true, refs: true, registration: true, ok: true }

@@ -70,7 +70,11 @@ class ServersStore {
   activeServerId = $state(connectionState.target?.id ?? getActiveServerId())
   addServerOpen = $state(false)
   addServerUrl = $state('')
-  pendingRunOnTabId = $state<string | null>(null)
+  /** Which Run-on picker opened the add-server dialog, so a host paired from
+   *  there is handed back to that picker and not to another one. A correlation
+   *  breadcrumb between two UI moments — any stable id will do, and a session
+   *  draft has one before it has a tab. */
+  pendingRunOnRequesterId = $state<string | null>(null)
   justPairedServerId = $state<string | null>(null)
   discoveryBusy = $state(false)
   private connectionStatesByServer = $state<Record<string, ServerConnectionState>>({})
@@ -232,16 +236,16 @@ class ServersStore {
     this.justPairedServerId = server.id
   }
 
-  pairForRunOn(tabId: string): void {
-    this.pendingRunOnTabId = tabId
+  pairForRunOn(requesterId: string): void {
+    this.pendingRunOnRequesterId = requesterId
   }
 
   /** Returns a just-paired host to the picker that initiated pairing, once. */
-  consumeJustPaired(tabId: string): string | null {
-    if (!this.justPairedServerId || this.pendingRunOnTabId !== tabId) return null
+  consumeJustPaired(requesterId: string): string | null {
+    if (!this.justPairedServerId || this.pendingRunOnRequesterId !== requesterId) return null
     const serverId = this.justPairedServerId
     this.justPairedServerId = null
-    this.pendingRunOnTabId = null
+    this.pendingRunOnRequesterId = null
     return serverId
   }
 

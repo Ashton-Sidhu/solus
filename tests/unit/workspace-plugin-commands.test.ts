@@ -54,14 +54,18 @@ describe('workspace plugin command demand', () => {
     const { WorkspaceLifecycleStore } = await import('../../src/renderer/contexts/workspace/workspace-lifecycle.store.svelte')
     const sessionA = {
       id: 'session-a',
-      provider: 'claude-code',
-      workingDirectory: '/repo-a',
+      run: {
+        provider: 'claude-code',
+        workingDirectory: '/repo-a',
+      } as Session['run'],
       pluginCommands: { global: [], project: [] },
     } as unknown as Session
     const sessionB = {
       id: 'session-b',
-      provider: 'claude-code',
-      workingDirectory: '/repo-b',
+      run: {
+        provider: 'claude-code',
+        workingDirectory: '/repo-b',
+      } as Session['run'],
       pluginCommands: { global: [], project: [] },
     } as unknown as Session
     const registry = {
@@ -82,7 +86,7 @@ describe('workspace plugin command demand', () => {
         session: {
           tabId,
           provider: 'claude-code',
-          workingDirectory: registry.sessionFor(tabId).workingDirectory,
+          workingDirectory: registry.sessionFor(tabId).run.workingDirectory,
           contextWindow: null,
         },
         statusBar: { model: 'opus' },
@@ -113,8 +117,10 @@ describe('workspace plugin command demand', () => {
     const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
     const selectedSession = {
       id: 'session-b',
-      provider: 'claude-code',
-      workingDirectory: '/repo-b',
+      run: {
+        provider: 'claude-code',
+        workingDirectory: '/repo-b',
+      } as Session['run'],
     } as unknown as Session
     const requested: Array<{ cwd: string; tabId: string }> = []
     const workspace = Object.create(WorkspaceContext.prototype) as any

@@ -9,9 +9,11 @@
   import { projectDirLabel } from "../../lib/paths";
   import { homeGitDetails } from "../../lib/git-context";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import type { WorktreeEntry } from "../../../shared/types";
+  import type { TaskTarget, WorktreeEntry } from "../../../shared/types";
+  import { taskTargetOf } from "../../contexts/workspace/session.utils";
+  import { taskTargetFields } from "../../contexts/workspace/session-draft.svelte";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
-  import { isDispatchedSession } from "../servers/run-on";
+  import { isDispatchedRun } from "../servers/run-on";
   import GitDropdown from "../GitDropdown.svelte";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
   import { Button } from "../ui/button";
@@ -31,11 +33,11 @@
   const sess = $derived(session.sessionFor(targetTabId));
 
   const projectDir = $derived(
-    sess?.workingDirectory ?? session.globalDefaults.workingDirectory ?? "~",
+    sess?.run.workingDirectory ?? session.globalDefaults.workingDirectory ?? "~",
   );
   const defaultGitContext = $derived(session.globalDefaults.gitContext);
   const gitHome = $derived(
-    homeGitDetails(projectDir, sess?.gitContext, defaultGitContext),
+    homeGitDetails(projectDir, sess?.run.gitContext, defaultGitContext),
   );
   // The project keeps its own name even when the session runs in a worktree of
   // it, so the label reads off the repo root rather than the checkout.
@@ -46,11 +48,11 @@
     ),
   );
 
-  const env = $derived(environmentStore.environmentFor(targetTabId));
+  const env = $derived(environmentStore.environmentFor(session.sessionFor(targetTabId)?.run));
   const hasGitRepository = $derived(!!env.checkout || !!env.repoRoot);
   // A dispatched session always works in its own worktree, so the switch reads
   // on and stays inert rather than offering a choice that won't be honoured.
-  const worktreeForced = $derived(isDispatchedSession(sess));
+  const worktreeForced = $derived(isDispatchedRun(sess?.run));
   const canToggleWorktree = $derived(
     gitHome.canToggleWorktree || worktreeForced,
   );
@@ -67,7 +69,7 @@
   );
 
   const worktreePath = $derived(
-    sess?.gitContext?.worktreePath ?? defaultGitContext?.worktreePath ?? null,
+    sess?.run.gitContext?.worktreePath ?? defaultGitContext?.worktreePath ?? null,
   );
   const gitStatusCwd = $derived(worktreePath ?? projectDir);
   const git = $derived(environmentStore.statusFor(gitStatusCwd));
@@ -75,7 +77,7 @@
     environmentStore.refsFor(gitHome.projectRoot ?? env.repoRoot).worktrees,
   );
   const worktreeBaseBranch = $derived(
-    sess?.worktreeBaseBranch ??
+    sess?.run.worktreeBaseBranch ??
       (!sess && session.settings.worktreeEnabled
         ? (git?.targetBranch ?? null)
         : null),
@@ -159,13 +161,32 @@
     settleOnDestination();
   }
 
+  function selectProject(path: string) {
+    void session.setBaseDirectory(path, targetTabId).then(
+      () => requestInputFocus({ tabId: targetTabId }),
+      () => {},
+    );
+  }
+
+  function browseProjects() {
+    window.dispatchEvent(
+      new CustomEvent("solus:open-project", { detail: { tabId: targetTabId } }),
+    );
+  }
+
+  function selectTask(next: TaskTarget) {
+    const target = session.sessionFor(targetTabId);
+    if (!target) return;
+    Object.assign(target, taskTargetFields(next));
+  }
+
   function settleOnDestination() {
     const targetSession = targetTabId
       ? session.sessionFor(targetTabId)
       : undefined;
     const nextCwd =
-      targetSession?.gitContext?.worktreePath ??
-      targetSession?.workingDirectory ??
+      targetSession?.run.gitContext?.worktreePath ??
+      targetSession?.run.workingDirectory ??
       session.globalDefaults.gitContext?.worktreePath ??
       session.globalDefaults.workingDirectory;
     if (nextCwd) void environmentStore.refresh(nextCwd, { force: true });
@@ -181,9 +202,12 @@
 -->
 <div class="flex items-center gap-1.5 px-3.5 pb-2">
   <ProjectChip
-    tabId={targetTabId}
+    run={sess?.run ?? session.defaultRunConfig}
     projectDir={gitHome.projectRoot ?? projectDir}
     label={projectLabel}
+    onSelect={selectProject}
+    onBrowse={browseProjects}
+    onDismiss={() => requestInputFocus({ tabId: targetTabId })}
   />
 
   {#if hasGitRepository}
@@ -227,8 +251,10 @@
     </TooltipUI.Root>
   {/if}
   <TaskPicker
-    tabId={targetTabId}
+    task={sess ? taskTargetOf(sess) : { kind: "new" }}
     projectKey={gitHome.projectRoot ?? projectDir}
+    onSelect={selectTask}
+    onDismiss={() => requestInputFocus({ tabId: targetTabId })}
   />
 </div>
 

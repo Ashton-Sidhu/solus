@@ -472,8 +472,12 @@ export interface DesignModeSelection {
   annotations?: DesignAnnotation[]
 }
 
-/** The composer state for one tab (or the tab-less active input). */
-export interface InputState {
+/**
+ * What you typed: the unsent message. A document, not a widget — there is no
+ * caret, selection, focus or IME state here. Those belong to whichever editor is
+ * rendering this prompt, and several may render the same one.
+ */
+export interface Prompt {
   text: string
   /** Images are attachments with type: 'image'. */
   attachments: Attachment[]
@@ -488,6 +492,58 @@ export interface InputState {
   savedPromptId: string | null
 }
 
+/**
+ * How a session will run, as a composer proposes it. Resolves into
+ * `SessionRunInput` at dispatch, which is the contract the backend actually
+ * consumes; once a session exists, `BackendSession.runInput` is the authority
+ * and this is no longer the thing being edited.
+ */
+export interface RunConfig {
+  workingDirectory: string
+  /** The checkout the session adopts before its own Git refresh answers. Null
+   *  when nothing is inherited, which is not the same as "not a repo". */
+  gitContext: GitCheckout | null
+  worktreeBaseBranch: string | null
+  /** The picked host requires an isolated worktree on that host. */
+  worktreeRequired: boolean
+  modelConfig: ModelConfig
+  permissionMode: 'ask' | 'auto' | 'plan'
+  /** null = "use the default", resolved at dispatch. */
+  provider: AgentId | null
+  serverId: string
+  sessionSkills: string[]
+  /** Inert until Send; then connection and repo preparation begin. */
+  pendingHostDispatch: PendingHostDispatch | null
+}
+
+/**
+ * Where the session a composer starts will be filed. A union rather than an id
+ * plus a pair of booleans because "no task" is a choice the user made, not the
+ * absence of one — a shape that cannot represent the difference invites code
+ * that silently overrules them.
+ *
+ * Never reaches the backend: `SessionRunInput` has no task field, because task
+ * membership is a `task_session_links` row written once the session exists.
+ */
+export type TaskTarget =
+  | { kind: 'existing'; taskId: string }
+  | { kind: 'new'; parentTaskId?: string }
+  | { kind: 'none' }
+
+/**
+ * Everything a composer holds. There is no session and no tab behind it — this
+ * is what exists *instead*, until `createSession` reads it and makes both.
+ *
+ * Mutated in place: retargeting a composer to a different task is
+ * `spec.task = …`, never a destroy-and-rebuild that has to carry state across
+ * its own seam.
+ */
+export interface SessionSpec {
+  prompt: Prompt
+  run: RunConfig
+  task: TaskTarget
+}
+
 /** UI-only state. One per open tab in the renderer. */
 export interface Tab {
   id: string
@@ -497,7 +553,12 @@ export interface Tab {
    *  auto-titling included — may overwrite it. */
   titleCustom: boolean
   hasUnread: boolean
-  input: InputState
+  /** The tab this one was opened from, kept only while it is a composer. The
+   *  ⌥ shortcuts retarget a composer between task destinations, and "under the
+   *  task I came from" is the one answer the composer's own session cannot give
+   *  once "fresh task" has cleared it. */
+  openedFromTabId?: string
+  input: Prompt
   diffComments: DiffComment[]
   diffGeneralComment: string
   diffCommentDraft: DiffCommentDraft | null
@@ -518,13 +579,19 @@ export interface PendingHostDispatch {
   repoKey: string
 }
 
-/** Backend-driven session state. Shared across tabs watching the same session. */
+/**
+ * Backend-driven session state. Shared across tabs watching the same session.
+ *
+ * A session *has* run configuration rather than being one: `session.run` and
+ * `composer.run` are the same type in the same position, so one composer chrome
+ * edits either by taking a `RunConfig` and never asking which it came from.
+ * Once a session has started, its `run` is the live target — editing the model
+ * mid-conversation moves the session, not a copy of it.
+ */
 export interface Session {
   id: string
-  /** Client-only host routing key. Defaults to LOCAL_SERVER_ID for new sessions. */
-  serverId: string
+  run: RunConfig
   agentSessionId: string | null
-  provider: AgentId | null
   handoffFrom?: SessionHandoffLineage
   status: SessionStatus
   messages: Message[]
@@ -560,7 +627,6 @@ export interface Session {
    * separately for reload/rehydration. Cleared when a new attempt starts. */
   terminalFailure: { content: string; timestamp: number } | null
   sessionModel: string | null
-  sessionSkills: string[]
   pluginCommands: PluginCommandsResult
   progress: SessionProgress | null
   /** Persisted goal for this thread. Codex owns its native record; Solus owns
@@ -572,22 +638,12 @@ export interface Session {
   /** Live inline progress card for the current multi-step action (worktree
    *  setup, etc.). Live-only — not persisted to the transcript. */
   statusCard: StatusCardState | null
-  /** Selection is inert until Send; then connection and repo preparation begin. */
-  pendingHostDispatch: PendingHostDispatch | null
   /** Files changed since this Solus session began. Committing does not clear
    * these paths; uncommitted files come from live Git state instead. */
   sessionChangedFiles: string[]
-  gitContext: GitCheckout | null
-  workingDirectory: string
   /** Stable sidebar grouping path when this checkout runs on another host. */
   projectGroupPath: string | null
   additionalDirs: string[]
-  modelConfig: ModelConfig
-  permissionMode: 'ask' | 'auto' | 'plan'
-  worktreeBaseBranch: string | null
-  /** True only when the user dispatched this specific session through the
-   *  Run on host picker, which requires an isolated worktree on that host. */
-  worktreeRequired: boolean
   readOnlyReason: string | null
   loadingHistory: boolean
   /** True when only a recent window of the transcript was hydrated and older

@@ -10,7 +10,7 @@
   const environmentStore = getSessionEnvironmentStore();
   const pane = paneActions(paneId);
 
-  const environment = $derived(environmentStore.environmentFor(params.sourceTabId));
+  const environment = $derived(environmentStore.environmentFor(session.sessionFor(params.sourceTabId)?.run));
 </script>
 
 <PaneChrome onClose={pane.closeOverlay} isLeading={pane.isLeading} closeLabel="Close files" />

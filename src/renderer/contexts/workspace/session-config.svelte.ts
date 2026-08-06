@@ -7,7 +7,8 @@ import type { GitRefreshResult } from '../git/session-environment.store.svelte'
 import type { StatusBarContext } from '../app/status-bar.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import { toasts } from '../../lib/toasts'
-import { isDispatchedSession } from '../../components/servers/run-on'
+import { isDispatchedRun } from '../../components/servers/run-on'
+import { withCheckout, withWorktreeToggled } from './run-config'
 import { nextMsgId } from './session.utils'
 
 const AGENT_LABELS: Record<AgentId, string> = {
@@ -77,10 +78,10 @@ export class SessionConfigController {
 
   updateModelConfig(patch: Partial<ModelConfig>, tabId?: string): void {
     const session = tabId ? this.deps.registry.sessionFor(tabId) : this.deps.registry.activeSession
-    const mc = session ? session.modelConfig : this.globalDefaults.modelConfig
+    const mc = session ? session.run.modelConfig : this.globalDefaults.modelConfig
 
     if ('modelId' in patch && patch.modelId !== mc.modelId) {
-      const provider = session?.provider ?? (this.deps.settings.activeAgent as string)
+      const provider = session?.run.provider ?? (this.deps.settings.activeAgent as string)
       const profile = MODEL_PROFILES[provider as keyof typeof MODEL_PROFILES]?.[patch.modelId ?? '']
       mc.modelId = patch.modelId!
       mc.reasoningEffort = patch.reasoningEffort ?? profile?.defaultReasoningEffort ?? 'high'
@@ -101,7 +102,7 @@ export class SessionConfigController {
     const session = tabId ? this.deps.registry.sessionFor(tabId) : this.deps.registry.activeSession
     if (this.handoffInProgress) return
     if (session) {
-      if (session.provider === agentId) return
+      if (session.run.provider === agentId) return
       if (session.status === 'connecting' || session.status === 'running') return
     }
 
@@ -115,13 +116,13 @@ export class SessionConfigController {
         this.deps.refreshPluginCommands(this.globalDefaults.workingDirectory)
         return
       }
-      session.provider = agentId
+      session.run.provider = agentId
       session.agentSessionId = null
-      session.modelConfig = { ...newModelConfig }
+      session.run.modelConfig = { ...newModelConfig }
       session.sessionModel = null
-      session.sessionSkills = []
+      session.run.sessionSkills = []
       session.pluginCommands = { global: [], project: [] }
-      this.deps.refreshPluginCommands(session.workingDirectory, this.deps.registry.activeTabId)
+      this.deps.refreshPluginCommands(session.run.workingDirectory, this.deps.registry.activeTabId)
       return
     }
 
@@ -132,11 +133,11 @@ export class SessionConfigController {
       this.deps.settings.update({ activeAgent: agentId })
       this.globalDefaults.modelConfig = newModelConfig
       this.deps.setPluginCommands({ global: [], project: [] })
-      session.provider = agentId
+      session.run.provider = agentId
       session.agentSessionId = result.restoredSessionId ?? null
-      session.modelConfig = { ...newModelConfig }
+      session.run.modelConfig = { ...newModelConfig }
       session.sessionModel = null
-      session.sessionSkills = []
+      session.run.sessionSkills = []
       session.pluginCommands = { global: [], project: [] }
       session.handoffFrom = result.restoredSessionId
         ? result.handoffFrom
@@ -152,7 +153,7 @@ export class SessionConfigController {
         timestamp: Date.now(),
         agentChangedTo,
       })
-      this.deps.refreshPluginCommands(session.workingDirectory, targetTabId)
+      this.deps.refreshPluginCommands(session.run.workingDirectory, targetTabId)
     } catch (error) {
       toasts.error(`Couldn't hand off session: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -166,13 +167,13 @@ export class SessionConfigController {
       this.globalDefaults.permissionMode = mode
       return
     }
-    session.permissionMode = mode
+    session.run.permissionMode = mode
   }
 
   setWorktreeBaseBranch(branch: string | null): void {
     const session = this.deps.registry.activeSession
     if (!session) return
-    session.worktreeBaseBranch = branch
+    session.run.worktreeBaseBranch = branch
   }
 
   syncWorktreeDefault(enabled: boolean): void {
@@ -181,11 +182,11 @@ export class SessionConfigController {
       : null
     for (const tabId of this.deps.registry.tabOrder) {
       const session = this.deps.registry.sessionFor(tabId)
-      if (!session || session.agentSessionId || session.gitContext?.worktreePath) continue
+      if (!session || session.agentSessionId || session.run.gitContext?.worktreePath) continue
       if (session.status === 'connecting' || session.status === 'running') continue
       // A dispatched session's worktree is not the global default's to revoke.
-      if (isDispatchedSession(session)) continue
-      session.worktreeBaseBranch = enabled ? (session.gitContext?.targetBranch ?? null) : null
+      if (isDispatchedRun(session.run)) continue
+      session.run.worktreeBaseBranch = enabled ? (session.run.gitContext?.targetBranch ?? null) : null
     }
   }
 
@@ -209,29 +210,12 @@ export class SessionConfigController {
     // A dispatched session always gets its own worktree: its base checkout sits
     // on a host nobody is watching, so a collision there has no one to untangle
     // it. The surface shows the toggle disabled rather than accepting the click.
-    if (isDispatchedSession(session)) return
-    if (session.gitContext?.worktreePath) {
-      const targetBranch = session.gitContext.targetBranch
-      if (!targetBranch) return
-      if (session.worktreeBaseBranch) {
-        session.worktreeBaseBranch = null
-        return
-      }
-      const projectRoot = session.gitContext.repoRoot
-        ?? worktreeProjectRoot(session.gitContext.worktreePath)
-      // The existing creation path expects a project-root checkout plus its
-      // target branch. Only adapt the unstarted draft into that normal shape;
-      // worktree creation itself remains unchanged.
-      session.workingDirectory = projectRoot
-      session.gitContext = { repoRoot: projectRoot, branch: targetBranch, targetBranch }
-      session.worktreeBaseBranch = targetBranch
-      this.deps.refreshPluginCommands(projectRoot, tabId ?? this.deps.registry.activeTabId)
-      return
-    }
-    if (session.worktreeBaseBranch) {
-      session.worktreeBaseBranch = null
-    } else {
-      session.worktreeBaseBranch = session.gitContext?.targetBranch ?? null
+    if (isDispatchedRun(session.run)) return
+    const next = withWorktreeToggled(session.run)
+    const reanchored = next.workingDirectory !== session.run.workingDirectory
+    session.run = next
+    if (reanchored) {
+      this.deps.refreshPluginCommands(next.workingDirectory, tabId ?? this.deps.registry.activeTabId)
     }
   }
 
@@ -255,9 +239,7 @@ export class SessionConfigController {
       ? await api.worktreeRestore(repoCtx, worktreePath, { includePr: false })
       : gitCheckoutFromState(await api.gitRefreshState(worktreePath).catch(() => null))
     if (session) {
-      session.workingDirectory = projectRoot
-      session.gitContext = restored
-      session.worktreeBaseBranch = null
+      session.run = withCheckout(session.run, projectRoot, restored)
       this.deps.refreshPluginCommands(projectRoot, targetTabId)
     } else if (restored) {
       this.globalDefaults.workingDirectory = projectRoot
@@ -277,7 +259,7 @@ export class SessionConfigController {
       const targetSession = tabId
         ? this.deps.registry.sessionFor(tabId)
         : this.deps.registry.activeSession
-      const baseDir = targetSession?.gitContext?.repoRoot ?? targetSession?.workingDirectory ?? this.globalDefaults.gitContext?.repoRoot ?? this.globalDefaults.workingDirectory
+      const baseDir = targetSession?.run.gitContext?.repoRoot ?? targetSession?.run.workingDirectory ?? this.globalDefaults.gitContext?.repoRoot ?? this.globalDefaults.workingDirectory
       if (!baseDir || baseDir === '~') {
         toasts.error("Couldn't switch branch: no active Git repository")
         return false
@@ -298,11 +280,11 @@ export class SessionConfigController {
         return false
       }
       if (session) {
-        session.workingDirectory = projectRoot
-        session.gitContext = result.gitContext
-        session.worktreeBaseBranch = null
+        session.run = withCheckout(session.run, projectRoot, result.gitContext)
+        // Detaching from the provider thread is session reset, not run config:
+        // a draft has neither, so it never reaches this branch.
         session.agentSessionId = null
-        session.provider = null
+        session.run.provider = null
         session.sessionChangedFiles.splice(0, session.sessionChangedFiles.length)
         session.pluginCommands = { global: [], project: [] }
         this.deps.refreshPluginCommands(projectRoot, targetTabId)
@@ -343,12 +325,10 @@ export class SessionConfigController {
       ? this.deps.registry.sessionFor(tabId)
       : this.deps.registry.activeSession
     if (!session) return
-    session.workingDirectory = dir
+    session.run = withCheckout(session.run, dir, null)
     session.agentSessionId = null
-    session.provider = null
+    session.run.provider = null
     session.additionalDirs = []
-    session.gitContext = null
-    session.worktreeBaseBranch = null
     session.readOnlyReason = null
     session.pluginCommands = { global: [], project: [] }
     const api = this.apiFor(targetTabId)

@@ -3,7 +3,7 @@
   import { mergeProps } from "bits-ui";
   import { getWorkspaceContext, projectsStore, serversStore } from "../../contexts";
   import { isWorkspaceDir, projectDirLabel } from "../../lib/paths";
-  import { requestInputFocus } from "../../lib/inputFocus";
+  import type { RunConfig } from "../../../shared/types";
   import { comboHint } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import * as Popover from "../ui/popover";
@@ -12,21 +12,25 @@
   import { MenuFooter, MenuSearch } from "../ui/menu";
 
   interface Props {
-    tabId: string;
+    /** Where the next session will run. Read for its host, never written here. */
+    run: RunConfig;
     /** The directory the next session starts in — the repo root, not a worktree. */
     projectDir: string;
     label: string;
+    onSelect: (path: string) => void;
+    /** Open the full project browser: remote hosts and folders not in recents. */
+    onBrowse: () => void;
+    /** Return focus to the composer once the menu closes. */
+    onDismiss: () => void;
   }
-  let { tabId, projectDir, label }: Props = $props();
+  let { run, projectDir, label, onSelect, onBrowse, onDismiss }: Props = $props();
 
   const session = getWorkspaceContext();
   const workspacePath = $derived(session.staticInfo?.workspacePath ?? null);
   // Recents are this machine's. A session bound for another host must pick its
   // project over there, which is what the full open-project flow is for.
   const onRemoteHost = $derived.by(() => {
-    const target = session.sessionFor(tabId);
-    if (!target) return false;
-    const serverId = target.pendingHostDispatch?.serverId ?? target.serverId;
+    const serverId = run.pendingHostDispatch?.serverId ?? run.serverId;
     return serversStore.hostFor(serverId)?.local === false;
   });
   const onWorkspace = $derived(isWorkspaceDir(projectDir, workspacePath));
@@ -57,7 +61,7 @@
       void projectsStore.loadRecentProjects();
       return;
     }
-    requestInputFocus({ tabId });
+    onDismiss();
   }
 
   function getTooltipOpen() {
@@ -71,17 +75,12 @@
   function activate(path: string) {
     open = false;
     if (path === projectDir) return;
-    void session.setBaseDirectory(path, tabId).then(
-      () => requestInputFocus({ tabId }),
-      () => {},
-    );
+    onSelect(path);
   }
 
   function newProject() {
     open = false;
-    window.dispatchEvent(
-      new CustomEvent("solus:open-project", { detail: { tabId } }),
-    );
+    onBrowse();
   }
 </script>
 

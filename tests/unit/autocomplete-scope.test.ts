@@ -16,13 +16,15 @@ describe('autocomplete scope', () => {
     const scope = resolveAutocompleteScope(
       workspace({
         'remote-tab': {
-          workingDirectory: '/projects/solus',
-          gitContext: {
-            repoRoot: '/projects/solus',
-            branch: 'feature',
-            targetBranch: 'main',
-            worktreePath: '/projects/solus/.solus-worktrees/feature',
-          },
+          run: {
+            workingDirectory: '/projects/solus',
+            gitContext: {
+              repoRoot: '/projects/solus',
+              branch: 'feature',
+              targetBranch: 'main',
+              worktreePath: '/projects/solus/.solus-worktrees/feature',
+            },
+          } as Session['run'],
         },
       }),
       '/projects/solus',
@@ -40,7 +42,7 @@ describe('autocomplete scope', () => {
     // paths are identical, so active-tab routing can query the wrong machine.
     const scope = resolveAutocompleteScope(
       workspace({
-        'remote-tab': { workingDirectory: '/projects/solus', gitContext: null },
+        'remote-tab': { run: { workingDirectory: '/projects/solus', gitContext: null } as Session['run'] },
       }),
       '/projects/solus',
       'remote-tab',
@@ -56,13 +58,15 @@ describe('autocomplete scope', () => {
     const scope = resolveAutocompleteScope(
       workspace({
         'local-tab': {
-          workingDirectory: '/projects/other',
-          gitContext: {
-            repoRoot: '/projects/other',
-            branch: 'other',
-            targetBranch: 'main',
-            worktreePath: '/projects/other/.solus-worktrees/other',
-          },
+          run: {
+            workingDirectory: '/projects/other',
+            gitContext: {
+              repoRoot: '/projects/other',
+              branch: 'other',
+              targetBranch: 'main',
+              worktreePath: '/projects/other/.solus-worktrees/other',
+            },
+          } as Session['run'],
         },
       }),
       '/projects/tasks',

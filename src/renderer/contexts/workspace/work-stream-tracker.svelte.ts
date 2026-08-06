@@ -37,7 +37,7 @@ export class WorkStreamTracker {
 
   beginToolArtifacts(tabId: string, session: Session, toolName: string | undefined, agentProvider: AgentId): void {
     if (isCreateWorkTool(toolName)) {
-      const tempId = this.worksStore.addProvisional(agentProvider, session.workingDirectory)
+      const tempId = this.worksStore.addProvisional(agentProvider, session.run.workingDirectory)
       const msgId = nextMsgId()
       session.messages.push({
         id: msgId,

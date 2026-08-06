@@ -14,7 +14,7 @@ export function applySessionTitleChange(
   const changedTabIds: string[] = []
   for (const [tabId, tab] of Object.entries(workspace.tabs)) {
     const session = workspace.sessions[tab.sessionId]
-    if (session?.serverId !== serverId || session.agentSessionId !== event.sessionId) continue
+    if (session?.run.serverId !== serverId || session.agentSessionId !== event.sessionId) continue
     tab.title = event.title ?? 'New Tab'
     tab.titleCustom = event.title !== null
     changedTabIds.push(tabId)

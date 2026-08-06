@@ -189,7 +189,7 @@
         Fork Session
         <ContextMenu.Shortcut>⌥F</ContextMenu.Shortcut>
       </ContextMenu.Item>
-      {#if !sess?.gitContext?.worktreePath}
+      {#if !sess?.run.gitContext?.worktreePath}
         <ContextMenu.Item disabled={isContinuingWorktree} onSelect={continueWorktree}>
           <TreeStructureIcon class={isContinuingWorktree ? "tab-status-spin" : ""} />
           {isContinuingWorktree ? "Creating Worktree…" : "Continue in Worktree"}

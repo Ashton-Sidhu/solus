@@ -41,7 +41,7 @@ export function branchGuideIdentity(environment: {
 export function sessionGuideIdentity(
   session: Session | undefined,
 ): ReviewGuideIdentity | null {
-  const repoRoot = session?.gitContext?.repoRoot
+  const repoRoot = session?.run.gitContext?.repoRoot
   const sessionId = session?.agentSessionId
   return repoRoot && sessionId
     ? { repoRoot: worktreeProjectRoot(repoRoot), key: reviewGuideKeyFor('', 'session', sessionId) }

@@ -10,7 +10,7 @@
   const environmentStore = getSessionEnvironmentStore();
   const pane = paneActions(paneId);
 
-  const environment = $derived(environmentStore.environmentFor(params.sourceTabId));
+  const environment = $derived(environmentStore.environmentFor(session.sessionFor(params.sourceTabId)?.run));
   const file = $derived({
     path: params.path,
     line: params.line,

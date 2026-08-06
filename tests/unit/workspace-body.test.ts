@@ -1,19 +1,19 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  hasStartedConversation,
   isHomeVisible,
   listSidebarPrimaryWidth,
   primaryProjectPanelOpen,
   retainedConversationTabIds,
   visibleWorkspaceTabIds,
 } from '../../src/renderer/components/layout/lib/workspace-body'
+import { hasSessionStarted } from '../../src/renderer/lib/sessionUtils'
 
 describe('restored conversation loading', () => {
   test('stops showing a loading surface after an empty history load completes', () => {
     // WHY: an indexed/provider session can legitimately return no transcript
     // (deleted history, stale index, or a newly-created session). Once the
     // explicit loading gate clears, agentSessionId alone must not spin forever.
-    expect(isHomeVisible(1, {
+    expect(isHomeVisible({
       agentSessionId: 'provider-session',
       messages: [],
       statusCard: null,
@@ -22,7 +22,7 @@ describe('restored conversation loading', () => {
   })
 
   test('keeps the home hidden while restored history is actually loading', () => {
-    expect(isHomeVisible(1, {
+    expect(isHomeVisible({
       agentSessionId: 'provider-session',
       messages: [],
       statusCard: null,
@@ -33,7 +33,7 @@ describe('restored conversation loading', () => {
 
 describe('primary project rail visibility', () => {
   test('treats a tab-backed empty session as an unstarted draft', () => {
-    expect(hasStartedConversation({
+    expect(hasSessionStarted({
       agentSessionId: null,
       messages: [],
       status: 'idle',
@@ -41,12 +41,12 @@ describe('primary project rail visibility', () => {
   })
 
   test('recognizes resumed and newly dispatched conversations as started', () => {
-    expect(hasStartedConversation({
+    expect(hasSessionStarted({
       agentSessionId: 'provider-session',
       messages: [],
       status: 'idle',
     })).toBe(true)
-    expect(hasStartedConversation({
+    expect(hasSessionStarted({
       agentSessionId: null,
       messages: [{ role: 'user' } as any],
       status: 'connecting',

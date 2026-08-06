@@ -44,6 +44,7 @@
     cloudflareStore,
     parseRoute,
   } from "./contexts";
+  import { withCheckout } from "./contexts/workspace/run-config";
   import { toasts } from "./lib/toasts";
   import { invalidateHomeCache } from "./components/layout/NewTabHome.svelte";
   import { setPopoverLayer } from "./components/popoverLayer.svelte";
@@ -162,26 +163,29 @@
           tabId,
           title: tab.title ?? "New Tab",
           titleCustom: tab.titleCustom ?? false,
-          serverId: sess?.serverId ?? LOCAL_SERVER_ID,
+          serverId: sess?.run.serverId ?? LOCAL_SERVER_ID,
           serverInstallationId: savedServers.find(
-            (server) => server.id === sess?.serverId,
+            (server) => server.id === sess?.run.serverId,
           )?.installationId,
           agentSessionId: sess?.agentSessionId ?? null,
-          provider: sess?.provider ?? null,
+          provider: sess?.run.provider ?? null,
           handoffFrom: sess?.handoffFrom ? { ...sess.handoffFrom } : undefined,
           workingDirectory:
-            sess?.workingDirectory ?? session.globalDefaults.workingDirectory,
+            sess?.run.workingDirectory ?? session.globalDefaults.workingDirectory,
           projectGroupPath: sess?.projectGroupPath ?? null,
           additionalDirs: sess ? [...sess.additionalDirs] : [],
-          gitContext: sess?.gitContext ? { ...sess.gitContext } : null,
-          worktreeBaseBranch: sess?.worktreeBaseBranch ?? null,
-          worktreeRequired: sess?.worktreeRequired ?? false,
+          gitContext: sess?.run.gitContext ? { ...sess.run.gitContext } : null,
+          worktreeBaseBranch: sess?.run.worktreeBaseBranch ?? null,
+          worktreeRequired: sess?.run.worktreeRequired ?? false,
           modelConfig: sess
-            ? { ...sess.modelConfig }
+            ? { ...sess.run.modelConfig }
             : { ...session.globalDefaults.modelConfig },
           permissionMode:
-            sess?.permissionMode ?? session.globalDefaults.permissionMode,
+            sess?.run.permissionMode ?? session.globalDefaults.permissionMode,
           hasUnread: tab.hasUnread ?? false,
+          pendingTaskId: sess?.pendingTaskId ?? null,
+          pendingParentTaskId: sess?.pendingParentTaskId ?? null,
+          taskCreationDisabled: sess?.taskCreationDisabled ?? false,
           terminalFailure: sess?.terminalFailure
             ? { ...sess.terminalFailure }
             : null,
@@ -190,7 +194,7 @@
       });
     const snapshot: PersistedTabs = {
       version: 1,
-      activeTabId: session.durableActiveTabId,
+      activeTabId: session.activeTabId,
       tabOrder: [...session.tabOrder],
       tabs,
       location: session.router.serialized,
@@ -203,7 +207,6 @@
   // as the user visits each tab, rather than re-reading all N tabs every keystroke.
   $effect(() => {
     if (session.hydrating) return;
-    if (session.draftTabId) return;
     const activeId = session.activeTabId;
     const tabText = session.tabs[activeId]?.input.text ?? "";
     const activeInputText = session.activeInput.text;
@@ -284,7 +287,7 @@
   // Refresh the key the project panel reads: the worktree path when the tab has one.
   session.onTurnSettled = (tabId, cwd) => {
     const sess = session.sessionFor(tabId);
-    const gitCwd = sess?.gitContext?.worktreePath ?? cwd;
+    const gitCwd = sess?.run.gitContext?.worktreePath ?? cwd;
     if (!gitCwd) return;
     // Tool settles, the Git watcher, and task completion can arrive together.
     // Keep all of them behind the store's two-second freshness window so the
@@ -314,6 +317,9 @@
   let directoryPickerOpen = $state(false);
   let directoryPickerNewTab = $state(false);
   let directoryPickerTargetTabId = $state<string | undefined>(undefined);
+  /** Set when the browser was opened from a session draft, which has no tab to
+   *  retarget — the chosen directory lands on its run config instead. */
+  let directoryPickerDraftId = $state<string | undefined>(undefined);
   // Set when a caller names the host to browse — the "Run on" picker and the
   // Open project flow both browse a host no tab points at yet.
   let directoryPickerServerIdOverride = $state<string | undefined>(undefined);
@@ -502,8 +508,8 @@
   const directoryPickerServerId = $derived(
     directoryPickerServerIdOverride ??
       (directoryPickerTargetTabId
-        ? session.sessionFor(directoryPickerTargetTabId)?.serverId
-        : session.activeSession?.serverId) ??
+        ? session.sessionFor(directoryPickerTargetTabId)?.run.serverId
+        : session.activeSession?.run.serverId) ??
       LOCAL_SERVER_ID,
   );
   // apiFor() opens the connection as a side effect, so only reach for it while
@@ -524,8 +530,8 @@
     const targetSession = directoryPickerTargetTabId
       ? session.sessionFor(directoryPickerTargetTabId)
       : null;
-    if (targetSession?.serverId === directoryPickerServerId) {
-      return targetSession.workingDirectory;
+    if (targetSession?.run.serverId === directoryPickerServerId) {
+      return targetSession.run.workingDirectory;
     }
     return undefined;
   });
@@ -545,7 +551,7 @@
     );
   }
   const keyboardPermissionMode = $derived(
-    session.sessionFor(keyboardTabId)?.permissionMode ?? "auto",
+    session.sessionFor(keyboardTabId)?.run.permissionMode ?? "auto",
   );
 
   $effect(() => {
@@ -739,8 +745,8 @@
     const unsubShown = window.solusNative.onWindowShown(() => {
       const active = session.sessionFor(session.activeTabId);
       const cwd =
-        active?.gitContext?.worktreePath ??
-        active?.workingDirectory ??
+        active?.run.gitContext?.worktreePath ??
+        active?.run.workingDirectory ??
         session.globalDefaults.workingDirectory;
       if (cwd)
         void sessionEnvironmentStore.refreshTab(session, {
@@ -878,13 +884,13 @@
     startOpenProject({ tabId: session.focusedChatTabId ?? undefined });
   });
   useKeybinding("global.new-task", () => {
-    session.createDraftTab(undefined, { freshTask: true, via: "keybinding" });
+    session.openSessionDraft({ freshTask: true, via: "keybinding" });
   });
   useKeybinding("global.new-session-without-task", () => {
-    session.createDraftTab(undefined, { withoutTask: true, via: "keybinding" });
+    session.openSessionDraft({ withoutTask: true, via: "keybinding" });
   });
   useKeybinding("global.new-session", () =>
-    session.createDraftTab(undefined, { via: "keybinding" }),
+    session.openSessionDraft({ via: "keybinding" }),
   );
 
   function visualTabOrder(tabIds: string[]): string[] {
@@ -1023,14 +1029,14 @@
       targetSession?.status === "connecting"
     )
       return;
-    const modelMetadata = targetSession?.provider
-      ? agent.metadata[targetSession.provider]
+    const modelMetadata = targetSession?.run.provider
+      ? agent.metadata[targetSession.run.provider]
       : agent.activeMetadata;
     const models = modelMetadata?.models;
     if (!models || models.length === 0) return;
     const defaultModel = modelMetadata?.defaultModel;
     const currentModel =
-      targetSession?.modelConfig.modelId || (defaultModel ?? models[0].id);
+      targetSession?.run.modelConfig.modelId || (defaultModel ?? models[0].id);
     const idx = models.findIndex((m) => m.id === currentModel);
     session.updateModelConfig(
       {
@@ -1080,7 +1086,7 @@
   useKeybinding(
     "global.git-open-terminal",
     () => window.solus.openWorktreeTerminal(session.ctx),
-    { enabled: () => desktopHandlersAvailable && session.activeSession?.serverId === LOCAL_SERVER_ID },
+    { enabled: () => desktopHandlersAvailable && session.activeSession?.run.serverId === LOCAL_SERVER_ID },
   );
   useKeybinding("global.show-shortcuts", () => {
     shortcutsActiveScopes = keybindings.activeScopes();
@@ -1098,7 +1104,7 @@
   );
   // Both need a project to search, and the pill has nowhere to show results.
   const canSearchProject = $derived(
-    viewMode === "editor" && !!sessionEnvironmentStore.environmentFor(keyboardTabId).cwd,
+    viewMode === "editor" && !!sessionEnvironmentStore.environmentFor(session.sessionFor(keyboardTabId)?.run).cwd,
   );
   useKeybinding("global.project-search", () => (projectSearchOpen = true), {
     enabled: () => canSearchProject,
@@ -1110,8 +1116,8 @@
   const paletteGitProjectRoot = $derived.by(() => {
     if (paletteGitTarget) return paletteGitTarget.projectRoot;
     const dir =
-      session.activeSession?.gitContext?.repoRoot ??
-      session.activeSession?.workingDirectory;
+      session.activeSession?.run.gitContext?.repoRoot ??
+      session.activeSession?.run.workingDirectory;
     return dir && dir !== "~" ? worktreeProjectRoot(dir) : null;
   });
   const paletteGitRefs = $derived(
@@ -1229,7 +1235,7 @@
       icon: PlusIcon,
       hint: comboHint("global.new-task"),
       keywords: ["create", "task"],
-      run: () => session.createDraftTab(undefined, { freshTask: true, via: "palette" }),
+      run: () => session.openSessionDraft({ freshTask: true, via: "palette" }),
     },
     {
       id: "new-tab",
@@ -1238,7 +1244,7 @@
       icon: PlusIcon,
       hint: comboHint("global.new-session"),
       keywords: ["create", "session", "tab"],
-      run: () => session.createDraftTab(undefined, { via: "palette" }),
+      run: () => session.openSessionDraft({ via: "palette" }),
     },
     {
       id: "new-session-without-task",
@@ -1345,8 +1351,8 @@
       if (worktree) {
         await session.switchToWorktree(worktree.path, undefined, "palette");
         const nextCwd =
-          session.activeSession?.gitContext?.worktreePath ??
-          session.activeSession?.workingDirectory;
+          session.activeSession?.run.gitContext?.worktreePath ??
+          session.activeSession?.run.workingDirectory;
         if (nextCwd)
           void sessionEnvironmentStore.refresh(nextCwd, { force: true });
         requestInputFocus();
@@ -1356,8 +1362,8 @@
 
     const ok = await session.switchToBranch(branch, undefined, "palette");
     const nextCwd =
-      session.activeSession?.gitContext?.worktreePath ??
-      session.activeSession?.workingDirectory;
+      session.activeSession?.run.gitContext?.worktreePath ??
+      session.activeSession?.run.workingDirectory;
     if (ok && nextCwd)
       void sessionEnvironmentStore.refresh(nextCwd, { force: true });
     requestInputFocus();
@@ -1548,7 +1554,7 @@
     });
 
     const gitCtx =
-      session.activeSession?.gitContext ?? session.globalDefaults.gitContext;
+      session.activeSession?.run.gitContext ?? session.globalDefaults.gitContext;
     if (gitCtx) {
       const worktreeBranchNames = worktrees.map((wt) => wt.branch);
       const branchCommands: Command[] = [
@@ -1609,7 +1615,7 @@
       ];
       const activeSess = session.activeSession;
       const canContinueWorktree =
-        !!activeSess?.agentSessionId && !activeSess.gitContext?.worktreePath;
+        !!activeSess?.agentSessionId && !activeSess.run.gitContext?.worktreePath;
       const worktreeCommands: Command[] = [
         ...(canContinueWorktree
           ? [
@@ -1787,7 +1793,7 @@
     if (enabledAgents.length <= 1) return;
 
     const currentAgent =
-      session.sessionFor(activeTabId)?.provider ?? settings.activeAgent;
+      session.sessionFor(activeTabId)?.run.provider ?? settings.activeAgent;
     const idx = enabledAgents.findIndex(
       (candidate) => candidate.id === currentAgent,
     );
@@ -1800,10 +1806,12 @@
       const detail = (
         event as CustomEvent<{
           tabId?: string;
+          draftId?: string;
           serverId?: string;
           requireWorktree?: boolean;
         }>
       ).detail;
+      directoryPickerDraftId = detail?.draftId;
       const targetTabId = detail?.tabId;
       const tab = targetTabId ? session.tabs[targetTabId] : null;
       const opensInNewTab = tab?.sessionId != null;
@@ -1833,8 +1841,8 @@
       const targetSession = session.sessionFor(targetTabId);
       const dir =
         detail?.cwd ??
-        targetSession?.gitContext?.repoRoot ??
-        targetSession?.workingDirectory;
+        targetSession?.run.gitContext?.repoRoot ??
+        targetSession?.run.workingDirectory;
       paletteGitTarget = {
         tabId: targetTabId,
         ctx: detail?.cwd
@@ -1874,6 +1882,17 @@
       await finishBrowsedOpenProject(dir);
       return;
     }
+    const draftId = directoryPickerDraftId;
+    directoryPickerDraftId = undefined;
+    if (draftId) {
+      const draft = session.sessionDrafts.get(draftId);
+      if (draft) {
+        draft.run = withCheckout(draft.run, dir, null);
+        void session.environment.refresh(dir);
+      }
+      requestInputFocus();
+      return;
+    }
     const targetTabId = directoryPickerTargetTabId;
     const overrideServerId = directoryPickerServerIdOverride;
     const requireWorktree = directoryPickerRequireWorktree;
@@ -1888,7 +1907,7 @@
     } else if (
       targetTabId &&
       overrideServerId &&
-      session.sessionFor(targetTabId)?.serverId !== overrideServerId
+      session.sessionFor(targetTabId)?.run.serverId !== overrideServerId
     ) {
       // The folder lives on another host, so the tab has to move there too —
       // setBaseDirectory alone would point the current host at a missing path.

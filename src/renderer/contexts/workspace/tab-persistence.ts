@@ -88,6 +88,15 @@ export interface PersistedTab {
   modelConfig: ModelConfig
   permissionMode: string
   hasUnread: boolean
+  /** Where a composer's first prompt will go. A started session reads its task
+   *  from `task_session_links` instead, so this only ever matters for a tab that
+   *  has yet to dispatch — which, now that composers are ordinary tabs, is a tab
+   *  that survives a refresh and must come back under the same task. */
+  pendingTaskId?: string | null
+  pendingParentTaskId?: string | null
+  /** The user's explicit "No task" for this composer, which is a choice and not
+   *  an absence — restoring it as "mint one" would silently overrule them. */
+  taskCreationDisabled?: boolean
   /** Provider history may omit the synthetic terminal error emitted live. */
   terminalFailure?: { content: string; timestamp: number } | null
   /** Neither provider's transcript carries token counts, so a resumed session

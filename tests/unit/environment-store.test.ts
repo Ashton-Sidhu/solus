@@ -123,9 +123,11 @@ describe('Git state initialization', () => {
     )
     const worktreePath = '/repo/.solus-worktrees/feature'
     const session = {
-      workingDirectory: '/repo',
-      gitContext: { repoRoot: '/repo', branch: 'feature', targetBranch: 'main', worktreePath },
-      worktreeBaseBranch: null,
+      run: {
+        workingDirectory: '/repo',
+        gitContext: { repoRoot: '/repo', branch: 'feature', targetBranch: 'main', worktreePath },
+        worktreeBaseBranch: null,
+      } as Session['run'],
     } as Session
     let registered: GitCheckout | null = null
     const state: GitState = {
@@ -155,8 +157,8 @@ describe('Git state initialization', () => {
     } as any
     const result = await store.refreshTab(workspace, { tabId: 'tab-1' })
     expect(result.ok).toBe(true)
-    expect(session.gitContext).toEqual({ repoRoot: '/repo', branch: 'feature-updated', targetBranch: 'main', worktreePath })
-    expect(registered).toEqual(session.gitContext)
+    expect(session.run.gitContext).toEqual({ repoRoot: '/repo', branch: 'feature-updated', targetBranch: 'main', worktreePath })
+    expect(registered).toEqual(session.run.gitContext)
   })
 
   test('groups a cold session by identity before the working-tree scan returns', async () => {
@@ -165,9 +167,11 @@ describe('Git state initialization', () => {
       { snapshot: <T>(value: T) => value },
     )
     const session = {
-      workingDirectory: '/repo',
-      gitContext: null,
-      worktreeBaseBranch: null,
+      run: {
+        workingDirectory: '/repo',
+        gitContext: null,
+        worktreeBaseBranch: null,
+      } as Session['run'],
     } as Session
     let finishStatus!: () => void
     const statusPending = new Promise<void>((resolve) => { finishStatus = resolve })
@@ -210,13 +214,13 @@ describe('Git state initialization', () => {
     for (let i = 0; i < 10; i++) await Promise.resolve()
 
     // The sidebar can already place this session under /repo › feature.
-    expect(session.gitContext).toEqual({ repoRoot: '/repo', branch: 'feature', targetBranch: 'main' })
+    expect(session.run.gitContext).toEqual({ repoRoot: '/repo', branch: 'feature', targetBranch: 'main' })
     // …but nothing claims to know whether the working tree is clean yet.
     expect(store.statusFor('/repo')).toBeUndefined()
 
     finishStatus()
     expect((await refresh).ok).toBe(true)
-    expect(session.gitContext).toEqual({ repoRoot: '/repo', branch: 'feature', targetBranch: 'main' })
+    expect(session.run.gitContext).toEqual({ repoRoot: '/repo', branch: 'feature', targetBranch: 'main' })
     expect(store.statusFor('/repo')?.uncommittedChanges.files).toHaveLength(1)
   })
 
@@ -285,9 +289,11 @@ describe('Git state initialization', () => {
       worktreePath,
     }
     const session = {
-      workingDirectory: '/repo',
-      gitContext: attachedCheckout,
-      worktreeBaseBranch: null,
+      run: {
+        workingDirectory: '/repo',
+        gitContext: attachedCheckout,
+        worktreeBaseBranch: null,
+      } as Session['run'],
     } as Session
     const {
       SessionEnvironmentStore,
@@ -317,7 +323,7 @@ describe('Git state initialization', () => {
       },
     })
 
-    const environment = store.environmentFor('tab-1')
+    const environment = store.environmentFor(session.run)
 
     expect(environment.cwd).toBe(worktreePath)
     expect(environment.checkout).toEqual({
@@ -329,7 +335,7 @@ describe('Git state initialization', () => {
     })
     expect(environmentProjectKey(environment)).toBe('/repo')
     expect(environmentBranchKey(environment)).toBe('/repo::no branch (worktree)')
-    expect(session.gitContext).toBe(attachedCheckout)
+    expect(session.run.gitContext).toBe(attachedCheckout)
   })
 
   test('records a non-Git directory when the Environment panel requests details first', async () => {

@@ -303,6 +303,10 @@
    *  (file path preferred, content as fallback) from the plan store the first
    *  time we see it. Prunes sources for plans no longer referenced. */
   function resolvePlanRefs(): AutomationPlanRef[] {
+    // Only the prompt editor reports these tokens, and it only exists in writing
+    // mode. In reading mode a rail change (model, worktree, project) must not be
+    // read as "the prompt references no plans" and wipe the saved refs.
+    if (!isEditing) return [...planSources.values()];
     const refs = composerPlanRefs.map((r) => {
       const cached = planSources.get(r.planId);
       if (cached?.filePath || cached?.content) {
@@ -332,7 +336,16 @@
   // "Last saved …" once it lands. `savedStatusNow` is ticked on an interval so
   // the relative timestamp stays current without an edit.
   let isSaving = $state(false);
-  let lastSavedAt = $state<number | null>(null);
+  // Seeded from the automation's own `updatedAt`, so an automation that already
+  // exists — a template the launchpad just created, a row reopened from the list
+  // — reads "Last saved …" the moment it opens. There is no Save button here, so
+  // an empty header was the only cue, and it said nothing at all.
+  let lastSavedAt = $state<number | null>(
+    untrack(() => {
+      const saved = automation ? Date.parse(automation.updatedAt) : NaN;
+      return Number.isFinite(saved) ? saved : null;
+    }),
+  );
   let savedStatusNow = $state(Date.now());
   $effect(() => {
     if (lastSavedAt === null) return;
@@ -423,9 +436,11 @@
   /** Leave writing mode. Field blur already auto-saves, so only commit what the
    *  click-through actually left dirty. */
   function endEdit() {
-    isEditing = false;
+    // Commit before leaving writing mode: `currentAction()` reads the prompt
+    // editor's live plan tokens, which are only trustworthy while it's mounted.
     if (name.trim() !== (current?.name ?? "")) commitName();
     if (prompt.trim() !== (current?.action.prompt ?? "")) commitAction();
+    isEditing = false;
   }
 
   // ── Run now ──

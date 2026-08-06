@@ -182,7 +182,7 @@
                 {relativeTime(comment.createdAt)}
               </span>
             </span>
-            <div class="github-markdown prose-cloud prose-pr prose-pr-comment w-full">
+            <div class="github-markdown prose-cloud prose-pr w-full">
               <SvelteMarkdown
                 source={comment.body}
                 extensions={githubMarkdownExtensions}

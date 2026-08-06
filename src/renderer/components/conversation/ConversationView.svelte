@@ -123,15 +123,15 @@
 
   const tab = $derived(session.tabs[tabId]);
   const sess = $derived(session.sessionFor(tabId));
-  setMarkdownImageContext(() => sess?.workingDirectory);
+  setMarkdownImageContext(() => sess?.run.workingDirectory);
   const remoteServer = $derived(
-    sess?.serverId && sess.serverId !== LOCAL_SERVER_ID
-      ? serversStore.servers.find((server) => server.id === sess.serverId)
+    sess?.run.serverId && sess.run.serverId !== LOCAL_SERVER_ID
+      ? serversStore.servers.find((server) => server.id === sess.run.serverId)
       : null,
   );
   const remoteStatus = $derived(
-    sess?.serverId && sess.serverId !== LOCAL_SERVER_ID
-      ? serversStore.statusFor(sess.serverId)
+    sess?.run.serverId && sess.run.serverId !== LOCAL_SERVER_ID
+      ? serversStore.statusFor(sess.run.serverId)
       : "online",
   );
   const streamingText = $derived(session.streamingTextFor(tabId, isVisible));
@@ -615,7 +615,7 @@
         void session.worksStore.ensureContent(
           workId,
           "conversation-view",
-          sess?.workingDirectory,
+          sess?.run.workingDirectory,
         );
       }
     }
@@ -906,7 +906,7 @@
     // Not open — scan history and resume it.
     const meta = await sourceSessionHistory.findSession(
       agentSessionId,
-      { projectPath: sess?.workingDirectory || "~" },
+      { projectPath: sess?.run.workingDirectory || "~" },
       session.ctx,
     );
     if (meta) {
@@ -930,7 +930,7 @@
 
 <!-- §13 — the machine's reachability belongs to the host, not to a turn, so it
      is a row: the condition, the host, and the one thing the user can do. -->
-{#if sess?.serverId !== LOCAL_SERVER_ID && remoteStatus !== "online"}
+{#if sess?.run.serverId !== LOCAL_SERVER_ID && remoteStatus !== "online"}
   <div class="mx-4 mt-2 shrink-0">
     <TranscriptStatusRow
       tone={remoteStatus === "connecting" ? "warning" : "destructive"}
@@ -1350,7 +1350,7 @@
             <QuestionCard
               tabId={tab.id}
               request={sess.questionQueue[0]}
-              provider={sess.provider}
+              provider={sess.run.provider}
             />
           {/if}
 

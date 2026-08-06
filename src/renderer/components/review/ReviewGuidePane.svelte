@@ -48,11 +48,11 @@
   const reviewWorkingDirectory = $derived(
     workingDirectory ??
       gitContext?.worktreePath ??
-      reviewSession?.workingDirectory ??
+      reviewSession?.run.workingDirectory ??
       session.globalDefaults.workingDirectory,
   );
   const reviewGitContext = $derived(
-    gitContext === undefined ? (reviewSession?.gitContext ?? null) : gitContext,
+    gitContext === undefined ? (reviewSession?.run.gitContext ?? null) : gitContext,
   );
   const reviewCtx = $derived(
     session.ctxForEnvironment(reviewWorkingDirectory, reviewGitContext, reviewTabId),
@@ -108,9 +108,9 @@
       });
       const newSession = session.sessionFor(newTabId);
       if (newSession) {
-        newSession.provider = payload.provider;
-        newSession.modelConfig.modelId = payload.modelId;
-        newSession.modelConfig.reasoningEffort = payload.reasoningEffort;
+        newSession.run.provider = payload.provider;
+        newSession.run.modelConfig.modelId = payload.modelId;
+        newSession.run.modelConfig.reasoningEffort = payload.reasoningEffort;
       }
       const newTab = session.tabs[newTabId];
       if (newTab) {

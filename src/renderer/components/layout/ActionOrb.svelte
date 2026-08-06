@@ -87,7 +87,7 @@
 
   const sessionChangedFiles = $derived(sess?.sessionChangedFiles ?? []);
   const gitCwd = $derived(
-    sess?.gitContext?.worktreePath ?? sess?.workingDirectory,
+    sess?.run.gitContext?.worktreePath ?? sess?.run.workingDirectory,
   );
   const uncommittedFiles = $derived(
     environmentStore
@@ -100,8 +100,8 @@
   );
 
   const isBranchDiff = $derived(
-    !!sess?.gitContext &&
-      sess.gitContext.branch !== sess.gitContext.targetBranch,
+    !!sess?.run.gitContext &&
+      sess.run.gitContext.branch !== sess.run.gitContext.targetBranch,
   );
   const showViewDiff = $derived(
     !!onDiffToggle && sessionChangedFiles.length > 0,
@@ -137,7 +137,7 @@
   );
   const showOpenTerminal = $derived(showNativeDesktopActions && isPillMode);
   const remoteHost = $derived.by(() => {
-    const host = serversStore.hostFor(sess?.serverId);
+    const host = serversStore.hostFor(sess?.run.serverId);
     return host?.local ? null : host;
   });
   const terminalTooltip = $derived(
@@ -149,7 +149,7 @@
   // settled turn rather than the one still being written.
   const showFork = $derived(!!sess?.agentSessionId);
   const showContinueWorktree = $derived(
-    !!sess?.agentSessionId && !isRunning && !sess?.gitContext?.worktreePath,
+    !!sess?.agentSessionId && !isRunning && !sess?.run.gitContext?.worktreePath,
   );
   const showPin = $derived(!!sess?.agentSessionId);
   const isPinned = $derived(sidebarStore.isPinned(sess?.agentSessionId));

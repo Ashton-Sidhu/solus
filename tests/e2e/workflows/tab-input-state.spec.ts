@@ -21,9 +21,8 @@ test.describe('Per-tab input state', () => {
     const app = new AppPage(page)
     await app.waitForAppReady()
 
-    // The app starts tab-less (composing into the shared active input). Create two
-    // real tabs up front so each can hold its own draft.
-    await app.openNewTab()
+    // The workspace boots with a composer, so one more gives the two tabs this
+    // needs — each holding its own draft.
     await expect(page.getByTestId('tab-item')).toHaveCount(1)
     await app.openNewTab()
     await expect(page.getByTestId('tab-item')).toHaveCount(2)
@@ -59,7 +58,6 @@ test.describe('Per-tab input state', () => {
     const app = new AppPage(page)
     await app.waitForAppReady()
 
-    await app.openNewTab()
     await expect(page.getByTestId('tab-item')).toHaveCount(1)
     await app.openNewTab()
     await expect(page.getByTestId('tab-item')).toHaveCount(2)

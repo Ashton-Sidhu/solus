@@ -42,7 +42,7 @@
   const message = $derived(
     currentSession?.messages.find((m) => m.id === messageId),
   );
-  const environment = $derived(environments.environmentFor(tabId));
+  const environment = $derived(environments.environmentFor(session.sessionFor(tabId)?.run));
 
   let now = $state(Date.now());
   const header = $derived(
@@ -52,10 +52,10 @@
           {
             model: (
               currentSession?.sessionModel ||
-              currentSession?.modelConfig.modelId ||
+              currentSession?.run.modelConfig.modelId ||
               ""
             ).trim(),
-            effort: (currentSession?.modelConfig.reasoningEffort || "").trim(),
+            effort: (currentSession?.run.modelConfig.reasoningEffort || "").trim(),
           },
           environment.isolated ? environment.name : "",
           now,

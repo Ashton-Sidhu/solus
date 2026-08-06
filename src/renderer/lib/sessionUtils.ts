@@ -99,7 +99,9 @@ export function getAttentionIcon(state: AttentionState): StatusIcon | null {
 /** True once a session has left pre-flight — it has an agent, a transcript, or
  *  is no longer idle. Where a session runs (host, worktree) can only be chosen
  *  before this point, so the surfaces that offer that choice unmount here. */
-export function hasSessionStarted(session: Session | undefined): boolean {
+export function hasSessionStarted(
+  session: Pick<Session, 'agentSessionId' | 'messages' | 'status'> | undefined,
+): boolean {
   return (
     !!session &&
     (session.agentSessionId !== null || session.messages.length > 0 || session.status !== 'idle')
@@ -119,7 +121,7 @@ export function sessionTitle(sess: Session, tab: Tab): string {
 }
 
 export function projectByline(sess: Session | undefined): string {
-  const root = sess?.gitContext?.repoRoot ?? sess?.workingDirectory
+  const root = sess?.run.gitContext?.repoRoot ?? sess?.run.workingDirectory
   const dir = root?.replace(/\/$/, '')
   if (!dir || dir === '~') return '~'
   return dir.split('/').at(-1) ?? '~'
@@ -197,9 +199,9 @@ export function formatAbsoluteTimestamp(ts: number): string | null {
 }
 
 export function branchKeyFor(sess: Session | undefined): string {
-  const root = sess?.gitContext?.repoRoot ?? sess?.workingDirectory ?? '~'
-  const branch = sess?.gitContext?.branch ?? 'no branch'
-  const worktreeSuffix = sess?.gitContext?.worktreePath ? ' (worktree)' : ''
+  const root = sess?.run.gitContext?.repoRoot ?? sess?.run.workingDirectory ?? '~'
+  const branch = sess?.run.gitContext?.branch ?? 'no branch'
+  const worktreeSuffix = sess?.run.gitContext?.worktreePath ? ' (worktree)' : ''
   return `${root}::${branch}${worktreeSuffix}`
 }
 
@@ -361,7 +363,7 @@ export function findOpenTabForSession(
     const tab = tabs[tabId]
     if (!tab) continue
     const sess = sessions[tab.sessionId]
-    if (sess?.agentSessionId === sessionId && (!provider || sess.provider === provider)) return tabId
+    if (sess?.agentSessionId === sessionId && (!provider || sess.run.provider === provider)) return tabId
   }
   return null
 }

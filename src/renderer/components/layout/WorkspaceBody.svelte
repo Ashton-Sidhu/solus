@@ -19,7 +19,6 @@
   import SessionPicker from "../session/SessionPicker.svelte";
   import Pane from "../ui/Pane.svelte";
   import ConversationView from "../conversation/ConversationView.svelte";
-  import NewTabHome from "./NewTabHome.svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { frameChrome } from "./frame-chrome.store.svelte";
   import { DEFAULT_PANEL_WIDTH } from "../../contexts/workspace/routing/pane-geometry.store.svelte";
@@ -34,7 +33,6 @@
   import {
     clampSecondaryPaneWidth,
     defaultWorkspaceRailWidth,
-    hasStartedConversation,
     isCompanionVisible,
     isFramedRoute,
     isHomeVisible,
@@ -49,6 +47,7 @@
     secondaryPaneBounds,
     secondaryPaneDefaultSize,
   } from "./lib/workspace-body";
+  import { hasSessionStarted } from "../../lib/sessionUtils";
   import { isProjectRailOpen } from "../project-panel/lib/rail-width";
   import * as Resizable from "../ui/resizable";
   import {
@@ -119,9 +118,8 @@
       };
     },
   });
-  const tab = $derived(session.tabs[session.activeTabId]);
   const sess = $derived(session.sessionFor(session.activeTabId));
-  const hasStartedSession = $derived(hasStartedConversation(sess));
+  const hasStartedSession = $derived(hasSessionStarted(sess));
   // The home reads as a headline sitting on top of the composer, so the column
   // centres the pair as one block rather than pinning the composer to the floor.
   const leadingPane = $derived(router.leadingPane);
@@ -132,7 +130,7 @@
     leadingRef?.name === "chat" && !leadingRef.params.tabId,
   );
   const centerHome = $derived(
-    isHomeVisible(session.tabOrder.length, sess) && poolInLead,
+    isHomeVisible(sess) && poolInLead,
   );
   const activeProjectPanelTabKey = $derived(
     session.activeTabId || "new-tab-home",
@@ -163,7 +161,7 @@
     session.focusedChatTabId ?? session.activeTabId,
   );
   const focusedEnvironment = $derived(
-    environmentStore.environmentFor(focusedChatTabId),
+    environmentStore.environmentFor(session.sessionFor(focusedChatTabId)?.run),
   );
   const canShowFocusedDiffPanel = $derived(!!focusedEnvironment.cwd);
   // Companions, in render order, including one still animating out. The router
@@ -214,8 +212,8 @@
   });
   // Run dock scope mirrors ProjectPanel: prefer the active session's worktree.
   const runCwd = $derived(
-    sess?.gitContext?.worktreePath ??
-      sess?.workingDirectory ??
+    sess?.run.gitContext?.worktreePath ??
+      sess?.run.workingDirectory ??
       session.globalDefaults.workingDirectory,
   );
   const dockRuns = $derived(runStore.runsFor(runCwd) ?? []);
@@ -282,9 +280,15 @@
   // displays so it doesn't look anemic beside a wide thread. ~19% of the
   // viewport, bounded to a usable band. The project rail scales the same way,
   // but against its conversation view — see project-panel/lib/rail-width.
-  const initialViewportWidth =
-    typeof window !== "undefined" ? window.innerWidth : 1440;
-  const defaultSidebarWidth = defaultWorkspaceRailWidth(initialViewportWidth);
+  // Measured, not sampled once at mount: the app window is what the sidebar
+  // shares, and it changes when the window is resized or moved to another
+  // display.
+  const defaultSidebarWidth = $derived(
+    defaultWorkspaceRailWidth(
+      workspaceBodyWidth ||
+        (typeof window !== "undefined" ? window.innerWidth : 1440),
+    ),
+  );
 
   let sidebarOpen = $state(true);
   let sidebarClosedForOverlay = $state(false);
@@ -416,9 +420,9 @@
       } else if (session.splitChatTabId) {
         // Promote the split chat back into the leading pane's tab pool.
         session.promoteSplitToMainTab();
-      } else if (poolInLead && tab) {
+      } else if (poolInLead && session.activeTab) {
         // Plain conversation: split the active chat off to the side.
-        session.openTabInSplit(tab.id);
+        session.openTabInSplit(session.activeTab.id);
       } else {
         return;
       }
@@ -803,14 +807,6 @@
                           class:mode-hidden={!poolInLead}
                           onfocusin={() => router.focusPane(leadingPane.id)}
                         >
-                          <!-- Only when the draft is the tab this pool is showing.
-                               A draft created straight into the split pane
-                               (⌥⇧ new split chat) never activates, so keying off
-                               `draftTabId` alone stacked its home on top of the
-                               conversation the pool was still rendering. -->
-                          {#if session.tabOrder.length === 0 || session.draftTabId === session.activeTabId}
-                            <NewTabHome {tab} />
-                          {/if}
                           {#each session.tabOrder as tId (tId)}
                             {#if mountedTabIds.has(tId)}
                               <div

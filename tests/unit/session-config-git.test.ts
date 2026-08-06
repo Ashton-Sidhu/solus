@@ -19,12 +19,14 @@ describe('SessionConfigController provider switching', () => {
     )
     const messages = [{ id: 'answer-1', role: 'assistant', content: 'Done', timestamp: 1 }]
     const session = {
-      provider: 'codex',
+      run: {
+        provider: 'codex',
+        modelConfig: {},
+        workingDirectory: '/repo',
+      } as Session['run'],
       status: 'idle',
       agentSessionId: 'codex-session',
-      modelConfig: {},
       messages,
-      workingDirectory: '/repo',
       pluginCommands: { global: [], project: [] },
     } as unknown as Session
     const settings = {
@@ -81,7 +83,7 @@ describe('SessionConfigController provider switching', () => {
     await controller.switchActiveAgent('codex')
 
     expect(switchCount).toBe(2)
-    expect(session.provider).toBe('codex')
+    expect(session.run.provider).toBe('codex')
     expect(session.agentSessionId).toBe('codex-session')
     expect(session.handoffFrom).toBeUndefined()
     expect(session.messages).toBe(messages)
@@ -100,14 +102,16 @@ describe('SessionConfigController worktree selection', () => {
       { snapshot: <T>(value: T) => value },
     )
     const session = {
-      workingDirectory: '/repo/.solus-worktrees/current',
-      gitContext: {
-        repoRoot: '/repo',
-        branch: 'solus/current-12345',
-        targetBranch: 'main',
-        worktreePath: '/repo/.solus-worktrees/current',
-      },
-      worktreeBaseBranch: null,
+      run: {
+        workingDirectory: '/repo/.solus-worktrees/current',
+        gitContext: {
+          repoRoot: '/repo',
+          branch: 'solus/current-12345',
+          targetBranch: 'main',
+          worktreePath: '/repo/.solus-worktrees/current',
+        },
+        worktreeBaseBranch: null,
+      } as Session['run'],
       agentSessionId: null,
       pluginCommands: { global: [], project: [] },
     } as unknown as Session
@@ -120,7 +124,7 @@ describe('SessionConfigController worktree selection', () => {
         activeSession: session,
         sessionFor: () => session,
       } as any,
-      statusBar: { ctx: { workingDirectory: session.workingDirectory } } as any,
+      statusBar: { ctx: { workingDirectory: session.run.workingDirectory } } as any,
       setPluginCommands: () => {},
       createDraftTab: async () => 'draft-tab',
       ctx: () => ({ session: { tabId: 'draft-tab' } }) as IpcContext,
@@ -134,9 +138,9 @@ describe('SessionConfigController worktree selection', () => {
 
     // WHY: creating a sibling from within a worktree only adapts the unstarted
     // draft into the project-root shape expected by the existing creation path.
-    expect(session.workingDirectory).toBe('/repo')
-    expect(session.gitContext).toEqual({ repoRoot: '/repo', branch: 'main', targetBranch: 'main' })
-    expect(session.worktreeBaseBranch).toBe('main')
+    expect(session.run.workingDirectory).toBe('/repo')
+    expect(session.run.gitContext).toEqual({ repoRoot: '/repo', branch: 'main', targetBranch: 'main' })
+    expect(session.run.worktreeBaseBranch).toBe('main')
     expect(refreshedPluginDirectories).toEqual(['/repo'])
   })
 
@@ -146,21 +150,23 @@ describe('SessionConfigController worktree selection', () => {
       { snapshot: <T>(value: T) => value },
     )
     const session = {
-      workingDirectory: '/repo/.solus-worktrees/current',
-      gitContext: {
-        repoRoot: '/repo',
-        branch: 'solus/current-12345',
-        targetBranch: 'main',
-        worktreePath: '/repo/.solus-worktrees/current',
-      },
-      worktreeBaseBranch: null,
+      run: {
+        workingDirectory: '/repo/.solus-worktrees/current',
+        gitContext: {
+          repoRoot: '/repo',
+          branch: 'solus/current-12345',
+          targetBranch: 'main',
+          worktreePath: '/repo/.solus-worktrees/current',
+        },
+        worktreeBaseBranch: null,
+      } as Session['run'],
       agentSessionId: 'live-session',
     } as unknown as Session
     const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
     const controller = new SessionConfigController({
       settings: { activeAgent: 'codex', tabGroupMode: 'flat', worktreeEnabled: false } as any,
       registry: { activeTabId: 'live-tab', activeSession: session, sessionFor: () => session } as any,
-      statusBar: { ctx: { workingDirectory: session.workingDirectory } } as any,
+      statusBar: { ctx: { workingDirectory: session.run.workingDirectory } } as any,
       setPluginCommands: () => {},
       createDraftTab: async () => 'live-tab',
       ctx: () => ({ session: { tabId: 'live-tab' } }) as IpcContext,
@@ -172,9 +178,9 @@ describe('SessionConfigController worktree selection', () => {
 
     controller.toggleWorktreeMode('live-tab')
 
-    expect(session.workingDirectory).toBe('/repo/.solus-worktrees/current')
-    expect(session.gitContext?.worktreePath).toBe('/repo/.solus-worktrees/current')
-    expect(session.worktreeBaseBranch).toBeNull()
+    expect(session.run.workingDirectory).toBe('/repo/.solus-worktrees/current')
+    expect(session.run.gitContext?.worktreePath).toBe('/repo/.solus-worktrees/current')
+    expect(session.run.worktreeBaseBranch).toBeNull()
   })
 })
 
@@ -185,16 +191,20 @@ describe('SessionConfigController branch switching', () => {
       { snapshot: <T>(value: T) => value },
     )
     const originalSession = {
-      workingDirectory: '/repo',
-      gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
-      worktreeBaseBranch: null,
+      run: {
+        workingDirectory: '/repo',
+        gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
+        worktreeBaseBranch: null,
+      } as Session['run'],
       agentSessionId: 'session-1',
       pluginCommands: { global: [], project: [] },
     } as unknown as Session
     const destinationSession = {
-      workingDirectory: '/repo',
-      gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
-      worktreeBaseBranch: null,
+      run: {
+        workingDirectory: '/repo',
+        gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
+        worktreeBaseBranch: null,
+      } as Session['run'],
       agentSessionId: null,
       pluginCommands: { global: [], project: [] },
     } as unknown as Session
@@ -240,8 +250,8 @@ describe('SessionConfigController branch switching', () => {
       ctx: (tabId) => ({
         session: {
           tabId: tabId ?? registry.activeTabId,
-          workingDirectory: registry.activeSession.workingDirectory,
-          gitContext: registry.activeSession.gitContext,
+          workingDirectory: registry.activeSession.run.workingDirectory,
+          gitContext: registry.activeSession.run.gitContext,
         },
       }) as IpcContext,
       ctxForDirectory: () => ({ session: { tabId: registry.activeTabId } }) as IpcContext,
@@ -254,8 +264,8 @@ describe('SessionConfigController branch switching', () => {
 
     expect(registry.activeTabId).toBe('tab-2')
     expect(originalSession.agentSessionId).toBe('session-1')
-    expect(originalSession.gitContext?.branch).toBe('main')
-    expect(destinationSession.gitContext).toEqual({
+    expect(originalSession.run.gitContext?.branch).toBe('main')
+    expect(destinationSession.run.gitContext).toEqual({
       repoRoot: '/repo',
       branch: 'feature',
       targetBranch: 'main',
@@ -290,12 +300,14 @@ describe('SessionConfigController branch switching', () => {
     toasts.error = (message: string) => { messages.push(message) }
     try {
       const session = {
-        workingDirectory: '/repo',
-        gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
+        run: {
+          workingDirectory: '/repo',
+          gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
+        } as Session['run'],
         agentSessionId: null,
         sessionChangedFiles: [],
       } as unknown as Session
-      const ctx = () => ({ session: { tabId: 'tab-1', workingDirectory: session.workingDirectory, gitContext: session.gitContext } }) as IpcContext
+      const ctx = () => ({ session: { tabId: 'tab-1', workingDirectory: session.run.workingDirectory, gitContext: session.run.gitContext } }) as IpcContext
       const controller = new SessionConfigController({
         settings: { activeAgent: 'codex', tabGroupMode: 'flat' } as any,
         registry: { activeSession: session, activeTabId: 'tab-1' } as any,
@@ -345,9 +357,11 @@ describe('SessionConfigController session start target', () => {
 
     const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
     const session = {
-      workingDirectory: '/repo',
-      gitContext: null,
-      worktreeBaseBranch: null,
+      run: {
+        workingDirectory: '/repo',
+        gitContext: null,
+        worktreeBaseBranch: null,
+      } as Session['run'],
       agentSessionId: null,
       pluginCommands: { global: [], project: [] },
     } as unknown as Session
@@ -383,9 +397,9 @@ describe('SessionConfigController session start target', () => {
     // user on the generic "new session" home with only global defaults changed.
     expect(createdCwd).toBe('/repo')
     expect(registry.activeTabId).toBe('new-tab')
-    expect(session.workingDirectory).toBe('/repo')
-    expect(session.gitContext).toEqual(restored)
-    expect(session.worktreeBaseBranch).toBeNull()
+    expect(session.run.workingDirectory).toBe('/repo')
+    expect(session.run.gitContext).toEqual(restored)
+    expect(session.run.worktreeBaseBranch).toBeNull()
   })
 
   test('opens a draft composer when a project is selected from the tab-less home', async () => {
@@ -448,11 +462,13 @@ describe('SessionConfigController session start target', () => {
 
     const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
     const session = {
-      workingDirectory: '/old-project',
-      gitContext: { repoRoot: '/old-project', branch: 'main', targetBranch: 'main' },
-      worktreeBaseBranch: null,
+      run: {
+        workingDirectory: '/old-project',
+        gitContext: { repoRoot: '/old-project', branch: 'main', targetBranch: 'main' },
+        worktreeBaseBranch: null,
+        provider: null,
+      } as Session['run'],
       agentSessionId: null,
-      provider: null,
       additionalDirs: [],
       sessionChangedFiles: [],
       pluginCommands: { global: [], project: [] },
@@ -478,8 +494,8 @@ describe('SessionConfigController session start target', () => {
       refreshGitState: async (options) => {
         expect(options).toEqual({ tabId: 'tab-1', cwd: '/new-project', worktreeRequested: true })
         await refresh
-        session.gitContext = { repoRoot: '/new-project', branch: 'main', targetBranch: 'main' }
-        session.worktreeBaseBranch = 'main'
+        session.run.gitContext = { repoRoot: '/new-project', branch: 'main', targetBranch: 'main' }
+        session.run.worktreeBaseBranch = 'main'
         return { status: true, details: true, refs: true, registration: true, ok: true }
       },
     })
@@ -490,14 +506,14 @@ describe('SessionConfigController session start target', () => {
 
     expect(completed).toBe(false)
     expect(controller.pendingSessionStartTarget('tab-1')).not.toBeNull()
-    expect(session.workingDirectory).toBe('/new-project')
-    expect(session.gitContext).toBeNull()
+    expect(session.run.workingDirectory).toBe('/new-project')
+    expect(session.run.gitContext).toBeNull()
 
     resolveRefresh()
     await selection
 
     expect(controller.pendingSessionStartTarget('tab-1')).toBeNull()
-    expect(session.gitContext?.repoRoot).toBe('/new-project')
-    expect(session.worktreeBaseBranch).toBe('main')
+    expect(session.run.gitContext?.repoRoot).toBe('/new-project')
+    expect(session.run.worktreeBaseBranch).toBe('main')
   })
 })

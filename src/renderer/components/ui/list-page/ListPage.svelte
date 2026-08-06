@@ -10,7 +10,6 @@
   import { PAGE_ICON_BTN } from "../../../lib/page-chrome";
   import {
     statTintColor,
-    type ListKeyHint,
     type ListPageView,
     type ListProjectOption,
     type ListSummaryStat,
@@ -18,15 +17,17 @@
   import ListProjectSwitcher from "./ListProjectSwitcher.svelte";
 
   /**
-   * The shell both list pages are built in ("List pages" spec, Part A). Three
-   * bands in a full-height flex column: a fixed head (title block + filters),
-   * one scroll region, one footer rail — so the search field and the keyboard
-   * legend are always on screen no matter how long the list is.
+   * The shell both list pages are built in ("List pages" spec, Part A). Two
+   * bands in a full-height flex column: a fixed head (title block + filters)
+   * and one scroll region — so the search field is always on screen no matter
+   * how long the list is.
+   *
+   * Keys are not legended along the bottom; each one is stated on the control
+   * it drives, so the shortcut is learned where it is used.
    *
    * The content column uses the same responsive measure and gutters as the
-   * Automations page. The footer rail spans the full window but repeats that
-   * same inner column, so its contents stay aligned with the rows above it. The
-   * list sits directly on the page background; it is never put in a card.
+   * Automations page. The list sits directly on the page background; it is
+   * never put in a card.
    *
    * Everything page-specific — which columns, which groups, which chips, which
    * filters, which verbs — is passed in. A person moving between Tasks and Pull
@@ -62,10 +63,6 @@
     filters?: Snippet;
     /** The scroll region. */
     children: Snippet;
-    /** Four hints maximum; the set changes with the view, never with hover. */
-    hints?: ListKeyHint[];
-    /** What the list is currently showing — how a person notices a filter is still on. */
-    count?: string;
     scrollEl?: HTMLDivElement | null;
     /** The child (for example a virtual list) owns vertical scrolling. */
     contentOwnsScroll?: boolean;

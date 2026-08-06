@@ -17,11 +17,11 @@ export function setupAgentEvents(session: WorkspaceContext): void {
   const bindConnection = (connection: ManagedConnection) => {
     connectionUnsubscribes.get(connection.serverId)?.()
     const unsubEvent = connection.events.subscribe('session.eventReceived', ({ tabId, event }: { tabId: string; event: NormalizedEvent }) => {
-      if (session.sessionFor(tabId)?.serverId !== connection.serverId) return
+      if (session.sessionFor(tabId)?.run.serverId !== connection.serverId) return
       session.handleNormalizedEvent(tabId, event)
     })
     const unsubError = connection.events.subscribe('session.errorReceived', ({ tabId, error }) => {
-      if (session.sessionFor(tabId)?.serverId !== connection.serverId) return
+      if (session.sessionFor(tabId)?.run.serverId !== connection.serverId) return
       session.handleError(tabId, error)
     })
     const unsubSessionTitle = connection.events.subscribe('session.titleChanged', (event: SessionTitleChangedEvent) => {

@@ -26,13 +26,13 @@ export class GoalSync {
 
   async refresh(tabId: string): Promise<void> {
     const session = this.goalSession(tabId)
-    if (!session?.agentSessionId || !session.provider) return
+    if (!session?.agentSessionId || !session.run.provider) return
     const threadId = session.agentSessionId
     const state = this.stateFor(session)
     const revision = state.revision
 
     try {
-      const goal = await this.deps.apiFor(tabId).getThreadGoal(threadId, this.deps.ctxFor(tabId), session.provider)
+      const goal = await this.deps.apiFor(tabId).getThreadGoal(threadId, this.deps.ctxFor(tabId), session.run.provider)
       if (this.isCurrent(tabId, session, threadId) && state.revision === revision) {
         session.goal = goal
       }
@@ -53,7 +53,7 @@ export class GoalSync {
         const goal = await this.deps.apiFor(tabId).setThreadGoal(
           { threadId, objective, status: 'active' },
           this.deps.ctxFor(tabId),
-          session.provider as AgentId,
+          session.run.provider as AgentId,
         )
         if (this.isCurrent(tabId, session, threadId) && state.revision === revision) {
           session.goal = goal
@@ -160,12 +160,12 @@ export class GoalSync {
 
   private codexSession(tabId: string): Session | undefined {
     const session = this.deps.sessionFor(tabId)
-    return session?.provider === 'codex' ? session : undefined
+    return session?.run.provider === 'codex' ? session : undefined
   }
 
   private goalSession(tabId: string): Session | undefined {
     const session = this.deps.sessionFor(tabId)
-    return session?.provider === 'codex' || session?.provider === 'claude-code' ? session : undefined
+    return session?.run.provider === 'codex' || session?.run.provider === 'claude-code' ? session : undefined
   }
 
   private requireGoalSession(tabId: string): Session {

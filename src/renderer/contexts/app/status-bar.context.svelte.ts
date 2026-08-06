@@ -33,19 +33,19 @@ export class StatusBarContext {
 
   private buildCtx(sess: Session | undefined): StatusBarCtx {
     const defaults = this._session?.globalDefaults
-    const effectiveAgent = (sess?.provider ?? this.settings.activeAgent) as AgentId
+    const effectiveAgent = (sess?.run.provider ?? this.settings.activeAgent) as AgentId
     const models = this._agent?.metadata[effectiveAgent]?.models ?? []
     const metaDefault = this._agent?.metadata[effectiveAgent]?.defaultModel ?? null
-    const mc = sess?.modelConfig ?? defaults?.modelConfig
+    const mc = sess?.run.modelConfig ?? defaults?.modelConfig
     const preferredModel = mc?.modelId ?? null
     const model = preferredModel && models.some((m) => m.id === preferredModel)
       ? preferredModel
       : metaDefault ?? models[0]?.id ?? ''
     const profile = MODEL_PROFILES[effectiveAgent]?.[model]
     return {
-      workingDirectory: sess?.workingDirectory ?? defaults?.workingDirectory ?? '~',
+      workingDirectory: sess?.run.workingDirectory ?? defaults?.workingDirectory ?? '~',
       activeAgent: effectiveAgent,
-      permissionMode: sess?.permissionMode ?? defaults?.permissionMode ?? 'auto',
+      permissionMode: sess?.run.permissionMode ?? defaults?.permissionMode ?? 'auto',
       model,
       reasoningEffort: mc?.reasoningEffort ?? 'high',
       defaultReasoningEffort: profile?.defaultReasoningEffort ?? 'high',

@@ -2,6 +2,7 @@ import { type AgentId, type IpcContext, type Message, type QueuedPromptSnapshot,
 import type { GitRefreshResult } from '../git/session-environment.store.svelte'
 import { loadCachedStart, saveCachedStart } from './tab-persistence'
 import { extractChangedFilePaths, extractChangedFilePathsFromMessage } from '../../lib/changedFiles'
+import { hasSessionStarted } from '../../lib/sessionUtils'
 import type { AgentContext } from '../app/agent.context.svelte'
 import type { PlanStore } from '../plans/plan.store.svelte'
 import type { SessionConfigController } from './session-config.svelte'
@@ -103,7 +104,10 @@ export class WorkspaceLifecycleStore {
   private applyStartInfo(result: StartInfo, opts: { fresh: boolean }): void {
     const startDirectory = startDirectoryForServer(result)
     const currentDirectory = this.deps.config.globalDefaults.workingDirectory
-    const canReconcileCachedDefault = this.deps.registry.tabOrder.length === 0
+    // "Nothing has begun yet", which is what makes the default still free to
+    // move — not "no tabs". The workspace seeds a composer before this payload
+    // lands, and a composer is exactly a tab that has begun nothing.
+    const canReconcileCachedDefault = this.unstartedTabIds().length === this.deps.registry.tabOrder.length
       && currentDirectory === this.appliedStartDirectory
     this.staticInfo = {
       version: result.version || 'unknown',
@@ -115,6 +119,7 @@ export class WorkspaceLifecycleStore {
     }
     if (currentDirectory === '~' || canReconcileCachedDefault) {
       this.deps.config.globalDefaults.workingDirectory = startDirectory
+      this.followDefaultDirectory(currentDirectory, startDirectory)
     }
     this.appliedStartDirectory = startDirectory
     this.deps.agent?.hydrate(result.agents ?? [])
@@ -130,6 +135,32 @@ export class WorkspaceLifecycleStore {
    * no server round trip. Idempotent: once staticInfo exists (cache or fresh)
    * this is a no-op. Fresh reconciliation happens in initStaticInfo.
    */
+  /** Tabs that have begun nothing: composers, which the workspace is free to
+   *  retarget because there is no conversation in them to disturb. */
+  private unstartedTabIds(): string[] {
+    return this.deps.registry.tabOrder.filter(
+      (tabId) => !hasSessionStarted(this.deps.registry.sessionFor(tabId)),
+    )
+  }
+
+  /**
+   * The seeded composer is built from the cached start payload, so when the
+   * fresh one names a different directory it would otherwise sit on a project
+   * the app is no longer pointed at — most visibly on a first run, where the
+   * cache says `~`. It is showing the default rather than a choice anyone made,
+   * so it follows the default.
+   */
+  private followDefaultDirectory(from: string, to: string): void {
+    if (from === to) return
+    for (const tabId of this.unstartedTabIds()) {
+      const session = this.deps.registry.sessionFor(tabId)
+      if (!session || session.run.workingDirectory !== from) continue
+      session.run.workingDirectory = to
+      session.run.gitContext = null
+      void this.deps.refreshGitState({ tabId }).catch(() => null)
+    }
+  }
+
   hydrateStaticInfoFromCache(): void {
     if (this.staticInfo) return
     const cached = loadCachedStart()
@@ -143,17 +174,20 @@ export class WorkspaceLifecycleStore {
     const initialization = (async () => {
       // Paint from cache first (safety net if setup didn't already), then reconcile.
       this.hydrateStaticInfoFromCache()
-      const optimisticEnvironmentRefresh = this.deps.registry.tabOrder.length === 0
+      // Same reading as the reconcile above: a workspace holding nothing but
+      // composers is a cold load, and is the case worth pre-warming Git for.
+      const coldLoad = this.unstartedTabIds().length === this.deps.registry.tabOrder.length
+      const optimisticEnvironmentRefresh = coldLoad
         ? this.deps.refreshGitState().catch(() => null)
         : null
       const result = await window.solus.start()
       this.applyStartInfo(result, { fresh: true })
       saveCachedStart(result)
-      if (this.deps.registry.tabOrder.length === 0) {
+      if (coldLoad) {
         await optimisticEnvironmentRefresh
         await this.deps.refreshGitState()
       }
-      const commandDirectory = this.deps.registry.activeSession?.workingDirectory
+      const commandDirectory = this.deps.registry.activeSession?.run.workingDirectory
         ?? this.deps.config.globalDefaults.workingDirectory
       void this.refreshPluginCommands(commandDirectory).catch((error) => {
         if (!(error instanceof TransportDisconnectedError)) {
@@ -178,14 +212,14 @@ export class WorkspaceLifecycleStore {
     const requestSequence = ++this.pluginCommandRequestSequence
     this.pluginCommandRequests.set(requestKey, requestSequence)
     const ctx = this.deps.ctxFor(targetTabId)
-    ctx.session.provider = (targetSession?.provider ?? this.deps.settings.activeAgent) as AgentId
+    ctx.session.provider = (targetSession?.run.provider ?? this.deps.settings.activeAgent) as AgentId
     const result = await (this.deps.apiFor?.(targetTabId) ?? window.solus)
       .getPluginCommands(workingDirectory, $state.snapshot(ctx))
     if (this.pluginCommandRequests.get(requestKey) !== requestSequence) return
 
     if (targetSession) {
       const currentSession = this.deps.registry.sessionFor(targetTabId)
-      if (currentSession !== targetSession || currentSession.workingDirectory !== workingDirectory) return
+      if (currentSession !== targetSession || currentSession.run.workingDirectory !== workingDirectory) return
       currentSession.pluginCommands = result
       if (this.deps.registry.activeTabId === targetTabId) this.pluginCommands = result
       return
@@ -233,9 +267,9 @@ export class WorkspaceLifecycleStore {
     if (!session?.agentSessionId || !session.historyTruncated) return
     const agentSessionId = session.agentSessionId
     const handoffFrom = session.handoffFrom ? { ...session.handoffFrom } : undefined
-    const displayCwd = session.workingDirectory
-    const loadPath = session.gitContext?.worktreePath || displayCwd
-    const provider = (session.provider ?? this.deps.settings.activeAgent) as AgentId
+    const displayCwd = session.run.workingDirectory
+    const loadPath = session.run.gitContext?.worktreePath || displayCwd
+    const provider = (session.run.provider ?? this.deps.settings.activeAgent) as AgentId
     const predecessorTranscript = handoffFrom
       ? await this.deps.loadTranscript({
           sessionId: handoffFrom.sessionId,

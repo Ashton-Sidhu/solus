@@ -27,9 +27,9 @@
   const session = $derived(workspace.sessionFor(tabId));
   const goal = $derived(session?.goal ?? null);
   const goalStatus = $derived(
-    goal && session?.provider === "claude-code" && session.status === "completed" ? "complete" : goal?.status,
+    goal && session?.run.provider === "claude-code" && session.status === "completed" ? "complete" : goal?.status,
   );
-  const canMutateGoal = $derived(session?.provider === "codex");
+  const canMutateGoal = $derived(session?.run.provider === "codex");
   const isPaused = $derived(goalStatus === "paused");
   const isTerminal = $derived(!!goalStatus && isGoalTerminal(goalStatus));
   const budgetPercent = $derived(

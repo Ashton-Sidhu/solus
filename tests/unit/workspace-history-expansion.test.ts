@@ -28,11 +28,13 @@ describe('full history expansion', () => {
     const live = message('assistant', 'arrived live', 3)
     const session = {
       agentSessionId: 'current-session',
-      provider: 'codex',
+      run: {
+        provider: 'codex',
+        workingDirectory: '/repo',
+        gitContext: null,
+      } as Session['run'],
       handoffFrom: { sessionId: 'previous-session', provider: 'claude-code' },
       historyTruncated: true,
-      workingDirectory: '/repo',
-      gitContext: null,
       messages: [current],
       progress: null,
       sessionChangedFiles: [],

@@ -10,9 +10,9 @@ function workspace() {
       otherSession: { sessionId: 'other-session', title: 'Other title', titleCustom: false } as Tab,
     },
     sessions: {
-      'local-session': { serverId: 'local', agentSessionId: 'agent-1' } as Session,
-      'remote-session': { serverId: 'remote', agentSessionId: 'agent-1' } as Session,
-      'other-session': { serverId: 'local', agentSessionId: 'agent-2' } as Session,
+      'local-session': { run: { serverId: 'local' }, agentSessionId: 'agent-1' } as Session,
+      'remote-session': { run: { serverId: 'remote' }, agentSessionId: 'agent-1' } as Session,
+      'other-session': { run: { serverId: 'local' }, agentSessionId: 'agent-2' } as Session,
     },
   }
 }

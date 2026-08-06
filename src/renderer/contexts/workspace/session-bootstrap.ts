@@ -1,6 +1,6 @@
 import { defaultContextWindowFor, isSessionBusyStatus, type AgentId, type Message, type ModelConfig, type Session } from '../../../shared/types'
 import { loadServers, LOCAL_SERVER_ID } from '../../../client-core/server-registry'
-import { makeInputState, makeSession, makeTab } from './session.factories'
+import { makePrompt, makeSession, makeTab } from './session.factories'
 import { loadRestoredSessionTranscript } from './session-transcript'
 import { applyRuntimeConfig, hasConversation, nextMsgId, progressFromMessages } from './session.utils'
 import { initDraftState, loadDrafts, loadPersistedTabs, type PersistedTab, type PersistedTabs, type TabDrafts } from './tab-persistence'
@@ -79,12 +79,29 @@ export function materializeTabs(ctx: WorkspaceContext): void {
   initDraftState(drafts)
   if (!snapshot?.tabs?.length) {
     if (drafts) ctx.activeInput.text = drafts.activeInputText
+    seedComposerTab(ctx)
     ctx.hydrating = false
     return
   }
   _materializeTabs(ctx, snapshot.tabs, snapshot.tabOrder, snapshot.activeTabId, drafts)
   restoreLocation(ctx, snapshot.location)
+  seedComposerTab(ctx)
   ctx.hydrating = false
+}
+
+/**
+ * The workspace always has at least one tab. With nothing restored, that tab is
+ * the composer the user would have opened themselves — so no surface, and no
+ * reader, has to answer for a workspace with no tab in it.
+ *
+ * The tab and its session are built synchronously; only the promise the caller
+ * ignores settles later. It is created from the *cached* start payload, which is
+ * what has landed this early — `applyStartInfo` moves it if the fresh one names
+ * a different directory.
+ */
+function seedComposerTab(ctx: WorkspaceContext): void {
+  if (ctx.tabOrder.some((tabId) => ctx.tabs[tabId])) return
+  void ctx.createDraftTab(undefined, { reveal: false })
 }
 
 /**
@@ -131,7 +148,7 @@ export async function bootstrapRuntimeTabs(ctx: WorkspaceContext): Promise<void>
 export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): Promise<void> {
   ctx.runtimeSyncing = true
   try {
-    const tabIds = ctx.tabOrder.filter((tabId) => !serverId || ctx.sessionFor(tabId)?.serverId === serverId)
+    const tabIds = ctx.tabOrder.filter((tabId) => !serverId || ctx.sessionFor(tabId)?.run.serverId === serverId)
     // Clear only the affected host's in-flight state so replayed text doesn't
     // double-append without churning healthy tabs on other connections.
     for (const tabId of tabIds) {
@@ -204,19 +221,27 @@ function _materializeTabs(
           ?? LOCAL_SERVER_ID
         : snapTab.serverId ?? LOCAL_SERVER_ID
       session = makeSession(ctx.settings, {
-        serverId,
         agentSessionId: snapTab.agentSessionId,
-        provider: snapTab.provider,
         handoffFrom: snapTab.handoffFrom ? { ...snapTab.handoffFrom } : undefined,
         status: 'idle',
-        workingDirectory: snapTab.workingDirectory || ctx.staticInfo?.projectPath || ctx.staticInfo?.workspacePath || '~',
         projectGroupPath: snapTab.projectGroupPath ?? null,
         additionalDirs: [...snapTab.additionalDirs],
-        gitContext: snapTab.gitContext,
-        worktreeBaseBranch: snapTab.worktreeBaseBranch,
-        worktreeRequired: snapTab.worktreeRequired ?? false,
-        modelConfig: snapTab.modelConfig ? restoredModelConfig(snapTab) : undefined,
-        permissionMode: snapTab.permissionMode as any,
+        run: {
+          serverId,
+          provider: snapTab.provider,
+          workingDirectory: snapTab.workingDirectory || ctx.staticInfo?.projectPath || ctx.staticInfo?.workspacePath || '~',
+          gitContext: snapTab.gitContext,
+          worktreeBaseBranch: snapTab.worktreeBaseBranch,
+          worktreeRequired: snapTab.worktreeRequired ?? false,
+          ...(snapTab.modelConfig ? { modelConfig: restoredModelConfig(snapTab) } : {}),
+          permissionMode: snapTab.permissionMode as any,
+        },
+        // Only a composer carries these; a started session's task comes from its
+        // session link. Restoring them is what keeps a composer under the task
+        // it was opened in when the client refreshes out from under it.
+        pendingTaskId: snapTab.pendingTaskId ?? null,
+        pendingParentTaskId: snapTab.pendingParentTaskId ?? null,
+        taskCreationDisabled: snapTab.taskCreationDisabled ?? false,
         terminalFailure: snapTab.terminalFailure
           ? { ...snapTab.terminalFailure }
           : null,
@@ -230,7 +255,7 @@ function _materializeTabs(
         id: snapTab.tabId,
         title: snapTab.title || 'New Tab',
         titleCustom: snapTab.titleCustom ?? false,
-        input: makeInputState({ text: draftText }),
+        input: makePrompt({ text: draftText }),
       })
       tab.hasUnread = snapTab.hasUnread ?? false
       ctx.sessions[session.id] = session

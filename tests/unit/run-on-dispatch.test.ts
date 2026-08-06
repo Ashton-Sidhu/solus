@@ -17,8 +17,8 @@ const {
   worktreeBlockedReason,
 } = await import('../../src/renderer/components/servers/run-on')
 
-function workspaceWith(session: Partial<Session>) {
-  const built = { serverId: 'local', workingDirectory: '/home/dev/solus', ...session } as Session
+function workspaceWith(run: Partial<Session['run']>) {
+  const built = { run: { serverId: 'local', workingDirectory: '/home/dev/solus', ...run } } as Session
   return {
     workspace: {
       tabOrder: ['tab-1'],
@@ -47,10 +47,10 @@ describe('retargeting a session to another host', () => {
       repoKey: 'github.com/solus-sh/solus',
     })
 
-    expect(session.serverId).toBe('local')
-    expect(session.workingDirectory).toBe('/home/dev/solus')
+    expect(session.run.serverId).toBe('local')
+    expect(session.run.workingDirectory).toBe('/home/dev/solus')
     expect(session.statusCard).toBeUndefined()
-    expect(session.pendingHostDispatch?.serverId).toBe('studio')
+    expect(session.run.pendingHostDispatch?.serverId).toBe('studio')
     expect(connectionCalls).toEqual([])
   })
 
@@ -67,8 +67,8 @@ describe('retargeting a session to another host', () => {
     })
 
     expect(result).toEqual({ ok: false, reason: 'no-path-on-host' })
-    expect(session.serverId).toBe('local')
-    expect(session.workingDirectory).toBe('/home/dev/solus')
+    expect(session.run.serverId).toBe('local')
+    expect(session.run.workingDirectory).toBe('/home/dev/solus')
     expect(connectionCalls).toEqual([])
   })
 
@@ -86,12 +86,12 @@ describe('retargeting a session to another host', () => {
     })
 
     expect(result).toEqual({ ok: true })
-    expect(session.serverId).toBe('studio')
-    expect(session.workingDirectory).toBe('/srv/projects/solus')
+    expect(session.run.serverId).toBe('studio')
+    expect(session.run.workingDirectory).toBe('/srv/projects/solus')
     // WHY: paths are host-local. The logical project must keep the source
     // project's sidebar key or a remote clone appears as a second project.
     expect(session.projectGroupPath).toBe('/home/dev/solus')
-    expect(session.worktreeRequired).toBe(false)
+    expect(session.run.worktreeRequired).toBe(false)
   })
 
   test('only an explicit Run on dispatch requires a remote worktree', () => {
@@ -117,8 +117,8 @@ describe('retargeting a session to another host', () => {
       requireWorktree: true,
     })
 
-    expect(remoteProject.session.worktreeRequired).toBe(false)
-    expect(dispatchedSession.session.worktreeRequired).toBe(true)
+    expect(remoteProject.session.run.worktreeRequired).toBe(false)
+    expect(dispatchedSession.session.run.worktreeRequired).toBe(true)
   })
 
   test('the old host’s checkout does not travel with the session', () => {
@@ -136,8 +136,8 @@ describe('retargeting a session to another host', () => {
       path: '/srv/projects/solus',
     })
 
-    expect(session.gitContext).toBeNull()
-    expect(session.worktreeBaseBranch).toBeNull()
+    expect(session.run.gitContext).toBeNull()
+    expect(session.run.worktreeBaseBranch).toBeNull()
   })
 
   test('staying on the same host is not a dispatch', () => {
@@ -155,14 +155,14 @@ describe('retargeting a session to another host', () => {
     })
 
     expect(result).toEqual({ ok: true })
-    expect(session.gitContext).not.toBeNull()
+    expect(session.run.gitContext).not.toBeNull()
   })
 
   test('the old host is released only after its last tab moves away', () => {
     // WHY: a shared host socket belongs to all tabs on it. Releasing it while a
     // sibling remains would sever that session when another tab changes hosts.
     const first = workspaceWith({})
-    const second = { ...first.session, serverId: 'local' } as Session
+    const second = { ...first.session, run: { ...first.session.run, serverId: 'local' } } as Session
     const workspace = {
       ...first.workspace,
       tabOrder: ['tab-1', 'tab-2'],
@@ -178,7 +178,7 @@ describe('retargeting a session to another host', () => {
     })
 
     expect(connectionCalls).not.toContain('release:local')
-    second.serverId = 'other'
+    second.run.serverId = 'other'
     retargetSessionHost({
       workspace,
       tabId: 'tab-1',

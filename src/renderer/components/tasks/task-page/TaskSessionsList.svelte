@@ -28,7 +28,7 @@
       return taskSessionRow(
         link,
         open ? sessionTitle(open.session, open.tab) : null,
-        open?.session.provider ?? null,
+        open?.session.run.provider ?? null,
         !!open && getAttentionState(open.session, open.tab) === "running",
         now,
         taskTitle,

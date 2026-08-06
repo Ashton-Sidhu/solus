@@ -3129,32 +3129,32 @@ button.solus-token {
   font-size: var(--prose-pr-size);
   line-height: 1.75;
   font-weight: 400;
-  color: var(--solus-text-tertiary);
+  /* Secondary, not tertiary: a description is a document to read, not a caption
+     beside one. Headings and bold still carry the primary end of the step. */
+  color: var(--solus-text-secondary);
   text-wrap: pretty;
 }
-/* The task description is that same prose in an editable shell, so the three
+/* The task description is that same prose in an editable shell, so the two
    things the shell adds have to come back off: the prompt editor's left gutter
    (a drag-handle lane the task header doesn't use) indents the body off the
    title's left edge, and the editor's own letter-spacing/feature set differs
-   from the `.prose-cloud` one every other body on this ruleset gets. Colour
-   steps up one tone: a task description is short and usually unadorned, so
-   there's no heading or bold beside it to carry the primary end of the
-   contrast step the PR body relies on, and tertiary alone reads washed out. */
+   from the `.prose-cloud` one every other body on this ruleset gets. */
 .task-description-prose .solus-doc-editor .ProseMirror {
   padding-left: 0;
   padding-right: 0;
-  color: var(--solus-text-secondary);
   letter-spacing: -0.006em;
   font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'cv02' 1, 'cv03' 1, 'cv04' 1, 'cv11' 1;
 }
 
 /* Only the description runs the full width of the pane, so only it needs a
    measure — comments are already columned by their card. `ch` is the advance of
-   "0", which is wider than the average proportional glyph, so this lands a
-   little past the nominal 78ch the 1.75 leading is tuned for — deliberate, so
-   the column doesn't strand a band of empty canvas on a wide pane. */
-.prose-pr-description { max-width: 84ch; }
-.prose-pr-comment { color: var(--solus-text-secondary); }
+   "0", which is wider than the average proportional glyph, so this lands well
+   past the nominal 78ch the 1.75 leading is tuned for — deliberate, so the
+   column doesn't strand a band of empty canvas beside a body whose tables and
+   bullet rows want the room. The `main` column's own 1000px cap is the real
+   ceiling on a wide display; this keeps a narrower pane from setting lines the
+   full width of the window. */
+.prose-pr-description { max-width: 104ch; }
 /* Element margins alone set the rhythm — the generic sibling step would add to
    the asymmetric heading spacing below. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) > * + * { margin-top: 0; }
@@ -3351,10 +3351,21 @@ button.solus-token {
   font-size: calc(var(--prose-pr-size) * 0.893);
 }
 
+/* An image sits in the line it was written in — a logo beside heading text, a
+   badge mid-sentence. Blanket `display: block` broke those onto their own line
+   and split the heading around them (the Cloudflare deploy comment reads
+   "Deploying with" / logo / "Cloudflare Workers" over three lines). Only an
+   image that is a paragraph of its own is a figure, so only it gets the block
+   treatment and the frame that goes with it. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) img {
-  display: block;
+  display: inline-block;
   max-width: 100%;
   height: auto;
+}
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror)
+  p:has(> img:only-child)
+  > img {
+  display: block;
   margin: 1rem 0;
   border: 0.0625rem solid var(--solus-container-border);
   border-radius: 0.5rem;
@@ -3364,38 +3375,43 @@ button.solus-token {
   margin: 1rem 0;
   font-size: calc(var(--prose-pr-size) * 0.893);
 }
+/* Cells wrap — a row whose label runs three lines must still start level with
+   its value, so alignment is top, never the UA's middle. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) :is(th, td) {
+  vertical-align: top;
+}
+/* The header row is the only emphasis a table gets. Cells carry whatever weight
+   the author wrote — promoting the first column to 500/primary bolded every row
+   of a table whose left column is a sentence rather than a label, so the two
+   columns read as emphasis-vs-aside instead of as one row. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) th {
   padding: 0 0.7em 0.5em 0;
   border-bottom: 0.0625rem solid var(--solus-container-border);
   background: none;
-  font-size: calc(var(--prose-pr-size) * 0.679);
-  font-weight: 500;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--solus-text-tertiary);
+  font-weight: 600;
+  color: var(--solus-text-primary);
 }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) td {
   padding: 0.55em 0.7em 0.55em 0;
   border-bottom: 0.0625rem solid color-mix(in srgb, var(--solus-container-border) 55%, transparent);
-  color: var(--solus-text-tertiary);
-}
-:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) td:first-child {
-  font-weight: 500;
-  color: var(--solus-text-primary);
 }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) tr:last-child td { border-bottom: none; }
-/* Two columns is a label→value pair, not a grid: drop the rules and give the
-   label a fixed gutter so every value starts on the same edge. */
+/* Two columns is usually a label→value pair, so it reads lighter than a grid:
+   smaller type step, tighter rows, no rules between them. The label column gets
+   a *floor* rather than a fixed width — pinning it at 8.75rem starved first
+   cells that hold a sentence instead of a word, squeezing them into a ragged
+   column beside a mostly-empty value. Auto layout then splits the width by how
+   much content each column actually carries. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) table:not(:has(td:nth-child(3))) {
   font-size: calc(var(--prose-pr-size) * 0.964);
 }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) table:not(:has(td:nth-child(3))) :is(th, td) {
-  padding: 0.3em 0.75em 0.3em 0;
+  padding: 0.5em 1.25em 0.5em 0;
   border-bottom: none;
   line-height: 1.7;
 }
-:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) table:not(:has(td:nth-child(3))) td:first-child {
-  width: 8.75rem;
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) table:not(:has(td:nth-child(3))) :is(th, td):first-child {
+  min-width: 8.75rem;
 }
 
 /* The inline diff card runs 11px chrome in a column the width of a hunk, so it

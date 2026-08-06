@@ -156,11 +156,6 @@ export interface ListStatusOption {
   count: number
 }
 
-export interface ListKeyHint {
-  key: string
-  label: string
-}
-
 /**
  * The 32px time slot. Two characters of number and one of unit, so the column
  * stays a column — "12m", "3h", "5d", "2w". Anything older than a year is "1y+"

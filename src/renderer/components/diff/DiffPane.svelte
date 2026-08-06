@@ -12,7 +12,7 @@
 
   const sourceTab = $derived(session.tabs[params.sourceTabId]);
   const sourceSession = $derived(session.sessionFor(params.sourceTabId));
-  const environment = $derived(environmentStore.environmentFor(params.sourceTabId));
+  const environment = $derived(environmentStore.environmentFor(session.sessionFor(params.sourceTabId)?.run));
 
   // Jumping to a file is a request, not a state: asking for the same file twice
   // has to move the panel again. The router's navigation epoch is that request,
@@ -42,12 +42,12 @@
     tabId={sourceTab?.id ?? ""}
     getCtx={() =>
       session.ctxForEnvironment(environment.cwd, environment.checkout, params.sourceTabId)}
-    projectPath={sourceSession?.workingDirectory ?? environment.cwd}
-    worktreePath={sourceSession?.gitContext?.worktreePath ?? environment.worktreePath ?? environment.cwd}
-    worktreeBranch={sourceSession?.gitContext?.branch ??
+    projectPath={sourceSession?.run.workingDirectory ?? environment.cwd}
+    worktreePath={sourceSession?.run.gitContext?.worktreePath ?? environment.worktreePath ?? environment.cwd}
+    worktreeBranch={sourceSession?.run.gitContext?.branch ??
       session.globalDefaults.gitContext?.branch ??
       ""}
-    targetBranch={sourceSession?.gitContext?.targetBranch ??
+    targetBranch={sourceSession?.run.gitContext?.targetBranch ??
       session.globalDefaults.gitContext?.targetBranch ??
       "HEAD"}
     isWorktree={environment.isolated || !!session.globalDefaults.gitContext?.worktreePath}

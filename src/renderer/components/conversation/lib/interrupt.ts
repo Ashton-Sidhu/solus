@@ -73,7 +73,7 @@ export function permissionCwd(
 ): string {
   const cwd = permission.toolInput?.cwd
   if (typeof cwd === 'string' && cwd) return cwd
-  return session?.gitContext?.worktreePath || session?.workingDirectory || ''
+  return session?.run.gitContext?.worktreePath || session?.run.workingDirectory || ''
 }
 
 /**

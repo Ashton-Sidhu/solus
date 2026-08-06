@@ -41,7 +41,7 @@
   let searchGeneration = 0;
 
   const targetTabId = $derived(tabId ?? session.focusedChatTabId ?? session.activeTabId);
-  const environment = $derived(environmentStore.environmentFor(targetTabId));
+  const environment = $derived(environmentStore.environmentFor(session.sessionFor(targetTabId)?.run));
   const searchCwd = $derived(environment.cwd);
   const scopeName = $derived(
     environment.isolated ? environment.name : (searchCwd?.split("/").pop() ?? "project"),

@@ -112,7 +112,9 @@
       <Breadcrumb.Item class="shrink-0">
         <Breadcrumb.Link class={crumbButton}>
           {#snippet child({ props })}
-            <button {...props} type="button" onclick={onExit}>Pull requests</button>
+            <button {...props} type="button" title="Back to list (Esc)" onclick={onExit}
+              >Pull requests</button
+            >
           {/snippet}
         </Breadcrumb.Link>
       </Breadcrumb.Item>
@@ -149,7 +151,7 @@
     <button
       type="button"
       class={stepButton}
-      title="Previous pull request — K"
+      title="Previous pull request (K)"
       aria-label="Previous pull request"
       disabled={order.length < 2}
       onclick={() => step(-1)}
@@ -164,7 +166,7 @@
     <button
       type="button"
       class={stepButton}
-      title="Next pull request — J"
+      title="Next pull request (J)"
       aria-label="Next pull request"
       disabled={order.length < 2}
       onclick={() => step(1)}

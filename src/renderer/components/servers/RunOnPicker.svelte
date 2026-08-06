@@ -83,7 +83,7 @@
       : isRunOnHostLocked(session),
   );
   const selectedHostId = $derived(
-    session?.pendingHostDispatch?.serverId ?? session?.serverId,
+    session?.run.pendingHostDispatch?.serverId ?? session?.run.serverId,
   );
   const selectedServer = $derived(serversStore.hostFor(selectedHostId));
   const selectedAffinity = $derived(serversStore.affinityFor(selectedHostId));
@@ -119,16 +119,16 @@
   );
   // The repo is resolved against the host the session is already on — a
   // dispatched session's checkout path means nothing in the local manifest.
-  const currentHostId = $derived(session?.serverId ?? LOCAL_SERVER_ID);
+  const currentHostId = $derived(session?.run.serverId ?? LOCAL_SERVER_ID);
   const detectedRepoKey = $derived(
     repoKeyForPath(
       serversStore.projectIdentitiesFor(currentHostId),
-      session?.gitContext?.repoRoot ?? session?.workingDirectory,
+      session?.run.gitContext?.repoRoot ?? session?.run.workingDirectory,
     ),
   );
   const availability = $derived(
     dispatchAvailability({
-      inCheckout: !!session?.gitContext?.repoRoot,
+      inCheckout: !!session?.run.gitContext?.repoRoot,
       repoKey: detectedRepoKey,
       identitiesProbed: serversStore.hasProbedIdentities(currentHostId),
     }),
@@ -158,7 +158,7 @@
   });
 
   $effect(() => {
-    const path = session?.gitContext?.repoRoot ?? session?.workingDirectory;
+    const path = session?.run.gitContext?.repoRoot ?? session?.run.workingDirectory;
     if (locked || !path || path === "~") return;
     void serversStore.loadProjectIdentities(currentHostId);
   });
@@ -279,7 +279,7 @@
   /** Both local checkout choices cancel a queued remote dispatch first. */
   function chooseLocalStart(worktree: boolean) {
     const local = serversStore.servers.find((server) => server.local);
-    if (session && local && session.serverId !== local.id) {
+    if (session && local && session.run.serverId !== local.id) {
       if (sourceRepoKey) {
         queueSessionHostDispatch(session, {
           serverId: local.id,
@@ -293,16 +293,16 @@
       void chooseProjectOn(local);
       return;
     }
-    if (session?.pendingHostDispatch) {
+    if (session?.run.pendingHostDispatch) {
       if (sourceRepoKey) {
         queueSessionHostDispatch(session, {
-          serverId: session.serverId,
+          serverId: session.run.serverId,
           hostLabel: stayLabel,
           isLocalHost: true,
           repoKey: sourceRepoKey,
         });
       } else {
-        session.pendingHostDispatch = null;
+        session.run.pendingHostDispatch = null;
       }
     }
     if (!worktreeForced && worktree !== startsNewWorktree)

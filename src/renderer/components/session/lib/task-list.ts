@@ -164,20 +164,6 @@ export function shouldShowSidebarChild(isDismissed: boolean, hasOpenTab: boolean
   return !isDismissed || hasOpenTab
 }
 
-/** Resolve the breadcrumb's task without putting a local-only draft into the
- * sidebar projection. A draft can inherit a durable task before it has a
- * linked session or visible tab row of its own. */
-export function activeSidebarTask(
-  tasks: SidebarTask[],
-  activeTabId: string,
-  draftTabId: string | null,
-  draftRootTaskId: string | null,
-): SidebarTask | null {
-  const openTask = tasks.find((task) => task.tabIds.includes(activeTabId))
-  if (openTask || activeTabId !== draftTabId || !draftRootTaskId) return openTask ?? null
-  return tasks.find((task) => task.taskId === draftRootTaskId) ?? null
-}
-
 /**
  * Preserve row model identity when a sidebar recomputation produced the same
  * task data. Selection clears one tab's unread flag; without structural

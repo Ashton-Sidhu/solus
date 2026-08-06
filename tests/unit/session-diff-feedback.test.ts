@@ -49,8 +49,8 @@ describe('diff feedback tab targeting', () => {
     const sourceComment = comment('source.ts')
     const sends: Array<{ prompt: string; tabId?: string }> = []
     const sessions = {
-      source: { workingDirectory: '/repo', gitContext: null },
-      fresh: { workingDirectory: '', gitContext: null },
+      source: { run: { workingDirectory: '/repo', gitContext: null } },
+      fresh: { run: { workingDirectory: '', gitContext: null } },
     }
     const ctx = {
       activeTabId: 'active',
@@ -79,7 +79,7 @@ describe('diff feedback tab targeting', () => {
       diffText: '',
       sourceTabId: 'source',
     })).toBe(true)
-    expect(sessions.fresh.workingDirectory).toBe('/repo')
+    expect(sessions.fresh.run.workingDirectory).toBe('/repo')
     expect(sends[0]?.tabId).toBe('fresh')
     expect(sends[0]?.prompt).toContain('source.ts')
     expect(ctx.tabs.source.diffComments).toEqual([])

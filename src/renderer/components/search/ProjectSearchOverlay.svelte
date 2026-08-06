@@ -64,7 +64,7 @@
   let searchGeneration = 0;
 
   const targetTabId = $derived(tabId ?? session.focusedChatTabId ?? session.activeTabId);
-  const environment = $derived(environmentStore.environmentFor(targetTabId));
+  const environment = $derived(environmentStore.environmentFor(session.sessionFor(targetTabId)?.run));
   // Narrowed to the string the search actually keys on: the environment object
   // is rebuilt whenever git status refreshes, which would otherwise re-run the
   // search mid-agent-turn for no reason.

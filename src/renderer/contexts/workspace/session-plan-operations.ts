@@ -50,7 +50,7 @@ export async function openPlanModal(ctx: WorkspaceContext, planId: string, ref?:
 
   const sessionId = ref?.sessionId ?? plan?.sessionId ?? targetPlanId.split('__')[0]
   const planToolUseId = ref?.planToolUseId ?? plan?.planToolUseId ?? targetPlanId.split('__').slice(1).join('__')
-  const cwd = plan?.cwd ?? ctx.activeSession?.workingDirectory ?? ctx.globalDefaults.workingDirectory
+  const cwd = plan?.cwd ?? ctx.activeSession?.run.workingDirectory ?? ctx.globalDefaults.workingDirectory
   const projectPath = plan?.projectPath ?? encodePathAsFolder(cwd)
   if (!sessionId || !planToolUseId || !cwd) return
 
@@ -67,7 +67,7 @@ export async function openPlanModal(ctx: WorkspaceContext, planId: string, ref?:
       cwd,
       status: ref?.status,
       ctx: ctx.ctx,
-      provider: ctx.activeSession?.provider,
+      provider: ctx.activeSession?.run.provider,
     })
   } catch {}
 
@@ -134,12 +134,12 @@ export async function approvePlanWithModel(
     ctx.interruptTab(tabId, { notice: false })
   }
 
-  const providerChanged = !!opts.provider && opts.provider !== session.provider
+  const providerChanged = !!opts.provider && opts.provider !== session.run.provider
   if (providerChanged) {
     await ctx.switchActiveAgent(opts.provider!, tabId)
     // switchActiveAgent owns handoff errors and leaves the original provider in
     // place. Do not accidentally submit the approved work to that provider.
-    if (session.provider !== opts.provider) {
+    if (session.run.provider !== opts.provider) {
       ctx.planStore.setStatus(planId, 'pending')
       return
     }
@@ -167,23 +167,23 @@ export async function approvePlanWithModel(
 
   if (opts.provider && opts.modelId) {
     if (!providerChanged) {
-      session.provider = opts.provider
+      session.run.provider = opts.provider
       ctx.settings.update({ activeAgent: opts.provider })
     }
     const profile = MODEL_PROFILES[opts.provider as keyof typeof MODEL_PROFILES]?.[opts.modelId]
-    session.modelConfig = { modelId: opts.modelId, reasoningEffort: opts.reasoningEffort ?? (profile as ModelProfile)?.defaultReasoningEffort ?? 'high', contextWindow: (profile as ModelProfile)?.defaultContextWindow ?? null, fastMode: false }
+    session.run.modelConfig = { modelId: opts.modelId, reasoningEffort: opts.reasoningEffort ?? (profile as ModelProfile)?.defaultReasoningEffort ?? 'high', contextWindow: (profile as ModelProfile)?.defaultContextWindow ?? null, fastMode: false }
     session.sessionModel = null
   } else if (opts.reasoningEffort) {
-    session.modelConfig.reasoningEffort = opts.reasoningEffort
+    session.run.modelConfig.reasoningEffort = opts.reasoningEffort
   }
-  session.permissionMode = mode
+  session.run.permissionMode = mode
 
-  if (wasPreview && opts.useWorktree && !session.gitContext) {
+  if (wasPreview && opts.useWorktree && !session.run.gitContext) {
     await ctx.environment.refreshTab(ctx, { tabId, cwd: plan.cwd })
   }
 
   if (opts.useWorktree !== undefined) {
-    session.worktreeBaseBranch = opts.useWorktree ? (session.gitContext?.targetBranch ?? null) : null
+    session.run.worktreeBaseBranch = opts.useWorktree ? (session.run.gitContext?.targetBranch ?? null) : null
   }
 
   const params = new URLSearchParams({

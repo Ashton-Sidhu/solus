@@ -22,12 +22,15 @@
    *  that has plenty: describe it and let an agent author it, or seed one from a
    *  template and review it in the builder. */
   interface Props {
+    /** Working directory new automations are created in — the project the list
+     *  is scoped to, so what you seed lands where you're looking. */
+    projectPath: string;
     /** Open the builder on a freshly seeded automation. */
     onOpen: (a: Automation) => void;
     /** Start an empty automation — the "Start from scratch" row. */
     onCreateBlank: () => void;
   }
-  let { onOpen, onCreateBlank }: Props = $props();
+  let { projectPath, onOpen, onCreateBlank }: Props = $props();
 
   const session = getWorkspaceContext();
   const store = session.automationsStore;
@@ -77,7 +80,7 @@
   async function submitDescription() {
     const text = description.trim();
     if (!text || draftPrompt !== null) return;
-    const cwd = session.galleryProjectPath;
+    const cwd = projectPath;
     draftPrompt = text;
     draftingCwd = cwd;
     automationIdsBeforeDraft = new Set(store.items.map((a) => a.id));
@@ -128,7 +131,7 @@
           cwd:
             (template.runsInWorkspace
               ? session.staticInfo?.workspacePath
-              : null) ?? session.galleryProjectPath,
+              : null) ?? projectPath,
         },
         template.trigger,
         // Seeded paused: a template carries a schedule, and nothing should run

@@ -14,8 +14,10 @@ describe('SessionEventReducer Git events', () => {
     const { SessionEventReducer } = await import('../../src/renderer/contexts/workspace/session-event-reducer.svelte')
     const session = {
       status: 'interrupted',
-      gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
-      worktreeBaseBranch: null,
+      run: {
+        gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
+        worktreeBaseBranch: null,
+      } as Session['run'],
     } as Session
     const tab = { id: 'tab-1', sessionId: 'session-1' } as Tab
     let pushedStatus: GitState | null | undefined
@@ -43,7 +45,7 @@ describe('SessionEventReducer Git events', () => {
     }
     reducer.apply('tab-1', { type: 'git_status', cwd: '/repo', state: status })
 
-    expect(session.gitContext?.branch).toBe('feature')
+    expect(session.run.gitContext?.branch).toBe('feature')
     expect(pushedStatus).toBe(status)
   })
 })

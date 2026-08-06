@@ -1,14 +1,14 @@
 import { SvelteMap } from 'svelte/reactivity'
-import type { InputState, Session, Tab } from '../../../shared/types'
+import type { Prompt, Session, Tab } from '../../../shared/types'
 import { branchKeyFor } from '../../lib/sessionUtils'
-import { makeInputState } from './session.factories'
+import { makePrompt } from './session.factories'
 
 export class TabRegistry {
   tabs = $state<Record<string, Tab>>({})
   sessions = $state<Record<string, Session>>({})
   tabOrder = $state<string[]>([])
   activeTabId = $state('')
-  activeInput = $state<InputState>(makeInputState())
+  activeInput = $state<Prompt>(makePrompt())
   lastActiveTabByBranch = new SvelteMap<string, string>()
 
   get activeTab(): Tab | undefined {
@@ -19,7 +19,7 @@ export class TabRegistry {
     return this.sessionFor(this.activeTabId)
   }
 
-  get currentInput(): InputState {
+  get currentInput(): Prompt {
     return this.activeTab?.input ?? this.activeInput
   }
 

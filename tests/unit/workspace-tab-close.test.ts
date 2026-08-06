@@ -46,12 +46,16 @@ describe('WorkspaceContext tab closing', () => {
 
     const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
     const remainingSession = {
-      workingDirectory: '/repo',
-      serverId: undefined,
+      run: {
+        workingDirectory: '/repo',
+        serverId: undefined,
+      } as Session['run'],
     } as unknown as Session
     const closingSession = {
-      workingDirectory: '/repo',
-      serverId: undefined,
+      run: {
+        workingDirectory: '/repo',
+        serverId: undefined,
+      } as Session['run'],
     } as unknown as Session
     const tabOrder = ['remaining-tab', 'closing-tab']
     const tabs: Record<string, Tab> = {

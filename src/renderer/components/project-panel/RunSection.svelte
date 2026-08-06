@@ -108,8 +108,8 @@
       .join("\n");
     await session.startNewSessionWithPrompt(
       prompt,
-      activeSession?.workingDirectory ?? cwd,
-      activeSession?.gitContext ?? null,
+      activeSession?.run.workingDirectory ?? cwd,
+      activeSession?.run.gitContext ?? null,
     );
     requestInputFocus();
   }

@@ -37,7 +37,7 @@ afterEach(() => {
 })
 
 describe('new tab draft', () => {
-  test('stays out of the tab/task projection until the first prompt is submitted', async () => {
+  test('is an ordinary tab from the start, but reaches the server only on the first prompt', async () => {
     installRendererGlobals()
     let runtimeTabCreations = 0
     Object.assign(window.solus, {
@@ -52,12 +52,14 @@ describe('new tab draft', () => {
     const sourceSession = {
       id: 'source-session',
       agentSessionId: 'agent-session',
-      serverId: 'local',
-      provider: 'codex',
-      workingDirectory: '/repo',
-      gitContext: { repoRoot: '/repo', branch: 'feature/tasks', targetBranch: 'main' },
-      modelConfig: { modelId: 'gpt-5', reasoningEffort: 'high', contextWindow: null, fastMode: false },
-      sessionSkills: [],
+      run: {
+        serverId: 'local',
+        provider: 'codex',
+        workingDirectory: '/repo',
+        gitContext: { repoRoot: '/repo', branch: 'feature/tasks', targetBranch: 'main' },
+        modelConfig: { modelId: 'gpt-5', reasoningEffort: 'high', contextWindow: null, fastMode: false },
+        sessionSkills: [],
+      } as Session['run'],
     } as unknown as Session
     const sourceTab = { id: 'source-tab', sessionId: sourceSession.id } as Tab
     const registry = {
@@ -85,9 +87,9 @@ describe('new tab draft', () => {
       globalDefaults: {
         permissionMode: 'auto',
         workingDirectory: '/repo',
-        gitContext: sourceSession.gitContext,
+        gitContext: sourceSession.run.gitContext,
         worktreeBaseBranch: null,
-        modelConfig: sourceSession.modelConfig,
+        modelConfig: sourceSession.run.modelConfig,
       },
       defaultReasoningEffortFor: () => 'high',
       pendingSessionStartTarget: () => null,
@@ -110,23 +112,26 @@ describe('new tab draft', () => {
     const draftTabId = await workspace.createDraftTab(undefined, { via: 'keybinding' })
     const draftSession = workspace.sessionFor(draftTabId)
 
-    // WHY: the sidebar projects task rows from tabOrder. Keeping the local draft
-    // out of that array prevents the branch name from appearing as a fake task.
-    expect(registry.tabOrder).toEqual(['source-tab'])
+    // WHY: a composer is a tab like any other — it is in the order, so the pool
+    // renders it and the sidebar files it under the task it inherited. Nothing
+    // has to promote it later, which is the whole point: there is no promotion
+    // step to forget on a path that fills the tab some other way.
+    expect(registry.tabOrder).toEqual(['source-tab', draftTabId])
     expect(registry.activeTabId).toBe(draftTabId)
-    // WHY: structural persistence deliberately excludes the local-only draft.
-    // Its active pointer must therefore keep naming the last durable tab or the
-    // next refresh restores a snapshot whose active tab does not exist.
-    expect(workspace.durableActiveTabId).toBe('source-tab')
+    expect(workspace.isDraftTab(draftTabId)).toBe(true)
     expect(draftSession?.pendingTaskId).toBe('task-root')
+    // WHY: being a tab in the renderer says nothing about the server. The
+    // provider session is still minted by the first prompt, not by opening a
+    // composer the user may never send from.
     expect(runtimeTabCreations).toBe(0)
 
     draftSession.status = 'idle'
     expect(workspace.sendMessage('Implement it', undefined, draftTabId)).toBe(true)
 
+    // WHY: draftness is read off the session, so dispatching is all it takes to
+    // stop being one.
+    expect(workspace.isDraftTab(draftTabId)).toBe(false)
     expect(registry.tabOrder).toEqual(['source-tab', draftTabId])
-    expect(workspace.draftTabId).toBeNull()
-    expect(workspace.durableActiveTabId).toBe(draftTabId)
 
     workspace.handleError = () => {}
     workspace.ctxFor = () => ({})
@@ -140,17 +145,19 @@ describe('new tab draft', () => {
     const sourceSession = {
       id: 'source-session',
       agentSessionId: 'agent-session',
-      serverId: 'remote-host',
-      provider: 'codex',
-      workingDirectory: '/repo/.worktrees/feature',
-      gitContext: {
-        repoRoot: '/repo',
-        worktreePath: '/repo/.worktrees/feature',
-        branch: 'feature/tasks',
-        targetBranch: 'main',
-      },
-      modelConfig: { modelId: 'gpt-5', reasoningEffort: 'high', contextWindow: 400_000, fastMode: true },
-      sessionSkills: ['source-only-skill'],
+      run: {
+        serverId: 'remote-host',
+        provider: 'codex',
+        workingDirectory: '/repo/.worktrees/feature',
+        gitContext: {
+          repoRoot: '/repo',
+          worktreePath: '/repo/.worktrees/feature',
+          branch: 'feature/tasks',
+          targetBranch: 'main',
+        },
+        modelConfig: { modelId: 'gpt-5', reasoningEffort: 'high', contextWindow: 400_000, fastMode: true },
+        sessionSkills: ['source-only-skill'],
+      } as Session['run'],
     } as unknown as Session
     const sourceTab = { id: 'source-tab', sessionId: sourceSession.id } as Tab
     const registry = {
@@ -210,12 +217,12 @@ describe('new tab draft', () => {
     const draftTabId = await workspace.createDraftTab(undefined, { freshTask: true })
     const draftSession = workspace.sessionFor(draftTabId)
 
-    expect(draftSession?.provider).toBe('claude-code')
-    expect(draftSession?.modelConfig).toEqual(globalModelConfig)
-    expect(draftSession?.sessionSkills).toEqual([])
-    expect(draftSession?.serverId).toBe('local')
-    expect(draftSession?.workingDirectory).toBe('/repo')
-    expect(draftSession?.gitContext).toBeNull()
+    expect(draftSession?.run.provider).toBe('claude-code')
+    expect(draftSession?.run.modelConfig).toEqual(globalModelConfig)
+    expect(draftSession?.run.sessionSkills).toEqual([])
+    expect(draftSession?.run.serverId).toBe('local')
+    expect(draftSession?.run.workingDirectory).toBe('/repo')
+    expect(draftSession?.run.gitContext).toBeNull()
     expect(draftSession?.pendingTaskId).toBeNull()
     expect(refreshOptions?.worktreeRequested).toBe(true)
 
@@ -237,8 +244,8 @@ describe('new tab draft', () => {
     // choice must survive dispatch; a missing task id alone means "mint one".
     expect(tasklessSession?.taskCreationDisabled).toBe(true)
     expect(tasklessSession?.pendingTaskId).toBeNull()
-    expect(tasklessSession?.workingDirectory).toBe(sourceSession.workingDirectory)
-    expect(tasklessSession?.gitContext).toEqual(sourceSession.gitContext)
+    expect(tasklessSession?.run.workingDirectory).toBe(sourceSession.run.workingDirectory)
+    expect(tasklessSession?.run.gitContext).toEqual(sourceSession.run.gitContext)
     // WHY: task/session shortcuts only retarget where the pending prompt will
     // go. They must not clear anything the user already composed.
     expect(workspace.tabs[tasklessTabId].input).toBe(draftInput)
@@ -259,27 +266,28 @@ describe('new tab draft', () => {
     workspace.apiFor = () => ({ trackRecentProject: async () => {} })
     batchSession.status = 'idle'
 
-    batchSession.serverId = 'remote-host'
-    batchSession.workingDirectory = '~'
+    batchSession.run.serverId = 'remote-host'
+    batchSession.run.workingDirectory = '~'
+    // WHY: a send that never left the renderer must leave the composer a
+    // composer, or the user is looking at a started session that isn't one.
     expect(workspace.sendMessage('First batched task', undefined, batchDraftTabId)).toBe(false)
-    expect(workspace.draftTabId).toBe(batchDraftTabId)
-    expect(registry.tabOrder).not.toContain(batchDraftTabId)
+    expect(workspace.isDraftTab(batchDraftTabId)).toBe(true)
 
-    batchSession.serverId = 'local'
-    batchSession.workingDirectory = '/repo'
+    batchSession.run.serverId = 'local'
+    batchSession.run.workingDirectory = '/repo'
 
     expect(workspace.sendMessage('First batched task', undefined, batchDraftTabId)).toBe(true)
-    expect(workspace.draftTabId).toBeNull()
+    expect(workspace.isDraftTab(batchDraftTabId)).toBe(false)
     expect(registry.tabOrder).toContain(batchDraftTabId)
 
     const nextDraftTabId = await workspace.createDraftTab(undefined, { freshTask: true })
 
     // WHY: Ctrl+Enter dispatches the current task, but the selected surface must
     // remain an empty New Task composer so several independent tasks can be fired.
+    // The dispatched one keeps its place in the strip beside it.
     expect(registry.activeTabId).toBe(nextDraftTabId)
-    expect(workspace.draftTabId).toBe(nextDraftTabId)
-    expect(workspace.durableActiveTabId).toBe(batchDraftTabId)
-    expect(registry.tabOrder).not.toContain(nextDraftTabId)
+    expect(workspace.isDraftTab(nextDraftTabId)).toBe(true)
+    expect(registry.tabOrder).toContain(batchDraftTabId)
     expect(workspace.tabs[nextDraftTabId].input.text).toBe('')
 
   })

@@ -17,23 +17,25 @@
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
 
   interface Props {
-    tab?: Tab;
+    /** The composer this home belongs to. There is always one: the home is what
+     *  a tab that has not started a conversation renders. */
+    tab: Tab;
   }
   let { tab }: Props = $props();
 
   const session = getWorkspaceContext();
-  const sess = $derived(tab ? session.sessionFor(tab.id) : undefined);
+  const sess = $derived(session.sessionFor(tab.id));
 
   // The directory the next session starts in. The project keeps its own name
   // even when that session runs in a worktree of it, so the label reads off the
   // repo root rather than the checkout.
   const currentDir = $derived(
-    sess?.workingDirectory || session.globalDefaults.workingDirectory || "~",
+    sess?.run.workingDirectory || session.globalDefaults.workingDirectory || "~",
   );
   const gitHome = $derived(
     homeGitDetails(
       currentDir,
-      sess?.gitContext,
+      sess?.run.gitContext,
       session.globalDefaults.gitContext,
     ),
   );
@@ -56,22 +58,20 @@
       currentDir.replace(/\/+$/, "") !== workspacePath.replace(/\/+$/, ""),
   );
   const isFocusedHome = $derived(
-    tab
-      ? tab.id === (session.focusedChatTabId ?? session.activeTabId)
-      : session.tabOrder.length === 0,
+    tab.id === (session.focusedChatTabId ?? session.activeTabId),
   );
 
   function changeDirectory() {
     window.dispatchEvent(
-      new CustomEvent("solus:open-project", { detail: { tabId: tab?.id } }),
+      new CustomEvent("solus:open-project", { detail: { tabId: tab.id } }),
     );
   }
 
   function returnToWorkspace() {
     if (!workspacePath || !canReturnToWorkspace) return;
     invalidateHomeCache();
-    void session.setBaseDirectory(workspacePath, tab?.id).then(
-      () => requestInputFocus(tab ? { tabId: tab.id } : undefined),
+    void session.setBaseDirectory(workspacePath, tab.id).then(
+      () => requestInputFocus({ tabId: tab.id }),
       () => {},
     );
   }

@@ -3,7 +3,6 @@ import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import type { AgentId, PinnedSession, Session } from '../../../shared/types'
 import type { Task } from '../../../shared/task-types'
 import {
-  activeSidebarTask,
   buildProjectSummaries,
   compareTaskCreationOrder,
   groupTasks,
@@ -221,7 +220,7 @@ export class SessionSidebarStore {
             const tab = this.session.tabs[tabId]
             const session = this.session.sessionFor(tabId)
             if (!tab || !session) continue
-            serverId ??= session.serverId ?? null
+            serverId ??= session.run.serverId ?? null
             const nextAttention = getAttentionState(session, tab, this.planStore.plans)
             attention = maxAttention(attention, nextAttention)
             unread ||= tab.hasUnread
@@ -242,7 +241,7 @@ export class SessionSidebarStore {
           const tab = this.session.tabs[pendingTabId]
           const session = this.session.sessionFor(pendingTabId)
           if (!tab || !session) continue
-          serverId ??= session.serverId ?? null
+          serverId ??= session.run.serverId ?? null
           const nextAttention = getAttentionState(session, tab, this.planStore.plans)
           attention = maxAttention(attention, nextAttention)
           unread ||= tab.hasUnread
@@ -284,7 +283,7 @@ export class SessionSidebarStore {
       const linkedTask = this.session.tasksStore.taskForSession(session.agentSessionId)
       if (linkedTask || this.pendingTaskFor(session)) continue
 
-      const environment = this.session.environment.environmentFor(tabId)
+      const environment = this.session.environment.environmentFor(this.session.sessionFor(tabId)?.run)
       const projectKey = environmentProjectKey(environment, session.projectGroupPath)
       const attention = getAttentionState(session, tab, this.planStore.plans)
       const markedDone = this.doneTaskIds.has(tabId)
@@ -295,7 +294,7 @@ export class SessionSidebarStore {
         projectKey,
         projectLabel: projectLabel(projectKey),
         branchName: environment.branch,
-        serverId: session.serverId ?? null,
+        serverId: session.run.serverId ?? null,
         prNumber: null,
         status: taskStatusFor(attention, markedDone),
         attention,
@@ -336,40 +335,12 @@ export class SessionSidebarStore {
 
   headerCount: number = $derived(this.visibleTasks.length)
 
-  /** The task holding a tab, whether that conversation is leading or split. */
+  /** The task holding a tab, whether that conversation is leading or split.
+   *  Every open tab is projected into `allTasks` — under its task when it has
+   *  one, as its own loose row when it does not — so a composer that has yet to
+   *  dispatch needs no row of its own synthesized here. */
   taskForTab(tabId: string): SidebarTask | null {
-    const sess = this.session.sessionFor(tabId)
-    const tab = this.session.tabs[tabId]
-    if (!sess || !tab) return null
-    const pendingTask = this.pendingTaskFor(sess)
-    const existingTask = activeSidebarTask(
-      this.allTasks,
-      tabId,
-      this.session.draftTabId,
-      pendingTask?.parentId ?? pendingTask?.id ?? null,
-    )
-    if (existingTask) return existingTask
-    if (tabId !== this.session.draftTabId) return null
-    const environment = this.session.environment.environmentFor(tabId)
-    const projectKey = environmentProjectKey(environment, sess.projectGroupPath)
-    const attention = getAttentionState(sess, tab, this.planStore.plans)
-    return {
-      id: tabId,
-      key: tabId,
-      title: sessionTitle(sess, tab),
-      projectKey,
-      projectLabel: projectLabel(projectKey),
-      branchName: environment.branch,
-      serverId: sess.serverId ?? null,
-      prNumber: null,
-      status: taskStatusFor(attention),
-      attention,
-      unread: false,
-      createdAt: firstActivityAt(sess),
-      activityAt: lastActivityAt(sess),
-      runStartedAt: attention === 'running' ? turnStartedAt(sess) : 0,
-      tabIds: [tabId],
-    }
+    return this.allTasks.find((task) => task.tabIds.includes(tabId)) ?? null
   }
 
   /** The task the leading breadcrumb names. */
@@ -394,15 +365,7 @@ export class SessionSidebarStore {
   /** The sibling sessions a breadcrumb for this tab can switch between. */
   sessionsForTab(tabId: string): SidebarSessionChild[] {
     const task = this.taskForTab(tabId)
-    if (!task) return []
-    const sessions = this.sessionsFor(task)
-    if (
-      tabId === this.session.draftTabId &&
-      !sessions.some((child) => child.tabId === tabId)
-    ) {
-      return [...sessions, this.childForTab(tabId)]
-    }
-    return sessions
+    return task ? this.sessionsFor(task) : []
   }
 
   setViewMode(mode: SidebarViewMode): void {
@@ -414,12 +377,12 @@ export class SessionSidebarStore {
   }
 
   activeBranchKey: string = $derived.by(() => environmentBranchKey(
-    this.session.environment.environmentFor(this.session.activeTabId),
+    this.session.environment.environmentFor(this.session.activeSession?.run),
     this.session.sessionFor(this.session.activeTabId)?.projectGroupPath,
   ))
 
   activeProjectKey: string = $derived.by(() => environmentProjectKey(
-    this.session.environment.environmentFor(this.session.activeTabId),
+    this.session.environment.environmentFor(this.session.activeSession?.run),
     this.session.sessionFor(this.session.activeTabId)?.projectGroupPath,
   ))
 
@@ -483,10 +446,10 @@ export class SessionSidebarStore {
       tabId,
       label: tab && sess ? sessionTitle(sess, tab) : tabId,
       attention,
-      serverId: sess?.serverId ?? null,
+      serverId: sess?.run.serverId ?? null,
       // The mounted tab's environment is live, so it outranks whatever branch
       // the task record captured when it was last written.
-      branchName: this.session.environment.environmentFor(tabId).branch,
+      branchName: this.session.environment.environmentFor(this.session.sessionFor(tabId)?.run).branch,
       runStartedAt: sess && attention === 'running' ? turnStartedAt(sess) : 0,
       reviewGuideStatus:
         guideStatus === 'queued' || guideStatus === 'generating'
@@ -509,8 +472,8 @@ export class SessionSidebarStore {
   })
 
   sessionsFor(task: SidebarTask): SidebarSessionChild[] {
-    // A breadcrumb can ask about a draft tab that owns no row in the column yet,
-    // so a miss still answers rather than reporting the task as empty.
+    // Callers can hold a row the last derived pass hasn't caught up with, so a
+    // miss still answers rather than reporting the task as empty.
     return this.sessionsByTaskId.get(task.id) ?? this.buildSessionsFor(task)
   }
 
@@ -729,9 +692,9 @@ export class SessionSidebarStore {
 
     const pin: PinnedSession = {
       sessionId: session.agentSessionId,
-      provider: session.provider ?? (this.settings.activeAgent as AgentId),
+      provider: session.run.provider ?? (this.settings.activeAgent as AgentId),
       title: sessionTitle(session, tab),
-      cwd: session.gitContext?.worktreePath ?? session.workingDirectory,
+      cwd: session.run.gitContext?.worktreePath ?? session.run.workingDirectory,
       pinnedAt: Date.now(),
     }
     this.pinnedSessions = await window.solus.togglePinnedSession(pin)

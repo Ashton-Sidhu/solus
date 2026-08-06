@@ -1,4 +1,4 @@
-import type { InputState, Session } from '../../../shared/types'
+import type { Prompt, Session } from '../../../shared/types'
 import type { PlanStore } from '../plans/plan.store.svelte'
 import type { WorksStore } from '../works/works.store.svelte'
 import type { TasksStore } from '../tasks/tasks.store.svelte'
@@ -10,7 +10,7 @@ export class PromptComposer {
     private tasksStore: TasksStore,
   ) {}
 
-  compose(prompt: string, input: InputState, session: Session): string {
+  compose(prompt: string, input: Prompt, session: Session): string {
     let fullPrompt = prompt
     if (input.planRefs.length > 0) {
       const planCtx = input.planRefs.map((ref) => {
@@ -99,7 +99,7 @@ export class PromptComposer {
 
   /** Image attachments to send as real content blocks. Only images with a
    *  base64 `dataUrl` qualify; everything else stays a text reference. */
-  composeImages(input: InputState): Array<{ mimeType: string; dataUrl: string }> {
+  composeImages(input: Prompt): Array<{ mimeType: string; dataUrl: string }> {
     return input.attachments
       .filter((a) => a.type === 'image' && !!a.dataUrl)
       .map((a) => ({ mimeType: a.mimeType ?? 'image/png', dataUrl: a.dataUrl! }))

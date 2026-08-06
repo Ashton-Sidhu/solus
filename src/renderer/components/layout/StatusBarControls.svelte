@@ -44,9 +44,9 @@
     displayDirName(ctx.workingDirectory, session.staticInfo?.workspacePath),
   );
   const dirTooltip = $derived(ctx.workingDirectory);
-  const projectDir = $derived(sess?.workingDirectory ?? session.globalDefaults.workingDirectory ?? "~");
+  const projectDir = $derived(sess?.run.workingDirectory ?? session.globalDefaults.workingDirectory ?? "~");
   const defaultGitContext = $derived(session.tabCtx.gitContext);
-  const worktreePath = $derived(sess?.gitContext?.worktreePath ?? defaultGitContext?.worktreePath ?? null);
+  const worktreePath = $derived(sess?.run.gitContext?.worktreePath ?? defaultGitContext?.worktreePath ?? null);
   const gitStatusCwd = $derived(worktreePath ?? projectDir);
   const git = $derived(environmentStore.statusFor(gitStatusCwd));
   $effect(() => {
@@ -57,14 +57,14 @@
   });
 
   const worktreeBaseBranch = $derived(
-    sess?.worktreeBaseBranch ??
+    sess?.run.worktreeBaseBranch ??
       (!sess && session.settings.worktreeEnabled
         ? (git?.targetBranch ?? null)
         : null),
   );
   // One environment model drives the pill echo. displayBranch stays the raw
   // branch (the GitDropdown switches by exact name); pending comes from env.
-  const env = $derived(environmentStore.environmentFor(targetTabId));
+  const env = $derived(environmentStore.environmentFor(session.sessionFor(targetTabId)?.run));
   const worktrees = $derived(
     environmentStore.refsFor(env.repoRoot ?? git?.repoRoot).worktrees,
   );
@@ -147,8 +147,8 @@
       ? session.sessionFor(destinationTabId)
       : undefined;
     const nextCwd =
-      targetSession?.gitContext?.worktreePath ??
-      targetSession?.workingDirectory ??
+      targetSession?.run.gitContext?.worktreePath ??
+      targetSession?.run.workingDirectory ??
       session.globalDefaults.gitContext?.worktreePath ??
       session.globalDefaults.workingDirectory;
     if (nextCwd) void environmentStore.refresh(nextCwd, { force: true });

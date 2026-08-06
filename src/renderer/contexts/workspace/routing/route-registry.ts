@@ -54,6 +54,10 @@ export interface RouteParams {
    *  chat. `sessionId` is the agent's own id — what a notification knows about
    *  a conversation, resolved to whichever tab is holding it. */
   chat: { tabId?: string; sessionId?: string }
+  /** A prompt being written that has no session and no tab yet. The id is
+   *  identity only — the draft it names lives in `workspace.sessionDrafts`,
+   *  because a location must stay serializable. */
+  draft: { draftId: string }
   tasks: Record<string, never>
   task: { taskId: string }
   prs: { projectPath?: string }
@@ -171,6 +175,15 @@ export const ROUTES = defineRoutes({
     // A chat pinned into a companion pane still mounts through the outlet.
     keepAlive: true,
     component: () => import('../../../components/conversation/ConversationPane.svelte'),
+  },
+  draft: {
+    parse: (s) => (s ? { draftId: s } : null),
+    serialize: (p) => p.draftId,
+    placement: 'any',
+    // Not `keepAlive`: that flag means the outlet skips mounting because a pool
+    // owns the surface, and drafts have no pool. Unmounting on navigation costs
+    // only an editor rebuild — the prompt itself lives in `sessionDrafts`.
+    component: () => import('../../../components/session-draft/SessionDraftPane.svelte'),
   },
   tasks: {
     parse: () => ({}),

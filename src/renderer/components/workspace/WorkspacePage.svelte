@@ -686,7 +686,7 @@
              leftmost surface and absorbed the traffic-light inset; with it gone
              the title does, on the windows that publish one. ── -->
         <div
-          class="flex shrink-0 items-end justify-between gap-6 pt-[calc(var(--solus-page-top-inset,0px)+1.5rem)] pb-3.5 mx-auto w-full max-w-[72rem] @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] px-8 @max-[44rem]:px-5 @max-[34rem]:px-4"
+          class="flex shrink-0 items-end justify-between gap-6 pt-[calc(var(--solus-page-top-inset,0px)+42px)] pb-3.5 mx-auto w-full max-w-[72rem] @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] px-8 @max-[44rem]:px-5 @max-[34rem]:px-4"
         >
           <div class="flex min-w-0 flex-col gap-[7px]">
             <h1 class="m-0 text-[27px] font-semibold tracking-[-.021em]">

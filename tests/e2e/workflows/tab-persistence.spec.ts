@@ -83,7 +83,6 @@ test.describe('Tab persistence across reload', () => {
     await app.waitForAppReady()
 
     await app.openNewTab()
-    await app.openNewTab()
     await expect(page.locator(VISIBLE_TAB_ITEM)).toHaveCount(2)
 
     await app.switchToTab(0)

@@ -142,17 +142,17 @@ export class SessionEventReducer {
 
     switch (event.type) {
       case 'session_init':
-        session.provider = session.provider ?? this.deps.settings.activeAgent
+        session.run.provider = session.run.provider ?? this.deps.settings.activeAgent
         session.agentSessionId = event.sessionId
         session.currentActivity = session.currentTurnStart === 'fresh'
           ? 'Connecting...'
           : 'Resuming...'
         session.sessionModel = event.model
-        session.sessionSkills = event.skills
+        session.run.sessionSkills = event.skills
         if (event.handoffFrom) session.handoffFrom = event.handoffFrom
         if (session.forked) session.forked = false
         if (session.boundWorkId) {
-          this.deps.worksStore.linkSession(session.workingDirectory, session.boundWorkId, event.sessionId)
+          this.deps.worksStore.linkSession(session.run.workingDirectory, session.boundWorkId, event.sessionId)
         }
         // The main process owns the durable link at first dispatch. Keep the
         // provisional binding until that link is in the renderer store so the
@@ -191,7 +191,7 @@ export class SessionEventReducer {
           tabId,
           session,
           event.toolName,
-          (session.provider ?? this.deps.settings.activeAgent) as AgentId,
+          (session.run.provider ?? this.deps.settings.activeAgent) as AgentId,
         )
         break
       }
@@ -246,7 +246,7 @@ export class SessionEventReducer {
           // Incremental union from just this message — the full rescan runs at
           // task_complete to reconcile. Avoids re-parsing every historical body.
           this.deps.addChangedFilesFromMessage(tabId, completedFileMsg)
-          this.deps.onTurnSettled(tabId, session.workingDirectory)
+          this.deps.onTurnSettled(tabId, session.run.workingDirectory)
         }
         session.currentActivity = 'Thinking...'
         break
@@ -286,7 +286,7 @@ export class SessionEventReducer {
         const next = event.paths.join('\n')
         if (prev !== next) {
           session.sessionChangedFiles.splice(0, session.sessionChangedFiles.length, ...event.paths)
-          this.deps.onTurnSettled(tabId, session.workingDirectory)
+          this.deps.onTurnSettled(tabId, session.run.workingDirectory)
         }
         break
       }
@@ -373,7 +373,7 @@ export class SessionEventReducer {
             session.permissionDenied = null
           }
         }
-        this.deps.onTurnSettled(tabId, session.workingDirectory)
+        this.deps.onTurnSettled(tabId, session.run.workingDirectory)
         this.deps.refreshTurnSnapshots(tabId)
         this.deps.workStreamTracker.sweep(tabId, session)
         this.deps.playNotificationIfHidden()
@@ -473,7 +473,7 @@ export class SessionEventReducer {
         removeAssistantPlanDuplicate(session.messages, event.planContent)
 
         const toolUseId = event.planToolUseId || uuid()
-        const cwd = session.workingDirectory
+        const cwd = session.run.workingDirectory
         const projectPath = encodePathAsFolder(cwd)
         const planId = this.deps.planStore.upsertFromStream({
           sessionId: session.agentSessionId!,
@@ -506,8 +506,8 @@ export class SessionEventReducer {
         break
 
       case 'git_context':
-        session.gitContext = event.gitContext
-        if (event.gitContext.worktreePath) session.worktreeBaseBranch = null
+        session.run.gitContext = event.gitContext
+        if (event.gitContext.worktreePath) session.run.worktreeBaseBranch = null
         break
 
       case 'git_status':
@@ -652,7 +652,7 @@ export class SessionEventReducer {
       }
 
       case 'permission_mode_changed':
-        session.permissionMode = event.permissionMode
+        session.run.permissionMode = event.permissionMode
         break
 
       case 'status_change':

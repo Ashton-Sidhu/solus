@@ -34,7 +34,6 @@
   import { prReviewState } from "./lib/pr-review.store.svelte";
   import PrDetailChrome from "./PrDetailChrome.svelte";
   import PrDetailMasthead from "./PrDetailMasthead.svelte";
-  import { ListHintBand } from "../ui/list-page";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { Button } from "../ui/button";
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
@@ -549,14 +548,6 @@
     }
   }
 
-  // What the keyboard does here — the same footer band the list uses, so the
-  // two read as one surface.
-  const hints = $derived([
-    { key: "J K", label: "next / previous PR" },
-    { key: "⏎", label: "merge" },
-    { key: "C", label: "comment" },
-    { key: "Esc", label: "back to list" },
-  ]);
   // The pill agrees with the list's own grouping rather than inventing a second
   // vocabulary — a row filed under "Awaiting your review" says so here too.
   const summary = $derived(session.prsStore.get(target.number));
@@ -569,15 +560,6 @@
     if (item.needsMyReview) return "review";
     return "open";
   });
-
-  const position = $derived(
-    session.prsStore.listOrder.indexOf(target.number) + 1,
-  );
-  const footCount = $derived(
-    position > 0
-      ? `#${target.number} · ${position} of ${session.prsStore.listOrder.length}`
-      : `#${target.number}`,
-  );
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} />
@@ -688,14 +670,24 @@
             </TooltipUI.Root>
           {/if}
 
-          <button
-            type="button"
-            class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground"
-            onclick={exit}
-            aria-label="Exit PR review"
-          >
-            <XIcon size={13} />
-          </button>
+          <!-- Esc lives on the control it fires rather than in a legend along
+               the bottom of the pane. -->
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground"
+                  onclick={exit}
+                  aria-label="Back to list"
+                >
+                  <XIcon size={13} />
+                </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value="Back to list (Esc)" />
+          </TooltipUI.Root>
         </div>
       </div>
     </div>
@@ -844,9 +836,6 @@
     {/if}
   </div>
 
-  {#if !headless}
-    <ListHintBand {hints} count={footCount} fullWidth />
-  {/if}
 </section>
 
 {#if showSubmit && pr}

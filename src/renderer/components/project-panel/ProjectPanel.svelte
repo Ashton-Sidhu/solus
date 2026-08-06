@@ -99,10 +99,10 @@
 
   const panelSession = $derived(session.sessionFor(panelTabId));
   const panelEnvironment = $derived(
-    environmentStore.environmentFor(panelTabId),
+    environmentStore.environmentFor(session.sessionFor(panelTabId)?.run),
   );
   const cwd = $derived(
-    panelSession?.workingDirectory ?? session.globalDefaults.workingDirectory,
+    panelSession?.run.workingDirectory ?? session.globalDefaults.workingDirectory,
   );
   const gitCtx = $derived(panelEnvironment.checkout);
   const gitCwd = $derived(panelEnvironment.cwd);

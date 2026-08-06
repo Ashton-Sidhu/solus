@@ -1,10 +1,10 @@
 <script lang="ts">
   import {
-    CheckCircleIcon,
+    CheckIcon,
     CircleNotchIcon,
     MinusCircleIcon,
     WarningCircleIcon,
-    XCircleIcon,
+    XIcon,
   } from "phosphor-svelte";
   import type { CheckItem, PrChecksSummary } from "../../../shared/checks-types";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -32,9 +32,9 @@
      *  stray speck in a list. The check details stay reachable from the PR's
      *  review surface. */
     quietWhenPassing?: boolean;
-    /** Filled pill: a tinted capsule with a status dot instead of the hairline
-     *  outline + glyph. Used where the chip is a standalone status object (row
-     *  trailing cluster, review bar) rather than one fact in a meta line. */
+    /** Filled pill: the same tinted capsule at a roomier size. Used where the
+     *  chip is a standalone status object (row trailing cluster, review bar)
+     *  rather than one fact in a meta line. */
     pill?: boolean;
   } = $props();
 
@@ -54,9 +54,9 @@
   {#if state === "pending"}
     <CircleNotchIcon size={11} weight="bold" class="size-[11px] animate-spin [animation-duration:0.9s]" />
   {:else if state === "passing"}
-    <CheckCircleIcon size={11} weight="fill" class="size-[11px]" />
+    <CheckIcon size={11} weight="bold" class="size-[11px]" />
   {:else if state === "failing"}
-    <XCircleIcon size={11} weight="fill" class="size-[11px]" />
+    <XIcon size={11} weight="bold" class="size-[11px]" />
   {:else if state === "unavailable"}
     <WarningCircleIcon size={11} weight="fill" class="size-[11px]" />
   {:else}
@@ -68,9 +68,9 @@
   {#if item.inFlight}
     <CircleNotchIcon size={12} class="animate-spin text-chart-2 [animation-duration:0.9s]" />
   {:else if item.conclusion === "success" || item.conclusion === "neutral" || item.conclusion === "skipped"}
-    <CheckCircleIcon size={12} weight="fill" class="text-(--solus-art-positive)" />
+    <CheckIcon size={12} weight="bold" class="text-(--solus-art-positive)" />
   {:else if isFailing(item)}
-    <XCircleIcon size={12} weight="fill" class="text-(--solus-art-negative)" />
+    <XIcon size={12} weight="bold" class="text-(--solus-art-negative)" />
   {:else}
     <MinusCircleIcon size={12} class="text-muted-foreground" />
   {/if}
@@ -133,19 +133,7 @@
               : `inline-flex h-auto cursor-pointer items-center gap-1 rounded-full border-0 bg-[color:color-mix(in_oklab,currentColor_12%,transparent)] px-2 py-0.5 text-[11px] font-medium tabular-nums transition-colors ${tone}`}
             title={display.tooltip}
           >
-            {#if pill}
-              <!-- A status dot with the design system's halo. Pending keeps its
-                   motion so "still running" reads without the spinner glyph. -->
-              <span
-                class="size-[5px] shrink-0 rounded-full bg-current {display.state ===
-                'pending'
-                  ? 'animate-pulse'
-                  : ''}"
-                aria-hidden="true"
-              ></span>
-            {:else}
-              {@render stateIcon(display.state)}
-            {/if}
+            {@render stateIcon(display.state)}
             <span>{display.label}</span>
           </Button>
         {/snippet}

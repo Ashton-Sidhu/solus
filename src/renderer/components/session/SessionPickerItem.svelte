@@ -42,7 +42,7 @@
   const isOpen = $derived(item.kind === "open");
   const provider = $derived<AgentId>(
     item.kind === "open"
-      ? (item.session.provider ?? settings.activeAgent)
+      ? (item.session.run.provider ?? settings.activeAgent)
       : item.meta.provider,
   );
   const providerLabel = $derived(

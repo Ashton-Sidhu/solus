@@ -359,12 +359,6 @@
     return facts;
   });
 
-  const footCount = $derived(
-    view === "global"
-      ? `${visibleTasks.length} task${visibleTasks.length === 1 ? "" : "s"}`
-      : `${unreadCount} needs you · ${inboxGroups.reduce((n, g) => n + g.rows.length, 0)} items`,
-  );
-
   // The selectable rows in render order, for Shift range-select and arrow nav.
   const flatVisibleIds = $derived(
     groups.flatMap((g) => g.rows).map((r) => r.key),
@@ -718,7 +712,6 @@
       onClose={close}
       actions={headerActions}
       filters={filterBar}
-      count={footCount}
       contentOwnsScroll
       bind:contentHeight
     >

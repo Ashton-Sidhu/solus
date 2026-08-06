@@ -66,7 +66,9 @@ describe('Claude goals', () => {
     // WHY: desktop, web, and mobile all share GoalSync, so provider routing must
     // not silently keep Claude on the old Codex-only refresh path.
     const session = {
-      provider: 'claude-code',
+      run: {
+        provider: 'claude-code',
+      } as Session['run'],
       agentSessionId: 'session-1',
       goal: null,
     } as Session

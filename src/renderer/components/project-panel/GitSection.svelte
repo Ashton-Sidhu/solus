@@ -38,7 +38,7 @@
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
   const agentContext = getAgentContext();
-  const env = $derived(environmentStore.environmentFor(tabId));
+  const env = $derived(environmentStore.environmentFor(session.sessionFor(tabId)?.run));
   const status = $derived(env.status);
   const conflictedFiles = $derived(
     status?.uncommittedChanges.files.filter((file) => file.conflicted) ?? [],

@@ -30,7 +30,7 @@ export class GitActions {
   ) {}
 
   private target() {
-    const environment = this.environmentStore.environmentFor(this.tabId)
+    const environment = this.environmentStore.environmentFor(this.session.sessionFor(this.tabId)?.run)
     return {
       cwd: environment.cwd,
       gitContext: environment.checkout,
@@ -177,7 +177,7 @@ export class GitActions {
   }
 
   openTerminal(): void {
-    if (!connectionsStore.desktopHandlersAvailable || this.session.sessionFor(this.tabId)?.serverId !== LOCAL_SERVER_ID) return
+    if (!connectionsStore.desktopHandlersAvailable || this.session.sessionFor(this.tabId)?.run.serverId !== LOCAL_SERVER_ID) return
     void window.solus.openWorktreeTerminal(this.target().ctx)
     requestInputFocus()
   }

@@ -17,6 +17,7 @@
   import { toasts } from "../../lib/toasts";
   import type {
     PlanReference,
+    Prompt,
     PromptDelivery,
     WorkReference,
     SessionReference,
@@ -51,13 +52,21 @@
   interface Props {
     mode?: "pill" | "editor";
     tabId?: string;
+    /** The unsent message this bar edits. Passed in rather than resolved here,
+     *  so the bar never needs to know whether it belongs to a conversation or to
+     *  a composer that has no session yet. Mutated in place. */
+    prompt: Prompt;
+    /** Where Send goes when there is no conversation behind this bar. A session
+     *  draft supplies it; a chat leaves it unset and the message goes to the
+     *  session as usual. Returns false to keep the prompt for another try. */
+    onDispatch?: (text: string, delivery: PromptDelivery) => boolean;
     /** Receives the saved-prompts control, which the toolbar seats in the left
      *  cluster beside the pickers rather than out with the mic and send: saving
      *  a prompt is a composer decision, not a send action. It is handed over as
      *  a snippet because every prop it needs is private to this bar. */
     leadingActions?: Snippet<[Snippet]>;
   }
-  let { mode = "pill", tabId, leadingActions }: Props = $props();
+  let { mode = "pill", tabId, prompt, onDispatch, leadingActions }: Props = $props();
 
   const isPrimary = $derived(tabId === undefined);
 
@@ -84,7 +93,6 @@
   const isFreshTaskDraft = $derived(
     session.isFreshTaskDraft(targetTabId),
   );
-  const input = $derived(session.inputFor(targetTabId));
   const pendingPlan = $derived(
     pendingPlanForPrompt(sess, session.planStore.plans),
   );
@@ -95,25 +103,25 @@
     sess?.status === "running" || sess?.status === "connecting",
   );
   const isConnecting = $derived(sess?.status === "connecting");
-  const activeProvider = $derived(sess?.provider ?? theme.activeAgent);
+  const activeProvider = $derived(sess?.run.provider ?? theme.activeAgent);
   // Every provider steers; the turn just has to have actually started.
   const canSteer = $derived(!!sess && isSteerableStatus(sess.status));
   const isReadOnly = $derived(!!sess?.readOnlyReason);
-  const attachments = $derived(input.attachments);
+  const attachments = $derived(prompt.attachments);
   const voiceModeEnabled = $derived(theme.voiceModeEnabled);
   const pluginCommands = $derived(
     sess?.pluginCommands ?? session.pluginCommands,
   );
   // Working directory driving @-file search and plan/work lookup in the composer.
   const composerCwd = $derived(
-    sess?.gitContext?.worktreePath ??
-      sess?.workingDirectory ??
+    sess?.run.gitContext?.worktreePath ??
+      sess?.run.workingDirectory ??
       statusBar.ctxFor(targetTabId).workingDirectory,
   );
   // Saved prompts file under the project, not the worktree, so a prompt written
   // in one worktree is there in its siblings and in the main checkout.
   const composerProjectRoot = $derived(
-    sess?.gitContext?.repoRoot ??
+    sess?.run.gitContext?.repoRoot ??
       (composerCwd && composerCwd !== "~"
         ? worktreeProjectRoot(composerCwd)
         : null),
@@ -133,10 +141,10 @@
   let historyIndex = $state(-1);
   let savedInput = "";
 
-  function savePromptToHistory(prompt: string) {
-    if (!prompt || promptHistory[promptHistory.length - 1] === prompt) return;
+  function savePromptToHistory(text: string) {
+    if (!text || promptHistory[promptHistory.length - 1] === text) return;
 
-    promptHistory.push(prompt);
+    promptHistory.push(text);
     if (promptHistory.length > MAX_HISTORY) promptHistory.shift();
     localStorage.setItem(HISTORY_KEY, JSON.stringify(promptHistory));
   }
@@ -148,20 +156,19 @@
 
   // ─── Editor state ───
 
-  // The composer text lives on the target tab's input state (the active tab's,
-  // the pinned split tab's, or the tab-less one). Switching tabs swaps `input`,
-  // so the editor follows along with no manual save/restore — see
-  // The editor's reactive `value` sync.
-  const inputText = $derived(input.text);
+  // The prompt is handed in, so switching tabs swaps the whole object and the
+  // editor follows along with no manual save/restore — see the editor's
+  // reactive `value` sync.
+  const inputText = $derived(prompt.text);
 
   // When this bar is inactive (hidden with display:none) its CodeMirror
   // instance is still alive. Freeze the draft at the moment this bar goes inactive;
   // switch back to the live reactive value the instant it becomes active again.
-  let frozenText = $state(untrack(() => input.text));
+  let frozenText = $state(untrack(() => prompt.text));
   $effect(() => {
-    if (!isActiveMode) frozenText = untrack(() => input.text);
+    if (!isActiveMode) frozenText = untrack(() => prompt.text);
   });
-  const editorValue = $derived(isActiveMode ? input.text : frozenText);
+  const editorValue = $derived(isActiveMode ? prompt.text : frozenText);
   let composerEl: ReturnType<typeof PromptEditor> | null = $state(null);
   /** The composer card — the saved-prompts sheet matches its width. */
   let composerRootEl = $state<HTMLElement | null>(null);
@@ -211,14 +218,14 @@
   );
 
   function handleVoiceTranscript(transcript: string) {
-    const prompt = transcript.trim();
-    if (!prompt || isConnecting || isReadOnly) return;
+    const text = transcript.trim();
+    if (!text || isConnecting || isReadOnly) return;
     if (theme.autoSendVoiceTranscripts) {
-      sendPrompt(prompt, { refocus: false });
+      sendPrompt(text, { refocus: false });
     } else {
-      const existing = input.text;
-      const next = existing.trim() ? `${existing} ${prompt}` : prompt;
-      input.text = next;
+      const existing = prompt.text;
+      const next = existing.trim() ? `${existing} ${text}` : text;
+      prompt.text = next;
       composerEl?.setValueAndCursor(next, true, true);
     }
   }
@@ -269,9 +276,9 @@
       sessionRefs.length > 0,
   );
   const canSend = $derived(!isConnecting && !isReadOnly && hasContent);
-  const planRefs = $derived(input.planRefs);
-  const workRefs = $derived(input.workRefs);
-  const sessionRefs = $derived(input.sessionRefs);
+  const planRefs = $derived(prompt.planRefs);
+  const workRefs = $derived(prompt.workRefs);
+  const sessionRefs = $derived(prompt.sessionRefs);
   // Work this session is actively collaborating on — its content is injected
   // into each prompt so the agent revises the live version.
   const boundWork = $derived(
@@ -387,7 +394,7 @@
   let prevFocusable = untrack(() => isActiveMode && !session.sessionPickerOpen);
   $effect(() => {
     if (!isPrimary) return;
-    void sess?.workingDirectory;
+    void sess?.run.workingDirectory;
     void sess?.readOnlyReason;
     const isFocusable = isActiveMode && !session.sessionPickerOpen;
     const justBecameFocusable = isFocusable && !prevFocusable;
@@ -425,11 +432,11 @@
   function insertQuote(text: string) {
     const quoted = quotedReplyDraft(text);
     if (!quoted) return;
-    const existing = input.text;
+    const existing = prompt.text;
     const next = existing.trim()
       ? `${existing}\n\n${quoted}`
       : quoted;
-    input.text = next;
+    prompt.text = next;
     composerEl?.setValueAndCursor(next, true, true);
     requestInputFocus();
   }
@@ -450,7 +457,7 @@
       session.update({ pendingInput: null });
       return;
     }
-    input.text = p;
+    prompt.text = p;
     session.update({ pendingInput: null });
     requestInputFocus();
   });
@@ -641,12 +648,12 @@
   ) {
     // Avoid needless reassignment (and the derived churn it triggers) when both
     // the editor and the stored refs are empty — the common typing case.
-    if (nextPlanRefs.length || input.planRefs.length)
-      input.planRefs = nextPlanRefs;
-    if (nextWorkRefs.length || input.workRefs.length)
-      input.workRefs = nextWorkRefs;
-    if (nextSessionRefs.length || input.sessionRefs.length)
-      input.sessionRefs = nextSessionRefs;
+    if (nextPlanRefs.length || prompt.planRefs.length)
+      prompt.planRefs = nextPlanRefs;
+    if (nextWorkRefs.length || prompt.workRefs.length)
+      prompt.workRefs = nextWorkRefs;
+    if (nextSessionRefs.length || prompt.sessionRefs.length)
+      prompt.sessionRefs = nextSessionRefs;
   }
 
   function solusCommandFromInput(
@@ -679,7 +686,7 @@
   }
 
   function clearComposer() {
-    input.text = "";
+    prompt.text = "";
     composerEl?.clearEditor();
   }
 
@@ -687,7 +694,7 @@
     if (isReadOnly) return;
     const goalSession = session.sessionFor(targetTabId);
     const normalized = argument.trim();
-    const isCodexGoal = goalSession?.provider === "codex";
+    const isCodexGoal = goalSession?.run.provider === "codex";
 
     if (!normalized) {
       clearComposer();
@@ -811,12 +818,12 @@
     if (isReadOnly) return;
     if (cmd.insertTextOnSelect) {
       const text = cmd.insertTextOnSelect;
-      input.text = text;
+      prompt.text = text;
       composerEl?.setValueAndCursor(text);
       refocusComposer();
       return;
     }
-    input.text = "";
+    prompt.text = "";
     composerEl?.clearEditor();
     executeCommand(cmd);
   }
@@ -824,7 +831,7 @@
   // ─── Core input handlers ───
 
   function sendPrompt(
-    prompt: string,
+    text: string,
     options: { refocus?: boolean; delivery?: PromptDelivery } = {},
   ): boolean {
     let accepted = true;
@@ -832,18 +839,20 @@
       // Match the plan surface's Revise action: answer the held ExitPlanMode
       // request, keep the provider in plan mode, and send this text as feedback
       // instead of letting it become an ordinary queued prompt.
-      void session.rejectPlan(pendingPlan.id, prompt || "See attached files");
-    } else if (pendingQuestion && prompt) {
+      void session.rejectPlan(pendingPlan.id, text || "See attached files");
+    } else if (pendingQuestion && text) {
       // Match the question card's free-text answer. Responding releases the held
       // provider turn; queuing this as a normal prompt would leave it blocked.
       session.respondQuestion(
         targetTabId,
         pendingQuestion.questionId,
-        answersForQuestionNote(pendingQuestion, prompt),
+        answersForQuestionNote(pendingQuestion, text),
       );
+    } else if (onDispatch) {
+      accepted = onDispatch(text || "See attached files", options.delivery ?? "steer");
     } else {
       accepted = session.sendMessage(
-        prompt || "See attached files",
+        text || "See attached files",
         undefined,
         targetTabId || undefined,
         options.delivery,
@@ -855,15 +864,15 @@
       return false;
     }
 
-    savePromptToHistory(prompt);
-    input.text = "";
+    savePromptToHistory(text);
+    prompt.text = "";
     resetHistoryNavigation();
     composerEl?.clearEditor();
     if (mode === "pill") {
       session.isExpanded = true;
     }
-    const sentSavedPromptId = input.savedPromptId;
-    input.savedPromptId = null;
+    const sentSavedPromptId = prompt.savedPromptId;
+    prompt.savedPromptId = null;
     if (sentSavedPromptId && composerProjectRoot) {
       void savedPrompts.remove(composerProjectRoot, sentSavedPromptId);
     }
@@ -879,9 +888,9 @@
     options: { refocus?: boolean } = {},
   ): boolean {
     if (isReadOnly) return false;
-    let prompt = inputText.trim();
+    let text = inputText.trim();
     if (
-      !prompt &&
+      !text &&
       attachments.length === 0 &&
       planRefs.length === 0 &&
       workRefs.length === 0 &&
@@ -890,8 +899,8 @@
       return false;
     if (isConnecting) return false;
 
-    if (/^\/goal(?:\s|$)/.test(prompt)) {
-      void handleGoalCommand(prompt.slice("/goal".length));
+    if (/^\/goal(?:\s|$)/.test(text)) {
+      void handleGoalCommand(text.slice("/goal".length));
       return false;
     }
 
@@ -899,22 +908,22 @@
     // plain text before the slash command (e.g. "ui /ui rest"). Strip it.
     for (const skill of providerSkills) {
       const prefix = skill.name + " /" + skill.name;
-      if (prompt.startsWith(prefix)) {
-        prompt = prompt.slice(skill.name.length + 1);
+      if (text.startsWith(prefix)) {
+        text = text.slice(skill.name.length + 1);
         break;
       }
     }
 
     const solusCommand = solusCommandFromInput(inputText);
     if (solusCommand) {
-      input.text = "";
+      prompt.text = "";
       composerEl?.clearEditor();
       executeCommand(solusCommand.cmd, solusCommand.argument);
       refocusComposer();
       return false;
     }
 
-    return sendPrompt(prompt, { delivery, refocus: options.refocus });
+    return sendPrompt(text, { delivery, refocus: options.refocus });
   }
 
   function navigateHistory(delta: -1 | 1) {
@@ -933,7 +942,7 @@
       }
     }
     const next = historyIndex >= 0 ? promptHistory[historyIndex] : savedInput;
-    input.text = next;
+    prompt.text = next;
     composerEl?.setValueAndCursor(next);
   }
 
@@ -978,7 +987,7 @@
 
   function handleEditorChange(md: string) {
     if (isReadOnly) return;
-    input.text = md;
+    prompt.text = md;
     if (historyIndex !== -1) resetHistoryNavigation();
   }
 

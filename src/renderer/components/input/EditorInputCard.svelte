@@ -60,7 +60,11 @@
     onfocusin={() => (focused = true)}
     onfocusout={() => (focused = false)}
   >
-    <InputBar mode="editor" {tabId}>
+    <InputBar
+      mode="editor"
+      {tabId}
+      prompt={session.inputFor(tabId ?? session.activeTabId)}
+    >
       {#snippet leadingActions(savedPromptsControl)}
         <InputToolbar
           mode="editor"

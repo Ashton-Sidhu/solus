@@ -20,7 +20,9 @@ describe('tab registry selection', () => {
     } as Tab
     registry.sessions['session-a'] = {
       id: 'session-a',
-      workingDirectory: '/repo',
+      run: {
+        workingDirectory: '/repo',
+      } as Session['run'],
     } as Session
 
     registry.setActiveTab('tab-a')

@@ -57,7 +57,7 @@
   // worktree is meaningful — offer it whenever the source is a real repo that
   // isn't already inside a worktree.
   const showWorktree = $derived(
-    !!sess?.gitContext && !sess.gitContext.worktreePath,
+    !!sess?.run.gitContext && !sess.run.gitContext.worktreePath,
   );
 
   const inlineCount = $derived(
@@ -168,7 +168,7 @@
     bind:value={() => generalComment, (v) => session.setDiffGeneralComment(v, targetTabId)}
     bind:collapsed
     tabId={targetTabId}
-    workingDirectory={sess?.workingDirectory}
+    workingDirectory={sess?.run.workingDirectory}
     canSubmitWhenEmpty={inlineCount > 0}
     showWorktree={showWorktree}
     bind:useWorktree

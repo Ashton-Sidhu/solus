@@ -24,9 +24,11 @@ function usageEvents(events: NormalizedEvent[]): UsageEvent[] {
 
 function sessionWith(overrides: Partial<Session>): Session {
   return {
-    provider: 'claude-code',
+    run: {
+      provider: 'claude-code',
+      modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
+    } as Session['run'],
     sessionModel: null,
-    modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
     contextUsage: null,
     ...overrides,
   } as Session
@@ -189,7 +191,7 @@ describe('contextLimit', () => {
   test('prefers an explicitly selected window over the profile default', () => {
     const session = sessionWith({
       sessionModel: 'claude-haiku-4-5-20251001',
-      modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: 1_000_000, fastMode: false },
+      run: { modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: 1_000_000, fastMode: false } } as Session['run'],
     })
     expect(contextLimit(session)).toBe(1_000_000)
   })

@@ -8,7 +8,6 @@
   import SessionPicker from "../session/SessionPicker.svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { getWorkspaceContext, getPlanStore, getWindowContext } from "../../contexts";
-  import NewTabHome from "./NewTabHome.svelte";
   import PaneChrome from "../ui/PaneChrome.svelte";
   // Eager, unlike the surfaces below: these are what cover an async boundary,
   // so they cannot sit behind one themselves.
@@ -17,7 +16,7 @@
   import DiagramShellSkeleton from "../diagram/DiagramShellSkeleton.svelte";
   import SettingsPageSkeleton from "../settings/SettingsPageSkeleton.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { retainedConversationTabIds } from "./lib/workspace-body";
+  import { isHomeVisible, retainedConversationTabIds } from "./lib/workspace-body";
 
   interface Props {
     active?: boolean;
@@ -49,9 +48,6 @@
   const isExpanded = $derived(session.isExpanded);
   const isEditorMode = $derived(windowCtx.viewMode === "editor");
   const router = session.router;
-  const showNewTabHome = $derived(
-    (session.tabOrder.length === 0 || !!session.draftTabId) && !router.at("folio") && !router.at("settings"),
-  );
   const pillPlanModal = $derived.by(() => {
     const planId = router.params("plan")?.planId ?? null;
     const plan = planId ? planStore.get(planId) : planStore.previewPlan;
@@ -72,6 +68,26 @@
   let pillGoalCollapsed = $state(false);
   let inputFocused = $state(false);
   const pickerOpen = $derived(!isEditorMode && session.sessionPickerOpen);
+
+  // A tab that has not started a conversation has nothing above the bar to
+  // show, so a new tab leaves the pill as just the bar rather than opening onto
+  // an empty body. Any surface that fills the body on its own still opens it.
+  const pillSession = $derived(session.sessionFor(session.activeTabId));
+  const pillHomeVisible = $derived(!pillSession || isHomeVisible(pillSession));
+  const pillSurfaceOpen = $derived(
+    router.at("settings") ||
+      router.at("folio") ||
+      router.at("automations") ||
+      router.at("tasks") ||
+      router.at("prs") ||
+      pickerOpen ||
+      !!pillGoalTabId ||
+      showPillDiagram ||
+      !!pillWorkModal ||
+      !!pillPlanModal ||
+      pillPlanPending,
+  );
+  const bodyOpen = $derived(isExpanded && (pillSurfaceOpen || !pillHomeVisible));
 
   // Main keeps a first-summon pill window hidden until the actual layout—not
   // App's full-window async fallback—has mounted and can receive input.
@@ -154,15 +170,15 @@
       class="overflow-hidden flex flex-col no-drag"
       style="
       width:100%;
-      margin-bottom:{isExpanded ? 10 : -14}px;
-      background:{isExpanded ? 'var(--solus-pill-opaque-bg)' : 'transparent'};
-      box-shadow:{isExpanded ? 'var(--solus-card-shadow)' : 'none'};
-      border:0.0625rem solid {isExpanded
+      margin-bottom:{bodyOpen ? 10 : -14}px;
+      background:{bodyOpen ? 'var(--solus-pill-opaque-bg)' : 'transparent'};
+      box-shadow:{bodyOpen ? 'var(--solus-card-shadow)' : 'none'};
+      border:0.0625rem solid {bodyOpen
         ? 'var(--solus-container-border)'
         : 'transparent'};
       border-radius:1.25rem;
       position:relative;
-      z-index:{isExpanded ? 20 : 10};
+      z-index:{bodyOpen ? 20 : 10};
       backdrop-filter:none;
       -webkit-backdrop-filter:none;
       transition:background 0.28s cubic-bezier(0.16,1,0.3,1), box-shadow 0.28s cubic-bezier(0.16,1,0.3,1), margin-bottom 0.28s cubic-bezier(0.16,1,0.3,1), border-color 0.28s cubic-bezier(0.16,1,0.3,1);
@@ -171,8 +187,8 @@
       <div
         class="overflow-hidden no-drag"
         style="
-        height:{isExpanded ? 'auto' : 0};
-        opacity:{isExpanded ? 1 : 0};
+        height:{bodyOpen ? 'auto' : 0};
+        opacity:{bodyOpen ? 1 : 0};
         transition:height 0.28s cubic-bezier(0.16,1,0.3,1), opacity 0.28s cubic-bezier(0.16,1,0.3,1);
       "
       >
@@ -282,9 +298,6 @@
                      diagram overlays, so closing it reveals the conversation
                      instantly with all state preserved. -->
                 <div class:tab-hidden={showPillDiagram || !!pillGoalTabId}>
-                  {#if showNewTabHome}
-                    <NewTabHome tab={session.tabs[session.activeTabId]} />
-                  {/if}
                   {#each session.tabOrder as tId (tId)}
                     {#if mountedTabIds.has(tId)}
                       <div
@@ -354,7 +367,7 @@
         <TabStrip />
 
         <div class="px-1.5 pb-1.5 pt-1">
-          <InputBar mode="pill">
+          <InputBar mode="pill" prompt={session.inputFor(session.activeTabId)}>
             {#snippet leadingActions()}
               <InputToolbar
                 mode="pill"

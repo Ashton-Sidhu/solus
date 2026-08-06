@@ -42,7 +42,7 @@
 
   const session = getWorkspaceContext();
   const api = $derived(session.apiFor(tabId));
-  const serverId = $derived(session.sessionFor(tabId)?.serverId);
+  const serverId = $derived(session.sessionFor(tabId)?.run.serverId);
 
   $effect(() => {
     const releases: Array<() => void> = [];

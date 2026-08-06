@@ -31,7 +31,7 @@
   // the leading column centres, not a hero stranded in the middle of a blank
   // transcript with the composer far below it.
   const centerHome = $derived(
-    isHomeVisible(session.tabOrder.length, session.sessionFor(tabId)),
+    isHomeVisible(session.sessionFor(tabId)),
   );
 
   async function attachFile() {

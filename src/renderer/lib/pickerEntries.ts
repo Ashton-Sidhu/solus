@@ -57,7 +57,7 @@ export function dedupeHistoryEntries(
 function entryKey(entry: PickerEntry): string {
   if (entry.kind === 'open') {
     return entry.session.agentSessionId
-      ? `${entry.session.provider}:${entry.session.agentSessionId}`
+      ? `${entry.session.run.provider}:${entry.session.agentSessionId}`
       : `tab:${entry.tabId}`
   }
   return `${entry.meta.provider}:${entry.meta.sessionId}`

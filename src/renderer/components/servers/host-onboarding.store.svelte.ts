@@ -269,7 +269,7 @@ export class HostOnboardingStore {
     // A pair started from the run-on picker already has a destination — that
     // flow retargets the session itself, and this stage's "start working" would
     // move the whole app instead of the one tab the user asked about.
-    if (serversStore.pendingRunOnTabId) {
+    if (serversStore.pendingRunOnRequesterId) {
       this.close()
       return
     }

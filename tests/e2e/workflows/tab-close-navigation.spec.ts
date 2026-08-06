@@ -6,13 +6,13 @@ test.describe('Tab close navigation', () => {
     const app = new AppPage(page)
     await app.waitForAppReady()
 
-    // Open two additional tabs so we have 3 total
+    // The workspace boots with a composer, so two more make 3.
     await app.openNewTab()
     await app.openNewTab()
-    expect(await app.getTabCount()).toBe(3)
+    await expect(page.getByTestId('tab-item')).toHaveCount(3)
 
     await app.closeActiveTab()
-    expect(await app.getTabCount()).toBe(2)
+    await expect(page.getByTestId('tab-item')).toHaveCount(2)
 
     // A tab must still be selected after the close
     const activeTab = page.locator('[data-testid="tab-item"][aria-selected="true"]')
@@ -25,13 +25,13 @@ test.describe('Tab close navigation', () => {
 
     await app.openNewTab()
     await app.openNewTab()
-    expect(await app.getTabCount()).toBe(3)
+    await expect(page.getByTestId('tab-item')).toHaveCount(3)
 
     // Switch to the middle tab and close it
     await app.switchToTab(1)
     await app.closeActiveTab()
 
-    expect(await app.getTabCount()).toBe(2)
+    await expect(page.getByTestId('tab-item')).toHaveCount(2)
 
     // The remaining active tab must be one of the two surviving tabs
     const activeTab = page.locator('[data-testid="tab-item"][aria-selected="true"]')
@@ -44,7 +44,7 @@ test.describe('Tab close navigation', () => {
 
     await app.openNewTab()
     await app.openNewTab()
-    expect(await app.getTabCount()).toBe(3)
+    await expect(page.getByTestId('tab-item')).toHaveCount(3)
 
     // Active tab is the last one (index 2) — close a non-active one
     await app.switchToTab(2)
@@ -56,7 +56,7 @@ test.describe('Tab close navigation', () => {
     const firstTab = page.getByTestId('tab-item').first()
     await firstTab.getByLabel('Close tab').click()
 
-    expect(await app.getTabCount()).toBe(2)
+    await expect(page.getByTestId('tab-item')).toHaveCount(2)
 
     // The same tab should still be active
     const stillActiveLabel = await page

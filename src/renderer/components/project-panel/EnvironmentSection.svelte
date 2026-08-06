@@ -34,7 +34,7 @@
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
   const sess = $derived(session.sessionFor(tabId));
-  const env = $derived(environmentStore.environmentFor(tabId));
+  const env = $derived(environmentStore.environmentFor(session.sessionFor(tabId)?.run));
   const status = $derived(env.status);
   const uncommittedFileCount = $derived(
     status?.uncommittedChanges.files.length ?? 0,
@@ -48,15 +48,15 @@
   const isWorktree = $derived(env.isolated);
   const branchRepoRoot = $derived(
     env.checkout?.repoRoot ??
-      sess?.workingDirectory ??
+      sess?.run.workingDirectory ??
       status?.repoRoot ??
       worktreeProjectRoot(env.cwd),
   );
 
   // The host this session was dispatched to. Local is the unmarked case — the
   // affinity glyph is null for it, so the row only exists for remote sessions.
-  const host = $derived(serversStore.hostFor(sess?.serverId));
-  const hostAffinity = $derived(serversStore.affinityFor(sess?.serverId));
+  const host = $derived(serversStore.hostFor(sess?.run.serverId));
+  const hostAffinity = $derived(serversStore.affinityFor(sess?.run.serverId));
 
   $effect(() => {
     if (!active || !env.cwd) return;
@@ -128,8 +128,8 @@
 
   function settleOnDestination() {
     const nextCwd =
-      session.activeSession?.gitContext?.worktreePath ??
-      session.activeSession?.workingDirectory ??
+      session.activeSession?.run.gitContext?.worktreePath ??
+      session.activeSession?.run.workingDirectory ??
       session.globalDefaults.gitContext?.worktreePath ??
       session.globalDefaults.workingDirectory;
     if (nextCwd) void environmentStore.refresh(nextCwd, { force: true });

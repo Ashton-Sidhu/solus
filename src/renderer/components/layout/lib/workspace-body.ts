@@ -25,17 +25,6 @@ export function listSidebarPrimaryWidth(containerWidth: number): number {
 }
 export const MAX_RETAINED_CONVERSATION_TRANSCRIPTS = 4
 
-/** A tab may already own a local Session before its first prompt is sent. */
-export function hasStartedConversation(
-  session: Pick<Session, 'agentSessionId' | 'messages' | 'status'> | undefined,
-): boolean {
-  return !!session && (
-    session.agentSessionId !== null ||
-    session.messages.length > 0 ||
-    session.status !== 'idle'
-  )
-}
-
 /**
  * Whether the conversation column is showing the new-tab home rather than a
  * transcript. Mirrors ConversationView's own gate so the shell can lay the home
@@ -43,12 +32,10 @@ export function hasStartedConversation(
  * the bottom of an otherwise empty column.
  */
 export function isHomeVisible(
-  tabCount: number,
   session:
     | Pick<Session, 'agentSessionId' | 'messages' | 'statusCard' | 'loadingHistory'>
     | undefined,
 ): boolean {
-  if (tabCount === 0) return true
   if (!session) return false
   return (
     !session.loadingHistory &&
@@ -98,14 +85,18 @@ export function retainedConversationTabIds(
  * of room and the column just gets emptier, and under 300px the row's trailing
  * slot starts eating the title.
  */
-export const SIDEBAR_MIN_WIDTH = 300
-export const SIDEBAR_DEFAULT_WIDTH = 360
-export const SIDEBAR_MAX_WIDTH = 440
+export const SIDEBAR_MIN_WIDTH = 280
+export const SIDEBAR_DEFAULT_WIDTH = 320
+export const SIDEBAR_MAX_WIDTH = 400
 
-/** 360px, giving ground only on a window too narrow to spare it. */
+/**
+ * clamp(280px, 19%, 320px) of the window it sits in. A laptop lands near the
+ * floor so the conversation keeps the room, and a wide display stops at 320px
+ * rather than widening a column that holds one line of text per row.
+ */
 export function defaultWorkspaceRailWidth(viewportWidth: number): number {
   return Math.round(
-    Math.min(SIDEBAR_DEFAULT_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, viewportWidth * 0.24)),
+    Math.min(SIDEBAR_DEFAULT_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, viewportWidth * 0.19)),
   )
 }
 
@@ -209,6 +200,6 @@ export function isCompanionVisible(
   workspace: Pick<WorkspaceTabs, 'sessionFor'>,
 ): boolean {
   if (!ref) return false
-  if (ref.name === 'diff') return !!workspace.sessionFor(ref.params.sourceTabId)?.workingDirectory
+  if (ref.name === 'diff') return !!workspace.sessionFor(ref.params.sourceTabId)?.run.workingDirectory
   return true
 }

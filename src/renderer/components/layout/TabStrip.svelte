@@ -171,7 +171,7 @@
   });
 
   function projectName(sess: Session | undefined): string {
-    const dir = sess?.workingDirectory;
+    const dir = sess?.run.workingDirectory;
     if (!dir || dir === "~") return "Home";
     const parts = dir.replace(/\/$/, "").split("/");
     return parts[parts.length - 1] || "Home";
@@ -326,7 +326,7 @@
   {@const sess = session.sessionFor(tabId)}
   {@const statusIcon =
     showStatus && tab && sess ? getStatusIcon(sess.status) : null}
-  {@const hostAffinity = serversStore.affinityFor(sess?.serverId)}
+  {@const hostAffinity = serversStore.affinityFor(sess?.run.serverId)}
   {@const showProgressRing =
     !!sess &&
     shouldShowSessionProgressRing(

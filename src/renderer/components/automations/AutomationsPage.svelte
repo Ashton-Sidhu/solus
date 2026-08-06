@@ -9,6 +9,7 @@
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { projectDirLabel } from "../../lib/paths";
   import { matchesOpenProjects } from "../../lib/sessionUtils";
   import { Button } from "../ui/button";
   import SegmentedControl from "../ui/SegmentedControl.svelte";
@@ -48,10 +49,30 @@
   // still goes through the project's *roots* rather than its key, so an
   // automation whose cwd is a worktree of that repo stays with its project.
   let pinnedProjectKey = $state<string | null>(null);
-  const projects = $derived(session.openProjects);
+  // An automation doesn't have to live in an open project: the workspace-scoped
+  // template seeds into My Workspace, and an agent creates one wherever it was
+  // told to. Every such home gets its own scope option — without one the row is
+  // saved and then invisible under every scope, which reads as "it didn't save".
+  const projects = $derived.by(() => {
+    const list = [...session.openProjects];
+    for (const a of store.items) {
+      if (list.some((p) => matchesOpenProjects(a.action.cwd, p.roots))) continue;
+      list.push({
+        key: a.action.cwd,
+        label: projectDirLabel(a.action.cwd, session.staticInfo?.workspacePath),
+        roots: [a.action.cwd],
+      });
+    }
+    return list;
+  });
+  // The project being worked in is matched through its roots, not by key: the
+  // active session's directory is often a worktree or a subfolder, and comparing
+  // it to the project key then scoped the page to some unrelated open project.
   const activeProject = $derived(
     projects.find((p) => p.key === pinnedProjectKey) ??
-      projects.find((p) => p.key === session.galleryProjectPath) ??
+      projects.find((p) =>
+        matchesOpenProjects(session.galleryProjectPath, p.roots),
+      ) ??
       projects[0],
   );
   const projectOptions = $derived(
@@ -201,10 +222,6 @@
     },
   ]);
 
-  const footCount = $derived(
-    `${automations.length} automation${automations.length === 1 ? "" : "s"}`,
-  );
-
   $effect(() => {
     if (open) {
       // Reset the command bar each time the page opens.
@@ -271,11 +288,38 @@
     view = { kind: "list" };
   }
 
+  /** Open an automation the launchpad just created, moving the list scope to
+   *  wherever it landed. A template can seed outside the project on screen, and
+   *  backing out of the builder onto a list that doesn't contain it is exactly
+   *  what makes an auto-saved automation look like it was never saved. */
+  function openSeeded(a: Automation) {
+    const home = projects.find((p) =>
+      matchesOpenProjects(a.action.cwd, p.roots),
+    );
+    if (home) {
+      pinnedProjectKey = matchesOpenProjects(
+        session.galleryProjectPath,
+        home.roots,
+      )
+        ? null
+        : home.key;
+    }
+    // A template is seeded paused, so a live search or an "Active" filter would
+    // hide it just as effectively as the wrong project scope did.
+    query = "";
+    statusFilter = "all";
+    showStarred = false;
+    startEdit(a);
+  }
+
   // A different project is a different list, so nothing about how the old one
   // was being read survives the switch.
   function selectProject(projectKey: string) {
+    const picked = projects.find((p) => p.key === projectKey);
     pinnedProjectKey =
-      projectKey === session.galleryProjectPath ? null : projectKey;
+      picked && matchesOpenProjects(session.galleryProjectPath, picked.roots)
+        ? null
+        : projectKey;
     clearFilters();
     selectedId = null;
     collapsedGroups = {};
@@ -390,13 +434,6 @@
           : { label: "New automation", shortcut: "⌘N", run: startCreate }}
         onClose={close}
         filters={showEmpty ? undefined : filterBar}
-        hints={[
-          { key: "↵", label: "Open" },
-          { key: "⌘N", label: "New" },
-          { key: "/", label: "Search" },
-          { key: "␣", label: "Pause" },
-        ]}
-        count={showEmpty ? undefined : footCount}
       >
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div onkeydown={onListKeydown} role="presentation">
@@ -474,7 +511,11 @@
                states — a workspace with automations still starts new ones here. -->
           {#if !isInitialLoading}
             <div class={showEmpty ? "pt-[22px]" : "pt-[30px]"}>
-              <AutomationLaunchpad onOpen={startEdit} onCreateBlank={startCreate} />
+              <AutomationLaunchpad
+                projectPath={activeProject?.key ?? session.galleryProjectPath}
+                onOpen={openSeeded}
+                onCreateBlank={startCreate}
+              />
             </div>
           {/if}
         </div>

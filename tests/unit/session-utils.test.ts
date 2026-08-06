@@ -76,7 +76,7 @@ describe('findOpenTabForSession', () => {
     const sessions = {
       'local-session-1': {
         agentSessionId: 'agent-session-1',
-        provider: 'codex',
+        run: { provider: 'codex' },
       },
     }
 

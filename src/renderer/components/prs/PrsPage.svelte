@@ -276,12 +276,6 @@
     ];
   });
 
-  const footCount = $derived(
-    view === "global"
-      ? `${filtered.length} pull request${filtered.length === 1 ? "" : "s"}`
-      : `${unreadCount} needs you · ${inboxGroups.reduce((n, g) => n + g.rows.length, 0)} items`,
-  );
-
   const stackGraph = $derived(
     settings.stackedPrsEnabled && stacksReady ? stacks.graphFor() : null,
   );
@@ -687,7 +681,6 @@
       onClose={close}
       actions={pageActions}
       filters={filterBar}
-      count={footCount}
       contentOwnsScroll
       bind:contentHeight
     >

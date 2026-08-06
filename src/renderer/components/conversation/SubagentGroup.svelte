@@ -42,14 +42,14 @@
   const rows = $derived(
     messages.map((message) =>
       subagentRow(message, now, {
-        model: (sess?.sessionModel || sess?.modelConfig.modelId || "").trim(),
-        effort: (sess?.modelConfig.reasoningEffort || "").trim(),
+        model: (sess?.sessionModel || sess?.run.modelConfig.modelId || "").trim(),
+        effort: (sess?.run.modelConfig.reasoningEffort || "").trim(),
       }),
     ),
   );
   // The agents share the checkout they run in, so that — not their models — is
   // the environment fact the header carries.
-  const environment = $derived(environments.environmentFor(tabId));
+  const environment = $derived(environments.environmentFor(session.sessionFor(tabId)?.run));
   const summary = $derived(
     subagentGroupSummary(
       messages,

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { Plan, Session, Tab } from '../../src/shared/types'
+import type { Plan, RunConfig, Session, Tab } from '../../src/shared/types'
 import { approvePlanWithModel, rejectPlan } from '../../src/renderer/contexts/workspace/session-plan-operations'
 
 const previousWindow = globalThis.window
@@ -22,9 +22,11 @@ function approvalContext() {
   const session = {
     agentSessionId: 'agent-session-1',
     status: 'completed',
-    provider: 'claude-code',
-    modelConfig: { modelId: 'claude-opus-4-6', reasoningEffort: 'high' },
-    permissionMode: 'ask',
+    run: {
+      provider: 'claude-code',
+      modelConfig: { modelId: 'claude-opus-4-6', reasoningEffort: 'high' },
+      permissionMode: 'ask',
+    } as Session['run'],
     messages: [],
   } as unknown as Session
   const tab = {
@@ -61,10 +63,10 @@ function approvalContext() {
     settings: { update: () => {} },
     switchActiveAgent: async (provider: string, tabId: string) => {
       handoffs.push({ provider, tabId })
-      const fromProvider = session.provider!
+      const fromProvider = session.run.provider!
       const fromSessionId = session.agentSessionId!
       const agentChangedTo = provider === 'claude-code' ? 'Claude Code' : 'Codex'
-      session.provider = provider as Session['provider']
+      session.run.provider = provider as RunConfig['provider']
       session.agentSessionId = null
       session.handoffFrom = { provider: fromProvider, sessionId: fromSessionId }
       session.messages.push({
@@ -96,7 +98,7 @@ function revisionContext(status: Session['status']) {
       { id: 'opt-deny', label: 'No, keep planning', kind: 'deny' },
     ],
   } as unknown as Plan
-  const session = { status, provider: 'claude-code', messages: [] } as unknown as Session
+  const session = { status, run: { provider: 'claude-code' }, messages: [] } as unknown as Session
   const tab = { sessionId: 'renderer-session-1', input: { planRefs: [], workRefs: [] } } as unknown as Tab
 
   const calls = {
@@ -244,13 +246,13 @@ describe('plan approval session choice', () => {
       role: 'system',
       agentChangedTo: 'Codex',
     })
-    expect(session.modelConfig.modelId).toBe('gpt-5.5')
+    expect(session.run.modelConfig.modelId).toBe('gpt-5.5')
   })
 
   test('hands a Codex-authored plan to Claude through the same path', async () => {
     const { ctx, session, handoffs, resetCount } = approvalContext()
-    session.provider = 'codex'
-    session.modelConfig.modelId = 'gpt-5.5'
+    session.run.provider = 'codex'
+    session.run.modelConfig.modelId = 'gpt-5.5'
 
     await approvePlanWithModel(ctx as any, 'plan-1', 'auto', {
       provider: 'claude-code',
@@ -267,6 +269,6 @@ describe('plan approval session choice', () => {
       role: 'system',
       agentChangedTo: 'Claude Code',
     })
-    expect(session.modelConfig.modelId).toBe('claude-opus-4-6')
+    expect(session.run.modelConfig.modelId).toBe('claude-opus-4-6')
   })
 })

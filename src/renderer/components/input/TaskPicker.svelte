@@ -6,7 +6,7 @@
   } from "phosphor-svelte";
   import { mergeProps } from "bits-ui";
   import { getWorkspaceContext } from "../../contexts";
-  import { requestInputFocus } from "../../lib/inputFocus";
+  import type { TaskTarget } from "../../../shared/types";
   import * as Command from "../ui/command";
   import { Button } from "../ui/button";
   import { MenuFooter, MenuSearch } from "../ui/menu";
@@ -15,19 +15,21 @@
   import RoundedTaskIcon from "./RoundedTaskIcon.svelte";
 
   interface Props {
-    tabId: string;
+    /** Where the session this composer starts will be filed. */
+    task: TaskTarget;
     projectKey: string;
+    onSelect: (task: TaskTarget) => void;
+    /** Return focus to the composer once the menu closes. */
+    onDismiss: () => void;
   }
 
-  let { tabId, projectKey }: Props = $props();
+  let { task: target, projectKey, onSelect, onDismiss }: Props = $props();
 
   const workspace = getWorkspaceContext();
-  const session = $derived(workspace.sessionFor(tabId));
   const selectedTask = $derived(
-    session?.pendingTaskId
-      ? (workspace.tasksStore.tasks.find(
-          (task) => task.id === session.pendingTaskId,
-        ) ?? null)
+    target.kind === "existing"
+      ? (workspace.tasksStore.tasks.find((task) => task.id === target.taskId) ??
+        null)
       : null,
   );
   const tasks = $derived(
@@ -41,8 +43,7 @@
       ),
   );
   const label = $derived(
-    selectedTask?.title ??
-      (session?.taskCreationDisabled ? "No task" : "New task"),
+    selectedTask?.title ?? (target.kind === "none" ? "No task" : "New task"),
   );
 
   let open = $state(false);
@@ -57,15 +58,12 @@
       query = "";
       void workspace.tasksStore.ensureLoaded();
     } else {
-      requestInputFocus({ tabId });
+      onDismiss();
     }
   }
 
-  function select(taskId: string | null, taskCreationDisabled: boolean) {
-    const target = workspace.sessionFor(tabId);
-    if (!target) return;
-    target.pendingTaskId = taskId;
-    target.taskCreationDisabled = taskCreationDisabled;
+  function select(next: TaskTarget) {
+    onSelect(next);
     open = false;
   }
 
@@ -125,26 +123,25 @@
       <Command.List class="max-h-[288px] overflow-y-auto p-1.5">
         <Command.Item
           value="new task create"
-          onSelect={() => select(null, false)}
-          data-menu-current={!session?.pendingTaskId &&
-          !session?.taskCreationDisabled
+          onSelect={() => select({ kind: "new" })}
+          data-menu-current={target.kind === "new"
             ? ""
             : undefined}
         >
           <PlusIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
           <span class="min-w-0 flex-1 truncate">New task</span>
-          {#if !session?.pendingTaskId && !session?.taskCreationDisabled}
+          {#if target.kind === "new"}
             <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
           {/if}
         </Command.Item>
         <Command.Item
           value="no task without task"
-          onSelect={() => select(null, true)}
-          data-menu-current={session?.taskCreationDisabled ? "" : undefined}
+          onSelect={() => select({ kind: "none" })}
+          data-menu-current={target.kind === "none" ? "" : undefined}
         >
           <XIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
           <span class="min-w-0 flex-1 truncate">No task</span>
-          {#if session?.taskCreationDisabled}
+          {#if target.kind === "none"}
             <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
           {/if}
         </Command.Item>
@@ -158,8 +155,8 @@
           {#each tasks as task (task.id)}
             <Command.Item
               value="{task.title} {task.shortId ?? ''} {task.id}"
-              onSelect={() => select(task.id, false)}
-              data-menu-current={session?.pendingTaskId === task.id
+              onSelect={() => select({ kind: "existing", taskId: task.id })}
+              data-menu-current={selectedTask?.id === task.id
                 ? ""
                 : undefined}
               class="menu-item-stagger"
@@ -169,7 +166,7 @@
                 class="shrink-0 text-(--solus-text-tertiary)"
               />
               <span class="min-w-0 flex-1 truncate">{task.title}</span>
-              {#if session?.pendingTaskId === task.id}
+              {#if selectedTask?.id === task.id}
                 <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
               {/if}
             </Command.Item>

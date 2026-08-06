@@ -20,7 +20,9 @@ function goalSync(api: {
   clearThreadGoal?: () => Promise<boolean>
 }) {
   const session = {
-    provider: 'codex',
+    run: {
+      provider: 'codex',
+    } as Session['run'],
     agentSessionId: 'thread-1',
     goal: goal('Original'),
   } as Session

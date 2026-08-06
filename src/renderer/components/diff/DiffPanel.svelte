@@ -870,7 +870,7 @@
     {isWorktree}
     {worktreeBranch}
     {targetBranch}
-    fallbackBranch={sess?.gitContext?.branch ?? null}
+    fallbackBranch={sess?.run.gitContext?.branch ?? null}
     {headerStats}
     diffStyle={effectiveDiffStyle}
     onSetStyle={setDiffStyle}

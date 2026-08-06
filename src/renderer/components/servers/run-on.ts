@@ -1,8 +1,9 @@
 import { serverConnections } from '@client-core/server-connections'
 import { LOCAL_SERVER_ID } from '@client-core/server-registry'
-import type { GithubDelegatedCredential, IpcContext, PendingHostDispatch, ProjectIdentity, Session } from '../../../shared/types'
+import type { GithubDelegatedCredential, IpcContext, PendingHostDispatch, ProjectIdentity, RunConfig, Session } from '../../../shared/types'
 import type { SolusAPI } from '../../../preload'
 import { hasSessionStarted } from '../../lib/sessionUtils'
+import { withHost } from '../../contexts/workspace/run-config'
 
 /** Exactly what retargeting a tab's host needs from the workspace context. */
 export interface RunOnWorkspace {
@@ -46,34 +47,28 @@ export function retargetSessionHost(opts: RetargetSessionHostOptions): RetargetS
   const session = workspace.sessionFor(tabId)
   if (!session) return { ok: false, reason: 'no-session' }
 
-  const previousServerId = session.serverId
+  const previousServerId = session.run.serverId
   const movingHosts = previousServerId !== serverId
   if (movingHosts && !path) return { ok: false, reason: 'no-path-on-host' }
   const sourceProjectPath = session.projectGroupPath
-    ?? session.gitContext?.repoRoot
-    ?? session.workingDirectory
+    ?? session.run.gitContext?.repoRoot
+    ?? session.run.workingDirectory
   if (movingHosts) {
     void workspace.apiFor(tabId).closeTab(workspace.ctxFor(tabId)).catch(() => {})
   }
   serverConnections.retain(serverId)
   if (!isLocalHost) serverConnections.ensure(serverId)
-  session.serverId = serverId
-  if (path) session.workingDirectory = path
+  session.run = withHost(session.run, serverId, { path, isLocalHost, requireWorktree })
 
   if (!movingHosts) return { ok: true }
   if (repoKey && sourceProjectPath && sourceProjectPath !== '~') {
     session.projectGroupPath = sourceProjectPath
   }
-  // The old host's checkout describes a filesystem this session no longer runs
-  // on, so it is dropped rather than carried across and re-read as truth.
-  session.gitContext = null
-  session.worktreeBaseBranch = null
-  session.worktreeRequired = requireWorktree && !isLocalHost
   const refreshed = workspace.refreshStartTarget(tabId, path!, requireWorktree)
   const refreshStartTarget = refreshed instanceof Promise ? refreshed : undefined
   const success = refreshStartTarget ? { ok: true as const, refreshStartTarget } : { ok: true as const }
   const stillInUse = workspace.tabOrder.some(
-    (id) => id !== tabId && workspace.sessionFor(id)?.serverId === previousServerId,
+    (id) => id !== tabId && workspace.sessionFor(id)?.run.serverId === previousServerId,
   )
   if (stillInUse) return success
   serverConnections.unretain(previousServerId)
@@ -82,12 +77,14 @@ export function retargetSessionHost(opts: RetargetSessionHostOptions): RetargetS
 }
 
 /**
- * True when this specific session was sent to another host through Run on.
- * Merely opening a project that already lives remotely keeps worktree mode
- * optional, just as it is for a local project.
+ * True when this run was sent to another host through Run on, which requires
+ * its own worktree. Merely opening a project that already lives remotely keeps
+ * worktree mode optional, just as it is for a local project.
+ *
+ * Reads the run config rather than a session, so a draft answers it identically.
  */
-export function isDispatchedSession(session: Session | undefined): boolean {
-  return session?.worktreeRequired === true
+export function isDispatchedRun(run: RunConfig | undefined | null): boolean {
+  return run?.worktreeRequired === true
 }
 
 export function isRunOnHostLocked(session: Session | undefined): boolean {
@@ -111,11 +108,11 @@ export function queueSessionHostDispatch(
   session: Session,
   target: PendingHostDispatch,
 ): void {
-  if (target.serverId === session.serverId) {
-    session.pendingHostDispatch = null
+  if (target.serverId === session.run.serverId) {
+    session.run.pendingHostDispatch = null
     return
   }
-  session.pendingHostDispatch = target
+  session.run.pendingHostDispatch = target
 }
 
 export interface PreparedHostCheckout {

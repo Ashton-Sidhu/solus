@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { Session, Tab } from '../../src/shared/types'
+import type { RunConfig, Session, Tab } from '../../src/shared/types'
 
 const previousWindow = globalThis.window
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -51,7 +51,12 @@ describe('WorkspaceContext tab clearing', () => {
     const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
     const session = {
       agentSessionId: null,
-      provider: 'claude-code',
+      run: {
+        provider: 'claude-code',
+        worktreeBaseBranch: null,
+        gitContext: null,
+        workingDirectory: '/repo',
+      } as Session['run'],
       handoffFrom: { provider: 'codex', sessionId: 'previous-session' },
       messages: [],
       sessionChangedFiles: [],
@@ -66,9 +71,6 @@ describe('WorkspaceContext tab clearing', () => {
       status: 'idle',
       progress: null,
       readOnlyReason: null,
-      worktreeBaseBranch: null,
-      gitContext: null,
-      workingDirectory: '/repo',
     } as unknown as Session
     const workspace = Object.create(WorkspaceContext.prototype) as any
     workspace.registry = {
@@ -129,7 +131,7 @@ describe('WorkspaceContext new-tab Git initialization', () => {
       },
       refreshTab: (currentWorkspace: any, options: { tabId: string }) => {
         const tab = currentWorkspace.tabs[options.tabId]
-        expect(currentWorkspace.sessions[tab.sessionId].gitContext?.branch).toBe('feature')
+        expect(currentWorkspace.sessions[tab.sessionId].run.gitContext?.branch).toBe('feature')
         return Promise.resolve()
       },
     }
@@ -141,7 +143,7 @@ describe('WorkspaceContext new-tab Git initialization', () => {
         worktreeBaseBranch: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
       },
-      applyGlobalStartTarget(target: { gitContext: Session['gitContext']; worktreeBaseBranch: string | null }) {
+      applyGlobalStartTarget(target: { gitContext: RunConfig['gitContext']; worktreeBaseBranch: string | null }) {
         this.globalDefaults.gitContext = target.gitContext
         this.globalDefaults.worktreeBaseBranch = target.worktreeBaseBranch
       },
@@ -161,12 +163,12 @@ describe('WorkspaceContext new-tab Git initialization', () => {
       serverConnections.connectionFor = originalConnectionFor
     }
 
-    expect(created.gitContext).toEqual({
+    expect(created.run.gitContext).toEqual({
       repoRoot: '/repo',
       branch: 'feature',
       targetBranch: 'main',
     })
-    expect(created.serverId).toBe('remote-server')
+    expect(created.run.serverId).toBe('remote-server')
   })
 
   test('uses the saved worktree default for a fresh session even when its source session is direct', async () => {
@@ -175,12 +177,14 @@ describe('WorkspaceContext new-tab Git initialization', () => {
     const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
     const sourceSession = {
       id: 'source-session',
-      workingDirectory: '/repo',
-      gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
-      worktreeBaseBranch: null,
-      modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
-      provider: 'codex',
-      sessionSkills: [],
+      run: {
+        workingDirectory: '/repo',
+        gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
+        worktreeBaseBranch: null,
+        modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
+        provider: 'codex',
+        sessionSkills: [],
+      } as Session['run'],
     } as unknown as Session
     const registry = {
       tabs: {} as Record<string, Tab>,
@@ -228,8 +232,8 @@ describe('WorkspaceContext new-tab Git initialization', () => {
     const tabId = await workspace.createTab()
     const created = registry.sessions[registry.tabs[tabId].sessionId]
 
-    expect(created.gitContext?.repoRoot).toBe('/repo')
-    expect(created.worktreeBaseBranch).toBe('main')
+    expect(created.run.gitContext?.repoRoot).toBe('/repo')
+    expect(created.run.worktreeBaseBranch).toBe('main')
     expect(refreshOptions?.worktreeRequested).toBe(true)
   })
 
@@ -239,16 +243,18 @@ describe('WorkspaceContext new-tab Git initialization', () => {
     const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
     const sourceSession = {
       id: 'source-session',
-      workingDirectory: '/repo',
-      gitContext: {
-        repoRoot: '/repo',
-        branch: 'solus/feature',
-        targetBranch: 'main',
-        worktreePath: '/repo/.solus-worktrees/feature',
-      },
-      modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
-      provider: 'codex',
-      sessionSkills: [],
+      run: {
+        workingDirectory: '/repo',
+        gitContext: {
+          repoRoot: '/repo',
+          branch: 'solus/feature',
+          targetBranch: 'main',
+          worktreePath: '/repo/.solus-worktrees/feature',
+        },
+        modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
+        provider: 'codex',
+        sessionSkills: [],
+      } as Session['run'],
     } as unknown as Session
     const registry = {
       tabs: {} as Record<string, Tab>,
@@ -310,16 +316,18 @@ describe('WorkspaceContext new-tab Git initialization', () => {
     const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
     const sourceSession = {
       id: 'source-session',
-      workingDirectory: '/old-project',
-      gitContext: {
-        repoRoot: '/old-project',
-        branch: 'feature',
-        targetBranch: 'main',
-        worktreePath: '/old-project/.solus-worktrees/feature',
-      },
-      modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
-      provider: 'codex',
-      sessionSkills: [],
+      run: {
+        workingDirectory: '/old-project',
+        gitContext: {
+          repoRoot: '/old-project',
+          branch: 'feature',
+          targetBranch: 'main',
+          worktreePath: '/old-project/.solus-worktrees/feature',
+        },
+        modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
+        provider: 'codex',
+        sessionSkills: [],
+      } as Session['run'],
     } as unknown as Session
     const registry = {
       tabs: {} as Record<string, Tab>,
@@ -353,12 +361,12 @@ describe('WorkspaceContext new-tab Git initialization', () => {
       // what createTab hands over and what the session ends up with.
       refreshTab: async (currentWorkspace: any, options: { tabId: string }) => {
         initializedSession = currentWorkspace.sessionFor(options.tabId)
-        handedOffGitContext = initializedSession?.gitContext
+        handedOffGitContext = initializedSession?.run.gitContext
         const target = await workspace.environment.resolveSessionStartTarget(
-          initializedSession!.workingDirectory,
+          initializedSession!.run.workingDirectory,
           { worktreeRequested: false },
         )
-        initializedSession!.gitContext = target.gitContext
+        initializedSession!.run.gitContext = target.gitContext
       },
     }
     workspace.config = {
@@ -383,11 +391,11 @@ describe('WorkspaceContext new-tab Git initialization', () => {
 
     await workspace.createTab('/new-project')
 
-    expect(initializedSession?.workingDirectory).toBe('/new-project')
+    expect(initializedSession?.run.workingDirectory).toBe('/new-project')
     // The tab paints before any Git work, so it must start with no checkout at
     // all rather than the active session's worktree.
     expect(handedOffGitContext).toBeNull()
-    expect(initializedSession?.gitContext).toEqual({
+    expect(initializedSession?.run.gitContext).toEqual({
       repoRoot: '/new-project',
       branch: 'develop',
       targetBranch: 'main',
@@ -400,11 +408,13 @@ describe('WorkspaceContext new-tab Git initialization', () => {
     const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
     const sourceSession = {
       id: 'source-session',
-      workingDirectory: '/repo',
-      gitContext: { branch: 'main', targetBranch: 'main', repoRoot: '/repo' },
-      modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
-      provider: 'codex',
-      sessionSkills: [],
+      run: {
+        workingDirectory: '/repo',
+        gitContext: { branch: 'main', targetBranch: 'main', repoRoot: '/repo' },
+        modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
+        provider: 'codex',
+        sessionSkills: [],
+      } as Session['run'],
     } as unknown as Session
     const registry = {
       tabs: {} as Record<string, Tab>,
@@ -423,7 +433,7 @@ describe('WorkspaceContext new-tab Git initialization', () => {
     }
     let resolveGit!: () => void
     const gitReady = new Promise<void>((resolve) => { resolveGit = resolve })
-    let refreshGitContext: Session['gitContext'] = null
+    let refreshGitContext: RunConfig['gitContext'] = null
     const workspace = Object.create(WorkspaceContext.prototype) as any
     workspace.registry = registry
     workspace.lifecycle = {
@@ -433,7 +443,7 @@ describe('WorkspaceContext new-tab Git initialization', () => {
     workspace.environment = {
       refreshTab: (currentWorkspace: any, opts: { tabId: string }) => {
         const tab = currentWorkspace.tabs[opts.tabId]
-        refreshGitContext = currentWorkspace.sessions[tab.sessionId].gitContext
+        refreshGitContext = currentWorkspace.sessions[tab.sessionId].run.gitContext
         return gitReady
       },
     }
@@ -495,12 +505,14 @@ describe('WorkspaceContext task-bound tab creation', () => {
     const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
     const sourceSession = {
       id: 'source-session',
-      serverId: 'local',
-      workingDirectory: '/repo',
-      gitContext: null,
-      modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
-      provider: 'codex',
-      sessionSkills: [],
+      run: {
+        serverId: 'local',
+        workingDirectory: '/repo',
+        gitContext: null,
+        modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
+        provider: 'codex',
+        sessionSkills: [],
+      } as Session['run'],
     } as unknown as Session
     const registry = {
       tabs: {} as Record<string, Tab>,
@@ -521,7 +533,7 @@ describe('WorkspaceContext task-bound tab creation', () => {
         workingDirectory: '/repo',
         gitContext: null,
         worktreeBaseBranch: null,
-        modelConfig: sourceSession.modelConfig,
+        modelConfig: sourceSession.run.modelConfig,
       },
       defaultReasoningEffortFor: () => 'high',
     }
@@ -561,10 +573,12 @@ describe('WorkspaceContext resumed-session tab creation', () => {
     const sourceSession = {
       id: 'source-session',
       agentSessionId: 'source-agent-session',
-      provider: 'codex',
+      run: {
+        provider: 'codex',
+        workingDirectory: '/repo',
+      } as Session['run'],
       status: 'idle',
       messages: [{}],
-      workingDirectory: '/repo',
     } as unknown as Session
     const registry = {
       tabs: {
@@ -606,10 +620,12 @@ describe('WorkspaceContext resumed-session tab creation', () => {
       const resumedSession = {
         id: 'resumed-session',
         agentSessionId: null,
-        provider: null,
+        run: {
+          provider: null,
+          workingDirectory: cwd,
+        } as Session['run'],
         status: 'idle',
         messages: [],
-        workingDirectory: cwd,
       } as unknown as Session
       registry.sessions['resumed-session'] = resumedSession
       registry.tabs['resumed-tab'] = {
@@ -687,7 +703,9 @@ describe('Session bootstrap Git ordering', () => {
     const { resyncRuntime } = await import('../../src/renderer/contexts/workspace/session-bootstrap')
     const session = {
       agentSessionId: 'agent-1',
-      workingDirectory: '/repo',
+      run: {
+        workingDirectory: '/repo',
+      } as Session['run'],
       status: 'running',
       rateLimitInfo: {},
     } as unknown as Session

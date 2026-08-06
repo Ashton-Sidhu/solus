@@ -8,6 +8,7 @@
     flushDrafts,
     type PersistedTabs,
   } from "@renderer/contexts/workspace/tab-persistence";
+  import { withCheckout } from "@renderer/contexts/workspace/run-config";
   import { setupAgentEvents } from "@renderer/hooks/agentEvents.svelte";
   import { materializeTabs } from "@renderer/contexts/workspace/session-bootstrap";
   import { loadServers, LOCAL_SERVER_ID } from "@client-core/server-registry";
@@ -145,6 +146,9 @@
           modelConfig: sess ? { ...sess.modelConfig } : { ...session.globalDefaults.modelConfig },
           permissionMode: sess?.permissionMode ?? session.globalDefaults.permissionMode,
           hasUnread: tab.hasUnread ?? false,
+          pendingTaskId: sess?.pendingTaskId ?? null,
+          pendingParentTaskId: sess?.pendingParentTaskId ?? null,
+          taskCreationDisabled: sess?.taskCreationDisabled ?? false,
           terminalFailure: sess?.terminalFailure ? { ...sess.terminalFailure } : null,
           contextUsage: sess?.contextUsage ? { ...sess.contextUsage } : null,
         };
@@ -202,6 +206,9 @@
   let directoryPickerOpen = $state(false);
   let directoryPickerNewTab = $state(false);
   let directoryPickerTargetTabId = $state<string | undefined>(undefined);
+  /** Set when the browser was opened from a session draft, which has no tab to
+   *  retarget — the chosen directory lands on its run config instead. */
+  let directoryPickerDraftId = $state<string | undefined>(undefined);
   // Set when a caller names the host to browse — the "Run on" picker and the
   // Open project flow both browse a host no tab points at yet.
   let directoryPickerServerIdOverride = $state<string | undefined>(undefined);
@@ -370,13 +377,13 @@
     if (!isRunning) startOpenProject();
   });
   useKeybinding("global.new-task", () => {
-    session.createDraftTab(undefined, { freshTask: true, via: "keybinding" });
+    session.openSessionDraft({ freshTask: true, via: "keybinding" });
   });
   useKeybinding("global.new-session-without-task", () => {
-    session.createDraftTab(undefined, { withoutTask: true, via: "keybinding" });
+    session.openSessionDraft({ withoutTask: true, via: "keybinding" });
   });
   useKeybinding("global.new-session", () =>
-    session.createDraftTab(undefined, { via: "keybinding" }),
+    session.openSessionDraft({ via: "keybinding" }),
   );
   useKeybinding("global.next-tab", () => {
     const idx = visualTabOrder.indexOf(activeTabId);
@@ -469,10 +476,12 @@
       const detail = (
         event as CustomEvent<{
           tabId?: string;
+          draftId?: string;
           serverId?: string;
           requireWorktree?: boolean;
         }>
       ).detail;
+      directoryPickerDraftId = detail?.draftId;
       const targetTabId = detail?.tabId;
       const tab = targetTabId ? session.tabs[targetTabId] : null;
       const opensInNewTab = tab?.sessionId != null;
@@ -509,6 +518,17 @@
     invalidateHomeCache();
     if (directoryPickerForOpenProject) {
       await finishBrowsedOpenProject(dir);
+      return;
+    }
+    const draftId = directoryPickerDraftId;
+    directoryPickerDraftId = undefined;
+    if (draftId) {
+      const draft = session.sessionDrafts.get(draftId);
+      if (draft) {
+        draft.run = withCheckout(draft.run, dir, null);
+        void session.environment.refresh(dir);
+      }
+      requestInputFocus();
       return;
     }
     const targetTabId = directoryPickerTargetTabId;
