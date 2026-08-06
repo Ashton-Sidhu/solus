@@ -326,6 +326,9 @@
 				<ul class="mt-5 flex flex-col gap-3 list-none p-0">
 					{#each [
 						['Open and close tabs', `${kbdHtml('⌘T')} opens a new tab, ${kbdHtml('⌥⇧W')} closes the current one, and ${kbdHtml('⌥⇧N')} / ${kbdHtml('⌥⇧P')} move between them.`],
+						['Compose before a session exists', `${kbdHtml('⌘T')} opens a composer, not an empty session — nothing joins the tab strip or the sidebar until you send. The composer inherits its project, worktree, host, and model from wherever you opened it, and keeps those choices along with your unsent text if you quit and come back.`],
+						['One unsent message per conversation', 'What you have typed but not sent belongs to the conversation rather than the tab, so the same session open in two panes shows the same pending message in both.'],
+						['Rename in the sidebar', `Right-click a session or task in the sidebar and choose <strong class="text-[#1A1714] font-medium">Rename</strong> to edit the name in place. Enter commits, Escape cancels, and an emptied or unchanged name is left as it was — either way the caret returns to the input bar.`],
 						['Fork a session', `Press ${kbdHtml('⌥F')} to branch the current conversation into a new tab. The fork keeps all context up to that point — useful when you want to explore two approaches from the same starting state.`],
 						['Resume past work', `Press ${kbdHtml('⌥⇧R')} to open the session history picker and jump back into any previous session with its full conversation intact.`],
 						['Queue while busy', 'Sending a message while the agent is working queues it for the next turn — you never have to wait for a stopping point to say the next thing.'],
@@ -747,6 +750,8 @@
 						['Run history', 'Each automation keeps a log of past runs with status (running, succeeded, failed), tool-call count, and output or error.'],
 						['Open a run', 'Open a completed run as a full session to inspect exactly what the agent did.'],
 						['Created by agents', 'Agents can create, edit, and trigger automations for you with their built-in automation tools. Agent-created automations are tagged in the list.'],
+						['Everything has a home', 'An automation doesn\'t have to live in an open project — a workspace-scoped one, or one an agent created elsewhere, gets its own entry in the project switcher so it is always reachable instead of silently filtered out.'],
+						['Seeded from a template', 'Starting from a template creates the automation in the project the list is scoped to and opens it in the builder with filters cleared, so the row you just made is the row you land on. The builder auto-saves as you edit and shows when it last did.'],
 					] as [title, desc]}
 						<li class="flex gap-3">
 							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
