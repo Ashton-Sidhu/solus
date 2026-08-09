@@ -11,7 +11,7 @@ import { makePrompt } from './session.factories'
  * makes a session — which is the only way one comes into existence from the UI,
  * and the reason nothing lists a draft until then.
  *
- * Everything here is mutated in place. Retargeting a draft at another task is
+ * Everything here is mutated in place. Pointing a draft at another task is
  * `draft.task = …`; changing its project is `draft.run.workingDirectory = …`.
  * There is no rebuild, so nothing has to be carried across one.
  */
@@ -26,9 +26,12 @@ export class SessionDraft {
    * @param inherit  the run config of the session this draft was opened from.
    *   `null` is the whole meaning of "start fresh" — there is no separate flag,
    *   because starting fresh *is* having nothing to inherit.
+   * @param worktreeEnabled the app-level preference for starting new sessions
+   *   in their own worktree. It is a setting, not a property of any run, so it
+   *   is handed in rather than read back off one.
    */
-  constructor(defaults: RunConfig, inherit?: RunConfig | null) {
-    this.run = inheritRunConfig(defaults, inherit)
+  constructor(defaults: RunConfig, inherit?: RunConfig | null, worktreeEnabled = false) {
+    this.run = inheritRunConfig(defaults, inherit, { worktreeEnabled })
   }
 
   /** The plain, serializable shape — what persists and what dispatch consumes. */
@@ -52,7 +55,30 @@ export function requestedTaskTarget(
   return { kind: 'new' }
 }
 
-/** The pre-`TaskTarget` encoding, for the session fields that still carry it. */
+/** The task named, when the target names an existing one. */
+export function existingTaskId(task: TaskTarget): string | null {
+  return task.kind === 'existing' ? task.taskId : null
+}
+
+/** The task a newly minted one will hang under, when it has a parent. */
+export function parentTaskId(task: TaskTarget): string | null {
+  return task.kind === 'new' ? task.parentTaskId ?? null : null
+}
+
+/** Read the three fields a persisted tab still stores back into a target. */
+export function taskTargetFrom(fields: {
+  pendingTaskId?: string | null
+  pendingParentTaskId?: string | null
+  taskCreationDisabled?: boolean
+}): TaskTarget {
+  if (fields.pendingTaskId) return { kind: 'existing', taskId: fields.pendingTaskId }
+  if (fields.taskCreationDisabled) return { kind: 'none' }
+  return fields.pendingParentTaskId
+    ? { kind: 'new', parentTaskId: fields.pendingParentTaskId }
+    : { kind: 'new' }
+}
+
+/** The pre-`TaskTarget` encoding, for the persisted tab fields that still carry it. */
 export function taskTargetFields(task: TaskTarget): {
   pendingTaskId: string | null
   pendingParentTaskId: string | null

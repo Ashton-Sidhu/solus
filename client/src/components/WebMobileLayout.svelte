@@ -13,6 +13,8 @@
   import InputBarHeader from "@renderer/components/input/InputBarHeader.svelte";
   import GitDropdown from "@renderer/components/GitDropdown.svelte";
   import GoalSection from "@renderer/components/project-panel/GoalSection.svelte";
+  import SolusTips from "@renderer/components/layout/SolusTips.svelte";
+  import { isHomeVisible } from "@renderer/components/layout/lib/workspace-body";
   import {
     getWorkspaceContext,
     getPlanStore,
@@ -61,27 +63,31 @@
 
   const tab = $derived(session.tabs[session.activeTabId]);
   const sess = $derived(session.sessionFor(session.activeTabId));
-  const mobileGoalTabId = $derived(
-    session.router.params("goal")?.tabId ?? null,
+  const mobileGoalSessionId = $derived(
+    session.router.params("goal")?.sessionId ?? null,
   );
 
+  // A tab that has not started has no prompt to name it after, so it says what
+  // it will become instead.
   const title = $derived(
-    session.draftTabId
-      ? sess?.pendingTaskId ? "New session" : "New task"
-      : (tab && sess) ? sessionTitle(sess, tab) : "New session",
+    tab && sess && hasSessionStarted(sess)
+      ? sessionTitle(sess)
+      : sess?.task.kind === "existing"
+        ? "New session"
+        : "New task",
   );
   const statusIcon = $derived(
     (tab && sess) ? getStatusIcon(sess.status) : null,
   );
-  const branch = $derived(sess?.gitContext?.branch);
+  const branch = $derived(sess?.run.gitContext?.branch);
   // The destination strip (project · start-in · branch) is editable exactly
   // until the session starts — the same lifetime it has on desktop.
   const sessionStarted = $derived(hasSessionStarted(sess));
   // A started session that runs on another host names it in the navbar, since
   // the strip that would have said so is gone by then.
-  const hostGlyph = $derived(serversStore.affinityFor(sess?.serverId));
+  const hostGlyph = $derived(serversStore.affinityFor(sess?.run.serverId));
   const hostName = $derived.by(() => {
-    const host = serversStore.hostFor(sess?.serverId);
+    const host = serversStore.hostFor(sess?.run.serverId);
     return host && !host.local ? host.label : null;
   });
   // Nothing runs until a host is chosen, so the strip carries the way to fix
@@ -197,7 +203,7 @@
 
       <button
         class="mh-navbar-side-btn mh-navbar-side-btn--accent"
-        onclick={() => void session.createDraftTab(undefined, { via: "click" })}
+        onclick={() => session.openSessionDraft({ via: "click" })}
         aria-label="New session"
       >
         <PlusIcon size={18} weight="bold" />
@@ -237,7 +243,7 @@
   </header>
 
   <div class="mobile-content">
-    {#if mobileGoalTabId}
+    {#if mobileGoalSessionId}
       <!-- Mobile has no project rail, so the goal card the rail hosts on
            desktop takes over the content area here. -->
       <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
@@ -252,15 +258,22 @@
           </button>
         </div>
         <GoalSection
-          tabId={mobileGoalTabId}
+          sessionId={mobileGoalSessionId}
           collapsed={goalCollapsed}
           onToggle={() => (goalCollapsed = !goalCollapsed)}
           onCleared={() => session.router.close("goal")}
         />
       </div>
     {:else if !(diffPanelOpen && canShowDiffPanel)}
-      <div class="mobile-chat">
+      <div class="mobile-chat relative">
         {@render chatContent()}
+        <!-- The composer is docked outside this column, so the column's bottom
+             is the page's — the same anchor the desktop tip uses. -->
+        {#if isHomeVisible(sess)}
+          <SolusTips
+            class="pointer-events-none absolute inset-x-0 bottom-6 mx-auto px-6"
+          />
+        {/if}
       </div>
     {/if}
     {#if diffPanelOpen && canShowDiffPanel}
@@ -273,7 +286,7 @@
   <div
     class="mobile-input-dock"
     class:mode-hidden={overlayOpen ||
-      !!mobileGoalTabId ||
+      !!mobileGoalSessionId ||
       session.router.at("settings") ||
       session.router.at("folio") ||
       (diffPanelOpen && canShowDiffPanel)}
@@ -290,7 +303,14 @@
       onfocusin={() => (inputFocused = true)}
       onfocusout={() => (inputFocused = false)}
     >
-      <InputBar mode="pill" prompt={session.inputFor(session.activeTabId)}>
+      <InputBar
+        mode="pill"
+        sessionId={session.activeSession?.id ?? null}
+        tabId={session.activeTabId}
+        isPrimary
+        run={session.activeSession?.run}
+        prompt={session.inputFor(session.activeTabId)}
+      >
         {#snippet leadingActions()}
           <button
             class="mobile-pill-plus"
@@ -338,8 +358,8 @@
     bind:open={gitOpen}
     triggerEl={gitTriggerEl}
     displayBranch={branch}
-    selectedBranch={sess.worktreeBaseBranch ?? branch}
-    workingDirectory={sess.gitContext?.worktreePath ?? sess.workingDirectory}
+    selectedBranch={sess.run.worktree?.baseBranch ?? branch}
+    workingDirectory={sess.run.gitContext?.worktreePath ?? sess.run.workingDirectory}
     onSelectBranch={selectBranch}
     onSelectWorktree={selectWorktree}
   />

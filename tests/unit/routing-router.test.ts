@@ -81,12 +81,16 @@ describe('reading the location', () => {
     expect(router.panes).toHaveLength(2)
   })
 
-  test('a chat pane reports its tab; the leading pane reports the active one', () => {
+  test('a pinned chat names its session; the pooled one names none', () => {
+    // The router answers in sessions and never in tabs — resolving a session to
+    // the tab rendering it is the workspace's job, not routing's. The leading
+    // pane names no session precisely because the pool decides which one shows.
     const router = new RouterStore()
-    const pane = router.navigate({ name: 'chat', params: { tabId: 'tab_b' } }, { target: 'aside' })
+    const pane = router.navigate({ name: 'chat', params: { sessionId: 'sess_b' } }, { target: 'aside' })
 
-    expect(router.chatTabIn(pane.id, 'tab_a')).toBe('tab_b')
-    expect(router.chatTabIn(router.leadingPane.id, 'tab_a')).toBe('tab_a')
+    expect(router.chatSessionIn(pane.id)).toBe('sess_b')
+    expect(router.chatSessionIn(router.leadingPane.id)).toBeNull()
+    expect(router.showsChat(router.leadingPane.id)).toBe(true)
   })
 
   test('every navigation bumps the epoch, including a repeat of the same route', () => {
@@ -165,17 +169,17 @@ describe('injected route history', () => {
     const history = new MemoryRouteHistory('/chat/a')
     const router = new RouterStore(history)
 
-    router.navigate({ name: 'chat', params: { tabId: 'b' } })
+    router.navigate({ name: 'chat', params: { sessionId: 'b' } })
     router.navigate({ name: 'settings', params: { tab: 'tools' } })
     expect(router.params('settings')).toEqual({ tab: 'tools' })
 
     router.back()
-    expect(router.params('chat')).toEqual({ tabId: 'b' })
+    expect(router.params('chat')).toEqual({ sessionId: 'b' })
 
     router.back()
-    expect(router.params('chat')).toEqual({ tabId: 'a' })
+    expect(router.params('chat')).toEqual({ sessionId: 'a' })
 
     router.forward()
-    expect(router.params('chat')).toEqual({ tabId: 'b' })
+    expect(router.params('chat')).toEqual({ sessionId: 'b' })
   })
 })

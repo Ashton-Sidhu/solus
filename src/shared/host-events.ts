@@ -25,12 +25,14 @@ import type {
  * Commands and queries remain RPC methods; native shell signals stay local.
  */
 export interface HostEventMap {
-  'session.eventReceived': { tabId: string; event: NormalizedEvent }
-  'session.errorReceived': { tabId: string; error: EnrichedError }
+  'session.eventReceived': { sessionId: string; event: NormalizedEvent }
+  'session.errorReceived': { sessionId: string; error: EnrichedError }
   'session.scanProgressed': SessionScanEvent
   'session.indexChanged': SessionIndexUpdatedEvent
   'session.titleChanged': SessionTitleChangedEvent
-  'session.statusChanged': { sessionId: string; status: SessionStatus; at: number }
+  /** `agentSessionId` is a correlation attribute, not a second address: the
+   *  picker and agent-conversation cards hold only a provider thread id. */
+  'session.statusChanged': { sessionId: string; agentSessionId: string | null; status: SessionStatus; at: number }
   'run.statusChanged': RunStatus
   'run.logAppended': RunLogBatch
   'setup.statusChanged': SetupStatusEvent
@@ -41,6 +43,9 @@ export interface HostEventMap {
   'review.progressChanged': ReviewProgressEvent
   'review.guideStatusChanged': ReviewGuideStatusEvent
   'tasks.invalidated': Record<string, never>
+  /** This host's outbox gained, lost, or failed an op. Connected clients react
+   *  by draining (`outboxList` → apply on the owner host → `outboxAck`). */
+  'outbox.changed': Record<string, never>
   'prs.invalidated': { projectRoot: string }
   'annotations.changed': AnnotationsChanged
   'attention.snapshotChanged': { entries: AttentionEntry[] }
@@ -68,8 +73,8 @@ export interface HostEventDefinition {
 
 /** Runtime catalog for boundary validation and human discovery. */
 export const HOST_EVENT_DEFINITIONS = {
-  'session.eventReceived': { owner: 'sessions', category: 'targeted', recovery: 'reset', description: 'A normalized provider event arrived for an owned tab.' },
-  'session.errorReceived': { owner: 'sessions', category: 'targeted', recovery: 'reset', description: 'An enriched provider error arrived for an owned tab.' },
+  'session.eventReceived': { owner: 'sessions', category: 'targeted', recovery: 'reset', description: 'A normalized provider event arrived for a watched session.' },
+  'session.errorReceived': { owner: 'sessions', category: 'targeted', recovery: 'reset', description: 'An enriched provider error arrived for a watched session.' },
   'session.scanProgressed': { owner: 'sessions', category: 'targeted', recovery: 'reset', description: 'A requested session scan produced progress.' },
   'session.indexChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A provider session index changed.' },
   'session.titleChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A persisted session title changed.' },
@@ -84,6 +89,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'review.progressChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'Review generation progress changed.' },
   'review.guideStatusChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'A review guide changed status.' },
   'tasks.invalidated': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: 'The local task store changed.' },
+  'outbox.changed': { owner: 'outbox', category: 'invalidation', recovery: 'reload', description: 'The host outbox changed; connected clients should drain it.' },
   'prs.invalidated': { owner: 'prs', category: 'invalidation', recovery: 'reload', description: 'Pull-request state changed for one project.' },
   'annotations.changed': { owner: 'annotations', category: 'delta', recovery: 'reload', description: 'Plan or work annotations changed.' },
   'attention.snapshotChanged': { owner: 'attention', category: 'snapshot', recovery: 'reload', description: 'The bounded attention list changed.' },

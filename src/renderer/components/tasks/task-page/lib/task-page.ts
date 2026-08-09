@@ -24,12 +24,22 @@ export function statusTextColor(status: TaskStatus): string {
   return statusColor(STATUS_META[status]?.token ?? '--idle')
 }
 
+/** The machine an attempt ran on, already resolved against the saved hosts. */
+export interface TaskSessionHost {
+  label: string
+  isRemote: boolean
+}
+
 export interface TaskSessionRow {
   sessionId: string
   title: string
   /** Which agent ran the attempt — the one fact that tells two attempts of the
    *  same task apart at a glance. Empty when the session is not indexed yet. */
   agent: string
+  /** Which machine ran it. Null only when the host cannot be named at all —
+   *  a link that predates the recorded host, on a task whose own host this
+   *  client has not placed. The column says so rather than guessing "here". */
+  host: TaskSessionHost | null
   /** When the attempt started, absolute: attempts are a history, and "3d ago"
    *  is worse than a date for lining them up against the activity feed. */
   date: string
@@ -65,6 +75,7 @@ export function taskSessionRow(
   running: boolean,
   now: number,
   taskTitle?: string | null,
+  host?: TaskSessionHost | null,
 ): TaskSessionRow {
   // The link is written when the session is first bound to the task, so its
   // timestamp is when the attempt started.
@@ -75,6 +86,7 @@ export function taskSessionRow(
     sessionId: link.sessionId,
     title: sessionDisplayName({ link, liveTitle, taskTitle }),
     agent: provider ? (AGENT_LABELS[provider] ?? provider) : '',
+    host: host ?? null,
     date: (thisYear ? DAY : DAY_WITH_YEAR).format(started),
     dateFull: FULL.format(started),
     running,

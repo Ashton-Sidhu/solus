@@ -30,7 +30,7 @@
   import type { HostOption } from "./components/servers/lib/open-project-flow";
   import {
     isRunOnHostLocked,
-    retargetSessionHost,
+    moveTabToHost,
   } from "./components/servers/run-on";
   import DesignAnnotation from "./components/artifact/DesignAnnotation.svelte";
   import RenameSessionDialog from "./components/session/RenameSessionDialog.svelte";
@@ -44,7 +44,12 @@
     cloudflareStore,
     parseRoute,
   } from "./contexts";
-  import { withCheckout } from "./contexts/workspace/run-config";
+  import { taskTargetFields } from "./contexts/workspace/session-draft.svelte";
+  import {
+    withCheckout,
+    withHost,
+    withProjectHost,
+  } from "./contexts/workspace/run-config";
   import { toasts } from "./lib/toasts";
   import { invalidateHomeCache } from "./components/layout/NewTabHome.svelte";
   import { setPopoverLayer } from "./components/popoverLayer.svelte";
@@ -56,6 +61,7 @@
     IpcContext,
     PlanDescriptor,
     ProjectEntry,
+    RunConfig,
   } from "../shared/types";
   import type { PullRequestSummary } from "../shared/providers";
   import { setupAgentEvents } from "./hooks/agentEvents.svelte";
@@ -71,6 +77,8 @@
   import {
     savePersistedTabsDebounced,
     flushPersistedTabs,
+    savePersistedSessionDraftsDebounced,
+    flushPersistedSessionDrafts,
     patchActiveDraft,
     flushDrafts,
     type PersistedTabs,
@@ -161,8 +169,9 @@
         const sess = session.sessionFor(tabId);
         return {
           tabId,
-          title: tab.title ?? "New Tab",
-          titleCustom: tab.titleCustom ?? false,
+          sessionId: tab.sessionId,
+          title: sess?.title ?? "New Tab",
+          titleCustom: sess?.titleCustom ?? false,
           serverId: sess?.run.serverId ?? LOCAL_SERVER_ID,
           serverInstallationId: savedServers.find(
             (server) => server.id === sess?.run.serverId,
@@ -172,20 +181,19 @@
           handoffFrom: sess?.handoffFrom ? { ...sess.handoffFrom } : undefined,
           workingDirectory:
             sess?.run.workingDirectory ?? session.globalDefaults.workingDirectory,
-          projectGroupPath: sess?.projectGroupPath ?? null,
+          projectGroupPath: sess?.run.projectGroupPath ?? null,
           additionalDirs: sess ? [...sess.additionalDirs] : [],
           gitContext: sess?.run.gitContext ? { ...sess.run.gitContext } : null,
-          worktreeBaseBranch: sess?.run.worktreeBaseBranch ?? null,
-          worktreeRequired: sess?.run.worktreeRequired ?? false,
+          worktreeBaseBranch: sess?.run.worktree?.baseBranch ?? null,
+          worktreeRequested: !!sess?.run.worktree,
+          taskServerId: sess?.run.taskServerId ?? LOCAL_SERVER_ID,
           modelConfig: sess
             ? { ...sess.run.modelConfig }
             : { ...session.globalDefaults.modelConfig },
           permissionMode:
             sess?.run.permissionMode ?? session.globalDefaults.permissionMode,
           hasUnread: tab.hasUnread ?? false,
-          pendingTaskId: sess?.pendingTaskId ?? null,
-          pendingParentTaskId: sess?.pendingParentTaskId ?? null,
-          taskCreationDisabled: sess?.taskCreationDisabled ?? false,
+          ...(sess ? taskTargetFields(sess.task) : {}),
           terminalFailure: sess?.terminalFailure
             ? { ...sess.terminalFailure }
             : null,
@@ -202,13 +210,21 @@
     savePersistedTabsDebounced(snapshot);
   });
 
+  // Drafts persist on their own key: they have no tab to ride, and a prompt the
+  // user already wrote must survive a reload. Reading the whole map is cheap —
+  // there are only ever as many drafts as open panes.
+  $effect(() => {
+    if (session.hydrating) return;
+    savePersistedSessionDraftsDebounced(session.sessionDraftsSnapshot);
+  });
+
   // Unsent input drafts persist per-keystroke on a debounce. Only reads the active
   // tab's input — other tabs' drafts are patched into the persisted map individually
   // as the user visits each tab, rather than re-reading all N tabs every keystroke.
   $effect(() => {
     if (session.hydrating) return;
     const activeId = session.activeTabId;
-    const tabText = session.tabs[activeId]?.input.text ?? "";
+    const tabText = session.sessionFor(activeId)?.prompt.text ?? "";
     const activeInputText = session.activeInput.text;
     patchActiveDraft(activeId, tabText, activeInputText);
   });
@@ -221,6 +237,7 @@
     const flush = () => {
       flushDrafts();
       flushPersistedTabs();
+      flushPersistedSessionDrafts();
     };
     const handlePageHide = (event: PageTransitionEvent) => {
       flush();
@@ -285,16 +302,17 @@
 
   setupAgentEvents(session);
   // Refresh the key the project panel reads: the worktree path when the tab has one.
-  session.onTurnSettled = (tabId, cwd) => {
-    const sess = session.sessionFor(tabId);
+  session.onTurnSettled = (sessionId, cwd) => {
+    const sess = session.sessions[sessionId];
+    const tabId = session.tabIdForSession(sessionId);
     const gitCwd = sess?.run.gitContext?.worktreePath ?? cwd;
-    if (!gitCwd) return;
+    if (!gitCwd || !tabId) return;
     // Tool settles, the Git watcher, and task completion can arrive together.
     // Keep all of them behind the store's two-second freshness window so the
     // final snapshot pipeline does not overlap a redundant status scan. A stale
     // checkout still refreshes immediately.
-    void sessionEnvironmentStore.refreshTab(session, {
-      tabId,
+    void sessionEnvironmentStore.refreshEnvironment(session, {
+      sourceId: tabId,
       cwd: gitCwd,
       level: "status",
       force: false,
@@ -325,7 +343,7 @@
   let directoryPickerServerIdOverride = $state<string | undefined>(undefined);
   // Only the Run on picker turns a cross-host folder choice into a mandatory
   // session worktree. Opening a remote project uses the normal preference.
-  let directoryPickerRequireWorktree = $state(false);
+  let directoryPickerIntent = $state<"dispatch" | "open-project">("open-project");
   // "Choose location…" in the Open project flow borrows the same browser; its
   // selection is handed back to that flow instead of retargeting a tab here.
   let directoryPickerForOpenProject = $state(false);
@@ -473,13 +491,6 @@
   const desktopHandlersAvailable = $derived(
     connectionsStore.desktopHandlersAvailable,
   );
-  // status/provider live on Session, not Tab — reading them off the tab always
-  // yielded undefined, so isRunning was permanently false and the run-gated
-  // global keybindings never blocked during a run.
-  const activeTabStatus = $derived(session.sessionFor(activeTabId)?.status);
-  const isRunning = $derived(
-    activeTabStatus === "running" || activeTabStatus === "connecting",
-  );
   const directoryPickerCreatesTab = $derived(
     directoryPickerNewTab ||
       (!directoryPickerTargetTabId && !!session.activeSession?.agentSessionId),
@@ -550,9 +561,6 @@
       (id) => branchKeyFor(session.sessionFor(id)) === activeKey,
     );
   }
-  const keyboardPermissionMode = $derived(
-    session.sessionFor(keyboardTabId)?.run.permissionMode ?? "auto",
-  );
 
   $effect(() => {
     refreshTheme(settings.setSystemTheme.bind(settings));
@@ -749,8 +757,8 @@
         active?.run.workingDirectory ??
         session.globalDefaults.workingDirectory;
       if (cwd)
-        void sessionEnvironmentStore.refreshTab(session, {
-          tabId: session.activeTabId,
+        void sessionEnvironmentStore.refreshEnvironment(session, {
+          sourceId: session.activeTabId,
           cwd,
           level: "status",
         });
@@ -889,9 +897,9 @@
   useKeybinding("global.new-session-without-task", () => {
     session.openSessionDraft({ withoutTask: true, via: "keybinding" });
   });
-  useKeybinding("global.new-session", () =>
-    session.openSessionDraft({ via: "keybinding" }),
-  );
+  useKeybinding("global.new-session", () => {
+    session.openSessionDraft({ via: "keybinding" });
+  });
 
   function visualTabOrder(tabIds: string[]): string[] {
     return buildTabSections(
@@ -986,15 +994,6 @@
   useKeybinding("global.toggle-expanded", () => session.toggleExpanded(), {
     enabled: () => viewMode === "pill",
   });
-  useKeybinding("global.cycle-perm-mode", () => {
-    const modes = ["ask", "auto", "plan"] as const;
-    const next =
-      modes[
-        (modes.indexOf(keyboardPermissionMode as (typeof modes)[number]) + 1) %
-          modes.length
-      ];
-    session.setPermissionMode(next, keyboardTabId, "keybinding");
-  });
   useKeybinding("global.close-tab", () => {
     if (activeTabId) session.closeTab(activeTabId, "keybinding");
   });
@@ -1017,36 +1016,6 @@
       enabled: () => desktopHandlersAvailable,
     },
   );
-  useKeybinding("global.cycle-agent", async () => {
-    if (isRunning) return;
-    await cycleAgentProvider("keybinding");
-    requestInputFocus();
-  });
-  useKeybinding("global.cycle-model", () => {
-    const targetSession = session.sessionFor(keyboardTabId);
-    if (
-      targetSession?.status === "running" ||
-      targetSession?.status === "connecting"
-    )
-      return;
-    const modelMetadata = targetSession?.run.provider
-      ? agent.metadata[targetSession.run.provider]
-      : agent.activeMetadata;
-    const models = modelMetadata?.models;
-    if (!models || models.length === 0) return;
-    const defaultModel = modelMetadata?.defaultModel;
-    const currentModel =
-      targetSession?.run.modelConfig.modelId || (defaultModel ?? models[0].id);
-    const idx = models.findIndex((m) => m.id === currentModel);
-    session.updateModelConfig(
-      {
-        modelId: models[((idx === -1 ? 0 : idx) + 1) % models.length].id,
-      },
-      keyboardTabId,
-      "keybinding",
-    );
-    requestInputFocus();
-  });
   useKeybinding("global.toggle-reasoning", () => {
     const targetStatus = session.sessionFor(keyboardTabId)?.status;
     if (targetStatus === "running" || targetStatus === "connecting") return;
@@ -1253,11 +1222,7 @@
       icon: PlusIcon,
       hint: comboHint("global.new-session-without-task"),
       keywords: ["create", "session", "tab", "no task"],
-      run: () =>
-        session.createDraftTab(undefined, {
-          withoutTask: true,
-          via: "palette",
-        }),
+      run: () => session.openSessionDraft({ withoutTask: true, via: "palette" }),
     },
     {
       id: "save-prompt",
@@ -1588,10 +1553,9 @@
           icon: GitForkIcon,
           keywords: ["session", "worktree", "existing", wt.branch, wt.path],
           run: () => {
-            void (async () => {
-              await session.createDraftTab(undefined, { via: "palette" });
-              await session.switchToWorktree(wt.path, undefined, "palette");
-            })();
+            // The draft starts in the worktree; its environment refresh resolves
+            // the checkout from that directory, same as picking a project does.
+            session.openSessionDraft({ via: "palette" }, wt.path);
           },
         }));
       const newSessionBranchChildren: Command[] = paletteBranches
@@ -1602,12 +1566,10 @@
           group: "Branches",
           icon: GitBranchIcon,
           keywords: ["session", "branch", "checkout", "switch", branch],
-          run: () => {
-            void (async () => {
-              await session.createDraftTab(undefined, { via: "palette" });
-              await switchPaletteBranch(branch);
-            })();
-          },
+          // The checkout is a real change on disk, so it happens either way;
+          // `switchToBranch` then opens a draft there rather than moving a
+          // conversation already under way.
+          run: () => void switchPaletteBranch(branch),
         }));
       const newSessionInChildren: Command[] = [
         ...newSessionBranchChildren,
@@ -1786,20 +1748,6 @@
     await window.solus.exitDesignMode();
   }
 
-  async function cycleAgentProvider(via: "click" | "keybinding" | "palette" = "click") {
-    const enabledAgents = agent.agents.filter(
-      (candidate) => agent.metadata[candidate.id]?.available === true,
-    );
-    if (enabledAgents.length <= 1) return;
-
-    const currentAgent =
-      session.sessionFor(activeTabId)?.run.provider ?? settings.activeAgent;
-    const idx = enabledAgents.findIndex(
-      (candidate) => candidate.id === currentAgent,
-    );
-    const next = enabledAgents[(idx + 1) % enabledAgents.length];
-    session.switchActiveAgent(next.id, undefined, via);
-  }
 
   $effect(() => {
     const handler = (event: Event) => {
@@ -1807,18 +1755,27 @@
         event as CustomEvent<{
           tabId?: string;
           draftId?: string;
+          /** A tab id or a draft id — the surface that asked, when the emitter
+           *  (RunOnPicker) does not know which kind it is scoped to. */
+          requesterId?: string;
           serverId?: string;
-          requireWorktree?: boolean;
+          intent?: "dispatch" | "open-project";
         }>
       ).detail;
-      directoryPickerDraftId = detail?.draftId;
-      const targetTabId = detail?.tabId;
+      const requesterId = detail?.requesterId;
+      const requesterDraftId =
+        requesterId && session.sessionDrafts.has(requesterId)
+          ? requesterId
+          : undefined;
+      directoryPickerDraftId = detail?.draftId ?? requesterDraftId;
+      const targetTabId =
+        detail?.tabId ?? (requesterDraftId ? undefined : requesterId);
       const tab = targetTabId ? session.tabs[targetTabId] : null;
       const opensInNewTab = tab?.sessionId != null;
       directoryPickerNewTab = opensInNewTab;
       directoryPickerTargetTabId = opensInNewTab ? undefined : targetTabId;
       directoryPickerServerIdOverride = detail?.serverId;
-      directoryPickerRequireWorktree = detail?.requireWorktree === true;
+      directoryPickerIntent = detail?.intent ?? "open-project";
       directoryPickerForOpenProject = false;
       directoryPickerOpen = true;
     };
@@ -1886,8 +1843,17 @@
     directoryPickerDraftId = undefined;
     if (draftId) {
       const draft = session.sessionDrafts.get(draftId);
+      const draftHostOverride = directoryPickerServerIdOverride;
+      const draftIntent = directoryPickerIntent;
+      directoryPickerServerIdOverride = undefined;
+      directoryPickerIntent = "open-project";
       if (draft) {
-        draft.run = withCheckout(draft.run, dir, null);
+        // A browse that started from a host row carries that host with it —
+        // the picked folder is a path on that machine, not this one.
+        draft.run =
+          draftHostOverride && draft.run.serverId !== draftHostOverride
+            ? applyHostIntent(draft.run, draftHostOverride, dir, draftIntent)
+            : withCheckout(draft.run, dir, null);
         void session.environment.refresh(dir);
       }
       requestInputFocus();
@@ -1895,14 +1861,17 @@
     }
     const targetTabId = directoryPickerTargetTabId;
     const overrideServerId = directoryPickerServerIdOverride;
-    const requireWorktree = directoryPickerRequireWorktree;
+    const intent = directoryPickerIntent;
     directoryPickerServerIdOverride = undefined;
-    directoryPickerRequireWorktree = false;
+    directoryPickerIntent = "open-project";
     if (directoryPickerNewTab) {
       directoryPickerNewTab = false;
-      const newTabId = await session.createDraftTab(dir);
+      // A started conversation keeps its folder; the project opens as a new
+      // draft beside it. Choosing a host is part of that draft's run config —
+      // there is no tab to move, because nothing has started.
+      const draft = session.openSessionDraft({}, dir);
       if (overrideServerId) {
-        moveTabToHost(newTabId, overrideServerId, dir, { requireWorktree });
+        draft.run = applyHostIntent(draft.run, overrideServerId, dir, intent);
       }
     } else if (
       targetTabId &&
@@ -1911,7 +1880,7 @@
     ) {
       // The folder lives on another host, so the tab has to move there too —
       // setBaseDirectory alone would point the current host at a missing path.
-      moveTabToHost(targetTabId, overrideServerId, dir, { requireWorktree });
+      placeTabOnHost(targetTabId, overrideServerId, dir, { intent });
     } else {
       await session.setBaseDirectory(dir, targetTabId);
     }
@@ -1924,7 +1893,7 @@
     directoryPickerNewTab = false;
     directoryPickerTargetTabId = undefined;
     directoryPickerServerIdOverride = undefined;
-    directoryPickerRequireWorktree = false;
+    directoryPickerIntent = "open-project";
     // Cancelling a browse that the Open project flow started returns to that
     // flow, on the step it left — not to an empty screen.
     if (directoryPickerForOpenProject) {
@@ -1935,20 +1904,34 @@
     requestInputFocus();
   }
 
-  function moveTabToHost(
+  /** The tab moves; no session does — nothing has started on it yet. */
+  function placeTabOnHost(
     tabId: string,
     serverId: string,
     path: string,
-    options: { requireWorktree?: boolean } = {},
+    options: { intent?: "dispatch" | "open-project" } = {},
   ) {
-    retargetSessionHost({
+    moveTabToHost({
       workspace: session,
       tabId,
       serverId,
       isLocalHost: serverId === LOCAL_SERVER_ID,
       path,
-      requireWorktree: options.requireWorktree,
+      intent: options.intent ?? "open-project",
     });
+  }
+
+  /** The draft equivalent of `placeTabOnHost`: a folder chosen on a host is
+   *  that host's project, while a dispatch leaves the project where it is. */
+  function applyHostIntent(
+    run: RunConfig,
+    serverId: string,
+    path: string,
+    intent: "dispatch" | "open-project",
+  ): RunConfig {
+    return intent === "dispatch"
+      ? withHost(run, serverId, { path })
+      : withProjectHost(run, serverId, { path });
   }
 
   /**
@@ -1977,18 +1960,36 @@
     openProjectStore.close();
     if (!serverId) return;
 
+    // The flow may have been started from a draft (RunOnPicker passes its
+    // requester id through `tabId`); re-aim that draft instead of opening a
+    // second one and orphaning the prompt already typed into it.
+    const requesterDraft = tabId ? session.sessionDrafts.get(tabId) : undefined;
     // A started session keeps its folder — the project opens beside it instead.
     const reusableTabId =
+      !requesterDraft &&
       tabId &&
       session.tabs[tabId] &&
       !isRunOnHostLocked(session.sessionFor(tabId))
         ? tabId
         : null;
-    // A tab always starts on the active server, so even a brand new one has to
-    // be moved across before its first prompt runs on the right machine.
-    const targetTabId = reusableTabId ?? (await session.createDraftTab(path));
-    moveTabToHost(targetTabId, serverId, path);
-    requestInputFocus({ tabId: targetTabId });
+    // A reusable tab is moved across; with none, the project opens as a draft
+    // that simply names the host it will run on.
+    if (requesterDraft) {
+      requesterDraft.run = withProjectHost(
+        withCheckout(requesterDraft.run, path, null),
+        serverId,
+        { path },
+      );
+      void session.environment.refresh(path);
+      requestInputFocus();
+    } else if (reusableTabId) {
+      placeTabOnHost(reusableTabId, serverId, path);
+      requestInputFocus({ tabId: reusableTabId });
+    } else {
+      const draft = session.openSessionDraft({}, path);
+      draft.run = withProjectHost(draft.run, serverId, { path });
+      requestInputFocus();
+    }
 
     // A clone that authenticated as nobody works right up until the push, which
     // is 25 minutes away at PR time. Say so now, without blocking the session.
@@ -2029,7 +2030,7 @@
     directoryPickerNewTab = false;
     directoryPickerTargetTabId = undefined;
     directoryPickerServerIdOverride = openProjectStore.serverId;
-    directoryPickerRequireWorktree = false;
+    directoryPickerIntent = "open-project";
     directoryPickerOpen = true;
   }
 
@@ -2037,7 +2038,7 @@
   async function finishBrowsedOpenProject(dir: string) {
     directoryPickerForOpenProject = false;
     directoryPickerServerIdOverride = undefined;
-    directoryPickerRequireWorktree = false;
+    directoryPickerIntent = "open-project";
     openProjectStore.back();
     if (openProjectStore.source === "local") {
       await openProjectAtPath(dir, false);
@@ -2292,6 +2293,15 @@
   {:then addServerModule}
     {@const AddServerModal = addServerModule.default}
     <AddServerModal />
+  {/await}
+{/if}
+
+<!-- First run only. Mounted over everything, and never lazily pre-warmed: a
+     client that has already been through it must not pay for the chunk. -->
+{#if !settings.onboardingCompleted}
+  {#await import("./components/onboarding/OnboardingSurface.svelte") then onboardingModule}
+    {@const OnboardingSurface = onboardingModule.default}
+    <OnboardingSurface />
   {/await}
 {/if}
 

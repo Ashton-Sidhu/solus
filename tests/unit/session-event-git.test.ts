@@ -16,7 +16,7 @@ describe('SessionEventReducer Git events', () => {
       status: 'interrupted',
       run: {
         gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
-        worktreeBaseBranch: null,
+        worktree: null,
       } as Session['run'],
     } as Session
     const tab = { id: 'tab-1', sessionId: 'session-1' } as Tab
@@ -26,13 +26,14 @@ describe('SessionEventReducer Git events', () => {
         tabs: { 'tab-1': tab },
         sessions: { 'session-1': session },
         sessionFor: (tabId: string) => tabId === 'tab-1' ? session : undefined,
+      tabIdsBySession: new Map([['session-1', ['tab-1']]]),
       },
       settings: { rateLimitBehavior: 'ask' },
       setGitStatus: (_cwd: string, status: GitState | null) => { pushedStatus = status },
       log: () => {},
     } as any)
 
-    reducer.apply('tab-1', {
+    reducer.apply('session-1', {
       type: 'git_context',
       gitContext: { repoRoot: '/repo', branch: 'feature', targetBranch: 'main' },
     })
@@ -43,7 +44,7 @@ describe('SessionEventReducer Git events', () => {
       targetBranch: 'main',
       uncommittedChanges: { files: [], hasMoreFiles: false, insertions: 0, deletions: 0, mergeInProgress: false },
     }
-    reducer.apply('tab-1', { type: 'git_status', cwd: '/repo', state: status })
+    reducer.apply('session-1', { type: 'git_status', cwd: '/repo', state: status })
 
     expect(session.run.gitContext?.branch).toBe('feature')
     expect(pushedStatus).toBe(status)

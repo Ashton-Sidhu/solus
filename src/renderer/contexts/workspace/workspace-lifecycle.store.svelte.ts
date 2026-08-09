@@ -6,11 +6,15 @@ import { hasSessionStarted } from '../../lib/sessionUtils'
 import type { AgentContext } from '../app/agent.context.svelte'
 import type { PlanStore } from '../plans/plan.store.svelte'
 import type { SessionConfigController } from './session-config.svelte'
-import { reconcileQueuedPromptsForSession } from './session-transcript'
+import { reconcileQueuedPromptsForSession, RESTORED_TRANSCRIPT_LIMIT } from './session-transcript'
 import { progressFromMessages } from './session.utils'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import { TransportDisconnectedError } from '@client-core/ws-transport'
+
+/** Raw messages added per automatic backfill round. Matches the initial restore
+ *  window, so filling an empty viewport costs the same read that opened it. */
+const HISTORY_PAGE_LIMIT = RESTORED_TRANSCRIPT_LIMIT
 
 export function startDirectoryForServer(result: StartInfo): string {
   return result.workspacePath || result.projectPath || '~'
@@ -31,7 +35,7 @@ export interface WorkspaceLifecycleStoreDeps {
   config: SessionConfigController
   planStore: PlanStore
   agent?: AgentContext
-  refreshGitState(opts?: { tabId?: string; cwd?: string }): Promise<GitRefreshResult>
+  refreshGitState(opts?: { sourceId?: string; cwd?: string }): Promise<GitRefreshResult>
   ctxFor(tabId: string): IpcContext
   apiFor?(tabId: string): typeof window.solus
   loadTranscript(args: {
@@ -40,6 +44,7 @@ export interface WorkspaceLifecycleStoreDeps {
     displayCwd: string
     provider: AgentId
     ctx: IpcContext
+    limit?: number
   }): Promise<{ messages: Session['messages']; progress: Session['progress']; planIds: string[]; truncated?: boolean }>
   rebuildAgentConversations(session: Session): void
 }
@@ -92,6 +97,10 @@ export class WorkspaceLifecycleStore {
   private pluginCommandRequestSequence = 0
   private pluginCommandRequests = new Map<string, number>()
   private historyExpansions = new Map<string, Promise<void>>()
+  /** Widest raw-message window already pulled for an agent session, so each paged
+   *  expansion asks for strictly more than the last one did. Keyed by agent session
+   *  id rather than tab: a tab outlives the session that was resumed into it. */
+  private historyWindowLimits = new Map<string, number>()
 
   constructor(private deps: WorkspaceLifecycleStoreDeps) {}
 
@@ -157,7 +166,7 @@ export class WorkspaceLifecycleStore {
       if (!session || session.run.workingDirectory !== from) continue
       session.run.workingDirectory = to
       session.run.gitContext = null
-      void this.deps.refreshGitState({ tabId }).catch(() => null)
+      void this.deps.refreshGitState({ sourceId: tabId }).catch(() => null)
     }
   }
 
@@ -242,18 +251,29 @@ export class WorkspaceLifecycleStore {
    * re-parsing every historical Write/Edit body. Transcript hydration still uses
    * the full scan; the backend publishes authoritative net paths at turn completion.
    */
-  addChangedFilesFromMessage(tabId: string, message: Message): void {
-    const session = this.deps.registry.sessionFor(tabId)
+  addChangedFilesFromMessage(sessionId: string, message: Message): void {
+    const session = this.deps.registry.sessions[sessionId]
     if (!session) return
     for (const path of extractChangedFilePathsFromMessage(message)) {
       if (!session.sessionChangedFiles.includes(path)) session.sessionChangedFiles.push(path)
     }
   }
 
-  async expandHistory(tabId: string): Promise<void> {
+  /**
+   * Bring older messages into the transcript. `paged` widens the window by one
+   * page; without it the whole remaining transcript is read. Only a deliberate
+   * user gesture — scrolling to the top, Find, reveal-all — is worth reading a
+   * long session end to end, so automatic backfill pages instead.
+   */
+  async expandHistory(tabId: string, opts?: { paged?: boolean }): Promise<void> {
     const existing = this.historyExpansions.get(tabId)
-    if (existing) return existing
-    const expansion = this.expandHistoryOnce(tabId)
+    if (existing) {
+      // A page already in flight is not the full history a user gesture asked
+      // for, so wait it out and then read the rest.
+      await existing
+      if (opts?.paged) return
+    }
+    const expansion = this.expandHistoryOnce(tabId, opts?.paged ?? false)
     this.historyExpansions.set(tabId, expansion)
     try {
       await expansion
@@ -262,10 +282,15 @@ export class WorkspaceLifecycleStore {
     }
   }
 
-  private async expandHistoryOnce(tabId: string): Promise<void> {
+  private async expandHistoryOnce(tabId: string, paged: boolean): Promise<void> {
     const session = this.deps.registry.sessionFor(tabId)
     if (!session?.agentSessionId || !session.historyTruncated) return
     const agentSessionId = session.agentSessionId
+    // Grow off the previous window rather than the rendered message count: a
+    // page of tool results can collapse into no new rows, and the next request
+    // still has to reach further back or the caller loops forever.
+    const previousLimit = this.historyWindowLimits.get(agentSessionId) ?? RESTORED_TRANSCRIPT_LIMIT
+    const limit = paged ? previousLimit + HISTORY_PAGE_LIMIT : undefined
     const handoffFrom = session.handoffFrom ? { ...session.handoffFrom } : undefined
     const displayCwd = session.run.workingDirectory
     const loadPath = session.run.gitContext?.worktreePath || displayCwd
@@ -277,6 +302,7 @@ export class WorkspaceLifecycleStore {
           displayCwd,
           provider: handoffFrom.provider,
           ctx: this.deps.ctxFor(tabId),
+          limit,
         })
       : null
     const transcript = await this.deps.loadTranscript({
@@ -285,6 +311,7 @@ export class WorkspaceLifecycleStore {
       displayCwd,
       provider,
       ctx: this.deps.ctxFor(tabId),
+      limit,
     })
     const s = this.deps.registry.sessionFor(tabId)
     if (
@@ -303,6 +330,8 @@ export class WorkspaceLifecycleStore {
     this.deps.rebuildAgentConversations(s)
     s.progress = handoffFrom ? progressFromMessages(reconciled) : transcript.progress
     s.historyTruncated = !!predecessorTranscript?.truncated || !!transcript.truncated
+    if (limit && s.historyTruncated) this.historyWindowLimits.set(agentSessionId, limit)
+    else this.historyWindowLimits.delete(agentSessionId)
     this.recomputeChangedFiles(tabId)
     for (const planId of [...(predecessorTranscript?.planIds ?? []), ...transcript.planIds]) {
       void this.deps.planStore.hydrateAnnotations(planId)
@@ -323,13 +352,18 @@ export class WorkspaceLifecycleStore {
     }
   }
 
-  async refreshTurnSnapshots(tabId: string): Promise<void> {
-    const session = this.deps.registry.sessionFor(tabId)
+  /** A session's checkpointed turns. Keyed by session, not by tab: two views of
+   *  one conversation are looking at the same turns and must not fetch or cache
+   *  them twice. */
+  async refreshTurnSnapshots(sessionId: string): Promise<void> {
+    const session = this.deps.registry.sessions[sessionId]
     if (!session?.agentSessionId) return
+    const tabId = this.deps.registry.tabIdsBySession.get(sessionId)?.[0]
+    if (!tabId) return
     try {
       const snaps = await (this.deps.apiFor?.(tabId) ?? window.solus)
         .listTurnSnapshots(this.deps.ctxFor(tabId))
-      this.turnSnapshots[tabId] = snaps
+      this.turnSnapshots[sessionId] = snaps
     } catch {
       /* best-effort */
     }
@@ -341,8 +375,9 @@ export class WorkspaceLifecycleStore {
     reconcileQueuedPromptsForSession(session, queuedPrompts)
   }
 
-  /** Drop a closed tab's cached turn snapshots so the map can't grow unbounded. */
-  disposeTab(tabId: string): void {
-    if (tabId in this.turnSnapshots) delete this.turnSnapshots[tabId]
+  /** Drop a gone session's cached turn snapshots so the map can't grow
+   *  unbounded. Called once the last tab watching it has closed. */
+  disposeSession(sessionId: string): void {
+    if (sessionId in this.turnSnapshots) delete this.turnSnapshots[sessionId]
   }
 }

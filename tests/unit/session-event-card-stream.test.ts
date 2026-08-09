@@ -10,7 +10,7 @@ afterEach(() => {
 
 async function createReducer(
   messages: Message[],
-  isTabVisible = true,
+  isSessionVisible = true,
   refreshSessionBinding: (sessionId: string) => Promise<unknown> = async () => null,
   trackSessionStart: (taskId: string, sessionId: string) => void = () => {},
 ) {
@@ -21,6 +21,7 @@ async function createReducer(
     messages,
     outboundPrompts: [],
     run: {},
+    task: { kind: 'new' },
   } as unknown as Session
   const tab = { id: 'tab-1', sessionId: 'session-1' } as Tab
   const reducer = new SessionEventReducer({
@@ -28,12 +29,17 @@ async function createReducer(
       tabs: { 'tab-1': tab },
       sessions: { 'session-1': session },
       sessionFor: (tabId: string) => tabId === 'tab-1' ? session : undefined,
-      forEachSiblingTab: () => {},
+      tabIdsBySession: new Map([['session-1', ['tab-1']]]),
     },
     settings: { rateLimitBehavior: 'ask' },
-    tasksStore: { refreshSessionBinding, trackSessionStart },
+    // `linkSession` is the durable write to the task's host; this test is about
+    // what the renderer holds while that write is in flight, so it only has to
+    // exist and not resolve.
+    tasksStore: { refreshSessionBinding, trackSessionStart, linkSession: () => new Promise(() => {}) },
     workStreamTracker: { sweep: () => {} },
-    isTabVisible: () => isTabVisible,
+    onTurnSettled: () => {},
+    refreshTurnSnapshots: () => {},
+    isSessionVisible: () => isSessionVisible,
     closePlanModal: () => {},
     playNotificationIfHidden: () => {},
     log: () => {},
@@ -54,9 +60,9 @@ describe('SessionEventReducer card stream boundaries', () => {
       () => hydration,
       (taskId, sessionId) => { tracked = [taskId, sessionId] },
     )
-    session.pendingTaskId = 'subtask-1'
+    session.task = { kind: 'existing', taskId: 'subtask-1' }
 
-    reducer.apply('tab-1', {
+    reducer.apply('session-1', {
       type: 'session_init',
       sessionId: 'agent-session-1',
       model: 'gpt-test',
@@ -66,12 +72,14 @@ describe('SessionEventReducer card stream boundaries', () => {
     // WHY: clearing this before hydration resolves gives the sidebar one frame
     // where the new subtask is rendered as an unrelated loose session.
     expect(tracked).toEqual(['subtask-1', 'agent-session-1'])
-    expect(session.pendingTaskId).toBe('subtask-1')
+    expect(session.task).toEqual({ kind: 'existing', taskId: 'subtask-1' })
 
     finishHydration({})
     await hydration
     await Promise.resolve()
-    expect(session.pendingTaskId).toBeNull()
+    // WHY: the durable link is authoritative once it exists, so the pending
+    // target is released rather than shadowing it.
+    expect(session.task).toEqual({ kind: 'new' })
   })
 
   test('advances the visible startup lifecycle from connection to thinking', async () => {
@@ -79,7 +87,7 @@ describe('SessionEventReducer card stream boundaries', () => {
     session.currentActivity = 'Starting session...'
     session.currentTurnStart = 'fresh'
 
-    reducer.apply('tab-1', {
+    reducer.apply('session-1', {
       type: 'session_init',
       sessionId: 'agent-session-1',
       model: 'gpt-test',
@@ -87,7 +95,7 @@ describe('SessionEventReducer card stream boundaries', () => {
     })
     expect(session.currentActivity).toBe('Connecting...')
 
-    reducer.apply('tab-1', { type: 'thinking', state: 'start' })
+    reducer.apply('session-1', { type: 'thinking', state: 'start' })
     expect(session.currentActivity).toBe('Thinking...')
   })
 
@@ -107,7 +115,7 @@ describe('SessionEventReducer card stream boundaries', () => {
       steps: [{ id: 'worktree', label: 'Creating worktree', status: 'active' }],
     }
 
-    reducer.interruptTab('tab-1')
+    reducer.interruptSession('session-1')
 
     expect(session.status).toBe('interrupted')
     // WHY: a setup card describes work that is currently happening. Once the
@@ -118,7 +126,7 @@ describe('SessionEventReducer card stream boundaries', () => {
       content: '[Request interrupted by user]',
     })
 
-    reducer.apply('tab-1', {
+    reducer.apply('session-1', {
       type: 'user_message',
       text: '[Request interrupted by user]',
     })
@@ -129,7 +137,7 @@ describe('SessionEventReducer card stream boundaries', () => {
   test('stores provider-only interrupt notices as system dividers', async () => {
     const { reducer, session } = await createReducer([])
 
-    reducer.apply('tab-1', {
+    reducer.apply('session-1', {
       type: 'user_message',
       text: '[Request cancelled by user]',
     })
@@ -143,7 +151,7 @@ describe('SessionEventReducer card stream boundaries', () => {
   test('marks server-confirmed steering messages as live-turn input', async () => {
     const { reducer, session } = await createReducer([])
 
-    reducer.apply('tab-1', {
+    reducer.apply('session-1', {
       type: 'user_message',
       text: 'Use the smaller implementation',
       delivery: 'steer',
@@ -163,20 +171,27 @@ describe('SessionEventReducer card stream boundaries', () => {
     session.currentTurnStartedAt = null
     const before = Date.now()
 
-    reducer.apply('tab-1', { type: 'status_change', status: 'connecting' })
+    reducer.apply('session-1', { type: 'status_change', status: 'connecting' })
 
     // WHY: status commonly arrives before user_message for remote and watched
     // sessions. The sidebar must show its timer from the first running state.
     expect(session.currentTurnStartedAt).toBeGreaterThanOrEqual(before)
     const startedAt = session.currentTurnStartedAt
 
-    reducer.apply('tab-1', {
+    reducer.apply('session-1', {
       type: 'user_message',
       text: 'Do the remote work',
     })
     expect(session.currentTurnStartedAt).toBe(startedAt)
 
-    reducer.apply('tab-1', { type: 'status_change', status: 'completed' })
+    reducer.apply('session-1', { type: 'status_change', status: 'completed' })
+    expect(session.currentTurnStartedAt).toBe(startedAt)
+    reducer.apply('session-1', {
+      type: 'turn_settled',
+      turnId: 'turn-1',
+      outcome: 'completed',
+      settledAt: Date.now(),
+    })
     expect(session.currentTurnStartedAt).toBeNull()
   })
 
@@ -198,7 +213,7 @@ describe('SessionEventReducer card stream boundaries', () => {
       },
     )
 
-    reducer.apply('tab-1', {
+    reducer.apply('session-1', {
       type: 'prompt_queued',
       clientPromptId: 'prompt-b',
       queueId: 'queue-b',
@@ -213,7 +228,7 @@ describe('SessionEventReducer card stream boundaries', () => {
       state: 'queued',
     })
 
-    reducer.apply('tab-1', {
+    reducer.apply('session-1', {
       type: 'user_message',
       clientPromptId: 'prompt-a',
       text: 'Same text',
@@ -254,8 +269,8 @@ describe('SessionEventReducer card stream boundaries', () => {
     }
     const { reducer, session } = await createReducer([agentConversationCard])
 
-    reducer.appendTextChunk('tab-1', session, 'I started a separate investigation.')
-    reducer.commitPendingStream('tab-1')
+    reducer.appendTextChunk('session-1', session, 'I started a separate investigation.')
+    reducer.commitPendingStream('session-1')
 
     expect(session.messages).toHaveLength(2)
     expect(session.messages[0]).toBe(agentConversationCard)
@@ -271,14 +286,14 @@ describe('SessionEventReducer card stream boundaries', () => {
 
     // WHY: three exchanges with one agent must produce ONE block, not three
     // disjoint cards — that is the core agent-conversation contract.
-    reducer.apply('tab-1', {
+    reducer.apply('session-1', {
       type: 'agent_conversation_update',
       update: {
         phase: 'dispatched', agentSessionId: 'agent-1', exchangeId: 'x1', origin: 'prompted',
         prompt: 'First question', provider: 'codex', title: 'Peer', cwd: '/p', dispatchedAt: 1,
       },
     })
-    reducer.apply('tab-1', {
+    reducer.apply('session-1', {
       type: 'agent_conversation_update',
       update: {
         phase: 'dispatched', agentSessionId: 'agent-1', exchangeId: 'x2', origin: 'prompted',
@@ -290,8 +305,8 @@ describe('SessionEventReducer card stream boundaries', () => {
     expect(agentConversationMessages[0].agentConversationRef?.exchanges.map((x) => x.index)).toEqual([1, 2])
 
     // A genuine user turn cuts the boundary; the next dispatch opens a new card…
-    reducer.apply('tab-1', { type: 'user_message', text: 'carry on' })
-    reducer.apply('tab-1', {
+    reducer.apply('session-1', { type: 'user_message', text: 'carry on' })
+    reducer.apply('session-1', {
       type: 'agent_conversation_update',
       update: {
         phase: 'dispatched', agentSessionId: 'agent-1', exchangeId: 'x3', origin: 'prompted',
@@ -301,7 +316,7 @@ describe('SessionEventReducer card stream boundaries', () => {
     expect(session.messages.filter((m) => m.agentConversationRef)).toHaveLength(2)
 
     // …while a settle for an old exchange still lands in the OLD turn's card.
-    reducer.apply('tab-1', {
+    reducer.apply('session-1', {
       type: 'agent_conversation_update',
       update: {
         phase: 'settled', agentSessionId: 'agent-1', exchangeId: 'x1', status: 'completed',
@@ -317,7 +332,7 @@ describe('SessionEventReducer card stream boundaries', () => {
 
     // WHY: the report is turn input for the MODEL; rendering it as a user
     // bubble is the exact failure the agent-conversation card removes.
-    reducer.apply('tab-1', {
+    reducer.apply('session-1', {
       type: 'user_message',
       text: '[session report] Session abc finished (status: completed). Final reply:\nhello',
       via: 'session-report',
@@ -326,7 +341,7 @@ describe('SessionEventReducer card stream boundaries', () => {
     })
     expect(session.messages).toHaveLength(0)
 
-    reducer.apply('tab-1', {
+    reducer.apply('session-1', {
       type: 'prompt_queued',
       text: '[session report] …',
       queueId: 'q1',
@@ -339,16 +354,16 @@ describe('SessionEventReducer card stream boundaries', () => {
   test('buffers hidden-tab chunks without rebuilding the reactive stream string', async () => {
     const { reducer, session } = await createReducer([], false)
 
-    reducer.appendTextChunk('tab-1', session, 'first ')
-    reducer.appendTextChunk('tab-1', session, 'second')
+    reducer.appendTextChunk('session-1', session, 'first ')
+    reducer.appendTextChunk('session-1', session, 'second')
 
-    expect(reducer.streaming.text['tab-1']).toBeUndefined()
-    expect(reducer.streamingTextFor('tab-1', false)).toBe('')
-    expect(reducer.streamingTextFor('tab-1', true)).toBe('first second')
+    expect(reducer.streaming.text['session-1']).toBeUndefined()
+    expect(reducer.streamingTextFor('session-1', false)).toBe('')
+    expect(reducer.streamingTextFor('session-1', true)).toBe('first second')
 
-    reducer.commitPendingStream('tab-1')
+    reducer.commitPendingStream('session-1')
     expect(session.messages.at(-1)?.content).toBe('first second')
-    expect(reducer.streamingTextFor('tab-1', true)).toBe('')
+    expect(reducer.streamingTextFor('session-1', true)).toBe('')
   })
 
   test('separates consecutive logical assistant messages with a Markdown paragraph', async () => {
@@ -359,10 +374,10 @@ describe('SessionEventReducer card stream boundaries', () => {
       timestamp: 1,
     }])
 
-    reducer.apply('tab-1', { type: 'text_chunk', text: 'The openings are in.' })
-    reducer.apply('tab-1', { type: 'assistant_message', text: 'The openings are in.' })
-    reducer.apply('tab-1', { type: 'text_chunk', text: 'Starting the rebuttal round.' })
-    reducer.apply('tab-1', { type: 'assistant_message', text: 'Starting the rebuttal round.' })
+    reducer.apply('session-1', { type: 'text_chunk', text: 'The openings are in.' })
+    reducer.apply('session-1', { type: 'assistant_message', text: 'The openings are in.' })
+    reducer.apply('session-1', { type: 'text_chunk', text: 'Starting the rebuttal round.' })
+    reducer.apply('session-1', { type: 'assistant_message', text: 'Starting the rebuttal round.' })
 
     // WHY: providers can emit multiple prose messages in one turn. They share
     // one assistant surface, but each is a distinct thought and must not render
@@ -376,10 +391,10 @@ describe('SessionEventReducer card stream boundaries', () => {
   test('does not separate chunks committed by unrelated stream events', async () => {
     const { reducer, session } = await createReducer([])
 
-    reducer.apply('tab-1', { type: 'text_chunk', text: 'One continuous' })
-    reducer.apply('tab-1', { type: 'usage', run: { inputTokens: 1, outputTokens: 1 } })
-    reducer.apply('tab-1', { type: 'text_chunk', text: ' thought.' })
-    reducer.commitPendingStream('tab-1')
+    reducer.apply('session-1', { type: 'text_chunk', text: 'One continuous' })
+    reducer.apply('session-1', { type: 'usage', run: { inputTokens: 1, outputTokens: 1 } })
+    reducer.apply('session-1', { type: 'text_chunk', text: ' thought.' })
+    reducer.commitPendingStream('session-1')
 
     // WHY: usage and status events can interrupt transport chunks inside one
     // logical message. Only assistant_message is a prose boundary.
@@ -394,7 +409,7 @@ describe('SessionEventReducer card stream boundaries', () => {
 
     // WHY: pausing or updating a persistent goal is independent of the last
     // turn's terminal state; dropping the notification leaves the panel stale.
-    reducer.apply('tab-1', {
+    reducer.apply('session-1', {
       type: 'goal_updated',
       goal: {
         threadId: 'thread-1',
@@ -404,7 +419,7 @@ describe('SessionEventReducer card stream boundaries', () => {
     })
     expect(session.goal).toMatchObject({ status: 'paused' })
 
-    reducer.apply('tab-1', { type: 'goal_cleared', threadId: 'thread-1' })
+    reducer.apply('session-1', { type: 'goal_cleared', threadId: 'thread-1' })
     expect(session.goal).toBeNull()
   })
 })

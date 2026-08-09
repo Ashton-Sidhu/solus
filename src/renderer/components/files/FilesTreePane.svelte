@@ -10,7 +10,7 @@
   const environmentStore = getSessionEnvironmentStore();
   const pane = paneActions(paneId);
 
-  const environment = $derived(environmentStore.environmentFor(session.sessionFor(params.sourceTabId)?.run));
+  const environment = $derived(environmentStore.environmentFor(session.runFor(params.sourceId)));
 </script>
 
 <PaneChrome onClose={pane.closeOverlay} isLeading={pane.isLeading} closeLabel="Close files" />
@@ -24,7 +24,7 @@
 {:then filesModule}
   {@const FilesPane = filesModule.default}
   <FilesPane
-    ctx={session.ctxForEnvironment(environment.cwd, environment.checkout, params.sourceTabId)}
+    ctx={session.ctxForEnvironment(environment.cwd, environment.checkout, params.sourceId)}
     cwd={environment.cwd}
     isDark={session.settings.isDark}
     onClose={pane.closeOverlay}

@@ -74,8 +74,8 @@ describe('Claude goals', () => {
     } as Session
     const providers: string[] = []
     const sync = new GoalSync({
-      sessionFor: () => session,
-      apiFor: () => ({
+      sessionById: () => session,
+      apiForSession: () => ({
         getThreadGoal: async (_threadId, _ctx, provider) => {
           providers.push(provider ?? '')
           return null
@@ -86,16 +86,16 @@ describe('Claude goals', () => {
         },
         clearThreadGoal: async () => false,
       }),
-      ctxFor: () => ({}) as never,
+      ctxForSession: () => ({}) as never,
     })
 
-    await sync.refresh('tab-1')
-    await sync.create('tab-1', 'Ship the feature')
+    await sync.refresh('session-1')
+    await sync.create('session-1', 'Ship the feature')
 
     expect(providers).toEqual(['claude-code', 'claude-code'])
     expect(session.goal?.objective).toBe('Ship the feature')
-    expect(() => sync.set('tab-1', { objective: 'Replace it' })).toThrow(
-      'This tab does not have an active Codex thread',
+    expect(() => sync.set('session-1', { objective: 'Replace it' })).toThrow(
+      'This session has no active Codex thread',
     )
   })
 })

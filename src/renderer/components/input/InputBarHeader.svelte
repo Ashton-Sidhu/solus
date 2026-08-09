@@ -5,15 +5,24 @@
     getWorkspaceContext,
     getWindowContext,
     getSessionEnvironmentStore,
+    serversStore,
   } from "../../contexts";
   import { projectDirLabel } from "../../lib/paths";
   import { homeGitDetails } from "../../lib/git-context";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import type { TaskTarget, WorktreeEntry } from "../../../shared/types";
-  import { taskTargetOf } from "../../contexts/workspace/session.utils";
-  import { taskTargetFields } from "../../contexts/workspace/session-draft.svelte";
+  import type {
+    RunConfig,
+    TaskTarget,
+    WorktreeEntry,
+  } from "../../../shared/types";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
-  import { isDispatchedRun } from "../servers/run-on";
+  import {
+    isDispatch,
+    withCheckout,
+    withPendingHost,
+  } from "../../contexts/workspace/run-config";
+  import { projectHostId } from "../servers/run-on";
+  import { hasSessionStarted } from "../../lib/sessionUtils";
   import GitDropdown from "../GitDropdown.svelte";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
   import { Button } from "../ui/button";
@@ -21,23 +30,44 @@
   import TaskPicker from "./TaskPicker.svelte";
 
   interface Props {
-    tabId?: string;
+    /** The tab or draft this header describes. A draft has no tab, so the header
+     *  resolves its run through `runFor` and never assumes a session exists.
+     *  Unset for the workspace dock, which follows the active conversation. */
+    sourceId?: string;
+    /** The pane this pre-flight header sits in, so its run picker can answer the
+     *  open shortcut aimed at that composer. Unset for the workspace dock. */
+    paneId?: string;
   }
-  let { tabId }: Props = $props();
+  let { sourceId, paneId }: Props = $props();
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
   const environmentStore = getSessionEnvironmentStore();
-  const isPinned = $derived(tabId !== undefined);
-  const targetTabId = $derived(tabId ?? session.activeTabId);
-  const sess = $derived(session.sessionFor(targetTabId));
+  const isPinned = $derived(sourceId !== undefined);
+  const source = $derived(sourceId ?? session.activeTabId);
+  // A source is a started conversation's tab or a draft that has yet to become
+  // one; `sess` answers which. Both own the same `run`, which is all the chips
+  // below read, so the header describes either without branching on it.
+  const sess = $derived(session.sessionFor(source));
+  const draft = $derived(session.sessionDrafts.get(source));
+  const run = $derived(session.runFor(source));
+  // The task the started session will file under, held by whichever this source
+  // is; neither, before a project is chosen, files under a new one.
+  const taskTarget = $derived<TaskTarget>(
+    sess?.task ?? draft?.task ?? { kind: "new" },
+  );
+  // Focus routes to a tab by id; a draft's composer claims bare focus as the
+  // primary bar, so it takes no target.
+  const focusTarget = $derived(sess ? { tabId: source } : undefined);
 
   const projectDir = $derived(
-    sess?.run.workingDirectory ?? session.globalDefaults.workingDirectory ?? "~",
+    run?.workingDirectory ??
+      session.globalDefaults.workingDirectory ??
+      "~",
   );
   const defaultGitContext = $derived(session.globalDefaults.gitContext);
   const gitHome = $derived(
-    homeGitDetails(projectDir, sess?.run.gitContext, defaultGitContext),
+    homeGitDetails(projectDir, run?.gitContext, defaultGitContext),
   );
   // The project keeps its own name even when the session runs in a worktree of
   // it, so the label reads off the repo root rather than the checkout.
@@ -48,16 +78,13 @@
     ),
   );
 
-  const env = $derived(environmentStore.environmentFor(session.sessionFor(targetTabId)?.run));
+  const env = $derived(environmentStore.environmentFor(run));
   const hasGitRepository = $derived(!!env.checkout || !!env.repoRoot);
   // A dispatched session always works in its own worktree, so the switch reads
   // on and stays inert rather than offering a choice that won't be honoured.
-  const worktreeForced = $derived(isDispatchedRun(sess?.run));
-  const canToggleWorktree = $derived(
-    gitHome.canToggleWorktree || worktreeForced,
-  );
+  const worktreeForced = $derived(isDispatch(run));
   // Only a *pending* worktree changes where the next session starts. Choosing a
-  // new worktree from an existing one retargets the draft to the project root;
+  // new worktree from an existing one re-anchors the draft to the project root;
   // creation still follows the normal origin/default-branch path.
   const startsNewWorktree = $derived(env.pending || worktreeForced);
   const displayBranch = $derived(env.branch ?? env.name);
@@ -69,7 +96,9 @@
   );
 
   const worktreePath = $derived(
-    sess?.run.gitContext?.worktreePath ?? defaultGitContext?.worktreePath ?? null,
+    run?.gitContext?.worktreePath ??
+      defaultGitContext?.worktreePath ??
+      null,
   );
   const gitStatusCwd = $derived(worktreePath ?? projectDir);
   const git = $derived(environmentStore.statusFor(gitStatusCwd));
@@ -77,7 +106,7 @@
     environmentStore.refsFor(gitHome.projectRoot ?? env.repoRoot).worktrees,
   );
   const worktreeBaseBranch = $derived(
-    sess?.run.worktreeBaseBranch ??
+    run?.worktree?.baseBranch ??
       (!sess && session.settings.worktreeEnabled
         ? (git?.targetBranch ?? null)
         : null),
@@ -116,12 +145,6 @@
     if (!hasGitRepository) gitOpen = false;
   });
 
-  function toggleWorktree() {
-    if (!canToggleWorktree || worktreeForced) return;
-    session.toggleWorktreeMode(targetTabId);
-    requestInputFocus(tabId ? { tabId } : undefined);
-  }
-
   // The chip names a branch, so it always opens the branch list.
   function toggleBranchPicker() {
     gitInitialView = "branches";
@@ -138,7 +161,7 @@
   }
 
   async function selectBranch(branch: string) {
-    if (!targetTabId) return;
+    if (!source) return;
     // A branch checked out elsewhere names that existing worktree. Navigating
     // there avoids turning the selection into a request for another worktree.
     const entry = worktrees.find((worktree) => worktree.branch === branch);
@@ -146,51 +169,102 @@
       await selectWorktree(entry);
       return;
     }
-    const ok = await session.switchToBranch(branch, targetTabId);
+    const ok = await session.switchToBranch(branch, source);
     if (!ok) {
-      requestInputFocus({ tabId: targetTabId });
+      requestInputFocus(focusTarget);
       return;
     }
     settleOnDestination();
   }
 
   async function selectWorktree(worktree: WorktreeEntry) {
-    // Honour this header's own tab: the editor input bar mounts one per pane,
-    // so a split pane must not retarget the primary chat.
-    await session.switchToWorktree(worktree.path, targetTabId ?? undefined);
+    // Honour this header's own source: the editor input bar mounts one per pane,
+    // so a split pane must not move the primary chat.
+    await session.switchToWorktree(worktree.path, source);
     settleOnDestination();
   }
 
+  // Which host the chosen project lives on — the run-on picker's answer, read
+  // back so a project picked from the chip lands on the host it belongs to.
+  const projectHost = $derived(projectHostId(run ?? session.defaultRunConfig));
+  const projectHostIsLocal = $derived(
+    serversStore.hostFor(projectHost)?.local ?? true,
+  );
+
   function selectProject(path: string) {
-    void session.setBaseDirectory(path, targetTabId).then(
-      () => requestInputFocus({ tabId: targetTabId }),
+    // A project on another host is that host's project — recorded as an open and
+    // resolved over there on Send, exactly as the run-on picker used to do it.
+    // This is a pre-start move only: a started session moves through
+    // `setBaseDirectory`, which resets the live provider thread on its own host.
+    if (draft && !projectHostIsLocal) {
+      applyRun(
+        withCheckout(
+          withPendingHost(draft.run, { serverId: projectHost, intent: "open-project" }),
+          path,
+          null,
+        ),
+      );
+      requestInputFocus(focusTarget);
+      return;
+    }
+    void session.setBaseDirectory(path, source).then(
+      () => requestInputFocus(focusTarget),
       () => {},
     );
   }
 
   function browseProjects() {
+    // A folder on another host is that host's project, browsed through the
+    // directory picker bound to it. On this machine a draft edits its run in
+    // place, while a tab opens a project that may land in a new tab of its own.
+    if (!projectHostIsLocal) {
+      window.dispatchEvent(
+        new CustomEvent("solus:open-directory-picker", {
+          detail: {
+            ...(draft ? { draftId: source } : { tabId: source }),
+            serverId: projectHost,
+            intent: "open-project",
+          },
+        }),
+      );
+      return;
+    }
+    if (draft) {
+      window.dispatchEvent(
+        new CustomEvent("solus:open-directory-picker", {
+          detail: { draftId: source },
+        }),
+      );
+      return;
+    }
     window.dispatchEvent(
-      new CustomEvent("solus:open-project", { detail: { tabId: targetTabId } }),
+      new CustomEvent("solus:open-project", { detail: { tabId: source } }),
     );
   }
 
   function selectTask(next: TaskTarget) {
-    const target = session.sessionFor(targetTabId);
-    if (!target) return;
-    Object.assign(target, taskTargetFields(next));
+    // A tab's session or a draft — both own the task the started session files
+    // under, so the choice lands on whichever this source is.
+    const target = sess ?? draft;
+    if (target) target.task = next;
+  }
+
+  /** Every destination choice this strip offers lands here. Inert until Send —
+   *  nothing connects or moves, which is what makes changing your mind free. */
+  function applyRun(next: RunConfig) {
+    const target = sess ?? draft;
+    if (target) target.run = next;
   }
 
   function settleOnDestination() {
-    const targetSession = targetTabId
-      ? session.sessionFor(targetTabId)
-      : undefined;
+    const nextRun = session.runFor(source);
     const nextCwd =
-      targetSession?.run.gitContext?.worktreePath ??
-      targetSession?.run.workingDirectory ??
+      nextRun?.gitContext?.worktreePath ??
+      nextRun?.workingDirectory ??
       session.globalDefaults.gitContext?.worktreePath ??
       session.globalDefaults.workingDirectory;
     if (nextCwd) void environmentStore.refresh(nextCwd, { force: true });
-    requestInputFocus(targetTabId ? { tabId: targetTabId } : undefined);
+    requestInputFocus(focusTarget);
   }
 </script>
 
@@ -201,26 +275,29 @@
   that is exactly how long any of it is editable.
 -->
 <div class="flex items-center gap-1.5 px-3.5 pb-2">
+  <!-- The picker decides its own visibility from the connected hosts and the
+       checkout, so it renders regardless of git: a folder opened on a remote
+       machine still names the machine it runs on. It comes first: it chooses the
+       host, and the project chip beside it lists that host's projects. -->
+  <RunOnPicker
+    run={run ?? session.defaultRunConfig}
+    requesterId={source}
+    locked={hasSessionStarted(sess)}
+    onRun={applyRun}
+    variant="header"
+    {paneId}
+  />
+
   <ProjectChip
-    run={sess?.run ?? session.defaultRunConfig}
+    run={run ?? session.defaultRunConfig}
     projectDir={gitHome.projectRoot ?? projectDir}
     label={projectLabel}
     onSelect={selectProject}
     onBrowse={browseProjects}
-    onDismiss={() => requestInputFocus({ tabId: targetTabId })}
+    onDismiss={() => requestInputFocus(focusTarget)}
   />
 
   {#if hasGitRepository}
-    <RunOnPicker
-      tabId={targetTabId}
-      variant="header"
-      {startsNewWorktree}
-      inWorktree={env.isolated}
-      {canToggleWorktree}
-      {worktreeForced}
-      setWorktree={toggleWorktree}
-    />
-
     <TooltipUI.Root
       bind:open={getBranchTooltipOpen, setBranchTooltipOpen}
       disabled={gitOpen}
@@ -251,10 +328,10 @@
     </TooltipUI.Root>
   {/if}
   <TaskPicker
-    task={sess ? taskTargetOf(sess) : { kind: "new" }}
+    task={taskTarget}
     projectKey={gitHome.projectRoot ?? projectDir}
     onSelect={selectTask}
-    onDismiss={() => requestInputFocus({ tabId: targetTabId })}
+    onDismiss={() => requestInputFocus(focusTarget)}
   />
 </div>
 

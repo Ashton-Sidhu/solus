@@ -59,7 +59,7 @@
   const settings = getSettingsContext();
   const statusBar = getStatusBarContext();
 
-  const permissionMode = $derived(session.activeSession?.permissionMode ?? 'auto');
+  const permissionMode = $derived(session.activeSession?.run.permissionMode ?? 'auto');
   const capabilities = $derived(agent.activeMetadata?.capabilities);
   const supportsPermissions = $derived(capabilities?.permissions !== false);
   const supportsPlan = $derived(capabilities?.planMode !== false);
@@ -69,9 +69,9 @@
 
   const ctx = $derived(statusBar.ctx);
   const reasoningLevels = $derived(ctx.reasoningLevels);
-  const currentReasoning = $derived(session.activeSession?.modelConfig.reasoningEffort ?? 'high');
+  const currentReasoning = $derived(session.activeSession?.run.modelConfig.reasoningEffort ?? 'high');
 
-  const activeAgent = $derived(session.activeSession?.provider ?? settings.activeAgent);
+  const activeAgent = $derived(session.activeSession?.run.provider ?? settings.activeAgent);
   const agentRows = $derived(
     buildAgentAvailabilityRows(agent.agents, agent.metadata).filter((row) => row.enabled)
   );

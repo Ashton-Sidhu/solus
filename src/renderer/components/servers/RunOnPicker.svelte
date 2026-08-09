@@ -1,24 +1,20 @@
 <script lang="ts">
   import {
-    ArrowLeftIcon,
     CheckIcon,
-    CircleNotchIcon,
     DesktopTowerIcon,
-    FolderOpenIcon,
     GitForkIcon,
     PlusIcon,
   } from "phosphor-svelte";
   import { mergeProps } from "bits-ui";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import { serverConnections } from "@client-core/server-connections";
-  import type { RecentProject } from "../../../shared/types";
+  import type { RunConfig } from "../../../shared/types";
   import {
     getWindowContext,
     getWorkspaceContext,
     hostAffinityGlyph,
   } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { hasSessionStarted } from "../../lib/sessionUtils";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { Button } from "../ui/button";
@@ -29,18 +25,39 @@
     type UnknownRemoteHost,
   } from "../../contexts";
   import {
-    isRunOnHostLocked,
     repoKeyForPath,
-    queueSessionHostDispatch,
-    retargetSessionHost,
-    worktreeBlockedReason,
+    returnsToProjectHome,
+    shouldShowRunOnPicker,
   } from "./run-on";
-  import { dispatchAvailability } from "./lib/dispatch-availability";
-  import { openProjectStore } from "./open-project.store.svelte";
+  import {
+    withPendingHost,
+    withProjectHost,
+    withWorktreeToggled,
+  } from "../../contexts/workspace/run-config";
+  import { runTarget } from "./lib/run-target";
+  import { homeGitDetails } from "../../lib/git-context";
+  import { getSessionEnvironmentStore } from "../../contexts";
   import { hostOnboardingStore } from "./host-onboarding.store.svelte";
 
   interface Props {
-    tabId: string;
+    /** Where the next session will run. A started session and a session draft
+     *  both hold one, so this picker never asks which it is looking at. */
+    run: RunConfig;
+    /** Correlates the async pairing and browse flows back to this picker. A tab
+     *  id for a conversation, a draft id for a draft — any stable id serves. */
+    requesterId: string;
+    /** Whether the host is fixed. A started session's is; a draft's never is.
+     *  The two variants disagree on the no-session case, so the caller decides
+     *  rather than this picker guessing. */
+    locked?: boolean;
+    /**
+     * Where the next session will run, after this picker changes it. One channel
+     * for every choice it offers — host, project on that host, worktree — because
+     * all three are the same kind of edit and none of them acts until Send.
+     * Nothing connects, clones or moves here; that is what makes changing your
+     * mind free.
+     */
+    onRun: (next: RunConfig) => void;
     /**
      * `chip` is the standalone "Run on: X" pill the pill-mode status row uses.
      * `header` is the input bar's "Start in" chip, which answers where the next
@@ -48,43 +65,42 @@
      * user, so one control.
      */
     variant?: "chip" | "header";
-    /** Worktree state, owned by the header; unused by the `chip` variant. */
-    startsNewWorktree?: boolean;
-    /** The checkout the session sits in is itself a worktree. */
-    inWorktree?: boolean;
-    canToggleWorktree?: boolean;
-    /** A dispatched session always gets a worktree, so the choice is inert. */
-    worktreeForced?: boolean;
-    setWorktree?: (next: boolean) => void;
+    /** The pane whose composer this picker belongs to — `undefined` for the
+     *  workspace dock, which has none. The open shortcut names a pane, so this
+     *  is how the right picker knows the keystroke was meant for it. */
+    paneId?: string;
   }
 
   let {
-    tabId,
+    run,
+    requesterId,
+    locked = false,
+    onRun,
     variant = "chip",
-    startsNewWorktree = false,
-    inWorktree = false,
-    canToggleWorktree = false,
-    worktreeForced = false,
-    setWorktree,
+    paneId,
   }: Props = $props();
 
   const workspace = getWorkspaceContext();
+  const environmentStore = getSessionEnvironmentStore();
   // A browser with no host is choosing where to work, not dispatching from
   // somewhere to somewhere: picking a host reloads the page onto it. A host
   // only ever arrives by that reload, so this is settled at mount.
   const webNoHost =
     window.solus.getPlatform() === "web" && !serverConnections.connectionFor();
-  const session = $derived(workspace.sessionFor(tabId));
-  // A tab with no session yet has no host to move, but it does still choose the
-  // shape of its next checkout, so the header chip stays live until one starts.
-  const locked = $derived(
-    variant === "header"
-      ? hasSessionStarted(session)
-      : isRunOnHostLocked(session),
-  );
   const selectedHostId = $derived(
-    session?.run.pendingHostDispatch?.serverId ?? session?.run.serverId,
+    run.pendingHostDispatch?.serverId ?? run.serverId,
   );
+  // Every worktree answer follows from the run, so this picker reads them itself
+  // rather than having four booleans handed down and kept in sync.
+  const environment = $derived(environmentStore.environmentFor(run));
+  const gitHome = $derived(
+    homeGitDetails(
+      run.workingDirectory,
+      run.gitContext,
+      workspace.globalDefaults.gitContext,
+    ),
+  );
+  const inWorktree = $derived(environment.isolated);
   const selectedServer = $derived(serversStore.hostFor(selectedHostId));
   const selectedAffinity = $derived(serversStore.affinityFor(selectedHostId));
   const onRemoteHost = $derived(!!selectedServer && !selectedServer.local);
@@ -105,51 +121,59 @@
   const otherHosts = $derived(
     serversStore.servers.filter((server) => !server.local),
   );
-  const startInLabel = $derived(
-    onRemoteHost
-      ? hostLabel(selectedServer)
-      : startsNewWorktree
-        ? "New worktree"
-        : stayLabel,
+  // Whether this run sits in a git checkout: the header offers worktree mode
+  // only then, and a non-git folder shows a plain host list instead.
+  const isGitRepo = $derived(!!environment.checkout || !!environment.repoRoot);
+  // Reachability, not merely a saved entry, decides whether there is a real
+  // machine to run on — so an offline saved host never conjures the picker.
+  const showPicker = $derived(
+    shouldShowRunOnPicker({
+      variant,
+      isGitRepo,
+      connectedRemoteCount: serversStore.connectedRemotes.length,
+      onRemoteHost,
+      selectedHostId,
+    }),
   );
+  // Every state this control can be in follows from the run's two host ids and
+  // its checkout, so it is derived once here rather than reassembled from four
+  // booleans that have to be kept in agreement.
+  const target = $derived(
+    runTarget({
+      run,
+      hostLabel: hostLabel(selectedServer),
+      taskHostLabel: hostLabel(serversStore.hostFor(run.taskServerId)),
+      stayLabel,
+      hostIsLocal: !onRemoteHost,
+      isolated: inWorktree,
+      canBranchWorktree: gitHome.canToggleWorktree,
+    }),
+  );
+  const startInLabel = $derived(target.label);
+  const startsNewWorktree = $derived(target.startsWorktree);
+  const worktreeForced = $derived(target.worktreeForced);
   // A disabled row with no reason is the worst of both worlds, so say why the
   // choice is off the table.
-  const worktreeBlockedNote = $derived(
-    worktreeBlockedReason(canToggleWorktree),
-  );
+  const worktreeBlockedNote = $derived(target.worktreeBlockedNote);
   // The repo is resolved against the host the session is already on — a
   // dispatched session's checkout path means nothing in the local manifest.
-  const currentHostId = $derived(session?.run.serverId ?? LOCAL_SERVER_ID);
+  const currentHostId = $derived(run.serverId ?? LOCAL_SERVER_ID);
   const detectedRepoKey = $derived(
     repoKeyForPath(
       serversStore.projectIdentitiesFor(currentHostId),
-      session?.run.gitContext?.repoRoot ?? session?.run.workingDirectory,
+      run.gitContext?.repoRoot ?? run.workingDirectory,
     ),
-  );
-  const availability = $derived(
-    dispatchAvailability({
-      inCheckout: !!session?.run.gitContext?.repoRoot,
-      repoKey: detectedRepoKey,
-      identitiesProbed: serversStore.hasProbedIdentities(currentHostId),
-    }),
   );
 
   let open = $state(false);
+  let triggerEl = $state<HTMLElement | null>(null);
   let triggerTooltipOpen = $state(false);
-  let choosingProjectFor = $state<ServerItem | null>(null);
-  let recentProjects = $state<RecentProject[]>([]);
-  let loadingProjects = $state(false);
-  let projectLoadError = $state(false);
   let sourceRepoKey = $state<string | null>(null);
 
   // Same footer contract as the model picker: teach the key, then say what the
   // menu currently resolves to, so the choice is legible without reading rows.
   const footerSummary = $derived(
-    choosingProjectFor
-      ? `${recentProjects.length} project${recentProjects.length === 1 ? "" : "s"}`
-      : variant === "header"
-        ? startInLabel
-        : hostLabel(selectedServer),
+    variant === "header" ? startInLabel : hostLabel(selectedServer),
   );
 
   $effect(() => {
@@ -158,18 +182,41 @@
   });
 
   $effect(() => {
-    const path = session?.run.gitContext?.repoRoot ?? session?.run.workingDirectory;
+    const path = run.gitContext?.repoRoot ?? run.workingDirectory;
     if (locked || !path || path === "~") return;
     void serversStore.loadProjectIdentities(currentHostId);
   });
 
+  // Reachability decides whether the picker appears at all, so warm it once on
+  // mount rather than only when the menu opens. The store's staleness guard
+  // collapses the several mounted pickers into a single probe.
   $effect(() => {
-    const pairedId = serversStore.consumeJustPaired(tabId);
+    void serversStore.probeHosts();
+  });
+
+  $effect(() => {
+    const pairedId = serversStore.consumeJustPaired(requesterId);
     if (!pairedId) return;
     const server = serversStore.servers.find(
       (candidate) => candidate.id === pairedId,
     );
     if (server) selectTarget(server);
+  });
+
+  // The open shortcut is dispatched by the composer this picker sits under, and
+  // names its pane. Only the picker in that pane answers, and only while it is
+  // shown and unlocked — the visibility test drops the mirror the hidden layout
+  // keeps mounted, so the same keystroke never opens a menu off-screen.
+  $effect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ paneId: string | null }>).detail;
+      if ((detail?.paneId ?? null) !== (paneId ?? null)) return;
+      if (!showPicker || locked) return;
+      if (triggerEl && triggerEl.offsetParent === null) return;
+      open = !open;
+    };
+    window.addEventListener("solus:toggle-run-picker", handler);
+    return () => window.removeEventListener("solus:toggle-run-picker", handler);
   });
 
   /**
@@ -181,74 +228,57 @@
     return !server || server.local ? stayLabel : server.label;
   }
 
-  function setTarget(server: ServerItem, path?: string) {
-    if (!session || locked) return;
-    const result = retargetSessionHost({
-      workspace,
-      tabId,
-      serverId: server.id,
-      isLocalHost: server.local,
-      path,
-      repoKey: sourceRepoKey,
-      requireWorktree: true,
-    });
-    // Without a directory on the target the move is refused, so send the user to
-    // the step that can supply one rather than closing over a silent no-op.
-    if (!result.ok) {
-      void chooseProjectOn(server);
-      return;
-    }
-    choosingProjectFor = null;
-    open = false;
-  }
-
+  /** Send *this* project's work to another machine. The repository travels as a
+   *  clone; the project, and every task it files, stays here. */
   function selectTarget(server: ServerItem) {
-    if (!session || locked || !sourceRepoKey) return;
-    queueSessionHostDispatch(session, {
-      serverId: server.id,
-      hostLabel: server.label,
-      isLocalHost: server.local,
-      repoKey: sourceRepoKey,
-    });
-    choosingProjectFor = null;
-    open = false;
-  }
-
-  async function chooseProjectOn(server: ServerItem) {
-    choosingProjectFor = server;
-    recentProjects = [];
-    projectLoadError = false;
-    loadingProjects = true;
-    try {
-      recentProjects = await serversStore.recentProjectsFor(server.id);
-    } catch {
-      projectLoadError = true;
-    } finally {
-      loadingProjects = false;
-    }
-  }
-
-  /** The host is already chosen here, so the flow opens with that step settled. */
-  function startNewProject(server: ServerItem) {
-    open = false;
-    choosingProjectFor = null;
-    openProjectStore.open(serversStore.servers, {
-      tabId,
-      host: server,
-    });
-  }
-
-  function browseHost(server: ServerItem) {
-    open = false;
-    choosingProjectFor = null;
-    window.dispatchEvent(
-      new CustomEvent("solus:open-directory-picker", {
-        detail: { tabId, serverId: server.id, requireWorktree: true },
+    if (locked || !sourceRepoKey) return;
+    onRun(
+      withPendingHost(run, {
+        serverId: server.id,
+        intent: "dispatch",
+        repoKey: sourceRepoKey,
       }),
     );
+    open = false;
   }
 
-  async function chooseServer(event: Event, server: ServerItem) {
+  /** No cloneable checkout to send, so this host is somewhere to open a project
+   *  on instead of dispatch to. Record the host; the project chip, which lists
+   *  that host's recents, settles which folder. Still only intent — Send acts. */
+  function openProjectOn(server: ServerItem) {
+    if (locked) return;
+    onRun(withPendingHost(run, { serverId: server.id, intent: "open-project" }));
+    open = false;
+  }
+
+  /** The reverse of a dispatch: the project's own checkout already sits on this
+   *  host, so selecting it runs the work back home rather than cloning it there
+   *  or asking which folder to use. Clears any queued dispatch on the way. */
+  function returnToProjectHome(server: ServerItem) {
+    if (locked || !run.projectGroupPath) return;
+    const home = withProjectHost(withPendingHost(run, null), server.id, {
+      path: run.projectGroupPath,
+    });
+    home.projectGroupPath = null;
+    onRun(home);
+    open = false;
+  }
+
+  /** Selecting Local switches the run straight back to this machine. Your own
+   *  host already holds the checkout, so there is never a project to pick: the
+   *  run lands on its remembered project home, or the workspace's own project.
+   *  Any queued remote dispatch is dropped on the way. */
+  function runLocally(local: ServerItem) {
+    if (locked) return;
+    const next = withProjectHost(withPendingHost(run, null), local.id, {
+      path: run.projectGroupPath ?? workspace.globalDefaults.workingDirectory,
+    });
+    next.projectGroupPath = null;
+    onRun(next);
+    open = false;
+  }
+
+  function chooseServer(event: Event, server: ServerItem) {
     // With no host connected there is nothing to dispatch from — activating the
     // chosen host reloads the client straight onto it.
     if (webNoHost) {
@@ -268,45 +298,52 @@
       return;
     }
 
+    // Your own machine already holds the checkout, so returning to it just
+    // switches hosts — never a project chooser for a project that is right here.
+    if (server.local) {
+      event.preventDefault();
+      runLocally(server);
+      return;
+    }
+
+    // A project whose home is another host re-homes there rather than cloning.
+    if (returnsToProjectHome(run, server.id)) {
+      event.preventDefault();
+      returnToProjectHome(server);
+      return;
+    }
+
     event.preventDefault();
     if (sourceRepoKey) {
       selectTarget(server);
       return;
     }
-    await chooseProjectOn(server);
+    openProjectOn(server);
   }
 
   /** Both local checkout choices cancel a queued remote dispatch first. */
   function chooseLocalStart(worktree: boolean) {
     const local = serversStore.servers.find((server) => server.local);
-    if (session && local && session.run.serverId !== local.id) {
-      if (sourceRepoKey) {
-        queueSessionHostDispatch(session, {
-          serverId: local.id,
-          hostLabel: stayLabel,
-          isLocalHost: true,
-          repoKey: sourceRepoKey,
-        });
-        open = false;
-        return;
-      }
-      void chooseProjectOn(local);
+    if (local && run.serverId !== local.id) {
+      // Selecting Local switches straight back to this machine — it already holds
+      // the checkout, so there is nothing to clone and nothing to pick.
+      runLocally(local);
       return;
     }
-    if (session?.run.pendingHostDispatch) {
-      if (sourceRepoKey) {
-        queueSessionHostDispatch(session, {
-          serverId: session.run.serverId,
-          hostLabel: stayLabel,
-          isLocalHost: true,
+    // Staying put clears the queued move. `onPickHost` with the run's own host
+    // is exactly that, since a target matching the current host records nothing.
+    if (run.pendingHostDispatch && sourceRepoKey) {
+      onRun(
+        withPendingHost(run, {
+          serverId: run.serverId,
+          intent: "dispatch",
           repoKey: sourceRepoKey,
-        });
-      } else {
-        session.run.pendingHostDispatch = null;
-      }
+        }),
+      );
     }
-    if (!worktreeForced && worktree !== startsNewWorktree)
-      setWorktree?.(worktree);
+    if (!worktreeForced && worktree !== startsNewWorktree) {
+      onRun(withWorktreeToggled(run));
+    }
     open = false;
   }
 
@@ -314,7 +351,6 @@
     open = next;
     if (next) {
       triggerTooltipOpen = false;
-      choosingProjectFor = null;
       void serversStore.probeHosts();
       return;
     }
@@ -333,11 +369,12 @@
 {#snippet serverRow(server: ServerItem)}
   {@const isSelectedHost = server.id === selectedHostId}
   {@const affinity = hostAffinityGlyph(server, server.status)}
-  {@const blocked = !webNoHost && !availability.canDispatch && !isSelectedHost}
+  <!-- The picker only chooses the host now; which project runs there is the
+       project chip's job, so every reachable host is selectable — a checkout with
+       no remote opens a project on that host instead of cloning to it. -->
   <DropdownMenu.Item
     data-menu-current={isSelectedHost ? "" : undefined}
-    disabled={blocked}
-    onSelect={(event) => void chooseServer(event, server)}
+    onSelect={(event) => chooseServer(event, server)}
   >
     {#if affinity}
       {@const HostIcon = affinity.icon}
@@ -366,10 +403,13 @@
   </DropdownMenu.Item>
 {/snippet}
 
-{#snippet availabilityNote()}
-  {#if !webNoHost && !availability.canDispatch}
+<!-- Dispatch splits "where it runs" from "where it is filed". Nothing else on
+     screen carries that, so the menu states it rather than letting a task
+     quietly land on a machine the user never asked about. -->
+{#snippet targetNote()}
+  {#if target.taskNote}
     <p class="text-pretty px-2.5 pb-1 pt-1 text-[0.6875rem] leading-snug text-(--solus-text-tertiary)">
-      {availability.note}
+      {target.taskNote}
     </p>
   {/if}
 {/snippet}
@@ -378,7 +418,7 @@
   <DropdownMenu.Item
     onSelect={(event) => {
       event.preventDefault();
-      serversStore.pairForRunOn(tabId);
+      serversStore.pairForRunOn(requesterId);
       hostOnboardingStore.openForDiscovered(host.server);
     }}
     title="{host.server.host}:{host.server.port}"
@@ -391,13 +431,11 @@
   </DropdownMenu.Item>
 {/snippet}
 
-<!-- The header chip is the only control for worktree mode, so it shows even on
-     a machine that has never seen another host. The pill-mode chip stays hidden
-     until there is a host to choose, unless this session already belongs to a
-     remote host that has since been forgotten. -->
-{#if variant === "header" ||
-  otherHosts.length > 0 ||
-  (!!selectedHostId && selectedHostId !== LOCAL_SERVER_ID)}
+<!-- Shown when there is a real choice about where work runs: a reachable remote
+     to send it to, or a git checkout the header can branch a worktree from. A
+     plain local folder on a single machine has neither, so the picker stays out
+     of the way until a host connects. -->
+{#if showPicker}
   {#if locked}
     <TooltipUI.Root>
       <TooltipUI.Trigger>
@@ -425,7 +463,7 @@
     </TooltipUI.Root>
   {:else}
     <DropdownMenu.Root bind:open onOpenChange={handleOpenChange}>
-      <DropdownMenu.Trigger>
+      <DropdownMenu.Trigger bind:ref={triggerEl}>
         {#snippet child({ props })}
           {#if variant === "header"}
             <TooltipUI.Root
@@ -462,7 +500,9 @@
                 {/snippet}
               </TooltipUI.Trigger>
               <TooltipUI.Content
-                value={`Where the next session starts — now: ${startInLabel}`}
+                value={target.taskNote
+                  ? `Where the next session starts — now: ${startInLabel} · ${target.taskNote}`
+                  : `Where the next session starts — now: ${startInLabel}`}
               />
             </TooltipUI.Root>
           {:else}
@@ -509,79 +549,15 @@
         <!-- The footer spans the surface, so the rows scroll inside their own
              padded body rather than dragging it out of view. -->
         <div class="max-h-[288px] overflow-y-auto p-1.5">
-          {#if choosingProjectFor}
-            <DropdownMenu.Item
-              onSelect={(event) => {
-                event.preventDefault();
-                choosingProjectFor = null;
-              }}
-            >
-              <ArrowLeftIcon size={13} class="shrink-0" />
-              <span class="min-w-0 flex-1 truncate">Choose a host</span>
-            </DropdownMenu.Item>
-            <DropdownMenu.Separator />
-            <DropdownMenu.Label class="truncate">
-              Recent projects on {hostLabel(choosingProjectFor)}
-            </DropdownMenu.Label>
-            {#if loadingProjects}
-              <div
-                class="flex h-8 items-center gap-2.5 px-2.5 text-menu text-(--solus-text-tertiary)"
-              >
-                <CircleNotchIcon size={13} class="shrink-0 animate-spin" />
-                Loading projects…
-              </div>
-            {:else if projectLoadError}
-              <div
-                class="text-pretty px-2.5 py-1.5 text-[0.6875rem] leading-snug text-(--solus-status-error)"
-              >
-                Couldn’t reach this host. Check its connection and try again.
-              </div>
-            {:else if recentProjects.length === 0}
-              <div
-                class="text-pretty px-2.5 pb-1 pt-1 text-[0.6875rem] leading-snug text-(--solus-text-tertiary)"
-              >
-                Nothing here yet — this host has no projects.
-              </div>
-            {:else}
-              {#each recentProjects as project (project.path)}
-                <DropdownMenu.Item
-                  onSelect={() => setTarget(choosingProjectFor!, project.path)}
-                >
-                  <span class="min-w-0 flex-1 truncate"
-                    >{project.folderName}</span
-                  >
-                  <span
-                    class="min-w-0 shrink truncate text-[0.6875rem] text-(--solus-text-tertiary)"
-                    title={project.path}
-                  >
-                    {project.path}
-                  </span>
-                </DropdownMenu.Item>
-              {/each}
-            {/if}
-
-            <!-- A host with no checkout used to dead-end here; these two are the
-               way forward, and the primary CTA when there are no recents. -->
-            <DropdownMenu.Separator />
-            <DropdownMenu.Item
-              onSelect={() => startNewProject(choosingProjectFor!)}
-            >
-              <PlusIcon size={13} class="shrink-0" />
-              <span class="min-w-0 flex-1 truncate"
-                >Open a project on {hostLabel(choosingProjectFor)}…</span
-              >
-            </DropdownMenu.Item>
-            <DropdownMenu.Item onSelect={() => browseHost(choosingProjectFor!)}>
-              <FolderOpenIcon size={13} class="shrink-0" />
-              <span class="min-w-0 flex-1 truncate">Browse folder…</span>
-            </DropdownMenu.Item>
-          {:else if variant === "header"}
+          {#if variant === "header" && isGitRepo}
             <DropdownMenu.Label>Start in</DropdownMenu.Label>
+            <!-- Never disabled: a dispatch forces a worktree *on the remote*, but
+                 this row is the way back to the local checkout, which is the one
+                 gesture that escapes that forcing. -->
             <DropdownMenu.Item
               data-menu-current={!onRemoteHost && !startsNewWorktree
                 ? ""
                 : undefined}
-              disabled={worktreeForced}
               onSelect={(event) => {
                 event.preventDefault();
                 chooseLocalStart(false);
@@ -647,7 +623,7 @@
             {#each otherHosts as server (server.id)}
               {@render serverRow(server)}
             {/each}
-            {#if otherHosts.length > 0}{@render availabilityNote()}{/if}
+            {@render targetNote()}
             {#if webNoHost}{@render connectHostRow()}{/if}
             {#if serversStore.nearbyHosts.length > 0}
               <DropdownMenu.Separator />
@@ -660,7 +636,7 @@
             {#each serversStore.servers as server (server.id)}
               {@render serverRow(server)}
             {/each}
-            {@render availabilityNote()}
+            {@render targetNote()}
             {#if webNoHost}{@render connectHostRow()}{/if}
             {#if serversStore.nearbyHosts.length > 0}
               <DropdownMenu.Separator />
@@ -671,10 +647,7 @@
             {/if}
           {/if}
         </div>
-        <MenuFooter
-          hints={[["⏎", choosingProjectFor ? "open" : "select"]]}
-          summary={footerSummary}
-        />
+        <MenuFooter hints={[["⏎", "select"]]} summary={footerSummary} />
       </DropdownMenu.Content>
     </DropdownMenu.Root>
   {/if}

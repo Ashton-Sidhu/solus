@@ -30,9 +30,10 @@ export function hasGlyph(status: TaskStatus): boolean {
   return status !== 'running' && status !== 'idle' && status !== 'done'
 }
 
-/** Unread output outranks work in flight in the task margin. Once the user
- * clears it, the still-running task falls back to its live indicator. States
- * that are explicitly waiting on the user remain more urgent than unread. */
+/** Unread output wins over idle or running until the user clears it. States
+ * explicitly waiting on the user own a glyph that outranks both. A held turn no
+ * longer marks itself unread early; this remaining overlap means a different
+ * session under the same task finished while another session is still running. */
 export function showsUnreadIndicator(status: TaskStatus, unread: boolean): boolean {
   return unread && (status === 'idle' || status === 'running')
 }

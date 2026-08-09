@@ -10,7 +10,8 @@ import { ResponseReceiptBudget } from '../transports/response-receipt-cache'
 import { ClientEventRegistry } from '../events/client-event-registry'
 import { HostEventPublisher } from '../events/host-event-publisher'
 import type { ControlPlane } from '../control-plane'
-import type { AgentMetadata, NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent, SessionStatus } from '../../shared/types'
+import type { AgentMetadata, NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent } from '../../shared/types'
+import type { HostEventMap } from '../../shared/host-events'
 import type { AgentId, IpcContext } from '../../shared/types'
 import { registerWindowHandlers, type WindowDeps } from './handlers/window-handlers'
 import { enrichAgentMetadata, registerSessionHandlers, type SessionDeps } from './handlers/session-handlers'
@@ -53,6 +54,9 @@ import { probeServerCapabilities, registerSetupHandlers } from './handlers/setup
 import packageJson from '../../../package.json'
 import { solusDir } from '../platform/paths'
 import { onTasksChanged } from '../tasks/task-store'
+import { onOutboxChanged } from '../outbox/outbox-store'
+import { registerOutboxHandlers } from './handlers/outbox-handlers'
+import { registerTaskOutboxApplier } from '../tasks/task-applier'
 import { agentTargetFromMetadata } from '../agents/agent-targets'
 import { recordSessionDelegation } from '../sessions/session-delegations'
 
@@ -166,6 +170,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onPrsChanged((projectRoot) => events.broadcast('prs.invalidated', { projectRoot })),
     onAnnotationsChanged((change) => events.broadcast('annotations.changed', change)),
     onTasksChanged(() => events.broadcast('tasks.invalidated', {})),
+    onOutboxChanged(() => events.broadcast('outbox.changed', {})),
   ]
   const pushNotifications = new PushNotificationService()
   const hasDesktopHandlers = !!opts.windowDeps && !!opts.fileDeps
@@ -255,6 +260,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
   registerProjectConfigHandlers(server)
   registerTasksHandlers(server)
+  registerOutboxHandlers(server)
+  // Any host can own tasks, so the owner-side applier registers unconditionally.
+  registerTaskOutboxApplier()
   registerGoogleHandlers(server, { getServerInfo: () => ({ host, port: actualPort }) })
   registerCloudflareHandlers(server)
   setCloudflareConnectNeededListener((reason) => events.broadcast('cloudflare.connectNeeded', { reason }))
@@ -308,19 +316,24 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   setVoiceModelStatusListener((status) => events.broadcast('voice.modelStatusChanged', status))
 
-  opts.controlPlane.on('event', (tabId: string, event: NormalizedEvent) => {
-    const clientId = opts.controlPlane.getTabClientId(tabId)
-    if (clientId) events.publish(clientId, 'session.eventReceived', { tabId, event })
+  // One publish per watching client. Two panes on one renderer are one client
+  // and receive one payload; desktop and web are two, with the same payload.
+  opts.controlPlane.on('event', (sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
+    let clients = opts.controlPlane.clientsWatching(sessionId)
+    if (to?.only) clients = clients.filter((clientId) => clientId === to.only)
+    if (to?.except) clients = clients.filter((clientId) => clientId !== to.except)
+    if (clients.length) events.publish(clients, 'session.eventReceived', { sessionId, event })
   })
-  opts.controlPlane.on('error', (tabId: string, error: EnrichedError) => {
-    const clientId = opts.controlPlane.getTabClientId(tabId)
-    if (clientId) events.publish(clientId, 'session.errorReceived', { tabId, error })
+  opts.controlPlane.on('error', (sessionId: string, error: EnrichedError) => {
+    const clients = opts.controlPlane.clientsWatching(sessionId)
+    if (clients.length) events.publish(clients, 'session.errorReceived', { sessionId, error })
   })
   opts.controlPlane.on('session-index-updated', (event: SessionIndexUpdatedEvent) => {
     events.broadcast('session.indexChanged', event)
   })
-  // Global session-status feed: agent-conversation cards track agents without tabs.
-  opts.controlPlane.on('session-status', (event: { sessionId: string; status: SessionStatus; at: number }) => {
+  // Global session-status feed: agent-conversation cards track sessions no
+  // client is watching.
+  opts.controlPlane.on('session-status', (event: HostEventMap['session.statusChanged']) => {
     events.broadcast('session.statusChanged', event)
   })
 
@@ -340,11 +353,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     requireAuth: () => requireAuth,
     responseBudget: responseReceiptBudget,
     onClientConnected: ({ clientId }) => {
-      opts.controlPlane.handleClientConnected(clientId)
       checksHandlers.handleClientConnected(clientId)
     },
     onClientDisconnected: ({ clientId, deviceId }) => {
-      opts.controlPlane.handleClientDisconnected(clientId, deviceId ?? undefined)
+      opts.controlPlane.handleClientDisconnected(clientId)
       checksHandlers.handleClientDisconnected(clientId)
     },
     onClientExpired: ({ clientId }) => opts.runLogSubscriptions?.releaseClient(clientId),
@@ -476,11 +488,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       requireAuth: () => requireAuth,
       responseBudget: responseReceiptBudget,
       onClientConnected: ({ clientId }) => {
-        opts.controlPlane.handleClientConnected(clientId)
         checksHandlers.handleClientConnected(clientId)
       },
       onClientDisconnected: ({ clientId, deviceId }) => {
-        opts.controlPlane.handleClientDisconnected(clientId, deviceId ?? undefined)
+        opts.controlPlane.handleClientDisconnected(clientId)
         checksHandlers.handleClientDisconnected(clientId)
       },
       onClientExpired: ({ clientId }) => opts.runLogSubscriptions?.releaseClient(clientId),

@@ -678,8 +678,8 @@
           tabindex={tabIndexFor("stop")}
           style="--item-index:{itemIndices.stop}"
           onclick={() => {
-            session.interruptTab(tab.id);
-            session.apiFor(tab.id).stopTab(session.ctxFor(tab.id));
+            session.interruptTabSession(tab.id);
+            session.apiFor(tab.id).stopSession(session.ctxFor(tab.id).session.sessionId);
             requestInputFocus();
           }}
           title="Stop current task"

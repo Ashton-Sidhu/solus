@@ -10,11 +10,11 @@
   const environmentStore = getSessionEnvironmentStore();
   const pane = paneActions(paneId);
 
-  const environment = $derived(environmentStore.environmentFor(session.sessionFor(params.sourceTabId)?.run));
+  const environment = $derived(environmentStore.environmentFor(session.runFor(params.sourceId)));
   const file = $derived({
     path: params.path,
     line: params.line,
-    tabId: params.sourceTabId,
+    tabId: params.sourceId,
   });
   // Every navigation bumps the epoch, including one that lands on the route
   // already showing — which is exactly the "same file, asked for again" case a
@@ -40,7 +40,7 @@
   {:then fileEditorModule}
     {@const FileEditorPane = fileEditorModule.default}
     <FileEditorPane
-      ctx={session.ctxFor(params.sourceTabId)}
+      ctx={session.ctxFor(params.sourceId)}
       cwd={environment.cwd}
       isDark={session.settings.isDark}
       {file}

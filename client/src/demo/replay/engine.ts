@@ -19,7 +19,7 @@ interface ReplayEngineOptions {
 
 interface PendingPermission {
   questionId: string
-  tabId: string
+  sessionId: string
   defaultOptionId: string
 }
 
@@ -51,12 +51,12 @@ export function createReplayEngine(
 
   const resolvePermission = (questionId: string, _optionId: string): boolean => {
     if (pendingPermission?.questionId !== questionId) return false
-    const { tabId } = pendingPermission
+    const { sessionId } = pendingPermission
     pendingPermission = null
     if (autoContinueTimer) clearTimeout(autoContinueTimer)
     autoContinueTimer = null
     backend.broadcast('session.eventReceived', {
-      tabId,
+      sessionId,
       event: { type: 'permission_resolved', questionId } satisfies NormalizedEvent,
     })
     releaseWaiters()
@@ -79,12 +79,12 @@ export function createReplayEngine(
           ?? step.event.options[0]
         pendingPermission = {
           questionId: step.event.questionId,
-          tabId: step.tabId,
+          sessionId: step.sessionId,
           defaultOptionId: defaultOption?.id ?? '',
         }
       }
 
-      backend.broadcast('session.eventReceived', { tabId: step.tabId, event: step.event })
+      backend.broadcast('session.eventReceived', { sessionId: step.sessionId, event: step.event })
 
       if (step.event.type === 'permission_request' && pendingPermission?.questionId === step.event.questionId) {
         const { questionId, defaultOptionId } = pendingPermission

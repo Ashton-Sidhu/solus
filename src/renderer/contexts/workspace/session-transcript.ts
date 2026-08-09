@@ -92,7 +92,7 @@ export interface SessionTranscriptLoadArgs {
 }
 
 export async function loadSessionTranscript(ctx: WorkspaceContext, args: SessionTranscriptLoadArgs): Promise<{ messages: any[]; planIds: string[]; progress: any; truncated: boolean }> {
-  const history = await ctx.apiFor(args.ctx.session.tabId).loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, args.limit)
+  const history = await ctx.apiForSession(args.ctx.session.sessionId).loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, args.limit)
   // A full window of messages means older ones were left on disk.
   const truncated = !!args.limit && history.length >= args.limit
   if (args.shouldApply && !args.shouldApply()) {

@@ -16,7 +16,7 @@ describe('session transcript rehydration', () => {
     }))
     const limits: Array<number | undefined> = []
     const ctx = {
-      apiFor: () => ({
+      apiForSession: () => ({
         loadSession: async (
           _sessionId: string,
           _projectPath: string,
@@ -36,7 +36,7 @@ describe('session transcript rehydration', () => {
       loadPath: '/repo',
       displayCwd: '/repo',
       provider: 'codex',
-      ctx: { session: { tabId: 'tab-1' } } as IpcContext,
+      ctx: { session: { sessionId: 'tab-1' } } as IpcContext,
     })
 
     expect(limits).toEqual([undefined])
@@ -53,7 +53,7 @@ describe('session transcript rehydration', () => {
       timestamp: index,
     }))
     const ctx = {
-      apiFor: () => ({
+      apiForSession: () => ({
         loadSession: async (
           _sessionId: string,
           _projectPath: string,
@@ -70,7 +70,7 @@ describe('session transcript rehydration', () => {
       loadPath: '/repo',
       displayCwd: '/repo',
       provider: 'codex',
-      ctx: { session: { tabId: 'tab-1' } } as IpcContext,
+      ctx: { session: { sessionId: 'tab-1' } } as IpcContext,
       limit: RESTORED_TRANSCRIPT_LIMIT,
     })
 
@@ -86,7 +86,7 @@ describe('session transcript rehydration', () => {
       timestamp: index,
     }))
     const ctx = {
-      apiFor: () => ({
+      apiForSession: () => ({
         loadSession: async (
           sessionId: string,
           _projectPath: string,
@@ -103,7 +103,7 @@ describe('session transcript rehydration', () => {
     const common = {
       loadPath: '/repo',
       displayCwd: '/repo',
-      ctx: { session: { tabId: 'tab-1' } } as IpcContext,
+      ctx: { session: { sessionId: 'tab-1' } } as IpcContext,
     }
 
     const predecessor = await loadRestoredSessionTranscript(ctx, {

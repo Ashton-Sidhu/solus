@@ -264,6 +264,48 @@ export interface TaskForSessionResult {
 /** One authoritative renderer snapshot for native task rows and their session
  * ownership. These collections are read together so the sidebar never has to
  * reconcile independently timed task and link responses. */
+/**
+ * What a client sends to a host to mint (or bind) the task a session is about
+ * to start under.
+ *
+ * There is no `sessionId`: the session does not exist yet at first dispatch, and
+ * the execution host — which may be a different machine entirely — issues it.
+ * The link is written afterwards through `tasksLinkSession`.
+ */
+export interface PrepareSessionTaskRequest {
+  /** Bind this task instead of minting a new one. */
+  existingTaskId?: string | null
+  /** Mint the new task as a direct child of this one. */
+  parentTaskId?: string | null
+  projectKey?: string | null
+  worktreeKey?: string | null
+  /** The first prompt, which names the task until generation replaces it. */
+  prompt?: string
+  branch?: string | null
+  /** Also return a `TaskSnapshot` of the minted/bound task. Set by a client
+   *  about to dispatch to a different execution host, which needs the snapshot
+   *  to ride the prompt (see docs/plans/dispatch-parity.md). */
+  includeSnapshot?: boolean
+}
+
+export interface PrepareSessionTaskResult {
+  task: Task | null
+  /** Present only when `includeSnapshot` was requested and a task was bound. */
+  snapshot: TaskSnapshot | null
+}
+
+/**
+ * The serializable task state a dispatched prompt carries: exactly what
+ * `formatTaskContext` consumes, so the execution host renders the packet from
+ * it verbatim and serves `read_task` from the same shape. Assembled on the
+ * task's own host; never persisted on the execution host.
+ */
+export interface TaskSnapshot {
+  details: TaskDetails
+  parent: TaskDetails | null
+  sessions: TaskSessionLink[]
+}
+
 export interface TaskSidebarSnapshot {
   tasks: Task[]
   sessionsByTask: Record<string, TaskSessionLink[]>
@@ -337,6 +379,27 @@ export interface TaskProviderStatus {
  *  so the renderer can offer "Connect GitHub" without sniffing error prose. */
 export const TASKS_AUTH_ERROR_PREFIX = '[tasks-auth] '
 
+/**
+ * Where a session ran, as only the client that dispatched it can state it.
+ *
+ * Sent with the link because that is the first moment a session id exists, and
+ * because neither host can work it out alone: the execution host cannot name
+ * itself, and the task's host never sees the session at all. The receiving host
+ * records both the attempt and a stub session row, so the session — not the
+ * link — is what later reads ask where the work happened.
+ */
+export interface SessionExecutionHost {
+  /** The saved-host id the client knows the execution machine by. Only ever
+   *  sent for a dispatch, so it always names a machine other than the one
+   *  holding the task. */
+  serverId: string
+  /** Which agent ran it, so the task's host can say so without the transcript. */
+  provider?: string
+  /** The project root as the *user* knows it. The agent's own checkout is a path
+   *  on the borrowed machine and means nothing here. */
+  projectRoot?: string | null
+}
+
 /** A Solus session linked to a task, surfaced on the task card as a back-link so
  *  the user can jump from a ticket to the work happening on it. Stored locally
  *  (never written upstream) keyed by task id — see `task-sessions.ts`. */
@@ -354,6 +417,13 @@ export interface TaskSessionLink {
    *  `codex`, `opencode`). Null for a link whose session is not indexed yet. */
   provider: string | null
   lastActivityAt: number | null
+  /** The host the session ran on, when that is not the host holding this link.
+   *  A link is always written on the task's host, so a dispatch — the run whose
+   *  `serverId` differs from its `taskServerId` (ADR-0006) — is the only case
+   *  with anything to record. Absent or null therefore means "the task's own
+   *  host", and a reader resolves it against the host it read the task from
+   *  rather than assuming its own machine. */
+  executionServerId?: string | null
   role?: TaskSessionRole
   branch?: string
   pr?: TaskPr

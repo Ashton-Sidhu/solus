@@ -100,6 +100,8 @@ export interface PullRequestOverview {
 export interface ReviewComment {
   id: string
   author: string
+  /** The author's GitHub avatar; absent for a deleted/ghost account. */
+  authorAvatarUrl?: string
   body: string
   createdAt: string
   /**
@@ -165,6 +167,8 @@ export interface PrConversationItem {
   id: string
   kind: 'comment' | 'review'
   author: string
+  /** The author's GitHub avatar; absent for a deleted/ghost account. */
+  authorAvatarUrl?: string
   body: string
   createdAt: string
   /** Present only for review bodies; uses the host's canonical review state. */

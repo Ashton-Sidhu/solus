@@ -183,8 +183,27 @@ export function applyLayout(doc: DiagramDoc, direction: LayoutDirection = 'LR'):
   }
 
   // Step 2 — lay the top level out, treating each group as one sized box.
+  // Real data-flow edges usually connect children of different groups (e.g.
+  // "Span recorder" → "spans" table), not the groups themselves. layoutSubset
+  // keeps only edges whose endpoints are both in the subset, so those cross-group
+  // edges are invisible to a top-level layout — dagre then drops every group into
+  // rank 0, and that single rank spreads along the CROSS axis, producing a layout
+  // rotated 90° from the requested direction (LR stacks vertically, TB spreads
+  // horizontally). Lift each edge to the top-level ancestor of its endpoints so
+  // the groups rank along the flow axis as intended.
+  const topAncestor = (id: string): string => {
+    let node = byId.get(id)
+    while (node?.parentId) node = byId.get(node.parentId)
+    return node?.id ?? id
+  }
+  const topEdges: DiagramEdge[] = []
+  for (const edge of doc.edges) {
+    const source = topAncestor(edge.source)
+    const target = topAncestor(edge.target)
+    if (source !== target) topEdges.push({ ...edge, source, target })
+  }
   const topLevel = doc.nodes.filter((n) => !n.parentId)
-  const topPos = layoutSubset(topLevel, doc.edges, direction, sizeFor)
+  const topPos = layoutSubset(topLevel, topEdges, direction, sizeFor)
 
   // Step 3 — assemble. Existing positions are preserved; only missing ones are
   // filled. Groups carry their fitted size (nested groups included); children

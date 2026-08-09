@@ -45,8 +45,8 @@
   const targetTabId = $derived(tabId ?? session.activeTabId);
   const tab = $derived(session.tabs[targetTabId]);
   const sess = $derived(session.sessionFor(targetTabId));
-  const diffComments = $derived<DiffComment[]>(tab?.diffComments ?? []);
-  const generalComment = $derived(tab?.diffGeneralComment ?? "");
+  const diffComments = $derived<DiffComment[]>(sess?.diffComments ?? []);
+  const generalComment = $derived(sess?.diffGeneralComment ?? "");
 
   let submitting = $state(false);
   let composerRef: ReturnType<typeof PromptComposer> | null = $state(null);
@@ -97,8 +97,9 @@
 
   function applyRefs(payload: PromptComposerSubmit) {
     if (!tab) return;
-    tab.input.planRefs = [...payload.planRefs];
-    tab.input.workRefs = [...payload.workRefs];
+    const prompt = session.inputFor(tab.id);
+    prompt.planRefs = [...payload.planRefs];
+    prompt.workRefs = [...payload.workRefs];
   }
 
   function handleSend(payload: PromptComposerSubmit) {

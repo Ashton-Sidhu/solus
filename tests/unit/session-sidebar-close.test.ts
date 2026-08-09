@@ -80,6 +80,37 @@ describe('session sidebar dismissal', () => {
   })
 })
 
+describe('session sidebar project dismissal', () => {
+  const taskIn = (projectKey: string, id: string, status = 'idle'): SidebarTask =>
+    ({ id, taskId: id, projectKey, status, tabIds: [`${id}-tab`] }) as SidebarTask
+
+  test('closing a project closes its tasks and leaves other projects open', () => {
+    // WHY: the heading exists only while it has rows, so closing it has to take
+    // exactly the rows under it — a project close that reached a neighbouring
+    // project would unload conversations the user never pointed at.
+    const store = sidebarStoreForDismissal()
+    store.allTasks = [taskIn('/repo', 'one'), taskIn('/other', 'two'), taskIn('/repo', 'three')]
+
+    store.closeProject('/repo')
+
+    expect(store.closedTabIds).toEqual(['one-tab', 'three-tab'])
+    expect([...(store.dismissedRowKeys as Set<string>)]).toEqual(['one', 'three'])
+  })
+
+  test('the running count only counts runs inside the project', () => {
+    // WHY: it is what decides whether the close asks first, so counting another
+    // project's run would make a quiet project prompt for nothing.
+    const store = sidebarStoreForDismissal()
+    store.allTasks = [
+      taskIn('/repo', 'one', 'running'),
+      taskIn('/repo', 'two'),
+      taskIn('/other', 'three', 'running'),
+    ]
+
+    expect(store.runningTaskCountIn('/repo')).toBe(1)
+  })
+})
+
 describe('session sidebar rename', () => {
   test('renaming a task names the task and nothing under it', async () => {
     // WHY: renaming the row in place used to carry the new title down into the

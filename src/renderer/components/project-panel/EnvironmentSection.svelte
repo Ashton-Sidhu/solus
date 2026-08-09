@@ -24,39 +24,41 @@
   } from "../../../shared/types";
 
   interface Props {
-    tabId: string;
+    /** The tab or draft whose run this section describes — see `ProjectPanel`. */
+    sourceId: string;
     active?: boolean;
     onOpenFiles?: () => void;
   }
-  let { tabId, active = true, onOpenFiles }: Props = $props();
+  let { sourceId, active = true, onOpenFiles }: Props = $props();
 
   const environmentStore = getSessionEnvironmentStore();
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
-  const sess = $derived(session.sessionFor(tabId));
-  const env = $derived(environmentStore.environmentFor(session.sessionFor(tabId)?.run));
+  const sectionRun = $derived(session.runFor(sourceId));
+  const env = $derived(environmentStore.environmentFor(sectionRun));
   const status = $derived(env.status);
   const uncommittedFileCount = $derived(
     status?.uncommittedChanges.files.length ?? 0,
   );
   const insertions = $derived(status?.uncommittedChanges.insertions ?? 0);
   const deletions = $derived(status?.uncommittedChanges.deletions ?? 0);
-  const actions = $derived(gitActionsFor(tabId, session, environmentStore));
+  const actions = $derived(gitActionsFor(sourceId, session, environmentStore));
   const currentBranch = $derived(
     status === undefined ? env.branch : (status?.branch ?? null),
   );
   const isWorktree = $derived(env.isolated);
   const branchRepoRoot = $derived(
     env.checkout?.repoRoot ??
-      sess?.run.workingDirectory ??
+      sectionRun?.workingDirectory ??
       status?.repoRoot ??
       worktreeProjectRoot(env.cwd),
   );
 
-  // The host this session was dispatched to. Local is the unmarked case — the
-  // affinity glyph is null for it, so the row only exists for remote sessions.
-  const host = $derived(serversStore.hostFor(sess?.run.serverId));
-  const hostAffinity = $derived(serversStore.affinityFor(sess?.run.serverId));
+  // The host this session was dispatched to, or a draft will dispatch to. Local
+  // is the unmarked case — the affinity glyph is null for it, so the row only
+  // exists for remote sessions.
+  const host = $derived(serversStore.hostFor(sectionRun?.serverId));
+  const hostAffinity = $derived(serversStore.affinityFor(sectionRun?.serverId));
 
   $effect(() => {
     if (!active || !env.cwd) return;

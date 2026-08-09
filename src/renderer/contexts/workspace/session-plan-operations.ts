@@ -126,12 +126,12 @@ export async function approvePlanWithModel(
   const isActive = session.status === 'running' || session.status === 'connecting'
     || session.status === 'awaiting_plan' || session.status === 'awaiting_input'
   if (isActive) {
-    await ctx.apiFor(tabId).stopTab(ctx.ctxFor(tabId))
+    await ctx.apiFor(tabId).stopSession(ctx.ctxFor(tabId).session.sessionId)
     // The planning run ends because the work is moving to the implementation
     // session, not because the reader stopped it — the approval note and the
     // session boundary below already tell that story. Writing a stop notice here
     // put "Stopped by you" across every accepted plan.
-    ctx.interruptTab(tabId, { notice: false })
+    ctx.interruptTabSession(tabId, { notice: false })
   }
 
   const providerChanged = !!opts.provider && opts.provider !== session.run.provider
@@ -151,7 +151,7 @@ export async function approvePlanWithModel(
   const shouldStartNewSession = !providerChanged
     && (opts.startNewSession !== false || !!(opts.provider && opts.modelId))
   if (shouldStartNewSession) {
-    ctx.apiFor(tabId).resetTabSession(ctx.ctxFor(tabId))
+    ctx.apiFor(tabId).resetSession(ctx.ctxFor(tabId))
     session.agentSessionId = null
     // The implementation run starts on a fresh agent session carrying only the
     // plan, so everything above this point is another session's context. Say so
@@ -179,11 +179,11 @@ export async function approvePlanWithModel(
   session.run.permissionMode = mode
 
   if (wasPreview && opts.useWorktree && !session.run.gitContext) {
-    await ctx.environment.refreshTab(ctx, { tabId, cwd: plan.cwd })
+    await ctx.environment.refreshEnvironment(ctx, { sourceId: tabId, cwd: plan.cwd })
   }
 
   if (opts.useWorktree !== undefined) {
-    session.run.worktreeBaseBranch = opts.useWorktree ? (session.run.gitContext?.targetBranch ?? null) : null
+    session.run.worktree = opts.useWorktree ? { baseBranch: session.run.gitContext?.targetBranch ?? null } : null
   }
 
   const params = new URLSearchParams({
@@ -204,11 +204,13 @@ export async function approvePlanWithModel(
     message += `\n\nNotes:\n${parts.join('\n\n')}`
   }
 
-  tab.input.planRefs = [
+  const prompt = ctx.sessionFor(tab.id)?.prompt
+  if (!prompt) return
+  prompt.planRefs = [
     { planId, sessionId: plan.sessionId, planToolUseId: plan.planToolUseId, title: plan.title, status: 'accepted' },
     ...(opts.planRefs ?? []).filter((r) => r.planId !== planId),
   ]
-  tab.input.workRefs = opts.workRefs ? [...opts.workRefs] : []
+  prompt.workRefs = opts.workRefs ? [...opts.workRefs] : []
   ctx.sendMessage(message)
   track('plan_approved', { mode })
   requestConversationScrollToBottom(tabId)
@@ -236,8 +238,8 @@ export async function rejectPlan(ctx: WorkspaceContext, planId: string, comment?
   } else {
     // Only a run that was actually cancelled was stopped. Revising a plan whose
     // run has already exited cancels nothing, so it must not claim otherwise.
-    const cancelled = await ctx.apiFor(tabId).stopTab(ctx.ctxFor(tabId))
-    ctx.interruptTab(tabId, { notice: cancelled })
+    const cancelled = await ctx.apiFor(tabId).stopSession(ctx.ctxFor(tabId).session.sessionId)
+    ctx.interruptTabSession(tabId, { notice: cancelled })
   }
 
   ctx.planStore.setStatus(planId, 'rejected')

@@ -55,11 +55,11 @@ function approvalContext() {
     router: { params: () => null, close: () => {} },
     sessionFor: () => session,
     apiFor: () => ({
-      resetTabSession: () => { resetCount++ },
-      stopTab: async () => true,
+      resetSession: () => { resetCount++ },
+      stopSession: async () => true,
     }),
-    ctxFor: () => ({}),
-    interruptTab: (_tabId: string, opts: { notice?: boolean } = {}) => { notices.push(opts.notice) },
+    ctxFor: () => ({ session: { sessionId: session.id } }),
+    interruptTabSession: (_tabId: string, opts: { notice?: boolean } = {}) => { notices.push(opts.notice) },
     settings: { update: () => {} },
     switchActiveAgent: async (provider: string, tabId: string) => {
       handoffs.push({ provider, tabId })
@@ -129,10 +129,10 @@ function revisionContext(status: Session['status']) {
     sessionFor: () => session,
     apiFor: () => ({
       respondPermission: async (_c: unknown, _q: string, optionId: string) => { calls.denied.push(optionId) },
-      stopTab: async () => { calls.stops++ },
+      stopSession: async () => { calls.stops++ },
     }),
-    ctxFor: () => ({}),
-    interruptTab: () => { calls.interrupts++ },
+    ctxFor: () => ({ session: { sessionId: session.id } }),
+    interruptTabSession: () => { calls.interrupts++ },
     setPermissionMode: (_mode: string, tabId?: string) => { calls.permissionModeTabIds.push(tabId) },
     sendMessage: (text: string, _projectPath?: string, tabId?: string) => {
       calls.prompts.push(text)

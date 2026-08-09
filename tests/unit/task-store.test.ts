@@ -69,7 +69,7 @@ describe('native task migration', () => {
 
     migrations.runMigrations(legacy as never)
 
-    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 12 })
+    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 15 })
     expect(legacy.query('SELECT COUNT(*) AS count FROM tasks').get()).toEqual({ count: 0 })
     expect(legacy.query('SELECT COUNT(*) AS count FROM task_session_links').get()).toEqual({ count: 0 })
     expect(legacy.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_cache'").get()).toBeNull()
@@ -509,5 +509,52 @@ describe('session minting and durable links', () => {
     expect((await taskSessions.taskSessions(task.id))[task.id]).toEqual([
       expect.objectContaining({ sessionId: 'bound-session', branch: 'feature/bound' }),
     ])
+  })
+
+  test('a dispatched attempt remembers the host it ran on', async () => {
+    const task = await taskStore.createTask({ title: 'Dispatched task' })
+    const bag = await tasks.Task.byId(task.id)
+    // The client is the only party that can name the execution host — this host
+    // is the task's, and it never sees the agent. Without that the attempt is
+    // indistinguishable from one that ran here, and every closed-session row
+    // reads as local.
+    await bag.linkSession('dispatched-session', 'working', {
+      execution: { serverId: 'studio', provider: 'claude', projectRoot: '/repo' },
+    })
+    await bag.linkSession('local-session', 'working', { execution: null })
+    // Re-linking carries no host — it must not erase the one already recorded.
+    await bag.linkSession('dispatched-session', 'working', {})
+
+    // Keyed rather than ordered: re-linking refreshes `linked_at`, so the list
+    // order is about recency and says nothing about the host.
+    const hostBySession = Object.fromEntries(
+      (await taskSessions.taskSessions(task.id))[task.id].map(
+        (link) => [link.sessionId, link.executionServerId],
+      ),
+    )
+    expect(hostBySession).toEqual({
+      'dispatched-session': 'studio',
+      'local-session': null,
+    })
+  })
+
+  test('the host lands on the session record, so every link to it agrees', async () => {
+    // WHY: a session worked on by two tasks has a link each. Keeping the host on
+    // the session means the second link is right without being told, and there
+    // is one row to correct rather than one per referrer.
+    const first = await taskStore.createTask({ title: 'Dispatched task' })
+    const second = await taskStore.createTask({ title: 'Task that references it' })
+    await (await tasks.Task.byId(first.id)).linkSession('shared-session', 'working', {
+      execution: { serverId: 'studio', provider: 'claude', projectRoot: '/repo' },
+    })
+    await (await tasks.Task.byId(second.id)).linkSession('shared-session', 'referenced')
+
+    const links = await taskSessions.taskSessions()
+    expect(links[second.id]).toEqual([
+      expect.objectContaining({ sessionId: 'shared-session', executionServerId: 'studio' }),
+    ])
+    // The stub session row also carries the agent, so the task's host can name
+    // it without ever holding the transcript.
+    expect(links[first.id][0].provider).toBe('claude')
   })
 })

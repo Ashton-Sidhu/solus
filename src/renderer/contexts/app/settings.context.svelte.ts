@@ -48,6 +48,7 @@ export type SettingsFields = {
   defaultEditor: EditorId | null
   defaultTerminal: TerminalAppId | null
   activeAgent: AgentId
+  defaultModels: Record<string, string>  // per-agent model for new sessions; missing → that agent's built-in default
   reviewAgent: AgentId | null     // review companion backend; null → use activeAgent
   reviewModel: string | null      // review companion model; null → backend default
   reviewReasoning: ReasoningEffort | null  // review companion reasoning effort; null → model default
@@ -74,6 +75,14 @@ export type SettingsFields = {
   runDockHeight: number
   tabGroupMode: TabGroupMode
   sidebarViewMode: SidebarViewMode
+  /**
+   * First-run onboarding has already been through, or skipped. A client that
+   * has never persisted settings is a fresh install, so the absence of the whole
+   * blob is what means "show it" — a saved blob without this key belongs to
+   * someone who was already working here before onboarding existed, and they do
+   * not get ambushed with it.
+   */
+  onboardingCompleted: boolean
 }
 
 function applyTheme(isDark: boolean): void {
@@ -194,7 +203,7 @@ function sanitizeKeybindings(value: unknown): Record<string, KeyCombo> {
 /**
  * Drop non-string values so a hand-edited/stale blob can't break dispatch.
  */
-function loadModelInstructions(value: unknown): Record<string, string> {
+function loadStringRecord(value: unknown): Record<string, string> {
   const out: Record<string, string> = {}
   if (!value || typeof value !== 'object') return out
   for (const [id, text] of Object.entries(value as Record<string, unknown>)) {
@@ -236,6 +245,7 @@ function loadSettings(): SettingsFields {
         defaultEditor: VALID_EDITORS.includes(parsed.defaultEditor) ? parsed.defaultEditor : null,
         defaultTerminal: VALID_TERMINALS.includes(parsed.defaultTerminal) ? parsed.defaultTerminal : null,
         activeAgent: VALID_AGENTS.includes(parsed.activeAgent) ? parsed.activeAgent : 'claude-code',
+        defaultModels: loadStringRecord(parsed.defaultModels),
         reviewAgent: VALID_AGENTS.includes(parsed.reviewAgent) ? parsed.reviewAgent : null,
         reviewModel: typeof parsed.reviewModel === 'string' ? parsed.reviewModel : null,
         reviewReasoning: parsed.reviewReasoning in REASONING_EFFORT_LABELS ? parsed.reviewReasoning : null,
@@ -251,7 +261,7 @@ function loadSettings(): SettingsFields {
         codeFontFamily: VALID_CODE_FONT_FAMILIES.includes(parsed.codeFontFamily) ? parsed.codeFontFamily : 'jetbrains-mono',
         codeFontSize: typeof parsed.codeFontSize === 'number' && parsed.codeFontSize >= 8 ? parsed.codeFontSize : DEFAULT_CODE_FONT_SIZE,
         extraInstructions: typeof parsed.extraInstructions === 'string' ? parsed.extraInstructions : '',
-        modelInstructions: loadModelInstructions(parsed.modelInstructions),
+        modelInstructions: loadStringRecord(parsed.modelInstructions),
         keybindings: sanitizeKeybindings(parsed.keybindings),
         analyticsEnabled: typeof parsed.analyticsEnabled === 'boolean' ? parsed.analyticsEnabled : true,
         projectPanelOpen: typeof parsed.projectPanelOpen === 'boolean' ? parsed.projectPanelOpen : false,
@@ -263,6 +273,7 @@ function loadSettings(): SettingsFields {
         runDockHeight: typeof parsed.runDockHeight === 'number' && parsed.runDockHeight >= 96 ? parsed.runDockHeight : defaultRunDockHeight(),
         tabGroupMode: ((TAB_GROUP_MODES as readonly string[]).includes(parsed.tabGroupMode) ? parsed.tabGroupMode : 'flat') as TabGroupMode,
         sidebarViewMode: ((SIDEBAR_VIEW_MODES as readonly string[]).includes(parsed.sidebarViewMode) ? parsed.sidebarViewMode : 'flat') as SidebarViewMode,
+        onboardingCompleted: typeof parsed.onboardingCompleted === 'boolean' ? parsed.onboardingCompleted : true,
       }
     }
   } catch {}
@@ -275,6 +286,7 @@ function loadSettings(): SettingsFields {
     defaultEditor: 'vim',
     defaultTerminal: 'default-terminal',
     activeAgent: 'claude-code',
+    defaultModels: {},
     reviewAgent: null,
     reviewModel: null,
     reviewReasoning: null,
@@ -301,6 +313,7 @@ function loadSettings(): SettingsFields {
     runDockHeight: defaultRunDockHeight(),
     tabGroupMode: 'flat',
     sidebarViewMode: 'flat',
+    onboardingCompleted: false,
   }
 }
 
@@ -313,6 +326,7 @@ export class SettingsContext {
   defaultEditor = $state<EditorId | null>(null)
   defaultTerminal = $state<TerminalAppId | null>(null)
   activeAgent = $state<AgentId>('claude-code')
+  defaultModels = $state<Record<string, string>>({})
   reviewAgent = $state<AgentId | null>(null)
   reviewModel = $state<string | null>(null)
   reviewReasoning = $state<ReasoningEffort | null>(null)
@@ -339,6 +353,7 @@ export class SettingsContext {
   runDockHeight = $state(defaultRunDockHeight())
   tabGroupMode = $state<TabGroupMode>('flat')
   sidebarViewMode = $state<SidebarViewMode>('flat')
+  onboardingCompleted = $state(true)
   // Seeded from the media query so 'system' paints correctly before the main
   // process answers; `setSystemTheme` takes over from there.
   private _systemIsDark = $state(globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true)
@@ -353,6 +368,7 @@ export class SettingsContext {
     this.defaultEditor = saved.defaultEditor
     this.defaultTerminal = saved.defaultTerminal
     this.activeAgent = saved.activeAgent
+    this.defaultModels = saved.defaultModels
     this.reviewAgent = saved.reviewAgent
     this.reviewModel = saved.reviewModel
     this.reviewReasoning = saved.reviewReasoning
@@ -379,6 +395,7 @@ export class SettingsContext {
     this.runDockHeight = saved.runDockHeight
     this.tabGroupMode = saved.tabGroupMode
     this.sidebarViewMode = saved.sidebarViewMode
+    this.onboardingCompleted = saved.onboardingCompleted
 
     // Must run before first paint so CSS variables resolve to the saved palette.
     applyTheme(this.isDark)
@@ -448,6 +465,7 @@ export class SettingsContext {
     if (patch.defaultEditor !== undefined) this.defaultEditor = patch.defaultEditor
     if (patch.defaultTerminal !== undefined) this.defaultTerminal = patch.defaultTerminal
     if (patch.activeAgent !== undefined) this.activeAgent = patch.activeAgent
+    if (patch.defaultModels !== undefined) this.defaultModels = patch.defaultModels
     if (patch.reviewAgent !== undefined) this.reviewAgent = patch.reviewAgent
     if (patch.reviewModel !== undefined) this.reviewModel = patch.reviewModel
     if (patch.reviewReasoning !== undefined) this.reviewReasoning = patch.reviewReasoning
@@ -495,6 +513,7 @@ export class SettingsContext {
     if (patch.runDockHeight !== undefined) this.runDockHeight = Math.max(96, patch.runDockHeight)
     if (patch.tabGroupMode !== undefined) this.tabGroupMode = patch.tabGroupMode
     if (patch.sidebarViewMode !== undefined) this.sidebarViewMode = patch.sidebarViewMode
+    if (patch.onboardingCompleted !== undefined) this.onboardingCompleted = patch.onboardingCompleted
     this.saveSettings()
   }
 
@@ -517,6 +536,7 @@ export class SettingsContext {
         defaultEditor: this.defaultEditor,
         defaultTerminal: this.defaultTerminal,
         activeAgent: this.activeAgent,
+        defaultModels: this.defaultModels,
         reviewAgent: this.reviewAgent,
         reviewModel: this.reviewModel,
         reviewReasoning: this.reviewReasoning,
@@ -543,6 +563,7 @@ export class SettingsContext {
         runDockHeight: this.runDockHeight,
         tabGroupMode: this.tabGroupMode,
         sidebarViewMode: this.sidebarViewMode,
+        onboardingCompleted: this.onboardingCompleted,
       }))
     } catch {}
   }

@@ -31,6 +31,7 @@ describe('SessionConfigController provider switching', () => {
     } as unknown as Session
     const settings = {
       activeAgent: 'codex',
+      defaultModels: {} as Record<string, string>,
       tabGroupMode: 'flat',
       update(patch: { activeAgent?: string }) {
         if (patch.activeAgent) this.activeAgent = patch.activeAgent
@@ -48,9 +49,9 @@ describe('SessionConfigController provider switching', () => {
       } as any,
       statusBar: { ctx: { workingDirectory: '/repo' } } as any,
       setPluginCommands: () => {},
-      createDraftTab: async () => 'tab-1',
-      ctx: () => ({ session: { tabId: 'tab-1' } }) as IpcContext,
-      ctxForDirectory: () => ({ session: { tabId: 'tab-1' } }) as IpcContext,
+      openSessionDraft: () => {},
+      ctx: () => ({ session: { sessionId: 'tab-1' } }) as IpcContext,
+      ctxForDirectory: () => ({ session: { sessionId: 'tab-1' } }) as IpcContext,
       apiFor: () => ({
         switchSessionAgent: async () => {
           switchCount++
@@ -64,6 +65,8 @@ describe('SessionConfigController provider switching', () => {
         },
       }) as any,
       refreshPluginCommands: () => {},
+      draftFor: () => undefined,
+      apiForRun: () => (window as any).solus,
       refreshGitRefs: () => {},
       refreshGitState: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
     })
@@ -93,6 +96,63 @@ describe('SessionConfigController provider switching', () => {
       agentChangedTo: 'Codex',
     })
   })
+
+  test('changing the default agent leaves the open session on its own provider', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const messages = [{ id: 'answer-1', role: 'assistant', content: 'Done', timestamp: 1 }]
+    const session = {
+      run: { provider: 'codex', modelConfig: {}, workingDirectory: '/repo' } as Session['run'],
+      status: 'idle',
+      agentSessionId: 'codex-session',
+      messages,
+      pluginCommands: { global: [], project: [] },
+    } as unknown as Session
+    const settings = {
+      activeAgent: 'codex',
+      defaultModels: {} as Record<string, string>,
+      tabGroupMode: 'flat',
+      update(patch: { activeAgent?: string }) {
+        if (patch.activeAgent) this.activeAgent = patch.activeAgent
+      },
+    }
+
+    let switchCount = 0
+    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const controller = new SessionConfigController({
+      settings: settings as any,
+      registry: { activeTabId: 'tab-1', activeSession: session, sessionFor: () => session } as any,
+      statusBar: { ctx: { workingDirectory: '/repo' } } as any,
+      setPluginCommands: () => {},
+      openSessionDraft: () => {},
+      ctx: () => ({ session: { sessionId: 'tab-1' } }) as IpcContext,
+      ctxForDirectory: () => ({ session: { sessionId: 'tab-1' } }) as IpcContext,
+      apiFor: () => ({ switchSessionAgent: async () => { switchCount++; return {} } }) as any,
+      refreshPluginCommands: () => {},
+      draftFor: () => undefined,
+      apiForRun: () => (window as any).solus,
+      refreshGitRefs: () => {},
+      refreshGitState: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
+    })
+
+    controller.setDefaultAgent('claude-code')
+
+    // WHY: this is a preference for the next session. Handing the open
+    // conversation to another provider is a different act, and doing it from
+    // Settings both rewrote a transcript the user was not looking at and failed
+    // outright whenever that session had no attached runtime.
+    expect(switchCount).toBe(0)
+    expect(session.run.provider).toBe('codex')
+    expect(session.agentSessionId).toBe('codex-session')
+    expect(session.handoffFrom).toBeUndefined()
+    expect(session.messages).toBe(messages)
+    expect(session.messages.at(-1)).toMatchObject({ role: 'assistant' })
+    // The default itself still moves, models included.
+    expect(settings.activeAgent).toBe('claude-code')
+    expect(controller.globalDefaults.modelConfig.modelId).toBe('claude-opus-5')
+  })
 })
 
 describe('SessionConfigController worktree selection', () => {
@@ -110,7 +170,7 @@ describe('SessionConfigController worktree selection', () => {
           targetBranch: 'main',
           worktreePath: '/repo/.solus-worktrees/current',
         },
-        worktreeBaseBranch: null,
+        worktree: null,
       } as Session['run'],
       agentSessionId: null,
       pluginCommands: { global: [], project: [] },
@@ -118,7 +178,7 @@ describe('SessionConfigController worktree selection', () => {
     const refreshedPluginDirectories: string[] = []
     const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
     const controller = new SessionConfigController({
-      settings: { activeAgent: 'codex', tabGroupMode: 'flat', worktreeEnabled: false } as any,
+      settings: { activeAgent: 'codex', defaultModels: {}, tabGroupMode: 'flat', worktreeEnabled: false } as any,
       registry: {
         activeTabId: 'draft-tab',
         activeSession: session,
@@ -126,10 +186,12 @@ describe('SessionConfigController worktree selection', () => {
       } as any,
       statusBar: { ctx: { workingDirectory: session.run.workingDirectory } } as any,
       setPluginCommands: () => {},
-      createDraftTab: async () => 'draft-tab',
-      ctx: () => ({ session: { tabId: 'draft-tab' } }) as IpcContext,
-      ctxForDirectory: () => ({ session: { tabId: 'draft-tab' } }) as IpcContext,
+      openSessionDraft: () => {},
+      ctx: () => ({ session: { sessionId: 'draft-tab' } }) as IpcContext,
+      ctxForDirectory: () => ({ session: { sessionId: 'draft-tab' } }) as IpcContext,
       refreshPluginCommands: (cwd) => refreshedPluginDirectories.push(cwd),
+      draftFor: () => undefined,
+      apiForRun: () => (window as any).solus,
       refreshGitRefs: () => {},
       refreshGitState: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
     })
@@ -140,7 +202,7 @@ describe('SessionConfigController worktree selection', () => {
     // draft into the project-root shape expected by the existing creation path.
     expect(session.run.workingDirectory).toBe('/repo')
     expect(session.run.gitContext).toEqual({ repoRoot: '/repo', branch: 'main', targetBranch: 'main' })
-    expect(session.run.worktreeBaseBranch).toBe('main')
+    expect(session.run.worktree).toEqual({ baseBranch: 'main' })
     expect(refreshedPluginDirectories).toEqual(['/repo'])
   })
 
@@ -158,20 +220,22 @@ describe('SessionConfigController worktree selection', () => {
           targetBranch: 'main',
           worktreePath: '/repo/.solus-worktrees/current',
         },
-        worktreeBaseBranch: null,
+        worktree: null,
       } as Session['run'],
       agentSessionId: 'live-session',
     } as unknown as Session
     const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
     const controller = new SessionConfigController({
-      settings: { activeAgent: 'codex', tabGroupMode: 'flat', worktreeEnabled: false } as any,
+      settings: { activeAgent: 'codex', defaultModels: {}, tabGroupMode: 'flat', worktreeEnabled: false } as any,
       registry: { activeTabId: 'live-tab', activeSession: session, sessionFor: () => session } as any,
       statusBar: { ctx: { workingDirectory: session.run.workingDirectory } } as any,
       setPluginCommands: () => {},
-      createDraftTab: async () => 'live-tab',
-      ctx: () => ({ session: { tabId: 'live-tab' } }) as IpcContext,
-      ctxForDirectory: () => ({ session: { tabId: 'live-tab' } }) as IpcContext,
+      openSessionDraft: () => {},
+      ctx: () => ({ session: { sessionId: 'live-tab' } }) as IpcContext,
+      ctxForDirectory: () => ({ session: { sessionId: 'live-tab' } }) as IpcContext,
       refreshPluginCommands: () => {},
+      draftFor: () => undefined,
+      apiForRun: () => (window as any).solus,
       refreshGitRefs: () => {},
       refreshGitState: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
     })
@@ -180,12 +244,12 @@ describe('SessionConfigController worktree selection', () => {
 
     expect(session.run.workingDirectory).toBe('/repo/.solus-worktrees/current')
     expect(session.run.gitContext?.worktreePath).toBe('/repo/.solus-worktrees/current')
-    expect(session.run.worktreeBaseBranch).toBeNull()
+    expect(session.run.worktree).toBeNull()
   })
 })
 
 describe('SessionConfigController branch switching', () => {
-  test('preserves a started session and switches the new active tab to the selected worktree', async () => {
+  test('leaves a started session alone and opens a draft in the selected worktree', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,
       { snapshot: <T>(value: T) => value },
@@ -194,7 +258,7 @@ describe('SessionConfigController branch switching', () => {
       run: {
         workingDirectory: '/repo',
         gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
-        worktreeBaseBranch: null,
+        worktree: null,
       } as Session['run'],
       agentSessionId: 'session-1',
       pluginCommands: { global: [], project: [] },
@@ -203,7 +267,7 @@ describe('SessionConfigController branch switching', () => {
       run: {
         workingDirectory: '/repo',
         gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
-        worktreeBaseBranch: null,
+        worktree: null,
       } as Session['run'],
       agentSessionId: null,
       pluginCommands: { global: [], project: [] },
@@ -215,7 +279,8 @@ describe('SessionConfigController branch switching', () => {
         return tabId === 'tab-1' ? originalSession : destinationSession
       },
     }
-    const resetTabIds: string[] = []
+    const resetSessionIds: string[] = []
+    let draftedCwd: string | undefined
     Object.defineProperty(globalThis, 'window', {
       configurable: true,
       writable: true,
@@ -223,8 +288,8 @@ describe('SessionConfigController branch switching', () => {
         matchMedia: () => ({ matches: false, addEventListener: () => {} }),
         dispatchEvent: () => true,
         solus: {
-          resetTabSession: async (ctx: IpcContext) => {
-            resetTabIds.push(ctx.session.tabId)
+          resetSession: async (ctx: IpcContext) => {
+            resetSessionIds.push(ctx.session.sessionId)
           },
           worktreeRestore: async () => ({
             repoRoot: '/repo',
@@ -238,40 +303,38 @@ describe('SessionConfigController branch switching', () => {
 
     const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
     const controller = new SessionConfigController({
-      settings: { activeAgent: 'codex', tabGroupMode: 'flat' } as any,
+      settings: { activeAgent: 'codex', defaultModels: {}, tabGroupMode: 'flat' } as any,
       registry: registry as any,
       statusBar: { ctx: { workingDirectory: '/repo' } } as any,
       setPluginCommands: () => {},
-      createDraftTab: async () => {
-        registry.activeTabId = 'tab-2'
-        registry.activeSession = destinationSession
-        return 'tab-2'
+      openSessionDraft: (cwd) => {
+        draftedCwd = cwd
       },
       ctx: (tabId) => ({
         session: {
-          tabId: tabId ?? registry.activeTabId,
+          sessionId: registry.activeSession.id,
           workingDirectory: registry.activeSession.run.workingDirectory,
           gitContext: registry.activeSession.run.gitContext,
         },
       }) as IpcContext,
-      ctxForDirectory: () => ({ session: { tabId: registry.activeTabId } }) as IpcContext,
+      ctxForDirectory: () => ({ session: { sessionId: registry.activeTabId } }) as IpcContext,
       refreshPluginCommands: () => {},
+      draftFor: () => undefined,
+      apiForRun: () => (window as any).solus,
       refreshGitRefs: () => {},
       refreshGitState: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
     })
 
     await controller.switchToWorktree('/repo/.solus-worktrees/feature')
 
-    expect(registry.activeTabId).toBe('tab-2')
+    // WHY: entering a worktree is a new piece of work. A conversation already
+    // under way must not be retargeted beneath the user, and nothing is created
+    // to hold the new one until it is actually sent.
+    expect(draftedCwd).toBe('/repo/.solus-worktrees/feature')
     expect(originalSession.agentSessionId).toBe('session-1')
     expect(originalSession.run.gitContext?.branch).toBe('main')
-    expect(destinationSession.run.gitContext).toEqual({
-      repoRoot: '/repo',
-      branch: 'feature',
-      targetBranch: 'main',
-      worktreePath: '/repo/.solus-worktrees/feature',
-    })
-    expect(resetTabIds).toEqual(['tab-2'])
+    expect(destinationSession.run.gitContext?.branch).toBe('main')
+    expect(resetSessionIds).toEqual([])
   })
 
   test('toasts a rejected checkout and does not reset the tab first', async () => {
@@ -288,7 +351,7 @@ describe('SessionConfigController branch switching', () => {
         dispatchEvent: () => true,
         solus: {
           gitCheckoutBranch: async () => { throw new Error('transport disconnected') },
-          resetTabSession: async () => { resetCalls++ },
+          resetSession: async () => { resetCalls++ },
         },
       },
     })
@@ -307,17 +370,19 @@ describe('SessionConfigController branch switching', () => {
         agentSessionId: null,
         sessionChangedFiles: [],
       } as unknown as Session
-      const ctx = () => ({ session: { tabId: 'tab-1', workingDirectory: session.run.workingDirectory, gitContext: session.run.gitContext } }) as IpcContext
+      const ctx = () => ({ session: { sessionId: 'tab-1', workingDirectory: session.run.workingDirectory, gitContext: session.run.gitContext } }) as IpcContext
       const controller = new SessionConfigController({
-        settings: { activeAgent: 'codex', tabGroupMode: 'flat' } as any,
+        settings: { activeAgent: 'codex', defaultModels: {}, tabGroupMode: 'flat' } as any,
         registry: { activeSession: session, activeTabId: 'tab-1' } as any,
         statusBar: { ctx: { workingDirectory: '/repo' } } as any,
         setPluginCommands: () => {},
-        createDraftTab: async () => 'tab-1',
+        openSessionDraft: () => {},
         ctx,
         ctxForDirectory: ctx,
         refreshPluginCommands: () => {},
-        refreshGitRefs: () => {},
+        draftFor: () => undefined,
+      apiForRun: () => (window as any).solus,
+      refreshGitRefs: () => {},
         refreshGitState: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
       })
 
@@ -349,7 +414,7 @@ describe('SessionConfigController session start target', () => {
         matchMedia: () => ({ matches: false, addEventListener: () => {} }),
         dispatchEvent: () => true,
         solus: {
-          resetTabSession: async () => {},
+          resetSession: async () => {},
           worktreeRestore: async () => restored,
         },
       },
@@ -360,7 +425,7 @@ describe('SessionConfigController session start target', () => {
       run: {
         workingDirectory: '/repo',
         gitContext: null,
-        worktreeBaseBranch: null,
+        worktree: null,
       } as Session['run'],
       agentSessionId: null,
       pluginCommands: { global: [], project: [] },
@@ -373,19 +438,18 @@ describe('SessionConfigController session start target', () => {
     }
     let createdCwd: string | undefined
     const controller = new SessionConfigController({
-      settings: { activeAgent: 'codex', tabGroupMode: 'flat', worktreeEnabled: false } as any,
+      settings: { activeAgent: 'codex', defaultModels: {}, tabGroupMode: 'flat', worktreeEnabled: false } as any,
       registry: registry as any,
       statusBar: { ctx: { workingDirectory: '/repo' } } as any,
       setPluginCommands: () => {},
-      createDraftTab: async (cwd) => {
+      openSessionDraft: (cwd) => {
         createdCwd = cwd
-        registry.activeSession = session
-        registry.activeTabId = 'new-tab'
-        return 'new-tab'
       },
-      ctx: () => ({ session: { tabId: registry.activeTabId } }) as IpcContext,
-      ctxForDirectory: () => ({ session: { tabId: registry.activeTabId } }) as IpcContext,
+      ctx: () => ({ session: { sessionId: registry.activeTabId } }) as IpcContext,
+      ctxForDirectory: () => ({ session: { sessionId: registry.activeTabId } }) as IpcContext,
       refreshPluginCommands: () => {},
+      draftFor: () => undefined,
+      apiForRun: () => (window as any).solus,
       refreshGitRefs: () => {},
       refreshGitState: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
     })
@@ -393,13 +457,11 @@ describe('SessionConfigController session start target', () => {
     await controller.switchToWorktree(restored.worktreePath)
 
     // WHY: Pill mode can show the home without any tabs. Choosing an existing
-    // worktree must establish a real composer context rather than leaving the
-    // user on the generic "new session" home with only global defaults changed.
-    expect(createdCwd).toBe('/repo')
-    expect(registry.activeTabId).toBe('new-tab')
-    expect(session.run.workingDirectory).toBe('/repo')
-    expect(session.run.gitContext).toEqual(restored)
-    expect(session.run.worktreeBaseBranch).toBeNull()
+    // worktree must point the next session at that checkout rather than leaving
+    // the user on a generic home with only global defaults changed — and it
+    // does so without creating a session nobody has written a prompt for yet.
+    expect(createdCwd).toBe(restored.worktreePath)
+    expect(session.run.gitContext).toBeNull()
   })
 
   test('opens a draft composer when a project is selected from the tab-less home', async () => {
@@ -420,17 +482,18 @@ describe('SessionConfigController session start target', () => {
     const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
     let createdCwd: string | undefined
     const controller = new SessionConfigController({
-      settings: { activeAgent: 'codex', tabGroupMode: 'flat', worktreeEnabled: false } as any,
+      settings: { activeAgent: 'codex', defaultModels: {}, tabGroupMode: 'flat', worktreeEnabled: false } as any,
       registry: { activeSession: undefined, activeTabId: '', tabOrder: [], sessionFor: () => undefined } as any,
       statusBar: { ctx: { workingDirectory: '/workspace' } } as any,
       setPluginCommands: () => {},
-      createDraftTab: async (cwd) => {
+      openSessionDraft: (cwd) => {
         createdCwd = cwd
-        return 'new-tab'
       },
-      ctx: () => ({ session: { tabId: '' } }) as IpcContext,
-      ctxForDirectory: () => ({ session: { tabId: '' } }) as IpcContext,
+      ctx: () => ({ session: { sessionId: '' } }) as IpcContext,
+      ctxForDirectory: () => ({ session: { sessionId: '' } }) as IpcContext,
       refreshPluginCommands: () => {},
+      draftFor: () => undefined,
+      apiForRun: () => (window as any).solus,
       refreshGitRefs: () => {},
       refreshGitState: async () => {
         throw new Error('tab creation owns Git initialization')
@@ -454,7 +517,7 @@ describe('SessionConfigController session start target', () => {
         matchMedia: () => ({ matches: false, addEventListener: () => {} }),
         dispatchEvent: () => true,
         solus: {
-          resetTabSession: async () => {},
+          resetSession: async () => {},
           trackRecentProject: async () => {},
         },
       },
@@ -465,7 +528,7 @@ describe('SessionConfigController session start target', () => {
       run: {
         workingDirectory: '/old-project',
         gitContext: { repoRoot: '/old-project', branch: 'main', targetBranch: 'main' },
-        worktreeBaseBranch: null,
+        worktree: null,
         provider: null,
       } as Session['run'],
       agentSessionId: null,
@@ -477,7 +540,7 @@ describe('SessionConfigController session start target', () => {
     let resolveRefresh!: () => void
     const refresh = new Promise<void>((resolve) => { resolveRefresh = resolve })
     const controller = new SessionConfigController({
-      settings: { activeAgent: 'codex', tabGroupMode: 'flat', worktreeEnabled: true } as any,
+      settings: { activeAgent: 'codex', defaultModels: {}, tabGroupMode: 'flat', worktreeEnabled: true } as any,
       registry: {
         activeSession: session,
         activeTabId: 'tab-1',
@@ -486,16 +549,18 @@ describe('SessionConfigController session start target', () => {
       } as any,
       statusBar: { ctx: { workingDirectory: '/old-project' } } as any,
       setPluginCommands: () => {},
-      createDraftTab: async () => 'tab-1',
-      ctx: () => ({ session: { tabId: 'tab-1' } }) as IpcContext,
-      ctxForDirectory: () => ({ session: { tabId: 'tab-1' } }) as IpcContext,
+      openSessionDraft: () => {},
+      ctx: () => ({ session: { sessionId: 'tab-1' } }) as IpcContext,
+      ctxForDirectory: () => ({ session: { sessionId: 'tab-1' } }) as IpcContext,
       refreshPluginCommands: () => {},
+      draftFor: () => undefined,
+      apiForRun: () => (window as any).solus,
       refreshGitRefs: () => {},
       refreshGitState: async (options) => {
-        expect(options).toEqual({ tabId: 'tab-1', cwd: '/new-project', worktreeRequested: true })
+        expect(options).toEqual({ sourceId: 'tab-1', cwd: '/new-project', worktreeRequested: true })
         await refresh
         session.run.gitContext = { repoRoot: '/new-project', branch: 'main', targetBranch: 'main' }
-        session.run.worktreeBaseBranch = 'main'
+        session.run.worktree = { baseBranch: 'main' }
         return { status: true, details: true, refs: true, registration: true, ok: true }
       },
     })
@@ -514,6 +579,6 @@ describe('SessionConfigController session start target', () => {
 
     expect(controller.pendingSessionStartTarget('tab-1')).toBeNull()
     expect(session.run.gitContext?.repoRoot).toBe('/new-project')
-    expect(session.run.worktreeBaseBranch).toBe('main')
+    expect(session.run.worktree).toEqual({ baseBranch: 'main' })
   })
 })

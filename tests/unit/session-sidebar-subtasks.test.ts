@@ -31,6 +31,7 @@ describe('session sidebar subtask rows', () => {
         tasks: [root, subtask],
         byParent: new Map([[root.id, [subtask]]]),
         sessionsByTask: new Map(),
+        hostFor: () => null,
       },
     }
     store.visibleTabIds = []
@@ -82,7 +83,40 @@ describe('session sidebar subtask rows', () => {
     const resolve = (session: unknown) =>
       (store as unknown as { pendingTaskFor(session: unknown): Task | undefined }).pendingTaskFor(session)
 
-    expect(resolve({ pendingTaskId: null, pendingParentTaskId: root.id })).toBe(root)
-    expect(resolve({ pendingTaskId: null, pendingParentTaskId: null })).toBeUndefined()
+    expect(resolve({ task: { kind: 'new', parentTaskId: root.id } })).toBe(root)
+    expect(resolve({ task: { kind: 'new' } })).toBeUndefined()
+  })
+
+  test('a closed attempt reports the host it ran on, not the reader', () => {
+    // WHY: the row states a machine unconditionally, so with no tab to ask it
+    // used to assert "this machine" for every closed attempt — including a
+    // session dispatched to another host, which is the one case where the mark
+    // is the only thing that could have told you.
+    const root = task('root', 'Ship the release')
+    const store = Object.create(SessionSidebarStore.prototype) as SessionSidebarStore & Record<string, unknown>
+    store.session = {
+      tasksStore: {
+        tasks: [root],
+        byParent: new Map(),
+        sessionsByTask: new Map([[root.id, [
+          { taskId: root.id, sessionId: 'dispatched', sessionTitle: 'On Studio', provider: 'claude', lastActivityAt: 2, executionServerId: 'studio', linkedAt: 2 },
+          { taskId: root.id, sessionId: 'here', sessionTitle: 'At home', provider: 'claude', lastActivityAt: 1, executionServerId: null, linkedAt: 1 },
+        ]]]),
+        // The task's own host answers for a link that recorded none: not a
+        // dispatch means it ran wherever the task lives.
+        hostFor: () => 'workshop',
+      },
+    }
+    store.visibleTabIds = []
+    store.pendingTabByTaskId = new Map()
+    store.dismissedRowKeys = new Set()
+    store.tabIdBySessionId = new Map()
+    store.sessionsByTaskId = new Map()
+
+    const rows = store.sessionsFor({ id: root.id, taskId: root.id, tabIds: [] } as unknown as SidebarTask)
+    expect(rows.map((row) => [row.sessionId, row.serverId])).toEqual([
+      ['here', 'workshop'],
+      ['dispatched', 'studio'],
+    ])
   })
 })

@@ -34,34 +34,6 @@ afterAll(() => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
-const GRACE_MS = 5 * 60_000
-
-class ManualTimers {
-  timers: Array<{ callback: () => void; delay: number; cleared: boolean; unref(): void }> = []
-
-  setTimeout = ((callback: () => void, delay?: number) => {
-    const timer = {
-      callback,
-      delay: delay ?? 0,
-      cleared: false,
-      unref() {},
-    }
-    this.timers.push(timer)
-    return timer
-  }) as unknown as typeof setTimeout
-
-  clearTimeout = ((timer: { cleared?: boolean }) => {
-    timer.cleared = true
-  }) as unknown as typeof clearTimeout
-
-  runNext(): void {
-    const timer = this.timers.find((t) => !t.cleared)
-    if (!timer) return
-    timer.cleared = true
-    timer.callback()
-  }
-}
-
 class FakePermissions implements PermissionResponder {
   getPendingInfo(): undefined { return undefined }
   respondToPermission(): boolean { return false }
@@ -81,6 +53,8 @@ class FakeBackend extends EventEmitter implements AgentBackend {
   steeredOptions: Array<Pick<PromptOptions, 'prompt' | 'imageAttachments'>> = []
   steerResult: 'accepted' | 'not-active' = 'accepted'
   onSteer: (() => void) | null = null
+  /** When set, the next run dies before session_init instead of issuing one. */
+  failNextRun: Error | null = null
   private nextSession = 1
   private handles = new Map<string, RunHandle>()
   private pendingHandles = new Set<RunHandle>()
@@ -108,7 +82,7 @@ class FakeBackend extends EventEmitter implements AgentBackend {
       rejectRun = reject
     })
     const handle: RunHandle = {
-      sessionId: input.sessionId ?? null,
+      agentSessionId: input.sessionId ?? null,
       persistence: input.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,
@@ -126,7 +100,17 @@ class FakeBackend extends EventEmitter implements AgentBackend {
     }, { once: true })
     queueMicrotask(() => {
       if (handle.abortController.signal.aborted) return
-      handle.sessionId = sessionId
+      const failure = this.failNextRun
+      if (failure) {
+        this.failNextRun = null
+        // As the real backends do: the handle stays pending — only a
+        // session_init that never arrives promotes it out — and the run itself
+        // rejects alongside the error event.
+        this.emit('error', null, failure)
+        handle._rejectRun(failure)
+        return
+      }
+      handle.agentSessionId = sessionId
       this.pendingHandles.delete(handle)
       this.handles.set(sessionId, handle)
       this.running.add(sessionId)
@@ -200,6 +184,8 @@ class FakeBackend extends EventEmitter implements AgentBackend {
   async refreshPluginCommands() {}
 }
 
+type EmitTarget = { only?: string; except?: string } | undefined
+
 function setup(options: {
   backendIds?: AgentId[]
   buildHandoff?: (
@@ -208,20 +194,27 @@ function setup(options: {
     deps: BuildHandoffDeps,
   ) => Promise<BuiltHandoff>
 } = {}) {
-  let now = 0
-  const timers = new ManualTimers()
   const backends = (options.backendIds ?? ['codex']).map((id) => new FakeBackend(id))
   const backend = backends[0]
   const controlPlane = new ControlPlane(new Map(backends.map((entry) => [entry.id, entry])), {
-    tabDisconnectGraceMs: GRACE_MS,
-    now: () => now,
-    setTimeout: timers.setTimeout,
-    clearTimeout: timers.clearTimeout,
     buildHandoff: options.buildHandoff,
   })
-  const events: Array<{ tabId: string; event: NormalizedEvent }> = []
-  controlPlane.on('event', (tabId: string, event: NormalizedEvent) => {
-    events.push({ tabId, event })
+  // The routing layer publishes to `clientsWatching` minus/only the named
+  // client; recording it here is what lets a test assert fan-out by client.
+  const events: Array<{ sessionId: string; event: NormalizedEvent; clients: string[] }> = []
+  controlPlane.on('event', (sessionId: string, event: NormalizedEvent, to: EmitTarget) => {
+    let clients = [...controlPlane.clientsWatching(sessionId)]
+    if (to?.only) clients = clients.filter((clientId) => clientId === to.only)
+    if (to?.except) clients = clients.filter((clientId) => clientId !== to.except)
+    events.push({ sessionId, event, clients })
+  })
+  const errors: Array<{ sessionId: string; error: { message: string } }> = []
+  controlPlane.on('error', (sessionId: string, error: { message: string }) => {
+    errors.push({ sessionId, error })
+  })
+  const statuses: Array<{ sessionId: string; status: SessionStatus }> = []
+  controlPlane.on('session-status', (event: { sessionId: string; status: SessionStatus }) => {
+    statuses.push(event)
   })
 
   function seedSession(
@@ -237,19 +230,30 @@ function setup(options: {
     sessionBackend.running.add(sessionId)
     const session: BackendSession = {
       sessionId,
+      agentSessionId: sessionId,
       backendId: sessionBackend.id,
       status: options.status ?? 'running',
       pendingInputEvents: [],
       runInput: options.runInput,
-      lastActivityAt: now,
+      lastActivityAt: Date.now(),
       promptCount: 1,
     }
-    ;(controlPlane as unknown as { activeSessions: Map<string, BackendSession> }).activeSessions.set(sessionId, session)
+    const internals = controlPlane as unknown as {
+      activeSessions: Map<string, BackendSession>
+      agentSessionToSession: Map<string, string>
+    }
+    internals.activeSessions.set(sessionId, session)
+    // A live session always has its provider thread translatable — session_init
+    // and dispatch both write this — so a seeded one must too, or every seam
+    // that resolves by provider id would silently mint a second session.
+    internals.agentSessionToSession.set(sessionId, sessionId)
   }
 
-  function registerWatch(tabId: string, clientId: string, deviceId: string, sessionId: string): void {
-    controlPlane.createTab(tabId, { clientId, deviceId })
-    controlPlane.bindRuntimeSession(tabId, sessionId, { clientId, deviceId })
+  /** What a client does on open: resolve the session, then attach to its runtime. */
+  function registerWatch(clientId: string, agentSessionId: string): string {
+    const { sessionId } = controlPlane.watchSession({ agentSessionId }, clientId)
+    controlPlane.bindRuntimeSession(promptContext(backend.id, agentSessionId, sessionId), clientId)
+    return sessionId
   }
 
   function emitAssistant(sessionId: string, text: string): void {
@@ -261,7 +265,8 @@ function setup(options: {
     backends,
     controlPlane,
     events,
-    timers,
+    errors,
+    statuses,
     seedSession,
     registerWatch,
     emitAssistant,
@@ -271,7 +276,6 @@ function setup(options: {
       }).activeRunRequests
       activeRuns.set(sessionId, { input: { rateLimitBehavior }, options: {} })
     },
-    advanceTo: (value: number) => { now = value },
   }
 }
 
@@ -303,10 +307,10 @@ function sampleRunInput(provider: AgentId, agentSessionId: string | null): Sessi
   }
 }
 
-function promptContext(tabId: string, provider: AgentId, agentSessionId: string): IpcContext {
+function promptContext(provider: AgentId, agentSessionId: string, sessionId = agentSessionId): IpcContext {
   return {
     session: {
-      tabId,
+      sessionId,
       provider,
       agentSessionId,
       status: 'completed',
@@ -346,7 +350,7 @@ describe('ControlPlane subagent text routing', () => {
     const env = setup()
     planes.push(env.controlPlane)
     env.seedSession('session-1')
-    env.registerWatch('tab-1', 'ws:a', 'device-1', 'session-1')
+    const sessionUnderTest = env.registerWatch('ws:a', 'session-1')
     env.events.splice(0, env.events.length)
 
     env.backend.emit('normalized', 'session-1', {
@@ -356,12 +360,13 @@ describe('ControlPlane subagent text routing', () => {
     } satisfies NormalizedEvent)
 
     expect(env.events).toEqual([{
-      tabId: 'tab-1',
+      sessionId: sessionUnderTest,
       event: {
         type: 'text_chunk',
         text: 'Child report',
         parentToolUseId: 'subagent-tool-1',
       },
+      clients: ['ws:a'],
     }])
   })
 })
@@ -397,7 +402,7 @@ describe('ControlPlane headless sessions', () => {
     }
   })
 
-  test('starts a headless session without creating tab-scoped state', async () => {
+  test('starts a headless session without creating client-scoped state', async () => {
     const env = setup()
     planes.push(env.controlPlane)
 
@@ -414,7 +419,7 @@ describe('ControlPlane headless sessions', () => {
     expect('tabId' in (env.backend.lastInput ?? {})).toBe(false)
     const internals = env.controlPlane as unknown as {
       activeSessions: Map<string, BackendSession>
-      tabWatchKeys: Map<string, string>
+      gitWatchKeys: Map<string, string>
     }
     expect(internals.activeSessions.get(result.agentSessionId)?.runInput).toMatchObject({
       provider: 'codex',
@@ -427,10 +432,10 @@ describe('ControlPlane headless sessions', () => {
       cwd: process.cwd(),
       persistence: 'session',
     })
-    expect(internals.tabWatchKeys.size).toBe(0)
+    expect(internals.gitWatchKeys.size).toBe(0)
   })
 
-  test('resumes an explicit session target without tab routing state', async () => {
+  test('resumes an explicit session target without client-scoped state', async () => {
     const env = setup()
     planes.push(env.controlPlane)
     const input: SessionRunInput = {
@@ -456,6 +461,7 @@ describe('ControlPlane headless sessions', () => {
     const lifecycle = await env.controlPlane.runTurn({
       input,
       target: { kind: 'session', sessionId: 'cold-session' },
+      sessionId: 'cold-session',
       tools: [],
       options: {
         prompt: 'Continue in the background',
@@ -475,8 +481,8 @@ describe('ControlPlane headless sessions', () => {
       persistence: 'session',
     })
     expect(env.backend.lastInput?.tools.map((tool) => tool.name)).toEqual(['claude_subagent'])
-    const tabWatchKeys = (env.controlPlane as unknown as { tabWatchKeys: Map<string, string> }).tabWatchKeys
-    expect(tabWatchKeys.size).toBe(0)
+    const gitWatchKeys = (env.controlPlane as unknown as { gitWatchKeys: Map<string, string> }).gitWatchKeys
+    expect(gitWatchKeys.size).toBe(0)
   })
 
   test('runs an automation without minting a task while keeping task tools available to the agent', async () => {
@@ -530,6 +536,7 @@ describe('ControlPlane headless sessions', () => {
     const first = await env.controlPlane.runTurn({
       input,
       target: { kind: 'session', sessionId: 'session-files' },
+      sessionId: 'session-files',
       tools: [],
       options: { prompt: 'First turn' },
     })
@@ -544,6 +551,7 @@ describe('ControlPlane headless sessions', () => {
     await env.controlPlane.runTurn({
       input: { ...input, sessionChangedFiles: [] },
       target: { kind: 'session', sessionId: 'session-files' },
+      sessionId: 'session-files',
       tools: [],
       options: { prompt: 'Second turn' },
     })
@@ -579,6 +587,7 @@ describe('ControlPlane headless sessions', () => {
     const lifecycle = await env.controlPlane.runTurn({
       input,
       target: { kind: 'session', sessionId: 'busy-session' },
+      sessionId: 'busy-session',
       tools: [],
       options: { prompt: 'Queue me', delivery: 'queue' },
     })
@@ -614,22 +623,25 @@ describe('ControlPlane headless sessions', () => {
       rateLimitBehavior: 'queue',
       extraInstructions: '',
     }
+    const sessionId = crypto.randomUUID()
     const active = await env.controlPlane.runTurn({
       input,
       target: { kind: 'new-session' },
+      sessionId,
       tools: [],
       options: { prompt: 'Start working' },
     })
     const { agentSessionId } = await active.agentSessionId
-    env.registerWatch('tab-a', 'ws:a', 'device-a', agentSessionId)
-    env.registerWatch('tab-b', 'ws:b', 'device-b', agentSessionId)
+    env.registerWatch('ws:a', agentSessionId)
+    env.registerWatch('ws:b', agentSessionId)
     env.events.length = 0
 
     const steered = await env.controlPlane.runTurn({
       input: { ...input, agentSessionId },
-      target: { kind: 'session', sessionId: agentSessionId },
+      target: { kind: 'session', sessionId },
+      sessionId,
       tools: [],
-      sourceTabId: 'tab-a',
+      sourceClientId: 'ws:a',
       options: { prompt: 'Change direction', imageAttachments: [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,aW1hZ2U=' }] },
     })
 
@@ -639,24 +651,18 @@ describe('ControlPlane headless sessions', () => {
       prompt: 'Change direction',
       imageAttachments: [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,aW1hZ2U=' }],
     }])
+    // A steer's echo is one publish reaching both watching clients — not one
+    // publish each.
     expect(env.events.filter(({ event }) => event.type === 'user_message')).toEqual([
       {
-        tabId: 'tab-a',
+        sessionId,
         event: {
           type: 'user_message',
           text: 'Change direction',
           delivery: 'steer',
           imageAttachments: [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,aW1hZ2U=' }],
         },
-      },
-      {
-        tabId: 'tab-b',
-        event: {
-          type: 'user_message',
-          text: 'Change direction',
-          delivery: 'steer',
-          imageAttachments: [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,aW1hZ2U=' }],
-        },
+        clients: ['ws:a', 'ws:b'],
       },
     ])
 
@@ -687,9 +693,11 @@ describe('ControlPlane headless sessions', () => {
       rateLimitBehavior: 'queue',
       extraInstructions: '',
     }
+    const sessionId = crypto.randomUUID()
     const active = await env.controlPlane.runTurn({
       input,
       target: { kind: 'new-session' },
+      sessionId,
       tools: [],
       options: { prompt: 'Start working' },
     })
@@ -699,7 +707,8 @@ describe('ControlPlane headless sessions', () => {
 
     const followUp = await env.controlPlane.runTurn({
       input: { ...input, agentSessionId },
-      target: { kind: 'session', sessionId: agentSessionId },
+      target: { kind: 'session', sessionId },
+      sessionId,
       tools: [],
       options: { prompt: 'Follow up at the boundary' },
     })
@@ -734,6 +743,7 @@ describe('ControlPlane headless sessions', () => {
     const lifecycle = await env.controlPlane.runTurn({
       input,
       target: { kind: 'new-session' },
+      sessionId: crypto.randomUUID(),
       tools: [],
       options: { prompt: 'Cancel before init' },
     })
@@ -765,22 +775,22 @@ describe('ControlPlane provider handoff', () => {
         status: 'completed',
         runInput: sampleRunInput(originalProvider, originalSessionId),
       })
-      env.registerWatch('tab-a', 'ws:a', 'device-1', originalSessionId)
+      const sessionUnderTest = env.registerWatch('ws:a', originalSessionId)
 
-      await env.controlPlane.switchSessionProvider('tab-a', temporaryProvider)
-      await expect(env.controlPlane.switchSessionProvider('tab-a', originalProvider)).resolves.toMatchObject({
+      await env.controlPlane.switchSessionProvider(sessionUnderTest, temporaryProvider)
+      await expect(env.controlPlane.switchSessionProvider(sessionUnderTest, originalProvider)).resolves.toMatchObject({
         fromProvider: temporaryProvider,
         fromSessionId: originalSessionId,
         restoredSessionId: originalSessionId,
       })
 
-      const tab = (env.controlPlane as unknown as {
-        tabs: Map<string, { provider: AgentId; sessionId: string | null }>
-      }).tabs.get('tab-a')
-      expect(tab).toMatchObject({ provider: originalProvider, sessionId: originalSessionId })
+      const restored = (env.controlPlane as unknown as {
+        activeSessions: Map<string, BackendSession>
+      }).activeSessions.get(originalSessionId)
+      expect(restored).toMatchObject({ backendId: originalProvider, agentSessionId: originalSessionId })
 
       await env.controlPlane.submitPrompt(
-        promptContext('tab-a', originalProvider, originalSessionId),
+        promptContext(originalProvider, originalSessionId),
         { prompt: 'Keep going' },
       )
 
@@ -789,6 +799,50 @@ describe('ControlPlane provider handoff', () => {
       expect(originalBackend.lastInput?.sessionId).toBe(originalSessionId)
     })
   }
+
+  test('switches an idle session that has no runtime record, using the thread the client holds', async () => {
+    const buildCalls: string[] = []
+    const env = setup({
+      backendIds: ['codex', 'claude-code'],
+      buildHandoff: async (sessionId) => {
+        buildCalls.push(sessionId)
+        return {
+          transcriptFilePath: '/tmp/solus-handoffs/detached-session-transcript.md',
+          reasoningFilePath: null,
+        }
+      },
+    })
+    planes.push(env.controlPlane)
+    const sessionId = 'idle-session'
+    const firstContext = promptContext('codex', '', sessionId)
+    firstContext.session.agentSessionId = null
+    await env.controlPlane.submitPrompt(firstContext, { prompt: 'Do a thing' })
+    const codex = env.backends.find((backend) => backend.id === 'codex')!
+    const agentSessionId = [...codex.running][0]
+
+    // The runtime exits and the client reattaches: the control plane keeps a
+    // record only while a runtime is attached, so an idle conversation — one
+    // whose process ended, or one reopened after a restart — has none. That is
+    // the ordinary state of a session a user comes back to.
+    codex.running.delete(agentSessionId)
+    env.controlPlane.bindRuntimeSession(promptContext('codex', agentSessionId, sessionId), 'ws:a')
+    const internals = env.controlPlane as unknown as { activeSessions: Map<string, BackendSession> }
+    expect(internals.activeSessions.get(sessionId)).toBeUndefined()
+
+    await expect(
+      env.controlPlane.switchSessionProvider(sessionId, 'claude-code', agentSessionId),
+    ).resolves.toEqual({ fromProvider: 'codex', fromSessionId: agentSessionId })
+    expect(buildCalls).toEqual([])
+
+    const freshContext = promptContext('claude-code', agentSessionId, sessionId)
+    freshContext.session.agentSessionId = null
+    await env.controlPlane.submitPrompt(freshContext, { prompt: 'Continue from here' })
+
+    const claude = env.backends.find((backend) => backend.id === 'claude-code')!
+    expect(buildCalls).toEqual([agentSessionId])
+    expect(claude.lastInput?.sessionId).toBeNull()
+    expect(claude.lastInput?.systemPrompt).toContain('/tmp/solus-handoffs/detached-session-transcript.md')
+  })
 
   test('resetting a tab cancels a pending provider handoff', async () => {
     const buildCalls: string[] = []
@@ -808,26 +862,19 @@ describe('ControlPlane provider handoff', () => {
       status: 'completed',
       runInput: sampleRunInput('codex', 'old-session'),
     })
-    env.registerWatch('tab-a', 'ws:a', 'device-1', 'old-session')
-    env.controlPlane.bindRuntimeSession(
-      'tab-a',
-      'old-session',
-      { clientId: 'ws:a', deviceId: 'device-1' },
-      { provider: 'claude-code', sessionId: 'earlier-session' },
-      'codex',
-    )
+    const sessionUnderTest = env.registerWatch('ws:a', 'old-session')
+    const rebindContext = promptContext('codex', 'old-session')
+    rebindContext.session.handoffFrom = { provider: 'claude-code', sessionId: 'earlier-session' }
+    env.controlPlane.bindRuntimeSession(rebindContext, 'ws:a')
 
-    await env.controlPlane.switchSessionProvider('tab-a', 'claude-code')
-    env.controlPlane.resetTabSession(
-      promptContext('tab-a', 'codex', 'old-session'),
-      { clientId: 'ws:a', deviceId: 'device-1' },
-    )
-    const resetTab = (env.controlPlane as unknown as {
-      tabs: Map<string, { handoffFrom?: { provider: AgentId; sessionId: string } }>
-    }).tabs.get('tab-a')
-    expect(resetTab?.handoffFrom).toBeUndefined()
+    await env.controlPlane.switchSessionProvider(sessionUnderTest, 'claude-code')
+    env.controlPlane.resetSession(promptContext('codex', 'old-session'))
+    const reset = (env.controlPlane as unknown as {
+      activeSessions: Map<string, BackendSession>
+    }).activeSessions.get('old-session')
+    expect(reset?.handoffFrom).toBeUndefined()
 
-    const freshContext = promptContext('tab-a', 'claude-code', 'old-session')
+    const freshContext = promptContext('claude-code', 'old-session')
     freshContext.session.agentSessionId = null
     await env.controlPlane.submitPrompt(freshContext, { prompt: 'Start fresh' })
 
@@ -855,9 +902,9 @@ describe('ControlPlane provider handoff', () => {
       status: 'completed',
       runInput: sampleRunInput('codex', 'old-session'),
     })
-    env.registerWatch('tab-a', 'ws:a', 'device-1', 'old-session')
+    const sessionUnderTest = env.registerWatch('ws:a', 'old-session')
 
-    await expect(env.controlPlane.switchSessionProvider('tab-a', 'claude-code')).resolves.toEqual({
+    await expect(env.controlPlane.switchSessionProvider(sessionUnderTest, 'claude-code')).resolves.toEqual({
       fromProvider: 'codex',
       fromSessionId: 'old-session',
     })
@@ -868,7 +915,7 @@ describe('ControlPlane provider handoff', () => {
     // Deliberately submit the renderer's stale pre-switch context. The pending
     // main-process handoff remains authoritative for the provider and session start.
     await env.controlPlane.submitPrompt(
-      promptContext('tab-a', 'codex', 'old-session'),
+      promptContext('codex', 'old-session'),
       { prompt: 'Continue from here' },
     )
 
@@ -890,10 +937,10 @@ describe('ControlPlane provider handoff', () => {
       type: 'session_init',
       handoffFrom: { provider: 'codex', sessionId: 'old-session' },
     })
-    const tab = (env.controlPlane as unknown as {
-      tabs: Map<string, { handoffFrom?: { provider: AgentId; sessionId: string } }>
-    }).tabs.get('tab-a')
-    expect(tab?.handoffFrom).toEqual({ provider: 'codex', sessionId: 'old-session' })
+    const switched = (env.controlPlane as unknown as {
+      activeSessions: Map<string, BackendSession>
+    }).activeSessions.get('old-session')
+    expect(switched?.handoffFrom).toEqual({ provider: 'codex', sessionId: 'old-session' })
   })
 
   test('rejects an idle provider mismatch that has no pending handoff', async () => {
@@ -904,10 +951,10 @@ describe('ControlPlane provider handoff', () => {
       status: 'completed',
       runInput: sampleRunInput('codex', 'old-session'),
     })
-    env.registerWatch('tab-a', 'ws:a', 'device-1', 'old-session')
+    const sessionUnderTest = env.registerWatch('ws:a', 'old-session')
 
     await expect(env.controlPlane.submitPrompt(
-      promptContext('tab-a', 'claude-code', 'old-session'),
+      promptContext('claude-code', 'old-session'),
       { prompt: 'Continue from here' },
     )).rejects.toThrow('Provider changed without a handoff — this is a bug')
 
@@ -923,10 +970,10 @@ describe('ControlPlane provider handoff', () => {
       status: 'running',
       runInput: sampleRunInput('codex', 'busy-session'),
     })
-    env.registerWatch('tab-a', 'ws:a', 'device-1', 'busy-session')
+    const sessionUnderTest = env.registerWatch('ws:a', 'busy-session')
 
     await expect(
-      env.controlPlane.switchSessionProvider('tab-a', 'claude-code'),
+      env.controlPlane.switchSessionProvider(sessionUnderTest, 'claude-code'),
     ).rejects.toThrow('must be idle before switching providers')
   })
 
@@ -939,7 +986,7 @@ describe('ControlPlane provider handoff', () => {
       runInput: sampleRunInput('codex', 'limited-session'),
     })
     env.seedActiveRun('limited-session', 'queue')
-    env.registerWatch('tab-a', 'ws:a', 'device-1', 'limited-session')
+    const sessionUnderTest = env.registerWatch('ws:a', 'limited-session')
 
     env.backend.emit('normalized', 'limited-session', {
       type: 'rate_limit',
@@ -950,18 +997,18 @@ describe('ControlPlane provider handoff', () => {
     } satisfies NormalizedEvent)
 
     await expect(
-      env.controlPlane.switchSessionProvider('tab-a', 'claude-code'),
+      env.controlPlane.switchSessionProvider(sessionUnderTest, 'claude-code'),
     ).resolves.toEqual({
       fromProvider: 'codex',
       fromSessionId: 'limited-session',
     })
 
-    const tab = (env.controlPlane as unknown as {
-      tabs: Map<string, { provider: AgentId; sessionId: string | null; status: SessionStatus }>
-    }).tabs.get('tab-a')
-    expect(tab).toMatchObject({
-      provider: 'claude-code',
-      sessionId: null,
+    const switched = (env.controlPlane as unknown as {
+      activeSessions: Map<string, BackendSession>
+    }).activeSessions.get('limited-session')
+    expect(switched).toMatchObject({
+      backendId: 'claude-code',
+      agentSessionId: null,
       status: 'idle',
     })
     expect(env.controlPlane.liveSessionStatus('limited-session')).toBe('idle')
@@ -980,10 +1027,10 @@ describe('ControlPlane retry', () => {
       status: 'completed',
       runInput: sampleRunInput('codex', 'retry-session'),
     })
-    env.registerWatch('tab-a', 'ws:a', 'device-1', 'retry-session')
+    const sessionUnderTest = env.registerWatch('ws:a', 'retry-session')
 
     await env.controlPlane.retry(
-      promptContext('tab-a', 'codex', 'retry-session'),
+      promptContext('codex', 'retry-session'),
       { prompt: 'Try this again' },
     )
 
@@ -997,12 +1044,12 @@ describe('ControlPlane retry', () => {
   })
 })
 
-describe('ControlPlane idle-tab Git environments', () => {
+describe('ControlPlane idle-session Git environments', () => {
   test('broadcasts live Git state without requiring a backend session', async () => {
     const env = setup()
     planes.push(env.controlPlane)
-    env.controlPlane.createTab('idle-tab', { clientId: 'ws:a', deviceId: 'device-1' })
-    env.controlPlane.setTabGitEnvironment('idle-tab', process.cwd(), {
+    env.controlPlane.watchSession({ sessionId: 'idle-session' }, 'ws:a')
+    env.controlPlane.setSessionGitEnvironment('idle-session', process.cwd(), {
       repoRoot: process.cwd(),
       branch: 'stale-branch',
       targetBranch: 'main',
@@ -1010,8 +1057,10 @@ describe('ControlPlane idle-tab Git environments', () => {
 
     await (env.controlPlane as unknown as { _onGitWatchFire(cwd: string): Promise<void> })._onGitWatchFire(process.cwd())
 
-    expect(env.events.some(({ tabId, event }) => tabId === 'idle-tab' && event.type === 'git_status')).toBe(true)
-    expect(env.events.some(({ tabId, event }) => tabId === 'idle-tab' && event.type === 'git_context')).toBe(true)
+    const forIdle = env.events.filter(({ sessionId }) => sessionId === 'idle-session')
+    expect(forIdle.some(({ event }) => event.type === 'git_status')).toBe(true)
+    expect(forIdle.some(({ event }) => event.type === 'git_context')).toBe(true)
+    expect(forIdle.every(({ clients }) => clients.includes('ws:a'))).toBe(true)
   })
 })
 
@@ -1022,7 +1071,7 @@ describe('ControlPlane device-scoped tab watches', () => {
     env.seedSession('session-1', {
       runInput: sampleRunInput('claude-code', 'session-1'),
     })
-    env.registerWatch('tab-a', 'ws:a', 'device-1', 'session-1')
+    const sessionUnderTest = env.registerWatch('ws:a', 'session-1')
 
     const sessions = (env.controlPlane as unknown as {
       activeSessions: Map<string, BackendSession>
@@ -1064,12 +1113,11 @@ describe('ControlPlane device-scoped tab watches', () => {
       status: 'completed',
       runInput: sampleRunInput('codex', 'session-1'),
     })
-    env.controlPlane.createTab('tab-a', { clientId: 'ws:new', deviceId: 'device-1' })
+    env.controlPlane.watchSession({ agentSessionId: 'session-1' }, 'ws:new')
 
     const info = env.controlPlane.bindRuntimeSession(
-      'tab-a',
-      'session-1',
-      { clientId: 'ws:new', deviceId: 'device-1' },
+      promptContext('codex', 'session-1'),
+      'ws:new',
     )
 
     expect(info?.status).toBe('running')
@@ -1083,12 +1131,11 @@ describe('ControlPlane device-scoped tab watches', () => {
     const env = setup()
     planes.push(env.controlPlane)
     env.seedSession('session-1', { status: 'running', runInput: undefined })
-    env.controlPlane.createTab('tab-a', { clientId: 'ws:new', deviceId: 'device-1' })
+    env.controlPlane.watchSession({ agentSessionId: 'session-1' }, 'ws:new')
 
     const info = env.controlPlane.bindRuntimeSession(
-      'tab-a',
-      'session-1',
-      { clientId: 'ws:new', deviceId: 'device-1' },
+      promptContext('codex', 'session-1'),
+      'ws:new',
     )
 
     expect(info).not.toBeNull()
@@ -1103,7 +1150,7 @@ describe('ControlPlane device-scoped tab watches', () => {
     planes.push(env.controlPlane)
     env.seedSession('session-1')
     env.seedActiveRun('session-1', 'queue')
-    env.registerWatch('tab-a', 'ws:a', 'device-1', 'session-1')
+    const sessionUnderTest = env.registerWatch('ws:a', 'session-1')
     env.events.length = 0
 
     env.backend.emit('normalized', 'session-1', {
@@ -1141,109 +1188,181 @@ describe('ControlPlane device-scoped tab watches', () => {
     expect(terminalEvents.some((event) => event.type === 'prompt_queued')).toBe(false)
   })
 
-  test('disconnect GC removes only the dropped connection watches after the grace period', () => {
+  test('a dropped socket drops only that client\'s watch', () => {
+    // WHY: with no grace machinery left, a disconnect is immediate and total for
+    // that connection and invisible to every other one.
     const env = setup()
     planes.push(env.controlPlane)
     env.seedSession('session-1')
-    env.registerWatch('tab-a', 'ws:a', 'device-1', 'session-1')
-    env.registerWatch('tab-b', 'ws:b', 'device-1', 'session-1')
+    const sessionUnderTest = env.registerWatch('ws:a', 'session-1')
+    env.registerWatch('ws:b', 'session-1')
     env.events.length = 0
 
     env.controlPlane.handleClientDisconnected('ws:a')
-    env.emitAssistant('session-1', 'during grace')
-    expect(env.events.map((e) => e.tabId)).toEqual(['tab-a', 'tab-b'])
+    env.emitAssistant('session-1', 'after disconnect')
 
-    env.events.length = 0
-    env.advanceTo(GRACE_MS)
-    env.timers.runNext()
-    env.emitAssistant('session-1', 'after grace')
-
-    expect(env.events.map((e) => e.tabId)).toEqual(['tab-b'])
+    const delivered = env.events.filter((e) => e.event.type === 'assistant_message')
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0].clients).toEqual(['ws:b'])
   })
 
-  test('the same logical client reconnect cancels its pending watch GC', () => {
+  test('a dropped socket does not resolve the session\'s attention', () => {
+    // WHY: a session awaiting input still needs you when your laptop is shut —
+    // that is exactly what the offline push notification assumes. Only the user
+    // closing the last view dismisses it.
     const env = setup()
     planes.push(env.controlPlane)
     env.seedSession('session-1')
-    env.registerWatch('tab-a', 'ws:a', 'device-1', 'session-1')
-    env.events.length = 0
+    const sessionId = env.registerWatch('ws:a', 'session-1')
+    env.controlPlane.attention.set({ sessionId: 'session-1', kind: 'question', summary: 'Question: choose one' })
 
     env.controlPlane.handleClientDisconnected('ws:a')
-    env.controlPlane.handleClientConnected('ws:a')
-    env.advanceTo(GRACE_MS)
-    env.timers.runNext()
-    env.emitAssistant('session-1', 'after reconnect')
+    expect(env.controlPlane.attention.get('session-1')).toBeDefined()
 
-    expect(env.events.map((e) => e.tabId)).toEqual(['tab-a'])
+    env.controlPlane.unwatchSession(sessionId, 'ws:a')
+    expect(env.controlPlane.attention.get('session-1')).toBeUndefined()
   })
 
-  test('reconnect within grace replaces a stale same-device watch instead of duplicating it', () => {
+  test('one session watched by two clients delivers one payload from one publish', () => {
+    // WHY: this is the executable statement of the fan-out rule. Two panes on
+    // one renderer are one client and get one payload; two clients get two, and
+    // it is the same payload from the same publish.
     const env = setup()
     planes.push(env.controlPlane)
     env.seedSession('session-1')
-    env.registerWatch('old-tab', 'ws:old', 'device-1', 'session-1')
-    env.events.length = 0
-
-    env.controlPlane.handleClientDisconnected('ws:old')
-    env.registerWatch('new-tab', 'ws:new', 'device-1', 'session-1')
-    env.advanceTo(GRACE_MS)
-    env.timers.runNext()
-    env.emitAssistant('session-1', 'after reconnect')
-
-    expect(env.events.filter((e) => e.event.type === 'assistant_message').map((e) => e.tabId)).toEqual(['new-tab'])
-  })
-
-  test('session events still fan out to every active connection watching the session', () => {
-    const env = setup()
-    planes.push(env.controlPlane)
-    env.seedSession('session-1')
-    env.registerWatch('tab-a', 'ws:a', 'device-1', 'session-1')
-    env.registerWatch('tab-b', 'ws:b', 'device-1', 'session-1')
+    const sessionId = env.registerWatch('ws:a', 'session-1')
+    expect(env.registerWatch('ws:b', 'session-1')).toBe(sessionId)
     env.events.length = 0
 
     env.emitAssistant('session-1', 'fan out')
 
-    expect(env.events.map((e) => e.tabId)).toEqual(['tab-a', 'tab-b'])
-    expect(env.events.map((e) => env.controlPlane.getTabClientId(e.tabId))).toEqual(['ws:a', 'ws:b'])
+    const delivered = env.events.filter((e) => e.event.type === 'assistant_message')
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0].sessionId).toBe(sessionId)
+    expect(delivered[0].clients).toEqual(['ws:a', 'ws:b'])
+  })
+
+  test('two clients resuming one provider thread land on one session id', () => {
+    // WHY: the only assertion that separates this design from a per-client
+    // correlation token, and the one thing a single-client test can never catch.
+    // Each client read the same thread off disk and minted its own local id;
+    // main resolves both to one, and one publish then reaches both.
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.seedSession('session-1')
+
+    const first = env.controlPlane.watchSession(
+      { sessionId: 'desktop-local-uuid', agentSessionId: 'session-1' },
+      'ws:desktop',
+    )
+    const second = env.controlPlane.watchSession(
+      { sessionId: 'web-local-uuid', agentSessionId: 'session-1' },
+      'ws:web',
+    )
+
+    expect(second.sessionId).toBe(first.sessionId)
+    expect(env.controlPlane.clientsWatching(first.sessionId)).toEqual(['ws:desktop', 'ws:web'])
+
+    env.events.length = 0
+    env.emitAssistant('session-1', 'one payload')
+
+    const delivered = env.events.filter((e) => e.event.type === 'assistant_message')
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0].sessionId).toBe(first.sessionId)
+    expect(delivered[0].clients).toEqual(['ws:desktop', 'ws:web'])
+  })
+
+  test('a run that dies before session_init reports its error to whoever is watching', async () => {
+    // WHY: this used to take an entirely different branch that deleted the
+    // session and never built the enriched error at all, so a create_session
+    // agent's failure was silently swallowed. There is one path now: set the
+    // status, publish the error to the session's watchers — however many.
+    const env = setup()
+    planes.push(env.controlPlane)
+    const { sessionId } = env.controlPlane.watchSession({ sessionId: 'pre-init-session' }, 'ws:a')
+    env.backend.failNextRun = new Error('agent binary not found')
+
+    const lifecycle = await env.controlPlane.runTurn({
+      input: sampleRunInput('codex', null),
+      target: { kind: 'new-session' },
+      sessionId,
+      tools: [],
+      options: { prompt: 'Start something that cannot start' },
+    })
+    await expect(lifecycle.agentSessionId).rejects.toThrow('agent binary not found')
+
+    const errors = env.errors.filter((entry) => entry.sessionId === sessionId)
+    expect(errors).toHaveLength(1)
+    expect(errors[0].error.message).toBe('agent binary not found')
+    expect(env.statuses.filter((event) => event.sessionId === sessionId).at(-1)?.status).toBe('dead')
+  })
+
+  test('an interrupt hands the session to exactly one queued prompt', async () => {
+    // WHY: the exit both settles the session and drains its queue, and those two
+    // jobs each want to ask "is a queued prompt taking over?". Asking by
+    // dispatching drains a prompt per question, so the second queued prompt
+    // starts while the first is still running — FIFO order silently broken. And
+    // no interrupted status may be published either: the session did not settle,
+    // it changed hands.
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.seedSession('queued-session', { runInput: sampleRunInput('codex', 'queued-session') })
+    const sessionId = env.registerWatch('ws:a', 'queued-session')
+    env.seedActiveRun('queued-session', 'queue')
+
+    for (const prompt of ['Run me next', 'And me after that']) {
+      const queued = await env.controlPlane.runTurn({
+        input: sampleRunInput('codex', 'queued-session'),
+        target: { kind: 'session', sessionId },
+        sessionId,
+        tools: [],
+        options: { prompt, delivery: 'queue' },
+      })
+      expect(queued.disposition).toBe('queued')
+    }
+    const inputsBefore = env.backend.inputs.length
+    env.statuses.length = 0
+
+    env.backend.emit('exit', 'queued-session', null, 'SIGINT')
+    // The drain's own run resolves its git environment before it reaches the
+    // backend, so wait for the dispatch rather than counting microtasks.
+    for (let i = 0; i < 200 && env.backend.inputs.length === inputsBefore; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 1))
+    }
+
+    expect(env.backend.inputs.length).toBe(inputsBefore + 1)
+    expect(env.backend.inputs.at(-1)?.prompt).toBe('Run me next')
+    expect(env.statuses.map((event) => event.status)).not.toContain('interrupted')
   })
 
   test('closing the last session watch dismisses its pending attention', () => {
     const env = setup()
     planes.push(env.controlPlane)
     env.seedSession('session-1')
-    env.registerWatch('tab-a', 'ws:a', 'device-1', 'session-1')
-    env.registerWatch('tab-b', 'ws:b', 'device-1', 'session-1')
+    const sessionId = env.registerWatch('ws:a', 'session-1')
+    env.registerWatch('ws:b', 'session-1')
     env.controlPlane.attention.set({
       sessionId: 'session-1',
       kind: 'question',
       summary: 'Question: choose one',
     })
 
-    env.controlPlane.closeTab(
-      { session: { tabId: 'tab-a' } } as IpcContext,
-      { clientId: 'ws:a', deviceId: 'device-1' },
-    )
+    env.controlPlane.unwatchSession(sessionId, 'ws:a')
     expect(env.controlPlane.attention.get('session-1')).toBeDefined()
 
-    env.controlPlane.closeTab(
-      { session: { tabId: 'tab-b' } } as IpcContext,
-      { clientId: 'ws:b', deviceId: 'device-1' },
-    )
+    env.controlPlane.unwatchSession(sessionId, 'ws:b')
     expect(env.controlPlane.attention.get('session-1')).toBeUndefined()
   })
 
-  test('closing the last tab leaves a running provider session alive', () => {
+  test('unwatching the last view leaves a running provider session alive', () => {
     // WHY: Close unloads presentation state. It must not become an implicit
     // Stop action for work that should continue headlessly.
     const env = setup()
     planes.push(env.controlPlane)
     env.seedSession('session-1', { status: 'running' })
-    env.registerWatch('tab-a', 'ws:a', 'device-1', 'session-1')
+    const sessionId = env.registerWatch('ws:a', 'session-1')
 
-    env.controlPlane.closeTab(
-      { session: { tabId: 'tab-a' } } as IpcContext,
-      { clientId: 'ws:a', deviceId: 'device-1' },
-    )
+    env.controlPlane.unwatchSession(sessionId, 'ws:a')
 
     expect(env.controlPlane.liveSessionStatus('session-1')).toBe('running')
     expect(env.backend.running.has('session-1')).toBe(true)

@@ -1,4 +1,4 @@
-import type { GitCheckout, IpcContext, PrReviewContext, Session, SessionCtx, Tab } from '../../../shared/types'
+import type { GitCheckout, IpcContext, PrReviewContext, RunConfig, Session, SessionCtx } from '../../../shared/types'
 import { worktreeProjectRoot } from '../../../shared/types'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import type { StatusBarContext } from '../app/status-bar.context.svelte'
@@ -6,8 +6,9 @@ import type { WindowContext } from '../app/window.context.svelte'
 import type { StaticInfo } from './workspace-lifecycle.store.svelte'
 
 export interface IpcContextBuilderDeps {
-  tabs(): Record<string, Tab>
   sessionFor(tabId: string): Session | undefined
+  /** The run behind a source id, whether a tab or a draft owns it. */
+  runFor(sourceId: string): RunConfig | undefined
   globalDefaults: {
     permissionMode: 'ask' | 'auto' | 'plan'
     workingDirectory: string
@@ -60,19 +61,22 @@ export class IpcContextBuilder {
     return context
   }
 
-  sessionCtx(tabId: string): SessionCtx {
-    const tab = this.deps.tabs()[tabId]
-    const session = this.deps.sessionFor(tabId)
+  sessionCtx(sourceId: string): SessionCtx {
+    const session = this.deps.sessionFor(sourceId)
     const globalDefaults = this.deps.globalDefaults
-    const staticInfo = session ? null : this.deps.staticInfo()
-    const workingDirectory = session
-      ? session.run.workingDirectory
+    // Where the work happens comes from the run — a started session's or a
+    // draft's — while everything below it describes a conversation and so only
+    // exists once one has started.
+    const run = this.deps.runFor(sourceId)
+    const staticInfo = run ? null : this.deps.staticInfo()
+    const workingDirectory = run
+      ? run.workingDirectory
       : globalDefaults.workingDirectory
         || staticInfo?.projectPath
         || staticInfo?.workspacePath
         || '~'
-    const modelConfig = session ? session.run.modelConfig : globalDefaults.modelConfig
-    const gitContext = session ? session.run.gitContext : globalDefaults.gitContext
+    const modelConfig = run ? run.modelConfig : globalDefaults.modelConfig
+    const gitContext = run ? run.gitContext : globalDefaults.gitContext
     const sessionExtras = session
       ? {
           forked: session.forked ?? false,
@@ -85,8 +89,8 @@ export class IpcContextBuilder {
       : {}
 
     return {
-      tabId,
-      provider: session ? session.run.provider ?? null : null,
+      sessionId: session?.id ?? '',
+      provider: run ? run.provider ?? null : null,
       agentSessionId: session ? session.agentSessionId : null,
       handoffFrom: session?.handoffFrom,
       status: session ? session.status : 'idle',
@@ -97,13 +101,13 @@ export class IpcContextBuilder {
       reasoningEffort: modelConfig.reasoningEffort,
       contextWindow: modelConfig.contextWindow,
       fastMode: modelConfig.fastMode,
-      permissionMode: session ? session.run.permissionMode : globalDefaults.permissionMode,
+      permissionMode: run ? run.permissionMode : globalDefaults.permissionMode,
       gitContext: gitContext ? { ...gitContext } : null,
-      worktreeBaseBranch: session ? session.run.worktreeBaseBranch : globalDefaults.worktreeBaseBranch,
+      worktreeBaseBranch: run ? run.worktree?.baseBranch ?? null : globalDefaults.worktreeBaseBranch,
       sessionChangedFiles: session ? [...session.sessionChangedFiles] : [],
       readOnlyReason: session ? session.readOnlyReason : null,
       latestCheckpointId: session ? session.latestCheckpointId : null,
-      title: tab?.title ?? null,
+      title: session?.title ?? null,
       ...sessionExtras,
     }
   }

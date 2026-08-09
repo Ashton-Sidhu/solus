@@ -13,7 +13,7 @@ import {
   requireTask,
   taskFromRow,
 } from './task-store'
-import { writeSessionLink, type SessionLinkDetails } from './task-sessions'
+import { taskSessions, writeSessionLink, type SessionLinkDetails } from './task-sessions'
 import type {
   Task as TaskRecord,
   TaskComment,
@@ -24,6 +24,7 @@ import type {
   TaskLinkKind,
   TaskPriority,
   TaskSessionRole,
+  TaskSnapshot,
   TaskSource,
   TaskStatus,
   TaskTitleSource,
@@ -35,6 +36,10 @@ interface AddTaskCommentOptions {
   source?: TaskComment['source']
   externalId?: string | null
   originSessionId?: string | null
+  /** Caller-supplied comment id (an outbox op id, so a redelivered op inserts
+   *  the same row and `INSERT OR IGNORE` makes the write idempotent). Omitted
+   *  for ordinary comments, which mint their own ULID. */
+  id?: string
 }
 
 export interface TaskPullRequestInput {
@@ -257,12 +262,12 @@ export class Task implements TaskRecord {
       requireTask(this.id, db)
       const now = Date.now()
       db.prepare(`
-        INSERT INTO task_comments(
+        INSERT OR IGNORE INTO task_comments(
           id, task_id, author, source, external_id, origin_session_id, body,
           created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        ulid(now),
+        options.id ?? ulid(now),
         this.id,
         options.author === undefined ? 'You' : options.author,
         options.source ?? 'local',
@@ -449,4 +454,15 @@ export class Task implements TaskRecord {
     if (deleted) emitChanged()
     return deleted
   }
+}
+
+/** Assemble the serializable state a dispatched prompt carries — exactly what
+ * `formatTaskContext` consumes, read on the task's own host
+ * (docs/plans/dispatch-parity.md). */
+export async function taskSnapshot(taskId: string): Promise<TaskSnapshot> {
+  const details = await (await Task.byId(taskId)).details()
+  const parent = details.task.parentId
+    ? await (await Task.byId(details.task.parentId)).details()
+    : null
+  return { details, parent, sessions: taskSessions(taskId)[taskId] ?? [] }
 }

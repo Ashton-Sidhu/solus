@@ -1,6 +1,6 @@
 import { createAppContext } from './create-app-context'
 import { MODEL_PROFILES } from '../../../shared/types'
-import type { StatusBarCtx, AgentId, Session } from '../../../shared/types'
+import type { StatusBarCtx, AgentId, RunConfig } from '../../../shared/types'
 import type { AgentContext } from './agent.context.svelte'
 import type { SettingsContext } from './settings.context.svelte'
 import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
@@ -23,29 +23,32 @@ export class StatusBarContext {
   }
 
   get ctx(): StatusBarCtx {
-    return this.buildCtx(this._session?.activeSession)
+    return this.ctxForRun(this._session?.activeSession?.run)
   }
 
   /** Status ctx for a specific tab's session — the split pane's status strip. */
   ctxFor(tabId: string): StatusBarCtx {
-    return this.buildCtx(this._session?.sessionFor(tabId))
+    return this.ctxForRun(this._session?.sessionFor(tabId)?.run)
   }
 
-  private buildCtx(sess: Session | undefined): StatusBarCtx {
+  /** Status ctx for a run that has no tab to name it — a session draft's. The
+   *  ctx is a reading of the run alone, so a draft and a started session give
+   *  the same answer without the caller knowing which it holds. */
+  ctxForRun(run: RunConfig | undefined): StatusBarCtx {
     const defaults = this._session?.globalDefaults
-    const effectiveAgent = (sess?.run.provider ?? this.settings.activeAgent) as AgentId
+    const effectiveAgent = (run?.provider ?? this.settings.activeAgent) as AgentId
     const models = this._agent?.metadata[effectiveAgent]?.models ?? []
     const metaDefault = this._agent?.metadata[effectiveAgent]?.defaultModel ?? null
-    const mc = sess?.run.modelConfig ?? defaults?.modelConfig
+    const mc = run?.modelConfig ?? defaults?.modelConfig
     const preferredModel = mc?.modelId ?? null
     const model = preferredModel && models.some((m) => m.id === preferredModel)
       ? preferredModel
       : metaDefault ?? models[0]?.id ?? ''
     const profile = MODEL_PROFILES[effectiveAgent]?.[model]
     return {
-      workingDirectory: sess?.run.workingDirectory ?? defaults?.workingDirectory ?? '~',
+      workingDirectory: run?.workingDirectory ?? defaults?.workingDirectory ?? '~',
       activeAgent: effectiveAgent,
-      permissionMode: sess?.run.permissionMode ?? defaults?.permissionMode ?? 'auto',
+      permissionMode: run?.permissionMode ?? defaults?.permissionMode ?? 'auto',
       model,
       reasoningEffort: mc?.reasoningEffort ?? 'high',
       defaultReasoningEffort: profile?.defaultReasoningEffort ?? 'high',

@@ -100,12 +100,12 @@ window.addEventListener('message', (event) => {
   if (Number.isFinite(zoom) && zoom > 0) document.documentElement.style.zoom = String(zoom)
 })
 
-const replayTabId = fixtures.replayScript[0]?.tabId
-const replaySessionId = fixtures.persistedTabs.tabs.find((tab) => tab.tabId === replayTabId)?.agentSessionId
-if (!replaySessionId) throw new Error(`[demo] replay tab has no persisted session: ${replayTabId ?? 'missing'}`)
+const replaySessionId = fixtures.replayScript[0]?.sessionId
+const replayAgentSessionId = fixtures.persistedTabs.tabs.find((tab) => tab.sessionId === replaySessionId)?.agentSessionId
+if (!replayAgentSessionId) throw new Error(`[demo] replay session has no persisted transcript: ${replaySessionId ?? 'missing'}`)
 
 const replay = createReplayEngine(backend, store, {
-  hydrated: whenSessionLoaded(replaySessionId),
+  hydrated: whenSessionLoaded(replayAgentSessionId),
 })
 armReplay(replay)
 }

@@ -129,9 +129,9 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     this.permissions.onPermissionEvent = (sessionId, event) => {
       const handle = sessionId ? this.activeRuns.get(sessionId) : this.pendingRuns[0]
       if (handle) handle.sawPermissionRequest = true
-      // Use handle.sessionId (promoted after session_init) over the closure sessionId,
+      // Use handle.agentSessionId (promoted after session_init) over the closure sessionId,
       // which is null for fresh sessions and would cause the control-plane to drop the event.
-      this.emit('normalized', handle?.sessionId ?? sessionId, event)
+      this.emit('normalized', handle?.agentSessionId ?? sessionId, event)
     }
   }
 
@@ -157,7 +157,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     const runPromise = new Promise<void>((res, rej) => { _resolveRun = res; _rejectRun = rej })
 
     const handle: ClaudeRunHandle = {
-      sessionId,
+      agentSessionId: sessionId,
       persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,
@@ -179,10 +179,10 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     const adaptedTools = adaptClaudeTools(request.tools, {
       provider: 'claude-code',
       cwd: request.cwd,
-      sessionId: () => handle.sessionId ?? sessionRef.current ?? undefined,
+      sessionId: () => handle.agentSessionId ?? sessionRef.current ?? undefined,
       abortSignal: abortController.signal,
       parentToolUseId: () => undefined,
-      emit: (event) => this.emit('normalized', handle.sessionId, event),
+      emit: (event) => this.emit('normalized', handle.agentSessionId, event),
     }, uiMode)
 
     this.pendingRuns.push(handle)
@@ -226,7 +226,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
 
       await this._runLoop(handle, events, result, sessionRef)
     })().catch((err: any) => {
-      const sessionId = handle.sessionId
+      const sessionId = handle.agentSessionId
       log.error('run_start_failed', { sessionId: sessionId ?? 'pending', error: err?.message })
       this.finishRun(handle)
       handle._rejectRun(err instanceof Error ? err : new Error(String(err)))
@@ -248,20 +248,20 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
           sessionRef.current = evt.sessionId
         }
 
-        this.emit('normalized', handle.sessionId, evt)
+        this.emit('normalized', handle.agentSessionId, evt)
       }
 
       const final = await result
-      handle.sessionId = final.sessionId
+      handle.agentSessionId = final.sessionId
       handle.toolCallCount = final.toolCallCount
       handle.permissionDenials = final.permissionDenials
-      const sessionId = handle.sessionId
+      const sessionId = handle.agentSessionId
       this.finishRun(handle)
       log.info('run_complete', { sessionId, denials: handle.permissionDenials.length })
       handle._resolveRun()
       this.emit('exit', sessionId, final.signal === 'SIGINT' ? null : 0, final.signal)
     } catch (err: any) {
-      const sessionId = handle.sessionId
+      const sessionId = handle.agentSessionId
       log.error('run_errored', { sessionId: sessionId ?? 'pending', error: err?.message })
       this.finishRun(handle)
       handle._rejectRun(err instanceof Error ? err : new Error(String(err)))

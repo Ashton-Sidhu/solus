@@ -1,23 +1,27 @@
-import type { Session, SessionTitleChangedEvent, Tab } from '../../../shared/types'
+import type { Session, SessionTitleChangedEvent } from '../../../shared/types'
 
 interface SessionTitleWorkspace {
-  tabs: Record<string, Tab>
   sessions: Record<string, Session>
 }
 
-/** Apply a host-authoritative session name to every open tab for that session. */
+/**
+ * Apply a host-authoritative name to the session it belongs to.
+ *
+ * One write, not a fan-out: the name is the session's, so every tab watching it
+ * shows the new one. Returns the sessions that changed so the caller can mark
+ * their naming round trip finished.
+ */
 export function applySessionTitleChange(
   workspace: SessionTitleWorkspace,
   serverId: string,
   event: SessionTitleChangedEvent,
 ): string[] {
-  const changedTabIds: string[] = []
-  for (const [tabId, tab] of Object.entries(workspace.tabs)) {
-    const session = workspace.sessions[tab.sessionId]
-    if (session?.run.serverId !== serverId || session.agentSessionId !== event.sessionId) continue
-    tab.title = event.title ?? 'New Tab'
-    tab.titleCustom = event.title !== null
-    changedTabIds.push(tabId)
+  const changed: string[] = []
+  for (const [sessionId, session] of Object.entries(workspace.sessions)) {
+    if (session.run.serverId !== serverId || session.agentSessionId !== event.sessionId) continue
+    session.title = event.title ?? 'New Tab'
+    session.titleCustom = event.title !== null
+    changed.push(sessionId)
   }
-  return changedTabIds
+  return changed
 }

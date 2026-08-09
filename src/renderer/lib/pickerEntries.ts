@@ -102,7 +102,7 @@ export class SearchTextCache {
       this.#cache.set(key, { kind: 'history', meta: entry.meta, searchText })
       return searchText
     }
-    const tabTitle = entry.tab.title
+    const tabTitle = entry.session.title
     const messageCount = entry.session.messages.length
     const byline = entryByline(entry)
     if (

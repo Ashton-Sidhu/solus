@@ -35,6 +35,9 @@
     'diagram':           { label: 'Diagram',            order: 95 },
     'command-palette':   { label: 'Command Palette',    order: 98 },
     'shortcuts-help':    { label: 'Shortcuts Help',     order: 100 },
+    // First-run onboarding holds this scope exclusively and declares no bindings
+    // of its own, so it is named here but never listed in ALL_SCOPES.
+    'onboarding':        { label: 'Onboarding',         order: 110 },
   }
 
   const ALL_SCOPES: Scope[] = [

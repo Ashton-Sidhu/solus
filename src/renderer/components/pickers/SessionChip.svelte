@@ -31,14 +31,24 @@
      *  and never touches the session's model config or active agent. The host
      *  applies the choice at dispatch. */
     selection?: PickerSelection;
+    /** This chip is the workspace composer's, so the shortcut targets it and
+     *  dismissing returns focus there. */
+    isPrimary?: boolean;
     menuSide?: "top" | "bottom";
   }
-  let { tabId, selection = $bindable(), menuSide = "top" }: Props = $props();
+  let {
+    tabId,
+    selection = $bindable(),
+    isPrimary = false,
+    menuSide = "top",
+  }: Props = $props();
 
   const detached = $derived(selection !== undefined);
 
-  const ctx = $derived(statusBar.ctxFor(tabId ?? session.activeTabId));
-  const sess = $derived(session.sessionFor(tabId ?? session.activeTabId));
+  // No fallback to the active tab: a composer with no session of its own edits
+  // a `selection`, and must not read or write whichever session is on screen.
+  const ctx = $derived(statusBar.ctxFor(tabId ?? ""));
+  const sess = $derived(tabId ? session.sessionFor(tabId) : undefined);
   // A detached chip edits a local draft, so a busy session never locks it.
   const isBusy = $derived(
     !detached && (sess?.status === "running" || sess?.status === "connecting"),
@@ -121,13 +131,9 @@
     // The shortcut targets the input bar's session-mutating chip, never a
     // detached composer copy.
     if (detached) return;
-    const chipTabId = tabId ?? session.activeTabId;
-    if (
-      targetTabId === undefined
-        ? tabId !== undefined
-        : targetTabId !== chipTabId
-    )
-      return;
+    // Unaddressed, the shortcut means the workspace's own chip; addressed, the
+    // chip standing for that tab.
+    if (targetTabId === undefined ? !isPrimary : targetTabId !== tabId) return;
     if (isBusy || handoffInProgress) return;
     // Both the editor- and pill-mode layouts stay mounted, so two SessionChips
     // receive this shortcut. Only the one in the visible layout should open

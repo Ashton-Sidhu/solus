@@ -1,12 +1,20 @@
+import { serverConnections } from '@client-core/server-connections'
 import { MemoryCache } from '../../shared/cache'
 import type { IpcContext, SessionMeta } from '../../shared/types'
 import type { SessionPreviewResult } from '../../shared/session-history'
 import type { PickerEntry } from './sessionUtils'
 import { extractPreviewMessages, type PreviewExtraction } from './sessionPreviewMessages'
 
-interface PreviewLoaderDeps {
+/** The slice of one host's RPC surface a preview needs. A history entry names
+ *  the host that holds it, so a session on another machine previews from there
+ *  rather than returning an empty body from this one. */
+export interface PreviewHost {
   loadSessionPreview: Window['solus']['loadSessionPreview']
   getSessionInfo: Window['solus']['getSessionInfo']
+}
+
+interface PreviewLoaderDeps {
+  hostFor(serverId: string | undefined): PreviewHost
 }
 
 /**
@@ -86,7 +94,7 @@ export class PreviewLoader {
       return
     }
 
-    const cacheKey = `${entry.meta.provider}:${entry.meta.projectPath}:${entry.meta.sessionId}`
+    const cacheKey = `${entry.meta.serverId ?? ''}:${entry.meta.provider}:${entry.meta.projectPath}:${entry.meta.sessionId}`
     const cached = this.#cache.get(cacheKey)
     if (cached) {
       this.#seq++
@@ -104,16 +112,15 @@ export class PreviewLoader {
         // Refresh single-session metadata (e.g. a `/rename` since the cached
         // scan) alongside the preview body. `dir` is the real cwd, not the
         // encoded folder. Never let a metadata failure block the preview.
+        const host = this.deps.hostFor(entry.meta.serverId)
         const [result, info] = await Promise.all([
-          this.deps.loadSessionPreview(
+          host.loadSessionPreview(
             entry.meta.sessionId,
             entry.meta.projectPath,
             ctx,
             entry.meta.provider,
           ),
-          this.deps
-            .getSessionInfo(entry.meta.sessionId)
-            .catch(() => null),
+          host.getSessionInfo(entry.meta.sessionId).catch(() => null),
         ])
         this.#cache.set(cacheKey, result)
         if (seq === this.#seq && shouldApply()) {
@@ -130,7 +137,11 @@ export class PreviewLoader {
 
 export function createSessionPreviewStore(): PreviewLoader {
   return new PreviewLoader({
-    loadSessionPreview: window.solus.loadSessionPreview,
-    getSessionInfo: window.solus.getSessionInfo,
+    // An undefined serverId is this client's own host, which `apiFor` already
+    // resolves to the primary connection.
+    hostFor: (serverId) => ({
+      loadSessionPreview: (...args) => serverConnections.apiFor(serverId).loadSessionPreview(...args),
+      getSessionInfo: (...args) => serverConnections.apiFor(serverId).getSessionInfo(...args),
+    }),
   })
 }

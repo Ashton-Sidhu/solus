@@ -53,9 +53,9 @@ class FakeBackend extends EventEmitter implements AgentBackend {
       rejectRun = reject
     })
     const handle: RunHandle = {
-      sessionId: input.sessionId ?? null,
+      agentSessionId: input.sessionId ?? null,
       persistence: input.persistence,
-      sourceTabId: input.sourceTabId,
+      sessionId: input.sessionId,
       startedAt: Date.now(),
       toolCallCount: 0,
       sawPermissionRequest: false,
@@ -72,7 +72,7 @@ class FakeBackend extends EventEmitter implements AgentBackend {
     }, { once: true })
     queueMicrotask(() => {
       if (handle.abortController.signal.aborted) return
-      handle.sessionId = sessionId
+      handle.agentSessionId = sessionId
       this.pendingHandles.delete(handle)
       this.handles.set(sessionId, handle)
       this.running.add(sessionId)
@@ -158,14 +158,15 @@ function runInput(agentSessionId: string): SessionRunInput {
 async function startSession(
   plane: ControlPlaneInstance,
   agentSessionId: string,
-  sourceTabId?: string,
+  sourceClientId?: string,
 ) {
   const lifecycle = await plane.runTurn({
     input: runInput(agentSessionId),
     target: { kind: 'session', sessionId: agentSessionId },
+    sessionId: agentSessionId,
     tools: [],
-    sourceTabId,
-    options: { prompt: `Start ${agentSessionId}` },
+    sourceClientId,
+    options: { prompt: `Start ${agentSessionId}`, clientPromptId: `turn-${agentSessionId}` },
   })
   await lifecycle.agentSessionId
   return lifecycle
@@ -174,17 +175,11 @@ async function startSession(
 function setup() {
   const backend = new FakeBackend()
   const plane = new ControlPlane(new Map([['codex', backend]]))
-  const events: Array<{ tabId: string; event: NormalizedEvent }> = []
+  const events: Array<{ sessionId: string; event: NormalizedEvent }> = []
   const statuses: Array<{ sessionId: string; status: SessionStatus }> = []
-  plane.on('event', (tabId: string, event: NormalizedEvent) => events.push({ tabId, event }))
+  plane.on('event', (sessionId: string, event: NormalizedEvent) => events.push({ sessionId, event }))
   plane.on('session-status', (event: { sessionId: string; status: SessionStatus }) => statuses.push(event))
   return { backend, plane, events, statuses }
-}
-
-function tabStatus(plane: ControlPlaneInstance, tabId: string): SessionStatus | undefined {
-  return (plane as unknown as {
-    tabs: Map<string, { status: SessionStatus }>
-  }).tabs.get(tabId)?.status
 }
 
 function watchCount(plane: ControlPlaneInstance, callerSessionId: string): number {
@@ -203,13 +198,83 @@ afterEach(() => {
 })
 
 describe('ControlPlane agent reply hold', () => {
+  test('publishes one identified settlement after the provider result', async () => {
+    // WHY: clients must never infer the real turn boundary from provider result
+    // ordering, status transitions, or rendered subagent cards.
+    const env = setup()
+    planes.push(env.plane)
+    env.plane.watchSession({ sessionId: 'ordered' }, 'test')
+    const lifecycle = await startSession(env.plane, 'ordered', 'test')
+    env.events.splice(0, env.events.length)
+
+    env.backend.complete('ordered', 'Done')
+    await lifecycle.done
+    await Promise.resolve()
+
+    const turnEvents = env.events
+      .filter(({ sessionId }) => sessionId === 'ordered')
+      .map(({ event }) => event)
+    const resultIndex = turnEvents.findIndex((event) => event.type === 'task_complete')
+    const settlements = turnEvents.filter((event) => event.type === 'turn_settled')
+    const settlementIndex = turnEvents.findIndex((event) => event.type === 'turn_settled')
+
+    expect(resultIndex).toBeGreaterThanOrEqual(0)
+    expect(settlementIndex).toBeGreaterThan(resultIndex)
+    expect(settlements).toEqual([{
+      type: 'turn_settled',
+      turnId: 'turn-ordered',
+      outcome: 'completed',
+      settledAt: expect.any(Number),
+    }])
+  })
+
+  test('does not settle while background work is still owned by the turn', async () => {
+    // WHY: provider task_complete can precede the last subagent by minutes. The
+    // Solus boundary must stay absent until the control plane releases the hold.
+    const env = setup()
+    planes.push(env.plane)
+    env.plane.watchSession({ sessionId: 'background' }, 'test')
+    const lifecycle = await startSession(env.plane, 'background', 'test')
+    env.events.splice(0, env.events.length)
+
+    env.backend.emit('normalized', 'background', {
+      type: 'background_task_started',
+      taskId: 'child-1',
+    } satisfies NormalizedEvent)
+    env.backend.emit('normalized', 'background', {
+      type: 'task_complete',
+      result: 'Parent result',
+      costUsd: 0,
+      durationMs: 1,
+      numTurns: 1,
+      usage: {},
+      sessionId: 'background',
+    } satisfies NormalizedEvent)
+    await Promise.resolve()
+
+    expect(env.events.some(({ event }) => event.type === 'turn_settled')).toBe(false)
+    expect(env.statuses.filter(({ sessionId }) => sessionId === 'background').at(-1)?.status).toBe('running')
+
+    env.backend.emit('normalized', 'background', {
+      type: 'background_task_settled',
+      taskId: 'child-1',
+      status: 'completed',
+    } satisfies NormalizedEvent)
+    env.backend.complete('background', 'Final result')
+    await lifecycle.done
+    await Promise.resolve()
+
+    expect(env.events.filter(({ event }) => event.type === 'turn_settled')).toHaveLength(1)
+  })
+
   test('keeps a caller running when its run exits while a notifying watch is armed', async () => {
     // WHY: a peer conversation will resume automatically, so the tab must not
     // look finished during the gap between the caller's runs.
     const env = setup()
     planes.push(env.plane)
-    env.plane.createTab('caller-tab', { clientId: 'test', deviceId: 'device' })
-    const caller = await startSession(env.plane, 'caller', 'caller-tab')
+    env.plane.watchSession({ sessionId: 'caller' }, 'test')
+    const caller = await startSession(env.plane, 'caller', 'test')
+    const peer = await startSession(env.plane, 'peer')
     env.plane.watchSessionSettled('peer', 'caller', {
       exchangeId: 'exchange-1',
       dispatchedAt: Date.now(),
@@ -219,8 +284,6 @@ describe('ControlPlane agent reply hold', () => {
 
     env.backend.complete('caller', 'Waiting for peer')
     await caller.done
-
-    expect(tabStatus(env.plane, 'caller-tab')).toBe('running')
     expect(env.statuses.filter((event) => event.sessionId === 'caller').at(-1)?.status).toBe('running')
   })
 
@@ -229,8 +292,8 @@ describe('ControlPlane agent reply hold', () => {
     // caller in the Running section forever.
     const env = setup()
     planes.push(env.plane)
-    env.plane.createTab('caller-tab', { clientId: 'test', deviceId: 'device' })
-    const caller = await startSession(env.plane, 'caller', 'caller-tab')
+    env.plane.watchSession({ sessionId: 'caller' }, 'test')
+    const caller = await startSession(env.plane, 'caller', 'test')
     const peer = await startSession(env.plane, 'peer')
     env.plane.watchSessionSettled('peer', 'caller', {
       exchangeId: 'exchange-1',
@@ -248,9 +311,10 @@ describe('ControlPlane agent reply hold', () => {
     await peer.done
     expect((await reportRunStarted).sessionId).toBe('caller')
 
+    // The report run resumes the caller from disk now that its record is gone,
+    // so let its handle register before completing it.
+    for (let i = 0; i < 5; i++) await Promise.resolve()
     env.backend.complete('caller', 'Conversation finished')
-
-    expect(tabStatus(env.plane, 'caller-tab')).toBe('completed')
     expect(env.statuses.filter((event) => event.sessionId === 'caller').at(-1)?.status).toBe('completed')
   })
 
@@ -258,8 +322,9 @@ describe('ControlPlane agent reply hold', () => {
     // WHY: notify_on_completion=false has no future model turn to wait for.
     const env = setup()
     planes.push(env.plane)
-    env.plane.createTab('caller-tab', { clientId: 'test', deviceId: 'device' })
-    const caller = await startSession(env.plane, 'caller', 'caller-tab')
+    env.plane.watchSession({ sessionId: 'caller' }, 'test')
+    const caller = await startSession(env.plane, 'caller', 'test')
+    const peer = await startSession(env.plane, 'peer')
     env.plane.watchSessionSettled('peer', 'caller', {
       exchangeId: 'exchange-1',
       dispatchedAt: Date.now(),
@@ -269,8 +334,6 @@ describe('ControlPlane agent reply hold', () => {
 
     env.backend.complete('caller', 'Dispatched')
     await caller.done
-
-    expect(tabStatus(env.plane, 'caller-tab')).toBe('completed')
     expect(env.statuses.filter((event) => event.sessionId === 'caller').at(-1)?.status).toBe('completed')
   })
 
@@ -279,8 +342,9 @@ describe('ControlPlane agent reply hold', () => {
     // resurrect the caller, and its card must not shimmer forever.
     const env = setup()
     planes.push(env.plane)
-    env.plane.createTab('caller-tab', { clientId: 'test', deviceId: 'device' })
-    const caller = await startSession(env.plane, 'caller', 'caller-tab')
+    env.plane.watchSession({ sessionId: 'caller' }, 'test')
+    const caller = await startSession(env.plane, 'caller', 'test')
+    const peer = await startSession(env.plane, 'peer')
     env.plane.watchSessionSettled('peer', 'caller', {
       exchangeId: 'exchange-1',
       dispatchedAt: Date.now(),
@@ -290,15 +354,13 @@ describe('ControlPlane agent reply hold', () => {
     env.backend.complete('caller', 'Waiting for peer')
     await caller.done
 
-    const stopped = env.plane.cancelTab({
-      session: { tabId: 'caller-tab' },
-    } as IpcContext)
+    const stopped = env.plane.stopSession('caller')
 
     expect(stopped).toBe(true)
-    expect(tabStatus(env.plane, 'caller-tab')).toBe('interrupted')
+    expect(env.statuses.filter((event) => event.sessionId === 'caller').at(-1)?.status).toBe('interrupted')
     expect(watchCount(env.plane, 'caller')).toBe(0)
     expect(env.events.at(-1)).toMatchObject({
-      tabId: 'caller-tab',
+      sessionId: 'caller',
       event: {
         type: 'status_change',
         status: 'interrupted',
@@ -315,8 +377,9 @@ describe('ControlPlane agent reply hold', () => {
   test('stopSession also disarms a held reply for tool-driven stops', async () => {
     const env = setup()
     planes.push(env.plane)
-    env.plane.createTab('caller-tab', { clientId: 'test', deviceId: 'device' })
-    const caller = await startSession(env.plane, 'caller', 'caller-tab')
+    env.plane.watchSession({ sessionId: 'caller' }, 'test')
+    const caller = await startSession(env.plane, 'caller', 'test')
+    const peer = await startSession(env.plane, 'peer')
     env.plane.watchSessionSettled('peer', 'caller', {
       exchangeId: 'exchange-1',
       dispatchedAt: Date.now(),
@@ -327,7 +390,7 @@ describe('ControlPlane agent reply hold', () => {
     await caller.done
 
     expect(env.plane.stopSession('caller')).toBe(true)
-    expect(tabStatus(env.plane, 'caller-tab')).toBe('interrupted')
+    expect(env.statuses.filter((event) => event.sessionId === 'caller').at(-1)?.status).toBe('interrupted')
     expect(watchCount(env.plane, 'caller')).toBe(0)
   })
 
@@ -336,12 +399,13 @@ describe('ControlPlane agent reply hold', () => {
     // when Stop drains it, so its caller must not remain held forever.
     const env = setup()
     planes.push(env.plane)
-    env.plane.createTab('caller-tab', { clientId: 'test', deviceId: 'device' })
-    await startSession(env.plane, 'caller', 'caller-tab')
+    env.plane.watchSession({ sessionId: 'caller' }, 'test')
+    await startSession(env.plane, 'caller', 'test')
     const peer = await startSession(env.plane, 'peer')
     const queued = await env.plane.runTurn({
       input: runInput('peer'),
       target: { kind: 'session', sessionId: 'peer' },
+      sessionId: 'peer',
       tools: [],
       options: { prompt: 'Queued peer work', delivery: 'queue' },
     })

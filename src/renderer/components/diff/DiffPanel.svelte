@@ -107,7 +107,6 @@
 
   const session = getWorkspaceContext();
   const theme = getSettingsContext();
-  const tab = $derived(session.tabs[tabId]);
   const sess = $derived(session.sessionFor(tabId));
 
   // The in-progress inline-comment draft. Owned here and shared down to
@@ -154,7 +153,9 @@
     }
   });
 
-  const turns = $derived(session.turnSnapshots[tabId] ?? []);
+  const turns = $derived(
+    session.turnSnapshots[session.tabs[tabId]?.sessionId ?? ""] ?? [],
+  );
   let selectedScope = $state<DiffScope>({ kind: "session" });
   const selectedTurnIndex = $derived(
     selectedScope.kind === "turn" ? selectedScope.index : null,
@@ -206,7 +207,7 @@
   });
 
   function restoreDraftIfAny() {
-    const saved = tab?.diffCommentDraft;
+    const saved = sess?.diffCommentDraft;
     if (!saved) return;
     draft.range = {
       startLine: saved.startLine,
@@ -251,7 +252,7 @@
   onMount(() => {
     mounted = true;
     selectedScope = initialScope;
-    void session.refreshTurnSnapshots(tabId);
+    if (sess) void session.refreshTurnSnapshots(sess.id);
     void startLoad();
     restoreDraftIfAny();
     return () => {
@@ -306,7 +307,7 @@
     selectedScope = initialScope;
     draft.clear();
     diffState.dispose();
-    void session.refreshTurnSnapshots(tabId);
+    if (sess) void session.refreshTurnSnapshots(sess.id);
     void startLoad();
   }
 
@@ -333,7 +334,7 @@
   const treeFiles = $derived(diff ? diffState.fileDiffs : []);
 
   const diffComments = $derived(
-    externalComments ?? (tab?.diffComments?.slice() ?? []),
+    externalComments ?? (sess?.diffComments?.slice() ?? []),
   );
   // Split view needs room for two columns; below the tree-open threshold the
   // panel can't fit them without squashing, so fall back to unified while
@@ -553,7 +554,7 @@
       onExternalCommentDelete?.(id);
       return;
     }
-    const list = tab?.diffComments;
+    const list = sess?.diffComments;
     if (!list) return;
     const index = list.findIndex((c) => c.id === id);
     if (index === -1) return;
@@ -691,7 +692,7 @@
   async function submitFromShortcut() {
     handleBeforeSend();
     if (hasExternalCommentStore) return;
-    const general = tab?.diffGeneralComment?.trim() ?? "";
+    const general = sess?.diffGeneralComment?.trim() ?? "";
     // Working-tree changes aren't bound to the current agent turn, so feedback
     // always spawns a fresh session — matching the action bar's only send target.
     const sent = isWorkingTreeScope

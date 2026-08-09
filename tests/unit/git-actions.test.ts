@@ -44,17 +44,17 @@ describe('GitActions sync', () => {
         },
       } as Session['run'],
     } as Session
-    const refreshes: Array<{ tabId?: string; cwd?: string; level?: string }> = []
+    const refreshes: Array<{ sourceId?: string; cwd?: string; level?: string }> = []
     const actions = new GitActions(
       {
-        sessionFor: () => session,
-        ctxFor: () => ({ session: { tabId: 'tab-1' } }),
-        ctxForEnvironment: () => ({ session: { tabId: 'tab-1' } }),
+        runFor: () => session.run,
+        ctxFor: () => ({ session: { sessionId: 'tab-1' } }),
+        ctxForEnvironment: () => ({ session: { sessionId: 'tab-1' } }),
       } as any,
       'tab-1',
       {
         environmentFor: () => ({ cwd: '/repo', checkout: session.run.gitContext }),
-        refreshTab: async (_workspace, options) => {
+        refreshEnvironment: async (_workspace, options) => {
           refreshes.push(options)
           return { status: true, details: true, refs: true, registration: true, ok: true }
         },
@@ -65,7 +65,7 @@ describe('GitActions sync', () => {
 
     expect(actions.syncError).toBe(syncResult.error)
     expect(refreshes).toEqual([
-      { tabId: 'tab-1', cwd: '/repo', level: 'details' },
+      { sourceId: 'tab-1', cwd: '/repo', level: 'details' },
     ])
   })
 })
@@ -95,14 +95,14 @@ describe('GitActions commit and push', () => {
     const refreshes: unknown[] = []
     const actions = new GitActions(
       {
-        sessionFor: () => session,
-        ctxFor: () => ({ session: { tabId: 'tab-1' } }),
-        ctxForEnvironment: () => ({ session: { tabId: 'tab-1' } }),
+        runFor: () => session.run,
+        ctxFor: () => ({ session: { sessionId: 'tab-1' } }),
+        ctxForEnvironment: () => ({ session: { sessionId: 'tab-1' } }),
       } as any,
       'tab-1',
       {
         environmentFor: () => ({ cwd: '/repo', checkout: session.run.gitContext }),
-        refreshTab: async (_workspace: unknown, options: unknown) => {
+        refreshEnvironment: async (_workspace: unknown, options: unknown) => {
           refreshes.push(options)
           return { status: true, details: true, refs: true, registration: true, ok: true }
         },
@@ -114,7 +114,7 @@ describe('GitActions commit and push', () => {
 
     expect(actions.commitPushing).toBe(false)
     expect(actions.commitPushError).toBe('transport disconnected')
-    expect(refreshes).toEqual([{ tabId: 'tab-1', cwd: '/repo', level: 'details' }])
+    expect(refreshes).toEqual([{ sourceId: 'tab-1', cwd: '/repo', level: 'details' }])
   })
 
   test('commits the selected environment when no chat tab exists', async () => {
@@ -146,16 +146,18 @@ describe('GitActions commit and push', () => {
     }
     const actions = new GitActions(
       {
-        sessionFor: () => undefined,
+        // A draft names a run with no session behind it — the case this test is
+        // about, and the reason these actions resolve a run rather than a tab.
+        runFor: () => undefined,
         globalDefaults: { workingDirectory: '/repo', gitContext: checkout },
-        ctxForEnvironment: (cwd: string, gitContext: unknown, tabId: string) => ({
-          session: { tabId, workingDirectory: cwd, gitContext },
+        ctxForEnvironment: (cwd: string, gitContext: unknown, sourceId: string) => ({
+          session: { sessionId: sourceId, workingDirectory: cwd, gitContext },
         }),
       } as any,
       '',
       {
         environmentFor: () => ({ cwd: checkout.worktreePath, checkout }),
-        refreshTab: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
+        refreshEnvironment: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
         statusFor: () => null,
       } as any,
     )
@@ -163,7 +165,7 @@ describe('GitActions commit and push', () => {
     await actions.commitPush()
 
     expect(receivedCtx.session).toEqual({
-      tabId: '',
+      sessionId: '',
       workingDirectory: checkout.worktreePath,
       gitContext: checkout,
     })

@@ -48,7 +48,7 @@
       elapsedMs: 0,
       toolCallCount: 0,
     };
-    session.handleError(tabId, enriched);
+    session.handleError(sess!.id, enriched);
   }
 
   /** The queue's single escape: release everything the limit is holding. */
@@ -57,7 +57,7 @@
       session.apiFor(tabId),
       session.ctxFor(tabId),
       isRateLimited,
-      (err) => session.handleError(tabId, err),
+      (err) => session.handleError(sess!.id, err),
     );
     requestInputFocus();
   }

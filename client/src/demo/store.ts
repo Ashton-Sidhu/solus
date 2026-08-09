@@ -597,6 +597,6 @@ export class DemoStore {
   }
 
   private diffFixture(ctx: IpcContext) {
-    return this.fixtures.diffs[ctx.session.tabId]
+    return this.fixtures.diffs[ctx.session.sessionId]
   }
 }

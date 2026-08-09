@@ -20,16 +20,37 @@ describe('HostEventPublisher', () => {
     const clientB = captureClient(registry, 'ws:b')
 
     expect(publisher.publish('ws:a', 'session.eventReceived', {
-      tabId: 'tab-a',
+      sessionId: 'session-a',
       event: { type: 'assistant_message', text: 'A' },
     })).toBe(1)
 
     expect(clientA.events).toHaveLength(1)
     expect(clientA.events[0]).toMatchObject({
       type: 'session.eventReceived',
-      payload: { tabId: 'tab-a', event: { type: 'assistant_message', text: 'A' } },
+      payload: { sessionId: 'session-a', event: { type: 'assistant_message', text: 'A' } },
     })
     expect(clientB.events).toEqual([])
+  })
+
+  test('one session watched by two clients is one publish carrying one payload', () => {
+    // WHY: the fan-out rule at the transport. Two panes on one renderer are one
+    // client and receive one frame; desktop and web are two clients and receive
+    // the same frame — never one publish per view.
+    const registry = new ClientEventRegistry()
+    const publisher = new HostEventPublisher(registry)
+    const desktop = captureClient(registry, 'ws:desktop')
+    const web = captureClient(registry, 'ws:web')
+    const payload = {
+      sessionId: 'session-a',
+      event: { type: 'assistant_message' as const, text: 'once' },
+    }
+
+    expect(publisher.publish(['ws:desktop', 'ws:web'], 'session.eventReceived', payload)).toBe(2)
+
+    expect(desktop.events).toHaveLength(1)
+    expect(web.events).toHaveLength(1)
+    expect(desktop.events[0].payload).toEqual(payload)
+    expect(web.events[0].payload).toEqual(payload)
   })
 
   test('accepts many client ids and deduplicates them', () => {

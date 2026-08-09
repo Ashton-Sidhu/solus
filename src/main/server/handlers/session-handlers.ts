@@ -154,19 +154,22 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     return { projectPath: setupProjectsRoot(), homePath: homedir(), workspacePath: WORKSPACE_DIR, version: appVersion(), agents }
   })
 
-  function tabOwner(handlerCtx: HandlerCtx): { clientId: string; deviceId?: string } {
-    if (!handlerCtx.clientId) throw new Error('Tab ownership requires a connected client')
-    return {
-      clientId: handlerCtx.clientId,
-      deviceId: handlerCtx.deviceId,
-    }
+  function requireClientId(handlerCtx: HandlerCtx): string {
+    if (!handlerCtx.clientId) throw new Error('Watching a session requires a connected client')
+    return handlerCtx.clientId
   }
 
-  server.register('createTab', (args, handlerCtx) => {
-    const [clientTabId] = args as [string | undefined]
-    const tabId = controlPlane.createTab(clientTabId, tabOwner(handlerCtx))
-    log.info('rpc_create_tab', { tabId })
-    return { tabId }
+  server.register('watchSession', (args, handlerCtx) => {
+    const [input] = args as [{ sessionId?: string; agentSessionId?: string }]
+    const resolved = controlPlane.watchSession(input ?? {}, requireClientId(handlerCtx))
+    log.info('rpc_watch_session', { sessionId: resolved.sessionId, requested: input?.sessionId ?? null })
+    return resolved
+  })
+
+  server.register('unwatchSession', (args, handlerCtx) => {
+    const [sessionId] = args as [string]
+    log.info('rpc_unwatch_session', { sessionId })
+    controlPlane.unwatchSession(sessionId, requireClientId(handlerCtx))
   })
 
   server.register('createHeadlessSession', (args) => {
@@ -175,106 +178,91 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     return controlPlane.createSession(request)
   })
 
-  function bindRuntimeSession(args: unknown[], handlerCtx: HandlerCtx) {
+  server.register('bindRuntimeSession', (args, handlerCtx) => {
     const [ctx] = args as [IpcContext]
-    const sessionId = ctx.session.agentSessionId
-    if (!sessionId) return null
-    log.info('rpc_bind_runtime_session', { tabId: ctx.session.tabId, sessionId })
-    return controlPlane.bindRuntimeSession(
-      ctx.session.tabId,
-      sessionId,
-      tabOwner(handlerCtx),
-      ctx.session.handoffFrom,
-      ctx.session.provider,
-    )
-  }
+    log.info('rpc_bind_runtime_session', {
+      sessionId: ctx.session.sessionId,
+      agentSessionId: ctx.session.agentSessionId,
+    })
+    return controlPlane.bindRuntimeSession(ctx, requireClientId(handlerCtx))
+  })
 
-  server.register('bindRuntimeSession', bindRuntimeSession)
-
-  server.register('resetTabSession', (args, handlerCtx) => {
+  server.register('resetSession', (args) => {
     const [ctx] = args as [IpcContext]
-    log.info('rpc_reset_tab_session', { tabId: ctx.session.tabId })
-    // Warm the same path the Files view queries: the worktree root when this tab
-    // has one, else the project directory. Warming the bare workingDirectory
-    // missed entirely for worktree sessions, so their first open paid full scan.
+    log.info('rpc_reset_session', { sessionId: ctx.session.sessionId })
+    // Warm the same path the Files view queries: the worktree root when this
+    // session has one, else the project directory. Warming the bare
+    // workingDirectory missed entirely for worktree sessions, so their first
+    // open paid full scan.
     const warmPath =
-      controlPlane.getGitContext(ctx.session.tabId)?.worktreePath ?? ctx.session.workingDirectory
+      controlPlane.getGitContext(ctx.session.sessionId)?.worktreePath ?? ctx.session.workingDirectory
     if (warmPath && warmPath !== '~') warmFinder(warmPath)
-    controlPlane.resetTabSession(ctx, tabOwner(handlerCtx))
+    controlPlane.resetSession(ctx)
   })
 
   server.register('switchSessionAgent', (args) => {
-    const [tabId, provider] = args as [string, AgentId]
-    log.info('rpc_switch_session_agent', { tabId, provider })
-    return controlPlane.switchSessionProvider(tabId, provider)
+    const [sessionId, provider, agentSessionId] = args as [string, AgentId, (string | null)?]
+    log.info('rpc_switch_session_agent', { sessionId, provider, agentSessionId: agentSessionId ?? null })
+    return controlPlane.switchSessionProvider(sessionId, provider, agentSessionId)
   })
 
   server.register('prompt', async (args, handlerCtx) => {
     const [ctx, options] = args as [IpcContext, PromptOptions]
-    const tabId = ctx.session.tabId
-    log.info('rpc_prompt', { tabId })
-    if (!tabId) throw new Error('No tabId provided — prompt rejected')
+    const sessionId = ctx.session.sessionId
+    log.info('rpc_prompt', { sessionId })
+    if (!sessionId) throw new Error('No sessionId provided — prompt rejected')
     try {
-      return await controlPlane.submitPrompt(ctx, options, handlerCtx.deviceId)
+      return await controlPlane.submitPrompt(ctx, options, {
+        clientId: handlerCtx.clientId,
+        deviceId: handlerCtx.deviceId,
+      })
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
-      log.error('prompt_failed', { tabId, error: msg })
+      log.error('prompt_failed', { sessionId, error: msg })
       throw err
     }
   })
 
-  server.register('stopTab', (args) => {
-    const [ctx] = args as [IpcContext]
-    log.info('rpc_stop_tab', { tabId: ctx.session.tabId })
-    return controlPlane.cancelTab(ctx)
-  })
-
-  server.register('retry', async (args) => {
+  server.register('retry', async (args, handlerCtx) => {
     const [ctx, options] = args as [IpcContext, PromptOptions]
-    log.info('rpc_retry', { tabId: ctx.session.tabId })
-    return controlPlane.retry(ctx, options)
-  })
-
-  server.register('closeTab', (args, handlerCtx) => {
-    const [ctx] = args as [IpcContext]
-    log.info('rpc_close_tab', { tabId: ctx.session.tabId })
-    controlPlane.closeTab(ctx, tabOwner(handlerCtx))
+    log.info('rpc_retry', { sessionId: ctx.session.sessionId })
+    return controlPlane.retry(ctx, options, handlerCtx.clientId)
   })
 
   server.register('respondPermission', (args) => {
     const [ctx, questionId, optionId, updatedPlan] = args as [IpcContext, string, string, string | undefined]
-    log.info('rpc_respond_permission', { tabId: ctx.session.tabId, questionId, optionId, hasUpdatedPlan: !!updatedPlan })
+    log.info('rpc_respond_permission', { sessionId: ctx.session.sessionId, questionId, optionId, hasUpdatedPlan: !!updatedPlan })
     return controlPlane.respondToPermission(questionId, optionId, updatedPlan)
   })
 
   server.register('respondQuestion', (args) => {
     const [ctx, questionId, answers] = args as [IpcContext, string, Record<string, string>]
-    log.info('rpc_respond_question', { tabId: ctx.session.tabId, questionId })
+    log.info('rpc_respond_question', { sessionId: ctx.session.sessionId, questionId })
     return controlPlane.respondToQuestion(questionId, answers)
   })
 
   server.register('rateLimitDecision', (args) => {
     const [ctx, action] = args as [IpcContext, RateLimitDecisionAction]
-    log.info('rpc_rate_limit_decision', { tabId: ctx.session.tabId, action })
+    log.info('rpc_rate_limit_decision', { sessionId: ctx.session.sessionId, action })
     return controlPlane.resolveRateLimit(ctx, action)
   })
 
   server.register('cancelQueuedPrompt', (args) => {
     const [ctx, queueId] = args as [IpcContext, string]
-    log.info('rpc_cancel_queued_prompt', { tabId: ctx.session.tabId, queueId })
+    log.info('rpc_cancel_queued_prompt', { sessionId: ctx.session.sessionId, queueId })
     return controlPlane.cancelQueuedPrompt(ctx, queueId)
   })
 
   server.register('editQueuedPrompt', (args) => {
     const [ctx, queueId, text] = args as [IpcContext, string, string]
-    log.info('rpc_edit_queued_prompt', { tabId: ctx.session.tabId, queueId })
+    log.info('rpc_edit_queued_prompt', { sessionId: ctx.session.sessionId, queueId })
     return controlPlane.editQueuedPrompt(ctx, queueId, text)
   })
 
   server.register('rewindFiles', async (args) => {
     const [ctx, checkpointId] = args as [IpcContext, string]
-    log.info('rpc_rewind_files', { tabId: ctx.session.tabId, checkpointId })
-    await controlPlane.rewindTabFiles(ctx, checkpointId)
+    log.info('rpc_rewind_files', { sessionId: ctx.session.sessionId, checkpointId })
+    await controlPlane.rewindSessionFiles(ctx, checkpointId)
     return true
   })
 

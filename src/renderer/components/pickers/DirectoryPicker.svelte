@@ -213,6 +213,11 @@
 
     blurActiveTextInputOnMobile();
 
+    // Focus the filter now, not after the host load resolves: on a remote host
+    // that round-trip is slow, and the dialog that handed off focus has already
+    // unmounted, so keystrokes would fall on the body until the load lands.
+    if (shouldAutofocus) requestAnimationFrame(() => pathInputEl?.focus());
+
     const recents = isPrimaryHost
       ? projectsStore.loadRecentProjects().then(() => projectsStore.recentProjects)
       : serverId

@@ -135,29 +135,39 @@
           !(hasSessions && expanded),
   );
 
-  // Unread output wins over a live run until it is cleared. A state explicitly
-  // waiting on the user still wins over unread.
+  // Unread belongs to a completed sibling session when the aggregate task is
+  // also running. The completed output keeps priority until the user reads it.
+  const isRunning = $derived(task.status === "running");
   const showsUnreadDot = $derived(
     showsUnreadIndicator(task.status, task.unread),
   );
 
-  // A number can only date one turn. Once several sessions are running under
-  // the task there is no single clock to report, so the row says *that* work is
-  // in flight and leaves the durations to the session rows that own them.
+  // A number can only date one turn. Once several sessions are running *at
+  // once* there is no single clock to report, so the row says *that* work is in
+  // flight and leaves the durations to the session rows that own them. A task
+  // with many sessions but only one of them running still has one datable turn,
+  // so it keeps the number rather than hiding it behind a spinner.
+  const runningSessionCount = $derived(
+    sessions.filter((session) => session.attention === "running").length,
+  );
+  // If a reconnect has no reliable start time, show motion instead of leaving a
+  // running row blank. This is a display fallback, not a lifecycle inference.
   const spinning = $derived(
-    task.status === "running" && !showsUnreadDot && sessions.length > 1,
+    isRunning &&
+      !showsUnreadDot &&
+      (runningSessionCount > 1 || !task.runStartedAt),
   );
 
   // Ticks each second, tabular figures, so the row never reflows around it.
   let now = $state(Date.now());
   $effect(() => {
-    if (task.status !== "running" || showsUnreadDot || spinning) return;
+    if (!isRunning || showsUnreadDot || spinning) return;
     return liveActivityClock.subscribe((value) => {
       now = value;
     });
   });
   const elapsed = $derived(
-    task.status === "running" && !showsUnreadDot && !spinning && task.runStartedAt
+    isRunning && !showsUnreadDot && !spinning && task.runStartedAt
       ? formatElapsed(now - task.runStartedAt)
       : "",
   );

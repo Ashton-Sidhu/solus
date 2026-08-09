@@ -8,8 +8,53 @@ export class TabRegistry {
   sessions = $state<Record<string, Session>>({})
   tabOrder = $state<string[]>([])
   activeTabId = $state('')
+  /** The prompt with nowhere to go: no tab is selected, so there is no session
+   *  to address. Handed to the first session that gets created. */
   activeInput = $state<Prompt>(makePrompt())
   lastActiveTabByBranch = new SvelteMap<string, string>()
+
+  /**
+   * The resolver: which tabs are listening to which session.
+   *
+   * Every "where is this session showing?" question goes through this one index
+   * rather than scanning `tabOrder` with a hand-written predicate. A session may
+   * have no tab (a headless agent, a draft that just dispatched) or several (a
+   * split chat), and both answers are ordinary here — which is the whole point
+   * of addressing work by session and resolving to tabs only to show it.
+   */
+  get tabIdsBySession(): Map<string, string[]> {
+    const index = new Map<string, string[]>()
+    for (const tabId of this.tabOrder) {
+      const sessionId = this.tabs[tabId]?.sessionId
+      if (!sessionId) continue
+      const listening = index.get(sessionId)
+      if (listening) listening.push(tabId)
+      else index.set(sessionId, [tabId])
+    }
+    return index
+  }
+
+  /**
+   * The same index against the *provider's* id rather than ours. A resumed or
+   * forked conversation is the same agent session under a new renderer id, so a
+   * work item or task link — which only ever knows the provider's id — resolves
+   * through here.
+   */
+  get tabIdsByAgentSession(): Map<string, string[]> {
+    const index = new Map<string, string[]>()
+    for (const tabId of this.tabOrder) {
+      const session = this.sessionFor(tabId)
+      if (!session) continue
+      for (const agentId of [session.agentSessionId, session.forkedFromSessionId]) {
+        if (!agentId) continue
+        const listening = index.get(agentId)
+        if (listening) {
+          if (!listening.includes(tabId)) listening.push(tabId)
+        } else index.set(agentId, [tabId])
+      }
+    }
+    return index
+  }
 
   get activeTab(): Tab | undefined {
     return this.tabs[this.activeTabId]
@@ -20,7 +65,7 @@ export class TabRegistry {
   }
 
   get currentInput(): Prompt {
-    return this.activeTab?.input ?? this.activeInput
+    return this.activeSession?.prompt ?? this.activeInput
   }
 
   sessionFor(tabId: string): Session | undefined {
@@ -77,16 +122,6 @@ export class TabRegistry {
         continue
       }
       seen.add(tabId)
-    }
-  }
-
-  forEachSiblingTab(tabId: string, fn: (siblingId: string) => void): void {
-    const tab = this.tabs[tabId]
-    if (!tab) return
-    for (const siblingId of this.tabOrder) {
-      if (siblingId === tabId) continue
-      const siblingTab = this.tabs[siblingId]
-      if (siblingTab?.sessionId === tab.sessionId) fn(siblingId)
     }
   }
 }

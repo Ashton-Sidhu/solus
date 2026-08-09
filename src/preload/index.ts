@@ -1,7 +1,8 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { AgentId, AgentUsageLimits, ReasoningEffort, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionStatus, SessionSearchResult, SessionScanEvent, SessionIndexUpdatedEvent, SessionGeneratedMetadata, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitCommitResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, ProjectIdentity, PlanDescriptor, PlanAnnotations, AnnotationsChanged, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupLogEvent, SetupSshAccessResult, SetupStatusEvent, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential } from '../shared/types'
 import type { PrEffortRequest, PrEffortResult, PrFilter, PrListPage, PrReviewer, PullRequestDetail, PullRequestOverview, PullRequestSummary, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview } from '../shared/providers'
-import type { Task, TaskCreateInput, TaskDetails, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskListFilter, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarSnapshot, TaskUpdatePatch } from '../shared/task-types'
+import type { PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskCreateInput, TaskDetails, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskListFilter, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarSnapshot, TaskSnapshot, TaskUpdatePatch } from '../shared/task-types'
+import type { OutboxApplyResult, OutboxOp } from '../shared/outbox-types'
 import type { SessionLoadMessage, SessionPreviewResult } from '../shared/session-history'
 import type { AttentionEntry } from '../shared/attention-types'
 import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewProgressEvent, ReviewGuideStatusEvent, PrGuideMetadata, PrGuideMetadataRequest, PrGuideStatusEvent } from '../shared/review'
@@ -21,12 +22,13 @@ export interface LocalConnectionInfo {
 // in `src/client-core`; preload now exposes only the native shell residue below.
 export interface SolusAPI {
   start(): Promise<StartInfo>
-  createTab(tabId?: string): Promise<{ tabId: string }>
+  /** Subscribe to a session's events. Resolves identity: the answer may differ
+   *  from the argument when another client already named this provider thread. */
+  watchSession(input: { sessionId?: string; agentSessionId?: string }): Promise<{ sessionId: string }>
+  unwatchSession(sessionId: string): Promise<void>
   prompt(ctx: IpcContext, options: PromptOptions): Promise<PromptDispatchResult>
-  stopTab(ctx: IpcContext): Promise<boolean>
   retry(ctx: IpcContext, options: PromptOptions): Promise<void>
-  closeTab(ctx: IpcContext): Promise<void>
-  switchSessionAgent(tabId: string, provider: AgentId): Promise<SessionProviderSwitchResult>
+  switchSessionAgent(sessionId: string, provider: AgentId, agentSessionId?: string | null): Promise<SessionProviderSwitchResult>
   saveFileDialog(defaultName: string, content: string): Promise<string | null>
   openExternal(url: string, options?: { hideAppAfterOpen?: boolean }): Promise<boolean>
   openInFileManager(path: string): Promise<boolean>
@@ -68,7 +70,7 @@ export interface SolusAPI {
   cancelQueuedPrompt(ctx: IpcContext, queueId: string): Promise<boolean>
   editQueuedPrompt(ctx: IpcContext, queueId: string, text: string): Promise<boolean>
   bindRuntimeSession(ctx: IpcContext): Promise<RuntimeSessionInfo | null>
-  resetTabSession(ctx: IpcContext): Promise<void>
+  resetSession(ctx: IpcContext): Promise<void>
   listSessions(projectPath?: string, ctx?: IpcContext, provider?: AgentId, streamId?: string, limit?: number): Promise<SessionMeta[]>
   searchSessions(request: SearchSessionsRequest): Promise<SessionSearchResult[]>
   loadSession(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId, limit?: number): Promise<SessionLoadMessage[]>
@@ -152,11 +154,11 @@ export interface SolusAPI {
   pushSubscribe(subscription: WebPushSubscriptionJSON): Promise<{ ok: boolean }>
   pushUnsubscribe(): Promise<{ ok: boolean }>
 
-  /** Create a durable provider session without tab ownership or routing state. */
+  /** Create a durable provider session with no client watching it. */
   createHeadlessSession(request: HeadlessSessionRequest): Promise<{ agentSessionId: string }>
-  /** Prompt another agent whose session has no bound tab (card composer/broadcast). */
+  /** Prompt another agent no client is watching (card composer/broadcast). */
   promptSession(sessionId: string, prompt: string, delivery?: PromptDelivery): Promise<{ disposition: 'started' | 'steered' | 'queued' }>
-  /** Stop another agent whose session has no bound tab (card interrupt). */
+  /** Interrupt a session, by Solus's id or the provider thread a card holds. */
   stopSession(sessionId: string): Promise<boolean>
 
   providerStatus(ctx: IpcContext): Promise<AuthStatus>
@@ -241,14 +243,26 @@ export interface SolusAPI {
   tasksSidebarSnapshot(): Promise<TaskSidebarSnapshot>
   tasksGet(id: string): Promise<TaskDetails>
   tasksCreate(input: TaskCreateInput): Promise<Task>
+  tasksPrepareForSession(input: PrepareSessionTaskRequest): Promise<PrepareSessionTaskResult>
+  tasksSnapshot(taskId: string): Promise<TaskSnapshot>
   tasksUpdate(id: string, patch: TaskUpdatePatch): Promise<Task>
   tasksDelete(id: string): Promise<boolean>
   tasksComment(id: string, body: string): Promise<TaskDetails>
-  tasksLinkSession(taskId: string, sessionId: string, role?: TaskSessionRole): Promise<void>
+  tasksLinkSession(
+    taskId: string,
+    sessionId: string,
+    role?: TaskSessionRole,
+    /** Where the agent ran, when that is not this host. See `SessionExecutionHost`. */
+    execution?: SessionExecutionHost | null,
+  ): Promise<void>
   tasksSessions(taskId?: string): Promise<Record<string, TaskSessionLink[]>>
   tasksForSession(sessionId: string): Promise<TaskForSessionResult | null>
   tasksLink(taskId: string, input: TaskLinkInput): Promise<TaskDetails>
   tasksUnlink(taskId: string, kind: TaskLinkKind, targetKey: string, targetScope?: string): Promise<TaskDetails>
+
+  outboxList(): Promise<OutboxOp[]>
+  outboxAck(appliedIds: string[], failures?: Array<{ id: string; error: string }>): Promise<void>
+  outboxApply(ops: OutboxOp[]): Promise<OutboxApplyResult>
 
   automationCreate(name: string, action: AutomationAction, createdBy: AutomationCreator, enabled?: boolean, trigger?: AutomationTrigger): Promise<Automation>
   automationList(): Promise<Automation[]>

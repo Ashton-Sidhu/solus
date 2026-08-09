@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { getDb, withTx } from '../db'
+import { persistRemoteSessionStart } from '../db/session-indexer'
 import { appendTaskEvent, diffTaskEvents } from './task-events'
 import {
   database,
@@ -12,7 +13,9 @@ import {
   taskFromRow,
   writeTask,
 } from './task-store'
+import type { AgentId } from '../../shared/types'
 import type {
+  SessionExecutionHost,
   Task,
   TaskForSessionResult,
   TaskPr,
@@ -33,11 +36,13 @@ interface TaskSessionLinkRow {
   branch: string | null
   /** Legacy capture — populated by earlier versions, read-only today. */
   pr: string | null
+  execution_server_id: string | null
   linked_at: number
   /** Joined from `sessions` by `LINK_SELECT`, which is the only way links are
    *  read. Null when the session is not in the index yet. */
   session_title: string | null
   session_provider: string | null
+  session_server_id: string | null
   last_activity_at: number | null
 }
 
@@ -48,6 +53,11 @@ function linkFromRow(row: TaskSessionLinkRow): TaskSessionLink {
     sessionTitle: row.session_title ?? null,
     provider: row.session_provider ?? null,
     lastActivityAt: row.last_activity_at ?? null,
+    // The session record answers first: it is one row per session, whereas a
+    // session referenced by several tasks has a link each, and only the session
+    // can be corrected in one place. The link's own copy survives for the rows
+    // written before sessions carried a host.
+    executionServerId: row.session_server_id ?? row.execution_server_id,
     role: row.role,
     ...(row.branch === null ? {} : { branch: row.branch }),
     ...(row.pr === null ? {} : { pr: jsonValue<TaskPr | undefined>(row.pr, undefined) }),
@@ -57,6 +67,9 @@ function linkFromRow(row: TaskSessionLinkRow): TaskSessionLink {
 
 export interface SessionLinkDetails {
   branch?: string | null
+  /** Present only for a dispatch. This host is the *task's*, so the agent ran on
+   * a machine it never saw and the client is the only party that can say which. */
+  execution?: SessionExecutionHost | null
   /** Stamps a session-born task whose provider session id was not available
    * when its pre-launch row was minted. Existing provenance is never replaced. */
   originSessionId?: string | null
@@ -75,18 +88,32 @@ export function writeSessionLink(
 ): void {
   requireTask(taskId, db)
   const branch = normalizedOptional(details.branch)
+  const execution = details.execution ?? null
+  const executionServerId = normalizedOptional(execution?.serverId)
+  // The session record is what later reads ask, so a machine this host cannot
+  // see still gets a row here. It is written before the link so a link is never
+  // visible ahead of the session it joins to.
+  if (executionServerId) {
+    persistRemoteSessionStart(
+      sessionId,
+      (execution?.provider as AgentId | undefined) ?? 'claude-code',
+      executionServerId,
+      normalizedOptional(execution?.projectRoot),
+    )
+  }
   // Re-linking an existing attempt is bookkeeping, not history — only a genuine
   // first binding is a session start.
   const isNewLink = !db.prepare('SELECT 1 FROM task_session_links WHERE task_id = ? AND session_id = ?')
     .get(taskId, sessionId)
   db.prepare(`
-    INSERT INTO task_session_links(task_id, session_id, role, branch, linked_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO task_session_links(task_id, session_id, role, branch, execution_server_id, linked_at)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(task_id, session_id) DO UPDATE SET
       role = excluded.role,
       branch = COALESCE(excluded.branch, task_session_links.branch),
+      execution_server_id = COALESCE(excluded.execution_server_id, task_session_links.execution_server_id),
       linked_at = excluded.linked_at
-  `).run(taskId, sessionId, role, branch, now)
+  `).run(taskId, sessionId, role, branch, executionServerId, now)
   db.prepare(`
     UPDATE tasks SET
       branch = COALESCE(?, branch),
@@ -114,6 +141,7 @@ const LINK_SELECT = `
     task_session_links.*,
     COALESCE(sessions.custom_title, sessions.first_message) AS session_title,
     sessions.provider AS session_provider,
+    sessions.server_id AS session_server_id,
     sessions.last_timestamp AS last_activity_at
   FROM task_session_links
   LEFT JOIN sessions ON sessions.session_id = task_session_links.session_id

@@ -20,7 +20,7 @@
 
   // Seeded from what the tab currently shows, so clearing the field is an
   // explicit "go back to the prompt-derived name" rather than the default.
-  let value = $state(tab && sess ? sessionTitle(sess, tab) : "");
+  let value = $state(sess ? sessionTitle(sess) : "");
 
   function close(): void {
     onClose();

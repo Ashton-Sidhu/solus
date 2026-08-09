@@ -45,9 +45,14 @@
   let expandedToolId = $state<string | null>(null);
 
   const runningTool = $derived(tools.find((t) => t.toolStatus === "running"));
-  const failedTool = $derived(
-    tools.find((t) => t.toolStatus === "error" || t.toolResultIsError),
-  );
+  // A failure only owns the row while it is the last thing that happened. Once
+  // the run has moved past it the group goes back to its summary — otherwise one
+  // early error stays stuck on a group that has since done a dozen fine things.
+  const failedTool = $derived.by(() => {
+    const last = tools[tools.length - 1];
+    if (!last) return undefined;
+    return last.toolStatus === "error" || last.toolResultIsError ? last : undefined;
+  });
 
   const parseCache = new WeakMap<Message, Record<string, unknown> | null>();
 

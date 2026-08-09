@@ -159,6 +159,35 @@ describe('applyLayout', () => {
     expect(xs['user']).toBe(Math.min(...Object.values(xs)))
   })
 
+  test('groups rank along the flow axis when only cross-group child edges connect them', () => {
+    // The realistic architecture shape: the only edges connect a child of one
+    // group to a child of another; no edge names the groups themselves. The top
+    // level must still flow along the requested direction. Before the cross-group
+    // edge lift, layoutSubset saw zero top-level edges, dagre put both groups in
+    // rank 0, and the layout came out rotated 90° from the request (LR stacked
+    // the groups vertically, TB spread them horizontally).
+    const doc: DiagramDoc = {
+      nodes: [
+        { id: 'g1', label: 'Capture', group: true },
+        { id: 'g2', label: 'Query', group: true },
+        { id: 'c1', label: 'Recorder', parentId: 'g1' },
+        { id: 'c2', label: 'Reader', parentId: 'g2' },
+      ],
+      edges: [{ id: 'e1', source: 'c1', target: 'c2' }],
+    }
+    const groupSpan = (direction: 'LR' | 'TB') => {
+      const laid = applyLayout(doc, direction)
+      const g1 = laid.nodes.find((n) => n.id === 'g1')!.position!
+      const g2 = laid.nodes.find((n) => n.id === 'g2')!.position!
+      return { x: Math.abs(g2.x - g1.x), y: Math.abs(g2.y - g1.y) }
+    }
+    const lr = groupSpan('LR')
+    const tb = groupSpan('TB')
+    // LR must separate the groups along x; TB along y.
+    expect(lr.x).toBeGreaterThan(lr.y)
+    expect(tb.y).toBeGreaterThan(tb.x)
+  })
+
 })
 
 describe('reapplyLayout', () => {

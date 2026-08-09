@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import ConversationView from "@renderer/components/conversation/ConversationView.svelte";
-  import NewTabHome from "@renderer/components/layout/NewTabHome.svelte";
+  import SessionBreadcrumb from "@renderer/components/conversation/SessionBreadcrumb.svelte";
   import SessionPicker from "@renderer/components/session/SessionPicker.svelte";
   // Eager, unlike the lazy surfaces below: it is what covers an async boundary,
   // so it cannot sit behind one itself.
@@ -36,8 +36,8 @@
   let sidePanelSourceTabId = $state(session.activeTabId);
   const sidePanelTab = $derived(session.tabs[sidePanelSourceTabId]);
   const sidePanelSession = $derived(session.sessionFor(sidePanelSourceTabId));
-  const isWorktree = $derived(!!sidePanelSession?.gitContext?.worktreePath);
-  const canShowDiffPanel = $derived(!!sidePanelSession?.workingDirectory);
+  const isWorktree = $derived(!!sidePanelSession?.run.gitContext?.worktreePath);
+  const canShowDiffPanel = $derived(!!sidePanelSession?.run.workingDirectory);
   const activePlan = $derived.by(() => {
     const planId = router.params("plan")?.planId;
     if (planId) return planStore.get(planId) ?? null;
@@ -178,7 +178,7 @@
       const detail = (e as CustomEvent<{ tabId?: string; scope?: DiffScope }>).detail;
       const sourceTabId =
         detail?.tabId ?? session.focusedChatTabId ?? session.activeTabId;
-      const canShowSourceDiff = !!session.sessionFor(sourceTabId)?.workingDirectory;
+      const canShowSourceDiff = !!session.sessionFor(sourceTabId)?.run.workingDirectory;
       const scope = detail?.scope ?? { kind: "session" };
       if (!isMobile) {
         session.toggleDiff(sourceTabId, scope);
@@ -250,7 +250,7 @@
     }
     const sourceTabId = session.activeTabId;
     sidePanelSourceTabId = sourceTabId;
-    if (session.sessionFor(sourceTabId)?.workingDirectory) {
+    if (session.sessionFor(sourceTabId)?.run.workingDirectory) {
       editorFile = null;
       diffScope = { kind: "session" };
       diffPanelOpen = !diffPanelOpen;
@@ -322,9 +322,11 @@
           </div>
         {/await}
       {:else}
-        <div class="flex min-h-0 flex-1 flex-col">
-          {#if (session.tabOrder.length === 0 || session.draftTabId) && !router.at("folio")}
-            <NewTabHome tab={session.tabs[session.activeTabId]} />
+        <!-- The band belongs to the pane, not to the transcript: the desktop
+             body draws it over its leading column, and this is that column. -->
+        <div class="relative flex min-h-0 flex-1 flex-col">
+          {#if session.activeTabId}
+            <SessionBreadcrumb tabId={session.activeTabId} />
           {/if}
           {#each session.tabOrder as tId (tId)}
             <div
@@ -335,7 +337,7 @@
                 tabId={tId}
                 onDiffToggle={() => {
                   sidePanelSourceTabId = tId;
-                  if (!session.sessionFor(tId)?.workingDirectory) return;
+                  if (!session.sessionFor(tId)?.run.workingDirectory) return;
                   editorFile = null;
                   diffScope = { kind: "session" };
                   diffPanelOpen = !diffPanelOpen;
@@ -358,7 +360,7 @@
       {@const FileEditorPane = fileEditorModule.default}
       <FileEditorPane
         ctx={session.ctxFor(sidePanelTab.id)}
-        cwd={sidePanelSession.gitContext?.worktreePath ?? sidePanelSession.workingDirectory}
+        cwd={sidePanelSession.run.gitContext?.worktreePath ?? sidePanelSession.run.workingDirectory}
         isDark={session.settings.isDark}
         file={editorFile}
         onClose={() => {
@@ -373,10 +375,10 @@
       {@const DiffPanel = diffModule.default}
       <DiffPanel
         tabId={sidePanelTab.id}
-        projectPath={sidePanelSession.workingDirectory}
-        worktreePath={sidePanelSession.gitContext?.worktreePath}
-        worktreeBranch={sidePanelSession.gitContext?.branch ?? ""}
-        targetBranch={sidePanelSession.gitContext?.targetBranch ?? "HEAD"}
+        projectPath={sidePanelSession.run.workingDirectory}
+        worktreePath={sidePanelSession.run.gitContext?.worktreePath}
+        worktreeBranch={sidePanelSession.run.gitContext?.branch ?? ""}
+        targetBranch={sidePanelSession.run.gitContext?.targetBranch ?? "HEAD"}
         {isWorktree}
         onClose={() => {
           diffPanelOpen = false;

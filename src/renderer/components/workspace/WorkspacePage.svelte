@@ -546,7 +546,8 @@
       },
       { background: true },
     );
-    session.openSplitChat(tabId);
+    const resumed = tabId ? session.sessionFor(tabId) : undefined;
+    if (resumed) session.openSplitChat(resumed.id);
   }
 
   function togglePin(item: WorkspaceItem) {

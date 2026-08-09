@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { CodeIcon, OpenAiLogoIcon } from "phosphor-svelte";
+  import { CodeIcon, GlobeIcon, OpenAiLogoIcon } from "phosphor-svelte";
   import ClaudeIcon from "../ClaudeIcon.svelte";
-  import { getSettingsContext } from "../../contexts";
+  import { getSettingsContext, serversStore } from "../../contexts";
   import {
     entryTitle,
     entryByline,
@@ -25,6 +25,16 @@
     onHover: () => void;
   }
   let { item, isSelected, query = "", onSelect, onHover }: Props = $props();
+
+  // Which machine runs this session. An open tab earns the badge as much as a
+  // history row does: the picker mixes hosts freely, so "here" has to be stated
+  // rather than assumed. `hostFor` returns null for this machine.
+  const host = $derived(
+    serversStore.hostFor(
+      item.kind === "history" ? item.meta.serverId : item.session.run.serverId,
+    ),
+  );
+  const remoteHost = $derived(host && !host.local ? host : null);
 
   const titleRuns = $derived(highlightRuns(entryTitle(item), query));
 
@@ -142,6 +152,17 @@
             class="h-[0.3125rem] w-[0.3125rem] flex-shrink-0 rounded-full bg-[var(--solus-accent)] opacity-85"
             aria-label="Open tab"
           ></span>
+        {/if}
+        {#if remoteHost}
+          <span
+            class="flex min-w-0 max-w-[7rem] flex-shrink-0 items-center gap-1 text-[0.6875rem] text-[var(--solus-text-tertiary)]"
+            title="Runs on {remoteHost.label}"
+          >
+            <GlobeIcon size={11} class="shrink-0" />
+            <span class="overflow-hidden text-ellipsis whitespace-nowrap"
+              >{remoteHost.label}</span
+            >
+          </span>
         {/if}
       </div>
 

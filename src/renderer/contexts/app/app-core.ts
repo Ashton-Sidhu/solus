@@ -67,7 +67,7 @@ export function createAppCore(): AppCore {
     })
     if (!tabId) return
 
-    const title = session.tabs[tabId]?.title?.trim()
+    const title = session.sessionFor(tabId)?.title?.trim()
     toasts.success(title ? `Review guide ready for “${title}”` : 'Review guide ready', {
       duration: 10_000,
       action: {

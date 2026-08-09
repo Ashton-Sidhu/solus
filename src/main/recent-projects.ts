@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { basename } from 'node:path'
-import { worktreeProjectRoot, type RecentProject } from '../shared/types'
+import { isRemoteDispatchCheckoutPath, worktreeProjectRoot, type RecentProject } from '../shared/types'
 import { getDb, withTx } from './db'
 import { isWorkspacePath } from './workspace'
 
@@ -25,6 +25,9 @@ export async function trackRecentProject(path: string): Promise<void> {
   path = worktreeProjectRoot(path)
   // The workspace is the app's default cwd, not a "project" — never log it.
   if (isWorkspacePath(path)) return
+  // A delegated remote-dispatch checkout is host-internal plumbing for running a
+  // session on another machine, not a project the user opened — keep it hidden.
+  if (isRemoteDispatchCheckoutPath(path)) return
   withTx(() => {
     const db = getDb()
     db.prepare('DELETE FROM recent_projects WHERE path = ?').run(path)
@@ -54,5 +57,8 @@ export async function listRecentProjects(): Promise<RecentProject[]> {
     FROM recent_projects
     ORDER BY last_opened DESC, rowid DESC
   `).all() as unknown as RecentProjectRow[]
-  return rows.map(fromRow).filter((project) => existsSync(project.path))
+  return rows
+    .map(fromRow)
+    // Drop rows already written before dispatch checkouts were excluded.
+    .filter((project) => !isRemoteDispatchCheckoutPath(project.path) && existsSync(project.path))
 }

@@ -1,4 +1,7 @@
 import type {
+  PrepareSessionTaskRequest,
+  PrepareSessionTaskResult,
+  SessionExecutionHost,
   TaskCreateInput,
   TaskLinkInput,
   TaskLinkKind,
@@ -14,8 +17,8 @@ import {
   updateUpstreamTask,
 } from '../../tasks/upstream'
 import { createTask, listTasks } from '../../tasks/task-store'
-import { Task } from '../../tasks/task'
-import { taskSessions, tasksForSession } from '../../tasks/task-sessions'
+import { Task, taskSnapshot } from '../../tasks/task'
+import { prepareSessionTask, taskSessions, tasksForSession } from '../../tasks/task-sessions'
 import type { SolusServer } from '../server'
 
 /** Global native-task RPCs plus project-scoped upstream-provider reads/writes. */
@@ -83,8 +86,13 @@ export function registerTasksHandlers(server: SolusServer): void {
   })
 
   server.register('tasksLinkSession', async (args) => {
-    const [taskId, sessionId, role] = args as [string, string, TaskSessionRole | undefined]
-    return (await Task.byId(taskId)).linkSession(sessionId, role ?? 'working')
+    const [taskId, sessionId, role, execution] = args as [
+      string,
+      string,
+      TaskSessionRole | undefined,
+      SessionExecutionHost | null | undefined,
+    ]
+    return (await Task.byId(taskId)).linkSession(sessionId, role ?? 'working', { execution })
   })
 
   server.register('tasksLink', async (args) => {
@@ -106,5 +114,29 @@ export function registerTasksHandlers(server: SolusServer): void {
   server.register('tasksForSession', (args) => {
     const [sessionId] = args as [string]
     return tasksForSession(sessionId)
+  })
+
+  /**
+   * The first-dispatch mint, addressed to the host that owns the project rather
+   * than performed as a side effect on whichever host runs the agent. A
+   * dispatched session runs elsewhere and files here, so only the client knows
+   * both hosts and must name this one. The session link follows separately, once
+   * the execution host has issued a session id.
+   */
+  server.register('tasksPrepareForSession', async (args) => {
+    const [input] = args as [PrepareSessionTaskRequest]
+    const task = await prepareSessionTask(input)
+    // The snapshot rides the same round trip a dispatching client already makes
+    // (docs/plans/dispatch-parity.md): the execution host cannot read this
+    // host's store, so the client ships the state with the prompt.
+    const snapshot = task && input.includeSnapshot ? await taskSnapshot(task.id) : null
+    return { task, snapshot } satisfies PrepareSessionTaskResult
+  })
+
+  /** A dispatched session's follow-up prompts re-ship the packet, so the client
+   *  re-reads the task's live state from this host before each send. */
+  server.register('tasksSnapshot', async (args) => {
+    const [taskId] = args as [string]
+    return taskSnapshot(taskId)
   })
 }

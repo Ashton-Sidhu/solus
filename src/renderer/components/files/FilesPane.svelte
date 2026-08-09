@@ -169,7 +169,7 @@
   async function loadFiles() {
     loading = true;
     error = null;
-    const result = await workspace.apiFor(ctx.session.tabId).listProjectFiles(ctx, { cwd });
+    const result = await workspace.apiForSession(ctx.session.sessionId).listProjectFiles(ctx, { cwd });
     if (result.ok) {
       root = result.root;
       files = result.files;
@@ -196,7 +196,7 @@
     fileError = null;
     fileLoading = true;
     saveState = "idle";
-    const result = await workspace.apiFor(ctx.session.tabId).readProjectFile(ctx, { path, cwd: root || cwd });
+    const result = await workspace.apiForSession(ctx.session.sessionId).readProjectFile(ctx, { path, cwd: root || cwd });
     if (selectedPath !== path) return;
     if (result.ok) {
       selectedContents = result.contents;
@@ -465,7 +465,7 @@
           </div>
         {:else if selectedPath && selectedContents !== null}
           <FilePreviewStream
-            api={workspace.apiFor(ctx.session.tabId)}
+            api={workspace.apiForSession(ctx.session.sessionId)}
             {ctx}
             cwd={root || cwd}
             filePath={selectedPath}

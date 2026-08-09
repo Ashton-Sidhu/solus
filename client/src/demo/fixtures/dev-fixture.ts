@@ -4,7 +4,9 @@ import { DEMO_PROJECT, type DemoFixtures } from './types'
 
 const SESSION_ID = 'demo-session-complete'
 const COMPLETED_TAB_ID = 'demo-tab-complete'
+const COMPLETED_SESSION_ID = 'demo-conv-complete'
 const NEW_TAB_ID = 'demo-tab-new'
+const NEW_SESSION_ID = 'demo-conv-new'
 const timestamp = Date.parse('2026-01-15T15:00:00.000Z')
 
 const emptyGuide: ReviewGuide = {
@@ -48,6 +50,7 @@ export const devFixtures: DemoFixtures = {
     tabs: [
       {
         tabId: COMPLETED_TAB_ID,
+        sessionId: COMPLETED_SESSION_ID,
         title: 'Improve request validation',
         agentSessionId: SESSION_ID,
         provider: 'claude-code',
@@ -70,6 +73,7 @@ export const devFixtures: DemoFixtures = {
       },
       {
         tabId: NEW_TAB_ID,
+        sessionId: NEW_SESSION_ID,
         title: 'New session',
         agentSessionId: null,
         provider: 'claude-code',

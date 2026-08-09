@@ -17,6 +17,7 @@
   import ContextMeter from "../ContextMeter.svelte";
   import GitDropdown from "../GitDropdown.svelte";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
+  import { isRunOnHostLocked } from "../servers/run-on";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { comboHint } from "../../lib/keybindings/manifest";
 
@@ -24,16 +25,22 @@
     mode?: "pill" | "editor";
     showDirIcon?: boolean;
     tabId?: string;
+    /** These are the workspace's own controls, not a pane's. */
+    isPrimary?: boolean;
     trailingActions?: Snippet;
   }
-  let { mode = "pill", showDirIcon = true, tabId, trailingActions }: Props = $props();
+  let { mode = "pill", showDirIcon = true, tabId, isPrimary = false, trailingActions }: Props = $props();
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
   const statusBar = getStatusBarContext();
   const environmentStore = getSessionEnvironmentStore();
-  const isPinned = $derived(tabId !== undefined);
-  const targetTabId = $derived(tabId ?? session.activeTabId);
+  // "Pinned" means these controls belong to a pane of their own rather than to
+  // the workspace's composer — the workspace one is the only place that opens a
+  // project or answers the git-dropdown shortcut. A draft's composer is neither
+  // and names no tab, so nothing here falls back to whichever tab is active.
+  const isPinned = $derived(!isPrimary);
+  const targetTabId = $derived(tabId ?? "");
   const ctx = $derived(statusBar.ctxFor(targetTabId));
   const tab = $derived(session.tabs[targetTabId]);
   const sess = $derived(session.sessionFor(targetTabId));
@@ -57,7 +64,7 @@
   });
 
   const worktreeBaseBranch = $derived(
-    sess?.run.worktreeBaseBranch ??
+    sess?.run.worktree?.baseBranch ??
       (!sess && session.settings.worktreeEnabled
         ? (git?.targetBranch ?? null)
         : null),
@@ -190,7 +197,14 @@
     </TooltipUI.Root>
   {/if}
   {#if mode === "pill" && !isPinned}
-    <RunOnPicker tabId={targetTabId} />
+    <RunOnPicker
+      run={sess?.run ?? session.defaultRunConfig}
+      requesterId={targetTabId}
+      locked={isRunOnHostLocked(sess)}
+      onRun={(next) => {
+        if (sess) sess.run = next;
+      }}
+    />
   {/if}
   {@render trailingActions?.()}
 </div>

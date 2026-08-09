@@ -376,9 +376,7 @@
     session.worksStore.clearAnnotationComments(workId);
     persistComments();
     applyTransientState();
-    const boundTabId = session.tabOrder.find(
-      (t) => session.sessionFor(t)?.boundWorkId === workId,
-    );
+    const boundTabId = session.tabIdForWork(workId);
     if (boundTabId) session.selectTab(boundTabId);
     else await session.openChatForWork(workId, "new");
     session.sendMessage(msg);

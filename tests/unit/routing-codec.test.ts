@@ -16,7 +16,7 @@ import {
 /** A representative ref per destination, exercising every params shape. */
 const SAMPLES: RouteRef[] = [
   { name: 'chat', params: {} },
-  { name: 'chat', params: { tabId: 'tab_abc' } },
+  { name: 'chat', params: { sessionId: 'sess_abc' } },
   { name: 'chat', params: { sessionId: 'sess_9' } },
   { name: 'tasks', params: {} as Record<string, never> },
   { name: 'task', params: { taskId: 'SOL-12' } },
@@ -32,20 +32,23 @@ const SAMPLES: RouteRef[] = [
   { name: 'work', params: { workId: 'w_12' } },
   { name: 'automation', params: { automationId: 'a_3' } },
   { name: 'automation', params: { automationId: null } },
-  { name: 'goal', params: { tabId: 'tab_abc' } },
+  { name: 'goal', params: { sessionId: 'sess_abc' } },
   { name: 'review', params: { key: 'solus__fix-review', scope: 'branch' } },
   { name: 'review', params: { key: 'solus__fix', scope: 'session', sourceTabId: 'tab_a' } },
   { name: 'prReview', params: { number: 4821 } },
   { name: 'prReview', params: { number: 4821, cwd: '/repo/app' } },
+  { name: 'prDiff', params: { number: 4821 } },
+  { name: 'prDiff', params: { number: 4821, cwd: '/repo/app' } },
+  { name: 'draft', params: { draftId: 'draft_a' } },
   { name: 'diff', params: { sourceTabId: 'tab_a', scope: { kind: 'session' } } },
   { name: 'diff', params: { sourceTabId: 'tab_a', scope: { kind: 'working-tree' } } },
   { name: 'diff', params: { sourceTabId: 'tab_a', scope: { kind: 'turn', index: 3 } } },
   { name: 'diff', params: { sourceTabId: 'tab_a', scope: { kind: 'pr', baseSha: 'abc123' } } },
   { name: 'diff', params: { sourceTabId: 'tab_a', scope: { kind: 'session' }, filePath: 'src/a/b.ts' } },
-  { name: 'files', params: { sourceTabId: 'tab_a' } },
-  { name: 'fileEditor', params: { sourceTabId: 'tab_a', path: 'src/a/b.ts' } },
-  { name: 'fileEditor', params: { sourceTabId: 'tab_a', path: 'src/a/b.ts', line: 412 } },
-  { name: 'subagent', params: { tabId: 'tab_a', messageId: 'msg_1' } },
+  { name: 'files', params: { sourceId: 'tab_a' } },
+  { name: 'fileEditor', params: { sourceId: 'tab_a', path: 'src/a/b.ts' } },
+  { name: 'fileEditor', params: { sourceId: 'tab_a', path: 'src/a/b.ts', line: 412 } },
+  { name: 'subagent', params: { sessionId: 'sess_a', messageId: 'msg_1' } },
 ]
 
 function locationOf(...refs: RouteRef[]): Location {
@@ -74,20 +77,20 @@ describe('route codec', () => {
 
 describe('the pane grammar', () => {
   test('one pane is just a path', () => {
-    expect(serializeLocation(locationOf({ name: 'chat', params: { tabId: 'tab_abc' } })))
-      .toBe('/chat/tab_abc')
+    expect(serializeLocation(locationOf({ name: 'chat', params: { sessionId: 'sess_abc' } })))
+      .toBe('/chat/sess_abc')
   })
 
   test('two panes with focus on the right', () => {
     const location = locationOf(
-      { name: 'chat', params: { tabId: 'tab_abc' } },
+      { name: 'chat', params: { sessionId: 'sess_abc' } },
       { name: 'prReview', params: { number: 4821 } },
     )
-    expect(serializeLocation(location)).toBe('/chat/tab_abc?p=prReview%2F4821&f=1')
+    expect(serializeLocation(location)).toBe('/chat/sess_abc?p=prReview%2F4821&f=1')
   })
 
   test('an overlay attaches to its pane with `!`', () => {
-    const location = locationOf({ name: 'chat', params: { tabId: 'tab_abc' } })
+    const location = locationOf({ name: 'chat', params: { sessionId: 'sess_abc' } })
     location.panes.push(
       makePane({ name: 'prReview', params: { number: 4821 } }, { name: 'diff', params: { sourceTabId: 'tab_abc' } }),
     )
@@ -102,7 +105,7 @@ describe('the pane grammar', () => {
   test('adding a pane adds a `p` — the grammar is not two-pane-shaped', () => {
     for (const count of [3, 4]) {
       const refs = ([
-        { name: 'chat', params: { tabId: 'tab_abc' } },
+        { name: 'chat', params: { sessionId: 'sess_abc' } },
         { name: 'plan', params: { planId: 'p_88' } },
         { name: 'work', params: { workId: 'w_12' } },
         { name: 'tasks', params: {} },
@@ -120,25 +123,55 @@ describe('the pane grammar', () => {
     // `<tab>/<path>` grammar must not silently resolve to a different file.
     expect(parseRoute('/fileEditor/tab_a/src/a/b.ts')).toEqual({
       name: 'fileEditor',
-      params: { sourceTabId: 'tab_a', path: 'src/a/b.ts' },
+      params: { sourceId: 'tab_a', path: 'src/a/b.ts' },
     })
   })
 
   test('a path whose first segment is numeric is not read as a line', () => {
     expect(parseRoute('/fileEditor/tab_a/-/2024/report.md')).toEqual({
       name: 'fileEditor',
-      params: { sourceTabId: 'tab_a', path: '2024/report.md' },
+      params: { sourceId: 'tab_a', path: '2024/report.md' },
     })
+  })
+
+  test('a companion chat that names no session is dropped', () => {
+    // A chat naming no session is the conversation pool's, and only the leading
+    // pane renders the pool. Restored beside it, the companion showed whichever
+    // tab the pool was on — so starting a session in the leading pane put the
+    // same conversation on both sides of the split.
+    const parsed = parseLocation('/chat?p=chat&p=plan%2Fp_88')
+
+    expect(parsed.panes.map((pane) => pane.base)).toEqual([
+      CHAT_ROUTE,
+      { name: 'plan', params: { planId: 'p_88' } },
+    ])
+  })
+
+  test('a companion opened for an overlay keeps it when its chat is dropped', () => {
+    const parsed = parseLocation('/chat?p=chat%21files%2Ftab_a')
+
+    expect(parsed.panes).toHaveLength(2)
+    expect(parsed.panes[1].base).toBeNull()
+    expect(parsed.panes[1].overlay).toEqual({ name: 'files', params: { sourceId: 'tab_a' } })
+  })
+
+  test('a companion chat that names its session is kept', () => {
+    const parsed = parseLocation('/chat?p=chat%2Fsess_abc')
+
+    expect(parsed.panes.map((pane) => pane.base)).toEqual([
+      CHAT_ROUTE,
+      { name: 'chat', params: { sessionId: 'sess_abc' } },
+    ])
   })
 
   test('a pane may exist for its overlay alone', () => {
     const location = locationOf({ name: 'chat', params: {} })
-    location.panes.push(makePane(null, { name: 'files', params: { sourceTabId: 'tab_a' } }))
+    location.panes.push(makePane(null, { name: 'files', params: { sourceId: 'tab_a' } }))
 
     const parsed = parseLocation(serializeLocation(location))
 
     expect(parsed.panes[1].base).toBeNull()
-    expect(parsed.panes[1].overlay).toEqual({ name: 'files', params: { sourceTabId: 'tab_a' } })
+    expect(parsed.panes[1].overlay).toEqual({ name: 'files', params: { sourceId: 'tab_a' } })
   })
 })
 
@@ -146,10 +179,10 @@ describe('untrusted input', () => {
   // URLs and notification payloads are untrusted, so `parse` is total: a pane
   // that cannot be read is dropped and the rest of the location still opens.
   test('an unknown destination drops its pane, not the location', () => {
-    const parsed = parseLocation('/chat/tab_abc?p=nonsense%2F1&p=plan%2Fp_88&f=2')
+    const parsed = parseLocation('/chat/sess_abc?p=nonsense%2F1&p=plan%2Fp_88&f=2')
 
     expect(parsed.panes.map((pane) => pane.base)).toEqual([
-      { name: 'chat', params: { tabId: 'tab_abc' } },
+      { name: 'chat', params: { sessionId: 'sess_abc' } },
       { name: 'plan', params: { planId: 'p_88' } },
     ])
   })
@@ -179,8 +212,8 @@ describe('untrusted input', () => {
 
   test('reserved characters survive one path decode', () => {
     const location = locationOf(
-      { name: 'chat', params: { tabId: 'tab/% with spaces' } },
-      { name: 'files', params: { sourceTabId: 'tab/%' } },
+      { name: 'chat', params: { sessionId: 'sess/% with spaces' } },
+      { name: 'files', params: { sourceId: 'tab/%' } },
     )
 
     expect(parseLocation(serializeLocation(location)).panes.map((pane) => pane.base))
@@ -215,7 +248,7 @@ describe('link serialization', () => {
     expect(serializeRoute({ name: 'prReview', params: { number: 4821 } })).toBe('/prReview/4821')
   })
 
-  test("a session's chat link is its agent id", () => {
-    expect(serializeRoute({ name: 'chat', params: { sessionId: 'sess_9' } })).toBe('/chat/@sess_9')
+  test("a chat link is the session it shows, not the tab showing it", () => {
+    expect(serializeRoute({ name: 'chat', params: { sessionId: 'sess_9' } })).toBe('/chat/sess_9')
   })
 })

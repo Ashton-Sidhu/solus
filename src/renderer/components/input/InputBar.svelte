@@ -1,28 +1,39 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import {
-    ArrowBendDownRightIcon,
-    ArrowUpIcon,
-    XIcon,
-  } from "phosphor-svelte";
+  import { ArrowBendDownRightIcon, ArrowUpIcon, XIcon } from "phosphor-svelte";
   import {
     getWorkspaceContext,
     getStatusBarContext,
     getSettingsContext,
+    getAgentContext,
     getVoiceModelStore,
     getWindowContext,
     runtime,
     savedPrompts,
   } from "../../contexts";
+  import {
+    cycledModelId,
+    modelConfigForModel,
+    nextPermissionMode,
+  } from "../../contexts/workspace/run-config";
+  import {
+    defaultModelIdFor,
+    clampReasoningEffort,
+  } from "../pickers/lib/picker-selection";
+  import { track } from "../../lib/analytics";
   import { toasts } from "../../lib/toasts";
   import type {
     PlanReference,
     Prompt,
     PromptDelivery,
+    RunConfig,
     WorkReference,
     SessionReference,
   } from "../../../shared/types";
-  import { isSteerableStatus, worktreeProjectRoot } from "../../../shared/types";
+  import {
+    isSteerableStatus,
+    worktreeProjectRoot,
+  } from "../../../shared/types";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
   import AttachmentChips from "./AttachmentChips.svelte";
@@ -51,7 +62,28 @@
 
   interface Props {
     mode?: "pill" | "editor";
+    /** The conversation this bar composes for, or `null` when nothing has
+     *  started behind it — a session draft. The bar is addressed by session and
+     *  looks its tab up from that; it never resolves a session from whichever
+     *  tab happens to be active, which a draft would answer wrongly. */
+    sessionId: string | null;
+    /** The tab this bar is docked beside, when it is docked beside one. Only
+     *  view routing uses it — two tabs can watch one session, and quotes and
+     *  file previews belong to the pane the user is looking at. */
     tabId?: string;
+    /** This is the workspace's own composer: it follows the leading pane, takes
+     *  app-level focus requests and owns the mic by default. Separate from
+     *  `tabId`, which says where the bar sits, not what it speaks for. */
+    isPrimary?: boolean;
+    /** The pane this bar fills, when it fills one of its own. There is exactly
+     *  one composer per pane, so this — not the tab, which a draft lacks — is
+     *  what decides which bar the focused pane's keystrokes and the shared mic
+     *  belong to. */
+    paneId?: string;
+    /** How the target will run. A draft's run and a started session's are the
+     *  same shape in the same position, so @-file search and saved prompts find
+     *  their project without asking which of the two they were handed. */
+    run?: RunConfig;
     /** The unsent message this bar edits. Passed in rather than resolved here,
      *  so the bar never needs to know whether it belongs to a conversation or to
      *  a composer that has no session yet. Mutated in place. */
@@ -66,32 +98,45 @@
      *  a snippet because every prop it needs is private to this bar. */
     leadingActions?: Snippet<[Snippet]>;
   }
-  let { mode = "pill", tabId, prompt, onDispatch, leadingActions }: Props = $props();
-
-  const isPrimary = $derived(tabId === undefined);
+  let {
+    mode = "pill",
+    sessionId,
+    tabId,
+    isPrimary = false,
+    paneId,
+    run,
+    prompt = $bindable(),
+    onDispatch,
+    leadingActions,
+  }: Props = $props();
 
   const INPUT_MAX_HEIGHT = $derived(mode === "editor" ? 260 : 140);
 
   const theme = getSettingsContext();
+  const agent = getAgentContext();
   const voiceModel = getVoiceModelStore();
   const session = getWorkspaceContext();
   const statusBar = getStatusBarContext();
   const windowCtx = getWindowContext();
   const router = session.router;
 
-  const targetTabId = $derived(tabId ?? session.activeTabId);
+  const sess = $derived(sessionId ? session.sessions[sessionId] : undefined);
+  // Where the target session is showing, if it is showing anywhere: a draft has
+  // no tab at all, so this is `undefined` and every tab-addressed action below
+  // stays put rather than firing at the tab that happens to be active.
+  const targetTabId = $derived(
+    sessionId ? session.tabIdForSession(sessionId, tabId) : undefined,
+  );
+  // One composer per pane, so the focused pane names the bar that has the
+  // keyboard. The workspace's own dock belongs to the leading pane.
   const isFocusedPaneComposer = $derived(
-    isPrimary
-      ? router.focusedPaneId === router.leadingPane.id
-      : tabId === router.chatTabIn(router.focusedPaneId, session.activeTabId),
+    router.focusedPaneId === (paneId ?? router.leadingPane.id),
   );
   const receivesFocusedInput = $derived(
-    isFocusedPaneComposer ||
-      (isPrimary && session.focusedChatTabId === null),
+    isFocusedPaneComposer || (isPrimary && session.focusedChatTabId === null),
   );
-  const sess = $derived(session.sessionFor(targetTabId));
-  const isFreshTaskDraft = $derived(
-    session.isFreshTaskDraft(targetTabId),
+  const willStartNewTask = $derived(
+    !!targetTabId && session.willStartNewTask(targetTabId),
   );
   const pendingPlan = $derived(
     pendingPlanForPrompt(sess, session.planStore.plans),
@@ -103,10 +148,23 @@
     sess?.status === "running" || sess?.status === "connecting",
   );
   const isConnecting = $derived(sess?.status === "connecting");
-  const activeProvider = $derived(sess?.run.provider ?? theme.activeAgent);
+  const activeProvider = $derived(run?.provider ?? theme.activeAgent);
   // Every provider steers; the turn just has to have actually started.
   const canSteer = $derived(!!sess && isSteerableStatus(sess.status));
   const isReadOnly = $derived(!!sess?.readOnlyReason);
+  // Model and permission-mode shortcuts belong to the composer, not to a tab
+  // resolved from global focus: the focused pane's bar edits the run it is
+  // composing for, in place, so a draft and a started session are one case. The
+  // dock has no pane of its own, so it answers only while it is the leading
+  // composer — `isPrimary` drops when a draft covers it — keeping exactly one
+  // bar eligible at a time.
+  const ownsComposerShortcuts = $derived(
+    isActiveMode &&
+      isFocusedPaneComposer &&
+      (paneId !== undefined || isPrimary) &&
+      !!run &&
+      !isReadOnly,
+  );
   const attachments = $derived(prompt.attachments);
   const voiceModeEnabled = $derived(theme.voiceModeEnabled);
   const pluginCommands = $derived(
@@ -114,14 +172,14 @@
   );
   // Working directory driving @-file search and plan/work lookup in the composer.
   const composerCwd = $derived(
-    sess?.run.gitContext?.worktreePath ??
-      sess?.run.workingDirectory ??
-      statusBar.ctxFor(targetTabId).workingDirectory,
+    run?.gitContext?.worktreePath ??
+      run?.workingDirectory ??
+      statusBar.ctxForRun(run).workingDirectory,
   );
   // Saved prompts file under the project, not the worktree, so a prompt written
   // in one worktree is there in its siblings and in the main checkout.
   const composerProjectRoot = $derived(
-    sess?.run.gitContext?.repoRoot ??
+    run?.gitContext?.repoRoot ??
       (composerCwd && composerCwd !== "~"
         ? worktreeProjectRoot(composerCwd)
         : null),
@@ -192,7 +250,9 @@
   // a plain field dictating elsewhere must not light up the input bar. Primary
   // and split composers claim ownership on focus so transcripts land in the
   // draft the user is actually working in.
-  const voiceOwnerId = $derived(`input-bar:${mode}:${tabId ?? "primary"}`);
+  const voiceOwnerId = $derived(
+    `input-bar:${mode}:${paneId ?? (isPrimary ? "primary" : (tabId ?? "composer"))}`,
+  );
   const ownsVoice = $derived(voice.messageOwner === voiceOwnerId);
   const voiceState = $derived(
     ownsVoice && voice.mode === "message" ? voice.state : "idle",
@@ -237,14 +297,13 @@
       handleVoiceTranscript,
       () => canAutoStart(),
     );
-    if (claimed && startIfEnabled && canAutoStart()) voice.startConversational();
+    if (claimed && startIfEnabled && canAutoStart())
+      voice.startConversational();
   }
 
   function toggleVoice() {
-    voice.toggleConversationalFor(
-      voiceOwnerId,
-      handleVoiceTranscript,
-      () => canAutoStart(),
+    voice.toggleConversationalFor(voiceOwnerId, handleVoiceTranscript, () =>
+      canAutoStart(),
     );
   }
 
@@ -341,23 +400,23 @@
           ? "Transcribing..."
           : pendingPlan
             ? "Send feedback to revise the pending plan..."
-          : pendingQuestion
-            ? "Send a note to answer the pending question..."
-          : isRateLimited
-            ? resetsAt
-              ? `Add to the queue — rate limited until ${formatReleaseTime(resetsAt)}`
-              : "Add to the queue — rate limited"
-            : hasQueuedPrompts
-              ? "Add to the queue..."
-              : isBusy
-                ? voiceModeEnabled && ownsVoice
-                  ? "Waiting for Claude..."
-                  : canSteer
-                    ? isMobile
-                      ? "Send to steer this response..."
-                      : "Enter to steer now · ⌥Enter to queue next"
-                    : "Type to queue a message..."
-                : "Plan, Build, Automate · @ for context",
+            : pendingQuestion
+              ? "Send a note to answer the pending question..."
+              : isRateLimited
+                ? resetsAt
+                  ? `Add to the queue — rate limited until ${formatReleaseTime(resetsAt)}`
+                  : "Add to the queue — rate limited"
+                : hasQueuedPrompts
+                  ? "Add to the queue..."
+                  : isBusy
+                    ? voiceModeEnabled && ownsVoice
+                      ? "Waiting for Claude..."
+                      : canSteer
+                        ? isMobile
+                          ? "Send to steer this response..."
+                          : "Enter to steer now · ⌥Enter to queue next"
+                        : "Type to queue a message..."
+                    : "Plan, Build, Automate · @ for context",
   );
 
   // ─── Focus management ───
@@ -433,9 +492,7 @@
     const quoted = quotedReplyDraft(text);
     if (!quoted) return;
     const existing = prompt.text;
-    const next = existing.trim()
-      ? `${existing}\n\n${quoted}`
-      : quoted;
+    const next = existing.trim() ? `${existing}\n\n${quoted}` : quoted;
     prompt.text = next;
     composerEl?.setValueAndCursor(next, true, true);
     requestInputFocus();
@@ -634,6 +691,77 @@
       !isReadOnly &&
       !isDictationTarget(document.activeElement),
   });
+
+  // ─── Model / mode shortcuts ───
+
+  // Both edit `run` in place — the very object the model and mode chips below
+  // read — so the change lands on whatever this bar composes for without a
+  // session-versus-draft branch or a tab lookup.
+  function cycleModel() {
+    if (!run || isBusy) return;
+    const metadata = agent.metadata[activeProvider] ?? agent.activeMetadata;
+    const models = metadata?.models;
+    if (!models || models.length === 0) return;
+    const nextModelId = cycledModelId(run, models, metadata?.defaultModel ?? null);
+    if (!nextModelId) return;
+    Object.assign(run.modelConfig, modelConfigForModel(run, nextModelId));
+    track("model_changed", { via: "keybinding" });
+    refocusComposer();
+  }
+  function cyclePermissionMode() {
+    if (!run) return;
+    run.permissionMode = nextPermissionMode(run.permissionMode);
+    track("permission_mode_set", { mode: run.permissionMode, via: "keybinding" });
+    refocusComposer();
+  }
+  // A started session hands off to the new agent (a real provider switch); a
+  // draft has none, so it rewrites its run and takes the new agent's default
+  // model — the same two branches the chip's agent row runs.
+  function cycleAgent() {
+    if (!run || isBusy) return;
+    const enabledAgents = agent.agents.filter(
+      (candidate) => agent.metadata[candidate.id]?.available === true,
+    );
+    if (enabledAgents.length <= 1) return;
+    const current = run.provider ?? theme.activeAgent;
+    const idx = enabledAgents.findIndex((candidate) => candidate.id === current);
+    const next = enabledAgents[(idx + 1) % enabledAgents.length];
+    if (sessionId) {
+      void session.switchActiveAgent(next.id, targetTabId, "keybinding");
+    } else {
+      const modelId = defaultModelIdFor(next.id, agent.metadata);
+      run.provider = next.id;
+      run.modelConfig.modelId = modelId;
+      run.modelConfig.reasoningEffort = clampReasoningEffort(
+        next.id,
+        modelId,
+        run.modelConfig.reasoningEffort,
+      );
+    }
+    refocusComposer();
+  }
+  useKeybinding("global.cycle-model", cycleModel, {
+    enabled: () => ownsComposerShortcuts,
+  });
+  useKeybinding("global.cycle-perm-mode", cyclePermissionMode, {
+    enabled: () => ownsComposerShortcuts,
+  });
+  useKeybinding("global.cycle-agent", cycleAgent, {
+    enabled: () => ownsComposerShortcuts,
+  });
+  // The run picker lives beside this bar but owns its own open state, so the
+  // shortcut names the composer that fired it and lets that pane's picker
+  // answer. `null` is the workspace dock, which has no pane of its own.
+  useKeybinding(
+    "global.run-picker",
+    () =>
+      window.dispatchEvent(
+        new CustomEvent("solus:toggle-run-picker", {
+          detail: { paneId: paneId ?? null },
+        }),
+      ),
+    { enabled: () => ownsComposerShortcuts },
+  );
   // ─── Reference composer wiring ───
 
   function previewFile(path: string) {
@@ -672,9 +800,17 @@
     if (isReadOnly && !cmd.allowReadOnly) return;
     void cmd.run?.({
       argument,
-      ipcContext: session.ctxFor(targetTabId),
-      clearTab: () => session.clearTab(tabId),
-      addSystemMessage: (message) => session.addSystemMessage(message, tabId),
+      // A command run from a draft's composer has no conversation to clear or
+      // to speak into; it still runs, against the project the draft points at.
+      ipcContext: targetTabId
+        ? session.ctxFor(targetTabId)
+        : session.ctxForDirectory(composerCwd),
+      clearTab: () => {
+        if (targetTabId) session.clearTab(targetTabId);
+      },
+      addSystemMessage: (message) => {
+        if (targetTabId) session.addSystemMessage(message, targetTabId);
+      },
       appendGlobalInstructions: (text) => {
         const existing = theme.extraInstructions.trim();
         theme.update({
@@ -692,17 +828,30 @@
 
   async function handleGoalCommand(argument: string) {
     if (isReadOnly) return;
-    const goalSession = session.sessionFor(targetTabId);
+    const goalTabId = targetTabId;
     const normalized = argument.trim();
+    // A goal belongs to a thread, and a draft has none yet. Its objective goes
+    // out as the first prompt instead; the session that starts inherits it the
+    // same way a started-but-idle tab's does.
+    if (!goalTabId) {
+      if (normalized) sendPrompt(normalized);
+      return;
+    }
+    const goalSession = session.sessionFor(goalTabId);
+    // A goal belongs to the thread, not to the tab showing it.
+    const goalSessionId = goalSession?.id ?? "";
     const isCodexGoal = goalSession?.run.provider === "codex";
 
     if (!normalized) {
       clearComposer();
-      await session.refreshThreadGoal(targetTabId);
-      if (session.sessionFor(targetTabId)?.goal) {
-        session.revealGoal(targetTabId);
+      await session.refreshThreadGoal(goalSessionId);
+      if (session.sessionFor(goalTabId)?.goal) {
+        session.revealGoal(goalTabId);
       } else {
-        session.addSystemMessage("No goal is defined for this session yet.", targetTabId);
+        session.addSystemMessage(
+          "No goal is defined for this session yet.",
+          goalTabId,
+        );
       }
       refocusComposer();
       return;
@@ -718,94 +867,117 @@
       ) {
         clearComposer();
         session.addSystemMessage(
-          isCodexGoal ? "Define a goal before changing it." : "Goal changes are only supported for Codex sessions.",
-          targetTabId,
+          isCodexGoal
+            ? "Define a goal before changing it."
+            : "Goal changes are only supported for Codex sessions.",
+          goalTabId,
         );
         refocusComposer();
         return;
       }
       if (normalized.length > 4000) {
-        session.addSystemMessage("Goal objectives must be 4,000 characters or fewer.", targetTabId);
+        session.addSystemMessage(
+          "Goal objectives must be 4,000 characters or fewer.",
+          goalTabId,
+        );
         refocusComposer();
         return;
       }
-      if (goalSession) {
-        goalSession.pendingGoalObjective = normalized;
-        sendPrompt(normalized);
-      } else {
-        sendPrompt(normalized);
-        const createdSession = session.sessionFor(session.activeTabId);
-        if (createdSession) createdSession.pendingGoalObjective = normalized;
-      }
+      if (goalSession) goalSession.pendingGoalObjective = normalized;
+      sendPrompt(normalized);
       return;
     }
 
     try {
-      if (!isCodexGoal) await session.refreshThreadGoal(targetTabId);
+      if (!isCodexGoal) await session.refreshThreadGoal(goalSessionId);
       if (normalized === "clear") {
         if (!isCodexGoal) {
           clearComposer();
-          session.addSystemMessage("Clearing goals is only supported for Codex sessions.", targetTabId);
+          session.addSystemMessage(
+            "Clearing goals is only supported for Codex sessions.",
+            goalTabId,
+          );
           refocusComposer();
           return;
         }
         clearComposer();
-        await session.clearThreadGoal(targetTabId);
-        if (router.params("goal")?.tabId === targetTabId) {
+        await session.clearThreadGoal(goalSessionId);
+        if (router.params("goal")?.sessionId === goalSessionId) {
           router.close("goal");
         }
       } else if (normalized === "pause" || normalized === "resume") {
         if (!isCodexGoal) {
           clearComposer();
-          session.addSystemMessage("Pausing goals is only supported for Codex sessions.", targetTabId);
+          session.addSystemMessage(
+            "Pausing goals is only supported for Codex sessions.",
+            goalTabId,
+          );
           refocusComposer();
           return;
         }
         clearComposer();
-        await session.setThreadGoal(targetTabId, {
+        await session.setThreadGoal(goalSessionId, {
           status: normalized === "pause" ? "paused" : "active",
         });
-        session.revealGoal(targetTabId);
+        session.revealGoal(goalTabId);
       } else if (normalized === "edit") {
         if (!isCodexGoal) {
           clearComposer();
-          session.addSystemMessage("Editing goals is only supported for Codex sessions.", targetTabId);
+          session.addSystemMessage(
+            "Editing goals is only supported for Codex sessions.",
+            goalTabId,
+          );
           refocusComposer();
           return;
         }
         clearComposer();
-        await session.refreshThreadGoal(targetTabId);
-        if (goalSession.goal) session.revealGoal(targetTabId);
+        await session.refreshThreadGoal(goalSessionId);
+        if (goalSession.goal) session.revealGoal(goalTabId);
       } else {
         if (!isCodexGoal && normalized.startsWith("edit ")) {
           clearComposer();
-          session.addSystemMessage("Editing goals is only supported for Codex sessions.", targetTabId);
+          session.addSystemMessage(
+            "Editing goals is only supported for Codex sessions.",
+            goalTabId,
+          );
           refocusComposer();
           return;
         }
-        const objective = normalized.startsWith("edit ") ? normalized.slice(5).trim() : normalized;
+        const objective = normalized.startsWith("edit ")
+          ? normalized.slice(5).trim()
+          : normalized;
         if (!objective || objective.length > 4000) {
-          session.addSystemMessage("Goal objectives must be between 1 and 4,000 characters.", targetTabId);
+          session.addSystemMessage(
+            "Goal objectives must be between 1 and 4,000 characters.",
+            goalTabId,
+          );
           refocusComposer();
           return;
         }
-        const currentGoal = session.sessionFor(targetTabId)?.goal;
+        const currentGoal = session.sessionFor(goalTabId)?.goal;
         if (!isCodexGoal && currentGoal) {
           clearComposer();
-          session.addSystemMessage("Editing goals is only supported for Codex sessions.", targetTabId);
+          session.addSystemMessage(
+            "Editing goals is only supported for Codex sessions.",
+            goalTabId,
+          );
           refocusComposer();
           return;
         }
-        if (currentGoal) await session.setThreadGoal(targetTabId, { objective, status: "active" });
-        else await session.createThreadGoal(targetTabId, objective);
-        session.revealGoal(targetTabId);
+        if (currentGoal)
+          await session.setThreadGoal(goalSessionId, {
+            objective,
+            status: "active",
+          });
+        else await session.createThreadGoal(goalSessionId, objective);
+        session.revealGoal(goalTabId);
         if (!normalized.startsWith("edit ")) sendPrompt(objective);
         else clearComposer();
       }
     } catch (error) {
       session.addSystemMessage(
         `Couldn't update goal: ${error instanceof Error ? error.message : String(error)}`,
-        targetTabId,
+        goalTabId,
       );
     }
     refocusComposer();
@@ -840,7 +1012,7 @@
       // request, keep the provider in plan mode, and send this text as feedback
       // instead of letting it become an ordinary queued prompt.
       void session.rejectPlan(pendingPlan.id, text || "See attached files");
-    } else if (pendingQuestion && text) {
+    } else if (pendingQuestion && text && targetTabId) {
       // Match the question card's free-text answer. Responding releases the held
       // provider turn; queuing this as a normal prompt would leave it blocked.
       session.respondQuestion(
@@ -849,12 +1021,15 @@
         answersForQuestionNote(pendingQuestion, text),
       );
     } else if (onDispatch) {
-      accepted = onDispatch(text || "See attached files", options.delivery ?? "steer");
+      accepted = onDispatch(
+        text || "See attached files",
+        options.delivery ?? "steer",
+      );
     } else {
       accepted = session.sendMessage(
         text || "See attached files",
         undefined,
-        targetTabId || undefined,
+        targetTabId,
         options.delivery,
       );
     }
@@ -972,14 +1147,15 @@
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       const shouldStartAnotherTask =
-        e.ctrlKey && !e.altKey && !e.metaKey && isFreshTaskDraft;
+        e.ctrlKey && !e.altKey && !e.metaKey && willStartNewTask;
       const accepted = handleSend(e.altKey ? "queue" : "steer", {
         refocus: !shouldStartAnotherTask,
       });
       if (shouldStartAnotherTask && accepted) {
-        void session.createDraftTab(undefined, {
+        session.openSessionDraft({
           freshTask: true,
           via: "keybinding",
+          sourceTabId: targetTabId,
         });
       }
     }
@@ -1004,14 +1180,13 @@
         reader.onload = async () => {
           const dataUrl = reader.result as string;
           const attachment = await window.solus.pasteImage(dataUrl);
-          if (attachment) session.addAttachments([attachment], tabId);
+          if (attachment) prompt.attachments.push(attachment);
         };
         reader.readAsDataURL(blob);
         return;
       }
     }
   }
-
 </script>
 
 <div
@@ -1045,7 +1220,10 @@
     <div class="-ml-1 pt-1.5">
       <AttachmentChips
         {attachments}
-        onRemove={(id) => session.removeAttachment(id, tabId)}
+        onRemove={(id) => {
+          const index = attachments.findIndex((a) => a.id === id);
+          if (index !== -1) attachments.splice(index, 1);
+        }}
       />
     </div>
   {/if}
@@ -1077,19 +1255,21 @@
         {@render editorOrWaveform()}
       </div>
       <div
-        class="flex shrink-0 items-center gap-1 {isMobile ? 'pb-0.5' : 'pb-1.5'}"
+        class="flex shrink-0 items-center gap-1 {isMobile
+          ? 'pb-0.5'
+          : 'pb-1.5'}"
         style="zoom:var(--solus-font-scale,1)"
       >
         {@render actionButtons()}
       </div>
     </div>
   {/if}
-
 </div>
 
 {#snippet savedPromptsControl()}
   {#if !isMobile}
     <SavedPromptsControl
+      {prompt}
       tabId={targetTabId}
       projectRoot={composerProjectRoot}
       active={isActiveMode && receivesFocusedInput}
@@ -1174,33 +1354,37 @@
     <TooltipUI.Root>
       <TooltipUI.Trigger>
         {#snippet child({ props: tooltipProps })}
-          <button {...tooltipProps}
-      onclick={() => handleSend()}
-      disabled={!canSend}
-      data-testid="send-button"
-      aria-label={canSteer ? "Steer the live turn" : "Send message"}
-      class="flex shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,transform] duration-150 enabled:active:scale-[0.96] {isMobile
-        ? 'size-8'
-        : 'size-[1.875rem]'} {canSend
-        ? 'bg-(--solus-accent) text-(--solus-text-on-accent) shadow-[0_0.25rem_0.75rem_-0.375rem_var(--solus-send-glow)] hover:shadow-[0_0.3125rem_0.875rem_-0.375rem_var(--solus-send-glow)]'
-        : 'cursor-default bg-(--solus-surface-active) text-(--solus-text-tertiary)'}"
-    >
-      {#if canSteer && canSend}
-        <ArrowBendDownRightIcon size={14} weight="bold" />
-      {:else}
-        <ArrowUpIcon size={14} weight="bold" />
-      {/if}
-    </button>
+          <button
+            {...tooltipProps}
+            onclick={() => handleSend()}
+            disabled={!canSend}
+            data-testid="send-button"
+            aria-label={canSteer ? "Steer the live turn" : "Send message"}
+            class="flex shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,transform] duration-150 enabled:active:scale-[0.96] {isMobile
+              ? 'size-8'
+              : 'size-[1.875rem]'} {canSend
+              ? 'bg-(--solus-accent) text-(--solus-text-on-accent) shadow-[0_0.25rem_0.75rem_-0.375rem_var(--solus-send-glow)] hover:shadow-[0_0.3125rem_0.875rem_-0.375rem_var(--solus-send-glow)]'
+              : 'cursor-default bg-(--solus-surface-active) text-(--solus-text-tertiary)'}"
+          >
+            {#if canSteer && canSend}
+              <ArrowBendDownRightIcon size={14} weight="bold" />
+            {:else}
+              <ArrowUpIcon size={14} weight="bold" />
+            {/if}
+          </button>
         {/snippet}
       </TooltipUI.Trigger>
       <TooltipUI.Content
         value={!canSend
           ? null
           : canSteer
-            ? { label: "Steer this response · Queue next with ⌥Enter", shortcut: "Enter" }
+            ? {
+                label: "Steer this response · Queue next with ⌥Enter",
+                shortcut: "Enter",
+              }
             : isBusy
               ? "Queue message (Enter)"
-              : isFreshTaskDraft
+              : willStartNewTask
                 ? "Send (Enter) · Start another task (Ctrl+Enter)"
                 : "Send (Enter)"}
       />

@@ -248,7 +248,13 @@ export class ClaudeAgent {
               catch (e) { log.warn('on_turn_complete_failed', { error: e instanceof Error ? e.message : String(e) }) }
             }
           }
-          if (sawResult && backgroundTasks.size === 0) input?.close()
+          // Close only at a result. A settling background task is not an end: the
+          // SDK restarts its loop to hand the notification to the main agent, and
+          // `canUseTool` rides this stream, so closing on the settle made every
+          // permission request in that continuation — AskUserQuestion above all —
+          // fail with "AbortError: Stream closed". That continuation reports its
+          // own result, which is where the last task in flight gets to close.
+          if (msg.type === 'result' && sawResult && backgroundTasks.size === 0) input?.close()
           for (const evt of normalized) yield evt
         }
 

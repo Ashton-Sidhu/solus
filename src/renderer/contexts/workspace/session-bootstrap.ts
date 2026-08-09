@@ -1,9 +1,10 @@
 import { defaultContextWindowFor, isSessionBusyStatus, type AgentId, type Message, type ModelConfig, type Session } from '../../../shared/types'
 import { loadServers, LOCAL_SERVER_ID } from '../../../client-core/server-registry'
 import { makePrompt, makeSession, makeTab } from './session.factories'
+import { taskTargetFrom } from './session-draft.svelte'
 import { loadRestoredSessionTranscript } from './session-transcript'
 import { applyRuntimeConfig, hasConversation, nextMsgId, progressFromMessages } from './session.utils'
-import { initDraftState, loadDrafts, loadPersistedTabs, type PersistedTab, type PersistedTabs, type TabDrafts } from './tab-persistence'
+import { initDraftState, loadDrafts, loadPersistedSessionDrafts, loadPersistedTabs, type PersistedTab, type PersistedTabs, type TabDrafts } from './tab-persistence'
 import type { WorkspaceContext } from './workspace.context.svelte'
 
 interface DeferredHydrationState {
@@ -77,31 +78,33 @@ export function materializeTabs(ctx: WorkspaceContext): void {
   // Seed the live draft map so unvisited tabs retain their saved drafts even
   // though the new per-keystroke effect only patches the active tab.
   initDraftState(drafts)
+  // Before the location, so a restored `draft/<id>` route resolves to the draft
+  // it names rather than being dropped as a dead pane.
+  const persistedDrafts = loadPersistedSessionDrafts()
+  if (persistedDrafts) ctx.restoreSessionDrafts(persistedDrafts)
   if (!snapshot?.tabs?.length) {
     if (drafts) ctx.activeInput.text = drafts.activeInputText
-    seedComposerTab(ctx)
+    seedSessionDraft(ctx)
     ctx.hydrating = false
     return
   }
   _materializeTabs(ctx, snapshot.tabs, snapshot.tabOrder, snapshot.activeTabId, drafts)
   restoreLocation(ctx, snapshot.location)
-  seedComposerTab(ctx)
+  seedSessionDraft(ctx)
   ctx.hydrating = false
 }
 
 /**
- * The workspace always has at least one tab. With nothing restored, that tab is
- * the composer the user would have opened themselves — so no surface, and no
- * reader, has to answer for a workspace with no tab in it.
- *
- * The tab and its session are built synchronously; only the promise the caller
- * ignores settles later. It is created from the *cached* start payload, which is
- * what has landed this early — `applyStartInfo` moves it if the fresh one names
- * a different directory.
+ * A workspace with nothing restored opens onto a draft — the prompt the user was
+ * going to write anyway. Nothing is created but the draft itself: no session, no
+ * tab, nothing persisted, so an app opened and closed without typing leaves no
+ * trace.
  */
-function seedComposerTab(ctx: WorkspaceContext): void {
+function seedSessionDraft(ctx: WorkspaceContext): void {
   if (ctx.tabOrder.some((tabId) => ctx.tabs[tabId])) return
-  void ctx.createDraftTab(undefined, { reveal: false })
+  // A restored draft is already the thing the seed would have created.
+  if (ctx.sessionDrafts.size > 0) return
+  ctx.openSessionDraft({ reveal: false })
 }
 
 /**
@@ -114,8 +117,8 @@ function restoreLocation(ctx: WorkspaceContext, serialized: string | undefined):
   if (!serialized) return
   ctx.router.enter(serialized, { replace: true })
   for (const pane of [...ctx.router.panes]) {
-    const tabId = pane.base?.name === 'chat' ? pane.base.params.tabId : undefined
-    if (tabId && !ctx.tabs[tabId]) ctx.router.closePane(pane.id)
+    const sessionId = pane.base?.name === 'chat' ? pane.base.params.sessionId : undefined
+    if (sessionId && !ctx.tabIdForSession(sessionId)) ctx.router.closePane(pane.id)
   }
 }
 
@@ -152,22 +155,27 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
     // Clear only the affected host's in-flight state so replayed text doesn't
     // double-append without churning healthy tabs on other connections.
     for (const tabId of tabIds) {
-      if (typeof ctx.clearStreamingText === 'function') ctx.clearStreamingText(tabId)
-      else delete ctx.streaming.text[tabId]
-      delete ctx.turnSnapshots[tabId]
+      const sessionId = ctx.tabs[tabId]?.sessionId
+      if (!sessionId) continue
+      if (typeof ctx.clearStreamingText === 'function') ctx.clearStreamingText(sessionId)
+      else delete ctx.streaming.text[sessionId]
+      delete ctx.turnSnapshots[sessionId]
     }
-    await Promise.all(tabIds.map(async (tabId) => {
-      const tab = ctx.tabs[tabId]
-      const session = tab ? ctx.sessions[tab.sessionId] : undefined
-      if (!tab || !session) return
+    // Re-register per session, not per tab: a split chat is one watch, and one
+    // watch is what the host fans out to.
+    const sessionIds = [...new Set(tabIds.map((tabId) => ctx.tabs[tabId]?.sessionId).filter(Boolean))]
+    await Promise.all(sessionIds.map(async (sessionId) => {
+      const session = ctx.sessions[sessionId]
+      const tabId = ctx.tabIdsForSession(sessionId)[0]
+      if (!session || !tabId) return
 
       // Re-register with the server so event routing is alive again.
       const api = ctx.apiFor?.(tabId) ?? window.solus
-      await api.createTab(tabId).catch(() => null)
+      await api.watchSession({ sessionId }).catch(() => null)
 
       // Same as hydrateTab: Git doesn't depend on the bind below, so don't queue
-      // it behind one. Registration needs the createTab above, hence not earlier.
-      const environmentRefresh = ctx.environment.refreshTab(ctx, { tabId, level: 'status' }).catch(() => null)
+      // it behind one. Registration needs the watch above, hence not earlier.
+      const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: tabId, level: 'status' }).catch(() => null)
 
       if (session.agentSessionId) {
         const info = await api.bindRuntimeSession(ctx.ctxFor(tabId)).catch(() => null)
@@ -181,7 +189,7 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
           session.status = 'idle'
           session.rateLimitInfo = null
         }
-        void ctx.refreshThreadGoal(tabId)
+        void ctx.refreshThreadGoal(session.id)
       }
       await environmentRefresh
     }))
@@ -221,27 +229,30 @@ function _materializeTabs(
           ?? LOCAL_SERVER_ID
         : snapTab.serverId ?? LOCAL_SERVER_ID
       session = makeSession(ctx.settings, {
+        // Keep the id the snapshot carried: the persisted location names chats
+        // by session, so a restored split pane has to find the same one back.
+        ...(snapTab.sessionId ? { id: snapTab.sessionId } : {}),
         agentSessionId: snapTab.agentSessionId,
         handoffFrom: snapTab.handoffFrom ? { ...snapTab.handoffFrom } : undefined,
         status: 'idle',
-        projectGroupPath: snapTab.projectGroupPath ?? null,
         additionalDirs: [...snapTab.additionalDirs],
         run: {
           serverId,
           provider: snapTab.provider,
           workingDirectory: snapTab.workingDirectory || ctx.staticInfo?.projectPath || ctx.staticInfo?.workspacePath || '~',
           gitContext: snapTab.gitContext,
-          worktreeBaseBranch: snapTab.worktreeBaseBranch,
-          worktreeRequired: snapTab.worktreeRequired ?? false,
+          worktree: (snapTab.worktreeRequested ?? !!snapTab.worktreeBaseBranch)
+            ? { baseBranch: snapTab.worktreeBaseBranch }
+            : null,
+          taskServerId: snapTab.taskServerId ?? serverId,
+          projectGroupPath: snapTab.projectGroupPath ?? null,
           ...(snapTab.modelConfig ? { modelConfig: restoredModelConfig(snapTab) } : {}),
           permissionMode: snapTab.permissionMode as any,
         },
         // Only a composer carries these; a started session's task comes from its
         // session link. Restoring them is what keeps a composer under the task
         // it was opened in when the client refreshes out from under it.
-        pendingTaskId: snapTab.pendingTaskId ?? null,
-        pendingParentTaskId: snapTab.pendingParentTaskId ?? null,
-        taskCreationDisabled: snapTab.taskCreationDisabled ?? false,
+        task: taskTargetFrom(snapTab),
         terminalFailure: snapTab.terminalFailure
           ? { ...snapTab.terminalFailure }
           : null,
@@ -251,17 +262,20 @@ function _materializeTabs(
         // forever from agentSessionId + an empty transcript.
         loadingHistory: snapTab.tabId === activeTabId && !!(snapTab.agentSessionId || snapTab.handoffFrom),
       })
-      tab = makeTab(session.id, {
-        id: snapTab.tabId,
-        title: snapTab.title || 'New Tab',
-        titleCustom: snapTab.titleCustom ?? false,
-        input: makePrompt({ text: draftText }),
-      })
+      // The name is the session's; the snapshot still carries it per tab
+      // because that is the record it was written from.
+      session.title = snapTab.title || 'New Tab'
+      session.titleCustom = snapTab.titleCustom ?? false
+      tab = makeTab(session.id, { id: snapTab.tabId })
+      // The unsent prompt is the session's, so a restored draft lands there —
+      // the persisted map is still keyed by tab because that is the id the
+      // snapshot carries.
+      session.prompt = makePrompt({ text: draftText })
       tab.hasUnread = snapTab.hasUnread ?? false
       ctx.sessions[session.id] = session
       ctx.tabs[tab.id] = tab
     } else if (draftText) {
-      tab.input.text = draftText
+      session.prompt.text = draftText
     }
   }
 
@@ -283,10 +297,13 @@ async function _attachRuntimeTabs(
   ctx: WorkspaceContext,
   persistedTabs: PersistedTab[],
 ): Promise<void> {
-  // Start registrations independently. A request queued on an offline host must
-  // not prevent healthy hosts from hydrating their tabs.
-  for (const tabId of Object.keys(ctx.tabs)) {
-    void ctx.apiFor(tabId).createTab(tabId).catch(() => null)
+  // Start registrations independently, one per session rather than one per tab.
+  // A request queued on an offline host must not prevent healthy hosts from
+  // hydrating their sessions.
+  for (const sessionId of ctx.registry.tabIdsBySession.keys()) {
+    const tabId = ctx.tabIdsForSession(sessionId)[0]
+    if (!tabId) continue
+    void ctx.apiFor(tabId).watchSession({ sessionId }).catch(() => null)
   }
 
   // Transcript hydration for inactive tabs is intentionally deferred, but their
@@ -348,9 +365,9 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   // nothing below — so start it now rather than behind a transcript parse and a
   // bind round-trip. Tabs are already registered with the server by this point
   // (_attachRuntimeTabs), so environment registration is safe here.
-  const environmentRefresh = ctx.environment.refreshTab(ctx, { tabId: snapTab.tabId }).catch(() => null)
+  const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: snapTab.tabId }).catch(() => null)
   const taskHydration = snapTab.agentSessionId
-    ? ctx.tasksStore.ensureSessionBinding(snapTab.agentSessionId).catch(() => null)
+    ? ctx.tasksStore.ensureSessionBinding(snapTab.agentSessionId, snapTab.taskServerId).catch(() => null)
     : Promise.resolve(null)
 
   if (snapTab.agentSessionId || snapTab.handoffFrom) {
@@ -456,7 +473,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
       session.status = 'idle'
       session.rateLimitInfo = null
     }
-    void ctx.refreshThreadGoal(snapTab.tabId)
+    void ctx.refreshThreadGoal(session.id)
   }
 
   await Promise.all([environmentRefresh, taskHydration])

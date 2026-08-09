@@ -276,10 +276,14 @@
     | { kind: "draft"; lineSpan: number };
 
   const workspace = getWorkspaceContext();
-  const targetTabId = $derived(ctx.session.tabId);
+  const targetSessionId = $derived(ctx.session.sessionId);
+  // Review feedback belongs to the conversation; the tab is only how the
+  // tab-scoped comment helpers below address it.
+  const targetTabId = $derived(workspace.tabIdForSession(targetSessionId) ?? "");
   const targetTab = $derived(workspace.tabs[targetTabId]);
+  const targetSession = $derived(workspace.sessions[targetSessionId]);
   const commentPath = $derived(displayPath || filePath);
-  const comments = $derived<DiffComment[]>(targetTab?.diffComments ?? []);
+  const comments = $derived<DiffComment[]>(targetSession?.diffComments ?? []);
   const fileComments = $derived(
     comments.filter((comment) => comment.filePath === commentPath),
   );
@@ -653,7 +657,7 @@
         // `useTokenTransformer`, which the @pierre/diffs editor requires for an
         // editable AST. Rendering on the main thread honors our
         // `useTokenTransformer: true` so the editor can attach and accept input.
-        const persistedDraft = targetTab?.diffCommentDraft;
+        const persistedDraft = targetSession?.diffCommentDraft;
         if (persistedDraft?.filePath === commentPath) {
           draft.filePath = persistedDraft.filePath;
           draft.range = {

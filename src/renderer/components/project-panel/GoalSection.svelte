@@ -14,17 +14,17 @@
   } from "./lib/goal-status";
 
   interface Props {
-    tabId: string;
+    sessionId: string;
     collapsed: boolean;
     onToggle: () => void;
     /** The rail simply stops rendering the section once the goal is gone; a host
      *  that gave the card a surface of its own (the pill body) has to close it. */
     onCleared?: () => void;
   }
-  let { tabId, collapsed, onToggle, onCleared }: Props = $props();
+  let { sessionId, collapsed, onToggle, onCleared }: Props = $props();
 
   const workspace = getWorkspaceContext();
-  const session = $derived(workspace.sessionFor(tabId));
+  const session = $derived(workspace.sessions[sessionId]);
   const goal = $derived(session?.goal ?? null);
   const goalStatus = $derived(
     goal && session?.run.provider === "claude-code" && session.status === "completed" ? "complete" : goal?.status,
@@ -73,7 +73,7 @@
     if (!session?.agentSessionId || !goal) return;
     saving = true;
     try {
-      await workspace.setThreadGoal(tabId, update);
+      await workspace.setThreadGoal(session.id, update);
       isEditing = false;
     } catch (error) {
       toasts.error(`Couldn't update goal: ${error instanceof Error ? error.message : String(error)}`);
@@ -93,7 +93,7 @@
     if (!session?.agentSessionId) return;
     saving = true;
     try {
-      await workspace.clearThreadGoal(tabId);
+      await workspace.clearThreadGoal(session.id);
       confirmingClear = false;
       onCleared?.();
     } catch (error) {

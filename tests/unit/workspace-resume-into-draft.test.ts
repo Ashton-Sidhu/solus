@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import type { Session, Tab } from '../../src/shared/types'
+import { hasSessionStarted } from '../../src/renderer/lib/sessionUtils'
 
 const previousWindow = globalThis.window
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -86,6 +87,6 @@ describe('resuming a session into an empty composer', () => {
     // forgets a step that no longer exists.
     expect(registry.tabOrder).toEqual([draftTab.id])
     expect(draftSession.agentSessionId).toBe('agent-session')
-    expect(workspace.isDraftTab(draftTab.id)).toBe(false)
+    expect(hasSessionStarted(workspace.sessionFor(draftTab.id))).toBe(true)
   })
 })

@@ -20,7 +20,7 @@ describe('file preview paths', () => {
 
     ctx = {
       session: {
-        tabId: 'tab-file-preview',
+        sessionId: 'session-file-preview',
         workingDirectory: projectRoot,
         projectPath: projectRoot,
       },

@@ -32,7 +32,7 @@ class FakeBackend extends EventEmitter implements AgentBackend {
     })
     abortController.signal.addEventListener('abort', () => reject(new Error('Interrupted')), { once: true })
     this.handle = {
-      sessionId: request.sessionId ?? null,
+      agentSessionId: request.sessionId ?? null,
       persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,
@@ -48,7 +48,7 @@ class FakeBackend extends EventEmitter implements AgentBackend {
 
   init(sessionId: string): void {
     if (!this.handle) throw new Error('No run')
-    this.handle.sessionId = sessionId
+    this.handle.agentSessionId = sessionId
     this.emit('normalized', sessionId, {
       type: 'session_init',
       sessionId,
@@ -60,7 +60,7 @@ class FakeBackend extends EventEmitter implements AgentBackend {
   complete(output = ''): void {
     if (!this.handle) throw new Error('No run')
     if (output) {
-      this.emit('normalized', this.handle.sessionId, {
+      this.emit('normalized', this.handle.agentSessionId, {
         type: 'task_complete',
         result: output,
       } satisfies NormalizedEvent)

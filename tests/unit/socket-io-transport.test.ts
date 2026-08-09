@@ -119,12 +119,12 @@ describe('Socket.IO transport', () => {
     await Promise.all([waitForStatus(first, 'connected'), waitForStatus(second, 'connected')])
     const clientId = `ws:local:${getClientInstanceId(first)}`
     expect(harness.events.publish(clientId, 'session.eventReceived', {
-      tabId: 'tab-1',
+      sessionId: 'session-1',
       event: { type: 'assistant_message', text: 'hello' },
     })).toBe(1)
     await waitFor(() => firstEvents.length === 1)
 
-    expect(firstEvents).toEqual([{ tabId: 'tab-1', event: { type: 'assistant_message', text: 'hello' } }])
+    expect(firstEvents).toEqual([{ sessionId: 'session-1', event: { type: 'assistant_message', text: 'hello' } }])
     expect(secondEvents).toEqual([])
   })
 })

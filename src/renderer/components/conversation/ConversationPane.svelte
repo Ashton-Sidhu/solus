@@ -1,19 +1,13 @@
 <script lang="ts">
-  import { SidebarSimpleIcon, XIcon } from "phosphor-svelte";
-  import { getWorkspaceContext, getSettingsContext } from "../../contexts";
-  import { comboHint } from "../../lib/keybindings/manifest";
-  import { PAGE_ICON_BTN } from "../../lib/page-chrome";
+  import { getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import EditorInputCard from "../input/EditorInputCard.svelte";
-  import ProjectPanel from "../project-panel/ProjectPanel.svelte";
+  import AsidePaneShell from "../layout/AsidePaneShell.svelte";
   import ConversationView from "./ConversationView.svelte";
-  import SessionBreadcrumb from "./SessionBreadcrumb.svelte";
   import { isHomeVisible } from "../layout/lib/workspace-body";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
 
   let {
-    params,
     paneId,
     surfaceVisible = true,
     onAttachFile,
@@ -23,134 +17,83 @@
 
   const session = getWorkspaceContext();
 
-  // A pinned chat always names its tab; the leading pane's chat renders through
-  // the pool instead, so this component never sees the bare active-tab case.
-  const tabId = $derived(params.tabId ?? session.activeTabId);
+  // A pinned chat names the session it shows; the tab rendering that session is
+  // the workspace's answer, not the route's — the one place that hop happens.
+  // The leading pane's chat goes through the pool instead.
+  const tabId = $derived(session.chatTabIn(paneId));
+
+  // Only the leading pane renders the pool, so a companion that names no
+  // session has no conversation of its own. Borrowing the active tab put the
+  // leading pane's conversation on both sides of the split — and gave the close
+  // button someone else's tab to close — so the pane is closed instead. Reached
+  // by a location saved before a companion always named its session; the router
+  // has since dropped the pane when it is only mid-exit, hence the guard.
+  $effect(() => {
+    if (tabId || !session.router.pane(paneId)) return;
+    session.router.closePane(paneId);
+  });
 
   // An empty split chat reads as the same headline-sitting-on-the-composer block
   // the leading column centres, not a hero stranded in the middle of a blank
   // transcript with the composer far below it.
   const centerHome = $derived(
-    isHomeVisible(session.sessionFor(tabId)),
+    isHomeVisible(tabId ? session.sessionFor(tabId) : undefined),
   );
 
-  async function attachFile() {
+  async function attachFile(conversationTabId: string) {
     if (onAttachFile) {
-      await onAttachFile(tabId);
+      await onAttachFile(conversationTabId);
       return;
     }
     const files = await window.solus.attachFiles();
     if (!files || files.length === 0) return;
-    session.addAttachments(files, tabId);
+    session.addAttachments(files, conversationTabId);
   }
 
-  function toggleDiff() {
-    session.toggleDiff(tabId);
-  }
-
-  // The rail is chrome of the conversation it describes, so a split chat carries
-  // its own — scoped to its session, not the active tab's. It minimizes itself
-  // when this pane is too narrow to hold both.
-  const settings = getSettingsContext();
-  let paneWidth = $state(0);
-
-  function toggleRail() {
-    settings.update({ splitProjectPanelOpen: !settings.splitProjectPanelOpen });
-    requestInputFocus({ tabId });
-  }
-
-  function closeConversationTab() {
-    session.closeTab(tabId);
+  // The X takes the whole surface away: the conversation's tab and the pane
+  // showing it. `closeTab` drops the pane too when the workspace can match the
+  // two up, but this pane is the thing the user clicked — it goes either way.
+  function closeConversationTab(conversationTabId: string) {
+    session.closeTab(conversationTabId);
+    session.router.closePane(paneId);
     requestInputFocus();
   }
 </script>
 
-<div
-  class="flex h-full min-h-0 min-w-0 flex-col border-l border-(--solus-container-border) bg-(--solus-container-bg)"
-  onfocusin={() => session.router.focusPane(paneId)}
-  bind:clientWidth={paneWidth}
->
-  <!-- The split tab already lives in the primary tab strip, but this pane still
-       needs the same chrome row. Keeping the row preserves the shared vertical
-       grid after the old titled header was removed: both transcripts begin and
-       both composers end on the same lines. -->
-  <div
-    class="split-chat-chrome no-drag flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center justify-end gap-1 px-2.5"
+{#if tabId}
+  {@const conversationTabId = tabId}
+  <AsidePaneShell
+    {paneId}
+    tabId={conversationTabId}
+    centered={centerHome}
+    {surfaceVisible}
+    onClose={() => closeConversationTab(conversationTabId)}
+    closeLabel="Close conversation tab"
   >
-    <SessionBreadcrumb
-      {tabId}
-      variant="inline"
-      showNewSessionAction={false}
-      showProjectPanelAction={false}
-    />
-
-    {#if !settings.splitProjectPanelOpen}
-      <TooltipUI.Root>
-        <TooltipUI.Trigger>
-          {#snippet child({ props })}
-            <button
-              {...props}
-              type="button"
-              class={PAGE_ICON_BTN}
-              onclick={toggleRail}
-              aria-label="Expand project panel"
-            >
-              <SidebarSimpleIcon size={13} mirrored />
-            </button>
-          {/snippet}
-        </TooltipUI.Trigger>
-        <TooltipUI.Content
-          value={`Expand project panel (${comboHint("global.toggle-project-panel")})`}
-        />
-      </TooltipUI.Root>
-    {/if}
-
-    <button
-      type="button"
-      class={PAGE_ICON_BTN}
-      onclick={closeConversationTab}
-      aria-label="Close conversation tab"
-    >
-      <XIcon size={16} />
-    </button>
-  </div>
-
-  <div class="flex min-h-0 min-w-0 flex-1">
-    <div
-      class="split-column flex min-h-0 min-w-0 flex-1 flex-col"
-      class:justify-center={centerHome}
-      class:home-measure={centerHome}
-    >
+    {#snippet body()}
       <div class="flex min-h-0 flex-col" class:flex-1={!centerHome}>
-        <ConversationView {tabId} onDiffToggle={toggleDiff} forceVisible {surfaceVisible} />
+        <ConversationView
+          tabId={conversationTabId}
+          onDiffToggle={() => session.toggleDiff(conversationTabId)}
+          forceVisible
+          {surfaceVisible}
+        />
       </div>
 
       <div class="split-input-dock shrink-0 px-4 pt-2.5 pb-2.5">
         <EditorInputCard
           class="mx-auto max-w-(--solus-reading-max)"
-          {tabId}
-          onAttachFile={attachFile}
-          onScreenshot={onScreenshot ? () => onScreenshot(tabId) : null}
-          onDesignMode={onDesignMode ? () => onDesignMode(tabId) : null}
+          tabId={conversationTabId}
+          {paneId}
+          onAttachFile={() => attachFile(conversationTabId)}
+          onScreenshot={onScreenshot
+            ? () => onScreenshot(conversationTabId)
+            : null}
+          onDesignMode={onDesignMode
+            ? () => onDesignMode(conversationTabId)
+            : null}
         />
       </div>
-    </div>
-
-    <ProjectPanel
-      {tabId}
-      isSplit
-      containerWidth={paneWidth}
-      active={surfaceVisible}
-      onCollapse={toggleRail}
-    />
-  </div>
-</div>
-
-<style>
-  /* The same measure the leading column's home uses, so a split composer on an
-     empty session is the width the user just came from — not the full-bleed
-     transcript measure. */
-  .split-column.home-measure {
-    --solus-reading-max: clamp(40rem, 50%, 52rem);
-  }
-</style>
+    {/snippet}
+  </AsidePaneShell>
+{/if}

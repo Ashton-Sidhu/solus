@@ -16,9 +16,9 @@ function showCta(): void {
   window.dispatchEvent(new CustomEvent('demo:show-cta'))
 }
 
-function streamReply(backend: DemoBackend, tabId: string): void {
+function streamReply(backend: DemoBackend, sessionId: string): void {
   const broadcast = (event: NormalizedEvent): void => {
-    backend.broadcast('session.eventReceived', { tabId, event })
+    backend.broadcast('session.eventReceived', { sessionId, event })
   }
 
   broadcast({ type: 'status_change', status: 'running', oldStatus: 'connecting' })
@@ -41,34 +41,34 @@ export function registerAgentIntercept(backend: DemoBackend, store: DemoStore): 
     const [ctx, options] = args as [IpcContext, PromptOptions]
     void options
     const agentSessionId = `demo-live-session-${++sessionCounter}`
-    streamReply(backend, ctx.session.tabId)
+    streamReply(backend, ctx.session.sessionId)
     return { agentSessionId }
   })
 
   backend.register('dispatchToAgentSession', (args) => {
     const [ctx, , options] = args as [IpcContext, string, PromptOptions]
     void options
-    streamReply(backend, ctx.session.tabId)
+    streamReply(backend, ctx.session.sessionId)
   })
 
   backend.register('prompt', (args) => {
     const [ctx, options] = args as [IpcContext, PromptOptions]
     void options
-    streamReply(backend, ctx.session.tabId)
+    streamReply(backend, ctx.session.sessionId)
   })
 
   backend.register('retry', (args) => {
     const [ctx, options] = args as [IpcContext, PromptOptions]
     void options
-    streamReply(backend, ctx.session.tabId)
+    streamReply(backend, ctx.session.sessionId)
   })
 
-  backend.register('stopTab', () => true)
+  backend.register('stopSession', () => true)
   backend.register('respondQuestion', () => true)
   backend.register('rateLimitDecision', () => true)
   backend.register('cancelQueuedPrompt', () => true)
   backend.register('editQueuedPrompt', () => true)
-  backend.register('resetTabSession', () => undefined)
+  backend.register('resetSession', () => undefined)
 
   const interceptGitMutation = (): { success: false; error: string } => {
     showCta()

@@ -141,7 +141,7 @@ describe('workspace plugin command demand', () => {
       setActiveTab(tabId: string) { this.activeTabId = tabId },
     }
     workspace.ui = { isExpanded: true }
-    workspace.router = { asidePanes: [], chatTabIn: () => null, close: () => {} }
+    workspace.router = { asidePanes: [], chatSessionIn: () => null, showsChat: () => false, close: () => {} }
     workspace.settings = {
       activeAgent: 'codex',
       update(patch: { activeAgent: string }) { this.activeAgent = patch.activeAgent },

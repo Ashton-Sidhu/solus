@@ -64,7 +64,7 @@
   const showPillDiagram = $derived(
     !!pillWorkModal && !isEditorMode && pillWorkModal.type === "diagram",
   );
-  const pillGoalTabId = $derived(router.params("goal")?.tabId ?? null);
+  const pillGoalSessionId = $derived(router.params("goal")?.sessionId ?? null);
   let pillGoalCollapsed = $state(false);
   let inputFocused = $state(false);
   const pickerOpen = $derived(!isEditorMode && session.sessionPickerOpen);
@@ -81,7 +81,7 @@
       router.at("tasks") ||
       router.at("prs") ||
       pickerOpen ||
-      !!pillGoalTabId ||
+      !!pillGoalSessionId ||
       showPillDiagram ||
       !!pillWorkModal ||
       !!pillPlanModal ||
@@ -255,8 +255,8 @@
                 />
               </div>
             {:else}
-              <div class="relative" style="{showPillDiagram || pillGoalTabId ? 'height:var(--pill-body-max)' : 'max-height:var(--pill-body-max)'}">
-                {#if pillGoalTabId}
+              <div class="relative" style="{showPillDiagram || pillGoalSessionId ? 'height:var(--pill-body-max)' : 'max-height:var(--pill-body-max)'}">
+                {#if pillGoalSessionId}
                   <PaneChrome
                     onClose={() => { router.close("goal"); requestInputFocus() }}
                     closeLabel="Close goal"
@@ -265,7 +265,7 @@
                        hosts in editor mode fills the pill body instead. -->
                   <div class="h-full overflow-y-auto p-2 pt-10">
                     <GoalSection
-                      tabId={pillGoalTabId}
+                      sessionId={pillGoalSessionId}
                       collapsed={pillGoalCollapsed}
                       onToggle={() => (pillGoalCollapsed = !pillGoalCollapsed)}
                       onCleared={() => { router.close("goal"); requestInputFocus() }}
@@ -297,7 +297,7 @@
                 <!-- Persistent conversation pool: hidden (not unmounted) while a
                      diagram overlays, so closing it reveals the conversation
                      instantly with all state preserved. -->
-                <div class:tab-hidden={showPillDiagram || !!pillGoalTabId}>
+                <div class:tab-hidden={showPillDiagram || !!pillGoalSessionId}>
                   {#each session.tabOrder as tId (tId)}
                     {#if mountedTabIds.has(tId)}
                       <div
@@ -306,7 +306,7 @@
                       >
                         <ConversationView
                           tabId={tId}
-                          surfaceVisible={active && !showPillDiagram && !pillGoalTabId}
+                          surfaceVisible={active && !showPillDiagram && !pillGoalSessionId}
                           retainTranscriptRows={retainedTranscriptTabIds.has(tId)}
                         />
                       </div>
@@ -367,10 +367,19 @@
         <TabStrip />
 
         <div class="px-1.5 pb-1.5 pt-1">
-          <InputBar mode="pill" prompt={session.inputFor(session.activeTabId)}>
+          <InputBar
+            mode="pill"
+            sessionId={session.activeSession?.id ?? null}
+            tabId={session.activeTabId}
+            isPrimary
+            run={session.activeSession?.run}
+            prompt={session.inputFor(session.activeTabId)}
+          >
             {#snippet leadingActions()}
               <InputToolbar
                 mode="pill"
+                tabId={session.activeTabId}
+                isPrimary
                 {onAttachFile}
                 {onScreenshot}
                 {onDesignMode}

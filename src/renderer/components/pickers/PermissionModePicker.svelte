@@ -1,6 +1,7 @@
 <script lang="ts">
   import { CaretDownIcon, ShieldCheckIcon, PencilIcon, type IconWeight } from 'phosphor-svelte'
   import { getWorkspaceContext, getAgentContext, getStatusBarContext } from '../../contexts'
+  import type { RunConfig } from '../../../shared/types'
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { requestInputFocus } from '../../lib/inputFocus'
   import * as DropdownMenu from '../ui/dropdown-menu'
@@ -11,13 +12,21 @@
 
   interface Props {
     compact?: boolean;
+    /** The tab whose session this edits. Left unset by a composer that has no
+     *  session yet, which supplies `run`/`onRun` instead. */
     tabId?: string;
+    /** Detached: the picker reads and writes this run in place and never
+     *  touches a session's. A session draft's composer supplies it. */
+    run?: RunConfig;
+    onRun?: (next: RunConfig) => void;
+    /** Choosing from the workspace's own composer returns focus to it. */
+    isPrimary?: boolean;
   }
-  let { compact = false, tabId }: Props = $props();
+  let { compact = false, tabId, run, onRun, isPrimary = false }: Props = $props();
 
   let open = $state(false)
 
-  const ctx = $derived(statusBar.ctxFor(tabId ?? session.activeTabId))
+  const ctx = $derived(onRun ? statusBar.ctxForRun(run) : statusBar.ctxFor(tabId ?? session.activeTabId))
   const permissionMode = $derived(ctx.permissionMode)
   const isPlan = $derived(permissionMode === 'plan')
   const isAuto = $derived(permissionMode === 'auto')
@@ -45,13 +54,14 @@
   }
 
   function selectPermissionMode(mode: 'ask' | 'auto' | 'plan') {
-    session.setPermissionMode(mode, tabId)
+    if (onRun) onRun({ ...(run as RunConfig), permissionMode: mode })
+    else session.setPermissionMode(mode, tabId)
     open = false
-    if (tabId === undefined) requestInputFocus()
+    if (isPrimary) requestInputFocus()
   }
 </script>
 
-<DropdownMenu.Root bind:open onOpenChange={(next) => { if (!next && tabId === undefined) requestInputFocus() }}>
+<DropdownMenu.Root bind:open onOpenChange={(next) => { if (!next && isPrimary) requestInputFocus() }}>
   <DropdownMenu.Trigger disabled={!supportsPermissions}>
     {#snippet child({ props })}
       <TooltipUI.Root>

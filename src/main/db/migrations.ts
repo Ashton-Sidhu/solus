@@ -435,6 +435,47 @@ ALTER TABLE sessions ADD COLUMN delegation_intent TEXT;
 ALTER TABLE sessions ADD COLUMN delegation_created_at INTEGER;
 CREATE INDEX sessions_by_parent ON sessions(parent_session_id, last_timestamp DESC);
 `,
+  // The host outbox (ADR-0007): durable writes addressed to resources this host
+  // cannot reach, ferried to their owner host by connected clients. `outbox_ops`
+  // is the queue on the recording host; `applied_ops` is the owner-side
+  // idempotence guard that makes redelivery and concurrent couriers harmless.
+  // Every host carries both tables — any host can record and any host can own.
+  `
+CREATE TABLE outbox_ops (
+  id TEXT PRIMARY KEY,
+  domain TEXT NOT NULL,
+  resource_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  session_id TEXT,
+  recorded_at INTEGER NOT NULL,
+  state TEXT NOT NULL DEFAULT 'pending',
+  error TEXT
+);
+CREATE INDEX outbox_ops_by_resource ON outbox_ops(domain, resource_id, id);
+
+CREATE TABLE applied_ops (
+  op_id TEXT PRIMARY KEY,
+  resource_id TEXT NOT NULL,
+  applied_at INTEGER NOT NULL
+);
+`,
+  // Where the attempt actually ran. A link is always written on the *task's*
+  // host (ADR-0006), so without this column a dispatched session was
+  // indistinguishable from one that ran here — and every surface that reads a
+  // closed attempt reported it as local. Null means "the task's own host",
+  // which is what a non-dispatch is; a value is the execution host's id.
+  `
+ALTER TABLE task_session_links ADD COLUMN execution_server_id TEXT;
+`,
+  // Where the session itself lives. A machine cannot name itself — only the
+  // client knows a host as "Studio" — so this is null for every session sitting
+  // in its own host's index, and set only on the stub a client records when it
+  // dispatches a session to another machine. That makes the session record, not
+  // the task link, the thing every surface can ask "where did this run".
+  `
+ALTER TABLE sessions ADD COLUMN server_id TEXT;
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

@@ -1,4 +1,5 @@
-import type { AgentId, EnrichedError, GitState, Message, NormalizedEvent, Session, Tab, ThreadGoal } from '../../../shared/types'
+import type { AgentId, EnrichedError, GitState, Message, NormalizedEvent, Session, ThreadGoal } from '../../../shared/types'
+import { existingTaskId } from './session-draft.svelte'
 import { encodePathAsFolder } from '../../../shared/types'
 import { uuid } from '../../../shared/uuid'
 import type { SettingsContext } from '../app/settings.context.svelte'
@@ -12,8 +13,6 @@ import { AgentConversationTracker } from './agent-conversation-tracker.svelte'
 import { AGENT_INTERRUPT_NOTICE, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest } from './session.utils'
 import { mergeRemoteDispatchProgress } from '../../lib/remote-dispatch-card'
 
-const FINISHED_STATUSES = new Set(['completed', 'failed', 'dead', 'interrupted'])
-
 export interface SessionEventReducerDeps {
   registry: TabRegistry
   settings: SettingsContext
@@ -22,27 +21,41 @@ export interface SessionEventReducerDeps {
   tasksStore: TasksStore
   automationsStore: AutomationsStore
   workStreamTracker: WorkStreamTracker
-  isTabVisible(tabId: string): boolean
-  addChangedFilesFromMessage(tabId: string, message: Message): void
-  refreshTurnSnapshots(tabId: string): void
+  /** Is this conversation on screen anywhere — the active tab, or a chat pinned
+   *  into a companion pane? Several tabs may watch one session; one of them
+   *  being visible is what makes the session read. */
+  isSessionVisible(sessionId: string): boolean
+  addChangedFilesFromMessage(sessionId: string, message: Message): void
+  refreshTurnSnapshots(sessionId: string): void
   setGitStatus(cwd: string, status: GitState | null): void
   playNotificationIfHidden(): void
   closePlanModal(): void
-  onTurnSettled(tabId: string, cwd: string | null): void
-  onGoalDefined?(tabId: string): void
-  applyGoalUpdated?(tabId: string, goal: ThreadGoal): boolean
-  applyGoalCleared?(tabId: string, threadId: string): void
-  onSessionInitialized?(tabId: string): void
+  onTurnSettled(sessionId: string, cwd: string | null): void
+  onGoalDefined?(sessionId: string): void
+  applyGoalUpdated?(sessionId: string, goal: ThreadGoal): boolean
+  applyGoalCleared?(sessionId: string, threadId: string): void
+  onSessionInitialized?(sessionId: string): void
   handlePendingInputSync(session: Session, events: Extract<NormalizedEvent, { type: 'pending_input_sync' }>['pendingInputEvents']): void
-  log(tab: Tab, eventType: string, session: Session): void
+  log(eventType: string, session: Session): void
 }
 
+/**
+ * Applies a conversation's events to it.
+ *
+ * Everything here is addressed by **session id**, never by tab. A session is
+ * what has messages, a status and a stream; a tab is one place it is being
+ * watched, and there may be none (a headless agent) or several (a split chat).
+ * Where an event has a genuinely visual consequence — an unread dot — the
+ * reducer resolves the session's tabs through the registry and fans out.
+ */
 export class SessionEventReducer {
-  // Separate $state bag so per-chunk text updates don't re-run reactions on other tabs.
+  // Separate $state bag so per-chunk text updates don't re-run reactions on
+  // other conversations.
   streaming = $state<{ text: Record<string, string> }>({ text: {} })
-  // Hidden tabs do not render their stream. Keep their new chunks append-only so
-  // concurrent background sessions avoid copying an ever-growing string on every
-  // transport flush; materialize once when the tab becomes visible or commits.
+  // A session nobody is looking at does not render its stream. Keep its new
+  // chunks append-only so concurrent background sessions avoid copying an
+  // ever-growing string on every transport flush; materialize once when the
+  // session becomes visible or commits.
   private hiddenTextChunks = new Map<string, string[]>()
   // An assembled assistant_message closes one logical prose block. Providers may
   // immediately stream another block without a tool call between them, so keep
@@ -52,6 +65,9 @@ export class SessionEventReducer {
   // onto the next tool call so the activity block can say "Thought for 6s".
   // Transport state, not domain state, so it lives here rather than on Session.
   private thinkingSpans = new WeakMap<Session, { startedAt?: number; pendingMs: number }>()
+  /** Last authoritative settlement applied per mounted session. Transport
+   *  retries must not replay unread state, sounds, or final refresh work. */
+  private settledTurnIds = new WeakMap<Session, string>()
   /** One card per agent conversation per turn; exchanges keyed for late settles. */
   private agentConversations = new AgentConversationTracker()
 
@@ -85,13 +101,20 @@ export class SessionEventReducer {
     return ms > 0 ? ms : undefined
   }
 
-  apply(tabId: string, event: NormalizedEvent): void {
-    const tab = this.deps.registry.tabs[tabId]
-    if (!tab) return
-    const session = this.deps.registry.sessions[tab.sessionId]
+  /** Mark every tab watching a session as unread, unless it is on screen. */
+  private markUnread(sessionId: string): void {
+    const isVisible = this.deps.isSessionVisible(sessionId)
+    for (const tabId of this.deps.registry.tabIdsBySession.get(sessionId) ?? []) {
+      const tab = this.deps.registry.tabs[tabId]
+      if (tab) tab.hasUnread = !isVisible
+    }
+  }
+
+  apply(sessionId: string, event: NormalizedEvent): void {
+    const session = this.deps.registry.sessions[sessionId]
     if (!session) return
 
-    if (session.status === 'interrupted' && !['task_complete', 'checkpoint', 'session_init', 'user_message', 'status_change', 'git_context', 'git_status', 'goal_updated', 'goal_cleared'].includes(event.type)) {
+    if (session.status === 'interrupted' && !['task_complete', 'turn_settled', 'checkpoint', 'session_init', 'user_message', 'status_change', 'git_context', 'git_status', 'goal_updated', 'goal_cleared'].includes(event.type)) {
       return
     }
 
@@ -130,7 +153,7 @@ export class SessionEventReducer {
     }
 
     if (event.type === 'text_chunk') {
-      this.appendTextChunk(tabId, session, event.text)
+      this.appendTextChunk(sessionId, session, event.text)
       return
     }
 
@@ -138,7 +161,7 @@ export class SessionEventReducer {
       session.rateLimitStrategy = this.deps.settings.rateLimitBehavior
     }
 
-    this.commitPendingStream(tabId)
+    this.commitPendingStream(sessionId)
 
     switch (event.type) {
       case 'session_init':
@@ -154,21 +177,43 @@ export class SessionEventReducer {
         if (session.boundWorkId) {
           this.deps.worksStore.linkSession(session.run.workingDirectory, session.boundWorkId, event.sessionId)
         }
-        // The main process owns the durable link at first dispatch. Keep the
-        // provisional binding until that link is in the renderer store so the
-        // sidebar never projects this session as loose between the two states.
-        const pendingTaskId = session.pendingTaskId
-        if (pendingTaskId) this.deps.tasksStore.trackSessionStart(pendingTaskId, event.sessionId)
-        void this.deps.tasksStore.refreshSessionBinding(event.sessionId)
+        // The task host owns the durable link, and only now is there a session
+        // id to write into it — the execution host issues that, and on a
+        // dispatch it is a different machine entirely. Keep the provisional
+        // binding until the link is in the renderer store, so the sidebar never
+        // projects this session as loose between the two states.
+        const taskServerId = session.run.taskServerId
+        const pendingTaskId = existingTaskId(session.task)
+        if (pendingTaskId) {
+          this.deps.tasksStore.trackSessionStart(pendingTaskId, event.sessionId)
+          // On a dispatch this client is the only party that can name the
+          // execution host, so it says so once and the task's host records the
+          // session. The group path travels with it because the agent's own
+          // checkout is a path on the borrowed machine.
+          const isDispatch = session.run.serverId !== taskServerId
+          void this.deps.tasksStore.linkSession(
+            taskServerId,
+            pendingTaskId,
+            event.sessionId,
+            isDispatch
+              ? {
+                  serverId: session.run.serverId,
+                  provider: session.run.provider ?? undefined,
+                  projectRoot: session.run.projectGroupPath,
+                }
+              : null,
+          )
+        }
+        void this.deps.tasksStore.refreshSessionBinding(event.sessionId, taskServerId)
           .then((task) => {
             if (!task) return
-            if (session.pendingTaskId === pendingTaskId) session.pendingTaskId = null
+            if (existingTaskId(session.task) === pendingTaskId) session.task = { kind: 'new' }
             // The fork's subtask now exists and owns the nesting the provisional
             // parent stood in for.
-            session.pendingParentTaskId = null
+            session.task = { kind: 'new' }
           })
           .catch(() => null)
-        this.deps.onSessionInitialized?.(tabId)
+        this.deps.onSessionInitialized?.(sessionId)
         break
 
       case 'tool_call': {
@@ -188,7 +233,6 @@ export class SessionEventReducer {
           timestamp: Date.now(),
         })
         this.deps.workStreamTracker.beginToolArtifacts(
-          tabId,
           session,
           event.toolName,
           (session.run.provider ?? this.deps.settings.activeAgent) as AgentId,
@@ -245,8 +289,8 @@ export class SessionEventReducer {
         if (completedFileMsg) {
           // Incremental union from just this message — the full rescan runs at
           // task_complete to reconcile. Avoids re-parsing every historical body.
-          this.deps.addChangedFilesFromMessage(tabId, completedFileMsg)
-          this.deps.onTurnSettled(tabId, session.run.workingDirectory)
+          this.deps.addChangedFilesFromMessage(sessionId, completedFileMsg)
+          this.deps.onTurnSettled(sessionId, session.run.workingDirectory)
         }
         session.currentActivity = 'Thinking...'
         break
@@ -270,7 +314,7 @@ export class SessionEventReducer {
             timestamp: Date.now(),
           })
         }
-        this.assistantMessageBoundaries.add(tabId)
+        this.assistantMessageBoundaries.add(sessionId)
         break
       }
 
@@ -286,7 +330,7 @@ export class SessionEventReducer {
         const next = event.paths.join('\n')
         if (prev !== next) {
           session.sessionChangedFiles.splice(0, session.sessionChangedFiles.length, ...event.paths)
-          this.deps.onTurnSettled(tabId, session.run.workingDirectory)
+          this.deps.onTurnSettled(sessionId, session.run.workingDirectory)
         }
         break
       }
@@ -339,7 +383,7 @@ export class SessionEventReducer {
       }
 
       case 'task_complete':
-        this.resetSessionRunState(session)
+        this.finishProviderResultState(session)
         session.lastResult = {
           totalCostUsd: event.costUsd,
           durationMs: event.durationMs,
@@ -365,7 +409,6 @@ export class SessionEventReducer {
             })
           }
         }
-        tab.hasUnread = !this.deps.isTabVisible(tabId)
         if (session.status !== 'interrupted') {
           if (event.permissionDenials && event.permissionDenials.length > 0) {
             session.permissionDenied = { tools: event.permissionDenials }
@@ -373,16 +416,25 @@ export class SessionEventReducer {
             session.permissionDenied = null
           }
         }
-        this.deps.onTurnSettled(tabId, session.run.workingDirectory)
-        this.deps.refreshTurnSnapshots(tabId)
-        this.deps.workStreamTracker.sweep(tabId, session)
-        this.deps.playNotificationIfHidden()
+        break
+
+      case 'turn_settled':
+        if (this.settledTurnIds.get(session) === event.turnId) break
+        this.settledTurnIds.set(session, event.turnId)
+        session.currentTurnStartedAt = null
+        this.deps.onTurnSettled(sessionId, session.run.workingDirectory)
+        this.deps.refreshTurnSnapshots(sessionId)
+        this.deps.workStreamTracker.sweep(session)
+        if (event.outcome === 'completed') {
+          this.markUnread(sessionId)
+          this.deps.playNotificationIfHidden()
+        }
         break
 
       case 'error':
         if (session.status === 'interrupted') break
         this.resetSessionRunState(session)
-        this.deps.workStreamTracker.sweep(tabId, session)
+        this.deps.workStreamTracker.sweep(session)
         session.terminalFailure = {
           content: `Error: ${event.message}`,
           timestamp: Date.now(),
@@ -396,7 +448,7 @@ export class SessionEventReducer {
 
       case 'session_dead':
         this.resetSessionRunState(session)
-        this.deps.workStreamTracker.sweep(tabId, session)
+        this.deps.workStreamTracker.sweep(session)
         session.terminalFailure = {
           content: `Session ended unexpectedly (exit ${event.exitCode})`,
           timestamp: Date.now(),
@@ -507,7 +559,7 @@ export class SessionEventReducer {
 
       case 'git_context':
         session.run.gitContext = event.gitContext
-        if (event.gitContext.worktreePath) session.run.worktreeBaseBranch = null
+        if (event.gitContext.worktreePath) session.run.worktree = null
         break
 
       case 'git_status':
@@ -623,16 +675,16 @@ export class SessionEventReducer {
 
       case 'goal_updated': {
         const isNewGoal = this.deps.applyGoalUpdated
-          ? this.deps.applyGoalUpdated(tabId, event.goal)
+          ? this.deps.applyGoalUpdated(sessionId, event.goal)
           : !session.goal
         if (!this.deps.applyGoalUpdated) session.goal = event.goal
-        if (isNewGoal) this.deps.onGoalDefined?.(tabId)
+        if (isNewGoal) this.deps.onGoalDefined?.(sessionId)
         break
       }
 
       case 'goal_cleared':
         if (this.deps.applyGoalCleared) {
-          this.deps.applyGoalCleared(tabId, event.threadId)
+          this.deps.applyGoalCleared(sessionId, event.threadId)
         } else if (!session.agentSessionId || event.threadId === session.agentSessionId) {
           session.goal = null
         }
@@ -662,7 +714,7 @@ export class SessionEventReducer {
           // their user_message arrives. Start the visible clock at that first
           // evidence of work instead of leaving the sidebar margin blank.
           session.currentTurnStartedAt ??= Date.now()
-        } else if (FINISHED_STATUSES.has(event.status) || event.status === 'idle') {
+        } else if (event.status === 'idle') {
           session.currentTurnStartedAt = null
         }
         // The status card tracks the pre-run setup phase (worktree creation,
@@ -676,7 +728,7 @@ export class SessionEventReducer {
           session.outboundPrompts.splice(0, session.outboundPrompts.length)
           this.deps.closePlanModal()
         }
-        if (FINISHED_STATUSES.has(event.status) || event.status === 'idle') {
+        if (event.status === 'idle') {
           session.isStreamingText = false
           session.isReconnecting = false
           session.permissionQueue = []
@@ -686,7 +738,7 @@ export class SessionEventReducer {
         break
 
       case 'work_created': {
-        this.deps.workStreamTracker.finalizeWork(tabId, session, event)
+        this.deps.workStreamTracker.finalizeWork(session, event)
         if (session.agentSessionId) this.deps.worksStore.linkSessionLocal(event.workId, session.agentSessionId)
         this.deps.playNotificationIfHidden()
         break
@@ -745,11 +797,11 @@ export class SessionEventReducer {
       }
     }
 
-    this.deps.log(tab, event.type, session)
+    this.deps.log(event.type, session)
   }
 
   /**
-   * End the tab's run and clear the live state that belongs to it.
+   * End the session's run and clear the live state that belongs to it.
    *
    * `notice` writes the stop into the transcript, which is what makes the turn
    * read as "you cut this short". Pass false when the run ended because the
@@ -757,13 +809,12 @@ export class SessionEventReducer {
    * hands the work to the implementation session and says so with its own
    * divider, so a stop notice there would report an event that never happened.
    */
-  interruptTab(tabId: string, opts: { notice?: boolean } = {}): void {
+  interruptSession(sessionId: string, opts: { notice?: boolean } = {}): void {
     const { notice = true } = opts
-    const session = this.deps.registry.sessionFor(tabId)
-    const tab = this.deps.registry.tabs[tabId]
-    if (!session || !tab) return
-    this.commitPendingStream(tabId)
-    this.deps.workStreamTracker.sweep(tabId, session)
+    const session = this.deps.registry.sessions[sessionId]
+    if (!session) return
+    this.commitPendingStream(sessionId)
+    this.deps.workStreamTracker.sweep(session)
     session.status = 'interrupted'
     // Setup cards represent live work, not transcript history. Remove one
     // optimistically so Ctrl-C never leaves a stale setup step on screen while
@@ -781,20 +832,15 @@ export class SessionEventReducer {
     }
     session.outboundPrompts.splice(0, session.outboundPrompts.length)
     this.deps.closePlanModal()
-    this.deps.registry.forEachSiblingTab(tabId, (siblingId) => {
-      this.commitPendingStream(siblingId)
-    })
-
-    this.deps.log(tab, 'interrupt', session)
+    this.deps.log('interrupt', session)
   }
 
-  handleError(tabId: string, error: EnrichedError): void {
-    const session = this.deps.registry.sessionFor(tabId)
-    const tab = this.deps.registry.tabs[tabId]
-    if (!session || !tab) return
+  handleError(sessionId: string, error: EnrichedError): void {
+    const session = this.deps.registry.sessions[sessionId]
+    if (!session) return
     if (session.status === 'interrupted') return
 
-    this.commitPendingStream(tabId)
+    this.commitPendingStream(sessionId)
     const lastMsg = session.messages[session.messages.length - 1]
     const alreadyHasError = lastMsg?.role === 'system' && lastMsg.content.startsWith('Error:')
 
@@ -809,7 +855,7 @@ export class SessionEventReducer {
     if (!keepRateLimited) session.status = 'failed'
     this.resetSessionRunState(session)
     if (keepRateLimited) {
-      this.deps.log(tab, 'rate_limit_error_suppressed', session)
+      this.deps.log('rate_limit_error_suppressed', session)
       return
     }
     if (!alreadyHasError) {
@@ -828,7 +874,7 @@ export class SessionEventReducer {
         timestamp: lastMsg.timestamp,
       }
     }
-    this.deps.log(tab, 'error', session)
+    this.deps.log('error', session)
   }
 
   /** Newest-first scan for a tool message by its tool_use id. */
@@ -994,8 +1040,8 @@ export class SessionEventReducer {
     }
   }
 
-  appendTextChunk(tabId: string, session: Session, text: string): void {
-    const startsNewAssistantMessage = this.assistantMessageBoundaries.delete(tabId)
+  appendTextChunk(sessionId: string, session: Session, text: string): void {
+    const startsNewAssistantMessage = this.assistantMessageBoundaries.delete(sessionId)
     const lastMessage = session.messages[session.messages.length - 1]
     const separator = startsNewAssistantMessage &&
       lastMessage?.role === 'assistant' &&
@@ -1007,39 +1053,39 @@ export class SessionEventReducer {
       ? '\n\n'
       : ''
     const nextText = separator + text
-    if (this.deps.isTabVisible(tabId)) {
-      this.streaming.text[tabId] = this.pendingText(tabId) + nextText
-      this.hiddenTextChunks.delete(tabId)
+    if (this.deps.isSessionVisible(sessionId)) {
+      this.streaming.text[sessionId] = this.pendingText(sessionId) + nextText
+      this.hiddenTextChunks.delete(sessionId)
     } else {
-      const chunks = this.hiddenTextChunks.get(tabId)
+      const chunks = this.hiddenTextChunks.get(sessionId)
       if (chunks) chunks.push(nextText)
-      else this.hiddenTextChunks.set(tabId, [nextText])
+      else this.hiddenTextChunks.set(sessionId, [nextText])
     }
     if (!session.isStreamingText) session.isStreamingText = true
   }
 
-  streamingTextFor(tabId: string, isVisible: boolean): string {
-    const current = this.streaming.text[tabId] ?? ''
+  streamingTextFor(sessionId: string, isVisible: boolean): string {
+    const current = this.streaming.text[sessionId] ?? ''
     if (!isVisible) return current
-    const chunks = this.hiddenTextChunks.get(tabId)
+    const chunks = this.hiddenTextChunks.get(sessionId)
     return chunks?.length ? current + chunks.join('') : current
   }
 
-  clearStreamingText(tabId: string): void {
-    delete this.streaming.text[tabId]
-    this.hiddenTextChunks.delete(tabId)
+  clearStreamingText(sessionId: string): void {
+    delete this.streaming.text[sessionId]
+    this.hiddenTextChunks.delete(sessionId)
   }
 
-  private pendingText(tabId: string): string {
-    const current = this.streaming.text[tabId] ?? ''
-    const chunks = this.hiddenTextChunks.get(tabId)
+  private pendingText(sessionId: string): string {
+    const current = this.streaming.text[sessionId] ?? ''
+    const chunks = this.hiddenTextChunks.get(sessionId)
     return chunks?.length ? current + chunks.join('') : current
   }
 
-  commitPendingStream(tabId: string): void {
-    const pendingText = this.pendingText(tabId)
-    this.clearStreamingText(tabId)
-    const session = this.deps.registry.sessionFor(tabId)
+  commitPendingStream(sessionId: string): void {
+    const pendingText = this.pendingText(sessionId)
+    this.clearStreamingText(sessionId)
+    const session = this.deps.registry.sessions[sessionId]
     if (session) session.isStreamingText = false
     if (!pendingText) return
     if (!session) return
@@ -1063,10 +1109,12 @@ export class SessionEventReducer {
     }
   }
 
-  resetSessionRunState(session: Session): void {
+  /** Close provider-result streaming without claiming that the whole Solus turn
+   *  has settled. Background work can continue after `task_complete`, so the
+   *  elapsed turn clock stays live until `turn_settled`. */
+  private finishProviderResultState(session: Session): void {
     session.currentActivity = ''
     session.currentTurnStart = null
-    session.currentTurnStartedAt = null
     session.isStreamingText = false
     session.isReconnecting = false
     session.permissionQueue = []
@@ -1079,6 +1127,11 @@ export class SessionEventReducer {
       span.startedAt = undefined
       span.pendingMs = 0
     }
+  }
+
+  resetSessionRunState(session: Session): void {
+    this.finishProviderResultState(session)
+    session.currentTurnStartedAt = null
   }
 
   private takeOutboundPrompt(session: Session, clientPromptId?: string) {

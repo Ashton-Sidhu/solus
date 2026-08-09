@@ -111,8 +111,8 @@ export function hasSessionStarted(
 /** The one naming rule for an open session, used by every surface that shows one
  *  (tab strip, sidebar rows, breadcrumb): the custom name when the session has
  *  one — it lives on `tab.title` — otherwise the opening prompt. */
-export function sessionTitle(sess: Session, tab: Tab): string {
-  if (tab.title && tab.title !== 'New Tab') return tab.title
+export function sessionTitle(sess: Session): string {
+  if (sess.title && sess.title !== 'New Tab') return sess.title
   for (const m of sess.messages) {
     if (m.role === 'user' && m.content)
       return m.content.replace(/\s+/g, ' ').slice(0, 80)
@@ -130,7 +130,7 @@ export function projectByline(sess: Session | undefined): string {
 /** Display title for a picker entry — tab/session title for open entries, first
  *  message (or slug) for history entries. */
 export function entryTitle(entry: PickerEntry): string {
-  if (entry.kind === 'open') return sessionTitle(entry.session, entry.tab)
+  if (entry.kind === 'open') return sessionTitle(entry.session)
   return (
     entry.meta.customTitle ||
     entry.meta.firstMessage?.replace(/\s+/g, ' ') ||
@@ -406,7 +406,7 @@ export function liveSessionTitle(
   workspace: OpenSessionLookup,
 ): string | null {
   const open = openSessionFor(sessionId, workspace)
-  return open ? sessionTitle(open.session, open.tab) : null
+  return open ? sessionTitle(open.session) : null
 }
 
 /**
@@ -431,4 +431,23 @@ export function sessionDisplayName(input: {
     input.taskTitle?.trim() ||
     input.link.sessionId.slice(0, 8)
   )
+}
+
+/**
+ * The one host rule for a task attempt, used by every surface that says where
+ * one ran (task page, session sidebar).
+ *
+ * Freshest-source-first, like the naming rule above: a mounted tab knows its
+ * own host outright, and a closed attempt names one only when it was
+ * dispatched — a link records the execution host exactly when it differs from
+ * the host holding the task (ADR-0006). Everything else ran wherever the task
+ * lives, which is the arm that matters: falling through to the reading client
+ * is what marked a session on another machine's project as local.
+ */
+export function attemptServerId(input: {
+  link: Pick<TaskSessionLink, 'executionServerId'>
+  liveServerId?: string | null
+  taskServerId: string | null
+}): string | null {
+  return input.liveServerId ?? input.link.executionServerId ?? input.taskServerId
 }

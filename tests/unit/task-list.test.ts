@@ -256,12 +256,14 @@ describe('hasGlyph', () => {
 })
 
 describe('showsUnreadIndicator', () => {
-  it('shows unread ahead of a running task, then reveals running once read', () => {
-    // A task can aggregate an unread reply from one session and a live run from
-    // another. The unread reply needs attention first; clearing it must expose
-    // the run that never stopped underneath it.
+  it('shows unread from a completed session ahead of a sibling live run', () => {
+    // The authoritative turn boundary prevents one session from marking itself
+    // unread while it is still working. This overlap therefore means another
+    // session under the same task finished and still needs attention.
     expect(showsUnreadIndicator('running', true)).toBe(true)
     expect(showsUnreadIndicator('running', false)).toBe(false)
+    expect(showsUnreadIndicator('idle', true)).toBe(true)
+    expect(showsUnreadIndicator('idle', false)).toBe(false)
   })
 
   it('does not hide a state that is explicitly waiting on the user', () => {

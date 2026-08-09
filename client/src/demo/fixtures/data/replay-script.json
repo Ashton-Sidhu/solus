@@ -1,7 +1,7 @@
 [
   {
     "delayMs": 500,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "status_change",
       "status": "running",
@@ -10,7 +10,7 @@
   },
   {
     "delayMs": 120,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "text_chunk",
       "text": "The public router authenticates the key before dispatch, so the "
@@ -18,7 +18,7 @@
   },
   {
     "delayMs": 95,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "text_chunk",
       "text": "limiter can use the stable API-key id instead of storing secrets "
@@ -26,7 +26,7 @@
   },
   {
     "delayMs": 110,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "text_chunk",
       "text": "or coupling quotas to source IPs. I\u2019m reading the middleware "
@@ -34,7 +34,7 @@
   },
   {
     "delayMs": 80,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "text_chunk",
       "text": "boundary now, including how it attaches response headers.\n\n"
@@ -42,7 +42,7 @@
   },
   {
     "delayMs": 8000,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "tool_call",
       "toolName": "Read",
@@ -53,7 +53,7 @@
   },
   {
     "delayMs": 850,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "tool_call_complete",
       "index": 0,
@@ -63,7 +63,7 @@
   },
   {
     "delayMs": 500,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "tool_result",
       "toolUseId": "replay-read-middleware",
@@ -72,7 +72,7 @@
   },
   {
     "delayMs": 125,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "text_chunk",
       "text": "This is only a placeholder, which keeps the change nicely scoped. "
@@ -80,7 +80,7 @@
   },
   {
     "delayMs": 100,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "text_chunk",
       "text": "I\u2019ll make it consume the Redis bucket, add standard headers on "
@@ -88,7 +88,7 @@
   },
   {
     "delayMs": 90,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "text_chunk",
       "text": "both allowed and denied responses, and preserve the existing JSON "
@@ -96,7 +96,7 @@
   },
   {
     "delayMs": 115,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "text_chunk",
       "text": "error envelope. Redis errors will fail open during rollout, with "
@@ -104,7 +104,7 @@
   },
   {
     "delayMs": 70,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "text_chunk",
       "text": "a metric and structured warning so the degradation is visible.\n\n"
@@ -112,7 +112,7 @@
   },
   {
     "delayMs": 8000,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "tool_call",
       "toolName": "Edit",
@@ -123,7 +123,7 @@
   },
   {
     "delayMs": 900,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "tool_call_complete",
       "index": 1,
@@ -133,7 +133,7 @@
   },
   {
     "delayMs": 650,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "tool_result",
       "toolUseId": "replay-edit-middleware",
@@ -142,7 +142,7 @@
   },
   {
     "delayMs": 125,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "text_chunk",
       "text": "The request path is wired. Before running tests, I\u2019m checking the "
@@ -150,7 +150,7 @@
   },
   {
     "delayMs": 100,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "text_chunk",
       "text": "business invariants: two concurrent consumers must not both take "
@@ -158,7 +158,7 @@
   },
   {
     "delayMs": 85,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "text_chunk",
       "text": "the final token, refill must never exceed capacity, and every 429 "
@@ -166,7 +166,7 @@
   },
   {
     "delayMs": 115,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "text_chunk",
       "text": "must tell a client exactly when it can retry. The focused test run "
@@ -174,7 +174,7 @@
   },
   {
     "delayMs": 75,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "text_chunk",
       "text": "needs permission because it starts the local Redis test service.\n\n"
@@ -182,7 +182,7 @@
   },
   {
     "delayMs": 8000,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "permission_request",
       "questionId": "replay-permission-tests",
@@ -213,7 +213,7 @@
   },
   {
     "delayMs": 1200,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "tool_call",
       "toolName": "Bash",
@@ -224,7 +224,7 @@
   },
   {
     "delayMs": 850,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "tool_call_complete",
       "index": 2,
@@ -234,7 +234,7 @@
   },
   {
     "delayMs": 8000,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "tool_result",
       "toolUseId": "replay-run-tests",
@@ -243,7 +243,7 @@
   },
   {
     "delayMs": 120,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "text_chunk",
       "text": "All fourteen focused tests pass, including concurrent consumption "
@@ -251,7 +251,7 @@
   },
   {
     "delayMs": 95,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "text_chunk",
       "text": "and fractional refill boundaries. I\u2019ve also updated the rollout "
@@ -259,7 +259,7 @@
   },
   {
     "delayMs": 110,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "text_chunk",
       "text": "notes with the header contract and opened a follow-up for the SDK "
@@ -267,7 +267,7 @@
   },
   {
     "delayMs": 80,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "text_chunk",
       "text": "examples so client teams can adopt the response consistently.\n\n"
@@ -275,7 +275,7 @@
   },
   {
     "delayMs": 6000,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "changed_files_updated",
       "paths": [
@@ -287,7 +287,7 @@
   },
   {
     "delayMs": 5000,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "work_updated",
       "workId": "demo-work-rollout-notes",
@@ -299,7 +299,7 @@
   },
   {
     "delayMs": 5000,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "task_created",
       "taskId": "demo-task-10",
@@ -309,7 +309,7 @@
   },
   {
     "delayMs": 3900,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "usage",
       "context": {
@@ -323,7 +323,7 @@
   },
   {
     "delayMs": 100,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "task_complete",
       "result": "Added atomic per-key rate limiting, wired standard response headers, and verified 14 focused tests. Updated the rollout notes and created the SDK follow-up task.",
@@ -341,7 +341,7 @@
   },
   {
     "delayMs": 500,
-    "tabId": "demo-tab-ratelimit",
+    "sessionId": "demo-conv-ratelimit",
     "event": {
       "type": "status_change",
       "status": "idle",

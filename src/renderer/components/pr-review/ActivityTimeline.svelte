@@ -105,7 +105,7 @@
     size="icon-xs"
     aria-expanded={!collapsed}
     aria-label="{collapsed ? 'Expand' : 'Collapse'} comment from {author}"
-    class="-mr-1 shrink-0 cursor-pointer text-muted-foreground opacity-0 transition-[opacity,color] hover:text-foreground focus-visible:opacity-100 group-hover/comment:opacity-100 {collapsed
+    class="shrink-0 cursor-pointer text-muted-foreground opacity-0 transition-[opacity,color] hover:text-foreground focus-visible:opacity-100 group-hover/comment:opacity-100 {collapsed
       ? 'opacity-100'
       : ''}"
     onclick={() => toggleComment(key)}
@@ -320,6 +320,7 @@
             >
               <PrAvatar
                 name={event.comment.author}
+                url={event.comment.authorAvatarUrl}
                 size="size-[22px] text-[9.5px]"
               />
             </span>

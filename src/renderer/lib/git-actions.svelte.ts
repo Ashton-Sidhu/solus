@@ -25,21 +25,23 @@ export class GitActions {
 
   constructor(
     private session: WorkspaceContext,
-    private tabId: string,
+    /** The tab or draft whose run these actions act in. Git acts on a checkout,
+     *  so nothing here needs the conversation — only where it runs. */
+    private sourceId: string,
     private environmentStore: SessionEnvironmentStore,
   ) {}
 
   private target() {
-    const environment = this.environmentStore.environmentFor(this.session.sessionFor(this.tabId)?.run)
+    const environment = this.environmentStore.environmentFor(this.session.runFor(this.sourceId))
     return {
       cwd: environment.cwd,
       gitContext: environment.checkout,
-      ctx: this.session.ctxForEnvironment(environment.cwd, environment.checkout, this.tabId),
+      ctx: this.session.ctxForEnvironment(environment.cwd, environment.checkout, this.sourceId),
     }
   }
 
   private api(): typeof window.solus {
-    return this.session.apiFor?.(this.tabId) ?? window.solus
+    return this.session.apiFor?.(this.sourceId) ?? window.solus
   }
 
   async commitPush(): Promise<void> {
@@ -69,7 +71,7 @@ export class GitActions {
       toasts.error(`Couldn't commit and push: ${this.commitPushError}`)
     } finally {
       if (gitCwd) {
-        await this.environmentStore.refreshTab(this.session, { tabId: this.tabId, cwd: gitCwd, level: 'details' })
+        await this.environmentStore.refreshEnvironment(this.session, { sourceId: this.sourceId, cwd: gitCwd, level: 'details' })
           .catch(() => null)
         this.prUrl = this.environmentStore.statusFor(gitCwd)?.prUrl || null
       }
@@ -107,7 +109,7 @@ export class GitActions {
       toasts.error(`Couldn't commit: ${this.commitPushError}`)
     } finally {
       if (gitCwd) {
-        await this.environmentStore.refreshTab(this.session, { tabId: this.tabId, cwd: gitCwd, level: 'details' })
+        await this.environmentStore.refreshEnvironment(this.session, { sourceId: this.sourceId, cwd: gitCwd, level: 'details' })
           .catch(() => null)
       }
       this.commitPushing = false
@@ -135,7 +137,7 @@ export class GitActions {
       toasts.error(`Couldn't discard changes: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
       if (gitCwd) {
-        await this.environmentStore.refreshTab(this.session, { tabId: this.tabId, cwd: gitCwd, level: 'details' })
+        await this.environmentStore.refreshEnvironment(this.session, { sourceId: this.sourceId, cwd: gitCwd, level: 'details' })
           .catch(() => null)
       }
       this.discarding = false
@@ -168,7 +170,7 @@ export class GitActions {
       toasts.error(`Couldn't sync with remote: ${this.syncError}`)
     } finally {
       if (gitCwd) {
-        await this.environmentStore.refreshTab(this.session, { tabId: this.tabId, cwd: gitCwd, level: 'details' })
+        await this.environmentStore.refreshEnvironment(this.session, { sourceId: this.sourceId, cwd: gitCwd, level: 'details' })
           .catch(() => null)
       }
       this.syncing = false
@@ -177,7 +179,7 @@ export class GitActions {
   }
 
   openTerminal(): void {
-    if (!connectionsStore.desktopHandlersAvailable || this.session.sessionFor(this.tabId)?.run.serverId !== LOCAL_SERVER_ID) return
+    if (!connectionsStore.desktopHandlersAvailable || this.session.runFor(this.sourceId)?.serverId !== LOCAL_SERVER_ID) return
     void window.solus.openWorktreeTerminal(this.target().ctx)
     requestInputFocus()
   }
@@ -199,7 +201,7 @@ export class GitActions {
       toasts.error(`Couldn't create pull request: ${this.prError}`)
     } finally {
       this.creatingPR = false
-      void this.environmentStore.refreshTab(this.session, { tabId: this.tabId, cwd: target.cwd, level: 'details' })
+      void this.environmentStore.refreshEnvironment(this.session, { sourceId: this.sourceId, cwd: target.cwd, level: 'details' })
       requestInputFocus()
     }
   }
@@ -207,16 +209,22 @@ export class GitActions {
 
 const actions = new Map<string, GitActions>()
 
-export function gitActionsFor(tabId: string, session: WorkspaceContext, environmentStore: SessionEnvironmentStore): GitActions {
-  let existing = actions.get(tabId)
+/** One instance per run source, so in-flight action state survives re-renders.
+ *  `sourceId` names a tab or a draft — whichever owns the run being acted in. */
+export function gitActionsFor(
+  sourceId: string,
+  session: WorkspaceContext,
+  environmentStore: SessionEnvironmentStore,
+): GitActions {
+  let existing = actions.get(sourceId)
   if (!existing) {
-    existing = new GitActions(session, tabId, environmentStore)
-    actions.set(tabId, existing)
+    existing = new GitActions(session, sourceId, environmentStore)
+    actions.set(sourceId, existing)
   }
   return existing
 }
 
-/** Drop the cached instance when a tab closes so it doesn't outlive the tab. */
-export function disposeGitActions(tabId: string): void {
-  actions.delete(tabId)
+/** Drop the cached instance when a tab or draft goes away so it doesn't outlive it. */
+export function disposeGitActions(sourceId: string): void {
+  actions.delete(sourceId)
 }

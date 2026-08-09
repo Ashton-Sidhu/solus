@@ -1,10 +1,21 @@
 <script lang="ts">
-  import { ArrowRightIcon, ArrowSquareOutIcon, StopIcon } from "phosphor-svelte";
+  import {
+    ArrowRightIcon,
+    ArrowSquareOutIcon,
+    GlobeIcon,
+    LaptopIcon,
+    StopIcon,
+  } from "phosphor-svelte";
   import type { TaskSessionLink } from "../../../../shared/task-types";
   import * as TooltipUI from "../../ui/tooltip";
-  import { getWorkspaceContext } from "../../../contexts";
-  import { getAttentionState, openSessionFor, sessionTitle } from "../../../lib/sessionUtils";
-  import { taskSessionRow } from "./lib/task-page";
+  import { getWorkspaceContext, serversStore } from "../../../contexts";
+  import {
+    attemptServerId,
+    getAttentionState,
+    openSessionFor,
+    sessionTitle,
+  } from "../../../lib/sessionUtils";
+  import { taskSessionRow, type TaskSessionHost } from "./lib/task-page";
 
   interface Props {
     sessions: TaskSessionLink[];
@@ -25,20 +36,28 @@
   const rows = $derived(
     sessions.map((link) => {
       const open = openSessionFor(link.sessionId, session);
+      const host = serversStore.hostFor(
+        attemptServerId({
+          link,
+          liveServerId: open?.session.run.serverId,
+          taskServerId: session.tasksStore.hostFor(link.taskId),
+        }),
+      );
       return taskSessionRow(
         link,
-        open ? sessionTitle(open.session, open.tab) : null,
+        open ? sessionTitle(open.session) : null,
         open?.session.run.provider ?? null,
         !!open && getAttentionState(open.session, open.tab) === "running",
         now,
         taskTitle,
+        host && ({ label: host.label, isRemote: !host.local } satisfies TaskSessionHost),
       );
     }),
   );
 </script>
 
 <div class="flex flex-col gap-[7px] pt-[26px]">
-  <div class="flex items-center gap-2.5">
+  <div class="flex items-center gap-2">
     <span class="text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase">
       Sessions
     </span>
@@ -65,19 +84,40 @@
     </button>
   </div>
 
-  <!-- The list sits on its own card so the attempts read as one object against
-       the page, rather than as loose rows. No column header: the section header
-       above is the only header this needs, and "Session" under "Sessions" reads
-       as a stutter. -->
-  <div
-    class="flex flex-col overflow-hidden rounded-xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
-  >
-    {#each rows as row, index (row.sessionId)}
+  <!-- Same flat table as the linked section above: a column header, then rows
+       separated by hairlines. No card, so both sections read as one grammar. -->
+  <div class="flex flex-col">
+    <div
+      class="flex h-6 items-center gap-[11px] border-b-[.5px] border-[var(--hairline)] px-1"
+      aria-hidden="true"
+    >
+      <span class="w-3.5 shrink-0"></span>
+      <span
+        class="min-w-0 flex-1 text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase opacity-75"
+      >
+        Session
+      </span>
+      <span
+        class="w-[92px] shrink-0 text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase opacity-75"
+      >
+        Agent
+      </span>
+      <!-- Attempts of one task can sit on different machines, and after the fact
+           that is the only thing distinguishing them. -->
+      <span
+        class="w-[104px] shrink-0 text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase opacity-75"
+      >
+        Ran on
+      </span>
+      <span
+        class="w-[88px] shrink-0 text-right text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase opacity-75"
+      >
+        Active
+      </span>
+    </div>
+    {#each rows as row (row.sessionId)}
       <div
-        class="group flex h-[38px] cursor-pointer items-center gap-[11px] px-3 transition-colors hover:bg-[var(--wash-1)] {index >
-        0
-          ? 'border-t-[.5px] border-[var(--hairline)]'
-          : ''}"
+        class="group flex h-[33px] cursor-pointer items-center gap-[11px] border-b-[.5px] border-[color-mix(in_oklch,var(--hairline)_60%,transparent)] px-1 transition-colors hover:bg-[var(--wash-1)]"
         role="button"
         tabindex="0"
         title={row.dateFull}
@@ -89,19 +129,38 @@
           }
         }}
       >
-        <span class="flex min-w-0 flex-1 items-center gap-2">
-          <!-- The only live marker left: a dot while the agent is working. -->
+        <!-- The only live marker left: a dot while the agent is working. It sits
+             in the icon slot so the title column lines up with the header. -->
+        <span class="flex size-3.5 shrink-0 items-center justify-center">
           {#if row.running}
             <span
-              class="size-[6px] shrink-0 animate-pulse rounded-full bg-[var(--running)]"
+              class="size-[6px] animate-pulse rounded-full bg-[var(--running)]"
               title="Running"
             ></span>
           {/if}
-          <span class="min-w-0 truncate text-[13px] tracking-[-.006em]">{row.title}</span>
+        </span>
+        <span class="min-w-0 flex-1 truncate text-[13px] tracking-[-.006em]">{row.title}</span>
+
+        <span class="w-[92px] shrink-0 truncate text-[12px] text-muted-foreground opacity-70">
+          {row.agent}
         </span>
 
-        <span class="w-[104px] shrink-0 truncate text-[12px] text-muted-foreground opacity-75">
-          {row.agent}
+        <!-- The same laptop/globe pair the sidebar uses, so one machine reads
+             the same way wherever it is named. A host that cannot be named is
+             left as a dash rather than defaulting to this machine. -->
+        <span
+          class="flex w-[104px] shrink-0 items-center gap-1.5 text-[12px] text-muted-foreground opacity-70"
+        >
+          {#if row.host}
+            {#if row.host.isRemote}
+              <GlobeIcon size={12} class="shrink-0" aria-hidden="true" />
+            {:else}
+              <LaptopIcon size={12} class="shrink-0" aria-hidden="true" />
+            {/if}
+            <span class="truncate">{row.host.label}</span>
+          {:else}
+            <span aria-label="Unknown host">—</span>
+          {/if}
         </span>
 
         <!-- The date reads at rest and hands its slot to the actions on hover,

@@ -65,7 +65,7 @@
       const open = openSessionFor(link.sessionId, session);
       return {
         link,
-        title: open ? sessionTitle(open.session, open.tab) : null,
+        title: open ? sessionTitle(open.session) : null,
         attention: open ? getAttentionState(open.session, open.tab) : null,
       };
     }),
@@ -124,7 +124,8 @@
 
   async function openSessionSplit(sessionId: string) {
     const tabId = await reveal(sessionId);
-    if (tabId) session.openSplitChat(tabId);
+    const revealed = tabId ? session.sessionFor(tabId) : undefined;
+    if (revealed) session.openSplitChat(revealed.id);
     requestInputFocus();
   }
 

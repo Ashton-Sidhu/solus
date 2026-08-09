@@ -15,11 +15,19 @@
   import { frameChrome } from "../layout/frame-chrome.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { comboHint } from "../../lib/keybindings/manifest";
-  import { getAttentionIcon } from "../../lib/sessionUtils";
+  import { getAttentionIcon, hasSessionStarted } from "../../lib/sessionUtils";
+  import { homeGitDetails } from "../../lib/git-context";
+  import { projectDirLabel } from "../../lib/paths";
+  import { withCheckout } from "../../contexts/workspace/run-config";
+  import {
+    existingTaskId,
+    type SessionDraft,
+  } from "../../contexts/workspace/session-draft.svelte";
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import * as Breadcrumb from "../ui/breadcrumb";
   import ProjectMark from "../session/ProjectMark.svelte";
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
+  import SessionNameInput from "../session/SessionNameInput.svelte";
   import TaskContextMenu from "../session/TaskContextMenu.svelte";
   import {
     projectInitial,
@@ -36,8 +44,13 @@
   } from "./lib/session-breadcrumb";
 
   interface Props {
-    /** The session on screen — the last crumb. */
+    /** The session on screen — the last crumb. Empty for a draft, which has no
+     *  tab until its first prompt is sent. */
     tabId: string;
+    /** The draft on screen, when the band names one that has yet to become a
+     *  session. Its path is what the draft will create rather than where a
+     *  conversation already is. */
+    draft?: SessionDraft | null;
     /** A fresh session does not need an action that creates another one. */
     showNewSessionAction?: boolean;
     /** Inline breadcrumbs fill pane chrome; floating breadcrumbs overlay a transcript. */
@@ -47,6 +60,7 @@
   }
   let {
     tabId,
+    draft = null,
     showNewSessionAction = true,
     variant = "floating",
     showProjectPanelAction = true,
@@ -55,17 +69,43 @@
   const session = getWorkspaceContext();
   const sidebarStore = getSessionSidebarStore();
 
-  const task = $derived(sidebarStore.taskForTab(tabId));
-  const sessions = $derived(sidebarStore.sessionsForTab(tabId));
-  const tasksInProject = $derived(
-    sidebarStore.tasksForProject(task?.projectKey),
+  // A draft is in no list, so its task crumb is the record it names — nothing
+  // when it will mint its own — and its session crumb has no siblings to offer.
+  const draftTaskId = $derived(draft ? existingTaskId(draft.task) : null);
+  const task = $derived(
+    draft
+      ? (draftTaskId
+          ? sidebarStore.allTasks.find((item) => item.taskId === draftTaskId)
+          : null) ?? null
+      : sidebarStore.taskForTab(tabId),
   );
+  const sessions = $derived(draft ? [] : sidebarStore.sessionsForTab(tabId));
+  // The project the band stands in: a draft names its own, so the crumb reads
+  // off the run it will use rather than off a task row it does not have.
+  const projectKey = $derived(
+    draft
+      ? homeGitDetails(
+          draft.run.workingDirectory ?? "~",
+          draft.run.gitContext ?? null,
+          session.globalDefaults.gitContext,
+        ).projectRoot ??
+          draft.run.workingDirectory ??
+          "~"
+      : (task?.projectKey ?? "~"),
+  );
+  const projectLabel = $derived(
+    draft
+      ? projectDirLabel(projectKey, session.staticInfo?.workspacePath)
+      : (task?.projectLabel ?? "~"),
+  );
+  const tasksInProject = $derived(sidebarStore.tasksForProject(projectKey));
   const current = $derived(sessions.find((child) => child.tabId === tabId));
   const displayedSession = $derived(session.sessionFor(tabId));
   const draftMode = $derived.by((): BreadcrumbDraftMode => {
-    if (!session.isDraftTab(tabId)) return null;
-    if (displayedSession?.taskCreationDisabled) return "no-task";
-    return displayedSession?.pendingTaskId ? "existing-task" : "new-task";
+    const target = draft?.task ?? displayedSession?.task;
+    if (!draft && hasSessionStarted(displayedSession)) return null;
+    if (target?.kind === "none") return "no-task";
+    return target?.kind === "existing" ? "existing-task" : "new-task";
   });
   const leafLabels = $derived(
     breadcrumbLeafLabels(
@@ -73,6 +113,15 @@
       current?.label ?? "Session",
       draftMode,
     ),
+  );
+  // Undelivered agent writes against this task (ADR-0007): while any exist the
+  // crumb carries a dot, because the board the user files this task on is
+  // behind by exactly that much.
+  const taskSyncOps = $derived(
+    task?.taskId ? session.outboxStore.pendingOpsFor("tasks", task.taskId) : [],
+  );
+  const taskSyncFailed = $derived(
+    taskSyncOps.some((op) => op.state === "failed"),
   );
   // The durable record behind the task crumb. Loose session rows have none, and
   // the controls that act on a task have nothing to act on until one exists.
@@ -85,18 +134,22 @@
   const currentStatus = $derived(taskStatusFor(current?.attention ?? null));
   const statusIcon = $derived(getAttentionIcon(current?.attention ?? null));
   const currentStatusColor = $derived(statusColor(currentStatus));
-  // Null while the session runs on this machine — the default the band never
-  // needs to spell out.
-  const hostAffinity = $derived(
-    serversStore.affinityFor(session.sessionFor(tabId)?.run.serverId),
+  // Null while the session runs — or will run — on this machine: the default
+  // the band never needs to spell out.
+  const bandServerId = $derived(
+    draft?.run.serverId ?? session.sessionFor(tabId)?.run.serverId,
   );
+  const hostAffinity = $derived(serversStore.affinityFor(bandServerId));
   const hostLabel = $derived(
-    serversStore.hostFor(session.sessionFor(tabId)?.run.serverId)?.label ?? "",
+    serversStore.hostFor(bandServerId)?.label ?? "",
   );
 
   // The project crumb is a click, not a hover: it is the one move that changes
   // everything under it, so it must not happen on the way past.
   let menu = $state<"project" | "task" | "session" | null>(null);
+  // The leaf crumb edits its own name in place, mirroring the sidebar rows: set
+  // to the leaf's tabId while its label is a live input rather than text.
+  let renamingTabId = $state<string | null>(null);
   let sessionMenuAnchor = $state<HTMLElement | null>(null);
   let contextMenu = $state<
     | { kind: "task"; item: SidebarTask; x: number; y: number }
@@ -144,9 +197,17 @@
     contextMenu = { kind: "task", item, x: rect.left, y: rect.bottom + 4 };
   }
 
+  /** Picking a task on a draft files it there rather than navigating away —
+   *  the draft is what is being aimed, and its prompt comes with it. */
   function selectTask(next: SidebarTask) {
     menu = null;
-    void sidebarStore.selectTask(next);
+    if (draft) {
+      draft.task = next.taskId
+        ? { kind: "existing", taskId: next.taskId }
+        : { kind: "new" };
+    } else {
+      void sidebarStore.selectTask(next);
+    }
     requestInputFocus();
   }
 
@@ -171,23 +232,31 @@
     requestInputFocus();
   }
 
-  /** Choosing a project lands on its most urgent task. */
-  function pickProject(leadTaskKey: string) {
+  /** Choosing a project lands on its most urgent task — or, on a draft, moves
+   *  the draft itself into that project. */
+  function pickProject(leadTaskKey: string, nextProjectKey: string) {
     menu = null;
-    const lead = sidebarStore.allTasks.find((item) => item.key === leadTaskKey);
-    if (lead) void sidebarStore.selectTask(lead);
+    if (draft) {
+      draft.run = withCheckout(draft.run, nextProjectKey, null);
+      void session.environment.refresh(nextProjectKey);
+    } else {
+      const lead = sidebarStore.allTasks.find(
+        (item) => item.key === leadTaskKey,
+      );
+      if (lead) void sidebarStore.selectTask(lead);
+    }
     requestInputFocus();
   }
 
   async function newSession() {
     menu = null;
-    await session.createDraftTab();
+    session.openSessionDraft({ via: "click", sourceTabId: tabId });
     requestInputFocus();
   }
 
   function newTask() {
     menu = null;
-    void session.createDraftTab(undefined, { freshTask: true, via: "click" });
+    session.openSessionDraft({ freshTask: true, via: "click", sourceTabId: tabId });
   }
 
   const crumbButton =
@@ -210,7 +279,7 @@
     "flex size-[1.875rem] shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-[background,color] duration-150 hover:bg-accent hover:text-foreground";
 </script>
 
-{#if task}
+{#if task || draft}
   <!-- Scrim: the transcript dissolves into the background under the band rather
        than being clipped by a hard edge. -->
   {#if variant === "floating"}
@@ -258,14 +327,14 @@
                 onclick={() => (menu = menu === "project" ? null : "project")}
               >
                 <ProjectMark
-                  projectKey={task.projectKey}
-                  initial={projectInitial(task.projectLabel)}
+                  {projectKey}
+                  initial={projectInitial(projectLabel)}
                   active
                   class="size-4"
                   letterClass="text-[0.53125rem]"
                 />
                 <span class="whitespace-nowrap text-muted-foreground"
-                  >{task.projectLabel}</span
+                  >{projectLabel}</span
                 >
               </button>
             {/snippet}
@@ -279,17 +348,18 @@
                   <button
                     type="button"
                     class={menuRow}
-                    onclick={() => pickProject(project.leadTaskKey)}
+                    onclick={() =>
+                      pickProject(project.leadTaskKey, project.projectKey)}
                   >
                     <ProjectMark
                       projectKey={project.projectKey}
                       initial={project.initial}
-                      active={project.projectKey === task.projectKey}
+                      active={project.projectKey === projectKey}
                       class="size-[1.125rem]"
                       letterClass="text-[0.5625rem]"
                     />
                     <span
-                      class="{menuLabel} {project.projectKey === task.projectKey
+                      class="{menuLabel} {project.projectKey === projectKey
                         ? 'font-medium'
                         : ''}">{project.label}</span
                     >
@@ -316,8 +386,10 @@
                   onclick={() => {
                     menu = null;
                     window.dispatchEvent(
+                      // No tab to name on a draft: the flow then opens the
+                      // project as a draft, which re-aims this pane's own.
                       new CustomEvent("solus:open-project", {
-                        detail: { tabId },
+                        detail: { tabId: draft ? undefined : tabId },
                       }),
                     );
                   }}
@@ -354,19 +426,33 @@
                   title={leafLabels.task}
                   onclick={() => (menu = menu === "task" ? null : "task")}
                   onfocus={() => (menu = "task")}
-                  oncontextmenu={(event) => openTaskContextMenu(event, task)}
+                  oncontextmenu={(event) =>
+                    task && openTaskContextMenu(event, task)}
                 >
                   <span
                     class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-muted-foreground"
                     >{leafLabels.task}</span
                   >
+                  {#if taskSyncOps.length}
+                    <!-- Agent task writes recorded on the execution host that
+                         have not reached the task's own host yet (ADR-0007). -->
+                    <span
+                      class="ml-1 size-1.5 shrink-0 rounded-full {taskSyncFailed
+                        ? 'bg-red-500'
+                        : 'bg-amber-500'}"
+                      title={taskSyncFailed
+                        ? "Some task updates failed to sync"
+                        : `${taskSyncOps.length} task update${taskSyncOps.length === 1 ? "" : "s"} waiting to sync`}
+                      aria-label="Task updates waiting to sync"
+                    ></span>
+                  {/if}
                 </button>
               {/snippet}
             </Breadcrumb.Link>
             {#if menu === "task"}
               <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
                 <div class="menu-surface w-[19.75rem] p-[0.3125rem]">
-                  <div class={menuHeading}>Tasks in {task.projectLabel}</div>
+                  <div class={menuHeading}>Tasks in {projectLabel}</div>
                   {#each tasksInProject as item (item.id)}
                     {@const note = statusNote(item.status)}
                     <div class="group/row relative">
@@ -378,7 +464,7 @@
                           openTaskContextMenu(event, item)}
                       >
                         <span
-                          class="{menuLabel} {item.key === task.key
+                          class="{menuLabel} {item.key === task?.key
                             ? 'font-medium'
                             : ''}">{item.title}</span
                         >
@@ -439,10 +525,35 @@
         <!-- Capped like the task crumb: on a laptop band the leaf otherwise
              keeps the whole remainder and pushes the trailing actions off. -->
         <Breadcrumb.Item
-          class="relative min-w-0 max-w-[20rem] shrink @max-[68rem]:max-w-[12rem] @max-[52rem]:max-w-[9rem]"
-          onmouseenter={() => (menu = "session")}
+          class="relative min-w-0 shrink {renamingTabId === tabId
+            ? 'w-[min(20rem,42vw)]'
+            : 'max-w-[20rem] @max-[68rem]:max-w-[12rem] @max-[52rem]:max-w-[9rem]'}"
+          onmouseenter={() => {
+            if (renamingTabId !== tabId) menu = "session";
+          }}
           onmouseleave={() => (menu = null)}
         >
+          {#if renamingTabId === tabId}
+            <!-- Editing in place: the leaf keeps its column and type ramp, only
+                 the text turns into a field. Commit or cancel returns it to a
+                 crumb and hands the caret back to the composer. -->
+            <span class="flex h-[1.875rem] w-full items-center">
+              <SessionNameInput
+                value={current?.label ?? leafLabels.session}
+                variant="band"
+                class="text-[0.84375rem] font-medium tracking-[-0.005em]"
+                onCommit={(next) => {
+                  void session.renameTab(tabId, next);
+                  renamingTabId = null;
+                  requestInputFocus();
+                }}
+                onCancel={() => {
+                  renamingTabId = null;
+                  requestInputFocus();
+                }}
+              />
+            </span>
+          {:else}
           <Breadcrumb.Link class="{crumbButton} max-w-full gap-[0.4375rem]">
             {#snippet child({ props })}
               <button
@@ -476,6 +587,7 @@
               </button>
             {/snippet}
           </Breadcrumb.Link>
+          {/if}
           {#if menu === "session"}
             <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
               <div class="menu-surface w-[18rem] p-[0.3125rem]">
@@ -676,10 +788,17 @@
       tabId={menuChild.tabId ?? null}
       sessionId={menuChild.sessionId ?? null}
       showSplit
+      onStartRename={(target) => {
+        // The leaf is the only session the band draws, so only it can turn into
+        // a field. Renaming any other session picked from the dropdown keeps the
+        // dialog — there is no in-place row for it once the menu has closed.
+        if (target === tabId) renamingTabId = target;
+        else session.ui.sessionRename = { tabId: target };
+      }}
       rowActions={{
         onStop:
           menuChild.tabId && menuChild.attention === "running"
-            ? () => session.interruptTab(menuChild.tabId!)
+            ? () => session.interruptTabSession(menuChild.tabId!)
             : undefined,
       }}
       onClose={() => (contextMenu = null)}
@@ -708,7 +827,7 @@
         onStop={menuSidebarTask.status === "running"
           ? () => {
               for (const taskTabId of menuSidebarTask.tabIds) {
-                session.interruptTab(taskTabId);
+                session.interruptTabSession(taskTabId);
               }
             }
           : undefined}

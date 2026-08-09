@@ -224,7 +224,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       for (const sessionId of this.activeRuns.keys()) this.emit('error', sessionId, exitErr)
       for (const handle of this.pendingRuns) {
         handle._rejectRun(exitErr)
-        this.emit('error', handle.sessionId, exitErr)
+        this.emit('error', handle.agentSessionId, exitErr)
       }
     })
   }
@@ -236,10 +236,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     const toolDispatcher = new CodexToolDispatcher(request.tools, {
       provider: 'codex',
       cwd: request.cwd,
-      sessionId: () => handle?.sessionId ?? undefined,
+      sessionId: () => handle?.agentSessionId ?? undefined,
       abortSignal: abortController.signal,
       parentToolUseId: () => undefined,
-      emit: (event) => this.emit('normalized', handle?.sessionId ?? null, event),
+      emit: (event) => this.emit('normalized', handle?.agentSessionId ?? null, event),
     })
 
     let _resolveRun!: () => void
@@ -247,7 +247,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     const runPromise = new Promise<void>((res, rej) => { _resolveRun = res; _rejectRun = rej })
 
     handle = {
-      sessionId: request.sessionId ?? null,
+      agentSessionId: request.sessionId ?? null,
       persistence: request.persistence,
       threadId: request.sessionId ?? null,
       turnId: null,
@@ -367,7 +367,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       handle.turnId = turn.turn.id
       this.sessionByTurn.set(turn.turn.id, threadId)
     } catch (err: any) {
-      const sessionId = handle.sessionId
+      const sessionId = handle.agentSessionId
       if (sessionId) this.forgetRoutingForSession(sessionId)
       this.finishRun(handle)
       handle._rejectRun(err instanceof Error ? err : new Error(String(err)))
@@ -971,7 +971,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     log.debug('raw_provider_event', {
       provider: 'codex',
       kind,
-      sessionId: params?.threadId || handle?.sessionId || handle?.threadId || sessionId || null,
+      sessionId: params?.threadId || handle?.agentSessionId || handle?.threadId || sessionId || null,
       turnId: params?.turnId || params?.turn?.id || handle?.turnId || null,
       event: msg as unknown as Record<string, unknown>,
     })
@@ -999,7 +999,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   private async snapshotOnTurnComplete(handle: CodexRunHandle, partial: boolean): Promise<string[] | null> {
-    const { workTree, repoRoot, sessionId } = handle
+    const { workTree, repoRoot, agentSessionId: sessionId } = handle
     if (!workTree || !repoRoot || !sessionId) return null
     try {
       const result = await snapshotTurn(workTree, repoRoot, sessionId, {
@@ -1022,7 +1022,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     exitSignal: 'SIGINT' | null,
     turnId: unknown,
   ): Promise<void> {
-    const sessionId = handle.sessionId
+    const sessionId = handle.agentSessionId
     const changedFiles = handle.persistent
       ? await this.snapshotOnTurnComplete(handle, partial)
       : null

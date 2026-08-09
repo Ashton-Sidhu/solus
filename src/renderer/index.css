@@ -3766,3 +3766,57 @@ html.is-mac-editor {
   from { opacity: 0; transform: translateY(0.375rem); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ─── First-run onboarding motion ──────────────────────────────────────────────
+   Transform and opacity only. Every one of these runs on a dozen elements at
+   once — a `filter: blur()` in the keyframe re-rasterizes each of them on every
+   frame, and animating `left`/`width` relayouts the whole stage. Both were in
+   here and both were the jank. Nothing below touches paint or layout, so the
+   compositor can run the lot off the main thread. */
+@keyframes onboarding-enter {
+  from { opacity: 0; transform: translate3d(0, 0.625rem, 0); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* The stage title and its supporting line: same curve, a touch more travel. */
+.onboarding-enter,
+.onboarding-title {
+  animation: onboarding-enter 0.44s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.onboarding-title {
+  animation-duration: 0.52s;
+}
+
+.onboarding-fade {
+  animation: onboarding-fade 0.5s ease-out 0.24s both;
+}
+@keyframes onboarding-fade {
+  from { opacity: 0 }
+  to   { opacity: 1 }
+}
+
+/* An install or a sign-in has no percentage to report, so the row draws an
+   indeterminate sweep. A fixed-width bar translated across its clip beats
+   animating `left` — same picture, no layout per frame. */
+@keyframes onboarding-sweep {
+  from { transform: translate3d(-100%, 0, 0) }
+  to   { transform: translate3d(250%, 0, 0) }
+}
+
+.onboarding-caret {
+  animation: onboarding-blink 1.05s step-end infinite;
+}
+@keyframes onboarding-blink {
+  0%, 45%  { opacity: 1 }
+  50%, 95% { opacity: 0.15 }
+  100%     { opacity: 1 }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-enter,
+  .onboarding-title,
+  .onboarding-fade,
+  .onboarding-caret {
+    animation: none;
+  }
+}

@@ -3,7 +3,7 @@ import { existsSync, readdirSync } from 'fs'
 import { mkdir, readdir, rm } from 'fs/promises'
 import { homedir } from 'os'
 import { basename, dirname, join } from 'path'
-import { AGENT_BIN, type AgentId, type CloneAuth, type CloneProtocol, type GitCommitIdentity, type GithubDelegatedCredential, type HostReadiness, type ServerCapabilities, type SetupAdoptProjectResult, type SetupAgent, type SetupAgentAuthCheckResult, type SetupCloneProjectResult, type SetupGithubRepo, type SetupGithubReposResult, type SetupLogEvent, type SetupPrepareProjectResult, type SetupSshAccessResult, type SetupStatusEvent, type SetupStepResult, type SetupStreamStep, type SetupVerification } from '../../../shared/types'
+import { AGENT_BIN, SOLUS_REMOTE_DISPATCH_DIR, type AgentId, type CloneAuth, type CloneProtocol, type GitCommitIdentity, type GithubDelegatedCredential, type HostReadiness, type ServerCapabilities, type SetupAdoptProjectResult, type SetupAgent, type SetupAgentAuthCheckResult, type SetupCloneProjectResult, type SetupGithubRepo, type SetupGithubReposResult, type SetupLogEvent, type SetupPrepareProjectResult, type SetupSshAccessResult, type SetupStatusEvent, type SetupStepResult, type SetupStreamStep, type SetupVerification } from '../../../shared/types'
 import type { SolusServer, HandlerCtx } from '../server'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { getCliEnv } from '../../cli-env'
@@ -230,7 +230,7 @@ export function delegatedCheckoutPath(root: string, login: string, cloneUrl: str
       throw new Error(`The delegated ${label} cannot be used as a checkout path.`)
     }
   }
-  return join(root, 'solus-remote', login, owner, repo)
+  return join(root, SOLUS_REMOTE_DISPATCH_DIR, login, owner, repo)
 }
 
 export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDeps = {}): void {

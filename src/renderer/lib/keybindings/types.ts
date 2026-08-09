@@ -29,6 +29,10 @@ export type Scope =
   | 'project-search'
   | 'go-to-file'
   | 'shortcuts-help'
+  /** First-run onboarding. Exclusive and empty: while it is up nothing behind
+   *  it may fire, so the shortcuts stage can invite real key presses without
+   *  the real commands running under the overlay. */
+  | 'onboarding'
 
 export type BindingDef = {
   combo: KeyCombo

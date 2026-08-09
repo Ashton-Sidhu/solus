@@ -72,14 +72,25 @@ describe('WorkspaceContext tab closing', () => {
       sessions,
       tabOrder,
       activeTabId: 'remaining-tab',
+      // The resolver TabRegistry derives: which tabs are watching each session.
+      get tabIdsBySession() {
+        const index = new Map<string, string[]>()
+        for (const tabId of tabOrder) {
+          const sessionId = tabs[tabId]?.sessionId
+          if (!sessionId) continue
+          index.set(sessionId, [...(index.get(sessionId) ?? []), tabId])
+        }
+        return index
+      },
     }
-    workspace.apiFor = () => ({ closeTab: () => {} })
+    workspace.apiFor = () => ({ unwatchSession: async () => {} })
     workspace.ctxFor = () => ({})
-    workspace.router = { asidePanes: [], chatTabIn: () => null }
+    workspace.router = { asidePanes: [], chatSessionIn: () => null, showsChat: () => false }
     workspace.window = { viewMode: 'pill', isWeb: false }
     workspace.config = { tabGroupMode: 'flat' }
     workspace.planStore = { plans: {} }
-    workspace.lifecycle = { disposeTab: () => {} }
+    workspace.lifecycle = { disposeSession: () => {} }
+    workspace.eventReducer = { clearStreamingText: () => {} }
 
     workspace.closeTab('closing-tab')
 

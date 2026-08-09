@@ -22,7 +22,7 @@ function backend() {
     let resolve!: () => void
     const runPromise = new Promise<void>((res) => { resolve = res })
     handle = {
-      sessionId: request.sessionId ?? null,
+      agentSessionId: request.sessionId ?? null,
       persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,
@@ -67,14 +67,14 @@ describe('ControlPlane.runAgent', () => {
     const internals = plane as unknown as {
       activeAgentRuns: Set<unknown>
       activeSessions: Map<string, unknown>
-      tabs: Map<string, unknown>
+      watches: Map<string, Set<string>>
       requestQueue: Map<string, unknown>
     }
 
     expect(internals.activeAgentRuns.size).toBe(1)
     expect(plane.hasActiveWork()).toBe(true)
     expect(internals.activeSessions.size).toBe(0)
-    expect(internals.tabs.size).toBe(0)
+    expect(internals.watches.size).toBe(0)
     expect(internals.requestQueue.size).toBe(0)
 
     fake.complete()
@@ -116,14 +116,14 @@ describe('ControlPlane setup cancellation', () => {
     const internals = plane as unknown as {
       pendingSetupControllers: Map<string, AbortController>
     }
-    internals.pendingSetupControllers.set('tab-1', setupController)
+    internals.pendingSetupControllers.set('session-1', setupController)
 
-    const cancelled = plane.cancelTab({
-      session: { tabId: 'tab-1' },
-    } as never)
+    // A session with setup in flight is addressable before any run exists.
+    plane.watchSession({ sessionId: 'session-1' }, 'ws:a')
+    const cancelled = plane.stopSession('session-1')
 
     expect(cancelled).toBe(true)
     expect(setupController.signal.aborted).toBe(true)
-    expect(internals.pendingSetupControllers.has('tab-1')).toBe(false)
+    expect(internals.pendingSetupControllers.has('session-1')).toBe(false)
   })
 })

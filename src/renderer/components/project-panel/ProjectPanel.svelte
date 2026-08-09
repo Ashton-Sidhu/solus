@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { existingTaskId } from "../../contexts/workspace/session-draft.svelte";
   import {
     getWorkspaceContext,
     getSettingsContext,
@@ -41,8 +42,10 @@
   import * as TooltipUI from "@renderer/components/ui/tooltip";
 
   interface Props {
-    /** The conversation this rail describes — it lives inside that view. */
-    tabId: string;
+    /** The tab or draft this rail describes — it lives inside that view. The
+     *  rail is about where work happens, so it resolves a run from whichever it
+     *  was handed rather than requiring a conversation to exist. */
+    sourceId: string;
     /** Whether this rail belongs to a pinned split chat rather than the leading
      *  conversation. Every piece of the rail's view state — open, and which
      *  sections are collapsed — is stored per role, so adjusting the split
@@ -59,7 +62,7 @@
     onCollapse: () => void;
   }
   let {
-    tabId: panelTabId,
+    sourceId,
     isSplit = false,
     containerWidth,
     minimized = false,
@@ -97,26 +100,32 @@
     isProjectRailOpen(preferOpen, containerWidth, minimized),
   );
 
-  const panelSession = $derived(session.sessionFor(panelTabId));
-  const panelEnvironment = $derived(
-    environmentStore.environmentFor(session.sessionFor(panelTabId)?.run),
-  );
+  // Present only once a conversation has started: the goal and the session's own
+  // task links are the two things a draft genuinely does not have yet.
+  const panelSession = $derived(session.sessionFor(sourceId));
+  const panelRun = $derived(session.runFor(sourceId));
+  const panelEnvironment = $derived(environmentStore.environmentFor(panelRun));
   const cwd = $derived(
-    panelSession?.run.workingDirectory ?? session.globalDefaults.workingDirectory,
+    panelRun?.workingDirectory ?? session.globalDefaults.workingDirectory,
   );
   const gitCtx = $derived(panelEnvironment.checkout);
   const gitCwd = $derived(panelEnvironment.cwd);
 
-  // The task the focused session is working. `pendingTaskId` covers the window
-  // between "started from a task" and the first agent session id existing, so
-  // the card is there from the tab's first frame rather than after the first send.
+  // The task the session is working, or the one a draft will be filed under —
+  // which is why the target is read rather than the session's links alone. It
+  // covers the window between "started from a task" and the first agent session
+  // id existing, so the card is there from the tab's first frame.
+  const panelTaskTarget = $derived(
+    panelSession?.task ?? session.sessionDrafts.get(sourceId)?.task,
+  );
+  const namedTaskId = $derived(
+    panelTaskTarget ? existingTaskId(panelTaskTarget) : null,
+  );
   const panelTask = $derived(
-    panelSession
-      ? (panelSession.pendingTaskId
-          ? session.tasksStore.taskForId(panelSession.pendingTaskId)
-          : null) ??
-        session.tasksStore.taskForSession(panelSession.agentSessionId)
-      : null,
+    (namedTaskId ? session.tasksStore.taskForId(namedTaskId) : null) ??
+      (panelSession
+        ? session.tasksStore.taskForSession(panelSession.agentSessionId)
+        : null),
   );
 
   // Automations scoped to the focused project (its repo root, worktree, and cwd),
@@ -154,9 +163,14 @@
   // A split chat mounts a second rail, so both instances register these ids and
   // the dispatcher fires only the first enabled handler. Each rail arms its
   // bindings solely while its own conversation holds focus, so the shortcut acts
-  // on the chat the user is actually in rather than always the primary one.
+  // on the chat the user is actually in rather than always the primary one. A
+  // rail on a draft has no tab to compare against, so it arms them whenever the
+  // pane it belongs to is the one on screen.
   const focused = $derived(
-    active && (session.focusedChatTabId ?? session.activeTabId) === panelTabId,
+    active &&
+      (panelSession
+        ? (session.focusedChatTabId ?? session.activeTabId) === sourceId
+        : !isSplit),
   );
 
   // Registered here (not in GitSection) so the shortcuts keep working while
@@ -164,8 +178,7 @@
   useKeybinding(
     "orb.sync",
     () => {
-      if (gitCtx)
-        void gitActionsFor(panelTabId, session, environmentStore).sync();
+      if (gitCtx) void gitActionsFor(sourceId, session, environmentStore).sync();
     },
     { enabled: () => focused },
   );
@@ -173,7 +186,7 @@
     "orb.commit-push",
     () => {
       if (gitCtx)
-        void gitActionsFor(panelTabId, session, environmentStore).commitPush();
+        void gitActionsFor(sourceId, session, environmentStore).commitPush();
     },
     { enabled: () => focused },
   );
@@ -214,8 +227,8 @@
     refreshState = "spinning";
     // Floor the spin at one full rotation so a fast refresh still reads.
     const [result] = await Promise.all([
-      environmentStore.refreshTab(session, {
-        tabId: panelTabId,
+      environmentStore.refreshEnvironment(session, {
+        sourceId,
         cwd: gitCwd,
         level: "full",
       }),
@@ -232,7 +245,7 @@
 
   function openFiles() {
     if (!gitCwd) return;
-    session.openFiles(panelTabId);
+    session.openFiles(sourceId);
     requestInputFocus();
   }
 
@@ -376,7 +389,7 @@
       headerExtra={environmentHeaderExtra}
     >
       <EnvironmentSection
-        tabId={panelTabId}
+        {sourceId}
         active={active && open}
         onOpenFiles={openFiles}
       />
@@ -387,14 +400,16 @@
         collapsed={collapsedSections.git}
         onToggle={() => toggleSection("git")}
       >
-        <GitSection tabId={panelTabId} />
+        <GitSection {sourceId} />
       </PanelSection>
     {/if}
     <!-- The section exists only while a goal is set. It owns its own card
          because the header controls share edit/confirm state with the body. -->
     {#if panelSession?.goal}
+      <!-- Only ever reached with a session behind it — a goal is something a
+           conversation has, so the section names that conversation. -->
       <GoalSection
-        tabId={panelTabId}
+        sessionId={panelSession.id}
         collapsed={collapsedSections.goal}
         onToggle={() => toggleSection("goal")}
       />

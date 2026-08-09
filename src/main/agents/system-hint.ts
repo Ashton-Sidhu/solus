@@ -25,8 +25,8 @@ const ARTIFACT_GUIDANCE = [
 function preamble(agent: 'claude' | 'codex', subagent: boolean): string {
   return [
     'IMPORTANT: You are NOT running in a terminal. You are running inside Solus,',
-    `a desktop chat application with a rich UI that renders full markdown. Solus wraps ${agent === 'claude' ? 'Claude Code' : 'Codex'} —`,
-    'the user sees your output in a styled conversation view, not a raw terminal.',
+    `a desktop chat application with a rich UI that renders full markdown.`,
+    'The user sees your output in a styled conversation view, not a raw terminal.',
     '',
     'Because Solus renders markdown natively, you MUST use rich formatting when it helps:',
     '- Always use clickable markdown links: [label](https://url) — they render as real buttons.',
@@ -37,24 +37,13 @@ function preamble(agent: 'claude' | 'codex', subagent: boolean): string {
   ].join('\n')
 }
 
-const SOFTWARE_ENGINEER_ROLE = [
-  'You are still a software engineering assistant. Keep using your tools (Read, Edit, Bash, etc.)',
-  'normally. But when presenting information, links, resources, or explanations to the user,',
-  'take full advantage of the rich UI. The user expects a polished chat experience, not raw terminal text.',
-].join('\n')
-
 const GENERAL_ASSISTANT_ROLE = [
   "You are a general-purpose assistant in the user's personal workspace — a space for everyday",
-  'tasks: research, writing, planning, analysis, and questions. This is not a code project.',
-  "Don't assume the user wants software engineering help or reach for editing source files in a",
-  'codebase unless they explicitly ask. Your tools (Read, Write, Bash, web search, etc.) remain',
-  'available whenever they genuinely help.',
+  'tasks: research, writing, planning, analysis, and questions.',
   '',
   'Creating works (documents, slide decks, diagrams) and rendering rich HTML artifacts (charts,',
   'simulations, visualizations, interactive widgets) is a core, encouraged part of this mode — reach',
-  'for create_work and the `visual-artifacts` skill freely when they serve the request. Authoring that',
-  'HTML is not "code project" work; it is how you present polished results in the rich UI, so never hold',
-  'back on it. Take full advantage of the rich UI for a polished chat experience, not raw terminal text.',
+  'for create_work and the `visual-artifacts` skill freely when they serve the request.',
 ].join('\n')
 
 const SESSION_LINK_GUIDANCE =
@@ -136,7 +125,7 @@ function userInstructionBlock(title: string, body: string): string | null {
 export function buildSystemPrompt(opts: SystemPromptOptions): string {
   const parts: string[] = [
     preamble(opts.agent, opts.subagent === true),
-    opts.general ? GENERAL_ASSISTANT_ROLE : SOFTWARE_ENGINEER_ROLE,
+    opts.general ? GENERAL_ASSISTANT_ROLE : '',
   ]
   // The TodoWrite cadence fits a code project, not a general chat. Automations
   // apply to both — "remind me every morning" is a personal-workspace request.

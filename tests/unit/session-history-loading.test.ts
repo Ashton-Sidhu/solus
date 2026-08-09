@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { SessionHistoryLoader } from '../../src/renderer/lib/sessionPickerHistory'
 import { updateSessionHistoryStatus } from '../../src/renderer/contexts/workspace/session-history.store.svelte'
 import { takeSessionScanBatch } from '../../src/main/server/session-scan'
-import type { SessionMeta } from '../../src/shared/types'
+import type { SessionMeta, SessionScanEvent } from '../../src/shared/types'
 
 function session(index: number): SessionMeta {
   return {
@@ -33,14 +33,16 @@ describe('session history loading', () => {
     const calls: unknown[][] = []
     let subscriptions = 0
     const loader = new SessionHistoryLoader({
-      listSessions: (async (...args: unknown[]) => {
-        calls.push(args)
-        return [session(3), session(2), session(1)]
-      }) as Window['solus']['listSessions'],
-      onSessionScan: (() => {
-        subscriptions++
-        return () => {}
-      }) as Window['solus']['onSessionScan'],
+      hostFor: () => ({
+        listSessions: (async (...args: unknown[]) => {
+          calls.push(args)
+          return [session(3), session(2), session(1)]
+        }) as Window['solus']['listSessions'],
+        onSessionScan: () => {
+          subscriptions++
+          return () => {}
+        },
+      }),
     })
 
     const result = await loader.load({
@@ -54,6 +56,109 @@ describe('session history loading', () => {
     expect(subscriptions).toBe(0)
     expect(calls[0]?.[3]).toBeUndefined()
     expect(calls[0]?.[4]).toBe(3)
+  })
+
+  test('each source is scanned on its own host and its rows say which one', async () => {
+    // WHY: a session lives on the machine it was created on. If a remote row
+    // arrived unstamped, resuming it would start the session on this client's
+    // host instead — a different machine, a different checkout.
+    const scanned: { serverId: string | undefined; projectPath: unknown }[] = []
+    const loader = new SessionHistoryLoader({
+      hostFor: (serverId) => ({
+        listSessions: (async (projectPath: unknown) => {
+          scanned.push({ serverId, projectPath })
+          return [session(1)]
+        }) as Window['solus']['listSessions'],
+        onSessionScan: () => () => {},
+      }),
+    })
+
+    const result = await loader.load({
+      sources: [
+        { id: '/repo', projectPath: '/repo' },
+        { id: 'laptop:/home/me/repo', serverId: 'laptop', projectPath: '/home/me/repo' },
+      ],
+      ctx: {} as never,
+      onBatch: () => {},
+    })
+
+    expect(scanned).toEqual([
+      { serverId: undefined, projectPath: '/repo' },
+      { serverId: 'laptop', projectPath: '/home/me/repo' },
+    ])
+    // One session id, two hosts, two rows — collapsing them would hide one.
+    expect(result).toHaveLength(2)
+    expect(new Set(result.map((meta) => meta.serverId))).toEqual(new Set([undefined, 'laptop']))
+  })
+
+  test('a host discovered mid-scan joins it, and one that never answers costs nothing', async () => {
+    // WHY: resolving which remote hosts hold this project takes a round trip.
+    // Waiting for it before scanning would make every picker open as slow as
+    // the sleepiest saved machine.
+    const scanned: (string | undefined)[] = []
+    const loader = new SessionHistoryLoader({
+      hostFor: (serverId) => ({
+        listSessions: (async () => {
+          scanned.push(serverId)
+          return [session(1)]
+        }) as Window['solus']['listSessions'],
+        onSessionScan: () => () => {},
+      }),
+    })
+
+    const joined = await loader.load({
+      sources: [{ id: '/repo', projectPath: '/repo' }],
+      deferredSources: Promise.resolve([
+        { id: 'laptop:/home/me/repo', serverId: 'laptop', projectPath: '/home/me/repo' },
+      ]),
+      ctx: {} as never,
+      onBatch: () => {},
+    })
+    expect(scanned).toEqual([undefined, 'laptop'])
+    expect(joined).toHaveLength(2)
+
+    scanned.length = 0
+    const survived = await loader.load({
+      sources: [{ id: '/repo', projectPath: '/repo' }],
+      deferredSources: Promise.reject(new Error('every saved host is asleep')),
+      ctx: {} as never,
+      onBatch: () => {},
+    })
+    expect(scanned).toEqual([undefined])
+    expect(survived).toHaveLength(1)
+  })
+
+  test('a streamed batch is stamped with the host whose stream carried it', async () => {
+    // WHY: rows land through the scan event stream long before the request
+    // resolves. An unstamped batch would let the user click a remote session
+    // during the exact window in which the picker is most useful.
+    const listeners = new Map<string | undefined, (event: SessionScanEvent) => void>()
+    const batches: SessionMeta[] = []
+    const loader = new SessionHistoryLoader({
+      hostFor: (serverId) => ({
+        listSessions: (async (
+          _projectPath: unknown,
+          _ctx: unknown,
+          _provider: unknown,
+          streamId: string,
+        ) => {
+          listeners.get(serverId)?.({ streamId, type: 'batch', sessions: [session(1)] })
+          return []
+        }) as unknown as Window['solus']['listSessions'],
+        onSessionScan: (listener) => {
+          listeners.set(serverId, listener)
+          return () => listeners.delete(serverId)
+        },
+      }),
+    })
+
+    await loader.load({
+      sources: [{ id: 'laptop:/home/me/repo', serverId: 'laptop', projectPath: '/home/me/repo' }],
+      ctx: {} as never,
+      onBatch: (sessions) => batches.push(...sessions),
+    })
+
+    expect(batches.map((meta) => meta.serverId)).toEqual(['laptop'])
   })
 
   test('a full scan splits an oversized provider result into bounded batches', () => {

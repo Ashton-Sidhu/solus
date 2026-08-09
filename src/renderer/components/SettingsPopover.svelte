@@ -105,7 +105,7 @@
     const active = agentRows.find((agent) => agent.id === theme.activeAgent);
     if (!active || active.enabled) return;
     const fallback = agentRows.find((agent) => agent.enabled);
-    if (fallback) session.switchActiveAgent(fallback.id);
+    if (fallback) session.setDefaultAgent(fallback.id);
   });
 
   $effect(() => {
@@ -144,7 +144,7 @@
   }
 
   function selectAgent(agentId: string) {
-    session.switchActiveAgent(agentId);
+    session.setDefaultAgent(agentId);
     agentOpen = false;
     requestInputFocus();
   }

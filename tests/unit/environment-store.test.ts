@@ -52,7 +52,7 @@ describe('Git state initialization', () => {
     let refreshedDirectory: string | null = null
     const store = new WorkspaceLifecycleStore({
       registry: { activeTabId: '', tabOrder: [], sessionFor: () => undefined } as any,
-      settings: { activeAgent: 'codex', update: () => {} } as any,
+      settings: { activeAgent: 'codex', defaultModels: {}, update: () => {} } as any,
       config: { globalDefaults } as any,
       planStore: {} as any,
       refreshGitState: async () => {
@@ -89,6 +89,7 @@ describe('Git state initialization', () => {
       tabOrder: [],
       globalDefaults,
       settings: { worktreeEnabled: false },
+      runFor: () => undefined,
       sessionFor: () => undefined,
       ctxFor: () => ({ session: {} }),
     } as any)
@@ -152,10 +153,11 @@ describe('Git state initialization', () => {
       tabOrder: ['tab-1'],
       globalDefaults: { workingDirectory: '/repo', gitContext: null },
       settings: { worktreeEnabled: false },
+      runFor: () => session.run,
       sessionFor: () => session,
       ctxFor: () => ({ session: {} }),
     } as any
-    const result = await store.refreshTab(workspace, { tabId: 'tab-1' })
+    const result = await store.refreshEnvironment(workspace, { sourceId: 'tab-1' })
     expect(result.ok).toBe(true)
     expect(session.run.gitContext).toEqual({ repoRoot: '/repo', branch: 'feature-updated', targetBranch: 'main', worktreePath })
     expect(registered).toEqual(session.run.gitContext)
@@ -205,11 +207,12 @@ describe('Git state initialization', () => {
       tabOrder: ['tab-1'],
       globalDefaults: { workingDirectory: '/repo', gitContext: null },
       settings: { worktreeEnabled: false },
+      runFor: () => session.run,
       sessionFor: () => session,
       ctxFor: () => ({ session: {} }),
     } as any
 
-    const refresh = store.refreshTab(workspace, { tabId: 'tab-1' })
+    const refresh = store.refreshEnvironment(workspace, { sourceId: 'tab-1' })
     // Let the identity round-trip settle while the status scan is still blocked.
     for (let i = 0; i < 10; i++) await Promise.resolve()
 
@@ -258,11 +261,12 @@ describe('Git state initialization', () => {
       globalDefaults,
       config: { applyGlobalStartTarget: (target: typeof appliedTargets[number]) => appliedTargets.push(target) },
       settings: { worktreeEnabled: false },
+      runFor: () => undefined,
       sessionFor: () => undefined,
       ctxFor: () => ({ session: {} }),
     } as any
 
-    const result = await store.refreshTab(workspace)
+    const result = await store.refreshEnvironment(workspace)
 
     expect(result.ok).toBe(true)
     // Two applies, identical: identity lands the start target before the
@@ -274,6 +278,121 @@ describe('Git state initialization', () => {
     }
     expect(appliedTargets).toEqual([startTarget, startTarget])
     expect(globalDefaults.gitContext).toBeNull()
+  })
+
+  test('reads a draft opened on another host from that host', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    // A draft: a run config with nowhere to run yet, and no session behind it.
+    const draftRun = {
+      serverId: 'studio',
+      workingDirectory: '/studio/dotfiles',
+      gitContext: null,
+      worktreeBaseBranch: null,
+    } as unknown as Session['run']
+    const remoteState: GitState = {
+      repoRoot: '/studio/dotfiles',
+      headSha: 'abc123',
+      branch: 'main',
+      targetBranch: 'main',
+      uncommittedChanges: { files: [], hasMoreFiles: false, insertions: 0, deletions: 0, mergeInProgress: false },
+    }
+    let registered = false
+    const remoteApi = {
+      gitIdentity: async () => ({ repoRoot: '/studio/dotfiles', headSha: 'abc123', branch: 'main', targetBranch: 'main' }),
+      gitRefreshState: async () => remoteState,
+      gitRegisterEnvironment: async () => { registered = true },
+    }
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      // This machine has never heard of the directory, and must not be asked.
+      value: { solus: {
+        gitIdentity: async () => null,
+        gitRefreshState: async () => null,
+        gitRegisterEnvironment: async () => { registered = true },
+      } },
+    })
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    const workspace = {
+      activeTabId: 'tab-1',
+      tabOrder: ['tab-1'],
+      globalDefaults: { workingDirectory: '/repo', gitContext: null, worktreeBaseBranch: null },
+      settings: { worktreeEnabled: false },
+      runFor: (sourceId: string) => (sourceId === 'draft-1' ? draftRun : undefined),
+      sessionFor: () => undefined,
+      apiFor: () => remoteApi,
+      ctxFor: () => ({ session: {} }),
+    } as any
+
+    const result = await store.refreshEnvironment(workspace, { sourceId: 'draft-1' })
+
+    // WHY: the directory exists on the other machine and nowhere else, so the
+    // question goes to the host the run names. Asking this one answers "not a
+    // repository", which hides every control describing the destination — the
+    // Run on picker among them.
+    expect(result.ok).toBe(true)
+    expect(draftRun.gitContext).toEqual({ repoRoot: '/studio/dotfiles', branch: 'main', targetBranch: 'main' })
+    // WHY: there is no session for the host to hold an environment against, and
+    // nothing is running in it — registration waits for Send to make one.
+    expect(registered).toBe(false)
+  })
+
+  test('a source pointed elsewhere mid-refresh keeps the project it moved to', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const draftRun = {
+      workingDirectory: '/studio/dotfiles',
+      gitContext: null,
+      worktreeBaseBranch: null,
+    } as unknown as Session['run']
+    let finishStatus!: () => void
+    const statusPending = new Promise<void>((resolve) => { finishStatus = resolve })
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: { solus: {
+        gitIdentity: async () => null,
+        gitRefreshState: async () => {
+          await statusPending
+          return {
+            repoRoot: '/studio/dotfiles',
+            headSha: 'abc123',
+            branch: 'main',
+            targetBranch: 'main',
+            uncommittedChanges: { files: [], hasMoreFiles: false, insertions: 0, deletions: 0, mergeInProgress: false },
+          } satisfies GitState
+        },
+      } },
+    })
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    const workspace = {
+      activeTabId: 'tab-1',
+      tabOrder: ['tab-1'],
+      globalDefaults: { workingDirectory: '/repo', gitContext: null, worktreeBaseBranch: null },
+      settings: { worktreeEnabled: false },
+      runFor: () => draftRun,
+      sessionFor: () => undefined,
+      ctxFor: () => ({ session: {} }),
+    } as any
+
+    const refresh = store.refreshEnvironment(workspace, { sourceId: 'draft-1' })
+    // The user picks another project while the host is still answering.
+    draftRun.workingDirectory = '/studio/other'
+    finishStatus()
+    const result = await refresh
+
+    // WHY: the late answer describes a directory the source has left. Landing it
+    // would label the new project with the old one's branch and start the
+    // session there.
+    expect(result.ok).toBe(false)
+    expect(draftRun.gitContext).toBeNull()
   })
 
   test('live Git state is authoritative over the attached session snapshot', async () => {
@@ -306,6 +425,7 @@ describe('Git state initialization', () => {
       tabOrder: ['tab-1'],
       globalDefaults: { workingDirectory: '/repo', gitContext: null, worktreeBaseBranch: null },
       settings: { worktreeEnabled: false },
+      runFor: () => session.run,
       sessionFor: () => session,
       ctxFor: () => ({ session: {} }),
     } as any)

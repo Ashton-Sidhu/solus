@@ -71,7 +71,7 @@
       session.apiFor(tabId),
       session.ctxFor(tabId),
       sess?.status === "rate_limited",
-      (err) => session.handleError(tabId, err),
+      (err) => session.handleError(sess!.id, err),
     );
     requestInputFocus();
   }
@@ -81,7 +81,7 @@
       session.apiFor(tabId),
       session.ctxFor(tabId),
       sess?.status === "rate_limited",
-      (err) => session.handleError(tabId, err),
+      (err) => session.handleError(sess!.id, err),
     );
     requestInputFocus();
   }
@@ -90,7 +90,7 @@
     cancelRateLimitedMessages(
       session.apiFor(tabId),
       session.ctxFor(tabId),
-      (err) => session.handleError(tabId, err),
+      (err) => session.handleError(sess!.id, err),
     );
     requestInputFocus();
   }

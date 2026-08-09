@@ -26,16 +26,18 @@ function isRenderArtifactTool(name: string | undefined): boolean {
 }
 
 export class WorkStreamTracker {
-  /** In-flight create_work streams per tab. Correlates streamed tool input to
-   *  provisional store work; work_created reconciles them positionally. */
-  private workStreamsByTab = new Map<string, WorkStreamEntry[]>()
+  /** In-flight create_work streams per session. Correlates streamed tool input
+   *  to provisional store work; work_created reconciles them positionally.
+   *  Keyed by the conversation that is streaming, not by a tab watching it —
+   *  two views of one session share the one in-flight card. */
+  private workStreamsBySession = new Map<string, WorkStreamEntry[]>()
 
   constructor(
     private worksStore: WorksStore,
     private router: RouterStore,
   ) {}
 
-  beginToolArtifacts(tabId: string, session: Session, toolName: string | undefined, agentProvider: AgentId): void {
+  beginToolArtifacts(session: Session, toolName: string | undefined, agentProvider: AgentId): void {
     if (isCreateWorkTool(toolName)) {
       const tempId = this.worksStore.addProvisional(agentProvider, session.run.workingDirectory)
       const msgId = nextMsgId()
@@ -46,9 +48,9 @@ export class WorkStreamTracker {
         workRef: { workId: tempId, title: 'Untitled', workType: 'doc' },
         timestamp: Date.now(),
       })
-      const entries = this.workStreamsByTab.get(tabId) ?? []
+      const entries = this.workStreamsBySession.get(session.id) ?? []
       entries.push({ tempId, msgId, finalized: false })
-      this.workStreamsByTab.set(tabId, entries)
+      this.workStreamsBySession.set(session.id, entries)
       return
     }
 
@@ -63,8 +65,8 @@ export class WorkStreamTracker {
     }
   }
 
-  finalizeWork(tabId: string, session: Session, event: WorkCreatedEvent): void {
-    const entries = this.workStreamsByTab.get(tabId)
+  finalizeWork(session: Session, event: WorkCreatedEvent): void {
+    const entries = this.workStreamsBySession.get(session.id)
     const stream = entries?.find((e) => !e.finalized)
     if (stream) {
       stream.finalized = true
@@ -118,22 +120,18 @@ export class WorkStreamTracker {
   /** Drop provisional cards whose create_work never persisted (tool errored, or
    *  the turn ended), plus any render_artifact skeletons left pending by a failed
    *  call. Finalized streams keep their card; only the tracking is cleared. */
-  sweep(tabId: string, session: Session | null): void {
-    if (session) {
-      for (let i = session.messages.length - 1; i >= 0; i--) {
-        if (session.messages[i].artifact?.pending) session.messages.splice(i, 1)
-      }
+  sweep(session: Session): void {
+    for (let i = session.messages.length - 1; i >= 0; i--) {
+      if (session.messages[i].artifact?.pending) session.messages.splice(i, 1)
     }
-    const entries = this.workStreamsByTab.get(tabId)
+    const entries = this.workStreamsBySession.get(session.id)
     if (!entries) return
     for (const entry of entries) {
       if (entry.finalized) continue
       this.worksStore.removeProvisional(entry.tempId)
-      if (session) {
-        const idx = session.messages.findIndex((m) => m.id === entry.msgId)
-        if (idx !== -1) session.messages.splice(idx, 1)
-      }
+      const idx = session.messages.findIndex((m) => m.id === entry.msgId)
+      if (idx !== -1) session.messages.splice(idx, 1)
     }
-    this.workStreamsByTab.delete(tabId)
+    this.workStreamsBySession.delete(session.id)
   }
 }

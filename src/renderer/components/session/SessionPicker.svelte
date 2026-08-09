@@ -23,6 +23,7 @@
     entryByline,
     formatTimeAgoFromTimestamp,
     type PickerEntry,
+    hasSessionStarted,
   } from "../../lib/sessionUtils";
   import {
     dedupeHistoryEntries,
@@ -32,6 +33,10 @@
   } from "../../lib/pickerEntries";
   import { createSessionPreviewStore } from "../../lib/preview.svelte";
   import { sessionHistorySourcesFromRoots } from "../../lib/sessionPickerHistory";
+  import {
+    remoteHistorySources,
+    savedRemoteHistoryHosts,
+  } from "./lib/remote-history-sources";
   import {
     centringPadding,
     observeConversationBounds,
@@ -81,13 +86,18 @@
   let countBump = $state(false);
   let prevEntryCount = 0;
 
-  // Session backends already include a repo's worktree sessions when queried by
-  // its project key. Scanning every open worktree/cwd separately makes one
-  // picker open fan out into many duplicate full-history requests.
-  const scopeRoots = $derived(session.openProjectKeys);
+  // The picker offers sessions to return to within the project the input header
+  // names, so it scopes to the leading pane's run rather than every open project.
+  // A backend folds a repo's worktree sessions into a query on its key, so this
+  // one key still surfaces the whole project.
+  const scopeRoots = $derived(session.activeProjectScopeRoots);
   const historyScopeRoots = $derived.by(() => {
     if (scopeRoots.length > 0) return scopeRoots;
-    return effectiveProjectPath ? [effectiveProjectPath] : [];
+    // No project to scope to (a home with none chosen): fetch nothing extra and
+    // leave every open tab visible rather than hiding them behind a "~" scope.
+    return effectiveProjectPath && effectiveProjectPath !== "~"
+      ? [effectiveProjectPath]
+      : [];
   });
   const historyScopeKey = $derived(historyScopeRoots.join("\n"));
   const historySources = $derived(
@@ -131,11 +141,32 @@
 
   const effectiveProjectPath = $derived(statusBar.ctx.workingDirectory);
 
+  // An open tab belongs to the scoped project when its root matches — allowing
+  // either side to be a worktree of the other, the same test the Codex index
+  // watcher uses — so a tab in a worktree of the project still shows. With no
+  // scope (a home with no project chosen), every open tab shows.
+  function inHistoryScope(sess: ReturnType<typeof session.sessionFor>): boolean {
+    if (historyScopeRoots.length === 0) return true;
+    const key = sess?.run.gitContext?.repoRoot ?? sess?.run.workingDirectory;
+    if (!key) return false;
+    return historyScopeRoots.some(
+      (root) =>
+        key === root ||
+        worktreeProjectRoot(key) === root ||
+        worktreeProjectRoot(root) === key,
+    );
+  }
+
   // The picker offers sessions to return to. A composer that has yet to send
   // anything is not one, however ordinary its tab is everywhere else.
   const openTabEntries: PickerEntry[] = $derived(
     session.tabOrder
-      .filter((id) => session.tabs[id] && session.sessionFor(id) && !session.isDraftTab(id))
+      .filter((id) => {
+        const sess = session.sessionFor(id);
+        return (
+          session.tabs[id] && hasSessionStarted(sess) && inHistoryScope(sess)
+        );
+      })
       .map((id) => ({
         kind: "open" as const,
         tabId: id,
@@ -266,6 +297,7 @@
   async function loadHistory(
     sources = historySources,
     scopeKey = historyScopeKey,
+    scopeRootPaths = historyScopeRoots,
   ) {
     const seq = ++historyLoadSeq;
     showHistorySkeleton = false;
@@ -283,6 +315,12 @@
     try {
       await history.load({
         sources,
+        // Other machines take a round trip to resolve, so they join the scan
+        // when they answer rather than holding back this host's rows.
+        deferredSources: remoteHistorySources(
+          savedRemoteHistoryHosts(),
+          scopeRootPaths,
+        ),
         ctx: session.ctx,
         scopeKey,
         onBatch: (sessions) => {
@@ -361,7 +399,7 @@
   }
 
   function handleNewSession() {
-    void session.createDraftTab(undefined, { via: "click" });
+    session.openSessionDraft({ via: "click" });
     close();
   }
 

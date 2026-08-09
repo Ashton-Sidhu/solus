@@ -1,9 +1,10 @@
 <script lang="ts">
   import { CheckIcon, FolderIcon, HouseIcon, PlusIcon } from "phosphor-svelte";
   import { mergeProps } from "bits-ui";
-  import { getWorkspaceContext, projectsStore, serversStore } from "../../contexts";
+  import { getWorkspaceContext, serversStore } from "../../contexts";
   import { isWorkspaceDir, projectDirLabel } from "../../lib/paths";
-  import type { RunConfig } from "../../../shared/types";
+  import { projectHostId } from "../servers/run-on";
+  import type { RecentProject, RunConfig } from "../../../shared/types";
   import { comboHint } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import * as Popover from "../ui/popover";
@@ -27,38 +28,55 @@
 
   const session = getWorkspaceContext();
   const workspacePath = $derived(session.staticInfo?.workspacePath ?? null);
-  // Recents are this machine's. A session bound for another host must pick its
-  // project over there, which is what the full open-project flow is for.
-  const onRemoteHost = $derived.by(() => {
-    const serverId = run.pendingHostDispatch?.serverId ?? run.serverId;
-    return serversStore.hostFor(serverId)?.local === false;
-  });
-  const onWorkspace = $derived(isWorkspaceDir(projectDir, workspacePath));
-  // The current project is always offered, even when it has aged out of recents.
-  const projects = $derived(
-    projectsStore.recentProjects.some((project) => project.path === projectDir)
-      ? projectsStore.recentProjects.slice(0, 3)
-      : [
-          { path: projectDir, folderName: label, lastOpened: new Date().toISOString() },
-          ...projectsStore.recentProjects,
-        ].slice(0, 3),
+  // Recents follow the run-on picker: the run names where its project lives, and
+  // that host's projects are the ones worth offering. Its own machine is where
+  // "My Workspace" and the current checkout make sense; a remote host lists only
+  // what it already has.
+  const hostId = $derived(projectHostId(run));
+  const hostIsLocal = $derived(serversStore.hostFor(hostId)?.local ?? true);
+  const onWorkspace = $derived(hostIsLocal && isWorkspaceDir(projectDir, workspacePath));
+  // The current checkout is offered even when it has aged out of recents — but
+  // only while it lives on the host being listed. A pending "open a project over
+  // there" points at a host the current directory is not on, so it is left out.
+  const canOfferCurrent = $derived(
+    hostIsLocal && run.pendingHostDispatch?.intent !== "open-project",
   );
 
   let open = $state(false);
   let tooltipOpen = $state(false);
   let triggerEl = $state<HTMLButtonElement | null>(null);
   let query = $state("");
+  let recents = $state<RecentProject[]>([]);
+  // Bumped per load so a slow reply for the host you just switched away from is
+  // dropped instead of painting one host's projects under another's name.
+  let loadToken = 0;
+
+  const projects = $derived(
+    canOfferCurrent && !recents.some((project) => project.path === projectDir)
+      ? [
+          { path: projectDir, folderName: label, lastOpened: new Date().toISOString() },
+          ...recents,
+        ].slice(0, 3)
+      : recents.slice(0, 3),
+  );
+
+  async function loadRecents() {
+    const requestedHost = hostId;
+    const token = ++loadToken;
+    try {
+      const list = await serversStore.recentProjectsFor(requestedHost);
+      if (token === loadToken) recents = list;
+    } catch {
+      if (token === loadToken) recents = [];
+    }
+  }
 
   function handleOpenChange(next: boolean) {
-    if (next && onRemoteHost) {
-      newProject();
-      return;
-    }
     open = next;
     if (next) {
       tooltipOpen = false;
       query = "";
-      void projectsStore.loadRecentProjects();
+      void loadRecents();
       return;
     }
     onDismiss();
@@ -171,7 +189,7 @@
           <PlusIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
           <span class="min-w-0 flex-1 truncate">New project</span>
         </Command.Item>
-        {#if workspacePath}
+        {#if workspacePath && hostIsLocal}
           <Command.Item
             value="my workspace"
             onSelect={() => activate(workspacePath)}

@@ -8,7 +8,7 @@ import type { DemoBackend } from '../server'
 import type { DemoStore } from '../store'
 
 export function registerBootHandlers(backend: DemoBackend, store: DemoStore): void {
-  let tabCounter = 0
+  let sessionCounter = 0
   backend.register('start', () => store.startInfo())
   backend.register('getTheme', () => ({ isDark: false }))
   backend.register('getPluginCommands', () => ({ global: [], project: [] }))
@@ -36,7 +36,11 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     remoteAccess: false,
     requireAuth: false,
   }))
-  backend.register('createTab', () => ({ tabId: `demo-runtime-tab-${++tabCounter}` }))
+  backend.register('watchSession', (args) => {
+    const [input] = args as [{ sessionId?: string }]
+    return { sessionId: input?.sessionId ?? `demo-runtime-session-${++sessionCounter}` }
+  })
+  backend.register('unwatchSession', () => undefined)
   backend.register('bindRuntimeSession', (args): RuntimeSessionInfo | null => {
     const ctx = args[0] as { session?: { agentSessionId?: string | null; preferredModel?: string | null } } | undefined
     if (!ctx?.session?.agentSessionId) return null

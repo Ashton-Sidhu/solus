@@ -15,14 +15,22 @@ export function setupAgentEvents(session: WorkspaceContext): void {
   const connectionUnsubscribes = new Map<string, () => void>()
 
   const bindConnection = (connection: ManagedConnection) => {
+    /**
+     * The renderer holds one connection per host and each subscribes to this
+     * topic independently, so an event must be matched against the session's own
+     * host before it is applied. Ids are uuids and a session never moves between
+     * hosts, so this should never fire — it is the one thing standing between a
+     * host-routing bug and events landing in the wrong conversation.
+     */
+    const isOwnHost = (sessionId: string): boolean =>
+      session.sessions[sessionId]?.run.serverId === connection.serverId
+
     connectionUnsubscribes.get(connection.serverId)?.()
-    const unsubEvent = connection.events.subscribe('session.eventReceived', ({ tabId, event }: { tabId: string; event: NormalizedEvent }) => {
-      if (session.sessionFor(tabId)?.run.serverId !== connection.serverId) return
-      session.handleNormalizedEvent(tabId, event)
+    const unsubEvent = connection.events.subscribe('session.eventReceived', ({ sessionId, event }) => {
+      if (isOwnHost(sessionId)) session.handleNormalizedEvent(sessionId, event)
     })
-    const unsubError = connection.events.subscribe('session.errorReceived', ({ tabId, error }) => {
-      if (session.sessionFor(tabId)?.run.serverId !== connection.serverId) return
-      session.handleError(tabId, error)
+    const unsubError = connection.events.subscribe('session.errorReceived', ({ sessionId, error }) => {
+      if (isOwnHost(sessionId)) session.handleError(sessionId, error)
     })
     const unsubSessionTitle = connection.events.subscribe('session.titleChanged', (event: SessionTitleChangedEvent) => {
       session.applySessionTitleChanged(connection.serverId, event)

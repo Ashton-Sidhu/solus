@@ -82,8 +82,8 @@ export class AgentRunner {
 
     const belongsToRun = (eventSessionId: string | null): boolean =>
       !!handle && (
-        eventSessionId === handle.sessionId ||
-        (!eventSessionId && !handle.sessionId)
+        eventSessionId === handle.agentSessionId ||
+        (!eventSessionId && !handle.agentSessionId)
       )
 
     const onNormalized = (eventSessionId: string | null, event: NormalizedEvent) => {
@@ -112,9 +112,9 @@ export class AgentRunner {
       throw error
     }
 
-    if (handle.sessionId && !sessionSettled) {
+    if (handle.agentSessionId && !sessionSettled) {
       sessionSettled = true
-      resolveSession(handle.sessionId)
+      resolveSession(handle.agentSessionId)
     }
 
     let timeout: ReturnType<typeof setTimeout> | undefined
@@ -132,8 +132,8 @@ export class AgentRunner {
 
     const cancel = () => {
       if (settled || handle.abortController.signal.aborted) return
-      if (handle.sessionId) {
-        if (!backend.cancelSession(handle.sessionId)) handle.abortController.abort()
+      if (handle.agentSessionId) {
+        if (!backend.cancelSession(handle.agentSessionId)) handle.abortController.abort()
       } else {
         handle.abortController.abort()
       }
@@ -143,7 +143,7 @@ export class AgentRunner {
       ? Promise.race([handle.runPromise, timeoutPromise])
       : handle.runPromise
     const done = completion.then<AgentRunResult>(() => ({
-      sessionId: handle.sessionId,
+      sessionId: handle.agentSessionId,
       output: handle.resultText ?? streamedText,
       toolCallCount: handle.toolCallCount,
       permissionDenials: handle.permissionDenials,
@@ -156,7 +156,7 @@ export class AgentRunner {
       backend.off('exit', onExit)
       if (!sessionSettled) {
         sessionSettled = true
-        if (handle.sessionId) resolveSession(handle.sessionId)
+        if (handle.agentSessionId) resolveSession(handle.agentSessionId)
         else rejectSession(new Error(handle.abortController.signal.aborted ? 'Interrupted' : 'Agent run completed before session initialization'))
       }
     })

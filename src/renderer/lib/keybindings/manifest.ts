@@ -39,6 +39,7 @@ export const KEYBINDINGS = {
   'global.cycle-model':       { combo: { alt: true, shift: true, code: 'KeyM' },          scope: 'global',             label: 'Cycle model',              group: 'Agent' },
   'global.cycle-agent':       { combo: { alt: true, shift: true, code: 'KeyG' },          scope: 'global',             label: 'Cycle agent',              group: 'Agent' },
   'global.toggle-reasoning':  { combo: { alt: true, shift: true, code: 'KeyZ' },          scope: 'global',             label: 'Open model menu',          group: 'Agent' },
+  'global.run-picker':        { combo: { alt: true, shift: true, code: 'Comma' },         scope: 'global',             label: 'Open run picker',          group: 'Agent' },
   'global.settings':          { combo: { mod: true, code: 'Comma' },                      scope: 'global',             label: 'Settings',                 group: 'General' },
   'global.focus-input':       { combo: { mod: true, code: 'KeyL' }, web: { alt: true, code: 'KeyL' }, scope: 'global',  label: 'Focus input',              group: 'General' },
   'global.toggle-worktree':   { combo: { alt: true, shift: true, code: 'KeyB' },          scope: 'global',             label: 'Toggle worktree mode',     group: 'Git' },

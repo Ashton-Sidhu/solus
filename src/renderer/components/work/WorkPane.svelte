@@ -25,16 +25,13 @@
       ...(work.sessionId ? [work.sessionId] : []),
     ];
     for (const sid of candidates) {
-      const openTab = session.tabOrder.find((t) => {
-        const s = session.sessionFor(t);
-        return s?.agentSessionId === sid || s?.forkedFromSessionId === sid;
-      });
+      const openTab = session.tabIdForAgentSession(sid);
       if (openTab) {
         const sess = session.sessionFor(openTab);
         if (sess) {
           return {
             sessionId: sess.agentSessionId || "",
-            title: session.tabs[openTab]?.title || "Unnamed session",
+            title: sess.title || "Unnamed session",
             provider: sess.run.provider || "claude-code",
             cwd: sess.run.workingDirectory,
           };

@@ -24,7 +24,6 @@ import {
 import {
   CHAT_ROUTE,
   ROUTES,
-  chatTabOf,
   serializeRef,
   type RouteName,
   type RouteParams,
@@ -116,19 +115,22 @@ export class RouterStore {
     return (this.ref(name)?.params ?? null) as RouteParams[K] | null
   }
 
-  /** The chat a pane shows, or null when it isn't showing one. */
-  chatTabIn(paneId: PaneId, activeTabId: string): string | null {
+  /**
+   * The session a pane's chat shows, or null when it shows no chat. The leading
+   * pane's chat names no session — it renders whichever conversation the pool
+   * is on — so it answers null too, and the workspace fills that in from the
+   * active tab. Which tab a session is rendered in is not the router's to know.
+   */
+  chatSessionIn(paneId: PaneId): string | null {
     const pane = this.pane(paneId)
-    if (!pane || pane.overlay) return null
-    // Only the leading pane falls back to the active tab: it is the one the
-    // conversation pool renders into.
-    if (pane.base?.name !== 'chat') return null
-    if (pane.id !== this.leadingPane.id) return pane.base.params.tabId ?? null
-    return chatTabOf(pane.base, activeTabId)
+    if (!pane || pane.overlay || pane.base?.name !== 'chat') return null
+    return pane.base.params.sessionId ?? null
   }
 
-  get focusedChatTabId(): string | null {
-    return this.chatTabIn(this.focusedPaneId, '')
+  /** Whether this pane is showing a chat at all, pinned or pooled. */
+  showsChat(paneId: PaneId): boolean {
+    const pane = this.pane(paneId)
+    return !!pane && !pane.overlay && pane.base?.name === 'chat'
   }
 
   // ─── Navigating ───

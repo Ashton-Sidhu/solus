@@ -30,15 +30,16 @@
   import type { PullRequestSummary } from "../../../shared/providers";
 
   interface Props {
-    tabId: string;
+    /** The tab or draft whose run this section describes — see `ProjectPanel`. */
+    sourceId: string;
   }
-  let { tabId }: Props = $props();
+  let { sourceId }: Props = $props();
 
   const environmentStore = getSessionEnvironmentStore();
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
   const agentContext = getAgentContext();
-  const env = $derived(environmentStore.environmentFor(session.sessionFor(tabId)?.run));
+  const env = $derived(environmentStore.environmentFor(session.runFor(sourceId)));
   const status = $derived(env.status);
   const conflictedFiles = $derived(
     status?.uncommittedChanges.files.filter((file) => file.conflicted) ?? [],
@@ -46,7 +47,7 @@
   const uncommittedFileCount = $derived(
     status?.uncommittedChanges.files.length ?? 0,
   );
-  const actions = $derived(gitActionsFor(tabId, session, environmentStore));
+  const actions = $derived(gitActionsFor(sourceId, session, environmentStore));
   const canGit = $derived(!!env.branch);
   const canViewDiff = $derived(!!status);
   const canPr = $derived(!!env.branch && env.branch !== env.targetBranch);
@@ -132,7 +133,7 @@
         run: () => {
           window.dispatchEvent(
             new CustomEvent("solus:toggle-diff-panel", {
-              detail: { tabId, scope: { kind: "working-tree" }, switchScope: true },
+              detail: { tabId: sourceId, scope: { kind: "working-tree" }, switchScope: true },
             }),
           );
           requestInputFocus();
@@ -200,7 +201,7 @@
   let openPrs = $state<PullRequestSummary[]>([]);
   async function loadOpenPrs() {
     if (!canViewDiff || !env.cwd) return;
-    const ctx = session.ctxForEnvironment(env.cwd, env.checkout, tabId);
+    const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
     try {
       openPrs = (await session.prsStore.loadFor(ctx, { state: "open" })).items;
     } catch {
@@ -272,7 +273,7 @@
     requestedChecksFor = activePr.number;
     void session.prsStore
       .loadChecks(
-        session.ctxForEnvironment(env.cwd, env.checkout, tabId),
+        session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
         [activePr.number],
       )
       .catch(() => {});
@@ -299,7 +300,7 @@
   function openPr(pr: PullRequestSummary) {
     closeRowMenu();
     void session.enterPrReview(pr.number, pr.title, {
-      ctx: session.ctxForEnvironment(env.cwd, env.checkout, tabId),
+      ctx: session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
     });
   }
 
@@ -321,7 +322,7 @@
     };
   });
   const reviewStatus = $derived(
-    reviewGuideStore.statusFor(session.apiFor(tabId), reviewIdentity),
+    reviewGuideStore.statusFor(session.apiFor(sourceId), reviewIdentity),
   );
   const reviewing = $derived(
     reviewStatus?.status === "queued" || reviewStatus?.status === "generating",
@@ -335,8 +336,8 @@
     const identity = reviewIdentity;
     if (!identity) return;
     void reviewGuideStore.load(
-      session.apiFor(tabId),
-      session.ctxForEnvironment(env.cwd, env.checkout, tabId),
+      session.apiFor(sourceId),
+      session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
       identity,
       "branch",
     );
@@ -357,7 +358,7 @@
 
   function handleReview() {
     if (reviewKey) {
-      session.enterReview(reviewKey, "branch", tabId);
+      session.enterReview(reviewKey, "branch", sourceId);
       requestInputFocus();
       return;
     }
@@ -368,10 +369,10 @@
     if (reviewing) return;
     const identity = reviewIdentity;
     if (!identity) return;
-    const ctx = session.ctxForEnvironment(env.cwd, env.checkout, tabId);
+    const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
     try {
       await reviewGuideStore.generate(
-        session.apiFor(tabId),
+        session.apiFor(sourceId),
         ctx,
         identity,
         {
@@ -395,8 +396,8 @@
   function cancelReview() {
     if (!reviewing) return;
     void reviewGuideStore.cancel(
-      session.apiFor(tabId),
-      session.ctxForEnvironment(env.cwd, env.checkout, tabId),
+      session.apiFor(sourceId),
+      session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
       "branch",
     );
     requestInputFocus();
@@ -661,7 +662,7 @@
           window.dispatchEvent(
             new CustomEvent("solus:review-pr", {
               detail: {
-                tabId: tabId || undefined,
+                tabId: sourceId || undefined,
                 cwd: env.cwd,
                 checkout: env.checkout,
               },

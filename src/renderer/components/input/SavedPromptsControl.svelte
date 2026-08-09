@@ -24,7 +24,7 @@
   import { comboHint } from "../../lib/keybindings/manifest";
   import { relativeTime } from "../../lib/relative-time";
   import { uuid } from "../../../shared/uuid";
-  import type { SavedPrompt } from "../../../shared/types";
+  import type { Prompt, SavedPrompt } from "../../../shared/types";
   import {
     SAVED_PROMPTS_EVENT,
     type SavedPromptsRequest,
@@ -32,7 +32,12 @@
   import { matchesQuery, promptPreview, thumbnailFor } from "./lib/saved-prompts";
 
   interface Props {
-    tabId: string;
+    /** The unsent message this control saves and restores — handed over rather
+     *  than looked up, so it works for a draft that has no tab. */
+    prompt: Prompt;
+    /** The tab this composer sits in, when it sits in one; only the addressed
+     *  saved-prompts shortcut uses it. */
+    tabId?: string;
     /** Null in a directory we can't file prompts under — the control disables. */
     projectRoot: string | null;
     /** This composer is the one the user is typing in. Gates every binding. */
@@ -44,6 +49,7 @@
     onRefocus: () => void;
   }
   let {
+    prompt: input,
     tabId,
     projectRoot,
     active,
@@ -54,7 +60,6 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
-  const input = $derived(session.inputFor(tabId));
 
   let open = $state(false);
   let query = $state("");

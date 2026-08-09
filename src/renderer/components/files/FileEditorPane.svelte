@@ -92,7 +92,7 @@
     isTruncated = false;
     saveState = "idle";
 
-    const result = await workspace.apiFor(ctx.session.tabId).readProjectFile(ctx, { path, cwd });
+    const result = await workspace.apiForSession(ctx.session.sessionId).readProjectFile(ctx, { path, cwd });
     if (generation !== loadGeneration) return;
     if (result.ok) {
       filePath = result.path;
@@ -176,7 +176,7 @@
     </div>
   {:else if contents !== null}
     <FilePreviewStream
-      api={workspace.apiFor(ctx.session.tabId)}
+      api={workspace.apiForSession(ctx.session.sessionId)}
       {ctx}
       {cwd}
       {filePath}

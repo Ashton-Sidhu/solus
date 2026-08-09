@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { getWorkspaceContext } from "../../contexts";
+  import type { RunConfig } from "../../../shared/types";
+  import type { PickerSelection } from "../pickers/lib/picker-selection";
   import AddFilesButton from "./AddFilesButton.svelte";
   import PermissionModePicker from "../pickers/PermissionModePicker.svelte";
   import SessionChip from "../pickers/SessionChip.svelte";
@@ -8,7 +10,17 @@
 
   interface Props {
     mode?: "pill" | "editor";
+    /** The tab whose session these controls edit. Unset by a composer with no
+     *  session yet, which supplies `run`/`onRun`/`selection` instead — the
+     *  controls then edit that draft rather than borrowing the active tab's. */
     tabId?: string;
+    /** This row belongs to the workspace's own composer, so dismissing a menu
+     *  returns focus to it. */
+    isPrimary?: boolean;
+    /** A session draft's run and the model selection over it. */
+    run?: RunConfig;
+    onRun?: (next: RunConfig) => void;
+    selection?: PickerSelection;
     onAttachFile: () => void;
     onScreenshot?: (() => void) | null;
     onDesignMode?: (() => void) | null;
@@ -20,6 +32,10 @@
   let {
     mode = "pill",
     tabId,
+    isPrimary = false,
+    run,
+    onRun,
+    selection = $bindable(),
     onAttachFile,
     onScreenshot,
     onDesignMode,
@@ -28,7 +44,7 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
-  const sess = $derived(session.sessionFor(tabId ?? session.activeTabId));
+  const sess = $derived(tabId ? session.sessionFor(tabId) : undefined);
   const isRunning = $derived(
     sess?.status === "running" || sess?.status === "connecting",
   );
@@ -46,11 +62,11 @@
     {onDesignMode}
     disabled={isRunning}
   />
-  <PermissionModePicker {tabId} />
-  <SessionChip {tabId} />
+  <PermissionModePicker {tabId} {isPrimary} {run} {onRun} />
+  <SessionChip {tabId} {isPrimary} bind:selection />
   {@render savedPromptsControl?.()}
 
   <div class="ml-auto flex min-w-0 items-center">
-    <StatusBarControls {mode} {tabId} {trailingActions} />
+    <StatusBarControls {mode} {tabId} {isPrimary} {trailingActions} />
   </div>
 </div>

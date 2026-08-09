@@ -50,10 +50,11 @@ function isSettingsTab(value: string): value is SettingsTab {
 
 /** The params each destination carries. Serializable by construction. */
 export interface RouteParams {
-  /** The conversation. No `tabId` means the active-tab pool; a `tabId` pins one
-   *  chat. `sessionId` is the agent's own id — what a notification knows about
-   *  a conversation, resolved to whichever tab is holding it. */
-  chat: { tabId?: string; sessionId?: string }
+  /** The conversation, named by the session it shows. No `sessionId` means the
+   *  active-tab pool; naming one pins that conversation into the pane. A tab is
+   *  where a session is currently rendered, which is the workspace's business
+   *  to resolve — routing never carries one. */
+  chat: { sessionId?: string }
   /** A prompt being written that has no session and no tab yet. The id is
    *  identity only — the draft it names lives in `workspace.sessionDrafts`,
    *  because a location must stay serializable. */
@@ -68,7 +69,9 @@ export interface RouteParams {
   plan: { planId: string | null }
   work: { workId: string }
   automation: { automationId: string | null }
-  goal: { tabId: string }
+  /** A goal belongs to a thread, so the pane names the session — not whichever
+   *  tab happened to open it, which may since have closed. */
+  goal: { sessionId: string }
   review: { key: string; scope: 'branch' | 'session'; sourceTabId?: string }
   prReview: { number: number; title?: string; cwd?: string }
   prDiff: { number: number; cwd?: string }
@@ -76,9 +79,14 @@ export interface RouteParams {
   // its source tab's environment, not carried: they are live Git state, and a
   // route that pinned them would go stale the moment the branch moved.
   diff: { sourceTabId: string; scope?: DiffScope; filePath?: string }
-  files: { sourceTabId: string }
-  fileEditor: { sourceTabId: string; path: string; line?: number }
-  subagent: { tabId: string; messageId: string }
+  // A file tree names a run source — a tab or a draft — not a conversation:
+  // which machine the files are on and which directory they sit in both come
+  // off the run, and a draft has one before it has a session.
+  files: { sourceId: string }
+  fileEditor: { sourceId: string; path: string; line?: number }
+  /** A sub-agent's nested transcript hangs off a message, and messages belong
+   *  to the conversation. */
+  subagent: { sessionId: string; messageId: string }
 }
 
 export type RouteName = keyof RouteParams
@@ -167,8 +175,8 @@ function parseDiffScope(segment: string | undefined): DiffScope {
 
 export const ROUTES = defineRoutes({
   chat: {
-    parse: (s) => (s.startsWith('@') ? { sessionId: s.slice(1) } : { tabId: optional(s) }),
-    serialize: (p) => (p.tabId ? p.tabId : p.sessionId ? `@${p.sessionId}` : ''),
+    parse: (s) => ({ sessionId: optional(s) }),
+    serialize: (p) => p.sessionId ?? '',
     placement: 'any',
     // The pool owns a chat's lifecycle: the leading pane renders it hidden
     // rather than unmounted, so navigation never tears a conversation down.
@@ -277,8 +285,8 @@ export const ROUTES = defineRoutes({
     component: () => import('../../../components/automations/AutomationPane.svelte'),
   },
   goal: {
-    parse: (s) => (s ? { tabId: s } : null),
-    serialize: (p) => p.tabId,
+    parse: (s) => (s ? { sessionId: s } : null),
+    serialize: (p) => p.sessionId,
     placement: 'aside',
     defaultWeight: 0.34,
     // No component: the goal surface only exists in the shells that have no
@@ -345,36 +353,36 @@ export const ROUTES = defineRoutes({
     component: () => import('../../../components/diff/DiffPane.svelte'),
   },
   files: {
-    parse: (s) => (s ? { sourceTabId: s } : null),
-    serialize: (p) => p.sourceTabId,
+    parse: (s) => (s ? { sourceId: s } : null),
+    serialize: (p) => p.sourceId,
     placement: 'overlay',
     defaultWeight: 0.6,
     component: () => import('../../../components/files/FilesTreePane.svelte'),
   },
   fileEditor: {
-    // `<tab>/<line|->/<path>`. The line sits in a fixed slot because a path may
-    // contain anything a filesystem allows, including a `:12` suffix. A second
-    // segment that is neither `-` nor digits is a path segment from a location
-    // serialized before the slot existed, so it parses as a line-less open.
+    // `<source>/<line|->/<path>`. The line sits in a fixed slot because a path
+    // may contain anything a filesystem allows, including a `:12` suffix. A
+    // second segment that is neither `-` nor digits is a path segment from a
+    // location serialized before the slot existed, so it parses line-less.
     parse: (s) => {
-      const [sourceTabId, marker, ...rest] = s.split('/')
+      const [sourceId, marker, ...rest] = s.split('/')
       const hasLineSlot = marker === '-' || /^\d+$/.test(marker ?? '')
       const path = hasLineSlot ? rest.join('/') : [marker, ...rest].join('/')
-      if (!sourceTabId || !path) return null
+      if (!sourceId || !path) return null
       const line = hasLineSlot && marker !== '-' ? Number(marker) : undefined
-      return line === undefined ? { sourceTabId, path } : { sourceTabId, path, line }
+      return line === undefined ? { sourceId, path } : { sourceId, path, line }
     },
-    serialize: (p) => `${p.sourceTabId}/${p.line ?? '-'}/${p.path}`,
+    serialize: (p) => `${p.sourceId}/${p.line ?? '-'}/${p.path}`,
     placement: 'overlay',
     defaultWeight: 0.6,
     component: () => import('../../../components/files/FileEditorHostPane.svelte'),
   },
   subagent: {
     parse: (s) => {
-      const [tabId, messageId] = s.split('/')
-      return tabId && messageId ? { tabId, messageId } : null
+      const [sessionId, messageId] = s.split('/')
+      return sessionId && messageId ? { sessionId, messageId } : null
     },
-    serialize: (p) => `${p.tabId}/${p.messageId}`,
+    serialize: (p) => `${p.sessionId}/${p.messageId}`,
     placement: 'overlay',
     defaultWeight: 0.6,
     component: () => import('../../../components/conversation/SubagentHostPane.svelte'),
@@ -425,12 +433,6 @@ export function isArtifactRoute(ref: RouteRef | null | undefined): boolean {
 /** The chat pool's own route: the leading pane's resting state. */
 export const CHAT_ROUTE: RouteRef<'chat'> = { name: 'chat', params: {} }
 
-export function chatRoute(tabId?: string): RouteRef<'chat'> {
-  return { name: 'chat', params: tabId ? { tabId } : {} }
-}
-
-/** The tab a chat route shows, given which tab the pool is currently on. */
-export function chatTabOf(ref: RouteRef | null | undefined, activeTabId: string): string | null {
-  if (ref?.name !== 'chat') return null
-  return ref.params.tabId ?? activeTabId ?? null
+export function chatRoute(sessionId?: string): RouteRef<'chat'> {
+  return { name: 'chat', params: sessionId ? { sessionId } : {} }
 }

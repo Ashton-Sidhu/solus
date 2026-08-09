@@ -88,7 +88,7 @@ export interface DemoFixtures {
 
 export interface ReplayStep {
   delayMs: number
-  tabId: string
+  sessionId: string
   event: NormalizedEvent
 }
 

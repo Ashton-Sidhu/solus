@@ -30,7 +30,7 @@ function installRendererGlobals(): void {
         addEventListener: () => {},
         removeEventListener: () => {},
       }),
-      solus: { createTab: async () => ({ tabId: 'new-tab' }) },
+      solus: { watchSession: async () => ({ sessionId: 'new-session' }) },
     },
   })
 }
@@ -53,7 +53,7 @@ describe('WorkspaceContext tab clearing', () => {
       agentSessionId: null,
       run: {
         provider: 'claude-code',
-        worktreeBaseBranch: null,
+        worktree: null,
         gitContext: null,
         workingDirectory: '/repo',
       } as Session['run'],
@@ -79,10 +79,10 @@ describe('WorkspaceContext tab clearing', () => {
       tabOrder: ['tab-a'],
       activeTabId: 'tab-a',
     }
-    workspace.apiFor = () => ({ resetTabSession: async () => {} })
-    workspace.ctxFor = () => ({ session: { tabId: 'tab-a' } })
-    workspace.eventReducer = { streaming: { text: {} } }
-    workspace.environment = { refreshTab: async () => {} }
+    workspace.apiFor = () => ({ resetSession: async () => {} })
+    workspace.ctxFor = () => ({ session: { sessionId: 'tab-a' } })
+    workspace.eventReducer = { streaming: { text: {} }, clearStreamingText: () => {} }
+    workspace.environment = { refreshEnvironment: async () => {} }
     // A class field, so an Object.create'd instance never gets one.
     workspace.metadataFinalizedTabs = new Set<string>()
 
@@ -129,8 +129,8 @@ describe('WorkspaceContext new-tab Git initialization', () => {
           },
         }
       },
-      refreshTab: (currentWorkspace: any, options: { tabId: string }) => {
-        const tab = currentWorkspace.tabs[options.tabId]
+      refreshEnvironment: (currentWorkspace: any, options: { sourceId: string }) => {
+        const tab = currentWorkspace.tabs[options.sourceId]
         expect(currentWorkspace.sessions[tab.sessionId].run.gitContext?.branch).toBe('feature')
         return Promise.resolve()
       },
@@ -180,7 +180,7 @@ describe('WorkspaceContext new-tab Git initialization', () => {
       run: {
         workingDirectory: '/repo',
         gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
-        worktreeBaseBranch: null,
+        worktree: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
         provider: 'codex',
         sessionSkills: [],
@@ -204,7 +204,7 @@ describe('WorkspaceContext new-tab Git initialization', () => {
       pluginCommands: { global: [], project: [] },
     }
     workspace.environment = {
-      refreshTab: (_workspace: unknown, options: { worktreeRequested?: boolean }) => {
+      refreshEnvironment: (_workspace: unknown, options: { worktreeRequested?: boolean }) => {
         refreshOptions = options
         return Promise.resolve()
       },
@@ -233,7 +233,7 @@ describe('WorkspaceContext new-tab Git initialization', () => {
     const created = registry.sessions[registry.tabs[tabId].sessionId]
 
     expect(created.run.gitContext?.repoRoot).toBe('/repo')
-    expect(created.run.worktreeBaseBranch).toBe('main')
+    expect(created.run.worktree).toEqual({ baseBranch: 'main' })
     expect(refreshOptions?.worktreeRequested).toBe(true)
   })
 
@@ -276,8 +276,10 @@ describe('WorkspaceContext new-tab Git initialization', () => {
       pluginCommands: { global: [], project: [] },
     }
     workspace.environment = {
-      refreshTab: (_workspace: unknown, opts: { tabId?: string; cwd?: string }) => {
-        expect(opts.tabId).toBe('new-tab')
+      refreshEnvironment: (_workspace: unknown, opts: { sourceId?: string; cwd?: string }) => {
+        // The tab id is minted locally now; what matters is that the new tab's
+        // Git refresh is the one being awaited.
+        expect(opts.sourceId).toBe(registry.activeTabId)
         refreshCalled = true
         return gitReady
       },
@@ -359,8 +361,8 @@ describe('WorkspaceContext new-tab Git initialization', () => {
       // The store is the single funnel: it resolves the start target for the
       // session's own cwd and applies it. Mirror that here so the test sees both
       // what createTab hands over and what the session ends up with.
-      refreshTab: async (currentWorkspace: any, options: { tabId: string }) => {
-        initializedSession = currentWorkspace.sessionFor(options.tabId)
+      refreshEnvironment: async (currentWorkspace: any, options: { sourceId: string }) => {
+        initializedSession = currentWorkspace.sessionFor(options.sourceId)
         handedOffGitContext = initializedSession?.run.gitContext
         const target = await workspace.environment.resolveSessionStartTarget(
           initializedSession!.run.workingDirectory,
@@ -441,8 +443,8 @@ describe('WorkspaceContext new-tab Git initialization', () => {
       pluginCommands: { global: [], project: [] },
     }
     workspace.environment = {
-      refreshTab: (currentWorkspace: any, opts: { tabId: string }) => {
-        const tab = currentWorkspace.tabs[opts.tabId]
+      refreshEnvironment: (currentWorkspace: any, opts: { sourceId: string }) => {
+        const tab = currentWorkspace.tabs[opts.sourceId]
         refreshGitContext = currentWorkspace.sessions[tab.sessionId].run.gitContext
         return gitReady
       },
@@ -547,19 +549,19 @@ describe('WorkspaceContext task-bound tab creation', () => {
     workspace.resetOverlays = () => {}
     workspace.refreshPluginCommands = () => Promise.resolve()
     workspace.environment = {
-      refreshTab: (currentWorkspace: any, options: { tabId: string }) => {
-        const tab = currentWorkspace.tabs[options.tabId]
+      refreshEnvironment: (currentWorkspace: any, options: { sourceId: string }) => {
+        const tab = currentWorkspace.tabs[options.sourceId]
         // WHY: adding the tab to tabOrder makes it visible to the sidebar. A
         // subtask id assigned only after this async boundary flashes as a loose
         // top-level task until initialization finishes.
-        expect(currentWorkspace.sessions[tab.sessionId].pendingTaskId).toBe('subtask-1')
+        expect(currentWorkspace.sessions[tab.sessionId].task).toEqual({ kind: 'existing', taskId: 'subtask-1' })
         return Promise.resolve()
       },
     }
 
     const tabId = await workspace.createTab('/repo', { taskId: 'subtask-1' })
 
-    expect(workspace.sessionFor(tabId)?.pendingTaskId).toBe('subtask-1')
+    expect(workspace.sessionFor(tabId)?.task).toEqual({ kind: 'existing', taskId: 'subtask-1' })
   })
 })
 
@@ -638,9 +640,14 @@ describe('WorkspaceContext resumed-session tab creation', () => {
       return 'resumed-tab'
     }
     workspace.ctxFor = () => ({ session: {} })
+    // Resuming a thread read off disk asks the host who owns it; here the host
+    // has never seen it, so it accepts the id this client minted.
+    workspace.apiFor = () => ({
+      watchSession: async ({ sessionId }: { sessionId?: string }) => ({ sessionId: sessionId ?? 'resumed-session' }),
+    })
     workspace.attachRuntimeSession = async () => {}
     workspace.eventReducer = { rebuildAgentConversations: () => {} }
-    workspace.environment = { refreshTab: async () => null }
+    workspace.environment = { refreshEnvironment: async () => null }
     workspace.recomputeChangedFiles = () => {}
     workspace.refreshPluginCommands = async () => {}
     workspace.planStore = { hydrateAnnotations: async () => {} }
@@ -652,6 +659,9 @@ describe('WorkspaceContext resumed-session tab creation', () => {
       },
     }
     workspace.resetOverlays = () => {}
+    // A class field, so an Object.create'd instance never gets one. `runFor`
+    // reads it to answer "a draft's run" before falling back to a tab's.
+    workspace.sessionDrafts = new Map()
 
     const tabId = await workspace.resumeSession({
       provider: 'codex',
@@ -672,8 +682,32 @@ describe('WorkspaceContext resumed-session tab creation', () => {
       worktreeRequested: false,
     })
     expect(registry.sessions['resumed-session'].agentSessionId).toBe('resumed-agent-session')
-    expect(registry.tabs['resumed-tab'].title).toBe('Resumed work')
+    expect(registry.sessions['resumed-session'].title).toBe('Resumed work')
     expect(hydratedTaskSessionId).toBe('resumed-agent-session')
+  })
+
+  test('adopts the host\'s id when another client already opened the thread', async () => {
+    // WHY: this client read the provider thread off disk and minted a local id
+    // for it. If a second client is already on that thread, the host answers
+    // with the id it gave the first one, and this client must re-key onto it —
+    // otherwise the two hold different addresses for one session and every
+    // publish reaches only one of them.
+    installRendererGlobals()
+    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const workspace = Object.create(WorkspaceContext.prototype) as any
+    const session = { id: 'local-uuid', agentSessionId: null } as unknown as Session
+    workspace.registry = {
+      sessions: { 'local-uuid': session },
+      tabs: { 'tab-1': { id: 'tab-1', sessionId: 'local-uuid' } as Tab },
+    }
+
+    ;(workspace as { adoptSessionId(tabId: string, sessionId: string): void })
+      .adoptSessionId('tab-1', 'host-owned-id')
+
+    expect(workspace.registry.sessions['host-owned-id']).toBe(session)
+    expect(workspace.registry.sessions['local-uuid']).toBeUndefined()
+    expect(session.id).toBe('host-owned-id')
+    expect(workspace.registry.tabs['tab-1'].sessionId).toBe('host-owned-id')
   })
 })
 
@@ -689,7 +723,7 @@ describe('Session bootstrap Git ordering', () => {
       writable: true,
       value: {
         solus: {
-          createTab: async () => ({ tabId: 'tab-1' }),
+          watchSession: async () => ({ sessionId: 'session-1' }),
           bindRuntimeSession: async () => {
             order.push('bind:start')
             await bindPending
@@ -712,6 +746,7 @@ describe('Session bootstrap Git ordering', () => {
     const ctx = {
       tabOrder: ['tab-1'],
       tabs: { 'tab-1': { id: 'tab-1', sessionId: 'session-1' } },
+      tabIdsForSession: (sessionId: string) => (sessionId === 'session-1' ? ['tab-1'] : []),
       sessions: { 'session-1': session },
       streaming: { text: {} },
       turnSnapshots: {},
@@ -720,7 +755,7 @@ describe('Session bootstrap Git ordering', () => {
       reconcileQueuedPrompts: () => {},
       refreshThreadGoal: async () => {},
       environment: {
-        refreshTab: async () => {
+        refreshEnvironment: async () => {
           order.push('git:start')
           return null
         },

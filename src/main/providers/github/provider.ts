@@ -53,7 +53,7 @@ const REVIEW_THREADS_QUERY = `
             line
             diffSide
             comments(first: 100) {
-              nodes { id author { login } body createdAt diffHunk }
+              nodes { id author { login avatarUrl } body createdAt diffHunk }
             }
           }
         }
@@ -65,7 +65,7 @@ const REVIEW_THREADS_QUERY = `
 const REPLY_MUTATION = `
   mutation($threadId: ID!, $body: String!) {
     addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $threadId, body: $body }) {
-      comment { id author { login } body createdAt }
+      comment { id author { login avatarUrl } body createdAt }
     }
   }
 `
@@ -96,11 +96,11 @@ const PR_CONVERSATION_QUERY = `
       pullRequest(number: $number) {
         comments(first: 100, after: $commentsCursor) @include(if: $includeComments) {
           pageInfo { hasNextPage endCursor }
-          nodes { id author { login } body createdAt url }
+          nodes { id author { login avatarUrl } body createdAt url }
         }
         reviews(first: 100, after: $reviewsCursor) @include(if: $includeReviews) {
           pageInfo { hasNextPage endCursor }
-          nodes { id author { login } body createdAt submittedAt state url }
+          nodes { id author { login avatarUrl } body createdAt submittedAt state url }
         }
       }
     }
@@ -193,7 +193,7 @@ const NEEDS_REVIEW_QUERY = `
 
 interface GqlComment {
   id: string
-  author: { login: string } | null
+  author: { login: string; avatarUrl: string } | null
   body: string
   createdAt: string
   diffHunk?: string
@@ -222,7 +222,7 @@ interface ReviewThreadsResponse {
 
 interface GqlConversationNode {
   id: string
-  author: { login: string } | null
+  author: { login: string; avatarUrl: string } | null
   body: string
   createdAt: string
   url?: string
@@ -418,6 +418,7 @@ function toComment(c: GqlComment): ReviewComment {
     author: c.author?.login ?? '',
     body: c.body,
     createdAt: c.createdAt,
+    ...(c.author?.avatarUrl ? { authorAvatarUrl: c.author.avatarUrl } : {}),
     ...(c.diffHunk ? { diffHunk: c.diffHunk } : {}),
   }
 }
@@ -768,6 +769,7 @@ class GitHubProvider implements ReviewProvider {
             author: comment.author?.login ?? '',
             body: comment.body,
             createdAt: comment.createdAt,
+            ...(comment.author?.avatarUrl ? { authorAvatarUrl: comment.author.avatarUrl } : {}),
             ...(comment.url ? { url: comment.url } : {}),
           })
         }
@@ -784,6 +786,7 @@ class GitHubProvider implements ReviewProvider {
             body: review.body,
             createdAt: review.submittedAt ?? review.createdAt,
             reviewState: review.state,
+            ...(review.author?.avatarUrl ? { authorAvatarUrl: review.author.avatarUrl } : {}),
             ...(review.url ? { url: review.url } : {}),
           })
         }

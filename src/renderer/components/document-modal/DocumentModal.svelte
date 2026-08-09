@@ -129,11 +129,11 @@
 
   /** Find the chat bound to this work, opening one if there isn't one yet. */
   async function boundChatTabId(): Promise<string | null> {
-    const existing = session.tabOrder.find((t) => session.sessionFor(t)?.boundWorkId === workId);
-    if (existing) return existing;
     if (!workId) return null;
+    const existing = session.tabIdForWork(workId);
+    if (existing) return existing;
     await session.openChatForWork(workId, "new");
-    return session.tabOrder.find((t) => session.sessionFor(t)?.boundWorkId === workId) ?? null;
+    return session.tabIdForWork(workId) ?? null;
   }
 
   /** Selection → the work's chat, quoted and *not* sent. The user still has to
@@ -145,14 +145,14 @@
     const tabId = await boundChatTabId();
     if (!tabId) return;
     session.selectTab(tabId);
-    const tab = session.tabs[tabId];
+    const prompt = session.inputFor(tabId);
     // Never clobber something already half-typed in that composer.
-    if (tab && selectedText && !tab.input.text) {
+    if (selectedText && !prompt.text) {
       const quote = selectedText
         .split("\n")
         .map((line) => `> ${line}`)
         .join("\n");
-      tab.input.text = `${quote}\n\n`;
+      prompt.text = `${quote}\n\n`;
     }
     requestInputFocus({ tabId });
   }
@@ -186,7 +186,7 @@
     }
     persist();
 
-    const boundTabId = session.tabOrder.find((t) => session.sessionFor(t)?.boundWorkId === workId);
+    const boundTabId = session.tabIdForWork(workId);
     if (boundTabId) session.selectTab(boundTabId);
     else await session.openChatForWork(workId, "new");
     session.sendMessage(msg);

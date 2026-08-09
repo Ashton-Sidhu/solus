@@ -30,14 +30,25 @@
 
   const session = getWorkspaceContext();
   const store = session.tasksStore;
+  const outbox = session.outboxStore;
   const pane = paneActions(paneId);
 
   const taskId = $derived(params.taskId);
+  // Writes an agent recorded on another host that have not landed here yet
+  // (ADR-0007). While any exist, this page is behind by exactly that much and
+  // says so rather than passing stale state off as current.
+  const syncOps = $derived(taskId ? outbox.pendingOpsFor("tasks", taskId) : []);
+  const failedSyncCount = $derived(
+    syncOps.filter((op) => op.state === "failed").length,
+  );
+  const pendingSyncCount = $derived(syncOps.length - failedSyncCount);
   const task = $derived(store.taskForId(taskId));
   const details = $derived(store.detailsFor(taskId));
   const links = $derived(details?.links ?? []);
   const sessions = $derived(store.sessionsByTask.get(taskId) ?? []);
-  const projectCwd = $derived(task?.projectKey ?? session.tasksProjectCwd ?? undefined);
+  const projectCwd = $derived(
+    task?.projectKey ?? session.tasksProjectCwd ?? undefined,
+  );
   setMarkdownImageContext(() => projectCwd);
   const projectLabel = $derived(
     projectCwd ? (projectCwd.split("/").pop() ?? projectCwd) : "Inbox",
@@ -72,16 +83,22 @@
   const position = $derived(siblings.findIndex((t) => t.id === taskId));
   const previous = $derived(position > 0 ? siblings[position - 1] : null);
   const next = $derived(
-    position >= 0 && position < siblings.length - 1 ? siblings[position + 1] : null,
+    position >= 0 && position < siblings.length - 1
+      ? siblings[position + 1]
+      : null,
   );
 
   function toastError(action: string, err: unknown) {
-    toasts.error(`Couldn't ${action}: ${err instanceof Error ? err.message : String(err)}`);
+    toasts.error(
+      `Couldn't ${action}: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   function save(patch: TaskUpdatePatch) {
     if (!taskId) return;
-    void store.update(taskId, patch).catch((err) => toastError("save task", err));
+    void store
+      .update(taskId, patch)
+      .catch((err) => toastError("save task", err));
   }
 
   async function refresh() {
@@ -121,19 +138,29 @@
   function openLink(link: TaskLink) {
     switch (link.kind) {
       case "work":
-        void session.openWorkModal(link.targetKey, link.liveTitle || link.title);
+        void session.openWorkModal(
+          link.targetKey,
+          link.liveTitle || link.title,
+          { secondary: true, via: "click" },
+        );
         break;
       case "plan":
-        void session.openPlanModal(`${link.targetScope}__${link.targetKey}`);
+        void session.openPlanModal(
+          `${link.targetScope}__${link.targetKey}`,
+          undefined,
+          { secondary: true },
+        );
         break;
       case "automation":
-        session.openAutomationBuilder(link.targetKey);
+        session.openAutomationBuilder(link.targetKey, "aside");
         break;
       case "pr": {
         const number = Number(link.targetKey);
         if (Number.isFinite(number)) {
           void session.enterPrReview(number, link.title, {
-            ctx: link.targetScope ? session.ctxForDirectory(link.targetScope) : session.ctx,
+            ctx: link.targetScope
+              ? session.ctxForDirectory(link.targetScope)
+              : session.ctx,
           });
         }
         break;
@@ -165,7 +192,8 @@
 
   async function openSessionSplit(sessionId: string) {
     const tabId = await reveal(sessionId);
-    if (tabId) session.openSplitChat(tabId);
+    const revealed = tabId ? session.sessionFor(tabId) : undefined;
+    if (revealed) session.openSplitChat(revealed.id);
   }
 
   async function stopSession(sessionId: string) {
@@ -192,9 +220,13 @@
     <TaskChromeBar
       {task}
       {projectLabel}
-      onPrevious={previous ? () => session.goToTask(previous.id, "click") : null}
+      onPrevious={previous
+        ? () => session.goToTask(previous.id, "click")
+        : null}
       onNext={next ? () => session.goToTask(next.id, "click") : null}
-      onOpenSource={task.url ? () => void window.solus.openExternal(task.url!) : null}
+      onOpenSource={task.url
+        ? () => void window.solus.openExternal(task.url!)
+        : null}
       onRefresh={task.providerId === "github" ? refresh : null}
       {refreshing}
       onOpenList={() => session.openTasks("click")}
@@ -204,7 +236,36 @@
     <div
       class="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:w-0"
     >
-      <div class="mx-auto flex w-full max-w-[1420px] items-start gap-[34px] px-[52px] pt-6">
+      {#if syncOps.length}
+        <div class="mx-auto w-full max-w-[1420px] px-[52px] pt-4">
+          <div
+            class="flex items-center gap-2 rounded-md border-[.5px] border-[var(--hairline)] bg-[var(--wash-1)] px-3 py-2 text-[12px] text-muted-foreground"
+            role="status"
+          >
+            <span
+              class="size-1.5 shrink-0 rounded-full {failedSyncCount
+                ? 'bg-red-500'
+                : 'bg-amber-500'}"
+              aria-hidden="true"
+            ></span>
+            {#if pendingSyncCount}
+              <span
+                >{pendingSyncCount} update{pendingSyncCount === 1 ? "" : "s"} from
+                a dispatched session waiting to sync</span
+              >
+            {/if}
+            {#if failedSyncCount}
+              <span
+                >{failedSyncCount} update{failedSyncCount === 1 ? "" : "s"} failed
+                to sync</span
+              >
+            {/if}
+          </div>
+        </div>
+      {/if}
+      <div
+        class="mx-auto flex w-full max-w-[1420px] items-start gap-[34px] px-[52px] pt-6"
+      >
         <div class="flex min-w-0 flex-1 flex-col">
           <TaskHeader
             {task}
@@ -231,7 +292,10 @@
             />
           {/if}
 
-          <TaskActivityFeed comments={details?.comments ?? []} events={details?.events ?? []} />
+          <TaskActivityFeed
+            comments={details?.comments ?? []}
+            events={details?.events ?? []}
+          />
 
           {#if capabilities?.canComment}
             <TaskCommentComposer onSubmit={comment} />
@@ -248,12 +312,18 @@
       </div>
     </div>
   {:else}
-    <div class="flex flex-1 items-center justify-center text-[13px] text-muted-foreground">
+    <div
+      class="flex flex-1 items-center justify-center text-[13px] text-muted-foreground"
+    >
       {store.loaded ? "That task no longer exists." : "Loading…"}
     </div>
   {/if}
 </div>
 
 {#if picking}
-  <TaskLinkPicker {projectCwd} onPick={addLink} onClose={() => (picking = false)} />
+  <TaskLinkPicker
+    {projectCwd}
+    onPick={addLink}
+    onClose={() => (picking = false)}
+  />
 {/if}

@@ -10,7 +10,8 @@ const workspaceSource = readFileSync(
   'utf8',
 )
 const alignedHeaderSources = [
-  'src/renderer/components/conversation/ConversationPane.svelte',
+  // The header a conversation and a draft beside the leading pane both wear.
+  'src/renderer/components/layout/AsidePaneShell.svelte',
   'src/renderer/components/conversation/SubagentPane.svelte',
   'src/renderer/components/diff/DiffToolbar.svelte',
   'src/renderer/components/files/FileEditorPane.svelte',

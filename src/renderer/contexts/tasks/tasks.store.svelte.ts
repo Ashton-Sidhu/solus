@@ -1,6 +1,8 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@client-core/server-connections'
 import type {
+  PrepareSessionTaskResult,
+  SessionExecutionHost,
   Task,
   TaskCreateInput,
   TaskDetails,
@@ -8,6 +10,8 @@ import type {
   TaskLinkKind,
   TaskProviderStatus,
   TaskSessionLink,
+  TaskSidebarSnapshot,
+  TaskSnapshot,
   TaskStatus,
   TaskUpdatePatch,
 } from '../../../shared/task-types'
@@ -15,10 +19,19 @@ import { upstreamTaskDetails } from './upstream-task-details'
 
 const INVALIDATION_DEBOUNCE_MS = 100
 
-/** Global, local-first task state shared by every renderer surface. Local tasks
+/**
+ * Global, local-first task state shared by every renderer surface. Local tasks
  * live in `tasks`; upstream tickets (GitHub issues) are kept per-project in
  * `upstreamTasksByProject` and routed to the `tasks*Upstream` RPCs by their
- * `providerId`. */
+ * `providerId`.
+ *
+ * Tasks are host-scoped: each host keeps its own store, and a project's tasks
+ * live on the host that project was opened from. This store merges every
+ * connected host's snapshot into one list and remembers which host each task
+ * came from, so every later read and write goes back to the host that owns it.
+ * Ids stay bare strings throughout — they are ULIDs, unique across hosts — which
+ * is what keeps routes, deep links and agent tools unaware that hosts exist.
+ */
 export class TasksStore {
   tasks = $state<Task[]>([])
   loading = $state(false)
@@ -65,13 +78,33 @@ export class TasksStore {
   upstreamLoadingByProject = new SvelteMap<string, boolean>()
 
   private taskIdBySessionId = new SvelteMap<string, string>()
+  /** Which host each known task lives on. Every write is routed by this. */
+  private hostByTaskId = new SvelteMap<string, string>()
   private loadPromise: Promise<void> | null = null
   private providerStatusLoadsByCwd = new Map<string, Promise<TaskProviderStatus>>()
   private upstreamLoadsByProject = new Map<string, Promise<void>>()
   private invalidationTimer: ReturnType<typeof setTimeout> | null = null
+  private subscribedServerIds = new Set<string>()
 
   constructor() {
-    serverConnections.eventsFor().subscribe('tasks.invalidated', () => {
+    for (const serverId of serverConnections.connectedServerIds()) {
+      this.watchHost(serverId)
+    }
+    // A host connected later — dispatching to it, or opening a project on it —
+    // owns tasks this store has never read. Without this, its work is invisible
+    // until something else forces a reload.
+    serverConnections.onConnectionCreated((connection) => {
+      if (this.subscribedServerIds.has(connection.serverId)) return
+      this.watchHost(connection.serverId)
+      void this.load()
+    })
+    queueMicrotask(() => void this.ensureLoaded())
+  }
+
+  /** Each host announces its own invalidations, so each is subscribed once. */
+  private watchHost(serverId: string): void {
+    this.subscribedServerIds.add(serverId)
+    serverConnections.eventsFor(serverId).subscribe('tasks.invalidated', () => {
       if (this.invalidationTimer) clearTimeout(this.invalidationTimer)
       this.invalidationTimer = setTimeout(() => {
         this.invalidationTimer = null
@@ -82,7 +115,67 @@ export class TasksStore {
         for (const taskId of this.detailsByTask.keys()) void this.loadDetails(taskId)
       }, INVALIDATION_DEBOUNCE_MS)
     })
-    queueMicrotask(() => void this.ensureLoaded())
+  }
+
+  /**
+   * The RPC surface that owns a task. A task the store has not placed yet — a
+   * deep link, or an id typed into a tool — falls back to the primary host,
+   * which is where a single-host user's tasks all are anyway.
+   */
+  private apiForTask(taskId?: string | null): typeof window.solus {
+    const serverId = taskId ? this.hostByTaskId.get(taskId) : undefined
+    return serverId ? serverConnections.apiFor(serverId) : window.solus
+  }
+
+  /** Which host a task lives on, for a caller that has to name it explicitly. */
+  hostFor(taskId: string | null | undefined): string | null {
+    return taskId ? this.hostByTaskId.get(taskId) ?? null : null
+  }
+
+  /**
+   * Resolve a task's owner host for the outbox courier, trying harder than
+   * `hostFor`: an op can name a task this client has never listed (recorded by
+   * an agent on a borrowed machine), so an unplaced id is asked of every
+   * connected host before giving up. Undefined means "no connected host owns
+   * it" — the op stays pending, which is a reported state, not a failure.
+   */
+  async ownerHostForTask(taskId: string): Promise<string | undefined> {
+    const placed = this.hostByTaskId.get(taskId)
+    if (placed) return placed
+    await this.ensureLoaded()
+    const listed = this.hostByTaskId.get(taskId)
+    if (listed) return listed
+    for (const serverId of serverConnections.connectedServerIds()) {
+      try {
+        const details = await serverConnections.apiFor(serverId).tasksGet(taskId)
+        if (details?.task) {
+          this.hostByTaskId.set(taskId, serverId)
+          return serverId
+        }
+      } catch {
+        // Not this host's task.
+      }
+    }
+    return undefined
+  }
+
+  /**
+   * Which host a project's tasks live on, inferred from the tasks already filed
+   * against it. A project this store has never seen a task for returns null, and
+   * the caller falls back to the primary host — correct for the single-host case
+   * and for a project whose first task is being created right here.
+   *
+   * This spares every task surface from threading a host id it would only be
+   * re-deriving from the same place.
+   */
+  hostForProject(projectKey: string | null | undefined): string | null {
+    if (!projectKey) return null
+    for (const task of this.tasks) {
+      if (task.projectKey !== projectKey) continue
+      const serverId = this.hostByTaskId.get(task.id)
+      if (serverId) return serverId
+    }
+    return null
   }
 
   tasksForProject(projectKey: string | null | undefined): Task[] {
@@ -107,12 +200,19 @@ export class TasksStore {
     return cwd ? (this.providerStatusByCwd.get(cwd) ?? null) : null
   }
 
-  loadProviderStatus(cwd: string, opts?: { checkAccess?: boolean }): Promise<TaskProviderStatus> {
+  /** `serverId` names the host that holds `cwd`; a path is meaningless on any
+   *  other machine, so a remote project's status must be read from its own. */
+  loadProviderStatus(
+    cwd: string,
+    opts?: { checkAccess?: boolean; serverId?: string },
+  ): Promise<TaskProviderStatus> {
     const pending = this.providerStatusLoadsByCwd.get(cwd)
     if (pending) return pending
     const load = (async () => {
       try {
-        const status = await window.solus.tasksProviderStatus(cwd, opts)
+        const serverId = opts?.serverId ?? this.hostForProject(cwd)
+        const api = serverId ? serverConnections.apiFor(serverId) : window.solus
+        const status = await api.tasksProviderStatus(cwd, opts)
         this.providerStatusByCwd.set(cwd, status)
         return status
       } catch (err) {
@@ -150,11 +250,41 @@ export class TasksStore {
     this.error = null
     const load = (async () => {
       try {
-        const snapshot = await window.solus.tasksSidebarSnapshot()
-        this.tasks.splice(0, this.tasks.length, ...snapshot.tasks)
-        this.replaceLinks(snapshot.sessionsByTask)
+        // One snapshot per connected host, merged. A host that fails is reported
+        // rather than emptying the list: losing one machine's tasks must not read
+        // as "the sidebar lost my tasks" for every other machine.
+        const serverIds = serverConnections.connectedServerIds()
+        const snapshots = await Promise.all(
+          serverIds.map(async (serverId) => {
+            try {
+              return { serverId, snapshot: await serverConnections.apiFor(serverId).tasksSidebarSnapshot() }
+            } catch (err) {
+              console.error('tasks sidebar snapshot load failed', serverId, err)
+              return { serverId, error: err }
+            }
+          }),
+        )
+        const failed = snapshots.filter((entry) => 'error' in entry)
+        const ok = snapshots.filter((entry) => 'snapshot' in entry)
+        this.hostByTaskId.clear()
+        const merged: Task[] = []
+        const links: Record<string, TaskSessionLink[]> = {}
+        for (const { serverId, snapshot } of ok as Array<{ serverId: string; snapshot: TaskSidebarSnapshot }>) {
+          for (const task of snapshot.tasks) {
+            this.hostByTaskId.set(task.id, serverId)
+            merged.push(task)
+          }
+          for (const [taskId, list] of Object.entries(snapshot.sessionsByTask)) {
+            links[taskId] = list as TaskSessionLink[]
+          }
+        }
+        this.tasks.splice(0, this.tasks.length, ...merged)
+        this.replaceLinks(links)
         this.loaded = true
         this.refreshedAt = Date.now()
+        this.error = failed.length
+          ? `Couldn't read tasks from ${failed.length} host${failed.length === 1 ? '' : 's'}.`
+          : null
       } catch (err) {
         // Every task surface reads this one snapshot, so a silent failure
         // presents as "the sidebar lost my tasks" or "the card vanished"
@@ -175,7 +305,10 @@ export class TasksStore {
    * live provider read with `refresh`. A project with no upstream provider
    * returns an empty list; errors land in `upstreamErrorByProject` instead of
    * failing the local list. */
-  async loadUpstream(projectKey: string, opts?: { refresh?: boolean }): Promise<void> {
+  async loadUpstream(
+    projectKey: string,
+    opts?: { refresh?: boolean; serverId?: string },
+  ): Promise<void> {
     const pending = this.upstreamLoadsByProject.get(projectKey)
     if (pending) return pending
 
@@ -183,7 +316,9 @@ export class TasksStore {
     this.upstreamErrorByProject.delete(projectKey)
     const load = (async () => {
       try {
-        const upstream = await window.solus.tasksListUpstream(projectKey, opts)
+        const serverId = opts?.serverId ?? this.hostForProject(projectKey)
+        const api = serverId ? serverConnections.apiFor(serverId) : window.solus
+        const upstream = await api.tasksListUpstream(projectKey, opts)
         this.upstreamTasksByProject.set(projectKey, upstream.tasks)
         if (upstream.fromCache) this.upstreamFromCacheByProject.set(projectKey, true)
         else this.upstreamFromCacheByProject.delete(projectKey)
@@ -247,10 +382,10 @@ export class TasksStore {
    * subtasks and every linked session's display metadata; none of it requires a
    * transcript. Fall back to a fresh global snapshot only when that focused
    * read cannot resolve a newly-created link. */
-  async ensureSessionBinding(sessionId: string): Promise<Task | null> {
+  async ensureSessionBinding(sessionId: string, serverId?: string): Promise<Task | null> {
     await (this.loadPromise ?? this.ensureLoaded())
     const existing = this.taskForSession(sessionId)
-    const hydrated = await this.hydrateSessionTree(sessionId)
+    const hydrated = await this.hydrateSessionTree(sessionId, serverId)
     if (hydrated) return hydrated
     if (existing) return existing
     await this.load()
@@ -262,11 +397,14 @@ export class TasksStore {
    * carries all of them whenever it succeeds; this is the read that still
    * answers when it did not, so a session restored from disk never renders as
    * a loose row beside a parent whose subtasks are missing. */
-  private async hydrateSessionTree(sessionId: string): Promise<Task | null> {
-    const tree = await window.solus.tasksForSession(sessionId).catch(() => null)
+  private async hydrateSessionTree(sessionId: string, serverId?: string): Promise<Task | null> {
+    const api = serverId ? serverConnections.apiFor(serverId) : window.solus
+    const tree = await api.tasksForSession(sessionId).catch(() => null)
     if (!tree) return null
     for (const task of [tree.parent, tree.task, ...tree.subtasks, ...tree.siblings]) {
-      if (task) this.replace(task.id, task)
+      if (!task) continue
+      if (serverId) this.hostByTaskId.set(task.id, serverId)
+      this.replace(task.id, task)
     }
     this.taskIdBySessionId.set(sessionId, tree.task.id)
     for (const attempt of tree.attempts) {
@@ -288,10 +426,14 @@ export class TasksStore {
 
   /** Guarantee that a snapshot starts after any cold load already in flight.
    * New session links use this after their optimistic same-frame projection. */
-  async refreshSessionBinding(sessionId: string): Promise<Task | null> {
+  async refreshSessionBinding(sessionId: string, serverId?: string): Promise<Task | null> {
     await (this.loadPromise ?? this.ensureLoaded())
     await this.load()
-    return this.taskForSession(sessionId)
+    const bound = this.taskForSession(sessionId)
+    if (bound || !serverId) return bound
+    // The global snapshot raced the link the task host has just written. Ask
+    // that host directly rather than leaving the session projected as loose.
+    return this.hydrateSessionTree(sessionId, serverId)
   }
 
   async setStatus(id: string, status: TaskStatus): Promise<void> {
@@ -300,8 +442,8 @@ export class TasksStore {
     if (task) task.status = status
     try {
       const updated = task && task.providerId !== 'local'
-        ? await window.solus.tasksUpdateUpstream(this.upstreamCwd(task), id, { status })
-        : await window.solus.tasksUpdate(id, { status })
+        ? await this.apiForTask(id).tasksUpdateUpstream(this.upstreamCwd(task), id, { status })
+        : await this.apiForTask(id).tasksUpdate(id, { status })
       this.replace(id, updated)
     } catch (err) {
       if (task && previous) task.status = previous
@@ -312,41 +454,101 @@ export class TasksStore {
   async update(id: string, patch: TaskUpdatePatch): Promise<Task> {
     const task = this.taskById(id)
     const updated = task && task.providerId !== 'local'
-      ? await window.solus.tasksUpdateUpstream(this.upstreamCwd(task), id, patch)
-      : await window.solus.tasksUpdate(id, patch)
+      ? await this.apiForTask(id).tasksUpdateUpstream(this.upstreamCwd(task), id, patch)
+      : await this.apiForTask(id).tasksUpdate(id, patch)
     this.replace(id, updated)
     return updated
   }
 
-  async create(input: TaskCreateInput): Promise<Task> {
-    const created = await window.solus.tasksCreate(input)
+  /** `serverId` is the host the task belongs to — the one that owns the project
+   *  it was created from. Omitted, it lands on the primary host. */
+  async create(input: TaskCreateInput, serverId?: string): Promise<Task> {
+    const host = serverId ?? this.hostForProject(input.projectKey)
+    const api = host ? serverConnections.apiFor(host) : window.solus
+    const created = await api.tasksCreate(input)
+    if (host) this.hostByTaskId.set(created.id, host)
     this.replace(created.id, created)
     return created
+  }
+
+  /**
+   * Mint (or bind) the task a session is about to start under, on the host that
+   * owns its project.
+   *
+   * This is the first-dispatch boundary, moved out of whichever host happens to
+   * run the agent. A dispatched session runs on one machine and files here, so
+   * the mint cannot be a side effect of the prompt landing — the client has to
+   * name the host, and it is the only party that knows both.
+   *
+   * Returns null when the host declined to mint (a resumed provider session), in
+   * which case the caller sends no task id and nothing is bound.
+   */
+  async prepareForSession(
+    serverId: string,
+    input: { existingTaskId?: string | null; parentTaskId?: string | null; projectKey?: string | null; worktreeKey?: string | null; prompt?: string; branch?: string | null; includeSnapshot?: boolean },
+  ): Promise<PrepareSessionTaskResult> {
+    const result = await serverConnections.apiFor(serverId).tasksPrepareForSession(input)
+    if (!result.task) return result
+    this.hostByTaskId.set(result.task.id, serverId)
+    this.replace(result.task.id, result.task)
+    return result
+  }
+
+  /** The live task state a dispatched prompt ships to its execution host. Read
+   *  from the named task host — not `apiForTask` — because a snapshot for a
+   *  session's own task must come from where that session files it. */
+  async snapshotForDispatch(serverId: string, taskId: string): Promise<TaskSnapshot | null> {
+    return serverConnections.apiFor(serverId).tasksSnapshot(taskId)
   }
 
   async comment(id: string, body: string): Promise<Task> {
     const task = this.taskById(id)
     if (task && task.providerId !== 'local') {
       const cwd = this.upstreamCwd(task)
-      const updated = await window.solus.tasksCommentUpstream(cwd, id, body)
+      const updated = await this.apiForTask(id).tasksCommentUpstream(cwd, id, body)
       this.replace(id, updated)
       this.detailsByTask.set(id, upstreamTaskDetails(updated, this.tasksForProject(cwd)))
       return updated
     }
-    const details = await window.solus.tasksComment(id, body)
+    const details = await this.apiForTask(id).tasksComment(id, body)
     this.reconcileDetails(details)
     return details.task
   }
 
+  /**
+   * Bind a started session to its task, on the host that owns that task.
+   *
+   * Split out from the mint because the two happen at different moments and, for
+   * a dispatch, involve different machines: the task is minted here before the
+   * prompt leaves, and the session id only exists once the *execution* host has
+   * started the agent and echoed `session_init` back.
+   *
+   * That second machine is also the only thing neither host can work out for
+   * itself, so the client states it here and the task's host records a session
+   * row for it. `execution` is null for a run that stayed on the task's host —
+   * the two ids being equal is the definition of "not a dispatch", and a host
+   * id is only meaningful next to a different one.
+   */
+  async linkSession(
+    serverId: string,
+    taskId: string,
+    sessionId: string,
+    execution: SessionExecutionHost | null,
+  ): Promise<void> {
+    await serverConnections
+      .apiFor(serverId)
+      .tasksLinkSession(taskId, sessionId, 'working', execution)
+  }
+
   /** Attach a doc, plan, PR or automation to a task. */
   async link(id: string, input: TaskLinkInput): Promise<TaskDetails> {
-    const details = await window.solus.tasksLink(id, input)
+    const details = await this.apiForTask(id).tasksLink(id, input)
     this.reconcileDetails(details)
     return details
   }
 
   async unlink(id: string, kind: TaskLinkKind, targetKey: string, targetScope = ''): Promise<TaskDetails> {
-    const details = await window.solus.tasksUnlink(id, kind, targetKey, targetScope)
+    const details = await this.apiForTask(id).tasksUnlink(id, kind, targetKey, targetScope)
     this.reconcileDetails(details)
     return details
   }
@@ -358,13 +560,13 @@ export class TasksStore {
     if (task ? task.providerId !== 'local' : await this.isUpstreamId(id, projectKey)) {
       const cwd = task?.projectKey ?? projectKey
       if (!cwd) throw new Error(`Project not found for upstream task ${id}.`)
-      const updated = await window.solus.tasksGetUpstream(cwd, id)
+      const updated = await this.apiForTask(id).tasksGetUpstream(cwd, id)
       this.replace(id, updated)
       const details = upstreamTaskDetails(updated, this.tasksForProject(cwd))
       this.detailsByTask.set(id, details)
       return details
     }
-    const details = await window.solus.tasksGet(id)
+    const details = await this.apiForTask(id).tasksGet(id)
     this.reconcileDetails(details)
     return details
   }
@@ -442,7 +644,7 @@ export class TasksStore {
   async commitPending(): Promise<void> {
     const pending = this.pendingDelete
     this.pendingDelete = []
-    const results = await Promise.allSettled(pending.map((task) => window.solus.tasksDelete(task.id)))
+    const results = await Promise.allSettled(pending.map((task) => this.apiForTask(task.id).tasksDelete(task.id)))
     const failed = pending.filter((_, index) => results[index].status === 'rejected')
     if (failed.length) {
       this.tasks.push(...failed)

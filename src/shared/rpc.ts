@@ -19,19 +19,18 @@ export const RPC_INVOKE_METHODS = [
   'setAppGlobalShortcuts',
   'restartApp',
 
-  // Tabs / agent
-  'createTab',
+  // Sessions / agent
+  'watchSession',
+  'unwatchSession',
   'prompt',
-  'stopTab',
   'retry',
-  'closeTab',
-  'resetTabSession',
+  'stopSession',
+  'resetSession',
   'switchSessionAgent',
 
-  // Agent conversations (cards drive sessions that have no bound tab)
+  // Agent conversations (cards drive sessions no client is looking at)
   'createHeadlessSession',
   'promptSession',
-  'stopSession',
 
   // Permission / interaction
   'respondPermission',
@@ -267,8 +266,15 @@ export const RPC_INVOKE_METHODS = [
   'tasksLinkSession',
   'tasksSessions',
   'tasksForSession',
+  'tasksPrepareForSession',
+  'tasksSnapshot',
   'tasksLink',
   'tasksUnlink',
+
+  // Host outbox (cross-host writes, ferried by clients — ADR-0007)
+  'outboxList',
+  'outboxAck',
+  'outboxApply',
 
   // Automations (run-now; CRUD + run history)
   'automationCreate',

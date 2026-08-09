@@ -31,17 +31,19 @@ describe('DiffSummaryStore', () => {
         },
       }),
       ctxFor: () => ({}),
+      // The resolver: the summary is the session's, fetched through its tab.
+      tabIdForSession: () => 'tab-1',
     } as never
     const store = new DiffSummaryStore()
     const scope = { kind: 'turn', index: 2 } as const
 
-    store.refresh(workspace, 'tab-1', scope)
+    store.refresh(workspace, 'session-1', scope)
     await Promise.resolve()
     await Promise.resolve()
 
     expect(requests).toEqual([scope])
-    expect(store.statsFor('tab-1', scope)).toEqual(turnStats)
-    expect(store.statsFor('tab-1', { kind: 'session' })).toEqual([])
+    expect(store.statsFor('session-1', scope)).toEqual(turnStats)
+    expect(store.statsFor('session-1', { kind: 'session' })).toEqual([])
   })
 
   test('uses git stats as the changed-file list for a turn summary', () => {

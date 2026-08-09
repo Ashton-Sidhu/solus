@@ -26,10 +26,12 @@ export interface PermissionResponder {
 }
 
 export interface RunHandle {
-  sessionId: string | null
+  /** The provider's thread id, promoted from its session_init. Null until then. */
+  agentSessionId: string | null
+  /** Solus's id for the conversation this run belongs to. Attached by
+   *  ControlPlane, and the only address a pre-session_init run has. */
+  sessionId?: string
   persistence: 'session' | 'ephemeral'
-  /** Attached by ControlPlane for pre-session-init UI routing. */
-  sourceTabId?: string
   startedAt: number
   toolCallCount: number
   sawPermissionRequest: boolean
@@ -52,7 +54,7 @@ export interface BackendEvents {
 /**
  * Session-tied runtime contract implemented by each agent provider.
  * ControlPlane depends only on this surface — backends swap without
- * touching tab lifecycle, queueing, or worktree logic.
+ * touching session lifecycle, queueing, or worktree logic.
  */
 export interface AgentBackend extends EventEmitter {
   readonly id: AgentId

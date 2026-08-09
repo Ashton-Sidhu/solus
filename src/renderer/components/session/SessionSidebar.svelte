@@ -14,6 +14,7 @@
     ListChecksIcon,
     GitPullRequestIcon,
     PlusIcon,
+    XIcon,
   } from "phosphor-svelte";
   import type { PinnedSession } from "../../../shared/types";
   import { getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
@@ -32,7 +33,11 @@
   import TaskListHeader from "./TaskListHeader.svelte";
   import TaskRow from "./TaskRow.svelte";
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
-  import { hasDisclosure, type SidebarTask } from "./lib/task-list";
+  import {
+    hasDisclosure,
+    type SidebarTask,
+    type TaskGroup,
+  } from "./lib/task-list";
   import { treeKeyIntent } from "./lib/task-tree-keys";
 
   interface Props {
@@ -134,7 +139,7 @@
   }
 
   function newTask() {
-    void session.createDraftTab(undefined, { freshTask: true, via: "click" });
+    session.openSessionDraft({ freshTask: true, via: "click" });
   }
 
   function scrollActiveSessionIntoView() {
@@ -206,7 +211,7 @@
   }
 
   function stopTask(task: SidebarTask) {
-    for (const tabId of task.tabIds) session.interruptTab(tabId);
+    for (const tabId of task.tabIds) session.interruptTabSession(tabId);
     requestInputFocus();
   }
 
@@ -279,6 +284,32 @@
     removeTask(task);
   }
 
+  function removeProject(group: TaskGroup) {
+    for (const task of group.tasks) expandedTaskIds.delete(task.id);
+    collapsedProjectKeys.delete(group.projectKey);
+    sidebarStore.closeProject(group.projectKey);
+    requestInputFocus();
+  }
+
+  /** A project heading closes everything under it at once, which is the only
+   *  place in this column where one click unloads several conversations. Work
+   *  in flight is the one thing that cannot be reopened as it was, so a project
+   *  with a live run asks before it takes them. */
+  function closeProject(group: TaskGroup) {
+    const running = sidebarStore.runningTaskCountIn(group.projectKey);
+    if (running === 0) {
+      removeProject(group);
+      return;
+    }
+    toasts.show({
+      message: `Stop ${running === 1 ? "the run" : `${running} runs`} in “${group.projectLabel}” and remove its tasks from the sidebar?`,
+      actions: [
+        { label: "Stop and remove", onAction: () => removeProject(group) },
+        { label: "Keep open", onAction: requestInputFocus },
+      ],
+    });
+  }
+
   /** The tree drives itself off the DOM rather than a mirrored index: the rows
    *  it can move between are exactly the ones currently rendered, so a
    *  collapsed task or a filtered project needs no bookkeeping here. */
@@ -342,7 +373,12 @@
         // Sidebar dismissal never stops the run, so keyboard and pointer paths
         // have the same presentation-only behavior.
         if (task) closeTask(task);
-        else if (focused!.dataset.tabId) closeSession(focused!.dataset.tabId);
+        else if (projectKey) {
+          const group = sidebarStore.taskGroups.find(
+            (item) => item.projectKey === projectKey,
+          );
+          if (group) closeProject(group);
+        } else if (focused!.dataset.tabId) closeSession(focused!.dataset.tabId);
         break;
     }
   }
@@ -435,12 +471,12 @@
     {task}
     {grouped}
     prChip={sidebarStore.prChipFor(task)}
-    onPath={task.tabIds.includes(session.activeTabId)}
+    onPath={task.tabIds.includes(session.onScreenTabId)}
     expanded={expandedTaskIds.has(task.id)}
     showProjectLine={sidebarStore.showsProjectLine}
     sessions={sidebarStore.sessionsFor(task)}
-    selectedTabId={task.tabIds.includes(session.activeTabId)
-      ? session.activeTabId
+    selectedTabId={task.tabIds.includes(session.onScreenTabId)
+      ? session.onScreenTabId
       : null}
     {renamingTabId}
     {renamingTaskId}
@@ -613,15 +649,20 @@
           <!-- A project is the level above, so it is a section header rather
                than another row: mark, small uppercase name, a hairline running
                to the count. The whole divider is its disclosure target. -->
-          <button
-            type="button"
+          <div
             role="treeitem"
+            tabindex="0"
             aria-selected="false"
             data-project-key={group.projectKey}
-            class="mb-0.5 flex h-8 w-full cursor-pointer items-center gap-[0.625rem] rounded px-[0.625rem] text-left transition-[color,background] duration-150 hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
+            class="group/project mb-0.5 flex h-8 w-full cursor-pointer items-center gap-[0.625rem] rounded px-[0.625rem] text-left transition-[color,background] duration-150 hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
             aria-expanded={!collapsedProjectKeys.has(group.projectKey)}
             aria-controls={projectGroupId(group.projectKey)}
             onclick={() => toggleProject(group.projectKey)}
+            onkeydown={(event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              toggleProject(group.projectKey);
+            }}
           >
             <ProjectMark
               projectKey={group.projectKey}
@@ -638,9 +679,26 @@
               class="h-[0.03125rem] flex-1 bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)]"
             ></span>
             <span
-              class="shrink-0 font-mono text-[0.625rem] text-muted-foreground opacity-45 tabular-nums"
+              class="shrink-0 font-mono text-[0.625rem] text-muted-foreground opacity-45 tabular-nums group-hover/project:hidden group-focus-within/project:hidden"
               >{group.tasks.length}</span
             >
+            <!-- The count is what you read while scanning, so the close action
+                 takes its place only once the pointer is on the heading. It is
+                 the group-level twin of a task row's remove: the section and
+                 every row under it leave the column, and nothing about the
+                 tasks themselves changes. -->
+            <button
+              type="button"
+              class="hidden size-5 shrink-0 cursor-pointer items-center justify-center rounded-[0.375rem] text-muted-foreground transition-[color,background] duration-[120ms] group-hover/project:flex group-focus-within/project:flex hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
+              title="Close project"
+              aria-label="Close {group.projectLabel} and remove its tasks from the sidebar"
+              onclick={(event) => {
+                event.stopPropagation();
+                closeProject(group);
+              }}
+            >
+              <XIcon size={12} weight="bold" />
+            </button>
             <CaretRightIcon
               size={11}
               class="shrink-0 text-muted-foreground transition-transform duration-150 {collapsedProjectKeys.has(
@@ -649,7 +707,7 @@
                 ? ''
                 : 'rotate-90'}"
             />
-          </button>
+          </div>
           {#if !collapsedProjectKeys.has(group.projectKey)}
             <div
               id={projectGroupId(group.projectKey)}
@@ -702,7 +760,7 @@
             {#each sidebarStore.pinnedSessions as pin (pin.sessionId)}
               {@const openTabId = sidebarStore.openTabIdForPinned(pin)}
               {@const isActive =
-                !!openTabId && openTabId === session.activeTabId}
+                !!openTabId && openTabId === session.onScreenTabId}
               <div
                 class="group/pin flex h-[1.875rem] cursor-pointer items-center gap-2 rounded pr-1.5 pl-[2.25rem] transition-[background] duration-150 hover:bg-accent"
                 role="button"
@@ -777,6 +835,14 @@
       (menuTask
         ? (session.tasksStore.sessionsByTask.get(menuTask.id)?.length ?? 0) > 0
         : false)}
+    <!-- A task with no nested subtasks is a single session wearing a task's row,
+         so it earns the session menu items a loose session row gets. -->
+    {@const leafSessions = sidebarTask ? sidebarStore.sessionsFor(sidebarTask) : []}
+    {@const leafSession = !hasDisclosure(leafSessions)
+      ? leafSessions[0]
+      : undefined}
+    {@const leafTabId = leafSession?.tabId ?? null}
+    {@const leafSess = leafTabId ? session.sessionFor(leafTabId) : null}
     {#if menuTask}
       <TaskContextMenu
         x={sessionContextMenu.x}
@@ -792,7 +858,7 @@
         onStop={sidebarTask
           ? () => stopTask(sidebarTask)
           : menuChild?.tabId
-            ? () => session.interruptTab(menuChild.tabId!)
+            ? () => session.interruptTabSession(menuChild.tabId!)
             : undefined}
         onOpenTask={() => session.goToTask(menuTask.id)}
         onOpenSource={() => {
@@ -810,6 +876,23 @@
           : menuChild
             ? () => closeChild(menuChild)
             : undefined}
+        sessionId={leafSession?.sessionId ?? null}
+        onFork={leafTabId && leafSess?.agentSessionId
+          ? () => void session.forkTab(leafTabId)
+          : undefined}
+        onContinueWorktree={leafTabId &&
+        leafSess?.agentSessionId &&
+        !leafSess?.run.gitContext?.worktreePath
+          ? () => void session.continueInWorktree(leafTabId)
+          : undefined}
+        isContinuingWorktree={leafTabId
+          ? session.isContinuingInWorktree(leafTabId)
+          : false}
+        isSplit={!!leafTabId && leafTabId === session.splitChatTabId}
+        onOpenInSplit={leafTabId
+          ? () => session.openTabInSplit(leafTabId)
+          : undefined}
+        onCloseSplit={leafTabId ? () => session.closeSplitChat() : undefined}
         onClose={closeSessionContextMenu}
       />
     {/if}
@@ -825,7 +908,7 @@
         onStop:
           menuTabId &&
           sidebarStore.childForTab(menuTabId).attention === "running"
-            ? () => session.interruptTab(menuTabId)
+            ? () => session.interruptTabSession(menuTabId)
             : undefined,
       }}
       onCloseTab={closeSession}

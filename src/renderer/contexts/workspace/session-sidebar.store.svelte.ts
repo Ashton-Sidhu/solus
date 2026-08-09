@@ -2,6 +2,7 @@ import { createAppContext } from '../app/create-app-context'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import type { AgentId, PinnedSession, Session } from '../../../shared/types'
 import type { Task } from '../../../shared/task-types'
+import { existingTaskId, parentTaskId } from './session-draft.svelte'
 import {
   buildProjectSummaries,
   compareTaskCreationOrder,
@@ -22,6 +23,7 @@ import {
   type TaskGroup,
 } from '../../components/session/lib/task-list'
 import {
+  attemptServerId,
   findOpenTabForSession,
   getAttentionState,
   sessionDisplayName,
@@ -162,7 +164,7 @@ export class SessionSidebarStore {
    *  for, or — for a fork, whose own subtask is minted at first dispatch — the
    *  parent it will hang under. */
   private pendingTaskFor(session: Session | null | undefined): Task | undefined {
-    const taskId = session?.pendingTaskId ?? session?.pendingParentTaskId
+    const taskId = session ? existingTaskId(session.task) ?? parentTaskId(session.task) : undefined
     if (!taskId) return undefined
     return this.session.tasksStore.tasks.find((candidate) => candidate.id === taskId)
   }
@@ -209,11 +211,18 @@ export class SessionSidebarStore {
         let activityAt = taskTree.reduce((latest, item) => Math.max(latest, item.updatedAt), 0)
         let runStartedAt = 0
         // The host the task is being worked on, taken from the first session it
-        // has open. A task record remembers a project, never a machine.
+        // has open. A task record remembers a project, never a machine — but its
+        // links remember one each, which is what answers for a task whose only
+        // session is closed.
         let serverId: string | null = null
+        let linkedServerId: string | null = null
 
         for (const item of taskTree) {
           for (const link of this.session.tasksStore.sessionsByTask.get(item.id) ?? []) {
+            linkedServerId ??= attemptServerId({
+              link,
+              taskServerId: this.session.tasksStore.hostFor(item.id),
+            })
             const tabId = openTabBySessionId.get(link.sessionId)
             if (!tabId || tabIds.includes(tabId)) continue
             tabIds.push(tabId)
@@ -260,9 +269,12 @@ export class SessionSidebarStore {
           projectKey,
           projectLabel: projectLabel(projectKey),
           branchName: task.branch ?? null,
-          serverId,
+          serverId: serverId ?? linkedServerId,
           prNumber: task.pr?.number || null,
-          status: task.status === 'done' || task.status === 'dropped' ? 'done' : taskStatusFor(attention),
+          // A completed task can receive more work through its existing session.
+          // Live attention then outranks the stale lifecycle verdict, just as it
+          // does for the sidebar's session-only completion check.
+          status: taskStatusFor(attention, task.status === 'done' || task.status === 'dropped'),
           attention,
           unread,
           createdAt: task.createdAt ?? task.updatedAt,
@@ -284,13 +296,13 @@ export class SessionSidebarStore {
       if (linkedTask || this.pendingTaskFor(session)) continue
 
       const environment = this.session.environment.environmentFor(this.session.sessionFor(tabId)?.run)
-      const projectKey = environmentProjectKey(environment, session.projectGroupPath)
+      const projectKey = environmentProjectKey(environment, session.run.projectGroupPath)
       const attention = getAttentionState(session, tab, this.planStore.plans)
       const markedDone = this.doneTaskIds.has(tabId)
       looseTasks.push({
         id: tabId,
         key: tabId,
-        title: sessionTitle(session, tab),
+        title: sessionTitle(session),
         projectKey,
         projectLabel: projectLabel(projectKey),
         branchName: environment.branch,
@@ -378,12 +390,12 @@ export class SessionSidebarStore {
 
   activeBranchKey: string = $derived.by(() => environmentBranchKey(
     this.session.environment.environmentFor(this.session.activeSession?.run),
-    this.session.sessionFor(this.session.activeTabId)?.projectGroupPath,
+    this.session.sessionFor(this.session.activeTabId)?.run.projectGroupPath,
   ))
 
   activeProjectKey: string = $derived.by(() => environmentProjectKey(
     this.session.environment.environmentFor(this.session.activeSession?.run),
-    this.session.sessionFor(this.session.activeTabId)?.projectGroupPath,
+    this.session.sessionFor(this.session.activeTabId)?.run.projectGroupPath,
   ))
 
   constructor(
@@ -444,7 +456,7 @@ export class SessionSidebarStore {
     )?.status
     return {
       tabId,
-      label: tab && sess ? sessionTitle(sess, tab) : tabId,
+      label: sess ? sessionTitle(sess) : tabId,
       attention,
       serverId: sess?.run.serverId ?? null,
       // The mounted tab's environment is live, so it outranks whatever branch
@@ -524,7 +536,10 @@ export class SessionSidebarStore {
         branchName: record.branch ?? null,
         label: sidebarChildLabel(record, sessionDisplayName({ link, taskTitle: record.title })),
         attention: null,
-        serverId: null,
+        serverId: attemptServerId({
+          link,
+          taskServerId: this.session.tasksStore.hostFor(record.id),
+        }),
         runStartedAt: 0,
         reviewGuideStatus: null,
         dismissalKey,
@@ -534,7 +549,8 @@ export class SessionSidebarStore {
 
     for (const tabId of this.pendingTabByTaskId.get(root.id) ?? []) {
       if (children.some((child) => child.tabId === tabId)) continue
-      const pendingTaskId = this.session.sessionFor(tabId)?.pendingTaskId
+      const target = this.session.sessionFor(tabId)?.task
+      const pendingTaskId = target ? existingTaskId(target) : null
       const pendingTask = pendingTaskId
         ? this.session.tasksStore.tasks.find((candidate) => candidate.id === pendingTaskId)
         : undefined
@@ -564,7 +580,9 @@ export class SessionSidebarStore {
         branchName: record.branch ?? null,
         label: record.title,
         attention: null,
-        serverId: null,
+        // Nothing has run yet, so the only true answer is where it would: the
+        // host that holds the task.
+        serverId: this.session.tasksStore.hostFor(record.id),
         runStartedAt: 0,
         reviewGuideStatus: null,
         dismissalKey,
@@ -577,8 +595,10 @@ export class SessionSidebarStore {
 
   selectTab(tabId: string): void {
     // Sidebar rows are navigation, not the tab-strip's expand/collapse toggle.
-    // Clicking the selected child must therefore be a no-op.
-    if (tabId === this.session.activeTabId) return
+    // Clicking the selected child must therefore be a no-op — unless its
+    // conversation isn't what's on screen (a draft or a page owns the pane),
+    // which is the one case where the row still has somewhere to take you.
+    if (tabId === this.session.activeTabId && this.session.showsConversation) return
     this.session.selectTab(tabId)
   }
 
@@ -622,7 +642,11 @@ export class SessionSidebarStore {
     const lastActiveTabId = this.session.lastActiveTabForBranch(branchKey)
     const target = taskTabTarget(tabIds, attentionTarget, lastActiveTabId)
 
-    if (isAlreadyActiveBranch && (!attentionTarget || target === this.session.activeTabId)) {
+    if (
+      isAlreadyActiveBranch
+      && this.session.showsConversation
+      && (!attentionTarget || target === this.session.activeTabId)
+    ) {
       return false
     }
 
@@ -659,6 +683,23 @@ export class SessionSidebarStore {
     this.closeTabs(task.tabIds)
   }
 
+  /** Close every task a project has in the sidebar, which takes the project's
+   *  whole section with them — the heading exists only while it has rows. Each
+   *  task is dismissed the same way closing its own row does, so nothing about
+   *  their lifecycle changes and reopening any session brings its task back. */
+  closeProject(projectKey: string): void {
+    for (const task of this.allTasks.filter((item) => item.projectKey === projectKey)) {
+      this.closeTask(task)
+    }
+  }
+
+  /** How many runs this project would stop, for surfaces that ask first. */
+  runningTaskCountIn(projectKey: string): number {
+    return this.allTasks.filter(
+      (task) => task.projectKey === projectKey && task.status === 'running',
+    ).length
+  }
+
   /** Close one task-tree child's mounted tab while keeping its durable session. */
   closeChild(child: SidebarSessionChild): void {
     if (child.dismissalKey) {
@@ -693,7 +734,7 @@ export class SessionSidebarStore {
     const pin: PinnedSession = {
       sessionId: session.agentSessionId,
       provider: session.run.provider ?? (this.settings.activeAgent as AgentId),
-      title: sessionTitle(session, tab),
+      title: sessionTitle(session),
       cwd: session.run.gitContext?.worktreePath ?? session.run.workingDirectory,
       pinnedAt: Date.now(),
     }

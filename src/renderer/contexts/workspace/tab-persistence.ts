@@ -1,4 +1,4 @@
-import type { AgentId, ContextUsage, GitCheckout, ModelConfig, SessionHandoffLineage, StartInfo } from '../../../shared/types'
+import type { AgentId, ContextUsage, GitCheckout, ModelConfig, SessionHandoffLineage, SessionSpec, StartInfo } from '../../../shared/types'
 
 // Tab state is scoped first by server installation, then by Electron window
 // mode. The web client has one window, so it only gets the server scope.
@@ -11,6 +11,8 @@ const DISMISSED_SIDEBAR_TASKS_KEY = 'solus-dismissed-sidebar-tasks'
 // mode) exactly like the tab snapshot so a different server never reads a stale
 // environment. Applied optimistically on boot, then reconciled with fresh data.
 const START_CACHE_KEY = 'solus-start-cache'
+/** Prompts written but not yet sent, with the target they would run against. */
+const SESSION_DRAFTS_KEY = 'solus-session-drafts'
 
 let activeInstallationId: string | null = null
 let shouldMigrateLegacyKeys = false
@@ -67,6 +69,11 @@ function readStorageWithMigration(base: string): string | null {
 
 export interface PersistedTab {
   tabId: string
+  /** The renderer session this tab shows. Persisted because a chat route names
+   *  a session, not a tab: without it the id would be re-minted on every boot
+   *  and a restored split-chat pane would point at nothing. Missing in legacy
+   *  snapshots, which mint one on restore. */
+  sessionId?: string
   title: string
   /** Missing in legacy snapshots — an unnamed tab is free to be auto-named. */
   titleCustom?: boolean
@@ -83,8 +90,11 @@ export interface PersistedTab {
   additionalDirs: string[]
   gitContext: GitCheckout | null
   worktreeBaseBranch: string | null
-  /** Missing in legacy snapshots and false for projects merely opened remotely. */
-  worktreeRequired?: boolean
+  /** Missing in legacy snapshots, where the resolved base branch stands in. */
+  worktreeRequested?: boolean
+  /** The host that owns this run's task record. Missing in legacy snapshots,
+   *  which restore it as the run's own host — a session that never dispatched. */
+  taskServerId?: string
   modelConfig: ModelConfig
   permissionMode: string
   hasUnread: boolean
@@ -137,6 +147,58 @@ export function savePersistedTabs(snapshot: PersistedTabs): void {
   try {
     localStorage.setItem(storageKey(LEGACY_TABS_KEY), JSON.stringify(snapshot))
   } catch {}
+}
+
+// ─── Open session drafts ───
+// A draft has no tab and no session, so it persists on its own key rather than
+// riding a tab snapshot with nowhere to put it. Losing one on reload would lose
+// a prompt the user had already written.
+
+export interface PersistedSessionDrafts {
+  version: 1
+  /** Open order, so a restored workspace re-enters the one it left on. */
+  order: string[]
+  drafts: Record<string, SessionSpec>
+}
+
+export function loadPersistedSessionDrafts(): PersistedSessionDrafts | null {
+  try {
+    const raw = localStorage.getItem(storageKey(SESSION_DRAFTS_KEY))
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (parsed?.version !== 1 || !Array.isArray(parsed.order) || !parsed.drafts) return null
+    return parsed as PersistedSessionDrafts
+  } catch {
+    return null
+  }
+}
+
+// Drafts change on every keystroke, so the write is coalesced exactly like the
+// tab snapshot: it only has to survive a reload, and a short debounce loses
+// nothing but the writes.
+let draftsTimer: ReturnType<typeof setTimeout> | null = null
+let pendingSessionDrafts: PersistedSessionDrafts | null = null
+let pendingSessionDraftsKey: string | null = null
+
+export function savePersistedSessionDraftsDebounced(snapshot: PersistedSessionDrafts): void {
+  pendingSessionDrafts = snapshot
+  pendingSessionDraftsKey = storageKey(SESSION_DRAFTS_KEY)
+  if (draftsTimer) return
+  draftsTimer = setTimeout(flushPersistedSessionDrafts, 400)
+}
+
+/** Write any pending draft snapshot now — call on page hide so nothing is lost. */
+export function flushPersistedSessionDrafts(): void {
+  if (draftsTimer) {
+    clearTimeout(draftsTimer)
+    draftsTimer = null
+  }
+  if (!pendingSessionDrafts || !pendingSessionDraftsKey) return
+  try {
+    localStorage.setItem(pendingSessionDraftsKey, JSON.stringify(pendingSessionDrafts))
+  } catch {}
+  pendingSessionDrafts = null
+  pendingSessionDraftsKey = null
 }
 
 // ─── Cached start() payload ───

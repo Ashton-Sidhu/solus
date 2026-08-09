@@ -16,6 +16,7 @@
   import SessionBreadcrumb from "../conversation/SessionBreadcrumb.svelte";
   import FrameExpandButton from "./FrameExpandButton.svelte";
   import OuterScrollbar from "./OuterScrollbar.svelte";
+  import SolusTips from "./SolusTips.svelte";
   import SessionPicker from "../session/SessionPicker.svelte";
   import Pane from "../ui/Pane.svelte";
   import ConversationView from "../conversation/ConversationView.svelte";
@@ -124,16 +125,26 @@
   // centres the pair as one block rather than pinning the composer to the floor.
   const leadingPane = $derived(router.leadingPane);
   const leadingRef = $derived(visibleRef(leadingPane));
-  // The leading pane resting on the conversation pool: no tab id means "whatever
-  // the active tab is", which is exactly what the pool renders.
+  // The leading pane resting on the conversation pool: naming no session means
+  // "whatever the active tab is", which is exactly what the pool renders.
   const poolInLead = $derived(
-    leadingRef?.name === "chat" && !leadingRef.params.tabId,
+    leadingRef?.name === "chat" && !leadingRef.params.sessionId,
+  );
+  // The draft the leading pane is composing, when it holds one instead of a
+  // conversation. It has no tab, so the band and the rail read it directly.
+  const leadingDraft = $derived(
+    leadingRef?.name === "draft"
+      ? (session.sessionDrafts.get(leadingRef.params.draftId) ?? null)
+      : null,
   );
   const centerHome = $derived(
     isHomeVisible(sess) && poolInLead,
   );
+  // A draft's rail follows the fresh-tab rule regardless of what the tab behind
+  // it was doing: nothing has started here either.
+  const leadingStarted = $derived(!leadingDraft && hasStartedSession);
   const activeProjectPanelTabKey = $derived(
-    session.activeTabId || "new-tab-home",
+    leadingDraft?.id ?? (session.activeTabId || "new-tab-home"),
   );
   let projectPanelPopoutTabKey = $state<string | null>(null);
   const newTabProjectPanelPoppedOut = $derived(
@@ -141,7 +152,7 @@
   );
   const isPrimaryProjectPanelOpen = $derived(
     primaryProjectPanelOpen(
-      hasStartedSession,
+      leadingStarted,
       settings.projectPanelOpen,
       newTabProjectPanelPoppedOut,
     ),
@@ -150,7 +161,7 @@
   // that session or moving to another tab returns control to the normal rule.
   $effect(() => {
     if (
-      hasStartedSession ||
+      leadingStarted ||
       (projectPanelPopoutTabKey !== null &&
         projectPanelPopoutTabKey !== activeProjectPanelTabKey)
     ) {
@@ -198,9 +209,22 @@
   const conversationChromeVisible = $derived(
     poolInLead && maximizedPaneId === null,
   );
-  const showHomeBreadcrumb = $derived(
-    active && centerHome && conversationChromeVisible && !!session.activeTabId,
+  // The band and the rail say where you are, which a draft answers as fully as
+  // a conversation does — so they stay while the leading pane composes one,
+  // even though the pool's composer and transcript have stepped aside for it.
+  const locationChromeVisible = $derived(
+    (poolInLead || !!leadingDraft) && maximizedPaneId === null,
   );
+  // The one band over the leading pane, whatever it holds — a transcript, an
+  // empty session, or a draft. It floats over the content rather than sitting in
+  // a row, which is the only way it differs from the one `AsidePaneShell` draws;
+  // the transcript underneath reserves its height.
+  const showLeadingBand = $derived(
+    active && locationChromeVisible && (!!leadingDraft || !!session.activeTabId),
+  );
+  // A session with nothing in it yet is already the thing "start another" would
+  // create, so the band drops that action until there is a conversation to leave.
+  const bandOffersNewSession = $derived(!leadingDraft && !centerHome);
   let homeSessionMenu = $state<{
     tabId: string;
     x: number;
@@ -208,7 +232,7 @@
   } | null>(null);
 
   $effect(() => {
-    if (!showHomeBreadcrumb) homeSessionMenu = null;
+    if (!showLeadingBand) homeSessionMenu = null;
   });
   // Run dock scope mirrors ProjectPanel: prefer the active session's worktree.
   const runCwd = $derived(
@@ -343,7 +367,7 @@
       });
       return;
     }
-    if (!hasStartedSession) {
+    if (!leadingStarted) {
       const open = !newTabProjectPanelPoppedOut;
       projectPanelPopoutTabKey = open ? activeProjectPanelTabKey : null;
       // An explicit reveal becomes the user's conversation preference once the
@@ -392,12 +416,10 @@
         requestInputFocus();
         return;
       }
-      const tabId = await session.createDraftTab(undefined, {
-        activate: false,
-        via: "keybinding",
-      });
-      session.openTabInSplit(tabId);
-      requestInputFocus({ tabId });
+      // A second composition beside the first: a draft in its own companion
+      // pane, which becomes a split chat the moment it is sent.
+      session.openSessionDraft({ target: "aside", via: "keybinding" });
+      requestInputFocus();
     },
     { enabled: () => active },
   );
@@ -599,11 +621,11 @@
   $effect(() => {
     const paneId = router.focusedPaneId;
     if (paneId === leadingPane.id || !companions.settled.has(paneId)) return;
-    const tabId = router.chatTabIn(paneId, session.activeTabId);
+    const tabId = session.chatTabIn(paneId);
     if (!tabId) return;
     requestAnimationFrame(() => {
       if (router.focusedPaneId !== paneId) return;
-      if (router.chatTabIn(paneId, session.activeTabId) !== tabId) return;
+      if (session.chatTabIn(paneId) !== tabId) return;
       requestInputFocus({ tabId });
     });
   });
@@ -620,7 +642,7 @@
   );
   const railOpen = $derived(
     enableProjectPanel &&
-      conversationChromeVisible &&
+      locationChromeVisible &&
       isProjectRailOpen(
         isPrimaryProjectPanelOpen,
         projectRailContainerWidth,
@@ -774,10 +796,11 @@
                         class:justify-center={centerHome}
                         class:home-measure={centerHome}
                       >
-                        {#if showHomeBreadcrumb}
+                        {#if showLeadingBand}
                           <SessionBreadcrumb
-                            tabId={session.activeTabId}
-                            showNewSessionAction={false}
+                            tabId={leadingDraft ? "" : session.activeTabId}
+                            draft={leadingDraft}
+                            showNewSessionAction={bandOffersNewSession}
                           />
                         {/if}
                         <!-- Frame-level session-expand affordance. Rendered once here so
@@ -861,6 +884,16 @@
                         >
                           {@render inputRow()}
                         </div>
+
+                        <!-- The home centres its headline and composer as one
+                             block, so that block's bottom is the composer, not
+                             the page's. The tip belongs to the column, whose
+                             bottom is the only one that sits under everything. -->
+                        {#if centerHome}
+                          <SolusTips
+                            class="pointer-events-none absolute inset-x-0 bottom-6 mx-auto px-6"
+                          />
+                        {/if}
                       </div>
                     </div>
                   </div>
@@ -869,13 +902,13 @@
                      unmounts with the tab strip and sizes itself against the
                      column. A secondary pane minimizes it temporarily without
                      changing the user's persisted preference. -->
-                {#if enableProjectPanel && conversationChromeVisible}
+                {#if enableProjectPanel && locationChromeVisible}
                   <ProjectPanel
-                    tabId={session.activeTabId}
+                    sourceId={leadingDraft?.id ?? session.activeTabId}
                     {active}
                     containerWidth={projectRailContainerWidth}
                     minimized={secondaryVisible ||
-                      (!hasStartedSession && !newTabProjectPanelPoppedOut)}
+                      (!leadingStarted && !newTabProjectPanelPoppedOut)}
                     onCollapse={() => toggleProjectPanel()}
                   />
                 {/if}

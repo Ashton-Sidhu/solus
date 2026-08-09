@@ -1,4 +1,4 @@
-import type { Message, NormalizedEvent, PermissionRequest, PermissionOption, QuestionRequest, RuntimeSessionInfo, TodoItem, SessionProgress, Session, DiffComment, PlanComment, TaskTarget } from '../../../shared/types'
+import type { Message, NormalizedEvent, PermissionRequest, PermissionOption, QuestionRequest, RuntimeSessionInfo, TodoItem, SessionProgress, Session, DiffComment, PlanComment } from '../../../shared/types'
 
 let msgCounter = 0
 export const nextMsgId = () => `msg-${++msgCounter}`
@@ -285,19 +285,6 @@ export function formatDiffInlineComments(comments: DiffComment[]): string {
 
 export function hasConversation(session: Session): boolean {
   return session.messages.some(m => m.role === 'user' || m.role === 'assistant')
-}
-
-/**
- * Read a session's task destination as the union it has always been. The three
- * fields it reads from are the pre-`TaskTarget` encoding, kept only while both
- * shapes are in the tree; this is the one place that knows how they map.
- */
-export function taskTargetOf(session: Session): TaskTarget {
-  if (session.pendingTaskId) return { kind: 'existing', taskId: session.pendingTaskId }
-  if (session.taskCreationDisabled) return { kind: 'none' }
-  return session.pendingParentTaskId
-    ? { kind: 'new', parentTaskId: session.pendingParentTaskId }
-    : { kind: 'new' }
 }
 
 /** Reattach hands back the live run's config so a restored tab stops guessing.

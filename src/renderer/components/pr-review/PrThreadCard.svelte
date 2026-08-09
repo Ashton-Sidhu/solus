@@ -187,7 +187,11 @@
         <div class="flex gap-2.5">
           <!-- Avatar + connector line linking stacked replies together -->
           <div class="flex flex-col items-center">
-            <PrAvatar name={comment.author} size="size-6 text-[10.5px]" />
+            <PrAvatar
+              name={comment.author}
+              url={comment.authorAvatarUrl}
+              size="size-6 text-[10.5px]"
+            />
             {#if ci < thread.comments.length - 1}
               <span class="mt-1 w-px flex-1 bg-border"></span>
             {/if}

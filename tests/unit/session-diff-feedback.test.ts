@@ -20,58 +20,55 @@ function comment(filePath: string): DiffComment {
   }
 }
 
+function session(overrides: Partial<{ diffComments: DiffComment[]; diffGeneralComment: string; workingDirectory: string }> = {}) {
+  return {
+    diffComments: overrides.diffComments ?? [],
+    diffCommentDraft: null,
+    diffGeneralComment: overrides.diffGeneralComment ?? '',
+    run: { workingDirectory: overrides.workingDirectory ?? '', gitContext: null },
+  }
+}
+
+/** A workspace where each tab watches the like-named session. Queued review
+ *  feedback lives on the session; the tab is only how a surface names it. */
+function workspace(sessions: Record<string, ReturnType<typeof session>>, extra: object = {}) {
+  return {
+    activeTabId: 'active',
+    tabs: Object.fromEntries(Object.keys(sessions).map((id) => [id, { id, sessionId: id }])),
+    sessionFor: (tabId: string) => sessions[tabId],
+    ...extra,
+  } as unknown as WorkspaceContext
+}
+
 describe('diff feedback tab targeting', () => {
-  test('stores a file-pane comment on the requested tab, not the active tab', () => {
+  test('stores a file-pane comment against the requested tab’s session, not the active one', () => {
     const activeComment = comment('active.ts')
     const sourceComment = comment('source.ts')
-    const ctx = {
-      activeTabId: 'active',
-      tabs: {
-        active: {
-          diffComments: [activeComment],
-          diffCommentDraft: null,
-          diffGeneralComment: '',
-        },
-        source: {
-          diffComments: [],
-          diffCommentDraft: null,
-          diffGeneralComment: 'note',
-        },
-      },
-    } as unknown as WorkspaceContext
+    const sessions = {
+      active: session({ diffComments: [activeComment] }),
+      source: session({ diffGeneralComment: 'note' }),
+    }
 
-    addDiffComment(ctx, sourceComment, 'source')
-    expect(ctx.tabs.active.diffComments).toEqual([activeComment])
-    expect(ctx.tabs.source.diffComments).toEqual([sourceComment])
+    addDiffComment(workspace(sessions), sourceComment, 'source')
+
+    expect(sessions.active.diffComments).toEqual([activeComment])
+    expect(sessions.source.diffComments).toEqual([sourceComment])
   })
 
   test('sends a fresh-session review to the newly created tab', async () => {
     const sourceComment = comment('source.ts')
     const sends: Array<{ prompt: string; tabId?: string }> = []
     const sessions = {
-      source: { run: { workingDirectory: '/repo', gitContext: null } },
-      fresh: { run: { workingDirectory: '', gitContext: null } },
+      active: session(),
+      source: session({ diffComments: [sourceComment], workingDirectory: '/repo' }),
+      fresh: session(),
     }
-    const ctx = {
-      activeTabId: 'active',
-      tabs: {
-        active: {
-          diffComments: [],
-          diffCommentDraft: null,
-          diffGeneralComment: '',
-        },
-        source: {
-          diffComments: [sourceComment],
-          diffCommentDraft: null,
-          diffGeneralComment: '',
-        },
-      },
+    const ctx = workspace(sessions, {
       createTab: async () => 'fresh',
-      sessionFor: (tabId: keyof typeof sessions) => sessions[tabId],
       sendMessage(prompt: string, _cwd?: string, tabId?: string) {
         sends.push({ prompt, tabId })
       },
-    } as unknown as WorkspaceContext
+    })
 
     expect(await submitDiffFeedbackToNewSession(ctx, {
       generalComment: '',
@@ -82,34 +79,25 @@ describe('diff feedback tab targeting', () => {
     expect(sessions.fresh.run.workingDirectory).toBe('/repo')
     expect(sends[0]?.tabId).toBe('fresh')
     expect(sends[0]?.prompt).toContain('source.ts')
-    expect(ctx.tabs.source.diffComments).toEqual([])
+    expect(sessions.source.diffComments).toEqual([])
   })
 
   test('sends file-preview feedback to its source tab when another tab is active', () => {
     const sourceComment = comment('source.ts')
     const sends: Array<{ prompt: string; tabId?: string }> = []
-    const ctx = {
-      activeTabId: 'active',
-      tabs: {
-        active: {
-          diffComments: [],
-          diffCommentDraft: null,
-          diffGeneralComment: '',
-        },
-        source: {
-          diffComments: [sourceComment],
-          diffCommentDraft: null,
-          diffGeneralComment: '',
-        },
-      },
+    const sessions = {
+      active: session(),
+      source: session({ diffComments: [sourceComment] }),
+    }
+    const ctx = workspace(sessions, {
       sendMessage(prompt: string, _cwd?: string, tabId?: string) {
         sends.push({ prompt, tabId })
       },
-    } as unknown as WorkspaceContext
+    })
 
     expect(submitDiffFeedback(ctx, '', 'source')).toBe(true)
     expect(sends[0]?.tabId).toBe('source')
     expect(sends[0]?.prompt).toContain('Keep this behavior.')
-    expect(ctx.tabs.source.diffComments).toEqual([])
+    expect(sessions.source.diffComments).toEqual([])
   })
 })

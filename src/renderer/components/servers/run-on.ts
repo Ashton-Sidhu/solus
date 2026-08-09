@@ -1,20 +1,20 @@
 import { serverConnections } from '@client-core/server-connections'
 import { LOCAL_SERVER_ID } from '@client-core/server-registry'
-import type { GithubDelegatedCredential, IpcContext, PendingHostDispatch, ProjectIdentity, RunConfig, Session } from '../../../shared/types'
+import type { GithubDelegatedCredential, IpcContext, ProjectIdentity, RunConfig, Session } from '../../../shared/types'
 import type { SolusAPI } from '../../../preload'
 import { hasSessionStarted } from '../../lib/sessionUtils'
-import { withHost } from '../../contexts/workspace/run-config'
+import { startsWorktree, withHost, withProjectHost } from '../../contexts/workspace/run-config'
 
-/** Exactly what retargeting a tab's host needs from the workspace context. */
+/** Exactly what moving a tab to another host needs from the workspace context. */
 export interface RunOnWorkspace {
   tabOrder: string[]
   sessionFor(tabId: string): Session | undefined
   ctxFor(tabId: string): IpcContext
-  apiFor(tabId: string): { closeTab(ctx: IpcContext): Promise<void> }
+  apiFor(tabId: string): { unwatchSession(sessionId: string): Promise<void> }
   refreshStartTarget(tabId: string, path: string, worktree: boolean): void | Promise<void>
 }
 
-export interface RetargetSessionHostOptions {
+export interface MoveTabToHostOptions {
   workspace: RunOnWorkspace
   tabId: string
   serverId: string
@@ -23,11 +23,16 @@ export interface RetargetSessionHostOptions {
   path?: string
   /** Stable repository identity used to preserve sidebar grouping across hosts. */
   repoKey?: string | null
-  /** The Run on picker requires isolation; opening a project remotely does not. */
-  requireWorktree?: boolean
+  /**
+   * Which of the two moves this is. `dispatch` sends the session to another
+   * machine and leaves the project — and its tasks — where they are.
+   * `open-project` says the project itself lives on that machine, so its tasks
+   * are minted there and worktree mode stays the user's choice.
+   */
+  intent: 'dispatch' | 'open-project'
 }
 
-export type RetargetSessionHostResult =
+export type MoveTabToHostResult =
   | { ok: true; refreshStartTarget?: Promise<void> }
   /** The tab is gone, or was never a session. */
   | { ok: false; reason: 'no-session' }
@@ -35,36 +40,44 @@ export type RetargetSessionHostResult =
   | { ok: false; reason: 'no-path-on-host' }
 
 /**
- * Moves an unstarted tab to another host. The old host's runtime tab is closed
- * first, and its connection is only released once no other tab still needs it.
+ * Point a tab at another host, before anything has started on it.
  *
- * A move between hosts must carry the directory to run in: the current one is a
- * path on the *old* host, and keeping it would start the session somewhere that
- * doesn't exist on the target. Staying put keeps whatever the session had.
+ * A *session* never moves between machines — it is created on the host it will
+ * live on and stays there. What moves is the tab: its speculative registration
+ * on the previously-chosen host is closed, and that host's connection is
+ * released once no other tab still needs it. Every caller is therefore
+ * pre-start, which is what `isRunOnHostLocked` enforces at the picker.
+ *
+ * A move must carry the directory to run in: the current one is a path on the
+ * *old* machine, and keeping it would start the session somewhere that does not
+ * exist on the target. Staying put keeps whatever the run already had.
  */
-export function retargetSessionHost(opts: RetargetSessionHostOptions): RetargetSessionHostResult {
-  const { workspace, tabId, serverId, isLocalHost, path, repoKey, requireWorktree = false } = opts
+export function moveTabToHost(opts: MoveTabToHostOptions): MoveTabToHostResult {
+  const { workspace, tabId, serverId, isLocalHost, path, repoKey, intent } = opts
   const session = workspace.sessionFor(tabId)
   if (!session) return { ok: false, reason: 'no-session' }
 
   const previousServerId = session.run.serverId
   const movingHosts = previousServerId !== serverId
   if (movingHosts && !path) return { ok: false, reason: 'no-path-on-host' }
-  const sourceProjectPath = session.projectGroupPath
+  const sourceProjectPath = session.run.projectGroupPath
     ?? session.run.gitContext?.repoRoot
     ?? session.run.workingDirectory
   if (movingHosts) {
-    void workspace.apiFor(tabId).closeTab(workspace.ctxFor(tabId)).catch(() => {})
+    // The session is leaving this host, so stop listening to it there.
+    void workspace.apiFor(tabId).unwatchSession(session.id).catch(() => {})
   }
   serverConnections.retain(serverId)
   if (!isLocalHost) serverConnections.ensure(serverId)
-  session.run = withHost(session.run, serverId, { path, isLocalHost, requireWorktree })
+  session.run = intent === 'dispatch'
+    ? withHost(session.run, serverId, { path })
+    : withProjectHost(session.run, serverId, { path })
 
   if (!movingHosts) return { ok: true }
   if (repoKey && sourceProjectPath && sourceProjectPath !== '~') {
-    session.projectGroupPath = sourceProjectPath
+    session.run.projectGroupPath = sourceProjectPath
   }
-  const refreshed = workspace.refreshStartTarget(tabId, path!, requireWorktree)
+  const refreshed = workspace.refreshStartTarget(tabId, path!, startsWorktree(session.run))
   const refreshStartTarget = refreshed instanceof Promise ? refreshed : undefined
   const success = refreshStartTarget ? { ok: true as const, refreshStartTarget } : { ok: true as const }
   const stillInUse = workspace.tabOrder.some(
@@ -76,20 +89,45 @@ export function retargetSessionHost(opts: RetargetSessionHostOptions): RetargetS
   return success
 }
 
-/**
- * True when this run was sent to another host through Run on, which requires
- * its own worktree. Merely opening a project that already lives remotely keeps
- * worktree mode optional, just as it is for a local project.
- *
- * Reads the run config rather than a session, so a draft answers it identically.
- */
-export function isDispatchedRun(run: RunConfig | undefined | null): boolean {
-  return run?.worktreeRequired === true
-}
-
 export function isRunOnHostLocked(session: Session | undefined): boolean {
   // A tab with no session at all has no host to move, so it is locked too.
   return !session || hasSessionStarted(session)
+}
+
+export interface RunOnPickerVisibility {
+  variant: 'chip' | 'header'
+  /** True when the run sits in (or on the way into) a git checkout. */
+  isGitRepo: boolean
+  /** Remotes reachable right now — a saved-but-offline host does not count, so
+   *  the picker only appears when there is a real machine to run on. */
+  connectedRemoteCount: number
+  /** True when the selected host resolves to a remote machine. */
+  onRemoteHost: boolean
+  /** The host the run will start on, remembered even for a forgotten remote. */
+  selectedHostId: string | null | undefined
+}
+
+/**
+ * Whether the run-on picker is worth showing at all.
+ *
+ * It earns its place the moment there is a real choice about where work runs:
+ * a reachable remote to send it to, or a git checkout the header can branch a
+ * worktree from. A plain local folder on a single machine has neither, so the
+ * picker stays out of the way until a host is connected.
+ */
+export function shouldShowRunOnPicker(input: RunOnPickerVisibility): boolean {
+  // The header is the only control for worktree mode, so a git checkout always
+  // earns it — even on a machine that has never seen another host.
+  if (input.variant === 'header' && input.isGitRepo) return true
+  // A reachable remote is a genuine choice: run here, or run on that machine.
+  // Saved-but-offline hosts are filtered out before they reach this count.
+  if (input.connectedRemoteCount > 0) return true
+  // A session already living on a remote host names it, so the badge never
+  // silently reads as local — true even after that host has been forgotten.
+  return (
+    input.onRemoteHost ||
+    (!!input.selectedHostId && input.selectedHostId !== LOCAL_SERVER_ID)
+  )
 }
 
 /** Explains why this checkout cannot create a worktree. */
@@ -98,21 +136,44 @@ export function worktreeBlockedReason(canToggleWorktree: boolean): string | null
   return 'This checkout has no base branch to create a worktree from.'
 }
 
+/**
+ * Whether picking `serverId` returns a dispatched run to the host its project
+ * already lives on — the reverse of a dispatch.
+ *
+ * A dispatch runs the agent on one host while the project (and its tasks) stay
+ * on `taskServerId`; that home host still holds the real checkout, remembered as
+ * `projectGroupPath`. Selecting it again is therefore a plain re-home: no clone,
+ * and no project to pick, because the checkout is already there. Every other host
+ * is a genuine move — a dispatch to it, or opening a folder on it — so this stays
+ * false for them, and for a run already on its own home host.
+ */
+export function returnsToProjectHome(run: RunConfig, serverId: string): boolean {
+  return run.serverId !== serverId && run.taskServerId === serverId && !!run.projectGroupPath
+}
+
+/**
+ * The host whose recent projects the project chip should list — where the run's
+ * project *lives*, which is not always where it *runs*.
+ *
+ * The run-on picker chooses the run host and records the choice as a pending
+ * dispatch; the project chip reads this back to know whose projects to offer:
+ *
+ * - **open-project** — the pending choice is "work on a project that lives over
+ *   there", so the project host is that target host, before Send moves either id.
+ * - **dispatch** — the agent runs elsewhere but the project (and its tasks) stay
+ *   home, so the project host is `taskServerId`, and the chip keeps listing the
+ *   local checkout being dispatched.
+ * - **no pending choice** — the run already sits on its project host, named by
+ *   `taskServerId` (a remote-owned project) or, failing that, `serverId`.
+ */
+export function projectHostId(run: RunConfig): string {
+  if (run.pendingHostDispatch?.intent === 'open-project') return run.pendingHostDispatch.serverId
+  return run.taskServerId ?? run.serverId
+}
+
 export function repoKeyForPath(identities: ProjectIdentity[], path: string | null | undefined): string | null {
   if (!path || path === '~') return null
   return identities.find((identity) => identity.path === path)?.repoKey ?? null
-}
-
-/** Records the picker choice without touching a connection or filesystem. */
-export function queueSessionHostDispatch(
-  session: Session,
-  target: PendingHostDispatch,
-): void {
-  if (target.serverId === session.run.serverId) {
-    session.run.pendingHostDispatch = null
-    return
-  }
-  session.run.pendingHostDispatch = target
 }
 
 export interface PreparedHostCheckout {
@@ -130,7 +191,7 @@ export function cloneUrlForRepoKey(repoKey: string): string | null {
 /**
  * Makes the selected host ready before the tab moves: a known checkout is
  * fast-forwarded, while a missing checkout is cloned under that host's projects
- * root. The caller retargets only after this resolves, so a failed preparation
+ * root. The caller moves the tab only after this resolves, so a failed preparation
  * can never send the prompt to a stale or half-created directory.
  */
 export async function prepareHostCheckout(

@@ -119,8 +119,18 @@ export class ServerConnections {
       attempt: 0,
     }
     this.connections.set(serverId, connection)
-    this.emitConnectionCreated(connection)
-    transport.start()
+    // `ensure()` is reached from derived renderer state — a component asking
+    // which API surface its tab talks to — so its side effects must not run
+    // inside that computation. Both the created-listeners and the transport's
+    // first status change write Svelte state, which is forbidden mid-derivation.
+    // The connection is usable immediately either way: requests queue until the
+    // socket is up. A connection released before the microtask runs is skipped,
+    // so a borrowed host never opens a socket nobody owns.
+    queueMicrotask(() => {
+      if (this.connections.get(serverId) !== connection) return
+      this.emitConnectionCreated(connection)
+      transport.start()
+    })
     return connection
   }
 
@@ -159,6 +169,22 @@ export class ServerConnections {
     } finally {
       if (!hadConnection) this.release(serverId)
     }
+  }
+
+  /**
+   * Every host there is a live connection to, primary first.
+   *
+   * "Connected" here means a connection object exists — not that its socket is
+   * up. A caller that fans a read out across hosts wants the same set the app is
+   * already talking to, and must not conjure sockets to saved-but-unused hosts.
+   */
+  connectedServerIds(): string[] {
+    const ids = [...this.connections.keys()]
+    if (!this.primaryServerId) return ids
+    return [
+      this.primaryServerId,
+      ...ids.filter((id) => id !== this.primaryServerId),
+    ].filter((id) => this.connections.has(id))
   }
 
   connectionFor(serverId?: string): ManagedConnection | undefined {

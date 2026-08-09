@@ -101,6 +101,25 @@
     store.closeTask(task);
   }
 
+  /** The group-level twin of `removeTask`: the whole section leaves the list.
+   *  Runs in flight are the one thing that cannot come back as they were, so a
+   *  project holding any asks first. */
+  function removeProject(group: (typeof groups)[number], e: Event) {
+    e.stopPropagation();
+    const running = store.runningTaskCountIn(group.projectKey);
+    if (running > 0) {
+      toasts.show({
+        message: `Stop ${running === 1 ? "the run" : `${running} runs`} in “${group.projectLabel}” and remove its tasks from the sidebar?`,
+        actions: [
+          { label: "Stop and remove", onAction: () => store.closeProject(group.projectKey) },
+          { label: "Keep open", onAction: requestInputFocus },
+        ],
+      });
+      return;
+    }
+    store.closeProject(group.projectKey);
+  }
+
   async function finishTask(task: (typeof store.allTasks)[number]) {
     try {
       if (task.taskId) await session.tasksStore.setStatus(task.taskId, "done");
@@ -176,7 +195,7 @@
   }
 
   function newSession() {
-    void session.createDraftTab(undefined, { via: "click" });
+    session.openSessionDraft({ via: "click" });
     requestInputFocus();
     onSessionSelect();
   }
@@ -269,7 +288,7 @@
       <div class={sectionLabel}>Pinned</div>
       {#each store.pinnedSessions as pin (pin.sessionId)}
         {@const openTabId = store.openTabIdForPinned(pin)}
-        {@const isActive = !!openTabId && openTabId === session.activeTabId}
+        {@const isActive = !!openTabId && openTabId === session.onScreenTabId}
         {@const reviewStatus = reviewStatusForTab(openTabId)}
         <button
           class="{rowBase} {isActive ? 'bg-(--solus-accent-light)' : 'bg-transparent active:bg-(--solus-surface-hover)'}"
@@ -308,15 +327,30 @@
       </div>
     {:else if hasSessions}
       {#each groups as group (group.projectKey)}
-        <button
-          type="button"
+        <!-- A phone has no hover, so the project's close sits in the heading
+             beside its count at the same tap size as a task's own remove. -->
+        <div
+          role="button"
+          tabindex="0"
           class="{sectionLabel} flex min-h-10 w-full cursor-pointer items-center gap-2 text-left [-webkit-tap-highlight-color:transparent] active:bg-(--solus-surface-hover)"
           aria-expanded={!collapsedProjectKeys.has(group.projectKey)}
           aria-controls={projectGroupId(group.projectKey)}
           onclick={() => toggleProject(group.projectKey)}
+          onkeydown={(e) => {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            e.preventDefault();
+            toggleProject(group.projectKey);
+          }}
         >
           <span class="min-w-0 flex-1 truncate">{group.projectLabel}</span>
           <span class="font-mono text-[0.6875rem] opacity-60 tabular-nums">{group.tasks.length}</span>
+          <button
+            class="shrink-0 w-9 h-9 flex items-center justify-center rounded-full border-0 bg-transparent text-(--solus-text-muted) cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-tertiary) active:text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
+            aria-label="Close {group.projectLabel} and remove its tasks from the sidebar"
+            onclick={(e) => removeProject(group, e)}
+          >
+            <XIcon size={15} />
+          </button>
           <CaretRightIcon
             size={12}
             class="shrink-0 transition-transform duration-150 {collapsedProjectKeys.has(
@@ -325,7 +359,7 @@
               ? ''
               : 'rotate-90'}"
           />
-        </button>
+        </div>
         {#if !collapsedProjectKeys.has(group.projectKey)}
           <div
             id={projectGroupId(group.projectKey)}
@@ -333,7 +367,7 @@
           >
             {#each group.tasks as task (task.id)}
               {@const taskSessions = task.taskId ? store.sessionsFor(task) : []}
-              {@const isActive = task.tabIds.includes(session.activeTabId)}
+              {@const isActive = task.tabIds.includes(session.onScreenTabId)}
               {@const leadTabId = task.tabIds[0]}
               {@const reviewStatus = aggregateReviewGuideStatus(
                 taskSessions.length > 0
@@ -387,7 +421,7 @@
           </div>
 
           {#each taskSessions as child (child.sessionId ?? child.tabId ?? child.taskId)}
-            {@const childActive = child.tabId === session.activeTabId}
+            {@const childActive = child.tabId === session.onScreenTabId}
             <div
               class="{rowBase} {childActive ? 'bg-(--solus-accent-light)' : 'bg-transparent active:bg-(--solus-surface-hover)'}"
               role="button"

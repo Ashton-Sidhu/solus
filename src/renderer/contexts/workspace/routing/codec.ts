@@ -73,7 +73,16 @@ export function parseLocation(text: string): Location {
   for (const raw of params.getAll('p')) {
     // URLSearchParams has already decoded each query value exactly once.
     const pane = parsePane(raw)
-    if (pane) panes.push(pane)
+    if (!pane) continue
+    // A chat that names no session is the conversation pool's, and only the
+    // leading pane renders the pool. Saved beside it, the same conversation
+    // would come back on both sides of the split, so the pane is dropped —
+    // unless an overlay is what it was really holding.
+    if (pane.base?.name === 'chat' && !pane.base.params.sessionId) {
+      pane.base = null
+      if (!pane.overlay) continue
+    }
+    panes.push(pane)
   }
 
   const focusIndex = Number(params.get('f') ?? 0)

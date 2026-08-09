@@ -48,10 +48,16 @@
   const session = getWorkspaceContext();
   const router = session.router;
 
-  $effect(() => diffSummaryStore.refresh(session, tabId, scope, changedFiles));
+  // The card sits in a tab, but the change it summarises belongs to the session.
+  const sessionId = $derived(session.tabs[tabId]?.sessionId ?? "");
+
+  $effect(() => diffSummaryStore.refresh(session, sessionId, scope, changedFiles));
 
   const tree = $derived(
-    buildDiffSummaryTree(changedFiles, diffSummaryStore.statsFor(tabId, scope)),
+    buildDiffSummaryTree(
+      changedFiles,
+      diffSummaryStore.statsFor(sessionId, scope),
+    ),
   );
 
   let cardEl = $state<HTMLElement>();

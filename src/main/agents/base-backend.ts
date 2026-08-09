@@ -50,14 +50,14 @@ export class BaseAgentBackend<H extends RunHandle = RunHandle> extends EventEmit
   }
 
   protected promoteToActive(handle: H, sessionId: string): void {
-    handle.sessionId = sessionId
+    handle.agentSessionId = sessionId
     const idx = this.pendingRuns.indexOf(handle)
     if (idx !== -1) this.pendingRuns.splice(idx, 1)
     this.activeRuns.set(sessionId, handle)
   }
 
   protected finishRun(handle: H): void {
-    const sessionId = handle.sessionId
+    const sessionId = handle.agentSessionId
     if (sessionId) {
       this.finishedRuns.set(sessionId, handle)
       this.activeRuns.delete(sessionId)

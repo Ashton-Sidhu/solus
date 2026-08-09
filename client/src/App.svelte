@@ -6,9 +6,17 @@
     savePersistedTabs,
     saveDraftsDebounced,
     flushDrafts,
+    savePersistedSessionDraftsDebounced,
+    flushPersistedSessionDrafts,
     type PersistedTabs,
   } from "@renderer/contexts/workspace/tab-persistence";
-  import { withCheckout } from "@renderer/contexts/workspace/run-config";
+  import { taskTargetFields } from "@renderer/contexts/workspace/session-draft.svelte";
+  import type { RunConfig } from "@shared/types";
+  import {
+    withCheckout,
+    withHost,
+    withProjectHost,
+  } from "@renderer/contexts/workspace/run-config";
   import { setupAgentEvents } from "@renderer/hooks/agentEvents.svelte";
   import { materializeTabs } from "@renderer/contexts/workspace/session-bootstrap";
   import { loadServers, LOCAL_SERVER_ID } from "@client-core/server-registry";
@@ -23,7 +31,7 @@
   import { serverConnections } from "@client-core/server-connections";
   import { openProjectStore } from "@renderer/components/servers/open-project.store.svelte";
   import { hostOnboardingStore } from "@renderer/components/servers/host-onboarding.store.svelte";
-  import { retargetSessionHost, isRunOnHostLocked } from "@renderer/components/servers/run-on";
+  import { moveTabToHost, isRunOnHostLocked } from "@renderer/components/servers/run-on";
   import { webState } from "./lib/web-state.svelte";
   import {
     useKeybinding,
@@ -128,27 +136,26 @@
         const sess = session.sessionFor(tabId);
         return {
           tabId,
-          title: tab.title ?? "New Tab",
-          titleCustom: tab.titleCustom ?? false,
-          serverId: sess?.serverId ?? LOCAL_SERVER_ID,
+          title: sess?.title ?? "New Tab",
+          titleCustom: sess?.titleCustom ?? false,
+          serverId: sess?.run.serverId ?? LOCAL_SERVER_ID,
           serverInstallationId: savedServers.find(
-            (server) => server.id === sess?.serverId,
+            (server) => server.id === sess?.run.serverId,
           )?.installationId,
           agentSessionId: sess?.agentSessionId ?? null,
-          provider: sess?.provider ?? null,
+          provider: sess?.run.provider ?? null,
           handoffFrom: sess?.handoffFrom ? { ...sess.handoffFrom } : undefined,
-          workingDirectory: sess?.workingDirectory ?? session.globalDefaults.workingDirectory,
-          projectGroupPath: sess?.projectGroupPath ?? null,
+          workingDirectory: sess?.run.workingDirectory ?? session.globalDefaults.workingDirectory,
+          projectGroupPath: sess?.run.projectGroupPath ?? null,
           additionalDirs: sess ? [...sess.additionalDirs] : [],
-          gitContext: sess?.gitContext ? { ...sess.gitContext } : null,
-          worktreeBaseBranch: sess?.worktreeBaseBranch ?? null,
-          worktreeRequired: sess?.worktreeRequired ?? false,
-          modelConfig: sess ? { ...sess.modelConfig } : { ...session.globalDefaults.modelConfig },
-          permissionMode: sess?.permissionMode ?? session.globalDefaults.permissionMode,
+          gitContext: sess?.run.gitContext ? { ...sess.run.gitContext } : null,
+          worktreeBaseBranch: sess?.run.worktree?.baseBranch ?? null,
+          worktreeRequested: !!sess?.run.worktree,
+          taskServerId: sess?.run.taskServerId ?? LOCAL_SERVER_ID,
+          modelConfig: sess ? { ...sess.run.modelConfig } : { ...session.globalDefaults.modelConfig },
+          permissionMode: sess?.run.permissionMode ?? session.globalDefaults.permissionMode,
           hasUnread: tab.hasUnread ?? false,
-          pendingTaskId: sess?.pendingTaskId ?? null,
-          pendingParentTaskId: sess?.pendingParentTaskId ?? null,
-          taskCreationDisabled: sess?.taskCreationDisabled ?? false,
+          ...(sess ? taskTargetFields(sess.task) : {}),
           terminalFailure: sess?.terminalFailure ? { ...sess.terminalFailure } : null,
           contextUsage: sess?.contextUsage ? { ...sess.contextUsage } : null,
         };
@@ -169,15 +176,26 @@
     if (session.hydrating) return;
     const tabs: Record<string, string> = {};
     for (const tabId of session.tabOrder) {
-      const tab = session.tabs[tabId];
-      if (tab) tabs[tabId] = tab.input.text;
+      const sess = session.sessionFor(tabId);
+      if (sess) tabs[tabId] = sess.prompt.text;
     }
     saveDraftsDebounced({ activeInputText: session.activeInput.text, tabs });
   });
 
+  // Session drafts persist on their own key: they have no tab to ride, and a
+  // prompt the user already wrote must survive a reload. The web client
+  // restores from this key (materializeTabs), so it must write it too.
+  $effect(() => {
+    if (session.hydrating) return;
+    savePersistedSessionDraftsDebounced(session.sessionDraftsSnapshot);
+  });
+
   // Flush pending drafts before the window unloads so the latest keystrokes survive.
   $effect(() => {
-    const flush = () => flushDrafts();
+    const flush = () => {
+      flushDrafts();
+      flushPersistedSessionDrafts();
+    };
     window.addEventListener("pagehide", flush);
     return () => {
       flush();
@@ -212,7 +230,7 @@
   // Set when a caller names the host to browse — the "Run on" picker and the
   // Open project flow both browse a host no tab points at yet.
   let directoryPickerServerIdOverride = $state<string | undefined>(undefined);
-  let directoryPickerRequireWorktree = $state(false);
+  let directoryPickerIntent = $state<"dispatch" | "open-project">("open-project");
   // "Choose location…" in the Open project flow borrows the same browser; its
   // selection is handed back to that flow instead of retargeting a tab here.
   let directoryPickerForOpenProject = $state(false);
@@ -258,7 +276,7 @@
     session.tabOrder.filter((id) => session.tabs[id]),
   );
   const permissionMode = $derived(
-    session.activeSession?.permissionMode ?? "auto",
+    session.activeSession?.run.permissionMode ?? "auto",
   );
 
   // ── Host-aware directory picker (mirrors the desktop shell) ──────────────
@@ -286,8 +304,8 @@
   const directoryPickerServerId = $derived(
     directoryPickerServerIdOverride ??
       (directoryPickerTargetTabId
-        ? session.sessionFor(directoryPickerTargetTabId)?.serverId
-        : session.activeSession?.serverId) ??
+        ? session.sessionFor(directoryPickerTargetTabId)?.run.serverId
+        : session.activeSession?.run.serverId) ??
       LOCAL_SERVER_ID,
   );
   // apiFor() opens the connection as a side effect, so only reach for it while
@@ -305,8 +323,8 @@
     const targetSession = directoryPickerTargetTabId
       ? session.sessionFor(directoryPickerTargetTabId)
       : null;
-    if (targetSession?.serverId === directoryPickerServerId) {
-      return targetSession.workingDirectory;
+    if (targetSession?.run.serverId === directoryPickerServerId) {
+      return targetSession.run.workingDirectory;
     }
     return undefined;
   });
@@ -443,7 +461,7 @@
     if (!models || models.length === 0) return;
     const defaultModel = agent.activeMetadata?.defaultModel;
     const currentModel =
-      session.activeSession?.modelConfig.modelId ??
+      session.activeSession?.run.modelConfig.modelId ??
       session.activeSession?.sessionModel ??
       defaultModel ??
       models[0].id;
@@ -477,18 +495,27 @@
         event as CustomEvent<{
           tabId?: string;
           draftId?: string;
+          /** A tab id or a draft id — the surface that asked, when the emitter
+           *  (RunOnPicker) does not know which kind it is scoped to. */
+          requesterId?: string;
           serverId?: string;
-          requireWorktree?: boolean;
+          intent?: "dispatch" | "open-project";
         }>
       ).detail;
-      directoryPickerDraftId = detail?.draftId;
-      const targetTabId = detail?.tabId;
+      const requesterId = detail?.requesterId;
+      const requesterDraftId =
+        requesterId && session.sessionDrafts.has(requesterId)
+          ? requesterId
+          : undefined;
+      directoryPickerDraftId = detail?.draftId ?? requesterDraftId;
+      const targetTabId =
+        detail?.tabId ?? (requesterDraftId ? undefined : requesterId);
       const tab = targetTabId ? session.tabs[targetTabId] : null;
       const opensInNewTab = tab?.sessionId != null;
       directoryPickerNewTab = opensInNewTab;
       directoryPickerTargetTabId = opensInNewTab ? undefined : targetTabId;
       directoryPickerServerIdOverride = detail?.serverId;
-      directoryPickerRequireWorktree = detail?.requireWorktree === true;
+      directoryPickerIntent = detail?.intent ?? "open-project";
       directoryPickerForOpenProject = false;
       directoryPickerOpen = true;
     };
@@ -524,8 +551,17 @@
     directoryPickerDraftId = undefined;
     if (draftId) {
       const draft = session.sessionDrafts.get(draftId);
+      const draftHostOverride = directoryPickerServerIdOverride;
+      const draftIntent = directoryPickerIntent;
+      directoryPickerServerIdOverride = undefined;
+      directoryPickerIntent = "open-project";
       if (draft) {
-        draft.run = withCheckout(draft.run, dir, null);
+        // A browse that started from a host row carries that host with it —
+        // the picked folder is a path on that machine, not this one.
+        draft.run =
+          draftHostOverride && draft.run.serverId !== draftHostOverride
+            ? applyHostIntent(draft.run, draftHostOverride, dir, draftIntent)
+            : withCheckout(draft.run, dir, null);
         void session.environment.refresh(dir);
       }
       requestInputFocus();
@@ -533,23 +569,26 @@
     }
     const targetTabId = directoryPickerTargetTabId;
     const overrideServerId = directoryPickerServerIdOverride;
-    const requireWorktree = directoryPickerRequireWorktree;
+    const intent = directoryPickerIntent;
     directoryPickerServerIdOverride = undefined;
-    directoryPickerRequireWorktree = false;
+    directoryPickerIntent = "open-project";
     if (directoryPickerNewTab) {
       directoryPickerNewTab = false;
-      const newTabId = await session.createDraftTab(dir);
+      // A started conversation keeps its folder; the project opens as a new
+      // draft beside it. Choosing a host is part of that draft's run config —
+      // there is no tab to move, because nothing has started.
+      const draft = session.openSessionDraft({}, dir);
       if (overrideServerId) {
-        moveTabToHost(newTabId, overrideServerId, dir, { requireWorktree });
+        draft.run = applyHostIntent(draft.run, overrideServerId, dir, intent);
       }
     } else if (
       targetTabId &&
       overrideServerId &&
-      session.sessionFor(targetTabId)?.serverId !== overrideServerId
+      session.sessionFor(targetTabId)?.run.serverId !== overrideServerId
     ) {
       // The folder lives on another host, so the tab has to move there too —
       // setBaseDirectory alone would point the current host at a missing path.
-      moveTabToHost(targetTabId, overrideServerId, dir, { requireWorktree });
+      placeTabOnHost(targetTabId, overrideServerId, dir, { intent });
     } else {
       await session.setBaseDirectory(dir, targetTabId);
     }
@@ -562,7 +601,7 @@
     directoryPickerNewTab = false;
     directoryPickerTargetTabId = undefined;
     directoryPickerServerIdOverride = undefined;
-    directoryPickerRequireWorktree = false;
+    directoryPickerIntent = "open-project";
     // Cancelling a browse that the Open project flow started returns to that
     // flow, on the step it left — not to an empty screen.
     if (directoryPickerForOpenProject) {
@@ -573,20 +612,34 @@
     requestInputFocus();
   }
 
-  function moveTabToHost(
+  /** The tab moves; no session does — nothing has started on it yet. */
+  function placeTabOnHost(
     tabId: string,
     serverId: string,
     path: string,
-    options: { requireWorktree?: boolean } = {},
+    options: { intent?: "dispatch" | "open-project" } = {},
   ) {
-    retargetSessionHost({
+    moveTabToHost({
       workspace: session,
       tabId,
       serverId,
       isLocalHost: serverId === LOCAL_SERVER_ID,
       path,
-      requireWorktree: options.requireWorktree,
+      intent: options.intent ?? "open-project",
     });
+  }
+
+  /** The draft equivalent of `placeTabOnHost`: a folder chosen on a host is
+   *  that host's project, while a dispatch leaves the project where it is. */
+  function applyHostIntent(
+    run: RunConfig,
+    serverId: string,
+    path: string,
+    intent: "dispatch" | "open-project",
+  ): RunConfig {
+    return intent === "dispatch"
+      ? withHost(run, serverId, { path })
+      : withProjectHost(run, serverId, { path });
   }
 
   /**
@@ -615,16 +668,36 @@
     openProjectStore.close();
     if (!serverId) return;
 
+    // The flow may have been started from a draft (RunOnPicker passes its
+    // requester id through `tabId`); re-aim that draft instead of opening a
+    // second one and orphaning the prompt already typed into it.
+    const requesterDraft = tabId ? session.sessionDrafts.get(tabId) : undefined;
     // A started session keeps its folder — the project opens beside it instead.
     const reusableTabId =
+      !requesterDraft &&
       tabId &&
       session.tabs[tabId] &&
       !isRunOnHostLocked(session.sessionFor(tabId))
         ? tabId
         : null;
-    const targetTabId = reusableTabId ?? (await session.createDraftTab(path));
-    moveTabToHost(targetTabId, serverId, path);
-    requestInputFocus({ tabId: targetTabId });
+    // A reusable tab is moved across; with none, the project opens as a draft
+    // that simply names the host it will run on.
+    if (requesterDraft) {
+      requesterDraft.run = withProjectHost(
+        withCheckout(requesterDraft.run, path, null),
+        serverId,
+        { path },
+      );
+      void session.environment.refresh(path);
+      requestInputFocus();
+    } else if (reusableTabId) {
+      placeTabOnHost(reusableTabId, serverId, path);
+      requestInputFocus({ tabId: reusableTabId });
+    } else {
+      const draft = session.openSessionDraft({}, path);
+      draft.run = withProjectHost(draft.run, serverId, { path });
+      requestInputFocus();
+    }
 
     // A clone that authenticated as nobody works right up until the push, which
     // is 25 minutes away at PR time. Say so now, without blocking the session.
@@ -665,7 +738,7 @@
     directoryPickerNewTab = false;
     directoryPickerTargetTabId = undefined;
     directoryPickerServerIdOverride = openProjectStore.serverId;
-    directoryPickerRequireWorktree = false;
+    directoryPickerIntent = "open-project";
     directoryPickerOpen = true;
   }
 
@@ -673,7 +746,7 @@
   async function finishBrowsedOpenProject(dir: string) {
     directoryPickerForOpenProject = false;
     directoryPickerServerIdOverride = undefined;
-    directoryPickerRequireWorktree = false;
+    directoryPickerIntent = "open-project";
     openProjectStore.back();
     if (openProjectStore.source === "local") {
       await openProjectAtPath(dir, false);
@@ -696,7 +769,7 @@
     if (enabledAgents.length <= 1) return;
 
     const currentAgent =
-      session.activeSession?.provider ?? settings.activeAgent;
+      session.activeSession?.run.provider ?? settings.activeAgent;
     const idx = enabledAgents.findIndex(
       (candidate) => candidate.id === currentAgent,
     );
@@ -805,6 +878,15 @@
   {:then serverSetupModule}
     {@const ServerSetupSurface = serverSetupModule.default}
     <ServerSetupSurface />
+  {/await}
+{/if}
+
+<!-- First run only. Mounted over everything, and never lazily pre-warmed: a
+     client that has already been through it must not pay for the chunk. -->
+{#if !settings.onboardingCompleted}
+  {#await import("@renderer/components/onboarding/OnboardingSurface.svelte") then onboardingModule}
+    {@const OnboardingSurface = onboardingModule.default}
+    <OnboardingSurface />
   {/await}
 {/if}
 

@@ -24,5 +24,5 @@
   </div>
 {:then subagentModule}
   {@const SubagentPane = subagentModule.default}
-  <SubagentPane tabId={params.tabId} messageId={params.messageId} />
+  <SubagentPane sessionId={params.sessionId} messageId={params.messageId} />
 {/await}

@@ -131,6 +131,15 @@ class ServersStore {
     ]
   }
 
+  /**
+   * Remotes reachable right now, not merely saved. A host answers a health
+   * probe or holds a live transport before it counts, so the run-on picker
+   * only offers machines a session could actually start on.
+   */
+  get connectedRemotes(): ServerItem[] {
+    return this.servers.filter((server) => !server.local && server.status === 'online')
+  }
+
   /** On web the primary connection plays the local role; see `servers`.
    *  `typeof` guard: unit tests read this store without a `window` at all. */
   private get isWebClient(): boolean {

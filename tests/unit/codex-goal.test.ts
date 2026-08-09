@@ -27,13 +27,13 @@ function goalSync(api: {
     goal: goal('Original'),
   } as Session
   const sync = new GoalSync({
-    sessionFor: () => session,
-    apiFor: () => ({
+    sessionById: () => session,
+    apiForSession: () => ({
       getThreadGoal: api.getThreadGoal ?? (async () => session.goal ?? null),
       setThreadGoal: api.setThreadGoal ?? (async (request) => goal(request.objective ?? 'Original')),
       clearThreadGoal: api.clearThreadGoal ?? (async () => true),
     }) as any,
-    ctxFor: () => ({}) as any,
+    ctxForSession: () => ({}) as any,
   })
   return { session, sync }
 }

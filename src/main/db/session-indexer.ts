@@ -37,6 +37,7 @@ interface SessionRow {
   model: string | null
   reasoning_effort: string | null
   project_root: string | null
+  server_id: string | null
   parent_session_id: string | null
   root_session_id: string | null
   delegation_exchange_id: string | null
@@ -590,6 +591,7 @@ function rowToSession(row: SessionRow): SessionMeta {
     model: row.model ?? undefined,
     reasoningEffort: (row.reasoning_effort as SessionMeta['reasoningEffort']) ?? undefined,
     projectRoot: row.project_root ?? undefined,
+    serverId: row.server_id ?? undefined,
     delegation,
   }
 }
@@ -597,8 +599,8 @@ function rowToSession(row: SessionRow): SessionMeta {
 const SESSION_SELECT = `
   session_id, provider, cwd, project_path, is_worktree, slug, first_message,
   custom_title, last_timestamp, size, model, reasoning_effort, project_root,
-  parent_session_id, root_session_id, delegation_exchange_id, delegation_depth,
-  delegation_intent, delegation_created_at
+  server_id, parent_session_id, root_session_id, delegation_exchange_id,
+  delegation_depth, delegation_intent, delegation_created_at
 `
 
 export function getIndexedSession(sessionId: string): SessionMeta | null {
@@ -646,6 +648,44 @@ export function persistIndexedSessionStart(
     Date.now(),
     model,
     reasoningEffort,
+  )
+}
+
+/**
+ * Record a session this host knows about but does not hold: one a client
+ * dispatched to another machine while its task stayed here (ADR-0006).
+ *
+ * The client is the only party that can write this — the execution host cannot
+ * name itself, and this host never sees the session's transcript. `cwd` and
+ * `project_path` stay null on purpose: the agent's checkout is a path on the
+ * borrowed machine and would file the session under a project that does not
+ * exist here. `projectRoot` is the group path as the *user* knows it, which is
+ * the one location fact that means the same thing on both machines.
+ *
+ * Existing columns are never overwritten, so a host that later indexes the real
+ * transcript wins on everything except the one fact only the client had.
+ */
+export function persistRemoteSessionStart(
+  sessionId: string,
+  provider: AgentId,
+  serverId: string,
+  projectRoot: string | null,
+): void {
+  getDb().prepare(`
+    INSERT INTO sessions(
+      session_id, provider, cwd, project_path, project_key, project_root,
+      is_worktree, slug, first_message, last_timestamp, message_count, size, server_id
+    )
+    VALUES (?, ?, NULL, NULL, NULL, ?, 0, NULL, NULL, ?, 0, 0, ?)
+    ON CONFLICT(session_id) DO UPDATE SET
+      project_root = COALESCE(sessions.project_root, excluded.project_root),
+      server_id = COALESCE(excluded.server_id, sessions.server_id)
+  `).run(
+    sessionId,
+    provider === 'claude-code' ? 'claude' : provider,
+    projectRoot,
+    Date.now(),
+    serverId,
   )
 }
 

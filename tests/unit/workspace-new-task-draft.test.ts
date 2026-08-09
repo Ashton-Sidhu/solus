@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { SvelteMap } from 'svelte/reactivity'
 import type { Session, Tab } from '../../src/shared/types'
 
 const previousWindow = globalThis.window
@@ -36,259 +37,295 @@ afterEach(() => {
   else globalThis.Audio = previousAudio
 })
 
-describe('new tab draft', () => {
-  test('is an ordinary tab from the start, but reaches the server only on the first prompt', async () => {
-    installRendererGlobals()
-    let runtimeTabCreations = 0
-    Object.assign(window.solus, {
-      createTab: async (tabId: string) => {
-        runtimeTabCreations++
-        return { tabId }
-      },
-      prompt: async () => {},
-      trackRecentProject: async () => {},
-    })
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
-    const sourceSession = {
-      id: 'source-session',
-      agentSessionId: 'agent-session',
-      run: {
-        serverId: 'local',
-        provider: 'codex',
-        workingDirectory: '/repo',
-        gitContext: { repoRoot: '/repo', branch: 'feature/tasks', targetBranch: 'main' },
-        modelConfig: { modelId: 'gpt-5', reasoningEffort: 'high', contextWindow: null, fastMode: false },
-        sessionSkills: [],
-      } as Session['run'],
-    } as unknown as Session
-    const sourceTab = { id: 'source-tab', sessionId: sourceSession.id } as Tab
-    const registry = {
-      tabs: { [sourceTab.id]: sourceTab } as Record<string, Tab>,
-      sessions: { [sourceSession.id]: sourceSession } as Record<string, Session>,
-      tabOrder: [sourceTab.id],
-      activeTabId: sourceTab.id,
-      get activeSession() { return this.sessions[this.tabs[this.activeTabId]?.sessionId] },
-    }
-    const workspace = Object.create(WorkspaceContext.prototype) as any
-    workspace.registry = registry
-    workspace.draftTabId = null
-    workspace.router = { asidePanes: [], chatTabIn: () => null }
-    workspace.lifecycle = {
-      staticInfo: { projectPath: '/repo', workspacePath: '/repo' },
-      pluginCommands: { global: [], project: [] },
-    }
-    workspace.ui = { isExpanded: true }
-    workspace.settings = {
-      activeAgent: 'codex',
-      rateLimitBehavior: 'ask',
-      worktreeEnabled: false,
-    }
-    workspace.config = {
-      globalDefaults: {
-        permissionMode: 'auto',
-        workingDirectory: '/repo',
-        gitContext: sourceSession.run.gitContext,
-        worktreeBaseBranch: null,
-        modelConfig: sourceSession.run.modelConfig,
-      },
-      defaultReasoningEffortFor: () => 'high',
-      pendingSessionStartTarget: () => null,
-    }
-    workspace.tasksStore = {
-      taskForSession: () => ({ id: 'task-root' }),
-      tasks: [{ id: 'task-root' }],
-    }
-    workspace.promptComposer = {
-      compose: (prompt: string) => prompt,
-      composeImages: () => [],
-    }
-    workspace.eventReducer = { closeAgentConversationTurn: () => {} }
-    workspace.environment = { refreshTab: async () => {} }
-    workspace.refreshPluginCommands = async () => {}
-    workspace.resetOverlays = () => {}
-    workspace.setActiveTab = (tabId: string) => { registry.activeTabId = tabId }
-    workspace.addTabToOrder = (tabId: string) => registry.tabOrder.push(tabId)
+const GLOBAL_MODEL_CONFIG = {
+  modelId: 'claude-sonnet-4-5',
+  reasoningEffort: 'high' as const,
+  contextWindow: null,
+  fastMode: false,
+}
 
-    const draftTabId = await workspace.createDraftTab(undefined, { via: 'keybinding' })
-    const draftSession = workspace.sessionFor(draftTabId)
-
-    // WHY: a composer is a tab like any other — it is in the order, so the pool
-    // renders it and the sidebar files it under the task it inherited. Nothing
-    // has to promote it later, which is the whole point: there is no promotion
-    // step to forget on a path that fills the tab some other way.
-    expect(registry.tabOrder).toEqual(['source-tab', draftTabId])
-    expect(registry.activeTabId).toBe(draftTabId)
-    expect(workspace.isDraftTab(draftTabId)).toBe(true)
-    expect(draftSession?.pendingTaskId).toBe('task-root')
-    // WHY: being a tab in the renderer says nothing about the server. The
-    // provider session is still minted by the first prompt, not by opening a
-    // composer the user may never send from.
-    expect(runtimeTabCreations).toBe(0)
-
-    draftSession.status = 'idle'
-    expect(workspace.sendMessage('Implement it', undefined, draftTabId)).toBe(true)
-
-    // WHY: draftness is read off the session, so dispatching is all it takes to
-    // stop being one.
-    expect(workspace.isDraftTab(draftTabId)).toBe(false)
-    expect(registry.tabOrder).toEqual(['source-tab', draftTabId])
-
-    workspace.handleError = () => {}
-    workspace.ctxFor = () => ({})
-    await Promise.resolve()
-    expect(runtimeTabCreations).toBe(1)
+/**
+ * A workspace holding one started session, wired with just enough of the real
+ * context to open drafts and dispatch them.
+ */
+async function makeWorkspace(options: { runtimeTabCreations?: { count: number } } = {}) {
+  installRendererGlobals()
+  const runtime = options.runtimeTabCreations ?? { count: 0 }
+  Object.assign(window.solus, {
+    createTab: async (tabId: string) => {
+      runtime.count++
+      return { tabId }
+    },
+    prompt: async () => {},
+    trackRecentProject: async () => {},
   })
 
-  test('starts a fresh task from project context and global defaults only', async () => {
-    installRendererGlobals()
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
-    const sourceSession = {
-      id: 'source-session',
-      agentSessionId: 'agent-session',
-      run: {
-        serverId: 'remote-host',
-        provider: 'codex',
-        workingDirectory: '/repo/.worktrees/feature',
-        gitContext: {
-          repoRoot: '/repo',
-          worktreePath: '/repo/.worktrees/feature',
-          branch: 'feature/tasks',
-          targetBranch: 'main',
-        },
-        modelConfig: { modelId: 'gpt-5', reasoningEffort: 'high', contextWindow: 400_000, fastMode: true },
-        sessionSkills: ['source-only-skill'],
-      } as Session['run'],
-    } as unknown as Session
-    const sourceTab = { id: 'source-tab', sessionId: sourceSession.id } as Tab
-    const registry = {
-      tabs: { [sourceTab.id]: sourceTab } as Record<string, Tab>,
-      sessions: { [sourceSession.id]: sourceSession } as Record<string, Session>,
-      tabOrder: [sourceTab.id],
-      activeTabId: sourceTab.id,
-      get activeSession() { return this.sessions[this.tabs[this.activeTabId]?.sessionId] },
-    }
-    const globalModelConfig = {
-      modelId: 'claude-sonnet-4-5',
-      reasoningEffort: 'medium',
-      contextWindow: 200_000,
-      fastMode: false,
-    }
-    const workspace = Object.create(WorkspaceContext.prototype) as any
-    workspace.registry = registry
-    workspace.draftTabId = null
-    workspace.router = { asidePanes: [], chatTabIn: () => null }
-    workspace.lifecycle = {
-      staticInfo: { projectPath: '/fallback-project', workspacePath: '/workspace' },
-      pluginCommands: { global: [], project: [] },
-    }
-    workspace.ui = { isExpanded: true }
-    workspace.settings = {
-      activeAgent: 'claude-code',
-      rateLimitBehavior: 'ask',
-      worktreeEnabled: true,
-    }
-    workspace.config = {
-      globalDefaults: {
-        permissionMode: 'auto',
-        workingDirectory: '/global-default',
-        gitContext: null,
-        worktreeBaseBranch: null,
-        modelConfig: globalModelConfig,
-      },
-      defaultReasoningEffortFor: () => 'medium',
-    }
-    workspace.tasksStore = {
-      taskForSession: () => ({ id: 'task-root' }),
-      tasks: [{ id: 'task-root' }],
-    }
-    let refreshOptions: { tabId: string; worktreeRequested: boolean } | undefined
-    workspace.environment = {
-      refreshTab: async (_workspace: unknown, options: { tabId: string; worktreeRequested: boolean }) => {
-        refreshOptions = options
-      },
-    }
-    workspace.refreshPluginCommands = async () => {}
-    workspace.resetOverlays = () => {}
-    workspace.setActiveTab = (tabId: string) => { registry.activeTabId = tabId }
-    workspace.addTabToOrder = (tabId: string) => {
-      if (!registry.tabOrder.includes(tabId)) registry.tabOrder.push(tabId)
-    }
+  const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+  const sourceSession = {
+    id: 'source-session',
+    agentSessionId: 'agent-session',
+    status: 'idle',
+    messages: [],
+    run: {
+      serverId: 'local',
+      provider: 'codex',
+      workingDirectory: '/repo',
+      gitContext: { repoRoot: '/repo', branch: 'feature/tasks', targetBranch: 'main' },
+      worktree: null,
+      taskServerId: 'local',
+      permissionMode: 'auto',
+      modelConfig: { modelId: 'gpt-5', reasoningEffort: 'high', contextWindow: null, fastMode: false },
+      sessionSkills: [],
+      pendingHostDispatch: null,
+    } as Session['run'],
+  } as unknown as Session
+  const sourceTab = { id: 'source-tab', sessionId: sourceSession.id } as Tab
+  const registry = {
+    tabs: { [sourceTab.id]: sourceTab } as Record<string, Tab>,
+    sessions: { [sourceSession.id]: sourceSession } as Record<string, Session>,
+    tabOrder: [sourceTab.id],
+    activeTabId: sourceTab.id,
+    get activeSession() { return this.sessions[this.tabs[this.activeTabId]?.sessionId] },
+    sessionFor(tabId: string) { return this.sessions[this.tabs[tabId]?.sessionId] },
+  }
 
-    const draftTabId = await workspace.createDraftTab(undefined, { freshTask: true })
-    const draftSession = workspace.sessionFor(draftTabId)
+  const navigations: Array<{ name: string; draftId?: string }> = []
+  const workspace = Object.create(WorkspaceContext.prototype) as any
+  workspace.registry = registry
+  workspace.sessionDrafts = new SvelteMap()
+  workspace.router = {
+    asidePanes: [],
+    chatSessionIn: () => null, showsChat: () => false,
+    focusedPaneId: 'pane_1',
+    pane: () => null,
+    navigate: (ref: any) => navigations.push({ name: ref.name, draftId: ref.params?.draftId }),
+  }
+  workspace.lifecycle = {
+    staticInfo: { projectPath: '/repo', workspacePath: '/repo' },
+    pluginCommands: { global: [], project: [] },
+  }
+  workspace.ui = { isExpanded: true }
+  workspace.settings = { activeAgent: 'claude-code', rateLimitBehavior: 'ask', worktreeEnabled: true }
+  workspace.config = {
+    globalDefaults: {
+      permissionMode: 'auto',
+      workingDirectory: '/repo',
+      gitContext: null,
+      worktreeBaseBranch: null,
+      modelConfig: GLOBAL_MODEL_CONFIG,
+    },
+    defaultReasoningEffortFor: () => 'high',
+    pendingSessionStartTarget: () => null,
+  }
+  workspace.tasksStore = {
+    taskForSession: () => ({ id: 'task-root' }),
+    tasks: [{ id: 'task-root' }],
+  }
+  workspace.promptComposer = { compose: (prompt: string) => prompt, composeImages: () => [] }
+  workspace.eventReducer = { closeAgentConversationTurn: () => {} }
+  workspace.environment = { refreshEnvironment: async () => {} }
+  workspace.refreshPluginCommands = async () => {}
+  workspace.resetOverlays = () => {}
+  workspace.handleError = () => {}
+  workspace.ctxFor = () => ({})
+  workspace.apiFor = () => ({ trackRecentProject: async () => {} })
+  workspace.promptTab = () => {}
+  workspace.setActiveTab = (tabId: string) => { registry.activeTabId = tabId }
+  workspace.addTabToOrder = (tabId: string) => {
+    if (!registry.tabOrder.includes(tabId)) registry.tabOrder.push(tabId)
+  }
 
-    expect(draftSession?.run.provider).toBe('claude-code')
-    expect(draftSession?.run.modelConfig).toEqual(globalModelConfig)
-    expect(draftSession?.run.sessionSkills).toEqual([])
-    expect(draftSession?.run.serverId).toBe('local')
-    expect(draftSession?.run.workingDirectory).toBe('/repo')
-    expect(draftSession?.run.gitContext).toBeNull()
-    expect(draftSession?.pendingTaskId).toBeNull()
-    expect(refreshOptions?.worktreeRequested).toBe(true)
+  return { workspace, registry, sourceSession, runtime, navigations }
+}
 
-    const draftInput = workspace.tabs[draftTabId].input
-    draftInput.text = 'Keep this prompt'
-    draftInput.attachments.push({ id: 'attachment-1', type: 'file', name: 'spec.md', path: '/repo/spec.md' })
-    draftInput.planRefs.push({
-      planId: 'session-1__plan-1',
-      sessionId: 'session-1',
-      planToolUseId: 'plan-1',
-      title: 'Implementation plan',
-      status: 'pending',
-    })
+describe('session drafts', () => {
+  test('exists only as a draft until the prompt is sent', async () => {
+    const { workspace, registry, runtime, navigations } = await makeWorkspace()
 
-    const tasklessTabId = await workspace.createDraftTab(undefined, { withoutTask: true })
-    const tasklessSession = workspace.sessionFor(tasklessTabId)
+    const draft = workspace.openSessionDraft({ via: 'keybinding' })
 
-    // WHY: a session can intentionally stay outside the task system. That
-    // choice must survive dispatch; a missing task id alone means "mint one".
-    expect(tasklessSession?.taskCreationDisabled).toBe(true)
-    expect(tasklessSession?.pendingTaskId).toBeNull()
-    expect(tasklessSession?.run.workingDirectory).toBe(sourceSession.run.workingDirectory)
-    expect(tasklessSession?.run.gitContext).toEqual(sourceSession.run.gitContext)
-    // WHY: task/session shortcuts only retarget where the pending prompt will
-    // go. They must not clear anything the user already composed.
-    expect(workspace.tabs[tasklessTabId].input).toBe(draftInput)
-    expect(workspace.tabs[tasklessTabId].input.text).toBe('Keep this prompt')
-    expect(workspace.tabs[tasklessTabId].input.attachments).toHaveLength(1)
-    expect(workspace.tabs[tasklessTabId].input.planRefs).toHaveLength(1)
+    // WHY: a draft is not a tab in any state. Nothing lists it — the strip and
+    // the sidebar both project `tabOrder` — and nothing reaches the server for
+    // a prompt the user may never send.
+    expect(registry.tabOrder).toEqual(['source-tab'])
+    expect(workspace.sessionDrafts.get(draft.id)).toBe(draft)
+    expect(runtime.count).toBe(0)
+    expect(navigations.at(-1)).toEqual({ name: 'draft', draftId: draft.id })
 
-    const batchDraftTabId = await workspace.createDraftTab(undefined, { freshTask: true })
-    const batchSession = workspace.sessionFor(batchDraftTabId)
-    expect(workspace.isFreshTaskDraft(batchDraftTabId)).toBe(true)
+    // WHY: it inherits the task it was opened from, so a session started from
+    // inside a task is more of that task by default.
+    expect(draft.task).toEqual({ kind: 'existing', taskId: 'task-root' })
 
-    workspace.promptComposer = {
-      compose: (prompt: string) => prompt,
-      composeImages: () => [],
-    }
-    workspace.eventReducer = { closeAgentConversationTurn: () => {} }
-    workspace.promptTab = () => {}
-    workspace.apiFor = () => ({ trackRecentProject: async () => {} })
-    batchSession.status = 'idle'
+    draft.prompt.text = 'Implement it'
+    const tabId = workspace.startSessionDraft(draft.id)
 
-    batchSession.run.serverId = 'remote-host'
-    batchSession.run.workingDirectory = '~'
-    // WHY: a send that never left the renderer must leave the composer a
-    // composer, or the user is looking at a started session that isn't one.
-    expect(workspace.sendMessage('First batched task', undefined, batchDraftTabId)).toBe(false)
-    expect(workspace.isDraftTab(batchDraftTabId)).toBe(true)
+    // WHY: sending is the moment the draft stops being one. There is only ever
+    // one of the two, so the draft is dropped as the tab appears.
+    expect(tabId).toBeTruthy()
+    expect(workspace.sessionDrafts.has(draft.id)).toBe(false)
+    expect(registry.tabOrder).toEqual(['source-tab', tabId])
 
-    batchSession.run.serverId = 'local'
-    batchSession.run.workingDirectory = '/repo'
+    // WHY: everything the draft settled carries into the session it becomes —
+    // the prompt *and* where it files. Losing the task here would silently file
+    // the session under a new one the user never asked for.
+    const started = workspace.sessionFor(tabId)
+    expect(started.prompt.text).toBe('Implement it')
+    expect(started.task).toEqual({ kind: 'existing', taskId: 'task-root' })
+  })
 
-    expect(workspace.sendMessage('First batched task', undefined, batchDraftTabId)).toBe(true)
-    expect(workspace.isDraftTab(batchDraftTabId)).toBe(false)
-    expect(registry.tabOrder).toContain(batchDraftTabId)
+  test('a fresh task takes the app defaults, not the current session tuning', async () => {
+    const { workspace, sourceSession } = await makeWorkspace()
 
-    const nextDraftTabId = await workspace.createDraftTab(undefined, { freshTask: true })
+    const { startsWorktree } = await import('../../src/renderer/contexts/workspace/run-config')
+    const fresh = workspace.openSessionDraft({ freshTask: true })
 
-    // WHY: Ctrl+Enter dispatches the current task, but the selected surface must
-    // remain an empty New Task composer so several independent tasks can be fired.
-    // The dispatched one keeps its place in the strip beside it.
-    expect(registry.activeTabId).toBe(nextDraftTabId)
-    expect(workspace.isDraftTab(nextDraftTabId)).toBe(true)
-    expect(registry.tabOrder).toContain(batchDraftTabId)
-    expect(workspace.tabs[nextDraftTabId].input.text).toBe('')
+    // WHY: "new task" means new work on the project, so it starts from the
+    // app's own defaults and the repo root — not from the model, agent or
+    // checkout the conversation on screen happens to be tuned to.
+    expect(fresh.run.provider).toBe('claude-code')
+    expect(fresh.run.modelConfig.modelId).toBe(GLOBAL_MODEL_CONFIG.modelId)
+    expect(fresh.run.sessionSkills).toEqual([])
+    expect(fresh.run.workingDirectory).toBe('/repo')
+    expect(fresh.run.gitContext).toBeNull()
+    expect(fresh.task).toEqual({ kind: 'new' })
+    // WHY: the saved worktree default decides where the next session starts;
+    // a per-session toggle must not leak into it.
+    expect(startsWorktree(fresh.run)).toBe(true)
+    // WHY: nothing dispatched, so the run owns its own tasks. A split between
+    // the two ids is what marks a dispatch, and inventing one here would file
+    // this session's task on a host it never ran on.
+    expect(fresh.run.taskServerId).toBe(fresh.run.serverId)
 
+    // The source session is untouched by any of it.
+    expect(sourceSession.run.provider).toBe('codex')
+    expect(sourceSession.run.gitContext?.branch).toBe('feature/tasks')
+  })
+
+  test('a fresh task stays on the host the current session runs on', async () => {
+    const { workspace, sourceSession } = await makeWorkspace()
+    // The session on screen was dispatched to another machine, so its project
+    // root is a path that only exists there.
+    sourceSession.run.serverId = 'studio'
+
+    const { startsWorktree } = await import('../../src/renderer/contexts/workspace/run-config')
+    const fresh = workspace.openSessionDraft({ freshTask: true })
+
+    // WHY: "new task" is new work on the *same project*, which lives on that
+    // host. Falling back to the local default would aim a remote path at this
+    // machine and start the session in a directory that is not there.
+    expect(fresh.run.serverId).toBe('studio')
+    expect(fresh.run.workingDirectory).toBe('/repo')
+  })
+
+  test('changing the task destination keeps what was already composed', async () => {
+    const { workspace } = await makeWorkspace()
+
+    const draft = workspace.openSessionDraft({ freshTask: true })
+    draft.prompt.text = 'Keep this prompt'
+    draft.prompt.attachments.push({
+      id: 'attachment-1', type: 'file', name: 'spec.md', path: '/repo/spec.md',
+    } as never)
+
+    // WHY: the ⌥ shortcuts only say where the prompt will go. Pointing the same
+    // draft somewhere else must not discard the text, attachments or references
+    // the user has already written — which is why a draft is mutated in place
+    // rather than discarded and rebuilt.
+    draft.task = { kind: 'none' }
+
+    expect(draft.prompt.text).toBe('Keep this prompt')
+    expect(draft.prompt.attachments).toHaveLength(1)
+    // WHY: staying outside the task system is a choice, not an absence. The
+    // union says so structurally, where a missing id alone would read as
+    // "mint one" and silently overrule the user.
+    expect(draft.task).toEqual({ kind: 'none' })
+  })
+
+  test('a send the renderer refuses leaves the draft intact', async () => {
+    const { workspace } = await makeWorkspace()
+
+    const draft = workspace.openSessionDraft({ freshTask: true })
+    draft.prompt.text = 'First batched task'
+    const tabId = workspace.startSessionDraft(draft.id)
+    const session = workspace.sessionFor(tabId)
+
+    // A remote host with no directory on it cannot start anything.
+    session.run.serverId = 'remote-host'
+    session.run.workingDirectory = '~'
+    session.status = 'idle'
+
+    // WHY: a send that never left the renderer must not read as a started
+    // session — nothing was dispatched, so nothing has begun.
+    expect(workspace.sendMessage('First batched task', undefined, tabId)).toBe(false)
+    expect(session.agentSessionId).toBeNull()
+
+    session.run.serverId = 'local'
+    session.run.workingDirectory = '/repo'
+    expect(workspace.sendMessage('First batched task', undefined, tabId)).toBe(true)
+  })
+
+  test('survives a reload with its prompt and target intact', async () => {
+    const { workspace } = await makeWorkspace()
+
+    const draft = workspace.openSessionDraft({ freshTask: true })
+    draft.prompt.text = 'Half-written thought'
+    draft.task = { kind: 'existing', taskId: 'task-root' }
+
+    const snapshot = JSON.parse(JSON.stringify(workspace.sessionDraftsSnapshot))
+
+    // A second workspace stands in for the next launch.
+    const next = await makeWorkspace()
+    next.workspace.restoreSessionDrafts(snapshot)
+    const restored = next.workspace.sessionDrafts.get(draft.id)
+
+    // WHY: a draft is the only place an unsent prompt lives — it has no tab and
+    // no session to fall back on — so losing it on reload loses the user's
+    // writing outright. The id is kept so the saved `draft/<id>` route still
+    // resolves to the draft it names.
+    expect(restored).toBeTruthy()
+    expect(restored.id).toBe(draft.id)
+    expect(restored.prompt.text).toBe('Half-written thought')
+    expect(restored.task).toEqual({ kind: 'existing', taskId: 'task-root' })
+    expect(restored.run.workingDirectory).toBe(draft.run.workingDirectory)
+  })
+
+  test('two views of one conversation share the unsent message', async () => {
+    const { workspace, registry } = await makeWorkspace()
+
+    const draft = workspace.openSessionDraft({ freshTask: true })
+    draft.prompt.text = 'Half a thought'
+    const tabId = workspace.startSessionDraft(draft.id)
+
+    // The same conversation pinned into a second view — a split chat, or the
+    // same session reached from the picker.
+    const mirrorTabId = 'mirror-tab'
+    registry.tabs[mirrorTabId] = {
+      id: mirrorTabId,
+      sessionId: registry.tabs[tabId].sessionId,
+    } as never
+
+    // WHY: the unsent message is addressed *to* the session, so both views show
+    // the one thing you are about to say to it. Held per tab, they would be two
+    // drafts of which only one could ever be sent, and the other silently lost.
+    expect(workspace.inputFor(mirrorTabId)).toBe(workspace.inputFor(tabId))
+    workspace.inputFor(mirrorTabId).text = 'Finished thought'
+    expect(workspace.inputFor(tabId).text).toBe('Finished thought')
+  })
+
+  test('dispatching one draft leaves the next one empty', async () => {
+    const { workspace, registry } = await makeWorkspace()
+
+    const first = workspace.openSessionDraft({ freshTask: true })
+    first.prompt.text = 'First batched task'
+    const firstTabId = workspace.startSessionDraft(first.id)
+
+    const next = workspace.openSessionDraft({ freshTask: true })
+
+    // WHY: ⌃↵ fires the current task and leaves an empty composer, so several
+    // independent tasks can be sent in a row. The dispatched one keeps its place
+    // in the strip beside it.
+    expect(next.prompt.text).toBe('')
+    expect(workspace.sessionDrafts.has(next.id)).toBe(true)
+    expect(registry.tabOrder).toContain(firstTabId)
+    expect(workspace.sessionFor(firstTabId).prompt.text).toBe('First batched task')
   })
 })

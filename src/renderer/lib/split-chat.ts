@@ -8,9 +8,9 @@ export function isPristineSplitTab(tab: Tab, session: Session): boolean {
     && session.permissionQueue.length === 0
     && session.questionQueue.length === 0
     && session.outboundPrompts.length === 0
-    && tab.input.text.length === 0
-    && tab.input.attachments.length === 0
-    && tab.input.planRefs.length === 0
-    && tab.input.workRefs.length === 0
-    && tab.input.sessionRefs.length === 0
+    && session.prompt.text.length === 0
+    && session.prompt.attachments.length === 0
+    && session.prompt.planRefs.length === 0
+    && session.prompt.workRefs.length === 0
+    && session.prompt.sessionRefs.length === 0
 }

@@ -21,6 +21,7 @@
     getWorkspaceContext,
   } from "../../contexts";
   import { agentLabel, buildAgentAvailabilityRows } from "../../lib/agentAvailability";
+  import { defaultModelIdFor, modelOptionsFor } from "../pickers/lib/picker-selection";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Switch } from "../ui/switch";
   import { Button } from "../ui/button";
@@ -55,6 +56,19 @@
   const agentRows = $derived(buildAgentAvailabilityRows(agentContext.agents, agentContext.metadata));
   const activeAgentLabel = $derived(agentLabel(theme.activeAgent, agentContext.metadata));
 
+  // The model list belongs to the default agent, so it changes with it. Live
+  // metadata wins over the static profiles; the stored choice is only honored
+  // while it still belongs to this agent, otherwise the agent default shows.
+  const defaultAgentModels = $derived(modelOptionsFor(theme.activeAgent, agentContext.metadata));
+  const defaultModelId = $derived(
+    defaultAgentModels.some((model) => model.id === theme.defaultModels[theme.activeAgent])
+      ? theme.defaultModels[theme.activeAgent]
+      : defaultModelIdFor(theme.activeAgent, agentContext.metadata) ?? "",
+  );
+  const defaultModelLabel = $derived(
+    defaultAgentModels.find((model) => model.id === defaultModelId)?.label ?? defaultModelId,
+  );
+
   let projectsBasePickerOpen = $state(false);
 
   // Per-host, not per-client: the folder picker on this server starts here.
@@ -77,7 +91,12 @@
   );
 
   function selectAgent(agentId: string) {
-    session.switchActiveAgent(agentId);
+    session.setDefaultAgent(agentId);
+    requestInputFocus();
+  }
+
+  function selectDefaultModel(modelId: string) {
+    session.setDefaultModel(theme.activeAgent, modelId);
     requestInputFocus();
   }
 
@@ -106,6 +125,7 @@
   const settingItems: SettingItem[] = [
     { id: "theme", keywords: ["dark", "theme", "light", "appearance", "mode", "system"] },
     { id: "agent", keywords: ["agent", "default", "claude", "ai", "model"] },
+    { id: "model", keywords: ["model", "default", "opus", "sonnet", "haiku", "gpt", "codex"] },
     { id: "notification", keywords: ["notification", "sound", "alert", "bell", "audio"] },
     { id: "font-family", keywords: ["font", "family", "typeface", "inter", "dm sans", "system", "geist", "lora", "serif"] },
     { id: "font-size", keywords: ["font", "size", "text", "zoom"] },
@@ -282,7 +302,7 @@
 
 <SettingsSection
   label="Agents & sessions"
-  visible={["agent", "ratelimit", "notification"].some(isVisible)}
+  visible={["agent", "model", "ratelimit", "notification"].some(isVisible)}
 >
   <SettingsRow
     label="Default agent"
@@ -311,6 +331,36 @@
                 <span class="shrink-0 text-[0.6875rem] font-normal text-(--solus-text-tertiary)">Not installed</span>
               {/if}
               {#if agent.id === theme.activeAgent}<CheckIcon size={14} class="text-(--solus-accent)" />{/if}
+            </DropdownMenu.Item>
+          {/each}
+        </DropdownMenu.Content>
+      </DropdownMenu.Root>
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    label="Default model"
+    description="The {activeAgentLabel} model used for new sessions."
+    visible={isVisible("model") && defaultAgentModels.length > 0}
+  >
+    {#snippet control()}
+      <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
+        <DropdownMenu.Trigger>
+          {#snippet child({ props })}
+            <Button {...props} variant="outline" size="sm" aria-label="Default model" class="min-w-28 justify-between text-[0.75rem] shadow-xs">
+              <span class="max-w-28 truncate">{defaultModelLabel}</span>
+              <CaretDownIcon size={11} style="opacity:0.6" />
+            </Button>
+          {/snippet}
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="max-h-72 w-[216px] overflow-y-auto">
+          {#each defaultAgentModels as model (model.id)}
+            <DropdownMenu.Item
+              class={model.id === defaultModelId ? "font-semibold" : undefined}
+              onSelect={() => selectDefaultModel(model.id)}
+            >
+              <span class="min-w-0 flex-1 truncate">{model.label}</span>
+              {#if model.id === defaultModelId}<CheckIcon size={14} class="text-(--solus-accent)" />{/if}
             </DropdownMenu.Item>
           {/each}
         </DropdownMenu.Content>

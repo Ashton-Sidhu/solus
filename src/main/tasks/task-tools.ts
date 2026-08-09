@@ -4,6 +4,9 @@ import type { AgentTool } from '../agents/tools/agent-tool'
 import { resolveRepoRoot } from '../git/git-helpers'
 import { createTask, listTasks } from './task-store'
 import { Task } from './task'
+import { applyOpToForeignTask, foreignTaskFor } from './foreign-tasks'
+import { recordOutboxOp } from '../outbox/outbox-store'
+import type { TaskCommentOpPayload, TaskSetStatusOpPayload } from '../../shared/outbox-types'
 import type {
   Task as TaskRecord,
   TaskCreateInput,
@@ -164,7 +167,10 @@ async function executeTaskTool(
     if (name === 'read_task') {
       const id = String(args.task_id ?? '').trim()
       if (!id) return { ok: false, text: 'read_task requires a task_id.' }
-      const details = await (await Task.byId(id)).details()
+      // A foreign task (dispatched session) answers from the shipped snapshot,
+      // overlaid with this session's own not-yet-delivered writes.
+      const foreign = foreignTaskFor(deps.ctx.sessionId, id)
+      const details = foreign ? foreign.details : await (await Task.byId(id)).details()
       const task = details.task
       return {
         ok: true,
@@ -182,6 +188,12 @@ async function executeTaskTool(
       if (!(STATUS_VALUES as readonly string[]).includes(status)) {
         return { ok: false, text: `update_task_status: status must be one of ${STATUS_VALUES.join(', ')}.` }
       }
+      if (foreignTaskFor(deps.ctx.sessionId, id)) {
+        const payload: TaskSetStatusOpPayload = { status, actorLabel: deps.ctx.sessionId }
+        const op = recordOutboxOp({ domain: 'tasks', resourceId: id, name: 'set-status', payload, sessionId: deps.ctx.sessionId })
+        applyOpToForeignTask(deps.ctx.sessionId, op)
+        return { ok: true, text: `Task ${id} is now "${status}".` }
+      }
       const updated = await (await Task.byId(id)).update(
         { status: status as TaskStatus },
         { actor: 'agent', actorLabel: deps.ctx.sessionId },
@@ -192,6 +204,10 @@ async function executeTaskTool(
     if (name === 'create_task') {
       const title = typeof args.title === 'string' ? args.title.trim() : ''
       if (!title) return { ok: false, text: 'create_task requires a non-empty title.' }
+      const requestedParentId = typeof args.parent_id === 'string' ? args.parent_id.trim() : ''
+      if (requestedParentId && foreignTaskFor(deps.ctx.sessionId, requestedParentId)) {
+        return { ok: false, text: foreignWriteUnsupported('create_task under a parent', requestedParentId) }
+      }
       const labels = Array.isArray(args.labels)
         ? args.labels.map((label) => String(label).trim()).filter(Boolean)
         : undefined
@@ -224,6 +240,12 @@ async function executeTaskTool(
       if (!id) return { ok: false, text: 'comment_task requires a task_id.' }
       const body = typeof args.body === 'string' ? args.body.trim() : ''
       if (!body) return { ok: false, text: 'comment_task requires a non-empty body.' }
+      if (foreignTaskFor(deps.ctx.sessionId, id)) {
+        const payload: TaskCommentOpPayload = { body, author: 'agent', originSessionId: deps.ctx.sessionId }
+        const op = recordOutboxOp({ domain: 'tasks', resourceId: id, name: 'comment', payload, sessionId: deps.ctx.sessionId })
+        applyOpToForeignTask(deps.ctx.sessionId, op)
+        return { ok: true, text: `Comment added to task ${id}.` }
+      }
       await (await Task.byId(id)).comment(body, {
         author: 'agent',
         originSessionId: deps.ctx.sessionId,
@@ -234,6 +256,9 @@ async function executeTaskTool(
     if (name === 'link_task_session') {
       const taskId = String(args.task_id ?? '').trim()
       if (!taskId) return { ok: false, text: 'link_task_session requires a task_id.' }
+      if (foreignTaskFor(deps.ctx.sessionId, taskId)) {
+        return { ok: false, text: foreignWriteUnsupported('link_task_session', taskId) }
+      }
       const sessionId = typeof args.session_id === 'string' && args.session_id.trim()
         ? args.session_id.trim()
         : deps.ctx.sessionId
@@ -246,6 +271,9 @@ async function executeTaskTool(
     if (name === 'link_task') {
       const taskId = String(args.task_id ?? '').trim()
       if (!taskId) return { ok: false, text: 'link_task requires a task_id.' }
+      if (foreignTaskFor(deps.ctx.sessionId, taskId)) {
+        return { ok: false, text: foreignWriteUnsupported('link_task', taskId) }
+      }
       const kind = String(args.kind ?? '') as TaskLinkKind
       if (!(LINK_KIND_VALUES as readonly string[]).includes(kind)) {
         return { ok: false, text: `link_task: kind must be one of ${LINK_KIND_VALUES.join(', ')}.` }
@@ -281,6 +309,12 @@ async function executeTaskTool(
     log.error('task_tool_failed', { tool: name, error: err instanceof Error ? err.message : String(err) })
     return { ok: false, text: `Task tool error: ${err instanceof Error ? err.message : String(err)}` }
   }
+}
+
+/** The honest answer for a foreign-task write the outbox does not carry: the
+ *  task exists, but on another host this one cannot reach. */
+function foreignWriteUnsupported(operation: string, taskId: string): string {
+  return `Task ${taskId} lives on another host (this session was dispatched), and ${operation} is not supported from here. Use comment_task or update_task_status — those sync back — or note it in your final message.`
 }
 
 function formatTaskForAgent(

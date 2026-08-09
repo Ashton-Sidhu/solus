@@ -10,6 +10,9 @@
   interface Props {
     class?: string;
     tabId?: string;
+    /** The pane this card fills, when it fills one of its own. Unset by the
+     *  workspace's own dock, which belongs to the leading pane. */
+    paneId?: string;
     onAttachFile: () => void | Promise<void>;
     onScreenshot?: (() => void | Promise<void>) | null;
     onDesignMode?: (() => void | Promise<void>) | null;
@@ -19,6 +22,7 @@
   let {
     class: className,
     tabId,
+    paneId,
     onAttachFile,
     onScreenshot,
     onDesignMode,
@@ -26,8 +30,19 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
-  const started = $derived(
-    hasSessionStarted(session.sessionFor(tabId ?? session.activeTabId)),
+  // A pinned card names its tab; the workspace's own dock composes for whatever
+  // chat is active. Resolving that here means the bar below is handed a session
+  // outright and never has to guess one from the tab strip.
+  const targetTabId = $derived(tabId ?? session.activeTabId);
+  const sess = $derived(session.sessionFor(targetTabId));
+  const started = $derived(hasSessionStarted(sess));
+
+  // The workspace dock (no tab of its own) steps aside while a draft holds the
+  // leading pane: the draft's composer is the primary then, and it — not this
+  // hidden dock — must own app focus and the shared mic. Two primaries would
+  // both auto-claim voice, and whichever won left the visible composer mute.
+  const isPrimary = $derived(
+    tabId === undefined && session.router.leadingPane.base?.name !== "draft",
   );
 
   let focused = $state(false);
@@ -43,7 +58,9 @@
     message being composed.
   -->
   {#if !started}
-    <InputBarHeader {tabId} />
+    <!-- Raw `tabId`, not the active-resolved one: unset for the workspace dock,
+         which is what keeps it answering the global git-dropdown shortcut. -->
+    <InputBarHeader sourceId={tabId} {paneId} />
   {/if}
   <!--
     One card, one hairline, one accent. The card sits flat on the page — a
@@ -62,13 +79,18 @@
   >
     <InputBar
       mode="editor"
-      {tabId}
-      prompt={session.inputFor(tabId ?? session.activeTabId)}
+      sessionId={sess?.id ?? null}
+      tabId={targetTabId}
+      {isPrimary}
+      {paneId}
+      run={sess?.run}
+      prompt={session.inputFor(targetTabId)}
     >
       {#snippet leadingActions(savedPromptsControl)}
         <InputToolbar
           mode="editor"
-          {tabId}
+          tabId={targetTabId}
+          {isPrimary}
           {onAttachFile}
           {onScreenshot}
           {onDesignMode}

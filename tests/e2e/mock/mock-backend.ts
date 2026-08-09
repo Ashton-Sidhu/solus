@@ -83,7 +83,7 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     const runPromise = new Promise<void>((res, rej) => { _resolveRun = res; _rejectRun = rej })
 
     const handle: RunHandle = {
-      sessionId: null,
+      agentSessionId: null,
       persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,
@@ -445,7 +445,7 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
   ) {
     if (handle.abortController.signal.aborted) return
 
-    const sessionId = handle.sessionId ?? MOCK_SESSION_ID
+    const sessionId = handle.agentSessionId ?? MOCK_SESSION_ID
 
     // Stream the response in word-sized chunks to exercise the text_chunk path.
     const words = responseText.split(' ')

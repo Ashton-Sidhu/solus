@@ -9,6 +9,7 @@ import {
 
 interface SessionHistoryStoreLoadOptions {
   sources: SessionHistorySource[]
+  deferredSources?: Promise<SessionHistorySource[]>
   ctx: IpcContext
   scopeKey?: string
   onBatch?: (sessions: SessionMeta[]) => void
@@ -26,8 +27,13 @@ export function updateSessionHistoryStatus(
 
 function defaultHistoryLoaderOptions(): SessionHistoryLoaderOptions {
   return {
-    listSessions: window.solus.listSessions,
-    onSessionScan: (listener) => serverConnections.eventsFor().subscribe('session.scanProgressed', listener),
+    // An undefined serverId is this client's own host, which both accessors
+    // already resolve to the primary connection.
+    hostFor: (serverId) => ({
+      listSessions: (...args) => serverConnections.apiFor(serverId).listSessions(...args),
+      onSessionScan: (listener) =>
+        serverConnections.eventsFor(serverId).subscribe('session.scanProgressed', listener),
+    }),
   }
 }
 
@@ -66,6 +72,7 @@ export class SessionHistoryStore {
 
   async load({
     sources,
+    deferredSources,
     ctx,
     scopeKey,
     onBatch,
@@ -78,6 +85,7 @@ export class SessionHistoryStore {
     try {
       const sessions = await this.#loader.load({
         sources,
+        deferredSources,
         ctx,
         limitPerProvider,
         onBatch: (batch) => {

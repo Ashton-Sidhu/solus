@@ -54,7 +54,7 @@ class FakeBackend extends EventEmitter implements AgentBackend {
     const sessionId = input.sessionId ?? `session-${this.nextSession++}`
     let resolveRun!: () => void
     const handle: RunHandle = {
-      sessionId: input.sessionId ?? null,
+      agentSessionId: input.sessionId ?? null,
       persistence: input.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,
@@ -66,7 +66,7 @@ class FakeBackend extends EventEmitter implements AgentBackend {
       _rejectRun: () => {},
     }
     queueMicrotask(() => {
-      handle.sessionId = sessionId
+      handle.agentSessionId = sessionId
       this.handles.set(sessionId, handle)
       this.running.add(sessionId)
       this.emit('normalized', sessionId, {
@@ -93,10 +93,11 @@ class FakeBackend extends EventEmitter implements AgentBackend {
   shutdown(): void {}
 }
 
-function promptContext(tabId: string): IpcContext {
+function promptContext(tabId: string, sessionId = `session-for-${tabId}`): IpcContext {
   return {
     session: {
       tabId,
+      sessionId,
       provider: 'codex',
       agentSessionId: null,
       status: 'idle',
@@ -142,7 +143,7 @@ describe('task context on a task-bound dispatch', () => {
     const backend = new FakeBackend()
     const controlPlane = new ControlPlane(new Map<AgentId, AgentBackend>([['codex', backend]]))
     planes.push(controlPlane)
-    controlPlane.createTab('tab-1', { clientId: 'ws:a', deviceId: 'device-1' })
+    controlPlane.watchSession({ sessionId: 'session-for-tab-1' }, 'ws:a')
 
     await controlPlane.submitPrompt(promptContext('tab-1'), {
       prompt: 'fix the scroll bug',
@@ -155,6 +156,57 @@ describe('task context on a task-bound dispatch', () => {
     expect(run.systemPrompt).toContain('Restore scrollback after a refresh.')
     // The base instructions still lead; the ticket is appended to them.
     expect(run.systemPrompt?.indexOf('[Working On Task')).toBeGreaterThan(0)
+  })
+
+  test('a shipped snapshot renders the packet for a task this host has never seen', async () => {
+    // WHY: on a dispatch the task's row lives on the client's task host, not
+    // here. The packet must come from the snapshot the prompt carried — before
+    // this, the local lookup threw and the agent silently ran with no packet.
+    const foreignTaskId = '01JFOREIGNDISPATCHXXXXXXXX'
+    const backend = new FakeBackend()
+    const controlPlane = new ControlPlane(new Map<AgentId, AgentBackend>([['codex', backend]]))
+    planes.push(controlPlane)
+    controlPlane.watchSession({ sessionId: 'session-for-tab-2' }, 'ws:a')
+
+    await controlPlane.submitPrompt(promptContext('tab-2'), {
+      prompt: 'continue the dispatched work',
+      taskId: foreignTaskId,
+      skipTaskCreation: true,
+      taskSnapshot: {
+        details: {
+          task: {
+            id: foreignTaskId,
+            providerId: 'local',
+            projectKey: '/home/dev/solus',
+            kind: 'task',
+            title: 'Dispatched Task Packet',
+            body: 'Carry the packet across hosts.',
+            status: 'in_progress',
+            url: null,
+            labels: [],
+            updatedAt: Date.now(),
+          },
+          subtasks: [],
+          comments: [{
+            id: 'c1',
+            taskId: foreignTaskId,
+            author: 'You',
+            source: 'local',
+            body: 'shipped comment',
+            createdAt: Date.now(),
+          }],
+          links: [],
+          events: [],
+        },
+        parent: null,
+        sessions: [],
+      },
+    })
+
+    const run = backend.inputs[0]
+    expect(run.systemPrompt).toContain('[Working On Task — "Dispatched Task Packet"')
+    expect(run.systemPrompt).toContain('Carry the packet across hosts.')
+    expect(run.systemPrompt).toContain('shipped comment')
   })
 
   test('create_session mints a subtask and injects its parent context before the worker starts', async () => {

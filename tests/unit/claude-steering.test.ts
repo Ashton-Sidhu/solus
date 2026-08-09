@@ -111,6 +111,14 @@ describe('ClaudeAgent turn input lifetime', () => {
       { type: 'system', subtype: 'task_started', task_id: 'task-1', tool_use_id: 'tool-1' },
       { type: 'result', subtype: 'success', result: 'done' },
       { type: 'system', subtype: 'task_notification', task_id: 'task-1', status: 'completed' },
+      { type: 'system', subtype: 'init', session_id: 'session-1', model: 'claude-test', skills: [] },
+      {
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        result: 'The background agent reported back.',
+        origin: { kind: 'task-notification' },
+      },
     ]
     const input = new TurnInputChannel(opening('Kick off a background agent'), 'Kick off a background agent')
     const { events } = new ClaudeAgent().run({ prompt: input, cwd: '/tmp' })
@@ -126,7 +134,18 @@ describe('ClaudeAgent turn input lifetime', () => {
     expect(input.closed).toBe(false)
     expect(input.push(opening('Also simplify the architecture'))).toBe(true)
 
+    // WHY: the settle is not the end of the query. The SDK restarts its loop to
+    // hand the notification to the main agent, and `canUseTool` rides this same
+    // stream. Closing on the settle left that continuation with a dead stream, so
+    // every permission request in it — AskUserQuestion above all — came back as
+    // "AbortError: Stream closed" without ever reaching the user.
     expect((await stream.next()).value).toMatchObject({ type: 'background_task_settled' })
+    expect(input.closed).toBe(false)
+    expect((await stream.next()).value).toMatchObject({ type: 'session_init' })
+    expect(input.closed).toBe(false)
+
+    // The continuation reports its own result; that is where the turn ends.
+    while (!(await stream.next()).done) { /* drain the continuation */ }
     expect(input.closed).toBe(true)
   })
 

@@ -56,9 +56,15 @@ interface SessionEnvironmentWorkspace {
     }): void
   }
   settings: { worktreeEnabled: boolean }
-  sessionFor(tabId: string): Session | undefined
-  ctxFor(tabId: string): IpcContext
-  apiFor?(tabId: string): typeof window.solus
+  /** The run a source owns. A tab and a session draft both hold one in the same
+   *  position, which is why neither needs its own environment refresh. */
+  runFor(sourceId: string): RunConfig | undefined
+  /** Only a started session has one — the answer to "is there something for the
+   *  host to register this environment against". */
+  sessionFor(sourceId: string): Session | undefined
+  ctxFor(sourceId: string): IpcContext
+  apiFor?(sourceId: string): typeof window.solus
+  apiForSession?(sessionId: string): typeof window.solus
 }
 
 export type EnvironmentKind = 'workspace' | 'branch' | 'worktree'
@@ -128,8 +134,13 @@ export class SessionEnvironmentStore {
   environmentFor(run?: RunConfig | null): SessionEnvironment {
     if (!this.workspace) throw new Error('SessionEnvironmentStore must be bound to a workspace')
     const attachedCheckout = run ? run.gitContext : this.workspace.globalDefaults.gitContext
+    // "Will branch" and "branches from X" are separate questions: a run can want
+    // a worktree before the host has said which branch it would fork from.
+    const wantsWorktree = run
+      ? !!run.worktree
+      : !!this.workspace.globalDefaults.worktreeBaseBranch
     const worktreeBaseBranch = run
-      ? run.worktreeBaseBranch
+      ? run.worktree?.baseBranch ?? null
       : this.workspace.globalDefaults.worktreeBaseBranch
     const cwd = run?.gitContext?.worktreePath
       ?? run?.workingDirectory
@@ -138,7 +149,7 @@ export class SessionEnvironmentStore {
     const status = this.statusFor(cwd)
     const checkout = gitCheckoutFromState(status, attachedCheckout?.worktreePath) ?? attachedCheckout
     const isolated = !!checkout?.worktreePath
-    const pending = !!worktreeBaseBranch && !isolated
+    const pending = wantsWorktree && !isolated
 
     if (!checkout) {
       return {
@@ -173,50 +184,66 @@ export class SessionEnvironmentStore {
     }
   }
 
-  /** Refresh every Git facet requested for one captured tab/checkout identity. */
-  async refreshTab(
+  /**
+   * Refresh every Git facet requested for one source's checkout, and land the
+   * answer on the run that source owns.
+   *
+   * A *source* is a tab or a session draft. Where work will happen is a fact
+   * about a run config and the machine it names, never about having a session
+   * yet, so both resolve through this one path — including a draft pointed at
+   * another host, whose directory only that host can describe. With neither, an
+   * empty workspace's own start defaults are the target.
+   */
+  async refreshEnvironment(
     workspace: SessionEnvironmentWorkspace,
-    opts: { tabId?: string; cwd?: string; level?: GitRefreshLevel; force?: boolean; worktreeRequested?: boolean } = {},
+    opts: { sourceId?: string; cwd?: string; level?: GitRefreshLevel; force?: boolean; worktreeRequested?: boolean } = {},
   ): Promise<GitRefreshResult> {
-    const tabId = opts.tabId ?? workspace.activeTabId
-    const session = workspace.sessionFor(tabId)
+    const sourceId = opts.sourceId ?? workspace.activeTabId
+    const run = workspace.runFor(sourceId)
     const cwd = opts.cwd
-      ?? session?.run.gitContext?.worktreePath
-      ?? session?.run.workingDirectory
+      ?? run?.gitContext?.worktreePath
+      ?? run?.workingDirectory
       ?? workspace.globalDefaults.gitContext?.worktreePath
       ?? workspace.globalDefaults.workingDirectory
     const level = opts.level ?? 'status'
     if (!cwd || cwd === '~') return { status: false, details: false, refs: false, registration: false, ok: false, error: 'This session has no Git working directory.' }
-    const api = session ? (workspace.apiFor?.(tabId) ?? window.solus) : window.solus
+    // The host that holds the directory is the only one that can read it, and
+    // the run is what names that host. Resolving its surface also binds it to
+    // this directory, so every later status scan follows the same machine.
+    const api = run ? (workspace.apiFor?.(sourceId) ?? window.solus) : window.solus
     this.bindCwd(cwd, api)
 
-    const worktreePath = session?.run.gitContext?.worktreePath
+    const worktreePath = run?.gitContext?.worktreePath
     const worktreeRequested = opts.worktreeRequested
-      ?? (session ? !!session.run.worktreeBaseBranch : workspace.settings.worktreeEnabled)
+      ?? (run ? !!run.worktree : workspace.settings.worktreeEnabled)
+    // The source moved to a different checkout while a read was in flight, so
+    // its answer describes a directory the source has left.
+    const movedAway = (): boolean => {
+      const current = workspace.runFor(sourceId)
+      if (!current) return true
+      return (current.gitContext?.worktreePath ?? current.workingDirectory) !== cwd
+    }
+
     // On a genuinely cold load nothing can render a session's environment until
     // Git answers: the sidebar can't group it, the home can't offer the worktree
     // toggle. Land identity first — repo + branch, all O(1) — and let the
     // working-tree scan below overwrite it. Both passes agree on every field, so
     // nothing re-keys or flickers. A cold target has no checkout yet, so the
     // provisional answer is always a plain branch.
-    const coldTarget = session
-      ? session.run.gitContext === null
+    const coldTarget = run
+      ? run.gitContext === null
       : workspace.tabOrder.length === 0 && !workspace.globalDefaults.gitContext
     if (coldTarget && this.statusFor(cwd) === undefined) {
       const identity = await api.gitIdentity(cwd).catch(() => null)
-      const current = workspace.sessionFor(tabId)
-      const currentCwd = current?.run.gitContext?.worktreePath ?? current?.run.workingDirectory
-      const stale = session
-        ? current !== session || currentCwd !== cwd
-        : workspace.globalDefaults.workingDirectory !== cwd
+      const stale = run ? movedAway() : workspace.globalDefaults.workingDirectory !== cwd
       if (identity && !stale) {
         const provisional = {
           gitContext: gitCheckoutFromState(identity),
           worktreeBaseBranch: worktreeRequested ? identity.targetBranch : null,
         }
-        if (session) {
-          session.run.gitContext = provisional.gitContext
-          session.run.worktreeBaseBranch = provisional.worktreeBaseBranch
+        if (run) {
+          run.gitContext = provisional.gitContext
+          run.worktree = worktreeRequested ? { baseBranch: provisional.worktreeBaseBranch } : null
         } else {
           workspace.config.applyGlobalStartTarget(provisional)
         }
@@ -227,37 +254,40 @@ export class SessionEnvironmentStore {
       force: opts.force,
       worktreePath,
       worktreeRequested,
-      fallbackGitContext: session?.run.gitContext ?? null,
+      fallbackGitContext: run?.gitContext ?? null,
     })
     if (!resolved.target) {
       return { status: false, details: false, refs: false, registration: false, ok: false, error: gitFailure('Couldn’t read the working tree', resolved.error) }
     }
     const { gitContext, worktreeBaseBranch } = resolved.target
 
-    // The tab/session moved to a different checkout while this refresh was in
-    // flight — the result would land on the wrong environment. Not a failure;
-    // report it as superseded so callers don't flash a misleading error.
+    // Landing a result on a source that has moved on is not a failure; report it
+    // as superseded so callers don't flash a misleading error.
     const supersededError = 'The environment changed during refresh — try again.'
-    if (session) {
-      const current = workspace.sessionFor(tabId)
-      const currentCwd = current?.run.gitContext?.worktreePath ?? current?.run.workingDirectory
-      if (current !== session || currentCwd !== cwd) {
+    if (run) {
+      if (movedAway()) {
         return { status: true, details: false, refs: false, registration: false, ok: false, error: supersededError }
       }
-      session.run.gitContext = gitContext
-      session.run.worktreeBaseBranch = worktreeBaseBranch
-      let registrationError: string | undefined
-      try {
-        await api.gitRegisterEnvironment(
-          $state.snapshot(workspace.ctxFor(tabId)),
-          cwd,
-          $state.snapshot(gitContext),
-        )
-      } catch (error) {
-        registrationError = gitErrorText(error)
-      }
-      if (registrationError !== undefined) {
-        return { status: true, details: false, refs: false, registration: false, ok: false, error: gitFailure('Couldn’t register the Git environment', registrationError) }
+      run.gitContext = gitContext
+      // Keep the request even when this host named no branch to fork from, or an
+      // unresolvable checkout would silently cancel the worktree.
+      run.worktree = worktreeRequested ? { baseBranch: worktreeBaseBranch } : null
+      // A draft has no session for the host to hold an environment against, and
+      // nothing is running in it yet — registration waits until Send makes one.
+      if (workspace.sessionFor(sourceId)) {
+        let registrationError: string | undefined
+        try {
+          await api.gitRegisterEnvironment(
+            $state.snapshot(workspace.ctxFor(sourceId)),
+            cwd,
+            $state.snapshot(gitContext),
+          )
+        } catch (error) {
+          registrationError = gitErrorText(error)
+        }
+        if (registrationError !== undefined) {
+          return { status: true, details: false, refs: false, registration: false, ok: false, error: gitFailure('Couldn’t register the Git environment', registrationError) }
+        }
       }
     } else if (workspace.tabOrder.length === 0) {
       if (workspace.globalDefaults.workingDirectory !== cwd) {
@@ -271,9 +301,10 @@ export class SessionEnvironmentStore {
       : await this.refreshStatus(cwd, { force: true, details: true, bypassCache: true })
     const currentStatus = this.statusFor(cwd)
     const projectRoot = currentStatus?.repoRoot ?? gitContext?.repoRoot
+    if (projectRoot) this.bindCwd(projectRoot, api)
     const refsOutcome: GitFacetOutcome = level !== 'full' || !projectRoot
       ? { ok: true }
-      : await this.refreshRefsOutcome(projectRoot, workspace.ctxFor(tabId), { force: true })
+      : await this.refreshRefsOutcome(projectRoot, workspace.ctxFor(sourceId), { force: true })
     const error = !detailsOutcome.ok
       ? gitFailure('Couldn’t read working-tree changes', detailsOutcome.error)
       : !refsOutcome.ok
@@ -465,7 +496,10 @@ export class SessionEnvironmentStore {
       await existing
       return this.refreshRefsOutcome(projectRoot, ctx, opts)
     }
-    const api = this.workspace?.apiFor?.(ctx.session.tabId) ?? window.solus
+    // A draft has no session to resolve a surface through, so fall back to the
+    // host this project root is already bound to rather than to this machine.
+    const api = (ctx.session.sessionId ? this.workspace?.apiForSession?.(ctx.session.sessionId) : null)
+      ?? this.apiForCwd(projectRoot)
     this.bindCwd(projectRoot, api)
     const promise = Promise.allSettled([
       api.worktreeListProject($state.snapshot(ctx)),

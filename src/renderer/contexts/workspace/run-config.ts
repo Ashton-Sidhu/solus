@@ -1,4 +1,4 @@
-import type { GitCheckout, RunConfig } from '../../../shared/types'
+import type { GitCheckout, ModelConfig, PendingHostDispatch, RunConfig } from '../../../shared/types'
 import { MODEL_PROFILES, worktreeProjectRoot } from '../../../shared/types'
 
 /**
@@ -20,16 +20,20 @@ import { MODEL_PROFILES, worktreeProjectRoot } from '../../../shared/types'
 export function inheritRunConfig(
   defaults: RunConfig,
   inherit?: RunConfig | null,
-  /** An explicit demand — the Run-on-host picker requires its own worktree, so
-   *  it overrules both the inherited checkout and the saved default. */
-  worktreeRequested?: boolean,
+  opts: {
+    /** The app-level "start new sessions in a worktree" preference. */
+    worktreeEnabled?: boolean
+    /** An explicit demand, which overrules both the inherited checkout and the
+     *  saved preference. */
+    worktreeRequested?: boolean
+  } = {},
 ): RunConfig {
   const source = inherit ?? defaults
-  // A new session follows the saved default. Per-session toggles belong to that
-  // session and must not silently decide where the next one starts — and a
+  // A new session follows the saved preference. Per-session toggles belong to
+  // that session and must not silently decide where the next one starts — and a
   // session already inside a worktree does not branch another one from it.
-  const worktreeRequired = worktreeRequested
-    ?? (!source.gitContext?.worktreePath && defaults.worktreeRequired)
+  const branchesWorktree = opts.worktreeRequested
+    ?? (!source.gitContext?.worktreePath && !!opts.worktreeEnabled)
 
   return {
     ...source,
@@ -40,8 +44,7 @@ export function inheritRunConfig(
       reasoningEffort: modelDefaultEffort(source) ?? defaults.modelConfig.reasoningEffort,
     },
     sessionSkills: [...source.sessionSkills],
-    worktreeRequired,
-    worktreeBaseBranch: worktreeRequired ? source.gitContext?.targetBranch ?? null : null,
+    worktree: branchesWorktree ? { baseBranch: source.gitContext?.targetBranch ?? null } : null,
     // Permission mode is an app-level preference, never inherited from a session
     // that happened to be loosened for one piece of work.
     permissionMode: defaults.permissionMode,
@@ -56,6 +59,46 @@ function modelDefaultEffort(run: RunConfig): RunConfig['modelConfig']['reasoning
   if (!run.modelConfig.modelId || !run.provider) return null
   const profiles = MODEL_PROFILES[run.provider as keyof typeof MODEL_PROFILES]
   return profiles?.[run.modelConfig.modelId]?.defaultReasoningEffort ?? null
+}
+
+/**
+ * The model after the run's current one in its provider's list, wrapping around
+ * — what "cycle model" lands on. Null when the provider offers no models. Reads
+ * the run, so a draft and a started session answer it the same way.
+ */
+export function cycledModelId(
+  run: RunConfig,
+  models: readonly { id: string }[],
+  defaultModelId: string | null,
+): string | null {
+  if (models.length === 0) return null
+  const current = run.modelConfig.modelId || defaultModelId || models[0].id
+  const idx = models.findIndex((model) => model.id === current)
+  return models[((idx === -1 ? 0 : idx) + 1) % models.length].id
+}
+
+/**
+ * The model config a run takes on when it switches to `modelId`: the model's own
+ * profile defaults, never the outgoing model's tuning. Each model ships its own
+ * reasoning effort, context window, and fast-mode support, so carrying the old
+ * values over would run the new model against limits it never declared.
+ */
+export function modelConfigForModel(run: RunConfig, modelId: string): ModelConfig {
+  const profile = MODEL_PROFILES[run.provider as keyof typeof MODEL_PROFILES]?.[modelId]
+  return {
+    modelId,
+    reasoningEffort: profile?.defaultReasoningEffort ?? 'high',
+    contextWindow: profile?.defaultContextWindow ?? null,
+    fastMode: profile?.supportsFastMode ? run.modelConfig.fastMode : false,
+  }
+}
+
+const PERMISSION_MODES = ['ask', 'auto', 'plan'] as const
+
+/** The permission mode after `mode`, wrapping ask → auto → plan → ask. */
+export function nextPermissionMode(mode: RunConfig['permissionMode']): RunConfig['permissionMode'] {
+  const idx = PERMISSION_MODES.indexOf(mode as (typeof PERMISSION_MODES)[number])
+  return PERMISSION_MODES[(idx + 1) % PERMISSION_MODES.length]
 }
 
 /**
@@ -76,8 +119,10 @@ export function projectRootOf(run: RunConfig | null | undefined): string | null 
  * The three ways a person changes where work happens — picking a project,
  * checking out a branch, entering an existing worktree — differ only in how
  * they arrive at these two values, so they share the rule rather than each
- * restating it. A pending worktree request is always cleared: it described the
- * *previous* directory, and carrying it over would branch from the wrong place.
+ * restating it. The resolved base branch is always cleared — it named a branch in
+ * the *previous* directory, and carrying it over would branch from the wrong
+ * place — while the request itself survives, because wanting isolation is a
+ * preference about the work, not about which folder it happens in.
  */
 export function withCheckout(
   run: RunConfig,
@@ -88,7 +133,7 @@ export function withCheckout(
     ...run,
     workingDirectory,
     gitContext,
-    worktreeBaseBranch: null,
+    worktree: run.worktree ? { baseBranch: null } : null,
   }
 }
 
@@ -107,14 +152,14 @@ export function withWorktreeToggled(run: RunConfig): RunConfig {
   if (!run.gitContext?.worktreePath) {
     return {
       ...run,
-      worktreeBaseBranch: run.worktreeBaseBranch ? null : run.gitContext?.targetBranch ?? null,
+      worktree: run.worktree ? null : { baseBranch: run.gitContext?.targetBranch ?? null },
     }
   }
 
   const targetBranch = run.gitContext.targetBranch
   // Nothing to branch from, so there is no second state to flip into.
   if (!targetBranch) return run
-  if (run.worktreeBaseBranch) return { ...run, worktreeBaseBranch: null }
+  if (run.worktree) return { ...run, worktree: null }
 
   // Worktree creation expects a project-root checkout plus its target branch,
   // so an unstarted run is re-anchored into that shape rather than the creation
@@ -124,21 +169,52 @@ export function withWorktreeToggled(run: RunConfig): RunConfig {
     ...run,
     workingDirectory: projectRoot,
     gitContext: { repoRoot: projectRoot, branch: targetBranch, targetBranch },
-    worktreeBaseBranch: targetBranch,
+    worktree: { baseBranch: targetBranch },
   }
 }
 
 /**
- * Point a run at another host.
+ * Whether this run is a dispatch: the agent runs on one host while the project
+ * — and therefore the task — belongs to another.
+ *
+ * Reads the run config rather than a session, so a draft answers it identically.
+ */
+export function isDispatch(run: RunConfig | undefined | null): boolean {
+  return !!run && run.serverId !== run.taskServerId
+}
+
+/**
+ * Whether this run will branch its own worktree before the agent starts.
+ *
+ * A dispatch aimed at a base checkout always does, whatever the user's
+ * preference says: that checkout sits on a machine nobody is watching, so a
+ * collision there has no one to untangle it. A dispatch already pointed *into*
+ * a session worktree — a draft continuing where a dispatched session works — is
+ * not that case: the worktree is being watched from right here, and forcing a
+ * second one off it would break parity with the same gesture on a local
+ * session. Everything else is the user's own choice, recorded in `worktree` —
+ * present the moment isolation is asked for, whether or not the branch to fork
+ * from is known yet. A project that merely happens to live on a remote host is
+ * no different from a local one here.
+ */
+export function startsWorktree(run: RunConfig | undefined | null): boolean {
+  if (!run) return false
+  return (isDispatch(run) && !run.gitContext?.worktreePath) || !!run.worktree
+}
+
+/**
+ * Point a run at another host to *run on*, leaving the project where it is.
  *
  * The old host's checkout describes a filesystem this run no longer uses, so it
- * is dropped rather than carried across and re-read as truth. Staying on the
- * same host keeps whatever the run already had.
+ * is dropped rather than carried across and re-read as truth. `taskServerId` is
+ * deliberately untouched: the project did not move, so neither did its tasks,
+ * and that difference is what later reads back as "this is a dispatch". Staying
+ * on the same host keeps whatever the run already had.
  */
 export function withHost(
   run: RunConfig,
   serverId: string,
-  opts: { path?: string; isLocalHost: boolean; requireWorktree: boolean },
+  opts: { path?: string },
 ): RunConfig {
   const movingHosts = run.serverId !== serverId
   const next: RunConfig = {
@@ -147,10 +223,37 @@ export function withHost(
     ...(opts.path ? { workingDirectory: opts.path } : {}),
   }
   if (!movingHosts) return next
+  // The old host's base branch named a branch over there, so a worktree survives
+  // the move as a request with its answer dropped.
+  return { ...next, gitContext: null, worktree: run.worktree ? { baseBranch: null } : null }
+}
+
+/**
+ * Point a run at a project that lives on another host — its tasks included.
+ *
+ * The opposite of `withHost`: opening a folder on a host makes that host the
+ * project's own, so both ids move together and nothing about the run is a
+ * dispatch. Worktree mode stays the user's choice, exactly as it is locally.
+ */
+export function withProjectHost(
+  run: RunConfig,
+  serverId: string,
+  opts: { path?: string },
+): RunConfig {
+  return { ...withHost(run, serverId, opts), taskServerId: serverId }
+}
+
+/**
+ * Record a host choice without acting on it. The move happens on Send, which is
+ * why this only writes intent: choosing "run on Studio" and then changing your
+ * mind should cost nothing. Picking the host you are already on clears it.
+ */
+export function withPendingHost(
+  run: RunConfig,
+  target: PendingHostDispatch | null,
+): RunConfig {
   return {
-    ...next,
-    gitContext: null,
-    worktreeBaseBranch: null,
-    worktreeRequired: opts.requireWorktree && !opts.isLocalHost,
+    ...run,
+    pendingHostDispatch: target && target.serverId !== run.serverId ? target : null,
   }
 }

@@ -30,19 +30,19 @@
    * the Transcript is already that stream.
    */
   interface Props {
-    tabId: string;
+    sessionId: string;
     messageId: string;
   }
-  let { tabId, messageId }: Props = $props();
+  let { sessionId, messageId }: Props = $props();
 
   const session = getWorkspaceContext();
   const environments = getSessionEnvironmentStore();
 
-  const currentSession = $derived(session.sessionFor(tabId));
+  const currentSession = $derived(session.sessions[sessionId]);
   const message = $derived(
     currentSession?.messages.find((m) => m.id === messageId),
   );
-  const environment = $derived(environments.environmentFor(session.sessionFor(tabId)?.run));
+  const environment = $derived(environments.environmentFor(currentSession?.run));
 
   let now = $state(Date.now());
   const header = $derived(

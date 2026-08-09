@@ -71,7 +71,6 @@
   import { assistantMarkdownOptions } from "./lib/assistant-markdown";
   import ActionOrb from "../layout/ActionOrb.svelte";
   import ConversationSkeleton from "./ConversationSkeleton.svelte";
-  import SessionBreadcrumb from "./SessionBreadcrumb.svelte";
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
   import NewTabHome from "../layout/NewTabHome.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -134,15 +133,18 @@
       ? serversStore.statusFor(sess.run.serverId)
       : "online",
   );
-  const streamingText = $derived(session.streamingTextFor(tabId, isVisible));
+  const streamingText = $derived(
+    sess ? session.streamingTextFor(sess.id, isVisible) : "",
+  );
 
-  // ─── Breadcrumb — the window band that replaced the session tab strip ───
-  // One line that always says where you are, so it belongs to the window rather
-  // than to a pane: the split-pane instance (forceVisible) never draws it, and
-  // neither does a hidden tab in the pool.
-  const showBreadcrumb = $derived(isEditorMode && isVisible && !forceVisible);
-  // The band floats over the transcript, so the thread reserves its own room
-  // instead of being pushed down: 46px of band plus the gap under it.
+  // ─── Breadcrumb room ───
+  // The band that says where you are belongs to the pane, not to this
+  // transcript: `WorkspaceBody` draws it over the leading pane and
+  // `AsidePaneShell` puts it in its chrome row. Only the leading one floats, so
+  // only the pool instance reserves room under it — a pinned instance
+  // (forceVisible) sits below a row that already took its own height.
+  const reservesBandRoom = $derived(isEditorMode && isVisible && !forceVisible);
+  // 46px of band plus the gap under it.
   const CRUMB_OFFSET = 58;
   let stripMenu = $state<{ tabId: string; x: number; y: number } | null>(null);
 
@@ -335,8 +337,11 @@
   // windowed transcript from disk on demand. The scroll position is anchored
   // across the insert so the previously-visible messages stay put rather than
   // jumping when content is added above them.
+  // `auto` marks the backfill nobody asked for — filling a viewport the restored
+  // window left short. That one pages through disk history; only a user scrolling
+  // to the top is worth reading a long session end to end.
   const NEAR_TOP_PX = 300;
-  async function maybeLoadOlder() {
+  async function maybeLoadOlder(opts?: { auto?: boolean }) {
     const el = scrollEl;
     if (!el || loadingOlder || el.scrollTop > NEAR_TOP_PX) return;
     if (!hasOlder && !sess?.historyTruncated) return;
@@ -350,7 +355,7 @@
       if (!hasOlder && sess?.historyTruncated) {
         expandingHistory = true;
         try {
-          await session.expandHistory(tabId);
+          await session.expandHistory(tabId, { paged: opts?.auto });
         } finally {
           expandingHistory = false;
         }
@@ -373,7 +378,7 @@
       el.scrollHeight <= el.clientHeight &&
       (hasOlder || sess?.historyTruncated)
     ) {
-      void maybeLoadOlder();
+      void maybeLoadOlder({ auto: true });
     }
   }
 
@@ -767,7 +772,9 @@
   }
 
   const sessionChangedFiles = $derived(sess?.sessionChangedFiles ?? []);
-  const latestTurnSnapshot = $derived(session.turnSnapshots[tabId]?.at(-1));
+  const latestTurnSnapshot = $derived(
+    sess ? session.turnSnapshots[sess.id]?.at(-1) : undefined,
+  );
   const latestTurnScope = $derived(
     latestTurnSnapshot
       ? ({ kind: "turn", index: latestTurnSnapshot.index } as const)
@@ -830,8 +837,8 @@
   useKeybinding(
     "conversation.interrupt",
     () => {
-      session.interruptTab(tabId);
-      session.apiFor(tabId).stopTab(session.ctxFor(tabId));
+      session.interruptTabSession(tabId);
+      session.apiFor(tabId).stopSession(session.ctxFor(tabId).session.sessionId);
       requestInputFocus();
     },
     {
@@ -878,7 +885,7 @@
         el.scrollHeight <= el.clientHeight &&
         (hasOlder || sess?.historyTruncated)
       ) {
-        void maybeLoadOlder();
+        void maybeLoadOlder({ auto: true });
         return;
       }
       if (isNearBottom && isVisible && !holdScroll) {
@@ -891,14 +898,7 @@
   });
 
   async function navigateToSourceSession(agentSessionId: string) {
-    // Find an open tab whose session has this agent session ID
-    const matchingTabId = session.tabOrder.find((tid) => {
-      const s = session.sessionFor(tid);
-      return (
-        s?.agentSessionId === agentSessionId ||
-        s?.forkedFromSessionId === agentSessionId
-      );
-    });
+    const matchingTabId = session.tabIdForAgentSession(agentSessionId);
     if (matchingTabId) {
       session.selectTab(matchingTabId);
       return;
@@ -979,9 +979,6 @@
     class={isEditorMode ? "flex flex-col h-full min-h-0" : ""}
   >
     <div class="cv-root relative {isEditorMode ? 'flex-1 min-h-0' : ''}">
-      {#if showBreadcrumb}
-        <SessionBreadcrumb {tabId} />
-      {/if}
       {#if findOpen}
         <div class="absolute top-2 right-3 z-20">
           <FindBar
@@ -1019,7 +1016,7 @@
           class="w-full"
           style="{isEditorMode
             ? 'max-width:var(--solus-reading-max);margin-inline:auto'
-            : 'padding-inline:var(--cv-pill-gutter)'}{showBreadcrumb
+            : 'padding-inline:var(--cv-pill-gutter)'}{reservesBandRoom
             ? `;padding-top:${CRUMB_OFFSET}px`
             : ''}"
         >

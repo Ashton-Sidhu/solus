@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import path, { basename } from 'node:path'
-import type { ProjectEntry } from '../../shared/types'
+import { isRemoteDispatchCheckoutPath, type ProjectEntry } from '../../shared/types'
 import { getDb, withTx } from '../db'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
@@ -38,6 +38,9 @@ async function readManifest(): Promise<ProjectEntry[]> {
 /** Add a project to the manifest if not already present (keyed by its config hash). */
 export async function recordProject(cwd: string): Promise<void> {
   if (!cwd || cwd === '~') return
+  // Delegated remote-dispatch checkouts are host-internal; keep them out of the
+  // permanent project list the same way recents excludes them.
+  if (isRemoteDispatchCheckoutPath(cwd)) return
   const key = resolveProjectKey(cwd)
   getDb().prepare(`
     INSERT OR IGNORE INTO projects (key, path, folder_name, added_at)
@@ -70,7 +73,9 @@ export async function listProjects(): Promise<ProjectEntry[]> {
     }
   }
 
-  const present = [...byKey.values()].filter((project) => existsSync(project.path))
+  const present = [...byKey.values()].filter(
+    (project) => !isRemoteDispatchCheckoutPath(project.path) && existsSync(project.path),
+  )
   if (mutated || present.length !== manifest.length) {
     try {
       withTx(() => {

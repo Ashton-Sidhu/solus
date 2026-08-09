@@ -12,6 +12,7 @@ all live in one focused workspace.
 > Codebase Map below.** The map tells you which files to open. Search only after it
 > points you to a region; never sweep the repository blind.
 
+Always talk in ASD-STE100 Simplified Technical English.
 ---
 
 ## What makes Solus special?
@@ -350,8 +351,6 @@ Use the smallest proof that demonstrates the change:
 1. Run focused unit tests for the behavior you changed, for example:
    `bun test tests/unit/<feature>.test.ts`.
 2. Run any targeted typecheck, lint, or generator validation that owns the changed area.
-3. Run `bun run build` to compile both the Electron app and standalone web client. Keep
-   output limited to warnings and errors.
 
 Do not run the full Playwright suite, start a dev server, or perform browser/computer-use
 verification unless asked. User-visible frontend changes may receive one integrated pass
@@ -441,7 +440,7 @@ use a narrow Grep.
 | Path | Owns |
 |---|---|
 | `index.ts` | App bootstrap, windows, tray, global shortcuts, and custom protocols |
-| `control-plane.ts` | Central session/tab orchestrator, prompt dispatch, and event normalization; large and performance-sensitive |
+| `control-plane.ts` | Central session orchestrator, prompt dispatch, and event normalization; large and performance-sensitive. Keyed by Solus's `sessionId` throughout — it has never heard of a tab, and publishes to the clients watching a session |
 | `agents/` | Agent backends under `claude/` and `codex/`, backend registry, run input, and text generation |
 | `server/` | HTTP/WebSocket server plus one file per domain under `handlers/` |
 | `transports/` | Electron IPC and WebSocket RPC transports |

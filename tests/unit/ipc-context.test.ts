@@ -25,6 +25,7 @@ describe('IPC context', () => {
     const deps = {
       tabs: () => ({}),
       sessionFor: () => undefined,
+      runFor: () => undefined,
       globalDefaults: {
         permissionMode: 'auto',
         workingDirectory: '/repo',
@@ -69,6 +70,7 @@ describe('IPC context', () => {
     const deps = {
       tabs: () => ({}),
       sessionFor: () => undefined,
+      runFor: () => undefined,
       globalDefaults: {
         permissionMode: 'auto',
         workingDirectory: '/repo',
@@ -84,7 +86,8 @@ describe('IPC context', () => {
 
     const ctx = new IpcContextBuilder(deps).forEnvironment('', checkout.worktreePath, checkout)
 
-    expect(ctx.session.tabId).toBe('')
+    // No session behind it, so the host is told to register nothing.
+    expect(ctx.session.sessionId).toBe('')
     expect(ctx.session.workingDirectory).toBe(checkout.worktreePath)
     expect(ctx.session.gitContext).toEqual(checkout)
   })

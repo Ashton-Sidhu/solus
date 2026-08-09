@@ -177,8 +177,8 @@
     return parts[parts.length - 1] || "Home";
   }
 
-  function tabLabel(tab: Tab, sess: Session | undefined): string {
-    const { title } = tab;
+  function tabLabel(sess: Session | undefined): string {
+    const title = sess?.title;
     if (!title || title === "Resumed Session") return projectName(sess);
     return title;
   }
@@ -379,7 +379,7 @@
       {/if}
       <span
         class="tab-label min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
-        >{tabLabel(tab, sess)}</span
+        >{tabLabel(sess)}</span
       >
       <button
         onclick={(e) => {
@@ -481,11 +481,11 @@
                       : ''}"
                     aria-label={tab
                       ? needsAttention
-                        ? `${tabLabel(tab, sess)} — ${attentionLabel(attention)}`
-                        : tabLabel(tab, sess)
+                        ? `${tabLabel(sess)} — ${attentionLabel(attention)}`
+                        : tabLabel(sess)
                       : undefined}
                     title={tab
-                      ? `${tabLabel(tab, sess)} — ${projectByline(sess)}`
+                      ? `${tabLabel(sess)} — ${projectByline(sess)}`
                       : undefined}
                   >
                     {@render tabInner(tabId, showTabStatusInGroup)}
@@ -535,11 +535,11 @@
                       : ''}"
                     aria-label={tab
                       ? needsAttention
-                        ? `${tabLabel(tab, sess)} — ${attentionLabel(attention)}`
-                        : tabLabel(tab, sess)
+                        ? `${tabLabel(sess)} — ${attentionLabel(attention)}`
+                        : tabLabel(sess)
                       : undefined}
                     title={tab
-                      ? `${tabLabel(tab, sess)} — ${projectByline(sess)}`
+                      ? `${tabLabel(sess)} — ${projectByline(sess)}`
                       : undefined}
                   >
                     {@render tabInner(tabId, true)}
@@ -572,7 +572,7 @@
           {#snippet child({ props: tooltipProps })}
             <button {...tooltipProps}
         onclick={async () => {
-          await session.createDraftTab(undefined, { via: "click" });
+          session.openSessionDraft({ via: "click" });
           requestInputFocus();
         }}
         data-testid="new-tab-button"

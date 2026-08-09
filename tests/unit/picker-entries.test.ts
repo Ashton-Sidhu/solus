@@ -28,16 +28,21 @@ function historyEntry(m: SessionMeta): PickerEntry {
 }
 
 function tab(overrides: Partial<Tab> = {}): Tab {
-  return { id: 'tab-1', sessionId: 'sess-1', title: 'New Tab', ...overrides } as Tab
+  return { id: 'tab-1', sessionId: 'sess-1', ...overrides } as Tab
 }
 
-function session(run: Partial<Session['run']> = {}): Session {
+/** The name is the session's, so a picker row reads it from there. */
+function session(
+  run: Partial<Session['run']> & { title?: string } = {},
+): Session {
+  const { title = 'New Tab', ...runOverrides } = run
   return {
     agentSessionId: 'agent-1',
+    title,
     run: {
       provider: 'claude-code',
       workingDirectory: '/repo/project-beta',
-      ...run,
+      ...runOverrides,
     } as Session['run'],
     messages: [],
   } as Session
@@ -74,10 +79,10 @@ describe('SearchTextCache', () => {
     expect(after).toContain('renamed session')
   })
 
-  test('reuses cached text for an open entry while its tab title and message count are unchanged', () => {
+  test('reuses cached text for an open entry while its session title and message count are unchanged', () => {
     const cache = new SearchTextCache()
-    const t = tab({ title: 'Fix login bug' })
-    const s = session()
+    const t = tab()
+    const s = session({ title: 'Fix login bug' })
 
     const first = cache.get(openEntry(t, s))
     // A new wrapper object each time, same underlying tab/session.
@@ -87,13 +92,13 @@ describe('SearchTextCache', () => {
     expect(first).toContain('fix login bug')
   })
 
-  test('invalidates an open entry cache when the tab is renamed', () => {
+  test('invalidates an open entry cache when the session is renamed', () => {
     const cache = new SearchTextCache()
-    const t = tab({ title: 'Fix login bug' })
-    const s = session()
+    const t = tab()
+    const s = session({ title: 'Fix login bug' })
 
     const before = cache.get(openEntry(t, s))
-    t.title = 'Investigate crash on save'
+    s.title = 'Investigate crash on save'
     const after = cache.get(openEntry(t, s))
 
     expect(after).not.toBe(before)
@@ -102,8 +107,8 @@ describe('SearchTextCache', () => {
 
   test('invalidates an open entry cache once a first message actually arrives', () => {
     const cache = new SearchTextCache()
-    const t = tab({ title: 'New Tab' })
-    const s = session({ messages: [] })
+    const t = tab()
+    const s = session()
 
     const before = cache.get(openEntry(t, s))
     expect(before).not.toContain('debug the auth flow')
@@ -117,8 +122,8 @@ describe('SearchTextCache', () => {
 
   test('invalidates an open entry cache when its working directory changes (e.g. a worktree swap)', () => {
     const cache = new SearchTextCache()
-    const t = tab({ title: 'Fix login bug' })
-    const s = session({ workingDirectory: '/repo/project-beta' })
+    const t = tab()
+    const s = session({ title: 'Fix login bug', workingDirectory: '/repo/project-beta' })
 
     const before = cache.get(openEntry(t, s))
     s.run.workingDirectory = '/repo/project-beta-worktree'
@@ -159,7 +164,7 @@ describe('SearchTextCache', () => {
 describe('filterEntries', () => {
   test('filters entries in a single pass, matching title, first message, or byline case-insensitively', () => {
     const cache = new SearchTextCache()
-    const openA = openEntry(tab({ id: 'tab-open', title: 'Ship the release notes' }), session({ agentSessionId: 'agent-open' }))
+    const openA = openEntry(tab({ id: 'tab-open' }), session({ title: 'Ship the release notes' }))
     const historyMatch = historyEntry(meta({ sessionId: 'h-1', firstMessage: 'Refactor the RELEASE pipeline' }))
     const historyNoMatch = historyEntry(meta({ sessionId: 'h-2', firstMessage: 'Unrelated cleanup task' }))
 

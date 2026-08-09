@@ -1,5 +1,6 @@
 import rawModelProfiles from './model-profiles.json'
 import type { GitIdentity, GitState } from './git-types'
+import type { TaskSnapshot } from './task-types'
 
 // ─── Agent ID (needed by ModelProfile below) ───
 
@@ -503,14 +504,46 @@ export interface RunConfig {
   /** The checkout the session adopts before its own Git refresh answers. Null
    *  when nothing is inherited, which is not the same as "not a repo". */
   gitContext: GitCheckout | null
-  worktreeBaseBranch: string | null
-  /** The picked host requires an isolated worktree on that host. */
-  worktreeRequired: boolean
+  /**
+   * How this run will branch, or null when it works directly in its checkout.
+   *
+   * One field rather than a request flag beside a base branch, because the two
+   * always move together and a pair can express the contradiction "not branching,
+   * from `main`" — which is exactly how a toggle bug hid. `baseBranch` is null
+   * while the branch to fork from is still unresolved: the decision is made
+   * before the answer is known, since choosing a project drops the old checkout
+   * and the new host has yet to reply.
+   *
+   * Says nothing about *where* the run happens; `serverId`/`taskServerId` own
+   * that. A dispatch always branches, whatever this holds.
+   */
+  worktree: { baseBranch: string | null } | null
   modelConfig: ModelConfig
   permissionMode: 'ask' | 'auto' | 'plan'
   /** null = "use the default", resolved at dispatch. */
   provider: AgentId | null
+  /** The host that runs the agent. */
   serverId: string
+  /**
+   * The host that owns this run's task record — the machine where the *project*
+   * was opened, which is not always the machine the agent runs on.
+   *
+   * Dispatch carries the repository, not the project (ADR-0002): sending a
+   * session to another host gives that host a clone, so the task stays with the
+   * host you opened the project from. Opening a folder on a host makes that host
+   * the project's own, so its tasks are minted there. `serverId !== taskServerId`
+   * is therefore the definition of a dispatch, and the only thing that forces an
+   * isolated worktree — a dispatched session's base checkout sits on a machine
+   * nobody is watching, so a collision there has no one to untangle it.
+   */
+  taskServerId: string
+  /**
+   * Stable sidebar grouping path when this checkout runs on another host: the
+   * project root as the *user* knows it, not the borrowed machine's clone path.
+   * Part of the run — not the session — so a draft opened from a dispatched
+   * session inherits its grouping the same way it inherits the hosts.
+   */
+  projectGroupPath: string | null
   sessionSkills: string[]
   /** Inert until Send; then connection and repo preparation begin. */
   pendingHostDispatch: PendingHostDispatch | null
@@ -548,20 +581,7 @@ export interface SessionSpec {
 export interface Tab {
   id: string
   sessionId: string
-  title: string
-  /** The user named this tab (or accepted a generated name), so nothing —
-   *  auto-titling included — may overwrite it. */
-  titleCustom: boolean
   hasUnread: boolean
-  /** The tab this one was opened from, kept only while it is a composer. The
-   *  ⌥ shortcuts retarget a composer between task destinations, and "under the
-   *  task I came from" is the one answer the composer's own session cannot give
-   *  once "fresh task" has cleared it. */
-  openedFromTabId?: string
-  input: Prompt
-  diffComments: DiffComment[]
-  diffGeneralComment: string
-  diffCommentDraft: DiffCommentDraft | null
 }
 
 export interface SessionHandoffLineage {
@@ -571,13 +591,22 @@ export interface SessionHandoffLineage {
 
 export type TurnStartKind = 'fresh' | 'follow_up' | 'steer'
 
-/** A picker choice waiting for the first prompt to prepare and enter its host. */
-export interface PendingHostDispatch {
-  serverId: string
-  hostLabel: string
-  isLocalHost: boolean
-  repoKey: string
-}
+/**
+ * A picker choice waiting for the first prompt to prepare and enter its host.
+ *
+ * A union rather than one shape with an `intent` beside a repo key only half of
+ * it uses: a dispatch cannot exist without a repository to clone, and an opened
+ * project has none to name. The host's display name and locality are not stored
+ * — they are registry lookups, and a copy taken at pick time goes stale the
+ * moment that host is renamed or forgotten.
+ */
+export type PendingHostDispatch =
+  /** Send this session to another machine, which is first given a clone of
+   *  `repoKey`. The project — and every task it files — stays behind. */
+  | { serverId: string; intent: 'dispatch'; repoKey: string }
+  /** Work in a directory that host already has, which makes it that host's
+   *  project outright. Nothing to prepare. */
+  | { serverId: string; intent: 'open-project' }
 
 /**
  * Backend-driven session state. Shared across tabs watching the same session.
@@ -627,6 +656,13 @@ export interface Session {
    * separately for reload/rehydration. Cleared when a new attempt starts. */
   terminalFailure: { content: string; timestamp: number } | null
   sessionModel: string | null
+  /**
+   * The unsent message for this conversation. It lives on the session, not the
+   * tab, because it is addressed *to* the session: two views of one conversation
+   * share the one thing you are about to say to it, rather than each holding a
+   * separate draft only one of which could ever be sent.
+   */
+  prompt: Prompt
   pluginCommands: PluginCommandsResult
   progress: SessionProgress | null
   /** Persisted goal for this thread. Codex owns its native record; Solus owns
@@ -641,8 +677,6 @@ export interface Session {
   /** Files changed since this Solus session began. Committing does not clear
    * these paths; uncommitted files come from live Git state instead. */
   sessionChangedFiles: string[]
-  /** Stable sidebar grouping path when this checkout runs on another host. */
-  projectGroupPath: string | null
   additionalDirs: string[]
   readOnlyReason: string | null
   loadingHistory: boolean
@@ -656,19 +690,34 @@ export interface Session {
   /** Work this session is actively collaborating on. Its current content is
    *  injected into each prompt so the agent revises the live version. */
   boundWorkId: string | null
-  /** Set when a session starts from a task and by Cmd+T for a new session under
-   * the active task. Once the provider session exists, task_session_links is
-   * authoritative instead. */
-  pendingTaskId: string | null
-  /** Set on a fork: the top-level task its source session works. The fork's own
-   * task is minted as a subtask of it at first dispatch, so until then the fork
-   * has no task of its own — only the parent it will hang under. */
-  pendingParentTaskId: string | null
-  /** The user explicitly chose "No task" for this not-yet-started session. */
-  taskCreationDisabled?: boolean
+  /**
+   * Where this session will be filed, until it has started. Once the provider
+   * session exists `task_session_links` is authoritative and this is inert.
+   *
+   * A fork carries `{ kind: 'new', parentTaskId }`: its own task is minted as a
+   * subtask at first dispatch, so until then it has no task of its own — only
+   * the parent it will hang under.
+   */
+  task: TaskTarget
   /** Set when this session is the chat tab of a PR review (worktree = PR head).
    *  Drives the PR-context system hint and the `'pr'` diff scope. */
   prReview: PrReviewContext | null
+  /**
+   * Review feedback queued against this conversation's changes, and the comment
+   * being typed. On the session rather than a tab because it is the diff of one
+   * conversation that is being reviewed: two views of it queue into one set, and
+   * whichever one submits sends all of it.
+   */
+  diffComments: DiffComment[]
+  diffGeneralComment: string
+  diffCommentDraft: DiffCommentDraft | null
+  /** What this conversation is called. `'New Tab'` means unnamed — `sessionTitle`
+   *  falls back to the first user message. On the session, not a tab, so a rename
+   *  reaches every view of it instead of only the one that was renamed. */
+  title: string
+  /** Someone named this session (or accepted a generated name), so nothing —
+   *  auto-titling included — may overwrite it. */
+  titleCustom: boolean
 }
 
 export interface PinnedSessionManifest {
@@ -1227,6 +1276,9 @@ export type NormalizedEvent =
   | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string; isAsyncLaunch?: boolean }
   | { type: 'assistant_message'; text: string; parentToolUseId?: string; isFinal?: boolean }
   | { type: 'task_complete'; result: string; costUsd: number; durationMs: number; numTurns: number; usage: UsageData; sessionId: string; permissionDenials?: Array<{ toolName: string; toolUseId: string }> }
+  /** Solus's authoritative top-level turn boundary. Unlike `task_complete`, this
+   *  fires only after all work owned by the turn has stopped. */
+  | { type: 'turn_settled'; turnId: string; outcome: 'completed' | 'failed' | 'interrupted' | 'dead'; settledAt: number }
   | { type: 'background_task_started'; taskId: string; toolUseId?: string }
   | { type: 'background_task_progress'; taskId: string; toolUseId?: string; description?: string; toolUses?: number; totalTokens?: number; durationMs?: number; lastToolName?: string }
   | { type: 'background_task_settled'; taskId: string; status: 'completed' | 'failed' | 'stopped' | 'killed'; toolUseId?: string }
@@ -1301,6 +1353,12 @@ export interface PromptOptions {
   /** Explicitly keep a fresh session outside the task system. Without this,
    *  an unbound first dispatch creates a local task from the prompt. */
   skipTaskCreation?: boolean
+  /** The task's live state, shipped by the client when `taskId` names a task on
+   *  a different host than the one executing this prompt (a dispatch). The
+   *  execution host renders the system-prompt packet from it and serves
+   *  `read_task` from the same shape; without it a foreign `taskId` is
+   *  unreadable — hosts never talk to each other. */
+  taskSnapshot?: TaskSnapshot
   /** Goal objective attached to a fresh session dispatch. Main persists it as
    *  soon as the provider issues the session id, before a fast turn can finish. */
   goalObjective?: string
@@ -1324,7 +1382,10 @@ export interface PromptOptions {
 // ─── IPC Context ───
 
 export interface SessionCtx {
-  tabId: string
+  /** Solus's id for the conversation this context describes — the only address
+   *  the host knows. Empty string when the source is a draft that has not
+   *  started a session yet. */
+  sessionId: string
   provider: AgentId | null
   agentSessionId: string | null
   handoffFrom?: SessionHandoffLineage
@@ -1454,8 +1515,13 @@ export interface SessionRunInput {
 // ─── Control Plane Types ───
 
 export interface BackendSession {
+  /** The key of `activeSessions`. Still the provider's id until WP3 re-keys it. */
   sessionId: string
+  /** The provider's thread id, for `--resume`. Null until session_init. */
+  agentSessionId: string | null
   backendId: AgentId
+  /** The provider conversation this one was handed off from, if any. */
+  handoffFrom?: SessionHandoffLineage
   status: SessionStatus
   hasPendingInput?: boolean
   pendingInputEvents: NormalizedEvent[]
@@ -1467,6 +1533,13 @@ export interface BackendSession {
   gitContext?: GitCheckout
   lastActivityAt: number
   promptCount: number
+  /** Solus-owned identity for the top-level turn currently running. Provider
+   *  result events do not reliably identify that turn, so the control plane
+   *  assigns this before dispatch and carries it through final settlement. */
+  activeTurnId?: string
+  /** Last turn whose terminal event was published. Prevents duplicate provider
+   *  result/exit signals from settling one turn more than once. */
+  settledTurnId?: string
   /** Task IDs of run_in_background sub-agents/tools still in flight. While this is
    *  non-empty the session is kept 'running' past turn end — the SDK query stays
    *  open servicing the background work and will only truly exit once it settles. */
@@ -1496,24 +1569,6 @@ export interface SessionProviderSwitchResult {
 }
 
 export type QueuedPromptReason = 'busy' | 'rate_limit'
-
-/** Thin subscription record — the tab exists and may watch a session. */
-export interface TabRegistryEntry {
-  tabId: string
-  /** Live transport connection that owns this watch. */
-  clientId: string
-  /** Stable trusted device that owns the connection, when known. */
-  deviceId?: string
-  /** Points into the activeSessions map (= agent session ID). Null until session_init fires. */
-  sessionId: string | null
-  provider: AgentId | null
-  handoffFrom?: SessionHandoffLineage
-  createdAt: number
-  /** Per-tab display status. Mirrors session status after session_init; tracks 'connecting' before. */
-  status: SessionStatus
-  /** Updated on every event from this tab's backend run. */
-  lastActivityAt: number
-}
 
 export interface QueuedPromptSnapshot {
   queueId: string
@@ -1625,6 +1680,12 @@ export interface SessionMeta {
   size: number
   cwd: string         // actual working directory read from the JSONL cwd field
   projectPath: string // raw encoded folder name, e.g. "-Users-sidhu-clui-cc"
+  /** The Solus host holding this session. Stamped by the client that scanned it,
+   *  or read from the index when a client recorded the session on a host that
+   *  does not hold it — a machine cannot know which saved-server id names it, so
+   *  either way this is the client's word. Absent means the host answering the
+   *  read, which is every session listed before hosts were scanned. */
+  serverId?: string
   isWorktree?: boolean
   status?: SessionStatus
   model?: string
@@ -1999,6 +2060,20 @@ export function encodePathAsFolder(cwd: string): string {
 /** True if `path` lives inside a Solus-managed worktree (`<root>/.solus-worktrees/<branch>`). */
 export function isSolusWorktreePath(path: string): boolean {
   return path.includes(SOLUS_WORKTREE_PATH_MARKER)
+}
+
+/**
+ * Marker segment of a delegated remote-dispatch checkout
+ * (`<root>/solus-remote/<login>/<owner>/<repo>`). These clones are created to
+ * run a session on another machine; they are host-internal plumbing, never a
+ * project the user opened, so they must stay out of recents.
+ */
+export const SOLUS_REMOTE_DISPATCH_DIR = 'solus-remote'
+export const SOLUS_REMOTE_DISPATCH_PATH_MARKER = `/${SOLUS_REMOTE_DISPATCH_DIR}/`
+
+/** True if `path` lives inside a delegated remote-dispatch checkout. */
+export function isRemoteDispatchCheckoutPath(path: string): boolean {
+  return path.includes(SOLUS_REMOTE_DISPATCH_PATH_MARKER)
 }
 
 /** The base project root for a worktree path, or `path` unchanged when it isn't a worktree. */

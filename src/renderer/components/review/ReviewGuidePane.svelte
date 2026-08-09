@@ -114,8 +114,9 @@
       }
       const newTab = session.tabs[newTabId];
       if (newTab) {
-        newTab.input.planRefs = [...payload.planRefs];
-        newTab.input.workRefs = [...payload.workRefs];
+        const prompt = session.inputFor(newTab.id);
+        prompt.planRefs = [...payload.planRefs];
+        prompt.workRefs = [...payload.workRefs];
       }
       session.sendMessage(parts.join("\n\n"), undefined, newTabId);
       composerRef?.clear();

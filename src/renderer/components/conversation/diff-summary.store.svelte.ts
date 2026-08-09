@@ -18,30 +18,34 @@ export class DiffSummaryStore {
   private fetchedKey: Record<string, string> = {}
   private inFlight = new Set<string>()
 
-  statsFor(tabId: string, scope: DiffSummaryScope): ChangedFileStat[] {
-    return this.stats[tabId]?.[scopeKey(scope)] ?? []
+  statsFor(sessionId: string, scope: DiffSummaryScope): ChangedFileStat[] {
+    return this.stats[sessionId]?.[scopeKey(scope)] ?? []
   }
 
+  /** Keyed by the conversation whose changes these are. Two views of one session
+   *  are looking at the same diff, so they share one cache entry and one fetch. */
   refresh(
     session: WorkspaceContext,
-    tabId: string,
+    sessionId: string,
     scope: DiffSummaryScope,
     changedFiles?: string[],
   ): void {
+    const tabId = session.tabIdForSession(sessionId)
+    if (!tabId) return
     const summaryKey = scopeKey(scope)
-    const cacheKey = `${tabId}\n${summaryKey}`
+    const cacheKey = `${sessionId}\n${summaryKey}`
     const revision = scope.kind === 'session' ? (changedFiles?.join('\n') ?? '') : summaryKey
     if (scope.kind === 'turn') {
-      for (const key of Object.keys(this.stats[tabId] ?? {})) {
-        if (key.startsWith('turn:') && key !== summaryKey) delete this.stats[tabId][key]
+      for (const key of Object.keys(this.stats[sessionId] ?? {})) {
+        if (key.startsWith('turn:') && key !== summaryKey) delete this.stats[sessionId][key]
       }
-      const prefix = `${tabId}\nturn:`
+      const prefix = `${sessionId}\nturn:`
       for (const key of Object.keys(this.fetchedKey)) {
         if (key.startsWith(prefix) && key !== cacheKey) delete this.fetchedKey[key]
       }
     }
     if (!revision) {
-      if (this.stats[tabId]?.[summaryKey]) delete this.stats[tabId][summaryKey]
+      if (this.stats[sessionId]?.[summaryKey]) delete this.stats[sessionId][summaryKey]
       delete this.fetchedKey[cacheKey]
       return
     }
@@ -52,21 +56,13 @@ export class DiffSummaryStore {
       .diffStats(session.ctxFor(tabId), { scope })
       .then((stats) => {
         this.fetchedKey[cacheKey] = revision
-        this.stats[tabId] ??= {}
-        this.stats[tabId][summaryKey] = stats
+        this.stats[sessionId] ??= {}
+        this.stats[sessionId][summaryKey] = stats
       })
       .catch(() => {
         /* best-effort: session summaries fall back to paths with no counts */
       })
       .finally(() => this.inFlight.delete(cacheKey))
-  }
-
-  disposeTab(tabId: string): void {
-    delete this.stats[tabId]
-    const prefix = `${tabId}\n`
-    for (const key of Object.keys(this.fetchedKey)) {
-      if (key.startsWith(prefix)) delete this.fetchedKey[key]
-    }
   }
 }
 

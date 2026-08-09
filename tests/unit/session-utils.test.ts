@@ -5,7 +5,7 @@ import {
   computeCurrentActivity,
   formatDiffInlineComments,
 } from '../../src/renderer/contexts/workspace/session.utils'
-import { findOpenTabForSession, sessionDisplayName } from '../../src/renderer/lib/sessionUtils'
+import { attemptServerId, findOpenTabForSession, sessionDisplayName } from '../../src/renderer/lib/sessionUtils'
 
 function diffComment(selectedCode: string): DiffComment {
   return {
@@ -136,5 +136,42 @@ describe('sessionDisplayName', () => {
     expect(sessionDisplayName({ link: unnamed })).toBe('e1dbb2b0')
     expect(sessionDisplayName({ link: unnamed, liveTitle: '   ' }))
       .toBe('e1dbb2b0')
+  })
+})
+
+describe('attemptServerId', () => {
+  const link = (executionServerId: string | null): TaskSessionLink => ({
+    sessionId: 'e1dbb2b0-3c2f-4f7a-9a51-0c4a1f2b7d33',
+    sessionTitle: null,
+    provider: null,
+    lastActivityAt: null,
+    executionServerId,
+    linkedAt: 1,
+  })
+
+  test('a dispatched attempt reports its execution host once its tab is closed', () => {
+    // WHY: the link is written on the *task's* host while the agent runs
+    // somewhere else, so the recorded host is the only thing that survives the
+    // tab. Without it a closed dispatch is indistinguishable from a local run.
+    expect(attemptServerId({ link: link('studio'), taskServerId: 'local' }))
+      .toBe('studio')
+  })
+
+  test('an attempt that was never a dispatch answers with the task’s host', () => {
+    // WHY: falling through to the reading client is the defect — a session on
+    // another machine’s project ran there, not here, and nothing about opening
+    // the task from this laptop changes that.
+    expect(attemptServerId({ link: link(null), taskServerId: 'workshop' }))
+      .toBe('workshop')
+  })
+
+  test('a mounted tab outranks both, since it knows its host outright', () => {
+    // WHY: a session moved to another host mid-life would otherwise keep
+    // reporting the host it was first linked from.
+    expect(attemptServerId({
+      link: link('studio'),
+      liveServerId: 'workshop',
+      taskServerId: 'local',
+    })).toBe('workshop')
   })
 })
