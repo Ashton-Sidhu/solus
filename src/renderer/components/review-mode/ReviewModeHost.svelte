@@ -13,6 +13,7 @@
   import type { ReviewOutcome } from "../../../shared/review-session-types";
   import { getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
+  import { serverConnections } from "@client-core/server-connections";
   import { Button } from "../ui/button";
   import PrChecksChip from "../prs/PrChecksChip.svelte";
   import PrReviewPane from "../pr-review/PrReviewPane.svelte";
@@ -50,8 +51,14 @@
   let composerEl = $state<HTMLTextAreaElement | null>(null);
   let started = false;
   let disposed = false;
-  let postingContext: IpcContext | null = null;
+  let postingContext = $state<IpcContext | null>(null);
   let viewer = $state<string | null>(null);
+
+  const reviewServerId = $derived(
+    session.prsStore.reviewModeServerId ??
+      serverConnections.serverIdForApi(serverConnections.primaryApi()),
+  );
+  const reviewApi = $derived(serverConnections.apiFor(reviewServerId));
 
   const state = $derived(store.state);
   const currentEntry = $derived(store.currentEntry);
@@ -92,6 +99,7 @@
     try {
       const result = await session.preparePrReview(number, {
         ctx: postingContext ?? session.prsStore.reviewModeContext ?? session.ctx,
+        serverId: reviewServerId,
       });
       if (disposed) return;
       prepared.set(number, result);
@@ -280,17 +288,21 @@
     postingContext = JSON.parse(
       JSON.stringify(session.prsStore.reviewModeContext ?? session.ctx),
     ) as IpcContext;
+    const context = postingContext;
     let cancelled = false;
-    void session.prsStore.loadViewer(postingContext).then((login) => {
+    void session.prsStore.loadViewer(reviewApi, reviewServerId, context).then((login) => {
       if (!cancelled) viewer = login;
     }).catch(() => {});
 
-    void session.stacksStore.load(postingContext).catch(() => session.stacksStore.graphFor()).then((stackGraph) => {
+    void session.stacksStore.load(reviewApi, reviewServerId, context)
+      .catch(() => session.stacksStore.graphFor(reviewServerId, context.session.projectPath))
+      .then((stackGraph) => {
       if (cancelled) return;
       const basePoster = createReviewDispositionPoster({
-        getContext: () => postingContext as IpcContext,
+        getContext: () => context,
         getReview: (number) => prepared.get(number)?.pr ?? null,
-        submit: (ctx, number, review) => window.solus.prSubmitReview(ctx, number, review),
+        submit: (ctx, number, review) =>
+          reviewApi.prSubmitReview(ctx, number, review),
       });
       store.start({
         items: items.map((item) => ({
@@ -402,9 +414,9 @@
 
             {#if source}
               <PrChecksChip
-                summary={session.prsStore.checksFor(source.number)}
+                summary={session.prsStore.checksFor(reviewServerId, postingContext ?? session.ctx, source.number)}
                 headSha={source.headSha}
-                loadFailed={session.prsStore.checksLoadFailed}
+                loadFailed={session.prsStore.checksLoadFailedFor(reviewServerId, postingContext ?? session.ctx)}
               />
             {/if}
 
@@ -435,6 +447,8 @@
                   {@const item = items.find((candidate) => candidate.number === entry.prNumber)}
                   <PrReviewPane
                     pr={ready.pr}
+                    api={reviewApi}
+                    serverId={reviewServerId}
                     target={ready.pr}
                     activeTab={views.get(entry.prNumber) ?? defaultReviewModeView(item?.effort)}
                     onActiveTabChange={(view) => views.set(entry.prNumber, view)}

@@ -74,6 +74,7 @@ async function boot(): Promise<void> {
 
   let appMounted = false
   const { transport, api } = installWsBackedSolusApi(target, nativeApi as unknown as Record<string, unknown>, {
+    verifyConnectedHost: () => serverConnections.verifySavedServerIdentity(target),
     onStatusChange: (status, attempt) => {
       serverConnections.updateStatus(target.id, status, attempt)
       setConnectionState({ status, attempt, target })
@@ -116,7 +117,7 @@ async function boot(): Promise<void> {
     if ('requestIdleCallback' in window) {
       window.requestIdleCallback(notifyRendererIdle, { timeout: 5_000 })
     } else {
-      window.setTimeout(notifyRendererIdle, 1_500)
+      globalThis.setTimeout(notifyRendererIdle, 1_500)
     }
   }))
 }

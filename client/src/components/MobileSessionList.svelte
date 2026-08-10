@@ -14,6 +14,8 @@
     HardDrivesIcon,
     BookOpenTextIcon,
     CircleNotchIcon,
+    NotePencilIcon,
+    PaperclipIcon,
   } from "phosphor-svelte";
   import { getWorkspaceContext, getSessionSidebarStore, serversStore } from "@renderer/contexts";
   import { aggregateReviewGuideStatus } from "@renderer/components/session/lib/task-list";
@@ -194,6 +196,33 @@
     });
   }
 
+  /** Same two actions the desktop drafts section has: go back to the composer,
+   *  or discard with the words held in a toast until it is dismissed. */
+  function openDraft(draftId: string) {
+    session.openDraft(draftId);
+    requestInputFocus();
+    onSessionSelect();
+  }
+
+  function discardDraft(row: (typeof store.draftRows)[number], e: Event) {
+    e.stopPropagation();
+    const discarded = session.discardSessionDraft(row.draftId);
+    if (!discarded) return;
+    toasts.show({
+      message: `Discarded “${row.title}”`,
+      actions: [
+        {
+          label: "Undo",
+          onAction: () =>
+            session.restoreSessionDrafts({
+              order: [row.draftId],
+              drafts: { [row.draftId]: discarded },
+            }),
+        },
+      ],
+    });
+  }
+
   function newSession() {
     session.openSessionDraft({ via: "click" });
     requestInputFocus();
@@ -284,9 +313,47 @@
   </header>
 
   <div class="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-2 pt-0.5 pb-3 [-webkit-overflow-scrolling:touch]">
+    <!-- Prompts written but never sent, above the sessions they are on their way
+         to becoming. Empty drafts earn no row, so the section is absent until
+         something is written. -->
+    {#if store.draftRows.length > 0}
+      <div class={sectionLabel}>Drafts</div>
+      {#each store.draftRows as row (row.draftId)}
+        <!-- No active state: a draft is listed only once no pane is composing
+             it, so a row here is never the prompt on screen. -->
+        <div
+          class="{rowBase} bg-transparent active:bg-(--solus-surface-hover)"
+          role="button"
+          tabindex="0"
+          onclick={() => openDraft(row.draftId)}
+          onkeydown={(e) => {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            e.preventDefault();
+            openDraft(row.draftId);
+          }}
+        >
+          <span class="shrink-0 flex items-center text-(--solus-text-tertiary)"><NotePencilIcon size={14} /></span>
+          <span class="flex-1 min-w-0 flex flex-col gap-px">
+            <span class="truncate text-[0.8125rem] leading-tight font-normal text-(--solus-text-primary)">{row.title}</span>
+            <span class="truncate text-[0.6875rem] leading-tight text-(--solus-text-tertiary)">{row.projectLabel}</span>
+          </span>
+          {#if row.hasAttachments}
+            <span class="shrink-0 flex items-center text-(--solus-text-tertiary)" aria-label="Has attachments"><PaperclipIcon size={13} /></span>
+          {/if}
+          <button
+            class="shrink-0 w-9 h-9 flex items-center justify-center rounded-full border-0 bg-transparent text-(--solus-text-muted) cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-tertiary) active:text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
+            aria-label="Discard draft"
+            onclick={(e) => discardDraft(row, e)}
+          >
+            <XIcon size={15} />
+          </button>
+        </div>
+      {/each}
+    {/if}
+
     {#if store.pinnedSessions.length > 0}
       <div class={sectionLabel}>Pinned</div>
-      {#each store.pinnedSessions as pin (pin.sessionId)}
+      {#each store.pinnedSessions as pin (`${pin.serverId ?? ""}:${pin.sessionId}`)}
         {@const openTabId = store.openTabIdForPinned(pin)}
         {@const isActive = !!openTabId && openTabId === session.onScreenTabId}
         {@const reviewStatus = reviewStatusForTab(openTabId)}

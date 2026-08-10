@@ -5,6 +5,27 @@ any connected host, or is explicitly gated with a visible reason. Host-correctne
 becomes structural — enforced by types, keys, and lint — instead of a per-call-site
 convention that each feature must rediscover.
 
+**WP1 status: implemented (2026-08-09).** Final checks report 222 source errors
+(stage-E baseline 222; pre-migration 249) and 257 client-inclusive errors
+(stage-E baseline 296; pre-migration 331), with no new source errors. Deviations:
+the planned oxlint rule is the smaller repository-native `bun run lint:hosts`
+scanner because this repository has no lint framework, and an unavailable health
+response defers identity verification until the next connection instead of rejecting
+an otherwise usable socket. A successful health response still backfills or enforces
+the saved `installationId` before queued RPC calls are sent.
+
+**WP6 status: implemented (2026-08-10).** Automations now federate across
+connected hosts, route mutations to their owner, scope pushed changes to the
+emitting host, and keep same-path projects distinct by host. Project config and
+the Projects, Tools, Skills, and Voice settings surfaces are host-addressed; all
+four settings tabs use the shared host frame and selector. Final checks report
+219 source errors and 293 client-inclusive errors, with host lint, build, and
+focused WP6 tests passing. **Deviation:** the Run subsystem and its project
+command editor had already been removed by the newer session-first work in this
+working tree. WP6 preserves that removal instead of restoring obsolete process,
+RPC, renderer, and test code only to retrofit host routing. Therefore no Run
+store, status event, or port control remains to migrate or test.
+
 **Status: accepted.** WP0 questions resolved 2026-08-09: works federate by fan-out
 with owner-host writes; GitHub API access on non-primary hosts is an inline per-host
 connect; the `HostApi` cutover is hard — no backwards-compatibility layer. The two
@@ -218,6 +239,8 @@ unit tests for store ctx threading.
   (`prompt-composer.ts:94` stops emitting client paths). Size-cap and count-cap in
   the shared contract. Images already ride as dataUrls — they converge on the same
   path.
+  Cross-host uploads are capped at 10 MiB per file and eight persisted uploads
+  per session. The host stores them below its own `attachments/` data area.
 - **Artifacts/images**: add `assetCreateUrl(ctx, resource) → {relativeUrl, expiresAt}`
   RPC returning an HMAC-signed, short-TTL URL served by the owning host's HTTP
   server. `ArtifactView` and `markdown-image` resolve through the session's host api
@@ -225,6 +248,8 @@ unit tests for store ctx threading.
   Electron protocol stays as a fast path only when
   `run.serverId === LOCAL_SERVER_ID`. This also gives the web client artifact
   rendering, which it currently lacks entirely.
+  Signed asset capabilities last one hour and allow only PNG, JPG/JPEG, GIF,
+  WebP, SVG, and PDF files inside the session project root or worktree.
 - `AttachmentChips` preview passes its `tabId` so previews resolve on the right host.
 
 **Verification:** unit tests for signed-URL mint/verify (TTL, path canonicalization
@@ -283,18 +308,18 @@ and app restart; user comment on remote plan → remote `read_plan` returns it.
 
 ## WP7 — Capabilities, credentials, notifications (follow-on)
 
-Deliberately after the parity work; each needs its own decision.
+Deliberately after the parity work; each item now has its own plan or is done.
 
-- **Capability advertisement**: hosts advertise capability flags (in `/health` or a
-  `getCapabilities` RPC) — available editors, terminal, browser-open — replacing
-  ad-hoc `desktopHandlersAvailable` checks; clients hide or gate actions the host
-  does not advertise. Absent flag = unsupported (version-skew safe).
-- **GitHub API on non-primary hosts**: per ADR-0009 decision — surface "Connect
-  GitHub on <host>" inline where an operation needs it (task upstream sync already
-  routes correctly and only lacks the credential).
-- **Notifications**: today the push plumbing is client-dormant and per-host. Scope a
-  separate plan: client subscribes on every retained host, or a relay. Out of scope
-  here beyond noting the constraint.
+- **Capability advertisement** → **implemented 2026-08-10** from
+  [host-capability-flags.md](./host-capability-flags.md) (authenticated
+  `serverGetCapabilities` RPC, absent flag = unsupported, `hostPolicy` split).
+- **GitHub API on non-primary hosts** → **shipped with WP3** (inline
+  "Connect GitHub on <host>" mapped from the existing auth errors).
+- **Notifications** → planned in
+  [remote-notifications.md](./remote-notifications.md) (no relay: per-host push
+  fan-out + a client attention-notification manager over `subscribeAllHosts`).
+  The two remaining plans are independent and can run in parallel; see the
+  Parallelism section of remote-notifications.md.
 
 ## Sequencing and mechanics
 

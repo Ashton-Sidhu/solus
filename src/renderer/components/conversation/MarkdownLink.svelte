@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { localApi } from "@client-core/local-api";
   import {
     ChatCircleDotsIcon,
     FileTextIcon,
@@ -11,6 +12,7 @@
   import { tokenClassName } from "../editor/tokenStyle";
   import { faviconUrlForHref } from "./lib/external-link";
   import { parseSessionHref, resolveSessionLinkMeta } from "./lib/session-link";
+  import { getSessionLinkContext } from "./lib/session-link-context";
   import type { Snippet } from "svelte";
 
   interface Props {
@@ -29,6 +31,7 @@
   };
 
   const session = getWorkspaceContext();
+  const sessionLinkContext = getSessionLinkContext();
 
   const isPlanRef = $derived(href.startsWith("plan://"));
   const isWorkRef = $derived(href.startsWith("work://"));
@@ -68,7 +71,7 @@
       session.openRoute(linkRoute);
     } else if (sessionParams) {
       e.preventDefault();
-      void resolveSessionLinkMeta(sessionParams).then((meta) =>
+      void resolveSessionLinkMeta(sessionParams, sessionLinkContext?.serverId()).then((meta) =>
         session.resumeSession(meta),
       );
     } else if (fileRef) {
@@ -79,7 +82,7 @@
       });
     } else if (href) {
       e.preventDefault();
-      window.solus.openExternal(href);
+      localApi.openExternal(href);
     }
   }
 </script>

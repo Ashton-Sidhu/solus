@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import type { Task } from '../../src/shared/task-types'
+import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 // One connected host, whose RPC surface is the same `window.solus` each test
 // installs. Tasks are host-scoped now, so the store reaches them through the
@@ -7,10 +8,10 @@ import type { Task } from '../../src/shared/task-types'
 // behaving exactly as it did.
 mock.module('@client-core/server-connections', () => ({
   serverConnections: {
+    ...singleHostServerConnections(),
     eventsFor: () => ({ subscribe: () => () => {} }),
     onConnectionCreated: () => () => {},
     connectedServerIds: () => ['local'],
-    apiFor: () => (globalThis as unknown as { window: { solus: unknown } }).window.solus,
   },
 }))
 

@@ -206,13 +206,7 @@
     if (commentsSaveTimer) clearTimeout(commentsSaveTimer);
     const id = workId;
     commentsSaveTimer = setTimeout(() => {
-      const ann = {
-        version: 1 as const,
-        workId: id,
-        comments: $state.snapshot(session.worksStore.annotationComments(id)) as PlanComment[],
-        updatedAt: Date.now(),
-      };
-      void window.solus.saveWorkAnnotations(ann);
+      void session.worksStore.saveAnnotations(id);
     }, 400);
   }
 

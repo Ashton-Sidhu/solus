@@ -30,10 +30,6 @@ export { getPlanStore } from './plans/plan.store.svelte'
 /** Global local-first task state shared by task and session surfaces. */
 export { TasksStore } from './tasks/tasks.store.svelte'
 
-/** Run process state and run dock presentation state. */
-export { getRunStore } from './run/run.store.svelte'
-export { getRunDockStore } from './run/run-dock.store.svelte'
-
 /** Known projects and per-project configuration. */
 export { projectsStore } from './projects/projects.store.svelte'
 export { getProjectConfigStore } from './projects/project-config.store.svelte'
@@ -44,6 +40,7 @@ export { savedPrompts } from './saved-prompts/saved-prompts.store.svelte'
 /** Connection, authentication, and server-selection state. */
 export { connectionsStore } from './connections/connections.store.svelte'
 export { serversStore } from './connections/servers.store.svelte'
+export { hostCapabilitiesStore } from './connections/host-capabilities.store.svelte'
 export {
   compareNearbyHosts,
   discoveredServerUrl,

@@ -100,4 +100,13 @@ describe('server status', () => {
 
     expect(serversStore.statusFor('remote')).toBe('online')
   })
+
+  test('an identity mismatch is distinct from an offline host', () => {
+    // WHY: retrying cannot fix an address that now reaches a different Solus
+    // installation. The host row must tell the user to pair deliberately.
+    serversStore.setConnectionStatus('remote', 'identity-mismatch')
+
+    expect(serversStore.statusFor('remote')).toBe('different-server')
+    expect(serversStore.servers.find((server) => server.id === 'remote')?.status).toBe('different-server')
+  })
 })

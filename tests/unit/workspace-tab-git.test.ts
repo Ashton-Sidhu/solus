@@ -98,7 +98,7 @@ describe('WorkspaceContext new-tab Git initialization', () => {
 
     const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
     const { serverConnections } = await import('../../src/client-core/server-connections')
-    const originalConnectionFor = serverConnections.connectionFor.bind(serverConnections)
+    const originalConnectionFor = serverConnections.connectionFor
     serverConnections.connectionFor = (() => ({
       serverId: 'remote-server',
       target: { local: false },
@@ -178,6 +178,8 @@ describe('WorkspaceContext new-tab Git initialization', () => {
     const sourceSession = {
       id: 'source-session',
       run: {
+        serverId: 'test-host',
+        taskServerId: 'test-host',
         workingDirectory: '/repo',
         gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
         worktree: null,
@@ -244,6 +246,8 @@ describe('WorkspaceContext new-tab Git initialization', () => {
     const sourceSession = {
       id: 'source-session',
       run: {
+        serverId: 'test-host',
+        taskServerId: 'test-host',
         workingDirectory: '/repo',
         gitContext: {
           repoRoot: '/repo',
@@ -319,6 +323,8 @@ describe('WorkspaceContext new-tab Git initialization', () => {
     const sourceSession = {
       id: 'source-session',
       run: {
+        serverId: 'test-host',
+        taskServerId: 'test-host',
         workingDirectory: '/old-project',
         gitContext: {
           repoRoot: '/old-project',
@@ -411,6 +417,8 @@ describe('WorkspaceContext new-tab Git initialization', () => {
     const sourceSession = {
       id: 'source-session',
       run: {
+        serverId: 'test-host',
+        taskServerId: 'test-host',
         workingDirectory: '/repo',
         gitContext: { branch: 'main', targetBranch: 'main', repoRoot: '/repo' },
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
@@ -509,6 +517,7 @@ describe('WorkspaceContext task-bound tab creation', () => {
       id: 'source-session',
       run: {
         serverId: 'local',
+        taskServerId: 'local',
         workingDirectory: '/repo',
         gitContext: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
@@ -644,7 +653,9 @@ describe('WorkspaceContext resumed-session tab creation', () => {
     // has never seen it, so it accepts the id this client minted.
     workspace.apiFor = () => ({
       watchSession: async ({ sessionId }: { sessionId?: string }) => ({ sessionId: sessionId ?? 'resumed-session' }),
+      loadSession: async () => [],
     })
+    workspace.apiForSession = workspace.apiFor
     workspace.attachRuntimeSession = async () => {}
     workspace.eventReducer = { rebuildAgentConversations: () => {} }
     workspace.environment = { refreshEnvironment: async () => null }
@@ -666,6 +677,7 @@ describe('WorkspaceContext resumed-session tab creation', () => {
     const tabId = await workspace.resumeSession({
       provider: 'codex',
       sessionId: 'resumed-agent-session',
+      serverId: 'remote-host',
       slug: null,
       firstMessage: 'Resumed work',
       lastTimestamp: '',
@@ -680,6 +692,7 @@ describe('WorkspaceContext resumed-session tab creation', () => {
       gitContext: null,
       gitInitialization: 'background',
       worktreeRequested: false,
+      serverId: 'remote-host',
     })
     expect(registry.sessions['resumed-session'].agentSessionId).toBe('resumed-agent-session')
     expect(registry.sessions['resumed-session'].title).toBe('Resumed work')
@@ -754,6 +767,7 @@ describe('Session bootstrap Git ordering', () => {
       ctxFor: () => ({ session: {} }),
       reconcileQueuedPrompts: () => {},
       refreshThreadGoal: async () => {},
+      apiFor: () => window.solus,
       environment: {
         refreshEnvironment: async () => {
           order.push('git:start')

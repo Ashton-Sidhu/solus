@@ -77,6 +77,7 @@
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { setMarkdownImageContext } from "./lib/markdown-image";
+  import { setSessionLinkContext } from "./lib/session-link-context";
 
   const markdownRenderers = {
     code: CodeBlock,
@@ -122,7 +123,13 @@
 
   const tab = $derived(session.tabs[tabId]);
   const sess = $derived(session.sessionFor(tabId));
-  setMarkdownImageContext(() => sess?.run.workingDirectory);
+  setMarkdownImageContext({
+    cwd: () => sess?.run.workingDirectory,
+    serverId: () => sess?.run.serverId,
+    ctx: () => (sess ? session.ctxFor(tabId) : undefined),
+    isWeb: () => windowCtx.isWeb,
+  });
+  setSessionLinkContext(() => sess?.run.serverId);
   const remoteServer = $derived(
     sess?.run.serverId && sess.run.serverId !== LOCAL_SERVER_ID
       ? serversStore.servers.find((server) => server.id === sess.run.serverId)
@@ -1327,7 +1334,7 @@
                 {skipMotion}
               />
             {:else if item.kind === "artifact" && item.message.artifact}
-              <ArtifactView artifact={item.message.artifact} {skipMotion} />
+              <ArtifactView artifact={item.message.artifact} {tabId} {skipMotion} />
             {/if}
           {/snippet}
 

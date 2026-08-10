@@ -1,4 +1,5 @@
 import type { AgentId, ContextUsage, GitCheckout, ModelConfig, SessionHandoffLineage, SessionSpec, StartInfo } from '../../../shared/types'
+import { localApi } from '@client-core/local-api'
 
 // Tab state is scoped first by server installation, then by Electron window
 // mode. The web client has one window, so it only gets the server scope.
@@ -28,7 +29,7 @@ export function setTabPersistenceServerInstallationId(
 
 function modeSuffix(): string {
   try {
-    if (window.solus.getPlatform() === 'web') return ''
+    if (localApi.getPlatform() === 'web') return ''
     return new URLSearchParams(window.location.search).get('mode') === 'editor' ? ':editor' : ':pill'
   } catch {
     return ''
@@ -202,7 +203,7 @@ export function flushPersistedSessionDrafts(): void {
 }
 
 // ─── Cached start() payload ───
-// Optimistic boot cache for window.solus.start(). Lets the renderer paint
+// Optimistic boot cache for the primary host's start(). Lets the renderer paint
 // staticInfo + agent metadata before the real RPC resolves; reconciled on fresh.
 
 export function loadCachedStart(): StartInfo | null {

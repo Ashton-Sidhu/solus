@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { localApi } from "@client-core/local-api";
   import { untrack } from "svelte";
   import { Editor, Extension, type AnyExtension } from "@tiptap/core";
   import StarterKit from "@tiptap/starter-kit";
@@ -292,7 +293,7 @@
           if (!(event.metaKey || event.ctrlKey)) return false;
           const href = editor.getAttributes("link").href as string | undefined;
           if (href) {
-            void window.solus.openExternal(href);
+            void localApi.openExternal(href);
             return true;
           }
           return false;

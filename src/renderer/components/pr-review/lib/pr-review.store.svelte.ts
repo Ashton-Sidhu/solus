@@ -1,5 +1,5 @@
 import { untrack } from 'svelte'
-import type { ReviewThread } from '../../../../shared/providers'
+import type { ReviewComment, ReviewThread } from '../../../../shared/providers'
 import type { DiffScope, IpcContext, PrInterdiffResult, PrReviewContext } from '../../../../shared/types'
 import { worktreeProjectRoot } from '../../../../shared/types'
 import type { DiffBase } from '../../../../shared/stack-types'
@@ -7,6 +7,8 @@ import { reviewGuideKeyForBase } from '../../../../shared/review'
 import { ReviewDrafts } from '../../review/lib/review-drafts.svelte'
 import { interdiffReviewThreads } from '../../diff/lib/interdiff-annotations'
 import { matchedReviewComments } from './since-review'
+import type { HostApi } from '@client-core/host-api'
+import { hostKey } from '@client-core/host-key'
 
 /**
  * One pull request's review state, shared by every surface that shows it.
@@ -65,9 +67,14 @@ export class PrReviewState {
     this.number = number
     this.#deps = deps
     this.drafts = new ReviewDrafts({
+      getApi: deps.getApi,
       getCtx: () => this.ctx,
       getKey: () => this.effectiveGuideKey,
     })
+  }
+
+  get api(): HostApi {
+    return this.#deps.getApi()
   }
 
   /**
@@ -223,7 +230,7 @@ export class PrReviewState {
 
   // ── Thread mutation ──
 
-  replyToThread(threadId: string, body: string): Promise<unknown> {
+  replyToThread(threadId: string, body: string): Promise<ReviewComment> {
     return this.#deps.replyThread(this.ctx, this.number, threadId, body)
   }
 
@@ -235,6 +242,7 @@ export class PrReviewState {
 /** Everything the state needs from the workspace, passed in rather than reached
  *  for, so this stays a plain class the panes can construct and test. */
 export interface PrReviewDeps {
+  getApi: () => HostApi
   fallbackCtx: () => IpcContext
   ctxForDirectory: (path: string) => IpcContext
   stackedPrsEnabled: () => boolean
@@ -243,7 +251,7 @@ export interface PrReviewDeps {
   loadThreads: (ctx: IpcContext, number: number, force: boolean) => Promise<ReviewThread[]>
   loadInterdiff: (ctx: IpcContext, pr: PrReviewContext, force: boolean) => Promise<PrInterdiffResult>
   diffStats: (ctx: IpcContext, scope: DiffScope) => Promise<number>
-  replyThread: (ctx: IpcContext, number: number, threadId: string, body: string) => Promise<unknown>
+  replyThread: (ctx: IpcContext, number: number, threadId: string, body: string) => Promise<ReviewComment>
   resolveThread: (ctx: IpcContext, number: number, threadId: string, resolved: boolean) => Promise<void>
 }
 
@@ -251,20 +259,21 @@ export interface PrReviewDeps {
 // the first lookup from a `$derived` consumer to mutate Svelte state while that
 // derived is being evaluated (`state_unsafe_mutation`). The values themselves
 // remain reactive `PrReviewState` instances.
-const states = new Map<number, PrReviewState>()
+const states = new Map<string, PrReviewState>()
 
 /** The review state for one PR — the same instance for every surface showing
  *  it, which is what keeps the review and its popped-out diff one review. */
-export function prReviewState(number: number, deps: PrReviewDeps): PrReviewState {
-  const existing = states.get(number)
+export function prReviewState(serverId: string, number: number, deps: PrReviewDeps): PrReviewState {
+  const key = hostKey(serverId, String(number))
+  const existing = states.get(key)
   if (existing) return existing
   const created = new PrReviewState(number, deps)
-  states.set(number, created)
+  states.set(key, created)
   return created
 }
 
 /** Read-only lookup for surfaces that must not create state they can't fill —
  *  the popped-out diff exists only alongside a review that already opened. */
-export function existingPrReviewState(number: number): PrReviewState | undefined {
-  return states.get(number)
+export function existingPrReviewState(serverId: string, number: number): PrReviewState | undefined {
+  return states.get(hostKey(serverId, String(number)))
 }

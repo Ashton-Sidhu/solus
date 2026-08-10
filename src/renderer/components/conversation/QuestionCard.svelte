@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { localApi } from "@client-core/local-api";
   import { fly } from "svelte/transition";
   import {
     CaretLeftIcon,
@@ -171,7 +172,7 @@
   function handleSubmit() {
     if (responded || !request) return;
     if (request.kind === "mcp_url" && request.url) {
-      void window.solus.openExternal(request.url);
+      void localApi.openExternal(request.url);
     }
     handleAction("accept");
   }

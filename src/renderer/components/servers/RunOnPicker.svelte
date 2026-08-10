@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { localApi } from "@client-core/local-api";
   import {
     CheckIcon,
     DesktopTowerIcon,
@@ -86,7 +87,7 @@
   // somewhere to somewhere: picking a host reloads the page onto it. A host
   // only ever arrives by that reload, so this is settled at mount.
   const webNoHost =
-    window.solus.getPlatform() === "web" && !serverConnections.connectionFor();
+    localApi.getPlatform() === "web" && !serverConnections.connectionFor();
   const selectedHostId = $derived(
     run.pendingHostDispatch?.serverId ?? run.serverId,
   );

@@ -4,12 +4,16 @@ import * as webpush from 'web-push'
 import { dataDir } from '../platform/paths'
 import { createLogger } from '../logger'
 import type { PushSubscription, RequestOptions, SendResult, VapidKeys } from 'web-push'
-import type { AttentionEntry, AttentionKind } from '../../shared/attention-types'
+import {
+  attentionEntryKey,
+  isNotifiableAttentionEntry,
+  payloadForAttentionEntry,
+  type AttentionNotificationPayload,
+} from '../../shared/notification-types'
+import type { AttentionEntry } from '../../shared/attention-types'
 import type { WebPushSubscriptionJSON } from '../../shared/types'
 
 const log = createLogger('notifications', 'push-service.ts')
-
-const PUSHABLE_KINDS = new Set<AttentionKind>(['needs_approval', 'question', 'failed'])
 
 function defaultKeysPath(): string {
   return join(dataDir(), 'state', 'push-keys.json')
@@ -37,15 +41,7 @@ interface PushSubscriptionsFile {
   subscriptions: Record<string, PushSubscriptionRecord>
 }
 
-export interface PushNotificationPayload {
-  title: string
-  body: string
-  sessionId: string
-  kind: AttentionKind
-  /** Where clicking lands, as a serialized route. The client hands it straight
-   *  to the router, so a notification opens the session that raised it. */
-  route: string
-}
+export type PushNotificationPayload = AttentionNotificationPayload
 
 export interface PushSendStats {
   attempted: number
@@ -67,9 +63,7 @@ export interface PushNotificationServiceOptions {
   vapidSubject?: string
 }
 
-export function attentionEntryKey(entry: Pick<AttentionEntry, 'sessionId' | 'kind'>): string {
-  return `${entry.sessionId}:${entry.kind}`
-}
+export { attentionEntryKey, payloadForAttentionEntry }
 
 export function diffNewPushAttentionEntries(
   previousKeys: ReadonlySet<string>,
@@ -83,7 +77,7 @@ export function diffNewPushAttentionEntries(
     nextKeys.add(key)
 
     // Finished entries are useful in the attention inbox but too noisy for push.
-    if (!PUSHABLE_KINDS.has(entry.kind)) continue
+    if (!isNotifiableAttentionEntry(entry)) continue
     if (!previousKeys.has(key)) created.push(entry)
   }
 
@@ -146,8 +140,9 @@ export class PushNotificationService {
   async sendToOfflineDevices(
     entry: AttentionEntry,
     isDeviceOnline: (deviceId: string) => boolean,
+    installationId?: string,
   ): Promise<PushSendStats> {
-    const payload = JSON.stringify(payloadForAttentionEntry(entry))
+    const payload = JSON.stringify(payloadForAttentionEntry(entry, { installationId }))
     const options: RequestOptions = {
       vapidDetails: {
         subject: this.vapidSubject,
@@ -227,25 +222,6 @@ export class PushNotificationService {
       version: 1,
       subscriptions: Object.fromEntries(this.subscriptions),
     } satisfies PushSubscriptionsFile)
-  }
-}
-
-export function payloadForAttentionEntry(entry: AttentionEntry): PushNotificationPayload {
-  return {
-    title: titleForKind(entry.kind),
-    body: entry.summary || 'A Solus session needs attention.',
-    sessionId: entry.sessionId,
-    kind: entry.kind,
-    route: `/chat/@${encodeURIComponent(entry.sessionId)}`,
-  }
-}
-
-function titleForKind(kind: AttentionKind): string {
-  switch (kind) {
-    case 'needs_approval': return 'Solus - needs approval'
-    case 'question': return 'Solus - has a question'
-    case 'failed': return 'Solus - session failed'
-    case 'finished': return 'Solus - finished'
   }
 }
 

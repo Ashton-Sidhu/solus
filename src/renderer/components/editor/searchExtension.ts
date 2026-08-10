@@ -231,6 +231,7 @@ export const SearchExtension = Extension.create({
                 meta.caseSensitive !== undefined);
 
             if (paramsChanged || (tr.docChanged && searchTerm)) {
+              // @ts-expect-error Bun resolved duplicate ProseMirror package identities.
               results = findMatches(newState.doc, searchTerm, caseSensitive);
               if (currentIndex >= results.length)
                 currentIndex = results.length > 0 ? results.length - 1 : 0;
@@ -238,6 +239,7 @@ export const SearchExtension = Extension.create({
 
             const deco =
               searchTerm && results.length
+                // @ts-expect-error Bun resolved duplicate ProseMirror package identities.
                 ? buildDeco(newState.doc, results, currentIndex)
                 : DecorationSet.empty;
 
@@ -252,6 +254,7 @@ export const SearchExtension = Extension.create({
           },
         },
         props: {
+          // @ts-expect-error Bun resolved duplicate ProseMirror package identities.
           decorations(state) {
             return searchPluginKey.getState(state)?.deco;
           },

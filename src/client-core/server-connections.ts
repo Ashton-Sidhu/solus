@@ -1,10 +1,23 @@
 import type { SolusAPI } from '../preload'
 import { createSolusConnection, savedServerTarget, type SolusServerTarget } from './server-connection'
-import { loadServers, LOCAL_SERVER_ID } from './server-registry'
+import {
+  installationIdDecision,
+  loadServers,
+  LOCAL_SERVER_ID,
+  stampInstallationId,
+} from './server-registry'
 import type { WsTransport, ConnectionStatus } from './ws-transport'
 import type { HostEventSubscriber } from './host-event-subscriber'
+import { asHostApi, type HostApi } from './host-api'
+import type { HostCapabilities } from '../shared/types'
+import {
+  normalizeHostCapabilities,
+  type HostBooleanCapability,
+} from './host-capabilities'
 
 const CACHE_TTL_MS = 60_000
+export const HOST_CAPABILITIES_CACHE_TTL_MS = CACHE_TTL_MS
+export const HOST_CAPABILITIES_FAILURE_TTL_MS = 5_000
 const HEALTH_TIMEOUT_MS = 3_000
 
 export interface ServerHealth {
@@ -39,6 +52,9 @@ export class ServerConnections {
   private readonly statusListeners = new Set<StatusListener>()
   private readonly connectionListeners = new Set<ConnectionListener>()
   private readonly healthCache = new Map<string, CacheEntry<ServerHealth | null>>()
+  private readonly capabilitiesCache = new Map<string, CacheEntry<HostCapabilities>>()
+  private readonly capabilitiesInFlight = new Map<string, Promise<HostCapabilities>>()
+  private readonly capabilityGenerations = new Map<string, number>()
   private readonly identityCache = new Map<string, CacheEntry<Awaited<ReturnType<SolusAPI['listProjectIdentities']>>>>()
   private readonly retainedServerIds = new Set<string>()
   private primaryServerId: string | null = null
@@ -54,6 +70,7 @@ export class ServerConnections {
     transport: WsTransport,
     target?: SolusServerTarget,
   ): ManagedConnection {
+    this.bumpCapabilityGeneration(serverId)
     const resolvedTarget = target ?? this.resolveTarget(serverId)
     this.targets.set(serverId, resolvedTarget)
     const existing = this.connections.get(serverId)
@@ -104,9 +121,11 @@ export class ServerConnections {
     const existing = this.connections.get(serverId)
     if (existing) return existing
 
+    this.bumpCapabilityGeneration(serverId)
     const target = this.resolveTarget(serverId)
     const { api, transport, events } = createSolusConnection(target, {
       onStatusChange: (status, attempt) => this.updateStatus(serverId, status, attempt),
+      verifyConnectedHost: () => this.verifySavedServerIdentity(target),
       refreshLocalSessionToken: this.localTokenRefreshers.get(serverId),
     })
     const connection: ManagedConnection = {
@@ -134,21 +153,36 @@ export class ServerConnections {
     return connection
   }
 
-  apiFor(serverId?: string): SolusAPI {
-    const resolvedId = serverId ?? this.primaryServerId
-    if (!resolvedId) throw new Error('Primary Solus connection has not been registered')
-    return this.ensure(resolvedId).api
+  apiFor(serverId: string): HostApi {
+    return asHostApi(this.ensure(serverId).api)
   }
 
-  eventsFor(serverId?: string): HostEventSubscriber {
-    const resolvedId = serverId ?? this.primaryServerId
-    if (!resolvedId) throw new Error('Primary Solus connection has not been registered')
-    return this.ensure(resolvedId).events
+  primaryApi(): HostApi {
+    const serverId = this.primaryServerId
+    if (!serverId) throw new Error('Primary Solus connection has not been registered')
+    return asHostApi(this.ensure(serverId).api)
+  }
+
+  eventsFor(serverId: string): HostEventSubscriber {
+    return this.ensure(serverId).events
+  }
+
+  eventsForPrimary(): HostEventSubscriber {
+    const serverId = this.primaryServerId
+    if (!serverId) throw new Error('Primary Solus connection has not been registered')
+    return this.ensure(serverId).events
   }
 
   eventsForApi(api: SolusAPI): HostEventSubscriber {
     for (const connection of this.connections.values()) {
       if (connection.api === api) return connection.events
+    }
+    throw new Error('Solus API is not owned by a registered server connection')
+  }
+
+  serverIdForApi(api: SolusAPI): string {
+    for (const connection of this.connections.values()) {
+      if (connection.api === api) return connection.serverId
     }
     throw new Error('Solus API is not owned by a registered server connection')
   }
@@ -192,8 +226,19 @@ export class ServerConnections {
     return resolvedId ? this.connections.get(resolvedId) : undefined
   }
 
+  /** HTTP origin paired with a host's WebSocket transport. Signed asset URLs
+   *  are relative capabilities and must be opened against this same host. */
+  httpOriginFor(serverId: string): string {
+    const target = this.ensure(this.resolveId(serverId)).target
+    return new URL(target.url).origin
+  }
+
   updateStatus(serverId: string, status: ConnectionStatus, attempt = 0): void {
     const connection = this.connections.get(serverId)
+    const previousStatus = connection?.status
+    if (status === 'reconnecting' && previousStatus !== 'reconnecting') {
+      this.bumpCapabilityGeneration(serverId)
+    }
     if (connection) {
       connection.status = status
       connection.attempt = attempt
@@ -231,6 +276,43 @@ export class ServerConnections {
     return this.connections.get(this.resolveId(serverId))?.status ?? 'disconnected'
   }
 
+  /** Load and cache one host's authenticated feature advertisement. Older
+   * hosts reject the method; that is an empty record, never a feature error. */
+  capabilitiesFor(serverId: string): Promise<HostCapabilities> {
+    serverId = this.resolveId(serverId)
+    const cached = this.capabilitiesCache.get(serverId)
+    if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.value)
+    const pending = this.capabilitiesInFlight.get(serverId)
+    if (pending) return pending
+
+    // `ensure` advances the generation for a newly created transport. Do it
+    // before capturing the generation so the first probe is not mistaken for
+    // an answer from a displaced socket.
+    this.ensure(serverId)
+    const generation = this.capabilityGenerations.get(serverId) ?? 0
+    const promise = this.requestCapabilities(serverId, generation).finally(() => {
+      if (this.capabilitiesInFlight.get(serverId) === promise) {
+        this.capabilitiesInFlight.delete(serverId)
+      }
+    })
+    this.capabilitiesInFlight.set(serverId, promise)
+    return promise
+  }
+
+  /** Synchronous renderer gate. Undefined means the advertisement has not
+   * loaded (or expired); a loaded record with an absent key returns false. */
+  capability(serverId: string, key: HostBooleanCapability): boolean | undefined {
+    const cached = this.cachedCapabilitiesFor(serverId)
+    return cached ? cached[key] === true : undefined
+  }
+
+  cachedCapabilitiesFor(serverId: string): HostCapabilities | undefined {
+    serverId = this.resolveId(serverId)
+    const cached = this.capabilitiesCache.get(serverId)
+    if (!cached || cached.expiresAt <= Date.now()) return undefined
+    return cached.value
+  }
+
   async probeHealth(serverId: string, force = false): Promise<ServerHealth | null> {
     serverId = this.resolveId(serverId)
     const cached = this.healthCache.get(serverId)
@@ -249,6 +331,26 @@ export class ServerConnections {
     return value
   }
 
+  async verifySavedServerIdentity(target: SolusServerTarget): Promise<boolean> {
+    if (target.local || target.id === LOCAL_SERVER_ID) return true
+    const saved = loadServers().find((server) => server.id === target.id)
+    // The primary web bootstrap is not necessarily a saved host. There is no
+    // durable identity to compare until the user pairs and saves it.
+    if (!saved) return true
+
+    const health = await this.probeHealth(target.id, true)
+    // Only a successful health response can establish or reject identity. A
+    // transient HTTP failure must not turn a working socket into a false match.
+    if (!health) return true
+    const decision = installationIdDecision(saved.installationId, health.installationId)
+    if (decision === 'mismatch') return false
+    if (decision === 'absent') {
+      stampInstallationId(saved.id, health.installationId)
+      target.installationId = health.installationId
+    }
+    return true
+  }
+
   async projectIdentities(serverId: string, force = false): Promise<Awaited<ReturnType<SolusAPI['listProjectIdentities']>>> {
     serverId = this.resolveId(serverId)
     const cached = this.identityCache.get(serverId)
@@ -257,6 +359,29 @@ export class ServerConnections {
     const value = await this.apiFor(serverId).listProjectIdentities()
     this.identityCache.set(serverId, { value, expiresAt: Date.now() + CACHE_TTL_MS })
     return value
+  }
+
+  private async requestCapabilities(serverId: string, generation: number): Promise<HostCapabilities> {
+    let value: HostCapabilities = {}
+    let ttl = HOST_CAPABILITIES_FAILURE_TTL_MS
+    try {
+      value = normalizeHostCapabilities(await this.apiFor(serverId).serverGetCapabilities())
+      ttl = HOST_CAPABILITIES_CACHE_TTL_MS
+    } catch {}
+
+    const currentGeneration = this.capabilityGenerations.get(serverId) ?? 0
+    if (generation !== currentGeneration) {
+      return this.requestCapabilities(serverId, currentGeneration)
+    }
+    this.capabilitiesCache.set(serverId, { value, expiresAt: Date.now() + ttl })
+    return value
+  }
+
+  private bumpCapabilityGeneration(serverId: string): void {
+    serverId = this.resolveId(serverId)
+    this.capabilityGenerations.set(serverId, (this.capabilityGenerations.get(serverId) ?? 0) + 1)
+    this.capabilitiesCache.delete(serverId)
+    this.capabilitiesInFlight.delete(serverId)
   }
 
   private resolveTarget(serverId: string): SolusServerTarget {

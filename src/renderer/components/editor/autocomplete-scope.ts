@@ -10,6 +10,15 @@ export interface AutocompleteScope {
   workingDirectory: string | undefined
 }
 
+export function autocompleteSessionChangedFiles(
+  sessions: Readonly<Record<string, Session>>,
+  sessionId: string | undefined,
+): string[] {
+  return sessionId
+    ? (sessions[sessionId]?.sessionChangedFiles ?? [])
+    : []
+}
+
 /**
  * A tab-bound composer follows the checkout where its agent actually runs.
  * Detached editors keep their explicit project directory but still route

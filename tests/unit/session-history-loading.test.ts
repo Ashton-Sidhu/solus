@@ -6,6 +6,7 @@ import type { SessionMeta, SessionScanEvent } from '../../src/shared/types'
 
 function session(index: number): SessionMeta {
   return {
+    serverId: 'primary',
     provider: 'codex',
     sessionId: `session-${index}`,
     slug: null,
@@ -24,9 +25,21 @@ describe('session history loading', () => {
     // row becomes the only place where the user can see that background state.
     const sessions = [session(1)]
 
-    updateSessionHistoryStatus(sessions, 'session-1', 'running')
+    updateSessionHistoryStatus(sessions, 'primary', 'session-1', 'running')
 
     expect(sessions[0].status).toBe('running')
+  })
+
+  test('a status event updates only the matching host row', () => {
+    // WHY: provider session ids can collide across hosts. A remote status event
+    // must not change the same-id row from another machine.
+    const primary = session(1)
+    const remote = { ...session(1), serverId: 'laptop' }
+
+    updateSessionHistoryStatus([primary, remote], 'laptop', 'session-1', 'running')
+
+    expect(primary.status).toBeUndefined()
+    expect(remote.status).toBe('running')
   })
 
   test('a bounded home load requests only the needed provider rows without opening a scan stream', async () => {
@@ -34,6 +47,7 @@ describe('session history loading', () => {
     let subscriptions = 0
     const loader = new SessionHistoryLoader({
       hostFor: () => ({
+        serverId: 'primary',
         listSessions: (async (...args: unknown[]) => {
           calls.push(args)
           return [session(3), session(2), session(1)]
@@ -65,6 +79,7 @@ describe('session history loading', () => {
     const scanned: { serverId: string | undefined; projectPath: unknown }[] = []
     const loader = new SessionHistoryLoader({
       hostFor: (serverId) => ({
+        serverId: serverId ?? 'primary',
         listSessions: (async (projectPath: unknown) => {
           scanned.push({ serverId, projectPath })
           return [session(1)]
@@ -88,7 +103,7 @@ describe('session history loading', () => {
     ])
     // One session id, two hosts, two rows — collapsing them would hide one.
     expect(result).toHaveLength(2)
-    expect(new Set(result.map((meta) => meta.serverId))).toEqual(new Set([undefined, 'laptop']))
+    expect(new Set(result.map((meta) => meta.serverId))).toEqual(new Set(['primary', 'laptop']))
   })
 
   test('a host discovered mid-scan joins it, and one that never answers costs nothing', async () => {
@@ -98,6 +113,7 @@ describe('session history loading', () => {
     const scanned: (string | undefined)[] = []
     const loader = new SessionHistoryLoader({
       hostFor: (serverId) => ({
+        serverId: serverId ?? 'primary',
         listSessions: (async () => {
           scanned.push(serverId)
           return [session(1)]
@@ -136,6 +152,7 @@ describe('session history loading', () => {
     const batches: SessionMeta[] = []
     const loader = new SessionHistoryLoader({
       hostFor: (serverId) => ({
+        serverId: serverId ?? 'primary',
         listSessions: (async (
           _projectPath: unknown,
           _ctx: unknown,

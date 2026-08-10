@@ -1,5 +1,6 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { SessionMeta } from '../../../../shared/types'
+import { resolveSessionMetaRef } from '@client-core/session-meta'
 
 /**
  * Names for the sessions the ledger's artifacts came from.
@@ -25,8 +26,7 @@ export class SessionLabels {
     for (const id of sessionIds) {
       if (!id || this.#labels.has(id) || this.#pending.has(id)) continue
       this.#pending.add(id)
-      void window.solus
-        .getSessionInfo(id)
+      void resolveSessionMetaRef({ sessionId: id })
         .then((meta) => {
           const label = sessionMetaLabel(meta)
           if (label) this.#labels.set(id, label)

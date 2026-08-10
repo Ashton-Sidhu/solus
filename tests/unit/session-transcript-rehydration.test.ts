@@ -1,11 +1,21 @@
-import { describe, expect, test } from 'bun:test'
-import {
+import { afterEach, describe, expect, mock, test } from 'bun:test'
+import type { WorkspaceContext } from '../../src/renderer/contexts/workspace/workspace.context.svelte'
+import type { IpcContext } from '../../src/shared/types'
+import { singleHostServerConnections } from './helpers/server-connections-mock'
+
+const connections = singleHostServerConnections()
+
+mock.module('@client-core/server-connections', () => ({
+  serverConnections: connections,
+}))
+
+const {
   loadRestoredSessionTranscript,
   loadSessionTranscript,
   RESTORED_TRANSCRIPT_LIMIT,
-} from '../../src/renderer/contexts/workspace/session-transcript'
-import type { WorkspaceContext } from '../../src/renderer/contexts/workspace/workspace.context.svelte'
-import type { IpcContext } from '../../src/shared/types'
+} = await import('../../src/renderer/contexts/workspace/session-transcript')
+
+afterEach(() => connections.reset())
 
 describe('session transcript rehydration', () => {
   test('preserves the full transcript when startup does not request a window', async () => {
@@ -15,19 +25,20 @@ describe('session transcript rehydration', () => {
       timestamp: index,
     }))
     const limits: Array<number | undefined> = []
+    connections.registerPrimary('transcript-host', {
+      loadSession: async (
+        _sessionId: string,
+        _projectPath: string,
+        _ctx: IpcContext,
+        _provider: string,
+        limit?: number,
+      ) => {
+        limits.push(limit)
+        return limit ? history.slice(-limit) : history
+      },
+    })
     const ctx = {
-      apiForSession: () => ({
-        loadSession: async (
-          _sessionId: string,
-          _projectPath: string,
-          _ctx: IpcContext,
-          _provider: string,
-          limit?: number,
-        ) => {
-          limits.push(limit)
-          return limit ? history.slice(-limit) : history
-        },
-      }),
+      apiForSession: () => connections.apiFor('transcript-host'),
       automationsStore: { loaded: true },
     } as unknown as WorkspaceContext
 
@@ -52,16 +63,17 @@ describe('session transcript rehydration', () => {
       content: `message-${index}`,
       timestamp: index,
     }))
+    connections.registerPrimary('transcript-host', {
+      loadSession: async (
+        _sessionId: string,
+        _projectPath: string,
+        _ctx: IpcContext,
+        _provider: string,
+        limit?: number,
+      ) => limit ? history.slice(-limit) : history,
+    })
     const ctx = {
-      apiForSession: () => ({
-        loadSession: async (
-          _sessionId: string,
-          _projectPath: string,
-          _ctx: IpcContext,
-          _provider: string,
-          limit?: number,
-        ) => limit ? history.slice(-limit) : history,
-      }),
+      apiForSession: () => connections.apiFor('transcript-host'),
       automationsStore: { loaded: true },
     } as unknown as WorkspaceContext
 
@@ -85,19 +97,20 @@ describe('session transcript rehydration', () => {
       content: `message-${index}`,
       timestamp: index,
     }))
+    connections.registerPrimary('transcript-host', {
+      loadSession: async (
+        sessionId: string,
+        _projectPath: string,
+        _ctx: IpcContext,
+        _provider: string,
+        limit?: number,
+      ) => {
+        limits.push({ sessionId, limit })
+        return limit ? history.slice(-limit) : history
+      },
+    })
     const ctx = {
-      apiForSession: () => ({
-        loadSession: async (
-          sessionId: string,
-          _projectPath: string,
-          _ctx: IpcContext,
-          _provider: string,
-          limit?: number,
-        ) => {
-          limits.push({ sessionId, limit })
-          return limit ? history.slice(-limit) : history
-        },
-      }),
+      apiForSession: () => connections.apiFor('transcript-host'),
       automationsStore: { loaded: true },
     } as unknown as WorkspaceContext
     const common = {

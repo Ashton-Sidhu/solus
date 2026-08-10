@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { localApi } from "@client-core/local-api";
   import { tick } from "svelte";
   import { slide } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
@@ -32,6 +33,8 @@
   import TaskContextMenu from "./TaskContextMenu.svelte";
   import TaskListHeader from "./TaskListHeader.svelte";
   import TaskRow from "./TaskRow.svelte";
+  import DraftRow from "./DraftRow.svelte";
+  import type { DraftRow as DraftRowModel } from "./lib/draft-list";
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import {
     hasDisclosure,
@@ -56,7 +59,10 @@
   const session = getWorkspaceContext();
   const sidebarStore = getSessionSidebarStore();
   const needsReviewCount = $derived(
-    session.prsStore.needsReviewCountFor(session.ctx),
+    session.prsStore.needsReviewCountFor(
+      session.serverIdForContext(session.ctx),
+      session.ctx,
+    ),
   );
 
   let scrollEl: HTMLDivElement | undefined = $state();
@@ -140,6 +146,37 @@
 
   function newTask() {
     session.openSessionDraft({ freshTask: true, via: "click" });
+  }
+
+  /** A draft row goes back to the composer it was left in, with the caret in it
+   *  — the row is a way to resume typing, not a way to look at the text. */
+  function openDraft(row: DraftRowModel) {
+    session.openDraft(row.draftId);
+    requestInputFocus();
+    onSessionSelect?.();
+  }
+
+  /** Discarding loses words the user wrote, and it is one click away on a hover
+   *  action, so the toast holds them until it is dismissed. */
+  function discardDraft(row: DraftRowModel) {
+    const discarded = session.discardSessionDraft(row.draftId);
+    requestInputFocus();
+    if (!discarded) return;
+    toasts.show({
+      message: `Discarded “${row.title}”`,
+      actions: [
+        {
+          label: "Undo",
+          onAction: () => {
+            session.restoreSessionDrafts({
+              order: [row.draftId],
+              drafts: { [row.draftId]: discarded },
+            });
+            requestInputFocus();
+          },
+        },
+      ],
+    });
   }
 
   function scrollActiveSessionIntoView() {
@@ -452,6 +489,7 @@
         {
           provider: pin.provider,
           sessionId: pin.sessionId,
+          serverId: pin.serverId,
           slug: null,
           firstMessage: pin.title,
           lastTimestamp: new Date(pin.pinnedAt).toISOString(),
@@ -603,6 +641,36 @@
     class="mx-3.5 mt-[1.125rem] h-[0.03125rem] flex-shrink-0 bg-sidebar-border"
   ></div>
 
+  <!-- Drafts are their own section above the tasks, not rows inside that list:
+       a prompt on its way to becoming a task is not one yet, and filing it under
+       the Tasks heading would say it is. The section is absent until something
+       is written, and it caps its own height so a run of drafts scrolls within
+       itself rather than pushing the task column off the bottom of the panel. -->
+  {#if sidebarStore.draftRows.length > 0}
+    <div class="flex max-h-[10.5rem] flex-shrink-0 flex-col">
+      <TaskListHeader label="Drafts" count={sidebarStore.draftRows.length} />
+      <div
+        class="min-h-0 overflow-y-auto px-3.5 pb-1 [scrollbar-gutter:stable]"
+        style="overscroll-behavior-y:contain"
+      >
+        <div
+          class="flex flex-col gap-[0.1875rem]"
+          role="listbox"
+          aria-label="Drafts"
+        >
+          {#each sidebarStore.draftRows as row (row.draftId)}
+            <DraftRow
+              {row}
+              showProjectLine={sidebarStore.showsProjectLine}
+              onSelect={() => openDraft(row)}
+              onDiscard={() => discardDraft(row)}
+            />
+          {/each}
+        </div>
+      </div>
+    </div>
+  {/if}
+
   <div class="flex-shrink-0">
     <TaskListHeader
       label="Tasks"
@@ -626,11 +694,8 @@
     bind:this={scrollEl}
     class="@container min-h-0 flex-1 overflow-y-auto px-3.5 pb-3.5 [scrollbar-gutter:stable]"
     style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
-    role="tree"
-    tabindex="-1"
-    aria-label="Tasks"
-    onkeydown={handleTreeKeydown}
   >
+    <div role="tree" tabindex="-1" aria-label="Tasks" onkeydown={handleTreeKeydown}>
     {#if !session.tasksStore.loaded}
       <TaskListSkeleton />
     {:else if sidebarStore.visibleTasks.length === 0}
@@ -725,6 +790,7 @@
         </div>
       {/each}
     {/if}
+    </div>
   </div>
 
   <!-- The panel's second and last hairline. -->
@@ -757,7 +823,7 @@
               easing: cubicOut,
             }}
           >
-            {#each sidebarStore.pinnedSessions as pin (pin.sessionId)}
+          {#each sidebarStore.pinnedSessions as pin (`${pin.serverId ?? ""}:${pin.sessionId}`)}
               {@const openTabId = sidebarStore.openTabIdForPinned(pin)}
               {@const isActive =
                 !!openTabId && openTabId === session.onScreenTabId}
@@ -862,7 +928,7 @@
             : undefined}
         onOpenTask={() => session.goToTask(menuTask.id)}
         onOpenSource={() => {
-          if (menuTask.url) void window.solus.openExternal(menuTask.url);
+          if (menuTask.url) void localApi.openExternal(menuTask.url);
         }}
         onStartRename={() => startRename({ taskId: menuTask.id })}
         onToggleDone={() => {

@@ -68,6 +68,15 @@
   import { materializeTabs } from "./contexts/workspace/session-bootstrap";
   import { loadServers, LOCAL_SERVER_ID } from "../client-core/server-registry";
   import { serverConnections } from "../client-core/server-connections";
+  import { hostPolicy } from "../client-core/host-policy";
+  import { unsupportedOnHost } from "../client-core/host-capabilities";
+  import { subscribeAllHosts } from "../client-core/host-events";
+  import { localApi } from "../client-core/local-api";
+  import { notificationsStore } from "./contexts/notifications/notifications.store.svelte";
+  import {
+    uploadFileObjects,
+    uploadLocalAttachments,
+  } from "./components/input/lib/attachment-upload";
   import { connectionState } from "../client-core/connection-state";
   import {
     createReconnectDetector,
@@ -121,7 +130,6 @@
     statusBar,
     planStore,
     sessionEnvironmentStore,
-    runStore,
     projectConfigStore,
     voiceModelStore,
     session,
@@ -129,6 +137,17 @@
     agent,
     keybindings,
   } = createAppCore();
+
+  function activePrScope() {
+    const api = session.activeTabId
+      ? session.apiFor(session.activeTabId)
+      : serverConnections.primaryApi();
+    return {
+      api,
+      serverId: serverConnections.serverIdForApi(api),
+      ctx: session.ctx,
+    };
+  }
 
   // Materialize tabs synchronously during component init — before first paint —
   // so the tab strip, titles, drafts, and active tab (with its loading skeleton)
@@ -291,12 +310,13 @@
   });
 
   // Slash command discovery is backend-scoped, so refresh when the active agent changes.
-  // untrack the directory — explicit refreshPluginCommands calls in createTab/setBaseDirectory
-  // already handle directory changes; tracking tabCtx here causes a storm on every session mutation.
+  // Keep the whole refresh outside tracking: the command loader reads more session
+  // state synchronously before its first await, but only an agent change belongs here.
+  // Explicit refreshes in createTab/setBaseDirectory handle directory changes.
   $effect(() => {
     void settings.activeAgent;
-    void session.refreshPluginCommands(
-      untrack(() => session.tabCtx.workingDirectory),
+    untrack(() =>
+      void session.refreshPluginCommands(session.tabCtx.workingDirectory),
     );
   });
 
@@ -379,8 +399,28 @@
   // can all open it. Saves straight through to the provider.
   const taskComposer = $derived(session.ui.taskComposer);
   const sessionRename = $derived(session.ui.sessionRename);
+  const taskComposerServerId = $derived(
+    taskComposer
+      ? (session.tasksStore.hostForProject(taskComposer.projectKey) ??
+        serverConnections.connectionFor()?.serverId ??
+        null)
+      : null,
+  );
+  const taskComposerHost = $derived(
+    taskComposerServerId
+      ? {
+          serverId: taskComposerServerId,
+          api: serverConnections.apiFor(taskComposerServerId),
+        }
+      : null,
+  );
   const taskComposerConfig = $derived(
-    taskComposer ? projectConfigStore.configFor(taskComposer.projectKey) : undefined,
+    taskComposer
+      ? projectConfigStore.configFor(
+          taskComposerServerId,
+          taskComposer.projectKey,
+        )
+      : undefined,
   );
   const taskComposerProvider = $derived(
     taskComposerConfig?.taskProvider ?? "local",
@@ -398,8 +438,8 @@
   );
 
   $effect(() => {
-    if (!taskComposer) return;
-    void projectConfigStore.load(taskComposer.projectKey);
+    if (!taskComposer || !taskComposerHost) return;
+    void projectConfigStore.load(taskComposerHost, taskComposer.projectKey);
   });
 
   const isExpanded = $derived(session.isExpanded);
@@ -527,8 +567,8 @@
   // the picker is actually on screen.
   const directoryPickerApi = $derived(
     !directoryPickerOpen || directoryPickerServerId === serversStore.activeServerId
-      ? window.solus
-      : (serverConnections.apiFor(directoryPickerServerId) as typeof window.solus),
+      ? serverConnections.primaryApi()
+      : serverConnections.apiFor(directoryPickerServerId),
   );
   const directoryPickerHostLabel = $derived(
     directoryPickerServerId === serversStore.activeServerId
@@ -587,7 +627,8 @@
       refreshTheme(settings.setSystemTheme.bind(settings));
       initializeRuntime(session, sessionSidebarStore);
       void connectionsStore.refreshCapabilities();
-      session.prsStore.reportChecksActivity(session.ctx);
+      const scope = activePrScope();
+      session.prsStore.reportChecksActivity(scope.api, scope.ctx);
     }
   });
 
@@ -595,16 +636,16 @@
     // Click-through only applies to the pill window's transparent canvas; the
     // editor is an opaque, normal OS window.
     if (isEditorMode) return;
-    if (!window.solus?.setIgnoreMouseEvents) return;
+    if (!localApi.setIgnoreMouseEvents) return;
     let lastIgnored: boolean = true;
-    window.solus.setIgnoreMouseEvents(true, { forward: true });
+    localApi.setIgnoreMouseEvents(true, { forward: true });
 
     const setIgnore = (shouldIgnore: boolean) => {
       if (shouldIgnore === lastIgnored) return;
       lastIgnored = shouldIgnore;
       if (shouldIgnore)
-        window.solus.setIgnoreMouseEvents(true, { forward: true });
-      else window.solus.setIgnoreMouseEvents(false, { focus: true });
+        localApi.setIgnoreMouseEvents(true, { forward: true });
+      else localApi.setIgnoreMouseEvents(false, { focus: true });
     };
 
     // Cached bounding rects of the pill's interactive regions. Measured on a short
@@ -708,75 +749,104 @@
   });
 
   $effect(() => {
-    const events = serverConnections.eventsFor();
-    const unsubRun = events.subscribe('run.statusChanged', (status) =>
-      runStore.apply(status),
-    );
-    const unsubVoiceModel = events.subscribe('voice.modelStatusChanged', (status) =>
-      voiceModelStore.apply(status),
-    );
-    void voiceModelStore.refresh();
-    const unsubUsage = events.subscribe('usage.limitsChanged', ({ snapshots }) =>
-      agent.applyUsage(snapshots),
-    );
-    void agent.refreshUsage();
-    // Live automation state: scheduler fires, run transitions, and agent-tool
-    // saves all land here. Failures get a toast — an unattended run breaking
-    // is otherwise invisible until the user happens to open the page.
-    const unsubAutomations = events.subscribe('automation.changed', (event) => {
-      session.automationsStore.applyChange(event);
-      if (event.kind === "run-finished" && event.run.status === "failed") {
-        toasts.error(`Automation "${event.automation.name}" failed`, {
-          action: {
-            label: "View",
-            onAction: () => session.openAutomations(event.automation.id),
-          },
-        });
-      }
-    });
-    // An agent left comment threads on a plan or a work. Re-read that target's
-    // annotations so the rail updates under the reader, rather than making them
-    // close and reopen the document to see the review.
-    const unsubAnnotations = events.subscribe('annotations.changed', (change) => {
-      if (change.kind === "work") void session.worksStore.loadAnnotations(change.targetId);
-      else void session.planStore.hydrateAnnotations(change.targetId);
-    });
-    const unsubStackGraph = session.stacksStore.subscribe();
-    const unsubChecks = session.prsStore.subscribeChecks(() => session.ctx);
-    const unsubGuideStatus = session.prsStore.subscribeGuideStatus();
-    const unsubNeedsReview = session.prsStore.subscribeNeedsReview(
-      () => session.ctx,
-    );
-    // An agent can need the Cloudflare profile before any Cloudflare surface has
-    // been opened, so the request has to be heard app-wide, not by the card.
-    const unsubCloudflare = cloudflareStore.listenForConnectRequests();
-    const unsubShown = window.solusNative.onWindowShown(() => {
-      const active = session.sessionFor(session.activeTabId);
-      const cwd =
-        active?.run.gitContext?.worktreePath ??
-        active?.run.workingDirectory ??
-        session.globalDefaults.workingDirectory;
-      if (cwd)
-        void sessionEnvironmentStore.refreshEnvironment(session, {
-          sourceId: session.activeTabId,
-          cwd,
-          level: "status",
-        });
-    });
-    return () => {
-      unsubRun();
-      unsubVoiceModel();
-      unsubUsage();
-      unsubAutomations();
-      unsubAnnotations();
-      unsubStackGraph();
-      unsubChecks();
-      unsubGuideStatus();
-      unsubNeedsReview();
-      unsubCloudflare();
-      unsubShown();
-    };
+    if (!settings.soundEnabled) {
+      notificationsStore.stop();
+      return;
+    }
+    return untrack(() => notificationsStore.start({
+      hostDisplay: (serverId) => {
+        const host = serversStore.hostFor(serverId);
+        return {
+          label: host?.label ?? "this host",
+          ...(host && "installationId" in host && host.installationId
+            ? { installationId: host.installationId }
+            : {}),
+          isPrimary: serverConnections.connectionFor()?.serverId === serverId,
+        };
+      },
+      isSessionFocused: (serverId, sessionId) =>
+        document.visibilityState === "visible" &&
+        document.hasFocus() &&
+        session.isSessionVisibleOnHost(serverId, sessionId),
+      openRoute: (serialized) => {
+        const route = parseRoute(serialized);
+        if (route) session.openRoute(route);
+      },
+    }));
   });
+
+  // These are lifetime subscriptions. Some installers read active-session state
+  // for their first report, but session changes must not reinstall every listener.
+  $effect(() =>
+    untrack(() => {
+      const events = serverConnections.eventsForPrimary();
+      const unsubVoiceModel = subscribeAllHosts('voice.modelStatusChanged', (serverId, status) =>
+        voiceModelStore.apply(status, serverId),
+      );
+      const unsubSessionStatuses = sessionSidebarStore.subscribeSessionStatuses();
+      void voiceModelStore.refresh();
+      const unsubUsage = events.subscribe('usage.limitsChanged', ({ snapshots }) =>
+        agent.applyUsage(snapshots),
+      );
+      void agent.refreshUsage();
+      // Live automation state: scheduler fires, run transitions, and agent-tool
+      // saves all land here. Failures get a toast — an unattended run breaking
+      // is otherwise invisible until the user happens to open the page.
+      const unsubAutomations = subscribeAllHosts('automation.changed', (serverId, event) => {
+        session.automationsStore.applyChange(serverId, event);
+        if (event.kind === "run-finished" && event.run.status === "failed") {
+          toasts.error(`Automation "${event.automation.name}" failed`, {
+            action: {
+              label: "View",
+              onAction: () => session.openAutomations(event.automation.id),
+            },
+          });
+        }
+      });
+      // An agent left comment threads on a plan or a work. Re-read that target's
+      // annotations so the rail updates under the reader, rather than making them
+      // close and reopen the document to see the review.
+      const unsubAnnotations = subscribeAllHosts('annotations.changed', (serverId, change) => {
+        if (change.kind === "work") void session.worksStore.loadAnnotations(change.targetId, serverId);
+        else void session.planStore.hydrateAnnotations(change.targetId, serverId);
+      });
+      const unsubStackGraph = session.stacksStore.subscribe();
+      const unsubChecks = session.prsStore.subscribeChecks(activePrScope);
+      const unsubGuideStatus = session.prsStore.subscribeGuideStatus();
+      const unsubNeedsReview = session.prsStore.subscribeNeedsReview(
+        activePrScope,
+      );
+      // An agent can need the Cloudflare profile before any Cloudflare surface has
+      // been opened, so the request has to be heard app-wide, not by the card.
+      const unsubCloudflare = cloudflareStore.listenForConnectRequests();
+      const unsubShown = window.solusNative.onWindowShown(() => {
+        const active = session.sessionFor(session.activeTabId);
+        const cwd =
+          active?.run.gitContext?.worktreePath ??
+          active?.run.workingDirectory ??
+          session.globalDefaults.workingDirectory;
+        if (cwd)
+          void sessionEnvironmentStore.refreshEnvironment(session, {
+            sourceId: session.activeTabId,
+            cwd,
+            level: "status",
+          });
+      });
+      return () => {
+        unsubVoiceModel();
+        unsubSessionStatuses();
+        unsubUsage();
+        unsubAutomations();
+        unsubAnnotations();
+        unsubStackGraph();
+        unsubChecks();
+        unsubGuideStatus();
+        unsubNeedsReview();
+        unsubCloudflare();
+        unsubShown();
+      };
+    }),
+  );
 
   $effect(() => {
     void session.activeTabId;
@@ -785,7 +855,10 @@
       session.router.at("reviewMode") ||
       !!session.activeSession?.prReview;
     untrack(() =>
-      session.prsStore.setChecksReviewSurface(reviewSurfaceOpen, session.ctx),
+      {
+        const scope = activePrScope();
+        session.prsStore.setChecksReviewSurface(reviewSurfaceOpen, scope.api, scope.ctx);
+      },
     );
   });
 
@@ -799,7 +872,12 @@
   $effect(() => {
     void needsReviewProjectKey;
     untrack(() =>
-      void session.prsStore.refreshNeedsReview(session.ctx).catch(() => {}),
+      {
+        const scope = activePrScope();
+        void session.prsStore
+          .refreshNeedsReview(scope.api, scope.serverId, scope.ctx)
+          .catch(() => {});
+      },
     );
   });
 
@@ -832,18 +910,18 @@
       }
       if (sourceTabId !== lastSourceTabId) {
         lastSourceTabId = sourceTabId;
-        window.solus.setQuoteContext(sourceTabId);
+        localApi.setQuoteContext(sourceTabId);
       }
     };
     document.addEventListener("selectionchange", onSelectionChange);
     return () => {
       document.removeEventListener("selectionchange", onSelectionChange);
-      window.solus.setQuoteContext(null);
+      localApi.setQuoteContext(null);
     };
   });
 
   $effect(() =>
-    window.solus.onAskSelectionInNewSession((text, sourceTabId) => {
+    localApi.onAskSelectionInNewSession((text, sourceTabId) => {
       void session
         .askInNewSession(sourceTabId, text)
         .catch(() => toasts.error("Couldn't start a new session"));
@@ -1054,7 +1132,9 @@
   });
   useKeybinding(
     "global.git-open-terminal",
-    () => window.solus.openWorktreeTerminal(session.ctx),
+    () => {
+      void session.apiForContext(session.ctx).openWorktreeTerminal(session.ctx);
+    },
     { enabled: () => desktopHandlersAvailable && session.activeSession?.run.serverId === LOCAL_SERVER_ID },
   );
   useKeybinding("global.show-shortcuts", () => {
@@ -1108,9 +1188,13 @@
       untrack(() => session.ctxForDirectory(projectRoot)),
       { force: true },
     );
+    const context = untrack(() => paletteGitTarget?.ctx ?? session.ctx);
+    const api = session.apiForContext(context);
     session.prsStore
       .loadFor(
-        untrack(() => paletteGitTarget?.ctx ?? session.ctx),
+        api,
+        serverConnections.serverIdForApi(api),
+        context,
         { state: "open" },
       )
       .then((result) => {
@@ -1685,26 +1769,56 @@
 
   async function handleScreenshot(tabId?: string) {
     if (!desktopHandlersAvailable) return;
-    const result = await window.solus.takeScreenshot();
+    const result = await serverConnections.primaryApi().takeScreenshot();
     if (!result) return;
     session.addAttachments([result], tabId);
   }
 
   async function handleAttachFile(tabId?: string) {
-    const files = await window.solus.attachFiles();
-    if (!files || files.length === 0) return;
-    session.addAttachments(files, tabId);
+    const targetTabId = tabId ?? session.focusedChatTabId ?? session.activeTabId;
+    const run = targetTabId ? session.runFor(targetTabId) : session.activeSession?.run;
+    const serverId = run?.serverId ?? LOCAL_SERVER_ID;
+    const ctx = targetTabId ? session.ctxFor(targetTabId) : session.ctx;
+    const targetApi = serverConnections.apiFor(serverId);
+    try {
+      const capabilities = await serverConnections.capabilitiesFor(serverId);
+      if (capabilities.attachUpload !== true) {
+        const hostLabel =
+          serversStore.hostFor(serverId)?.label ??
+          serverConnections.connectionFor(serverId)?.target.label ??
+          "this host";
+        toasts.info(unsupportedOnHost("File attachments", hostLabel));
+        return;
+      }
+      if (hostPolicy.isClientMachine(serverId)) {
+        const files = await targetApi.attachFiles(ctx);
+        if (files?.length) session.addAttachments(files, targetTabId);
+        return;
+      }
+      const localFiles = await serverConnections.apiFor(LOCAL_SERVER_ID).attachFiles(ctx);
+      if (!localFiles?.length) return;
+      const uploaded = await uploadLocalAttachments(
+        targetApi,
+        ctx,
+        serverId,
+        localFiles,
+        (path, mime) => localApi.readAttachmentBytes(path, mime),
+      );
+      session.addAttachments(uploaded, targetTabId);
+    } catch (error) {
+      toasts.error(error instanceof Error ? error.message : "Couldn't attach files");
+    }
   }
 
   async function handleDesignMode(tabId?: string) {
     if (!desktopHandlersAvailable) return;
     designModeTargetTabId = tabId;
-    const result = await window.solus.enterDesignMode();
+    const result = await serverConnections.primaryApi().enterDesignMode();
     if (!result) {
       designModeTargetTabId = undefined;
       // Capture failed: tell main to restore opacity so we don't leave the window invisible.
-      await window.solus.designModeReady();
-      await window.solus.exitDesignMode();
+      await serverConnections.primaryApi().designModeReady();
+      await serverConnections.primaryApi().exitDesignMode();
       return;
     }
     // Pre-decode so the <img> paints on first frame. Without this the editor UI (temporarily
@@ -1721,14 +1835,14 @@
     await new Promise<void>((r) =>
       requestAnimationFrame(() => requestAnimationFrame(() => r())),
     );
-    window.solus.designModeReady();
+    void serverConnections.primaryApi().designModeReady();
   }
 
   async function handleDesignConfirm(
     dataUrl: string,
     annotations: DesignAnnotationType[],
   ) {
-    const attachment = await window.solus.submitDesignAnnotations({
+    const attachment = await serverConnections.primaryApi().submitDesignAnnotations({
       dataUrl,
       annotations,
     });
@@ -1738,14 +1852,14 @@
     designModeScreenshot = null;
     designModeTargetTabId = undefined;
     await tick();
-    await window.solus.exitDesignMode();
+    await serverConnections.primaryApi().exitDesignMode();
   }
 
   async function handleDesignCancel() {
     designModeScreenshot = null;
     designModeTargetTabId = undefined;
     await tick();
-    await window.solus.exitDesignMode();
+    await serverConnections.primaryApi().exitDesignMode();
   }
 
 
@@ -2077,12 +2191,39 @@
       isDraggingFile = false;
       const files = e.dataTransfer?.files;
       if (!files || files.length === 0) return;
-      const paths = Array.from(files)
-        .map((f) => window.solus.getPathForFile(f))
-        .filter(Boolean);
-      if (paths.length === 0) return;
-      const attachments = await window.solus.attachFilePaths(paths);
-      if (attachments) session.addAttachments(attachments);
+      const targetTabId = session.focusedChatTabId ?? session.activeTabId;
+      const run = targetTabId ? session.runFor(targetTabId) : session.activeSession?.run;
+      const serverId = run?.serverId ?? LOCAL_SERVER_ID;
+      const ctx = targetTabId ? session.ctxFor(targetTabId) : session.ctx;
+      try {
+        const capabilities = await serverConnections.capabilitiesFor(serverId);
+        if (capabilities.attachUpload !== true) {
+          const hostLabel =
+            serversStore.hostFor(serverId)?.label ??
+            serverConnections.connectionFor(serverId)?.target.label ??
+            "this host";
+          toasts.info(unsupportedOnHost("File attachments", hostLabel));
+          return;
+        }
+        if (!hostPolicy.isClientMachine(serverId)) {
+          const attachments = await uploadFileObjects(
+            serverConnections.apiFor(serverId),
+            ctx,
+            serverId,
+            Array.from(files),
+          );
+          session.addAttachments(attachments, targetTabId);
+          return;
+        }
+        const paths = Array.from(files)
+          .map((file) => localApi.getPathForFile(file))
+          .filter(Boolean);
+        if (paths.length === 0) return;
+        const attachments = await serverConnections.apiFor(LOCAL_SERVER_ID).attachFilePaths(paths, ctx);
+        if (attachments) session.addAttachments(attachments, targetTabId);
+      } catch (error) {
+        toasts.error(error instanceof Error ? error.message : "Couldn't attach files");
+      }
     };
     document.addEventListener("dragenter", onDragEnter);
     document.addEventListener("dragover", onDragOver);

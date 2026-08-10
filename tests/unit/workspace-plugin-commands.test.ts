@@ -146,6 +146,11 @@ describe('workspace plugin command demand', () => {
       activeAgent: 'codex',
       update(patch: { activeAgent: string }) { this.activeAgent = patch.activeAgent },
     }
+    workspace.config = {
+      followActiveSessionAgent(agentId: string) {
+        workspace.settings.update({ activeAgent: agentId })
+      },
+    }
     workspace.resetOverlays = () => {}
     workspace.refreshPluginCommands = (cwd: string, tabId: string) => {
       requested.push({ cwd, tabId })

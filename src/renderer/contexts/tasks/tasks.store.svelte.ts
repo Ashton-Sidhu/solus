@@ -16,6 +16,7 @@ import type {
   TaskUpdatePatch,
 } from '../../../shared/task-types'
 import { upstreamTaskDetails } from './upstream-task-details'
+import type { HostApi } from '@client-core/host-api'
 
 const INVALIDATION_DEBOUNCE_MS = 100
 
@@ -122,9 +123,9 @@ export class TasksStore {
    * deep link, or an id typed into a tool — falls back to the primary host,
    * which is where a single-host user's tasks all are anyway.
    */
-  private apiForTask(taskId?: string | null): typeof window.solus {
+  private apiForTask(taskId?: string | null): HostApi {
     const serverId = taskId ? this.hostByTaskId.get(taskId) : undefined
-    return serverId ? serverConnections.apiFor(serverId) : window.solus
+    return serverId ? serverConnections.apiFor(serverId) : serverConnections.primaryApi()
   }
 
   /** Which host a task lives on, for a caller that has to name it explicitly. */
@@ -211,7 +212,7 @@ export class TasksStore {
     const load = (async () => {
       try {
         const serverId = opts?.serverId ?? this.hostForProject(cwd)
-        const api = serverId ? serverConnections.apiFor(serverId) : window.solus
+        const api = serverId ? serverConnections.apiFor(serverId) : serverConnections.primaryApi()
         const status = await api.tasksProviderStatus(cwd, opts)
         this.providerStatusByCwd.set(cwd, status)
         return status
@@ -317,7 +318,7 @@ export class TasksStore {
     const load = (async () => {
       try {
         const serverId = opts?.serverId ?? this.hostForProject(projectKey)
-        const api = serverId ? serverConnections.apiFor(serverId) : window.solus
+        const api = serverId ? serverConnections.apiFor(serverId) : serverConnections.primaryApi()
         const upstream = await api.tasksListUpstream(projectKey, opts)
         this.upstreamTasksByProject.set(projectKey, upstream.tasks)
         if (upstream.fromCache) this.upstreamFromCacheByProject.set(projectKey, true)
@@ -398,7 +399,7 @@ export class TasksStore {
    * answers when it did not, so a session restored from disk never renders as
    * a loose row beside a parent whose subtasks are missing. */
   private async hydrateSessionTree(sessionId: string, serverId?: string): Promise<Task | null> {
-    const api = serverId ? serverConnections.apiFor(serverId) : window.solus
+    const api = serverId ? serverConnections.apiFor(serverId) : serverConnections.primaryApi()
     const tree = await api.tasksForSession(sessionId).catch(() => null)
     if (!tree) return null
     for (const task of [tree.parent, tree.task, ...tree.subtasks, ...tree.siblings]) {
@@ -464,7 +465,7 @@ export class TasksStore {
    *  it was created from. Omitted, it lands on the primary host. */
   async create(input: TaskCreateInput, serverId?: string): Promise<Task> {
     const host = serverId ?? this.hostForProject(input.projectKey)
-    const api = host ? serverConnections.apiFor(host) : window.solus
+    const api = host ? serverConnections.apiFor(host) : serverConnections.primaryApi()
     const created = await api.tasksCreate(input)
     if (host) this.hostByTaskId.set(created.id, host)
     this.replace(created.id, created)

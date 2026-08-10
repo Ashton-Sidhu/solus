@@ -21,6 +21,7 @@
     getSettingsContext,
     getStatusBarContext,
     getSessionEnvironmentStore,
+    hostCapabilitiesStore,
     serversStore,
   } from "@renderer/contexts";
   import { gitActionsFor } from "@renderer/lib/git-actions.svelte";
@@ -30,6 +31,8 @@
   import type { ReasoningEffort } from "../../../src/shared/types";
   import { swipeDismiss } from "../lib/swipe-dismiss";
   import WebPushBell from "./WebPushBell.svelte";
+  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
+  import { serverConnections } from "@client-core/server-connections";
 
   interface Props {
     open: boolean;
@@ -58,6 +61,24 @@
   const agent = getAgentContext();
   const settings = getSettingsContext();
   const statusBar = getStatusBarContext();
+  const attachmentServerId = $derived(
+    session.activeSession?.run.serverId ?? LOCAL_SERVER_ID,
+  );
+  const attachmentCapabilities = $derived(
+    hostCapabilitiesStore.for(attachmentServerId),
+  );
+  const canAttachFiles = $derived(
+    attachmentCapabilities?.attachUpload === true,
+  );
+  const attachmentHostLabel = $derived(
+    serversStore.hostFor(attachmentServerId)?.label ??
+      serverConnections.connectionFor(attachmentServerId)?.target.label ??
+      "this host",
+  );
+
+  $effect(() => {
+    void hostCapabilitiesStore.load(attachmentServerId);
+  });
 
   const permissionMode = $derived(session.activeSession?.run.permissionMode ?? 'auto');
   const capabilities = $derived(agent.activeMetadata?.capabilities);
@@ -233,9 +254,19 @@
     <div class="flex flex-col gap-3">
       <!-- Add-to-chat actions -->
       <div class="grid grid-cols-3 gap-2.5">
-        <button class={heroCard} onclick={() => handleAction(onAttachFile)}>
+        <button
+          class={`${heroCard} disabled:cursor-not-allowed disabled:opacity-50`}
+          onclick={() => handleAction(onAttachFile)}
+          disabled={!canAttachFiles}
+          title={!canAttachFiles ? `File attachments are not supported on ${attachmentHostLabel}.` : undefined}
+        >
           <span class={heroIcon}><PaperclipIcon size={22} /></span>
-          <span class={heroLabel}>Attach file</span>
+          <span class={heroLabel}>{canAttachFiles ? "Attach file" : "Files unavailable"}</span>
+          {#if attachmentCapabilities !== undefined && !canAttachFiles}
+            <span class="text-[0.625rem] leading-tight text-muted-foreground">
+              Not supported on {attachmentHostLabel}
+            </span>
+          {/if}
         </button>
 
         <button

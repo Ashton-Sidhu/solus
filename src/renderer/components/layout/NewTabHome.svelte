@@ -7,6 +7,7 @@
 </script>
 
 <script lang="ts">
+  import { localApi } from "@client-core/local-api";
   import { serverConnections } from "@client-core/server-connections";
   import { projectDirLabel } from "../../lib/paths";
   import { homeGitDetails } from "../../lib/git-context";
@@ -51,7 +52,7 @@
   // at mount. The client owns the surface that connects one; this is the shared
   // renderer, so it asks for it by event.
   const noHost =
-    window.solus.getPlatform() === "web" && !serverConnections.connectionFor();
+    localApi.getPlatform() === "web" && !serverConnections.connectionFor();
   const workspacePath = $derived(session.staticInfo?.workspacePath ?? null);
   const canReturnToWorkspace = $derived(
     !!workspacePath &&

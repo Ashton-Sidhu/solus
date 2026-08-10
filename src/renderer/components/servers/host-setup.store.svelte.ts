@@ -1,4 +1,5 @@
 import { serverConnections } from '@client-core/server-connections'
+import { localApi } from '@client-core/local-api'
 import type { SolusAPI } from '../../../preload'
 import type {
   DeviceCodePrompt,
@@ -111,7 +112,7 @@ export class HostSetupSession {
           this.verifications[provider] = event.verification
           // Authentication happens in the browser on this machine, not on the
           // host running the CLI. Keep the rendered Open action as a fallback.
-          if (isNewVerification) void window.solus.openExternal(event.verification.url)
+          if (isNewVerification) void localApi.openExternal(event.verification.url)
         }
         if (event.status !== 'running') {
           const provider = providerForSetupStep(event.step)

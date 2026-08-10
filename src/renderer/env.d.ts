@@ -1,4 +1,5 @@
-import type { NativeSolusAPI, SolusAPI } from '../preload/index'
+import type { NativeSolusAPI } from '../preload/index'
+import type { LocalApi } from '../client-core/host-api'
 import type { IconifyIcon } from '@iconify/types'
 
 declare module 'virtual:solus-icons' {
@@ -8,7 +9,7 @@ declare module 'virtual:solus-icons' {
 
 declare global {
   interface Window {
-    solus: SolusAPI
+    solus: LocalApi
     solusNative: NativeSolusAPI
   }
 }

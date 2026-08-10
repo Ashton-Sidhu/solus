@@ -6,7 +6,7 @@ if (!process.env.NODE_EXTRA_CA_CERTS) {
 
 import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell, systemPreferences, powerSaveBlocker, protocol, clipboard } from 'electron'
 import { join } from 'path'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { syncBundledPlugins } from './agents/plugins'
 import { warmCliPath } from './cli-env'
 import { createLogger, flushLogs } from './logger'
@@ -15,7 +15,7 @@ import { comboToAccelerator } from '../renderer/lib/keybindings/match'
 import { initAutoUpdater } from './updater'
 import type { BootedServer } from './server'
 import { bootCore, type BootCore } from './boot-core'
-import { attachDesktopAttentionNotifications, type DesktopAttentionNotifications } from './desktop-notifications'
+import { showDesktopNotification } from './desktop-notifications'
 import type { WindowDeps } from './server/handlers/window-handlers'
 import type { FileDeps } from './server/handlers/file-handlers'
 import { mintPairUrl } from './pair-url'
@@ -29,6 +29,8 @@ import { captureServerEvent, shutdownAnalytics } from './analytics'
 import { shutdownOtel } from './otel'
 import { handleArtifactRequest } from './artifact-protocol'
 import { LOCAL_DEVICE_LABEL } from './server/server'
+import { MAX_ATTACHMENT_UPLOAD_BYTES } from '../shared/rpc'
+import { consumeClientAttachmentRead } from './client-attachment-read'
 
 const SPACES_DEBUG = process.env.SOLUS_DEBUG === '1' || process.env.SOLUS_SPACES_DEBUG === '1'
 const isHeadless = process.argv.includes('--headless')
@@ -61,14 +63,12 @@ let designModeWindow: BrowserWindow | null = null
 let designModeWindowBounds: Electron.Rectangle | null = null
 let powerSaveBlockerId: number | null = null
 
-// Hold the app-suspension blocker only while compute is actually happening
-// (an agent turn or a managed dev-server process). Holding it for the app's
-// lifetime disables macOS App Nap entirely, which keeps the machine warm at
-// idle. Re-synced on every control-plane active-work flip and run-status
-// broadcast; idempotent, so extra calls are free.
+// Hold the app-suspension blocker only while an agent turn is active. Holding
+// it for the app's lifetime disables macOS App Nap entirely, which keeps the
+// machine warm at idle.
 function syncPowerSaveBlocker(): void {
   if (isHeadless || isTestMode || !core) return
-  const shouldBlock = core.controlPlane.hasActiveWork() || core.runManager.hasActiveRuns()
+  const shouldBlock = core.controlPlane.hasActiveWork()
   const isBlocking = powerSaveBlockerId !== null && powerSaveBlocker.isStarted(powerSaveBlockerId)
   if (shouldBlock === isBlocking) return
   if (shouldBlock) {
@@ -99,7 +99,6 @@ const bootPromise = new Promise<BootCore>((resolve, reject) => {
   resolveBoot = resolve
   rejectBoot = reject
 })
-let desktopAttentionNotifications: DesktopAttentionNotifications | null = null
 // The tab whose conversation owns the renderer's current text selection. Pushed
 // on selectionchange so native context-menu actions keep their exact source.
 let quoteContextTabId: string | null = null
@@ -848,6 +847,34 @@ ipcMain.handle('solus:open-external', async (_event, url: unknown, options?: { h
   }
 })
 
+ipcMain.handle('solus:show-notification', (_event, request: unknown) => {
+  return showDesktopNotification(request, (route) => {
+    showCurrentModeWindow('notification click', { fromTrayShow: true })
+    broadcastNativeEvent('solus:open-route', route)
+  })
+})
+
+ipcMain.handle('solus:read-attachment-bytes', async (_event, path: unknown, mime: unknown) => {
+  if (typeof path !== 'string' || typeof mime !== 'string') {
+    throw new Error('Invalid attachment read request.')
+  }
+  if (!/^[a-z0-9][a-z0-9!#$&^_.+\/-]{0,126}$/i.test(mime)) {
+    throw new Error('Invalid attachment MIME type.')
+  }
+  const allowedPath = consumeClientAttachmentRead(path)
+  if (!allowedPath) throw new Error('The attachment was not selected in the file dialog.')
+  const file = statSync(allowedPath)
+  if (!file.isFile()) throw new Error('Only files can be attached.')
+  if (file.size > MAX_ATTACHMENT_UPLOAD_BYTES) {
+    throw new Error('Attachment exceeds the 10 MB limit.')
+  }
+  const buffer = readFileSync(allowedPath)
+  return {
+    dataUrl: `data:${mime};base64,${buffer.toString('base64')}`,
+    size: buffer.length,
+  }
+})
+
 function scheduleSessionIndexer(): void {
   if (sessionIndexerStarted || sessionIndexerStartTimer) return
   // The renderer reports after its first real idle window. Keep a small cushion
@@ -1061,7 +1088,6 @@ if (isPairUrl) {
         requireAuth: process.env.SOLUS_REQUIRE_AUTH === '1',
         staticDir: join(__dirname, '../client'),
         transcribeAudio,
-        onRunStatus: syncPowerSaveBlocker,
       })
     } catch (err) {
       // Unblock the renderer's getLocalConnection with the failure so it can show
@@ -1085,17 +1111,6 @@ if (isPairUrl) {
     }
 
     if (!isHeadless) {
-      desktopAttentionNotifications = attachDesktopAttentionNotifications({
-        attention: bootedCore.controlPlane.attention,
-        focusWindow: (route?: string) => {
-          showCurrentModeWindow('notification click', { fromTrayShow: true })
-          if (route) broadcastNativeEvent('solus:open-route', route)
-        },
-        getTray: () => tray,
-        badgeTarget: process.platform === 'darwin' && app.dock ? 'tray' : 'none',
-        isActiveAttention: (entry) => bootedCore.controlPlane.isPendingAttentionLive(entry.sessionId),
-      })
-
       nativeTheme.on('updated', () => {
         broadcastNativeEvent('solus:theme-changed', nativeTheme.shouldUseDarkColors)
       })
@@ -1153,7 +1168,6 @@ if (isPairUrl) {
         tray.setContextMenu(
           Menu.buildFromTemplate(trayTemplate)
         )
-        desktopAttentionNotifications?.syncBadge()
         void tray // keep alive for lifetime of the app
 
         app.on('activate', () => {

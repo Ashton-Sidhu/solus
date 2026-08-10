@@ -22,6 +22,8 @@ import {
   type SidebarTask,
   type TaskGroup,
 } from '../../components/session/lib/task-list'
+import { draftTitle, type DraftRow } from '../../components/session/lib/draft-list'
+import { SidebarSessionStatusFeed } from '../../components/session/lib/sidebar-session-status'
 import {
   attemptServerId,
   findOpenTabForSession,
@@ -43,6 +45,9 @@ import {
   reviewGuideStore,
   sessionGuideIdentity,
 } from '../../components/review/review-guide.store.svelte'
+import { serverConnections } from '@client-core/server-connections'
+import { resolveSessionMetaRef } from '@client-core/session-meta'
+import { subscribeAllHosts } from '@client-core/host-events'
 
 /** A running turn began at its prompt, so the tail-most user message dates it.
  *  Bounded because it only ever has to look at the turn in flight — a deep walk
@@ -112,6 +117,11 @@ function projectLabel(projectKey: string): string {
 
 export class SessionSidebarStore {
   private taskModelsById = new Map<string, SidebarTask>()
+  private liveSessionStatuses?: SidebarSessionStatusFeed
+
+  private sessionStatusFeed(): SidebarSessionStatusFeed {
+    return this.liveSessionStatuses ??= new SidebarSessionStatusFeed()
+  }
 
   /** Pinned sessions, most-recently-pinned first. Loaded on bootstrap, mutated by pin/unpin. */
   pinnedSessions = $state<PinnedSession[]>([])
@@ -219,10 +229,18 @@ export class SessionSidebarStore {
 
         for (const item of taskTree) {
           for (const link of this.session.tasksStore.sessionsByTask.get(item.id) ?? []) {
-            linkedServerId ??= attemptServerId({
+            const linkServerId = attemptServerId({
               link,
               taskServerId: this.session.tasksStore.hostFor(item.id),
             })
+            linkedServerId ??= linkServerId
+            const liveState = this.sessionStatusFeed().stateFor(linkServerId, link.sessionId)
+            attention = maxAttention(attention, liveState?.attention ?? null)
+            if (liveState?.attention === 'running') {
+              runStartedAt = runStartedAt === 0
+                ? liveState.runStartedAt
+                : Math.min(runStartedAt, liveState.runStartedAt)
+            }
             const tabId = openTabBySessionId.get(link.sessionId)
             if (!tabId || tabIds.includes(tabId)) continue
             tabIds.push(tabId)
@@ -347,6 +365,32 @@ export class SessionSidebarStore {
 
   headerCount: number = $derived(this.visibleTasks.length)
 
+  /** Prompts written and set aside, in the order they were opened. Two things
+   *  keep a draft out: nothing has been written in it — every ⌘N opens one and
+   *  boot seeds one, so listing those would fill the section with rows nobody
+   *  wrote — or a pane is composing it right now, which is the prompt in front
+   *  of the user rather than one they parked. Moving off it is what files it
+   *  here. */
+  draftRows: DraftRow[] = $derived.by(() => {
+    const composing = this.session.composingDraftIds
+    const rows: DraftRow[] = []
+    for (const draft of this.session.sessionDrafts.values()) {
+      if (draft.isEmpty || composing.has(draft.id)) continue
+      const projectKey = environmentProjectKey(
+        this.session.environment.environmentFor(draft.run),
+        draft.run.projectGroupPath,
+      )
+      rows.push({
+        draftId: draft.id,
+        title: draftTitle(draft.prompt),
+        projectKey,
+        projectLabel: projectLabel(projectKey),
+        hasAttachments: draft.prompt.attachments.length > 0,
+      })
+    }
+    return rows
+  })
+
   /** The task holding a tab, whether that conversation is leading or split.
    *  Every open tab is projected into `allTasks` — under its task when it has
    *  one, as its own loose row when it does not — so a composer that has yet to
@@ -356,7 +400,7 @@ export class SessionSidebarStore {
   }
 
   /** The task the leading breadcrumb names. */
-  activeTask: SidebarTask | null = $derived(this.taskForTab(this.session.activeTabId))
+  activeTask: SidebarTask | null = $derived.by(() => this.taskForTab(this.session.activeTabId))
 
   /** The active task's siblings, most urgent first: what the task crumb drops down. */
   tasksInActiveProject: SidebarTask[] = $derived.by(() => {
@@ -404,27 +448,40 @@ export class SessionSidebarStore {
     private planStore: PlanStore,
   ) {}
 
+  /** Keep durable, unmounted task attempts live in the sidebar. */
+  subscribeSessionStatuses(): () => void {
+    return subscribeAllHosts('session.statusChanged', (serverId, event) => {
+      this.sessionStatusFeed().apply(serverId, event)
+    })
+  }
+
   /** Hydrate the pinned list from the manifest. Called once on bootstrap. */
   async loadPinnedSessions(): Promise<void> {
     try {
-      this.pinnedSessions = await window.solus.pinnedSessionsList()
+      this.pinnedSessions = await serverConnections.primaryApi().pinnedSessionsList()
     } catch {
       this.pinnedSessions = []
     }
   }
 
-  isPinned(sessionId: string | null | undefined): boolean {
+  isPinned(sessionId: string | null | undefined, serverId?: string): boolean {
     if (!sessionId) return false
-    return this.pinnedSessions.some((p) => p.sessionId === sessionId)
+    const resolvedServerId = serverId ? serverConnections.resolveId(serverId) : undefined
+    return this.pinnedSessions.some((pin) =>
+      pin.sessionId === sessionId
+      && (!resolvedServerId || !pin.serverId || pin.serverId === resolvedServerId),
+    )
   }
 
   openTabIdForPinned(pin: PinnedSession): string | null {
+    const serverId = pin.serverId ? serverConnections.resolveId(pin.serverId) : undefined
     return findOpenTabForSession(
       pin.sessionId,
       this.session.tabs,
       this.session.sessions,
       this.session.tabOrder,
       pin.provider,
+      serverId,
     )
   }
 
@@ -529,18 +586,20 @@ export class SessionSidebarStore {
         })
         continue
       }
+      const serverId = attemptServerId({
+        link,
+        taskServerId: this.session.tasksStore.hostFor(record.id),
+      })
+      const liveState = this.sessionStatusFeed().stateFor(serverId, link.sessionId)
       children.push({
         taskId: record.id,
         sessionId: link.sessionId,
         projectKey,
         branchName: record.branch ?? null,
         label: sidebarChildLabel(record, sessionDisplayName({ link, taskTitle: record.title })),
-        attention: null,
-        serverId: attemptServerId({
-          link,
-          taskServerId: this.session.tasksStore.hostFor(record.id),
-        }),
-        runStartedAt: 0,
+        attention: liveState?.attention ?? null,
+        serverId,
+        runStartedAt: liveState?.attention === 'running' ? liveState.runStartedAt : 0,
         reviewGuideStatus: null,
         dismissalKey,
         isSubtask: !!record.parentId,
@@ -632,7 +691,10 @@ export class SessionSidebarStore {
     }
     // The task link already names the exact session. Ask the index for that one
     // record instead of scanning every provider's full project history first.
-    const meta = await window.solus.getSessionInfo(child.sessionId).catch(() => null)
+    const meta = await resolveSessionMetaRef({
+      sessionId: child.sessionId,
+      serverId: child.serverId,
+    })
     if (meta) await this.session.resumeSession(meta)
   }
 
@@ -641,6 +703,7 @@ export class SessionSidebarStore {
     const isAlreadyActiveBranch = tabIds.includes(this.session.activeTabId)
     const lastActiveTabId = this.session.lastActiveTabForBranch(branchKey)
     const target = taskTabTarget(tabIds, attentionTarget, lastActiveTabId)
+    if (!target) return false
 
     if (
       isAlreadyActiveBranch
@@ -733,12 +796,13 @@ export class SessionSidebarStore {
 
     const pin: PinnedSession = {
       sessionId: session.agentSessionId,
+      serverId: serverConnections.resolveId(session.run.serverId),
       provider: session.run.provider ?? (this.settings.activeAgent as AgentId),
       title: sessionTitle(session),
       cwd: session.run.gitContext?.worktreePath ?? session.run.workingDirectory,
       pinnedAt: Date.now(),
     }
-    this.pinnedSessions = await window.solus.togglePinnedSession(pin)
+    this.pinnedSessions = await serverConnections.primaryApi().togglePinnedSession(pin)
   }
 
   /** Rename from a sidebar row. Pins carry their own label, so a pinned session
@@ -746,7 +810,8 @@ export class SessionSidebarStore {
   async renameSession(tabId: string, title: string): Promise<void> {
     const sessionId = this.session.sessionFor(tabId)?.agentSessionId
     await this.session.renameTab(tabId, title)
-    if (sessionId && this.isPinned(sessionId)) await this.loadPinnedSessions()
+    const serverId = this.session.sessionFor(tabId)?.run.serverId
+    if (sessionId && this.isPinned(sessionId, serverId)) await this.loadPinnedSessions()
   }
 
   /** A durable task is named by its own record, and that is the whole write: the
@@ -767,7 +832,7 @@ export class SessionSidebarStore {
 
   /** Unpin directly from a known pin (used by the sidebar's per-row pin). */
   async unpinSession(pin: PinnedSession): Promise<void> {
-    this.pinnedSessions = await window.solus.togglePinnedSession($state.snapshot(pin))
+    this.pinnedSessions = await serverConnections.primaryApi().togglePinnedSession($state.snapshot(pin))
   }
 
   /** Focus an already-open tab for a pinned session, or resume it into a new tab. */
@@ -784,6 +849,7 @@ export class SessionSidebarStore {
     await this.session.resumeSession({
       provider: pin.provider,
       sessionId: pin.sessionId,
+      serverId: pin.serverId,
       slug: null,
       firstMessage: pin.title,
       lastTimestamp: new Date(pin.pinnedAt).toISOString(),

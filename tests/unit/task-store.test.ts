@@ -65,11 +65,18 @@ describe('native task migration', () => {
       INSERT INTO task_session_links VALUES ('legacy-task', 'legacy-session');
       CREATE TABLE task_cache(project_key TEXT, tasks TEXT);
       INSERT INTO task_cache VALUES ('legacy-project', '[]');
+      CREATE TABLE pinned_sessions(
+        session_id TEXT PRIMARY KEY,
+        provider TEXT,
+        title TEXT,
+        cwd TEXT,
+        pinned_at INTEGER
+      );
     `)
 
     migrations.runMigrations(legacy as never)
 
-    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 15 })
+    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 16 })
     expect(legacy.query('SELECT COUNT(*) AS count FROM tasks').get()).toEqual({ count: 0 })
     expect(legacy.query('SELECT COUNT(*) AS count FROM task_session_links').get()).toEqual({ count: 0 })
     expect(legacy.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_cache'").get()).toBeNull()

@@ -1,6 +1,7 @@
 import { NotePencilIcon, TrashIcon, RobotIcon } from "phosphor-svelte";
 import type { Component } from "svelte";
 import type { AgentId, IpcContext } from "../../../shared/types";
+import type { HostApi } from "@client-core/host-api";
 
 export interface SlashCommand {
   command: string;
@@ -13,6 +14,7 @@ export interface SlashCommand {
 }
 
 export interface SlashCommandRunContext {
+  api: HostApi;
   argument: string;
   ipcContext: IpcContext;
   clearTab: () => void;
@@ -56,8 +58,8 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     description: "Update relevant agent files with information.",
     iconComponent: RobotIcon,
     insertTextOnSelect: "/update-agent-files ",
-    run: async ({ argument, ipcContext, addSystemMessage, requestInputFocus }) => {
-      const result = await window.solus.updateAgentFiles(ipcContext, argument);
+    run: async ({ api, argument, ipcContext, addSystemMessage, requestInputFocus }) => {
+      const result = await api.updateAgentFiles(ipcContext, argument);
       if (result.success) {
         addSystemMessage(
           `Updated ${result.files?.map((file) => file.split("/").pop()).join(" and ") ?? "agent files"}.`,

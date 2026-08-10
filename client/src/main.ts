@@ -15,6 +15,8 @@ import { webPushState } from './lib/web-push.svelte'
 import { toasts } from '@renderer/lib/toasts'
 import { startScrollReveal } from '@renderer/lib/scroll-reveal'
 import WebToaster from './components/WebToaster.svelte'
+import type { LocalApi } from '@client-core/host-api'
+import { routeForPushClick, serverIdForInstallation, type PushClickPayload } from './lib/push-click'
 
 window.addEventListener('unhandledrejection', (event) => {
   if (event.reason instanceof TransportDisconnectedError) event.preventDefault()
@@ -32,6 +34,23 @@ const CHOOSE_HOST_KEY = 'solus.chooseHostOnBoot'
 // mid-pairing lands back here; the workspace router takes the hash over from
 // `bindAddressBar` once a host is chosen.
 const CONNECT_HASH = '#/connect'
+
+let pendingNotificationRoute = consumeColdNotificationRoute()
+
+function consumeColdNotificationRoute(): string | null {
+  const url = new URL(location.href)
+  const payload: PushClickPayload = {
+    sessionId: url.searchParams.get('notificationSessionId'),
+    installationId: url.searchParams.get('notificationInstallationId'),
+    route: url.searchParams.get('notificationRoute'),
+  }
+  if (!payload.sessionId && !payload.route) return null
+  url.searchParams.delete('notificationSessionId')
+  url.searchParams.delete('notificationInstallationId')
+  url.searchParams.delete('notificationRoute')
+  history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+  return routeForPushClick(payload, loadServers())
+}
 
 function markConnectScreen(): void {
   if (location.hash !== CONNECT_HASH) history.replaceState(null, '', CONNECT_HASH)
@@ -68,10 +87,22 @@ function installServiceWorkerMessageBridge(): void {
   if (serviceWorkerBridgeInstalled || !('serviceWorker' in navigator)) return
   serviceWorkerBridgeInstalled = true
   navigator.serviceWorker.addEventListener('message', (event) => {
-    const data = event.data as { type?: string; route?: string | null } | undefined
-    if (data?.type !== 'solus:notification-click' || !data.route) return
+    const data = event.data as (PushClickPayload & { type?: string }) | undefined
+    if (data?.type === 'solus:push-received') {
+      const serverId = serverIdForInstallation(data.installationId, loadServers())
+      if (serverId && data.entryKey) {
+        window.dispatchEvent(new CustomEvent('solus:push-received', {
+          detail: { serverId, entryKey: data.entryKey },
+        }))
+      }
+      return
+    }
+    if (data?.type !== 'solus:notification-click') return
+    const route = routeForPushClick(data, loadServers())
+    if (!route) return
     window.focus()
-    window.dispatchEvent(new CustomEvent('solus:open-route', { detail: data.route }))
+    if (solusApp) window.dispatchEvent(new CustomEvent('solus:open-route', { detail: route }))
+    else location.hash = route
   })
 }
 
@@ -100,7 +131,7 @@ function showConnectFlow(options: { initialAddress?: string } = {}): void {
   if (solusApp) { unmount(solusApp); solusApp = null }
   if (connectFlowApp) { unmount(connectFlowApp); connectFlowApp = null }
   if (activeTransport) { activeTransport.destroy(); activeTransport = null }
-  delete (window as any).solus
+  Reflect.deleteProperty(window, 'solus')
 
   webState.setConnectedServer(null)
   setConnectionState({ status: 'disconnected', attempt: 0 })
@@ -124,19 +155,19 @@ async function connectToServer(server: SavedServer): Promise<void> {
 
   const target = savedServerTarget(server)
   const { transport, api } = createSolusConnection(target, {
+    verifyConnectedHost: () => serverConnections.verifySavedServerIdentity(target),
     onStatusChange: (status: ConnectionStatus, attempt: number) => {
       serverConnections.updateStatus(server.id, status, attempt)
       // The target names which host this status belongs to — serversStore keys
       // its per-host connection state (and the web "local" alias) off it.
       setConnectionState({ status, attempt, target })
-      if (status === 'connected') void webPushState.ensureSubscribedSilently()
     },
     onAuthFailed: () => {
       if (generation === connectionGeneration && !solusApp) showConnectFlow()
     },
   })
 
-  ;(window as any).solus = api
+  window.solus = api as unknown as LocalApi
   serverConnections.registerPrimary(server.id, api, transport, target)
   activeTransport = transport
   webPushState.init()
@@ -148,6 +179,10 @@ async function connectToServer(server: SavedServer): Promise<void> {
 
   webState.setConnectedServer(server)
   leaveConnectScreen()
+  if (pendingNotificationRoute) {
+    location.hash = pendingNotificationRoute
+    pendingNotificationRoute = null
+  }
 
   try {
     // Keep the multi-megabyte workspace graph out of the unpaired connection
@@ -171,7 +206,7 @@ async function connectToServer(server: SavedServer): Promise<void> {
 async function bootWithoutServer(): Promise<void> {
   const generation = ++connectionGeneration
   toasts.dismiss()
-  window.solus = createNoHostSolusApi()
+  window.solus = createNoHostSolusApi() as unknown as LocalApi
   webState.setConnectedServer(null)
   setConnectionState({ status: 'disconnected', attempt: 0 })
   leaveConnectScreen()

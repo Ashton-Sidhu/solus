@@ -4,6 +4,7 @@
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import PrReviewPane from "./PrReviewPane.svelte";
+  import { serverConnections } from "@client-core/server-connections";
 
   // The review surface's route adapter. The surface itself is also mounted
   // headless by Review Mode, so it keeps a plain prop contract; everything
@@ -20,6 +21,14 @@
 
   const ref = $derived({ name: "prReview" as const, params });
   const pr = $derived(session.router.resolvedFor<PrReviewContext>(ref));
+  const api = $derived(
+    params.serverId
+      ? serverConnections.apiFor(params.serverId)
+      : serverConnections.primaryApi(),
+  );
+  const serverId = $derived(
+    params.serverId ?? serverConnections.serverIdForApi(api),
+  );
 
   // The review's chat is whichever open tab is rooted in this PR's worktree —
   // derived rather than stored, so nothing has to be attached or torn down.
@@ -31,6 +40,8 @@
 
 <PrReviewPane
   {pr}
+  {api}
+  {serverId}
   target={{ number: params.number, title: params.title ?? "" }}
   targetCtx={params.cwd ? session.ctxForDirectory(params.cwd) : session.ctx}
   {chatTabId}

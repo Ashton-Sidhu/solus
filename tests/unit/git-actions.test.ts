@@ -48,6 +48,7 @@ describe('GitActions sync', () => {
     const actions = new GitActions(
       {
         runFor: () => session.run,
+        apiFor: () => window.solus,
         ctxFor: () => ({ session: { sessionId: 'tab-1' } }),
         ctxForEnvironment: () => ({ session: { sessionId: 'tab-1' } }),
       } as any,
@@ -96,6 +97,7 @@ describe('GitActions commit and push', () => {
     const actions = new GitActions(
       {
         runFor: () => session.run,
+        apiFor: () => window.solus,
         ctxFor: () => ({ session: { sessionId: 'tab-1' } }),
         ctxForEnvironment: () => ({ session: { sessionId: 'tab-1' } }),
       } as any,
@@ -149,6 +151,7 @@ describe('GitActions commit and push', () => {
         // A draft names a run with no session behind it — the case this test is
         // about, and the reason these actions resolve a run rather than a tab.
         runFor: () => undefined,
+        apiFor: () => window.solus,
         globalDefaults: { workingDirectory: '/repo', gitContext: checkout },
         ctxForEnvironment: (cwd: string, gitContext: unknown, sourceId: string) => ({
           session: { sessionId: sourceId, workingDirectory: cwd, gitContext },

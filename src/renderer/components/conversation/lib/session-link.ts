@@ -1,8 +1,11 @@
 import type { AgentId, SessionMeta } from "../../../../shared/types";
+import { resolveSessionMetaRef, stampSessionMeta } from "@client-core/session-meta";
 
 export interface SessionLinkParams {
   provider: AgentId;
   sessionId: string;
+  /** Explicit destination host. A bare legacy link inherits its transcript host. */
+  serverId: string | null;
   /** Working directory carried in the link so a cross-project session opens in
    *  the right directory even when the index lookup misses. */
   cwd: string | null;
@@ -13,10 +16,14 @@ export interface SessionLinkParams {
  *  in the link so cross-project opens still land in the right directory. */
 export async function resolveSessionLinkMeta(
   params: SessionLinkParams,
-  getSessionInfo: (sessionId: string) => Promise<SessionMeta | null> = window.solus
-    .getSessionInfo,
+  sourceServerId?: string,
+  resolve: typeof resolveSessionMetaRef = resolveSessionMetaRef,
 ): Promise<SessionMeta> {
-  const meta = await getSessionInfo(params.sessionId).catch(() => null);
+  const serverId = params.serverId ?? sourceServerId;
+  const resolved = await resolve({ sessionId: params.sessionId, serverId }).catch(() => null);
+  const meta = resolved && serverId && !resolved.serverId
+    ? stampSessionMeta(resolved, serverId)
+    : resolved;
   if (meta?.cwd) return meta;
   return (
     meta ?? {
@@ -28,6 +35,7 @@ export async function resolveSessionLinkMeta(
       size: 0,
       cwd: params.cwd ?? "",
       projectPath: "",
+      serverId,
     }
   );
 }
@@ -54,7 +62,12 @@ export function parseSessionHref(href: string): SessionLinkParams | null {
       return null;
     }
 
-    return { provider: provider as AgentId, sessionId, cwd: url.searchParams.get("cwd") };
+    return {
+      provider: provider as AgentId,
+      sessionId,
+      serverId: url.searchParams.get("serverId"),
+      cwd: url.searchParams.get("cwd"),
+    };
   } catch {
     return null;
   }

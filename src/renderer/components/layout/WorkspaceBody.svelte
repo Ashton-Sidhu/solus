@@ -3,13 +3,10 @@
   import {
     getWorkspaceContext,
     getWindowContext,
-    getRunStore,
-    getRunDockStore,
     getSettingsContext,
     getSessionEnvironmentStore,
   } from "../../contexts";
   import ProjectPanel from "../project-panel/ProjectPanel.svelte";
-  import RunDock from "../run/RunDock.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import SessionSidebar from "../session/SessionSidebar.svelte";
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
@@ -63,8 +60,6 @@
     active: boolean;
     /** Show the right-hand ProjectPanel + its keybinding. */
     enableProjectPanel: boolean;
-    /** Allow the floating run-log dock + its keybinding. */
-    enableRunDock: boolean;
     /** Action buttons + InputBar row (varies between editor and web). */
     inputRow: Snippet;
     /** Tab-aware composer actions forwarded to a split conversation pane. */
@@ -75,7 +70,6 @@
   let {
     active,
     enableProjectPanel,
-    enableRunDock,
     inputRow,
     onAttachFile,
     onScreenshot,
@@ -85,8 +79,6 @@
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
   const settings = getSettingsContext();
-  const runStore = getRunStore();
-  const runDock = getRunDockStore();
   const environmentStore = getSessionEnvironmentStore();
   const router = session.router;
   const geometry = session.geometry;
@@ -234,21 +226,6 @@
   $effect(() => {
     if (!showLeadingBand) homeSessionMenu = null;
   });
-  // Run dock scope mirrors ProjectPanel: prefer the active session's worktree.
-  const runCwd = $derived(
-    sess?.run.gitContext?.worktreePath ??
-      sess?.run.workingDirectory ??
-      session.globalDefaults.workingDirectory,
-  );
-  const dockRuns = $derived(runStore.runsFor(runCwd) ?? []);
-  const showRunDock = $derived(
-    active &&
-      enableRunDock &&
-      runDock.open &&
-      conversationChromeVisible &&
-      dockRuns.length > 0,
-  );
-
   // Lazy-mount the conversation pool: only mount a tab's ConversationView the
   // first time it becomes the active tab. Split chats own a separate force-visible
   // ConversationView in ConversationPane, so mounting them here would duplicate
@@ -294,9 +271,6 @@
   // The conversation view and the secondary pane together: the container the
   // secondary's percentage geometry is measured in.
   let conversationSplitWidth = $state(0);
-  // Measured so the floating run dock clears the input bar even as it grows
-  // with multi-line input, instead of relying on a fixed bottom offset.
-  let inputDockHeight = $state(0);
   let isResizingSecondary = $state(false);
 
   // Scale the sidebar with the viewport instead of two coarse breakpoints:
@@ -325,18 +299,6 @@
       ? pixelsToPercent(defaultSidebarWidth, workspaceBodyWidth)
       : 19,
   );
-
-  // Run dock height (persisted). The dock overlays the conversation above the
-  // input bar; dragging its top edge resizes it without reflowing content.
-  let dockHeight = $state(settings.runDockHeight);
-  let isResizingDock = $state(false);
-  let dockResizeStartY = 0;
-  let dockResizeStartHeight = 0;
-  const minDockHeight = 96;
-  const effectiveDockHeight = $derived(Math.max(minDockHeight, dockHeight));
-
-  // Seed open state from settings once; mirror future changes back.
-  runDock.open = settings.runDockOpen;
 
   function openSidebar() {
     sidebarOpen = true;
@@ -453,29 +415,6 @@
     { enabled: () => active },
   );
 
-  function startDockResize(e: MouseEvent) {
-    isResizingDock = true;
-    dockResizeStartY = e.clientY;
-    // Seed from the on-screen (clamped) height so the drag tracks the cursor
-    // immediately, even when the persisted height exceeds this window's cap.
-    dockResizeStartHeight = effectiveDockHeight;
-    pendingDockHeight = effectiveDockHeight;
-    e.preventDefault();
-  }
-
-  function handleDockResizeKey(e: KeyboardEvent) {
-    const step = e.shiftKey ? 40 : 16;
-    if (e.key === "ArrowUp") {
-      e.preventDefault();
-      dockHeight = Math.max(minDockHeight, effectiveDockHeight + step);
-      settings.update({ runDockHeight: dockHeight });
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      dockHeight = Math.max(minDockHeight, effectiveDockHeight - step);
-      settings.update({ runDockHeight: dockHeight });
-    }
-  }
-
   const secondaryContainerWidth = $derived(
     conversationSplitWidth || windowCtx.workAreaWidth,
   );
@@ -551,43 +490,6 @@
     isResizingSecondary = dragging;
     if (!dragging) return;
     geometry.markResized(paneId);
-  }
-
-  let panelResizeRaf = 0;
-  // Scratch value; seeded in startDockResize before the rAF reads it.
-  let pendingDockHeight = 0;
-
-  function schedulePanelResizeCommit() {
-    if (panelResizeRaf) return;
-    panelResizeRaf = requestAnimationFrame(() => {
-      panelResizeRaf = 0;
-      if (isResizingDock) dockHeight = pendingDockHeight;
-    });
-  }
-
-  function handleMouseMove(e: MouseEvent) {
-    if (isResizingDock) {
-      // Dragging the top edge up grows the dock.
-      const delta = dockResizeStartY - e.clientY;
-      pendingDockHeight = Math.max(
-        minDockHeight,
-        dockResizeStartHeight + delta,
-      );
-      schedulePanelResizeCommit();
-      return;
-    }
-  }
-
-  function handleMouseUp() {
-    if (panelResizeRaf) {
-      cancelAnimationFrame(panelResizeRaf);
-      panelResizeRaf = 0;
-    }
-    if (isResizingDock) {
-      dockHeight = pendingDockHeight;
-      settings.update({ runDockHeight: dockHeight });
-    }
-    isResizingDock = false;
   }
 
   // Frozen the moment a companion starts closing: the pane leaves the layout
@@ -694,8 +596,6 @@
   });
 </script>
 
-<svelte:window onmousemove={handleMouseMove} onmouseup={handleMouseUp} />
-
 {#snippet dragBar()}
   <!-- No chrome row at all: the conversation names where you are with the
        SessionBreadcrumb band floating over its own transcript, full-page views
@@ -709,7 +609,6 @@
 <div
   class="workspace-body flex flex-1 min-w-0 min-h-0"
   class:is-resizing={isResizingSecondary}
-  class:is-resizing-dock={isResizingDock}
   class:sidebar-collapsed={!sidebarOpen}
   class:page-flush={pageFlush}
   class:project-panel-open={railOpen}
@@ -859,27 +758,9 @@
                           />
                         {/if}
 
-                        {#if showRunDock}
-                          <div
-                            class="run-dock-wrap no-drag"
-                            style="height:{effectiveDockHeight}px;bottom:{inputDockHeight +
-                              8}px"
-                          >
-                            <button
-                              type="button"
-                              class="dock-resize-handle"
-                              onmousedown={startDockResize}
-                              onkeydown={handleDockResizeKey}
-                              aria-label="Resize run logs"
-                            ></button>
-                            <RunDock cwd={runCwd} />
-                          </div>
-                        {/if}
-
                         <div
                           class="input-dock no-drag shrink-0 px-4 pt-2.5 pb-2.5"
                           class:mode-hidden={!conversationChromeVisible}
-                          bind:clientHeight={inputDockHeight}
                           onfocusin={() => router.focusPane(leadingPane.id)}
                         >
                           {@render inputRow()}
@@ -1111,10 +992,6 @@
     user-select: none;
     cursor: col-resize;
   }
-  .workspace-body.is-resizing-dock {
-    user-select: none;
-    cursor: row-resize;
-  }
   .workspace-body.is-resizing :global(.side-panel-shell) {
     transition: none;
   }
@@ -1124,39 +1001,5 @@
   }
   .mode-hidden {
     display: none !important;
-  }
-  /* ── Run log dock overlay ── */
-  .run-dock-wrap {
-    position: absolute;
-    left: 16px;
-    right: 16px;
-    /* `bottom` is set inline from the measured input-bar height so the panel
-       floats just above the input dock as it grows. */
-    z-index: 25;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    pointer-events: none;
-  }
-  /* The resize zone straddles the card's top border without adding visual chrome. */
-  .dock-resize-handle {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 10px;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    cursor: row-resize;
-    z-index: 26;
-    transform: translateY(-5px);
-    pointer-events: auto;
-  }
-  .dock-resize-handle:focus-visible {
-    outline: none;
-  }
-  .run-dock-wrap :global(.run-dock) {
-    pointer-events: auto;
   }
 </style>

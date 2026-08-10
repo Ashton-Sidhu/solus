@@ -1,5 +1,7 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger } from '../../../shared/types'
+import { serverConnections } from '@client-core/server-connections'
+import type { HostApi } from '@client-core/host-api'
 
 // Renderer-side cache + RPC wrapper for automations. Mirrors WorksStore: the UI
 // reads reactive state here and calls these methods, which forward to the same
@@ -11,6 +13,8 @@ export class AutomationsStore {
   runs = new SvelteMap<string, AutomationRun[]>()
   loading = $state(false)
   loaded = $state(false)
+  /** Which host stores, schedules, and runs each known automation. */
+  private hostByAutomationId = new SvelteMap<string, string>()
   private listLoad: Promise<void> | null = null
 
   /** A soft-deleted row awaiting its undo window. Hidden from `items` but not yet
@@ -22,9 +26,36 @@ export class AutomationsStore {
     this.loading = true
     this.listLoad = (async () => {
       try {
-        const list = await window.solus.automationList()
+        const results = await Promise.all(serverConnections.connectedServerIds().map(async (serverId) => {
+          try {
+            const capabilities = await serverConnections.capabilitiesFor(serverId)
+            if (capabilities.automations !== true) return { serverId }
+            return { serverId, list: await serverConnections.apiFor(serverId).automationList() }
+          } catch (error) {
+            console.error('automation list host load failed', serverId, error)
+            return { serverId, error }
+          }
+        }))
         const pendingId = this.pendingDelete?.automation.id
-        this.items = pendingId ? list.filter((a) => a.id !== pendingId) : list
+        for (const result of results) {
+          if (!result.list) continue
+          const liveIds = new Set<string>()
+          for (const automation of result.list) {
+            liveIds.add(automation.id)
+            this.hostByAutomationId.set(automation.id, result.serverId)
+            if (automation.id !== pendingId) this.upsert(automation)
+          }
+          // Only a host that answered can confirm deletion of its own rows. A
+          // failed host cannot evict another host's automations from the union.
+          for (let index = this.items.length - 1; index >= 0; index--) {
+            const automation = this.items[index]
+            if (this.hostByAutomationId.get(automation.id) !== result.serverId) continue
+            if (liveIds.has(automation.id) || automation.id === pendingId) continue
+            this.items.splice(index, 1)
+            this.runs.delete(automation.id)
+            this.hostByAutomationId.delete(automation.id)
+          }
+        }
         this.loaded = true
       } catch (err) {
         console.error('automation list load failed', err)
@@ -40,6 +71,15 @@ export class AutomationsStore {
     return this.items.find((a) => a.id === id)
   }
 
+  hostFor(id: string | null | undefined): string | null {
+    return id ? this.hostByAutomationId.get(id) ?? null : null
+  }
+
+  private apiForAutomation(id: string): HostApi {
+    const serverId = this.hostByAutomationId.get(id)
+    return serverId ? serverConnections.apiFor(serverId) : serverConnections.primaryApi()
+  }
+
   /** Replace one automation in-place (or append) without reassigning the array,
    *  so only the changed row's derived state invalidates. */
   private upsert(a: Automation): void {
@@ -52,16 +92,19 @@ export class AutomationsStore {
    *  learns about background activity (scheduler fires, run transitions, agent
    *  tool saves) without polling; RPC-initiated mutations also echo here, which
    *  the upsert absorbs idempotently. */
-  applyChange(event: AutomationsChangedEvent): void {
+  applyChange(serverId: string, event: AutomationsChangedEvent): void {
     if (event.kind === 'deleted') {
+      if (this.hostByAutomationId.get(event.automationId) !== serverId) return
       const i = this.items.findIndex((a) => a.id === event.automationId)
       if (i !== -1) this.items.splice(i, 1)
       this.runs.delete(event.automationId)
+      this.hostByAutomationId.delete(event.automationId)
       return
     }
     // Don't resurrect a row the user just soft-deleted (its undo window is
     // still open; commit/restore owns its fate).
     if (this.pendingDelete?.automation.id === event.automation.id) return
+    this.hostByAutomationId.set(event.automation.id, serverId)
     this.upsert(event.automation)
     if (event.kind === 'run-started' || event.kind === 'run-updated' || event.kind === 'run-finished') {
       const existing = this.runs.get(event.automation.id)
@@ -77,13 +120,18 @@ export class AutomationsStore {
   }
 
   async create(
+    serverId: string,
     name: string,
     action: AutomationAction,
     trigger: AutomationTrigger,
     enabled = true,
   ): Promise<Automation> {
+    if ((await serverConnections.capabilitiesFor(serverId)).automations !== true) {
+      throw new Error('Automations are not supported on this host')
+    }
     const createdBy: AutomationCreator = { kind: 'user' }
-    const created = await window.solus.automationCreate(name, action, createdBy, enabled, trigger)
+    const created = await serverConnections.apiFor(serverId).automationCreate(name, action, createdBy, enabled, trigger)
+    this.hostByAutomationId.set(created.id, serverId)
     this.upsert(created)
     return created
   }
@@ -92,17 +140,17 @@ export class AutomationsStore {
     id: string,
     patch: { name?: string; enabled?: boolean; favorite?: boolean; action?: Partial<AutomationAction>; trigger?: AutomationTrigger },
   ): Promise<void> {
-    const updated = await window.solus.automationUpdate(id, patch)
+    const updated = await this.apiForAutomation(id).automationUpdate(id, patch)
     if (updated) this.upsert(updated)
   }
 
   async setEnabled(id: string, enabled: boolean): Promise<void> {
-    const updated = await window.solus.automationSetEnabled(id, enabled)
+    const updated = await this.apiForAutomation(id).automationSetEnabled(id, enabled)
     if (updated) this.upsert(updated)
   }
 
   async setFavorite(id: string, favorite: boolean): Promise<void> {
-    const updated = await window.solus.automationUpdate(id, { favorite })
+    const updated = await this.apiForAutomation(id).automationUpdate(id, { favorite })
     if (updated) this.upsert(updated)
   }
 
@@ -129,29 +177,30 @@ export class AutomationsStore {
     const p = this.pendingDelete
     if (!p) return
     this.pendingDelete = null
-    await window.solus.automationDelete(p.automation.id)
+    await this.apiForAutomation(p.automation.id).automationDelete(p.automation.id)
     this.runs.delete(p.automation.id)
+    this.hostByAutomationId.delete(p.automation.id)
   }
 
   /** Trigger a run now and refresh the row + its run history. */
   async runNow(id: string): Promise<void> {
-    await window.solus.automationRun(id)
+    await this.apiForAutomation(id).automationRun(id)
     await Promise.all([this.refreshOne(id), this.loadRuns(id)])
   }
 
   /** Cancel the in-flight run for an automation, then refresh so the row reflects
    *  the terminal 'cancelled' status (the cancel resolves once the run settles). */
   async cancel(id: string): Promise<void> {
-    await window.solus.automationCancel(id)
+    await this.apiForAutomation(id).automationCancel(id)
     await Promise.all([this.refreshOne(id), this.loadRuns(id)])
   }
 
   async refreshOne(id: string): Promise<void> {
-    const fresh = await window.solus.automationRead(id)
+    const fresh = await this.apiForAutomation(id).automationRead(id)
     if (fresh) this.upsert(fresh)
   }
 
   async loadRuns(id: string): Promise<void> {
-    this.runs.set(id, await window.solus.automationListRuns(id))
+    this.runs.set(id, await this.apiForAutomation(id).automationListRuns(id))
   }
 }

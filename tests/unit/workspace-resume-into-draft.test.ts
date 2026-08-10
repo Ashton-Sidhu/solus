@@ -77,7 +77,7 @@ describe('resuming a session into an empty composer', () => {
     // reject: the state it asserts is settled before the first await.
     workspace.apiFor = () => { throw new Error('transcript load not exercised') }
 
-    void (workspace.resumeSession({ sessionId: 'agent-session', cwd: '/repo' }) as Promise<string>)
+    void (workspace.resumeSession({ sessionId: 'agent-session', serverId: 'local', cwd: '/repo' }) as Promise<string>)
       .catch(() => null)
 
     // WHY: the conversation pool renders the tabs in `tabOrder`, and a tab

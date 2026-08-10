@@ -1,12 +1,14 @@
 import { createAppContext } from './create-app-context'
 import type { AgentMetadata, AgentUsageLimits } from '../../../shared/types'
 import type { SettingsContext } from './settings.context.svelte'
+import { serverConnections } from '@client-core/server-connections'
 
 /**
  * Frontend store for the backend-provided agent list. Session startup hydrates
  * this once from `start().agents`; UI components only read from this store.
  */
 export class AgentContext {
+  // primary-host by decision pending WP6 host framing (docs/plans/multi-host-parity.md)
   agents = $state<AgentMetadata[]>([])
   /** Subscription quota per provider, keyed by `AgentId`. Providers that don't
    *  report quota are simply absent. */
@@ -38,7 +40,7 @@ export class AgentContext {
   /** Also tells the backend someone is watching — its poll self-suspends when
    *  nobody asks for a while. */
   async refreshUsage(): Promise<void> {
-    this.applyUsage(await window.solus.usageLimits())
+    this.applyUsage(await serverConnections.primaryApi().usageLimits())
   }
 }
 

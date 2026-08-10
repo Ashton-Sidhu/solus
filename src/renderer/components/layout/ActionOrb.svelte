@@ -42,6 +42,7 @@
   import ActionOrbProgress from "./ActionOrbProgress.svelte";
   import DiffSummaryCard from "../conversation/DiffSummaryCard.svelte";
   import { actionOrbWouldOverflow } from "./lib/action-orb-layout";
+  import { hostPolicy } from "@client-core/host-policy";
   import "./ActionOrb.css";
 
   let {
@@ -137,8 +138,9 @@
   );
   const showOpenTerminal = $derived(showNativeDesktopActions && isPillMode);
   const remoteHost = $derived.by(() => {
+    if (hostPolicy.isClientMachine(sess?.run.serverId)) return null;
     const host = serversStore.hostFor(sess?.run.serverId);
-    return host?.local ? null : host;
+    return host ?? null;
   });
   const terminalTooltip = $derived(
     remoteHost
@@ -152,7 +154,7 @@
     !!sess?.agentSessionId && !isRunning && !sess?.run.gitContext?.worktreePath,
   );
   const showPin = $derived(!!sess?.agentSessionId);
-  const isPinned = $derived(sidebarStore.isPinned(sess?.agentSessionId));
+  const isPinned = $derived(sidebarStore.isPinned(sess?.agentSessionId, sess?.run.serverId));
   const showInterrupt = $derived(
     isRunning && (sess?.messages.some((m) => m.role === "user") ?? false),
   );
@@ -410,7 +412,7 @@
 
   function handleOpenTerminal() {
     if (!tab || remoteHost) return;
-    window.solus.openInTerminal(session.ctxFor(tabId));
+    session.apiFor(tabId).openInTerminal(session.ctxFor(tabId));
     requestInputFocus();
   }
 

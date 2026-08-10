@@ -9,8 +9,6 @@ import type {
   DeviceCodePrompt,
   EnrichedError,
   NormalizedEvent,
-  RunLogBatch,
-  RunStatus,
   SessionIndexUpdatedEvent,
   SessionScanEvent,
   SessionStatus,
@@ -33,8 +31,6 @@ export interface HostEventMap {
   /** `agentSessionId` is a correlation attribute, not a second address: the
    *  picker and agent-conversation cards hold only a provider thread id. */
   'session.statusChanged': { sessionId: string; agentSessionId: string | null; status: SessionStatus; at: number }
-  'run.statusChanged': RunStatus
-  'run.logAppended': RunLogBatch
   'setup.statusChanged': SetupStatusEvent
   'setup.logAppended': SetupLogEvent
   'voice.modelStatusChanged': VoiceModelStatus
@@ -79,8 +75,6 @@ export const HOST_EVENT_DEFINITIONS = {
   'session.indexChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A provider session index changed.' },
   'session.titleChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A persisted session title changed.' },
   'session.statusChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A provider session changed live status.' },
-  'run.statusChanged': { owner: 'run', category: 'snapshot', recovery: 'reload', description: 'A run command changed status.' },
-  'run.logAppended': { owner: 'run', category: 'stream', recovery: 'backfill', description: 'A run command appended output.' },
   'setup.statusChanged': { owner: 'setup', category: 'targeted', recovery: 'reset', description: 'A host setup step changed status.' },
   'setup.logAppended': { owner: 'setup', category: 'stream', recovery: 'reset', description: 'A host setup step appended output.' },
   'voice.modelStatusChanged': { owner: 'voice', category: 'snapshot', recovery: 'reload', description: 'The host voice model changed status.' },

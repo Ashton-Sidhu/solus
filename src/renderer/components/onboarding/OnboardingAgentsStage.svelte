@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { localApi } from "@client-core/local-api";
   /**
    * "Two agents, one step each." Every row is read off the bound host's
    * readiness through the same setup session Settings uses, so an agent that was
@@ -96,7 +97,7 @@
                   <Button
                     size="sm"
                     variant="outline"
-                    onclick={() => void window.solus.openExternal(verification.url)}
+                    onclick={() => void localApi.openExternal(verification.url)}
                   >
                     <ArrowSquareOutIcon size={12} />
                     Open the sign-in page

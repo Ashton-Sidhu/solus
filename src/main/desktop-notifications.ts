@@ -1,96 +1,39 @@
-import { app, BrowserWindow, Notification, type Tray } from 'electron'
-import { attentionEntryKey, payloadForAttentionEntry } from './notifications/push-service'
-import { countDesktopAttentionEntries, diffDesktopAttentionSnapshot } from './desktop-notifications-core'
-import type { AttentionChangeListener, AttentionService } from './attention/attention-service'
-import type { AttentionEntry } from '../shared/attention-types'
+import { Notification } from 'electron'
+import type { ClientNotificationRequest } from '../shared/notification-types'
 
-type BadgeTarget = 'dock' | 'tray' | 'none'
+const DEDUP_TTL_MS = 5 * 60_000
+const shownAtByKey = new Map<string, number>()
 
-interface AttentionSource {
-  list(): AttentionEntry[]
-  onChange(listener: AttentionChangeListener): void
-}
+/** Native shell display primitive. Attention transitions are owned by the
+ * renderer manager; main only validates, deduplicates across mounted windows,
+ * displays, and routes clicks back to the renderer. */
+export function showDesktopNotification(
+  input: unknown,
+  onClick: (route: string) => void,
+): boolean {
+  if (!Notification.isSupported() || !isClientNotificationRequest(input)) return false
 
-interface ListenerBackedAttentionSource extends AttentionSource {
-  listener?: AttentionChangeListener | null
-}
-
-export interface DesktopAttentionNotificationsOptions {
-  attention: AttentionService
-  /** Surface the window at a location. The route is the notification's whole
-   *  point: clicking one lands on the session that raised it, not just on
-   *  whatever the app happened to be showing. */
-  focusWindow: (route?: string) => void
-  getFocusedWindow?: () => BrowserWindow | null
-  getTray?: () => Tray | null
-  badgeTarget?: BadgeTarget
-  isActiveAttention?: (entry: AttentionEntry) => boolean
-}
-
-export interface DesktopAttentionNotifications {
-  syncBadge(): void
-}
-
-export function attachDesktopAttentionNotifications(
-  options: DesktopAttentionNotificationsOptions,
-): DesktopAttentionNotifications {
-  const attention = options.attention as ListenerBackedAttentionSource
-  const existingListener = attention.listener ?? null
-  const getFocusedWindow = options.getFocusedWindow ?? (() => BrowserWindow.getFocusedWindow())
-  const badgeTarget = options.badgeTarget ?? 'none'
-  const isActiveAttention = options.isActiveAttention
-  let previousKeys = new Set(options.attention.list().map(attentionEntryKey))
-
-  const syncBadge = () => {
-    setBadgeCount(
-      countDesktopAttentionEntries(options.attention.list(), isActiveAttention),
-      badgeTarget,
-      options.getTray,
-    )
+  const now = Date.now()
+  for (const [key, shownAt] of shownAtByKey) {
+    if (now - shownAt >= DEDUP_TTL_MS) shownAtByKey.delete(key)
   }
+  if (shownAtByKey.has(input.dedupKey)) return false
+  shownAtByKey.set(input.dedupKey, now)
 
-  options.attention.onChange((entries) => {
-    existingListener?.(entries)
-
-    const snapshot = diffDesktopAttentionSnapshot(previousKeys, entries, isActiveAttention)
-    previousKeys = snapshot.nextKeys
-    setBadgeCount(snapshot.badgeCount, badgeTarget, options.getTray)
-
-    if (getFocusedWindow() !== null) return
-    for (const entry of snapshot.created) {
-      showAttentionNotification(entry, options.focusWindow)
-    }
-  })
-
-  syncBadge()
-  return { syncBadge }
-}
-
-function showAttentionNotification(
-  entry: AttentionEntry,
-  onClick: (route?: string) => void,
-): void {
-  if (!Notification.isSupported()) return
-
-  const payload = payloadForAttentionEntry(entry)
-  const notification = new Notification({
-    title: payload.title,
-    body: entry.summary || payload.body,
-  })
-  notification.on('click', () => onClick(payload.route))
+  const notification = new Notification({ title: input.title, body: input.body })
+  notification.on('click', () => onClick(input.route))
   notification.show()
+  return true
 }
 
-function setBadgeCount(count: number, badgeTarget: BadgeTarget, getTray?: () => Tray | null): void {
-  const value = count > 0 ? String(count) : ''
-  if (process.platform !== 'darwin') return
-
-  if (badgeTarget === 'dock' && app.dock) {
-    app.dock.setBadge(value)
-    return
-  }
-
-  if (badgeTarget === 'tray') {
-    getTray?.()?.setTitle(value)
-  }
+function isClientNotificationRequest(input: unknown): input is ClientNotificationRequest {
+  if (!input || typeof input !== 'object') return false
+  const value = input as Partial<ClientNotificationRequest>
+  return typeof value.title === 'string'
+    && typeof value.body === 'string'
+    && typeof value.sessionId === 'string'
+    && typeof value.kind === 'string'
+    && typeof value.entryKey === 'string'
+    && typeof value.route === 'string'
+    && typeof value.dedupKey === 'string'
 }

@@ -78,7 +78,7 @@ And session-without-tab is not hypothetical — it ships. `control-plane.ts:582`
 
 ## Locked design decisions (do not re-litigate)
 
-1. **A `SessionDraft` has no session and no tab.** Nothing appears in the tab strip or session sidebar until dispatch. The sidebar needs no change: `visibleTabIds` (`session-sidebar.store.svelte.ts:116`) derives from `tabOrder`, and a draft is not in it.
+1. **A `SessionDraft` has no session and no tab.** Nothing appears in the tab strip until dispatch, and nothing appears in the *task* list either: `visibleTabIds` (`session-sidebar.store.svelte.ts`) derives from `tabOrder`, and a draft is not in it. **Amended:** the sidebar now carries a separate **Drafts** section above the tasks, listing drafts that were written in. See "Drafts in the sidebar" below.
 2. **The new-tab home is its own pane**, a `draft` route with `placement: 'any'` and `keepAlive: true`. A pane shows a session or a draft.
 3. **`draftId` in route params is identity only.** The draft persists beside it, never in the URL — `route-registry.ts:16` requires params be "the identity of a destination, never a live payload."
 4. **A `SessionDraft` is mutable and long-lived.** Pointing it elsewhere is `draft.task = …`. Never destroy-and-rebuild one.
@@ -358,3 +358,47 @@ Strictly sequential through WP5 — each touches `workspace.context.svelte.ts`, 
 ## Out of scope (follow-ups)
 
 `Tab.title` / `titleCustom` and `Tab.diffComments` / `diffGeneralComment` / `diffCommentDraft` are also session-shaped state on a view record — `sessionTitle(sess, tab)` already reaches across both to answer one question. Moving them collapses `Tab` to `{ id, sessionId, hasUnread }` plus its position in `tabOrder`, at which point it is a list row and can be replaced with any presentation model without touching session lifecycle. Not required by anything above.
+
+## Drafts in the sidebar (follow-on, implemented)
+
+The plan above left drafts unreachable once a pane moved on, so `openSessionDraft`
+dropped whichever draft the focused pane was holding — "the old draft would be
+unreachable and would leak". The sidebar's **Drafts** section removes that reason
+and lets a person keep as many unsent prompts as they want.
+
+**Vocabulary:** a *draft* is the `SessionDraft` this plan defines. There is no
+second noun. The section is called **Drafts**; a row in it is a *draft row*
+(`DraftRow`, `components/session/lib/draft-list.ts`).
+
+**Rules:**
+
+1. **A draft is listed once it is written in *and* set aside.** Two tests, both
+   in the projection: `SessionDraft.isEmpty` (no text, no attachments), and
+   whether a pane's `base` still names it (`composingDraftIds`). Every new-task
+   gesture opens an empty draft and boot seeds one, so listing empties would
+   fill the column with rows nobody wrote; and the prompt on screen is the one
+   being typed, not one that was parked, so a row beside it would be the same
+   words twice. Moving a pane off a written draft is what files it.
+   `isEmpty` is also the rule every release path uses.
+2. **A pane releases the draft it holds before showing anything else.**
+   `releaseDraftIn(paneId)` drops it when it is empty and keeps it otherwise.
+   `leaveDraftInLead`, `openSessionDraft` and `openDraft` all go through it.
+3. **A draft is named by its first written line**, collapsed and capped
+   (`draftTitle`). Files-only drafts say so. There is no stored title and no
+   rename: a draft exists to become a session.
+4. **`discardSessionDraft` returns the discarded `SessionSpec`** and hands back
+   any pane that was composing it, so a sidebar discard can offer Undo through
+   `restoreSessionDrafts` and never leaves a pane pointed at nothing.
+5. **Drafts remain client-local.** They persist in `localStorage`, so they do not
+   follow a user between desktop, web and phone. Syncing them would need a
+   server store, RPC and an event topic; not done, and not implied by the row.
+
+6. **Drafts are a section above Tasks, not rows inside it.** They share the
+   section header (`TaskListHeader`, whose view toggle is now optional — a draft
+   belongs to no project tree, so there is nothing to group it by) and cap their
+   own height, so a run of drafts scrolls within itself instead of pushing the
+   task column off the panel.
+
+**Surfaces:** desktop/web sidebar (`SessionSidebar.svelte` + `DraftRow.svelte`)
+and the mobile list (`client/src/components/MobileSessionList.svelte`), both
+reading `SessionSidebarStore.draftRows`.

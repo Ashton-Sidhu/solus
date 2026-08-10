@@ -54,7 +54,7 @@ part of its contract:
 | Attachments, artifacts, asset URLs | host-scoped | the session's host; bytes cross the boundary, paths do not |
 | Skills, tools/editors, voice model, project list, provider connections | host-scoped | per host, and the UI says which host it is showing (the Connections-tab framing) |
 | Saved prompts, pinned-session manifest, keybindings, UI preferences, custom instructions | client-global | device-local; pinned entries and saved refs hold `(serverId, id)` pairs |
-| Terminal, reveal-in-Finder, open-in-editor | gated-local | shown only when the session's host is the client's machine |
+| Terminal, reveal-in-Finder, open-in-editor | gated-local | shown only when the session's host is the client's machine; `hostPolicy` plus advertised host capabilities is the gate mechanism |
 | `openExternal`, dialogs, clipboard | client-local by design | `localApi`, per ADR-0008 |
 
 ### Credentials

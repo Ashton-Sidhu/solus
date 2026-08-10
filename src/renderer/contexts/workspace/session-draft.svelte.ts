@@ -38,6 +38,16 @@ export class SessionDraft {
   get spec(): SessionSpec {
     return { prompt: this.prompt, run: this.run, task: this.task }
   }
+
+  /**
+   * Nothing has been written yet. This is the whole rule for whether a draft is
+   * a *thing the user has*: an empty one earns no row in the sidebar and is
+   * dropped the moment its pane shows something else, because a draft with no
+   * words in it is indistinguishable from the next one the ⌘N would open.
+   */
+  get isEmpty(): boolean {
+    return !this.prompt.text.trim() && this.prompt.attachments.length === 0
+  }
 }
 
 /**

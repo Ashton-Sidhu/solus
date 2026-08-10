@@ -1,5 +1,6 @@
 import { existingTaskId } from './session-draft.svelte'
-import type { Prompt, Session } from '../../../shared/types'
+import type { Attachment, Prompt, Session } from '../../../shared/types'
+import { LOCAL_SERVER_ID } from '@client-core/server-registry'
 import type { PlanStore } from '../plans/plan.store.svelte'
 import type { WorksStore } from '../works/works.store.svelte'
 import type { TasksStore } from '../tasks/tasks.store.svelte'
@@ -77,22 +78,7 @@ export class PromptComposer {
     // Files and design selections remain text references — they carry metadata, not raw payloads.
     const textAttachments = input.attachments.filter((a) => a.type !== 'image')
     if (textAttachments.length > 0) {
-      const attachmentCtx = textAttachments.map((a) => {
-        if (a.type === 'design-selection' && a.designData) {
-          const d = a.designData
-          const parts = [`[Design Mode Selection: ${a.path}]`]
-          if (d.outerHTML) parts.push(`Element: ${d.outerHTML.slice(0, 2000)}`)
-          if (d.cssSelector) parts.push(`Selector: ${d.cssSelector}`)
-          if (d.computedStyles) parts.push(`Styles: ${JSON.stringify(d.computedStyles)}`)
-          if (d.componentName) parts.push(`Component: ${d.componentName}${d.componentFile ? ` (${d.componentFile})` : ''}`)
-          if (d.pageURL) parts.push(`Page: ${d.pageURL}`)
-          if (d.annotations?.length) {
-            parts.push(`Annotations: ${d.annotations.map((ann, idx) => `[${ann.label ?? idx + 1}] ${ann.type}`).join(', ')}`)
-          }
-          return parts.join('\n')
-        }
-        return `[Attached ${a.type}: ${a.path}]`
-      }).join('\n')
+      const attachmentCtx = composeAttachmentContext(textAttachments, session.run.serverId)
       fullPrompt = `${attachmentCtx}\n\n${fullPrompt}`
     }
     return fullPrompt
@@ -105,6 +91,39 @@ export class PromptComposer {
       .filter((a) => a.type === 'image' && !!a.dataUrl)
       .map((a) => ({ mimeType: a.mimeType ?? 'image/png', dataUrl: a.dataUrl! }))
   }
+}
+
+/** The agent can use only a path owned by its host. A missing/stale remote
+ *  upload degrades to the display name instead of leaking a client path. */
+export function attachmentPromptPath(attachment: Attachment, serverId: string): string {
+  if (serverId === LOCAL_SERVER_ID) return attachment.path
+  if (
+    attachment.hostPath &&
+    (!attachment.hostServerId || attachment.hostServerId === serverId)
+  ) {
+    return attachment.hostPath
+  }
+  return attachment.name
+}
+
+export function composeAttachmentContext(attachments: Attachment[], serverId: string): string {
+  return attachments.map((attachment) => {
+    const path = attachmentPromptPath(attachment, serverId)
+    if (attachment.type === 'design-selection' && attachment.designData) {
+      const data = attachment.designData
+      const parts = [`[Design Mode Selection: ${path}]`]
+      if (data.outerHTML) parts.push(`Element: ${data.outerHTML.slice(0, 2000)}`)
+      if (data.cssSelector) parts.push(`Selector: ${data.cssSelector}`)
+      if (data.computedStyles) parts.push(`Styles: ${JSON.stringify(data.computedStyles)}`)
+      if (data.componentName) parts.push(`Component: ${data.componentName}${data.componentFile ? ` (${data.componentFile})` : ''}`)
+      if (data.pageURL) parts.push(`Page: ${data.pageURL}`)
+      if (data.annotations?.length) {
+        parts.push(`Annotations: ${data.annotations.map((annotation, index) => `[${annotation.label ?? index + 1}] ${annotation.type}`).join(', ')}`)
+      }
+      return parts.join('\n')
+    }
+    return `[Attached ${attachment.type}: ${path}]`
+  }).join('\n')
 }
 
 function workFilePath(workId: string, storage: { kind: 'local' } | { kind: 'project'; projectRoot?: string; relativePath: string } | undefined): string {

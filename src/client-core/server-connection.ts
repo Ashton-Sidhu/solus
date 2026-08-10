@@ -10,7 +10,7 @@ import {
 } from './server-registry'
 import { WsTransport, type ConnectionStatus } from './ws-transport'
 import type { HostEventSubscriber } from './host-event-subscriber'
-import type { SolusAPI } from '../preload'
+import { asHostApi, type HostApi } from './host-api'
 
 export interface LocalConnectionInfoLike {
   port: number
@@ -29,13 +29,14 @@ export interface SolusServerTarget {
 
 export interface InstalledSolusConnection {
   transport: WsTransport
-  api: SolusAPI
+  api: HostApi
   events: HostEventSubscriber
 }
 
 export interface CreateSolusConnectionOptions {
   onStatusChange?: (status: ConnectionStatus, attempt: number) => void
   onAuthFailed?: () => void
+  verifyConnectedHost?: () => Promise<boolean>
   refreshLocalSessionToken?: () => Promise<string>
 }
 
@@ -89,11 +90,12 @@ export function installWsBackedSolusApi(
     ...options,
     refreshLocalSessionToken,
   })
-  const api = mergeNativeOnlySolusApi(
+  const mergedApi = mergeNativeOnlySolusApi(
     connection.api as unknown as Record<string, unknown>,
     nativeApi,
-  ) as unknown as SolusAPI
-  installWindowSolusApi(api as unknown as Record<string, unknown>)
+  )
+  const api = asHostApi(mergedApi)
+  installWindowSolusApi(mergedApi)
   return { transport: connection.transport, api, events: connection.events }
 }
 
@@ -103,9 +105,11 @@ export function createSolusConnection(
 ): InstalledSolusConnection {
   const transport = new WsTransport({
     serverUrl: target.url,
+    serverId: target.id,
     sessionToken: target.sessionToken,
     onStatusChange: options.onStatusChange,
     onAuthFailed: options.onAuthFailed,
+    verifyConnectedHost: options.verifyConnectedHost,
     // The local target's page origin (dev server / file://) is always
     // cross-origin from the loopback server, so the HTTP refresh fallback
     // would depend on CORS. Refresh over IPC instead, matching how the
@@ -127,7 +131,8 @@ export function createSolusConnection(
         lastConnected: Date.now(),
       })
     },
+    useHostFileDialog: target.local && typeof window !== 'undefined' && !!window.solusNative,
   })
-  const api = transport.buildSolusApi() as unknown as SolusAPI
+  const api = asHostApi(transport.buildSolusApi())
   return { transport, api, events: transport.events }
 }

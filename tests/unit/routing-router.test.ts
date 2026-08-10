@@ -1,5 +1,9 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
-import type { RouteRef } from '../../src/renderer/contexts/workspace/routing/route-registry'
+import {
+  parseRef,
+  serializeRef,
+  type RouteRef,
+} from '../../src/renderer/contexts/workspace/routing/route-registry'
 import { MemoryRouteHistory } from '../../src/renderer/contexts/workspace/routing/route-history'
 
 let RouterStore: typeof import('../../src/renderer/contexts/workspace/routing/router.store.svelte').RouterStore
@@ -72,6 +76,17 @@ describe('history', () => {
 })
 
 describe('reading the location', () => {
+  test('a PR review route keeps its owning host and absolute checkout path', () => {
+    // WHY: restore and deep links must not split the review worktree from the
+    // host that owns its provider and diff RPCs.
+    const ref: RouteRef = {
+      name: 'prReview',
+      params: { number: 41, serverId: 'host-b', cwd: '/work/solus' },
+    }
+
+    expect(parseRef(serializeRef(ref))).toEqual(ref)
+  })
+
   test('`at` answers for a destination wherever it is showing', () => {
     const router = new RouterStore()
     router.navigate(PLAN, { target: 'aside' })

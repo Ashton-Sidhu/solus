@@ -3,6 +3,7 @@ import { getDb, withTx } from '../db'
 
 interface PinnedSessionRow {
   session_id: string
+  server_id: string
   provider: AgentId
   title: string
   cwd: string
@@ -12,12 +13,13 @@ interface PinnedSessionRow {
 /** Pinned sessions, most-recently-pinned first. */
 export async function readManifest(): Promise<PinnedSession[]> {
   const rows = getDb().prepare(`
-    SELECT session_id, provider, title, cwd, pinned_at
+    SELECT session_id, server_id, provider, title, cwd, pinned_at
     FROM pinned_sessions
     ORDER BY pinned_at DESC
   `).all() as unknown as PinnedSessionRow[]
   return rows.map((row) => ({
     sessionId: row.session_id,
+    serverId: row.server_id || undefined,
     provider: row.provider,
     title: row.title,
     cwd: row.cwd,
@@ -35,12 +37,22 @@ export function renamePinnedSession(sessionId: string, title: string): void {
 export async function togglePinnedSession(session: PinnedSession): Promise<PinnedSession[]> {
   withTx(() => {
     const db = getDb()
-    const deleted = db.prepare('DELETE FROM pinned_sessions WHERE session_id = ?').run(session.sessionId)
+    const serverId = session.serverId ?? ''
+    const deleted = db.prepare(
+      'DELETE FROM pinned_sessions WHERE session_id = ? AND server_id = ?',
+    ).run(session.sessionId, serverId)
     if (deleted.changes === 0) {
       db.prepare(`
-        INSERT INTO pinned_sessions (session_id, provider, title, cwd, pinned_at)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(session.sessionId, session.provider, session.title, session.cwd, session.pinnedAt)
+        INSERT INTO pinned_sessions (session_id, server_id, provider, title, cwd, pinned_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        session.sessionId,
+        serverId,
+        session.provider,
+        session.title,
+        session.cwd,
+        session.pinnedAt,
+      )
     }
   })
   return readManifest()

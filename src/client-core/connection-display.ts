@@ -20,6 +20,7 @@ export function connectionStatusLabel(
   const presented = presentedConnectionStatus(status, { attempt, hasConnected })
   if (presented === 'connected') return 'Connected'
   if (presented === 'blocked') return 'Sign-in required'
+  if (presented === 'identity-mismatch') return 'Different server than expected'
   if (presented === 'reconnecting') {
     return attempt > 0 ? `Reconnecting (attempt ${attempt})...` : 'Reconnecting...'
   }

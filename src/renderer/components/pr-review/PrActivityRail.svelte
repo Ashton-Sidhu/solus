@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { localApi } from "@client-core/local-api";
   import {
     CaretRightIcon,
     CircleNotchIcon,
@@ -119,7 +120,7 @@
 
   function openCheck(item: CheckItem) {
     if (!item.detailsUrl) return;
-    void window.solus.openExternal(item.detailsUrl);
+    void localApi.openExternal(item.detailsUrl);
     requestInputFocus();
   }
 </script>

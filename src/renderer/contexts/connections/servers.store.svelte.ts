@@ -26,7 +26,7 @@ import {
 } from './discovery'
 import { hostAffinityGlyph, type HostAffinityGlyph } from './host-affinity'
 
-export type ServerItemStatus = 'online' | 'connecting' | 'offline' | 'saved'
+export type ServerItemStatus = 'online' | 'connecting' | 'offline' | 'saved' | 'different-server'
 
 const DISCOVERY_INTERVAL_MS = 30_000
 const HOST_PROBE_STALE_MS = 30_000
@@ -285,7 +285,7 @@ class ServersStore {
       // still sees the hosts sitting next to the machine it is paired with.
       const discoveryApi = this.local
         ? serverConnections.apiFor(LOCAL_SERVER_ID)
-        : window.solus
+        : serverConnections.primaryApi()
       const discovered = await discoveryApi.discoverServers()
       const filtered = filterUnsavedDiscoveredServers({
         discovered,
@@ -466,6 +466,7 @@ class ServersStore {
     serverId = this.resolveHostId(serverId)
     const state = this.connectionStatesByServer[serverId]
     if (state?.transportStatus === 'connected') return 'online'
+    if (state?.transportStatus === 'identity-mismatch') return 'different-server'
     // A socket retries for as long as a saved host is unavailable. Once the
     // picker has checked that host and found it unreachable, that fresh result
     // is more useful than displaying the transport's perpetual "connecting".
@@ -514,6 +515,7 @@ class ServersStore {
   private itemStatus(status: ConnectionStatus): ServerItemStatus {
     if (status === 'connected') return 'online'
     if (status === 'connecting' || status === 'reconnecting') return 'connecting'
+    if (status === 'identity-mismatch') return 'different-server'
     return 'offline'
   }
 

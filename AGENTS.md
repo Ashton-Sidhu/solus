@@ -405,8 +405,9 @@ below it carries the id automatically.
 
 ```text
 renderer
-  → window.solus.<method>()
-  → preload RPC envelope
+  → workspace.apiFor(tabId) / serverConnections.apiFor(serverId) / primaryApi()
+  → HostApi bound to one host
+  → preload RPC envelope or web socket API
   → Electron IPC or WebSocket transport
   → SolusServer.handle()
   → domain handler
@@ -415,8 +416,13 @@ renderer
 events
   ← typed RPC topic broadcast
   ← transport
+  ← eventsFor(serverId) / subscribeAllHosts(...)
   ← renderer store
   ← mounted client surfaces
+
+client shell
+  → localApi
+  → native bridge or browser equivalent
 ```
 
 The desktop preload in `src/preload/index.ts` exposes the renderer-safe API. RPC methods
@@ -427,8 +433,12 @@ reviews, and other domains.
 
 To add an RPC capability, update the shared contract, register the server handler, expose
 the preload method where desktop needs it, and update both transports/clients as
-applicable. Renderer components consume durable external state through stores rather than
-calling loaders directly.
+applicable. Route renderer domain calls through `workspace.apiFor(tabId)`,
+`serverConnections.apiFor(serverId)`, or an explicit `primaryApi()` choice. Route events
+through `eventsFor(serverId)` or `subscribeAllHosts(...)`. Use `localApi` only for the
+client shell. Renderer components consume durable external state through stores rather
+than calling loaders directly. Run `bun run lint:hosts` to reject ambient access and
+API-widening casts.
 
 ## Codebase Map
 

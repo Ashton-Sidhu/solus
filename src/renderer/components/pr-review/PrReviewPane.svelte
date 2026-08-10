@@ -19,7 +19,9 @@
   import { toasts } from "../../lib/toasts";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { serverConnections } from "@client-core/server-connections";
+  import type { HostApi } from "@client-core/host-api";
+  import { subscribeAllHosts } from "@client-core/host-events";
+  import { localApi } from "@client-core/local-api";
   import {
     useKeybinding,
     useScope,
@@ -33,6 +35,8 @@
   import SinceReviewBar from "./SinceReviewBar.svelte";
   import { prReviewState } from "./lib/pr-review.store.svelte";
   import PrDetailChrome from "./PrDetailChrome.svelte";
+  import GithubConnectionRequired from "../prs/GithubConnectionRequired.svelte";
+  import { prSurfaceError, type PrSurfaceError } from "../prs/lib/pr-surface-error";
   import PrDetailMasthead from "./PrDetailMasthead.svelte";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { Button } from "../ui/button";
@@ -57,6 +61,8 @@
   // open to a single page filling in rather than a placeholder swap.
   let {
     pr,
+    api,
+    serverId,
     target,
     targetCtx = null,
     chatTabId = null,
@@ -69,6 +75,8 @@
     onUnresolvedCountChange,
   }: {
     pr: PrReviewContext | null;
+    api: HostApi;
+    serverId: string;
     /** PR identity, known from the click; `pr` once the worktree exists. */
     target: PrActivityTarget;
     /** Project context for the provider reads made before the worktree exists. */
@@ -118,30 +126,48 @@
   // stable for the lifetime of the review so attaching Chat cannot reset the
   // diff state, refresh turn snapshots, or subscribe it to a new transcript.
   const reviewTabId = untrack(() => activeChatTabId ?? session.activeTabId);
+  const getApi = () => api;
+  let surfaceError = $state<PrSurfaceError | null>(null);
+
+  // The worktree open and the provider detail read fail through separate RPCs.
+  // Probe the detail through the shared cache so every landing tab, including
+  // Diff, can show the host-specific connection action when checkout cannot
+  // start because this host has no GitHub credential.
+  $effect(() => {
+    const number = target.number;
+    const context = projectCtx();
+    surfaceError = null;
+    void session.prsStore
+      .loadDetail(api, serverId, context, number)
+      .catch((error) => {
+        if (target.number === number) surfaceError = prSurfaceError(error);
+      });
+  });
 
   // Everything about *this pull request's review* — threads, drafts, interdiff,
   // diff base — belongs to the PR, not to this component: the popped-out diff is
   // a second pane over the same review, and two `ReviewDrafts` over one
   // review-state file would silently diverge. See pr-review.store.
   const review = $derived(
-    prReviewState(target.number, {
+    prReviewState(serverId, target.number, {
+      getApi,
       fallbackCtx: () => targetCtx ?? session.ctx,
       ctxForDirectory: (path) => session.ctxForDirectory(path),
       stackedPrsEnabled: () => settings.stackedPrsEnabled,
       resolveDiffBase: (number, baseRef) =>
-        stacks.resolveDiffBase(number, baseRef),
-      loadStacks: (ctx) => stacks.load(ctx),
+        stacks.resolveDiffBase(number, baseRef, serverId, projectCtx().session.projectPath),
+      loadStacks: (ctx) => stacks.load(api, serverId, ctx),
       loadThreads: (ctx, number, force) =>
-        session.prsStore.loadThreads(ctx, number, { force }),
+        session.prsStore.loadThreads(api, serverId, ctx, number, { force }),
       loadInterdiff: (ctx, target, force) =>
-        session.prsStore.loadInterdiff(ctx, target, { force }),
+        session.prsStore.loadInterdiff(api, serverId, ctx, target, { force }),
       diffStats: (ctx, scope) =>
-        window.solus.diffStats(ctx, { scope }).then((f) => f.length),
+        api.diffStats(ctx, { scope }).then((f) => f.length),
       replyThread: (ctx, number, threadId, body) =>
-        window.solus.prReplyThread(ctx, number, threadId, body),
+        api.prReplyThread(ctx, number, threadId, body),
       resolveThread: async (ctx, number, threadId, resolved) => {
-        if (resolved) await window.solus.prResolveThread(ctx, number, threadId);
-        else await window.solus.prUnresolveThread(ctx, number, threadId);
+        if (resolved) await api.prResolveThread(ctx, number, threadId);
+        else await api.prUnresolveThread(ctx, number, threadId);
       },
     }),
   );
@@ -168,13 +194,16 @@
   // The guide tab's data layer. This host renders its own chrome (header +
   // regenerate), so it drives the loader directly rather than through a child.
   const guideLoader = new GuideLoader({
+    getApi,
     getCtx: prCtx,
     getKey: () => effectiveGuideKey,
     getScope: () => "branch",
     getOwnDeltaBase: () => ownDeltaBase,
     getAgent: () => resolveReviewAgent(settings, agentContext),
   });
-  const guideStatus = $derived(session.prsStore.guideStatusFor(target.number));
+  const guideStatus = $derived(
+    session.prsStore.guideStatusFor(serverId, prCtx(), target.number),
+  );
   // Follow generation progress for the whole time this review is open, not just
   // around the loader's own call — the Generate button queues the work in the
   // background, and its progress is what fills the stepped screen.
@@ -183,7 +212,7 @@
     void effectiveGuideKey;
     if (!guideEnabled || !review.stackReady || showingFullDiff) return;
     const backgroundStatus = untrack(() =>
-      session.prsStore.guideStatusFor(target.number),
+      session.prsStore.guideStatusFor(serverId, prCtx(), target.number),
     );
     if (backgroundStatus === "queued" || backgroundStatus === "generating")
       return;
@@ -227,7 +256,7 @@
     changedFileCount = null;
     const ctx = untrack(prCtx);
     void session.prsStore
-      .loadChangedFiles(ctx, number)
+      .loadChangedFiles(api, serverId, ctx, number)
       .then((files) => {
         if (target.number === number) changedFileCount = files.length;
       })
@@ -243,7 +272,7 @@
   });
   function generateGuide() {
     void session.prsStore
-      .requestGuides(prCtx(), [target.number], {
+      .requestGuides(api, serverId, prCtx(), [target.number], {
         onSettled: ({ failed }) => {
           if (failed > 0) {
             toasts.error(
@@ -320,9 +349,10 @@
     const currentNumber = target.number;
     const prCwd = pr?.worktreePath;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const unsub = serverConnections
-      .eventsFor()
-      .subscribe("prs.invalidated", ({ projectRoot: changedCwd }) => {
+    const unsub = subscribeAllHosts(
+      "prs.invalidated",
+      (emittingServerId, { projectRoot: changedCwd }) => {
+        if (emittingServerId !== serverId) return;
         const paneCtx = prCtx();
         const ctxCwd =
           paneCtx.session.projectPath || paneCtx.session.workingDirectory;
@@ -333,7 +363,8 @@
           loadThreads(true);
           activityFeedRef?.refresh();
         }, 500);
-      });
+      },
+    );
     return () => {
       unsub();
       clearTimeout(timer);
@@ -525,7 +556,7 @@
   );
 
   function openPr() {
-    if (prUrl) void window.solus.openExternal(prUrl);
+    if (prUrl) void localApi.openExternal(prUrl);
   }
 
   // Esc is the only way out, and J / K walk the queue. All three skip while a
@@ -598,16 +629,16 @@
         class="flex h-full w-full items-center justify-between gap-2 pr-3.5 pl-[max(1rem,var(--solus-chrome-lead-inset,0px))]"
       >
         <div class="flex min-w-0 flex-1 items-center">
-          <PrDetailChrome number={target.number} {projectCtx} onExit={exit} />
+          <PrDetailChrome number={target.number} {serverId} {projectCtx} onExit={exit} />
         </div>
 
         <!-- Pane controls, pill-shaped and quiet: the band's only ink is the
              breadcrumb, so these read as affordances rather than a toolbar. -->
         <div class="flex shrink-0 items-center gap-0.5">
           <PrChecksChip
-            summary={session.prsStore.checksFor(target.number)}
+            summary={session.prsStore.checksFor(serverId, prCtx(), target.number)}
             headSha={pr?.headSha ?? target.headSha ?? ""}
-            loadFailed={session.prsStore.checksLoadFailed}
+            loadFailed={session.prsStore.checksLoadFailedFor(serverId, prCtx())}
             pill
           />
 
@@ -694,6 +725,11 @@
   {/if}
 
   <div class="relative min-h-0 flex-1">
+    {#if !pr && surfaceError?.kind === "github-auth"}
+      <div class="absolute inset-0 z-10 grid place-items-center bg-background px-6">
+        <GithubConnectionRequired {serverId} />
+      </div>
+    {/if}
     <!-- Both of these read the checked-out worktree, so neither can be reached
          before `pr` lands — their tabs are disabled until then. -->
     {#if mountedGuide && pr}
@@ -787,6 +823,7 @@
             bind:this={diffPanelRef}
             tabId={reviewTabId}
             getCtx={prCtx}
+            {getApi}
             projectPath={pr.worktreePath}
             worktreePath={pr.worktreePath}
             worktreeBranch={pr.headRef}
@@ -824,6 +861,8 @@
           threads={reviewThreads}
           threadsFailed={threadsLoadFailed}
           getCtx={prCtx}
+          {getApi}
+          {serverId}
           addressCommentsReady={!!pr}
           onAddressComments={async () => {
             if (pr) await session.startPrCommentsFixSession(pr);
@@ -843,6 +882,7 @@
     {pr}
     {drafts}
     getCtx={prCtx}
+    {getApi}
     bind:event={submitEvent}
     bind:body={submitBody}
     onClose={() => (showSubmit = false)}

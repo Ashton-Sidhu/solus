@@ -111,14 +111,11 @@
   }
 
   async function handleRevert() {
-    const reverted = await window.solus.revertWork(params.workId, sess?.run.workingDirectory);
+    const reverted = await session.worksStore.revert(
+      params.workId,
+      sess?.run.workingDirectory,
+    );
     if (!reverted) return;
-    const existing = session.worksStore.get(params.workId);
-    if (existing) {
-      existing.content = reverted.content;
-      existing.preview = reverted.preview;
-      existing.updatedAt = reverted.updatedAt;
-    }
     // Reload the shell off the reverted content (shells parse content at mount).
     shellDirty = false;
     conflict = false;

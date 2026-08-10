@@ -9,6 +9,7 @@
   import type { IpcContext, MergeMethod } from "../../../shared/types";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import type { HostApi } from "@client-core/host-api";
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
 
@@ -17,9 +18,11 @@
   let {
     pr,
     getCtx,
+    getApi,
   }: {
     pr: { number: number; title: string };
     getCtx: () => IpcContext;
+    getApi: () => HostApi;
   } = $props();
 
   let method = $state<MergeMethod>("merge");
@@ -62,7 +65,11 @@
     merging = true;
     menuOpen = false;
     try {
-      const result = await window.solus.prMerge(getCtx(), pr.number, method);
+      const result = await getApi().prMerge(
+        getCtx(),
+        pr.number,
+        method,
+      );
       if (!result.merged) {
         toasts.error(result.message ?? "The code host refused the merge.");
         return;

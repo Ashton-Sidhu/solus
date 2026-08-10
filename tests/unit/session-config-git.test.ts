@@ -153,6 +153,44 @@ describe('SessionConfigController provider switching', () => {
     expect(settings.activeAgent).toBe('claude-code')
     expect(controller.globalDefaults.modelConfig.modelId).toBe('claude-opus-5')
   })
+
+  test('keeps the next-session model with the agent of the selected session', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const settings = {
+      activeAgent: 'codex',
+      defaultModels: {} as Record<string, string>,
+      tabGroupMode: 'flat',
+      update(patch: { activeAgent?: string }) {
+        if (patch.activeAgent) this.activeAgent = patch.activeAgent
+      },
+    }
+    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const controller = new SessionConfigController({
+      settings: settings as any,
+      registry: {} as any,
+      statusBar: {} as any,
+      setPluginCommands: () => {},
+      openSessionDraft: () => {},
+      draftFor: () => undefined,
+      ctx: () => ({}) as IpcContext,
+      ctxForDirectory: () => ({}) as IpcContext,
+      apiForRun: () => (window as any).solus,
+      refreshPluginCommands: () => {},
+      refreshGitRefs: () => {},
+      refreshGitState: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
+    })
+
+    controller.followActiveSessionAgent('claude-code')
+
+    // WHY: a fresh draft reads the provider and model from these two defaults.
+    // They must change as one unit or the picker shows one brand beside the
+    // other provider's model and dispatches an invalid pair.
+    expect(settings.activeAgent).toBe('claude-code')
+    expect(controller.globalDefaults.modelConfig.modelId).toBe('claude-opus-5')
+  })
 })
 
 describe('SessionConfigController worktree selection', () => {

@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import type { Session } from '../../src/shared/types'
-import { resolveAutocompleteScope } from '../../src/renderer/components/editor/autocomplete-scope'
+import {
+  autocompleteSessionChangedFiles,
+  resolveAutocompleteScope,
+} from '../../src/renderer/components/editor/autocomplete-scope'
 
 function workspace(sessions: Record<string, Partial<Session>>) {
   return {
@@ -77,5 +80,42 @@ describe('autocomplete scope', () => {
       tabId: 'local-tab',
       workingDirectory: '/projects/tasks',
     })
+  })
+
+  test('a new-session draft does not inherit changed files from the active session', () => {
+    // WHY: the active tab can route autocomplete to its host, but the draft has
+    // no session content yet and must not show "Open in this session" for it.
+    const currentSession = {
+      sessionChangedFiles: ['src/current-session.ts'],
+    } as Session
+    const currentWorkspace = workspace({ 'local-tab': currentSession })
+    const scope = resolveAutocompleteScope(
+      currentWorkspace,
+      '/projects/new-draft',
+      undefined,
+    )
+
+    expect(scope).toEqual({
+      tabId: 'local-tab',
+      workingDirectory: '/projects/new-draft',
+    })
+    expect(
+      autocompleteSessionChangedFiles({ 'current-session': currentSession }, undefined),
+    ).toEqual([])
+  })
+
+  test('changed-file suggestions are owned by a session id, not a tab id', () => {
+    // WHY: several tabs can show one session, and closing a tab must not change
+    // the session content that autocomplete offers.
+    const currentSession = {
+      sessionChangedFiles: ['src/session-owned.ts'],
+    } as Session
+
+    expect(
+      autocompleteSessionChangedFiles({ 'session-1': currentSession }, 'session-1'),
+    ).toEqual(['src/session-owned.ts'])
+    expect(
+      autocompleteSessionChangedFiles({ 'session-1': currentSession }, 'tab-1'),
+    ).toEqual([])
   })
 })

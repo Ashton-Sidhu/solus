@@ -1,15 +1,25 @@
 import type {
+  HostCapabilities,
   RuntimeSessionInfo,
   ServerCapabilities,
   VoiceModelStatus,
 } from '../../../../src/shared/types'
-import type { RunProjectStatus } from '../../../../src/shared/run-types'
 import type { DemoBackend } from '../server'
 import type { DemoStore } from '../store'
 
 export function registerBootHandlers(backend: DemoBackend, store: DemoStore): void {
   let sessionCounter = 0
   backend.register('start', () => store.startInfo())
+  backend.register('serverGetCapabilities', (): HostCapabilities => ({
+    attachUpload: true,
+    assetUrls: true,
+    skillsInstall: true,
+    skillsSearch: true,
+    voiceModel: true,
+    automations: true,
+    editors: [],
+    githubProvider: true,
+  }))
   backend.register('getTheme', () => ({ isDark: false }))
   backend.register('getPluginCommands', () => ({ global: [], project: [] }))
   backend.register('getServerCapabilities', (): ServerCapabilities => ({
@@ -67,22 +77,6 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     entries: [],
     parentPath: null,
     currentPath: typeof args[0] === 'string' ? args[0] : store.startInfo().workspacePath,
-  }))
-  backend.register('runStatus', (): RunProjectStatus => ({
-    repoRoot: store.gitStatus().repoRoot,
-    runs: [{
-      repoRoot: store.gitStatus().repoRoot,
-      commandId: 'demo',
-      name: 'Demo app',
-      state: 'stopped',
-      command: null,
-      source: null,
-      ports: [],
-      pid: null,
-      error: null,
-      exitCode: null,
-      startedAt: null,
-    }],
   }))
   backend.register('readLedger', () => null)
   backend.register('projectConfigLoad', () => ({ version: 1 }))

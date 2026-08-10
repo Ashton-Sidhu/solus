@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { localApi } from "@client-core/local-api";
   /**
    * The agent asked for the Cloudflare profile mid-turn. That is an interrupt
    * like any other — something stopped and only the user can restart it — so it
@@ -102,7 +103,7 @@
           <button
             type="button"
             class="interrupt-btn interrupt-btn--secondary"
-            onclick={() => void window.solus.openExternal(CLOUDFLARE_TOKEN_URL)}
+            onclick={() => void localApi.openExternal(CLOUDFLARE_TOKEN_URL)}
           >
             <CloudIcon size={12} weight="fill" />
             Create API token

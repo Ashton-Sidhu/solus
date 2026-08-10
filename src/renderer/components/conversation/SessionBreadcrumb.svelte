@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { localApi } from "@client-core/local-api";
   import {
     ArrowUUpLeftIcon,
     ArrowSquareOutIcon,
@@ -833,7 +834,7 @@
           : undefined}
         onOpenTask={() => session.goToTask(menuTask.id)}
         onOpenSource={menuTask.url
-          ? () => void window.solus.openExternal(menuTask.url!)
+          ? () => void localApi.openExternal(menuTask.url!)
           : undefined}
         onToggleDone={() => sidebarStore.toggleTaskDone(menuTask.id)}
         onRemove={() => closeTask(menuSidebarTask)}

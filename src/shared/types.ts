@@ -1,6 +1,6 @@
 import rawModelProfiles from './model-profiles.json'
 import type { GitIdentity, GitState } from './git-types'
-import type { TaskSnapshot } from './task-types'
+import type { TaskProviderId, TaskSnapshot } from './task-types'
 
 // ─── Agent ID (needed by ModelProfile below) ───
 
@@ -34,6 +34,19 @@ export interface ServerCapabilities {
   projectsBaseDirectory?: string
   /** This host's general-purpose workspace — the app's default working directory. */
   workspacePath?: string
+}
+
+/** Feature surface advertised by one authenticated host. Missing keys are
+ * unsupported so newer clients remain safe when connected to older hosts. */
+export interface HostCapabilities {
+  attachUpload?: boolean
+  assetUrls?: boolean
+  skillsInstall?: boolean
+  skillsSearch?: boolean
+  voiceModel?: boolean
+  automations?: boolean
+  editors?: EditorId[]
+  githubProvider?: boolean
 }
 
 export type SetupAgent = 'claude' | 'codex'
@@ -407,6 +420,12 @@ export interface Attachment {
   type: 'image' | 'file' | 'design-selection'
   name: string
   path: string
+  /** Absolute path written by the session's host after a byte upload. The
+   *  client-local `path` remains available only for local preview/readback. */
+  hostPath?: string
+  /** Host that owns `hostPath`; prevents a later run-host change from sending
+   *  a valid path to the wrong machine. */
+  hostServerId?: string
   mimeType?: string
   /** Base64 data URL for image previews */
   dataUrl?: string
@@ -727,6 +746,8 @@ export interface PinnedSessionManifest {
 export interface PinnedSession {
   /** Agent session id — the key used to dedupe and resume. */
   sessionId: string
+  /** Host holding the session. Missing only on pins saved before scoped refs. */
+  serverId?: string
   provider: AgentId
   title: string
   /** Real working directory; the backend re-encodes this to locate the transcript. */
@@ -1120,6 +1141,8 @@ export interface PlanRevisionSummary {
 }
 
 export interface PlanDescriptor {
+  /** Client-edge owner stamp. Hosts do not set or consume this field. */
+  serverId?: string
   provider?: AgentId
   planToolUseId: string
   sessionId: string
@@ -1783,6 +1806,15 @@ export interface StartInfo {
   agents: AgentMetadata[]
 }
 
+/** Per-project settings read by task providers on the project's owner host. */
+export interface ProjectConfig {
+  version: 1
+  /** Which task provider this project uses. Absent = local (the default). */
+  taskProvider?: TaskProviderId
+  /** Provider scope. Auto-filled from the git remote for GitHub (`owner`/`repo`). */
+  taskProviderConfig?: { owner?: string; repo?: string }
+}
+
 // ─── Editor / Terminal Types ───
 
 export type EditorId = 'vscode' | 'vim' | 'nvim' | 'helix'
@@ -2298,7 +2330,6 @@ export interface DeviceCodePrompt {
 }
 
 export * from './git-types'
-export * from './run-types'
 
 // RPC method names live in `shared/rpc.ts`; host event contracts live in
 // `shared/host-events.ts`. Requests use one `{ id, method, args }` envelope.

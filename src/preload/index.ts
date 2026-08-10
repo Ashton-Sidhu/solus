@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AgentId, AgentUsageLimits, ReasoningEffort, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionStatus, SessionSearchResult, SessionScanEvent, SessionIndexUpdatedEvent, SessionGeneratedMetadata, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitCommitResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, ProjectIdentity, PlanDescriptor, PlanAnnotations, AnnotationsChanged, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupLogEvent, SetupSshAccessResult, SetupStatusEvent, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential } from '../shared/types'
+import type { AgentId, AgentUsageLimits, ReasoningEffort, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionStatus, SessionSearchResult, SessionScanEvent, SessionIndexUpdatedEvent, SessionGeneratedMetadata, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitCommitResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, ProjectConfig, ProjectEntry, ProjectIdentity, PlanDescriptor, PlanAnnotations, AnnotationsChanged, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupLogEvent, SetupSshAccessResult, SetupStatusEvent, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential } from '../shared/types'
 import type { PrEffortRequest, PrEffortResult, PrFilter, PrListPage, PrReviewer, PullRequestDetail, PullRequestOverview, PullRequestSummary, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview } from '../shared/providers'
 import type { PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskCreateInput, TaskDetails, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskListFilter, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarSnapshot, TaskSnapshot, TaskUpdatePatch } from '../shared/task-types'
 import type { OutboxApplyResult, OutboxOp } from '../shared/outbox-types'
@@ -8,7 +8,8 @@ import type { AttentionEntry } from '../shared/attention-types'
 import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewProgressEvent, ReviewGuideStatusEvent, PrGuideMetadata, PrGuideMetadataRequest, PrGuideStatusEvent } from '../shared/review'
 import type { StackGraph } from '../shared/stack-types'
 import type { PrChecksSnapshot } from '../shared/checks-rpc-types'
-import type { SearchSessionsRequest } from '../shared/rpc'
+import type { AssetCreateUrlRequest, AssetCreateUrlResult, AttachmentUploadRequest, SearchSessionsRequest } from '../shared/rpc'
+import type { ClientNotificationRequest } from '../shared/notification-types'
 
 const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
 
@@ -22,6 +23,7 @@ export interface LocalConnectionInfo {
 // in `src/client-core`; preload now exposes only the native shell residue below.
 export interface SolusAPI {
   start(): Promise<StartInfo>
+  serverGetCapabilities(): Promise<HostCapabilities>
   /** Subscribe to a session's events. Resolves identity: the answer may differ
    *  from the argument when another client already named this provider thread. */
   watchSession(input: { sessionId?: string; agentSessionId?: string }): Promise<{ sessionId: string }>
@@ -36,6 +38,8 @@ export interface SolusAPI {
   openWorktreeTerminal(ctx: IpcContext): Promise<boolean>
   attachFiles(ctx?: IpcContext): Promise<Attachment[] | null>
   attachFilePaths(paths: string[], ctx?: IpcContext): Promise<Attachment[] | null>
+  attachUpload(ctx: IpcContext, request: AttachmentUploadRequest): Promise<string>
+  assetCreateUrl(ctx: IpcContext, request: AssetCreateUrlRequest): Promise<AssetCreateUrlResult>
   takeScreenshot(ctx?: IpcContext): Promise<Attachment | null>
   pasteImage(dataUrl: string, ctx?: IpcContext): Promise<Attachment | null>
   transcribeAudio(audio: Float32Array | string, ctx?: IpcContext): Promise<{ error: string | null; transcript: string | null }>
@@ -301,12 +305,6 @@ export interface SolusAPI {
   gitRefreshState(cwd: string, options?: GitStateOptions): Promise<GitState | null>
   gitIdentity(cwd: string): Promise<GitIdentity | null>
   gitRegisterEnvironment(ctx: IpcContext, cwd: string, gitContext: GitCheckout | null): Promise<void>
-  runStatus(cwd: string): Promise<RunProjectStatus>
-  runStart(cwd: string, commandId: string): Promise<RunProjectStatus>
-  runStop(cwd: string, commandId: string): Promise<RunProjectStatus>
-  runRestart(cwd: string, commandId: string): Promise<RunProjectStatus>
-  runLogsRetain(cwd: string, commandId: string): Promise<{ repoRoot: string; lines: RunLogLine[] }>
-  runLogsRelease(repoRoot: string, commandId: string): Promise<void>
   projectConfigLoad(cwd: string): Promise<ProjectConfig | null>
   projectConfigSave(cwd: string, config: ProjectConfig): Promise<ProjectConfig>
   listProjects(): Promise<ProjectEntry[]>
@@ -353,9 +351,11 @@ export interface NativeSolusAPI {
   /** Re-invokes the local-connection bootstrap to pull a fresh session token over IPC. */
   refreshLocalSessionToken(): Promise<string>
   openExternal(url: string, options?: { hideAppAfterOpen?: boolean }): Promise<boolean>
+  showNotification(request: ClientNotificationRequest): Promise<boolean>
   rendererReady(mode: 'pill' | 'editor'): void
   rendererMounted(mode: 'pill' | 'editor'): void
   getPathForFile(file: File): string
+  readAttachmentBytes(path: string, mime: string): Promise<{ dataUrl: string; size: number }>
   setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean; focus?: boolean }): void
   setQuoteContext(tabId: string | null): void
   onQuoteSelection(callback: (text: string, sourceTabId: string) => void): () => void
@@ -381,9 +381,13 @@ const nativeApi: NativeSolusAPI = {
     (ipcRenderer.invoke(LOCAL_CONNECTION_CHANNEL) as Promise<LocalConnectionInfo>).then((info) => info.token),
   openExternal: (url: string, options?: { hideAppAfterOpen?: boolean }) =>
     ipcRenderer.invoke('solus:open-external', url, options) as Promise<boolean>,
+  showNotification: (request: ClientNotificationRequest) =>
+    ipcRenderer.invoke('solus:show-notification', request) as Promise<boolean>,
   rendererReady: (mode: 'pill' | 'editor') => ipcRenderer.send('solus:renderer-ready', mode),
   rendererMounted: (mode: 'pill' | 'editor') => ipcRenderer.send('solus:renderer-mounted', mode),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
+  readAttachmentBytes: (path: string, mime: string) =>
+    ipcRenderer.invoke('solus:read-attachment-bytes', path, mime) as Promise<{ dataUrl: string; size: number }>,
   setIgnoreMouseEvents: (ignore: boolean, options?: { forward?: boolean; focus?: boolean }) =>
     ipcRenderer.send('solus:set-ignore-mouse-events', ignore, options || {}),
   setQuoteContext: (tabId: string | null) =>

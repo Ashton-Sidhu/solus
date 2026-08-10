@@ -11,6 +11,8 @@ import { progressFromMessages } from './session.utils'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import { TransportDisconnectedError } from '@client-core/ws-transport'
+import type { HostApi } from '@client-core/host-api'
+import { serverConnections } from '@client-core/server-connections'
 
 /** Raw messages added per automatic backfill round. Matches the initial restore
  *  window, so filling an empty viewport costs the same read that opened it. */
@@ -37,7 +39,7 @@ export interface WorkspaceLifecycleStoreDeps {
   agent?: AgentContext
   refreshGitState(opts?: { sourceId?: string; cwd?: string }): Promise<GitRefreshResult>
   ctxFor(tabId: string): IpcContext
-  apiFor?(tabId: string): typeof window.solus
+  apiFor?(tabId: string): HostApi
   loadTranscript(args: {
     sessionId: string
     loadPath: string
@@ -134,7 +136,7 @@ export class WorkspaceLifecycleStore {
     this.deps.agent?.hydrate(result.agents ?? [])
     if (opts.fresh && !this.deps.agent?.metadata[this.deps.settings.activeAgent]?.available) {
       const fallback = result.agents?.find((agent) => agent.available)
-      if (fallback) this.deps.settings.update({ activeAgent: fallback.id })
+      if (fallback) this.deps.config.followActiveSessionAgent(fallback.id)
     }
   }
 
@@ -189,7 +191,7 @@ export class WorkspaceLifecycleStore {
       const optimisticEnvironmentRefresh = coldLoad
         ? this.deps.refreshGitState().catch(() => null)
         : null
-      const result = await window.solus.start()
+      const result = await serverConnections.primaryApi().start()
       this.applyStartInfo(result, { fresh: true })
       saveCachedStart(result)
       if (coldLoad) {
@@ -222,7 +224,7 @@ export class WorkspaceLifecycleStore {
     this.pluginCommandRequests.set(requestKey, requestSequence)
     const ctx = this.deps.ctxFor(targetTabId)
     ctx.session.provider = (targetSession?.run.provider ?? this.deps.settings.activeAgent) as AgentId
-    const result = await (this.deps.apiFor?.(targetTabId) ?? window.solus)
+    const result = await (this.deps.apiFor?.(targetTabId) ?? serverConnections.primaryApi())
       .getPluginCommands(workingDirectory, $state.snapshot(ctx))
     if (this.pluginCommandRequests.get(requestKey) !== requestSequence) return
 
@@ -342,7 +344,7 @@ export class WorkspaceLifecycleStore {
     const session = this.deps.registry.sessionFor(tabId)
     if (!session?.agentSessionId || session.sessionChangedFiles.length > 0) return
     try {
-      const stats = await (this.deps.apiFor?.(tabId) ?? window.solus)
+      const stats = await (this.deps.apiFor?.(tabId) ?? serverConnections.primaryApi())
         .diffStats(this.deps.ctxFor(tabId), { scope: { kind: 'session' } })
       const files = stats.map((file) => file.path)
       if (files.length === 0) return
@@ -361,7 +363,7 @@ export class WorkspaceLifecycleStore {
     const tabId = this.deps.registry.tabIdsBySession.get(sessionId)?.[0]
     if (!tabId) return
     try {
-      const snaps = await (this.deps.apiFor?.(tabId) ?? window.solus)
+      const snaps = await (this.deps.apiFor?.(tabId) ?? serverConnections.primaryApi())
         .listTurnSnapshots(this.deps.ctxFor(tabId))
       this.turnSnapshots[sessionId] = snaps
     } catch {

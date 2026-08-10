@@ -39,7 +39,7 @@ export class WorkStreamTracker {
 
   beginToolArtifacts(session: Session, toolName: string | undefined, agentProvider: AgentId): void {
     if (isCreateWorkTool(toolName)) {
-      const tempId = this.worksStore.addProvisional(agentProvider, session.run.workingDirectory)
+      const tempId = this.worksStore.addProvisional(agentProvider, session.run.workingDirectory, session.run.serverId)
       const msgId = nextMsgId()
       session.messages.push({
         id: msgId,
@@ -70,7 +70,7 @@ export class WorkStreamTracker {
     const stream = entries?.find((e) => !e.finalized)
     if (stream) {
       stream.finalized = true
-      this.worksStore.finalizeProvisional(stream.tempId, event.workId, event.title, event.docType, event.content)
+      this.worksStore.finalizeProvisional(stream.tempId, event.workId, event.title, event.docType, event.content, session.run.serverId)
       // If the user opened the provisional card mid-stream, follow the rekey so
       // the open pane points at the persisted id, not the deleted temp one.
       if (this.router.params('work')?.workId === stream.tempId) {
@@ -84,7 +84,7 @@ export class WorkStreamTracker {
       }
     } else {
       // No streamed provisional (Codex/mock emit work_created directly).
-      this.worksStore.finalizeProvisional(null, event.workId, event.title, event.docType, event.content)
+      this.worksStore.finalizeProvisional(null, event.workId, event.title, event.docType, event.content, session.run.serverId)
       session.messages.push({
         id: nextMsgId(),
         role: 'assistant' as const,

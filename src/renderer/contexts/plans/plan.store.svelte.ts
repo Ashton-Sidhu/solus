@@ -2,6 +2,10 @@ import { createAppContext } from '../app/create-app-context'
 import type { AgentId, CommentAuthor, IpcContext, Plan, PlanComment, PlanCommentReply, PlanAnnotations, PlanDescriptor, PermissionOption } from '../../../shared/types'
 import { planKey } from '../../../shared/types'
 import { MemoryCache } from '../../../shared/cache'
+import { serverConnections } from '@client-core/server-connections'
+import type { HostApi } from '@client-core/host-api'
+import { hostKey } from '@client-core/host-key'
+import { SvelteMap } from 'svelte/reactivity'
 
 function extractPlanTitle(planContent: string): string {
   const match = planContent.match(/^#{1,2}\s+(.+)$/m)
@@ -11,6 +15,7 @@ function extractPlanTitle(planContent: string): string {
 }
 
 type DiskPlanLoadOptions = {
+  serverId?: string
   sessionId: string
   planToolUseId: string
   projectPath: string
@@ -31,6 +36,23 @@ export class PlanStore {
   previewDescriptor = $state<PlanDescriptor | null>(null)
 
   private _saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** Which host owns each loaded or listed plan. */
+  private hostByPlanId = new SvelteMap<string, string>()
+
+  hostFor(planId: string): string | null {
+    return this.hostByPlanId.get(planId) ?? null
+  }
+
+  private rememberPlanHost(planId: string, serverId: string): void {
+    this.hostByPlanId.set(planId, serverId)
+  }
+
+  /** Old plan links can predate host stamps. Primary fallback preserves their
+   *  single-host behavior until a session or gallery read places the owner. */
+  private apiForPlan(planId: string, serverId?: string): HostApi {
+    const ownerServerId = serverId ?? this.hostByPlanId.get(planId)
+    return ownerServerId ? serverConnections.apiFor(ownerServerId) : serverConnections.primaryApi()
+  }
 
   get previewPlan(): Plan | null {
     if (!this.previewPlanId) return null
@@ -69,6 +91,7 @@ export class PlanStore {
   // ─── Loading ───
 
   upsertFromStream(opts: {
+    serverId: string
     sessionId: string
     planToolUseId: string
     projectPath: string
@@ -80,6 +103,7 @@ export class PlanStore {
     timestamp: number
   }): string {
     const id = planKey(opts.sessionId, opts.planToolUseId)
+    this.rememberPlanHost(id, opts.serverId)
     const existing = this.plans[id]
     if (existing) {
       existing.content = opts.content
@@ -109,6 +133,7 @@ export class PlanStore {
   }
 
   upsertFromHistory(opts: {
+    serverId: string
     sessionId: string
     planToolUseId: string
     projectPath: string
@@ -118,6 +143,7 @@ export class PlanStore {
     timestamp: number
   }): string {
     const id = planKey(opts.sessionId, opts.planToolUseId)
+    this.rememberPlanHost(id, opts.serverId)
     const existing = this.plans[id]
     if (existing) {
       existing.projectPath = opts.projectPath
@@ -147,10 +173,12 @@ export class PlanStore {
 
   async loadFromDisk(opts: DiskPlanLoadOptions): Promise<string> {
     const id = planKey(opts.sessionId, opts.planToolUseId)
+    if (opts.serverId) this.rememberPlanHost(id, opts.serverId)
     const existing = this.plans[id]
+    const api = this.apiForPlan(id, opts.serverId)
     const [content, ann] = await Promise.all([
-      window.solus.loadPlanContent(opts.sessionId, opts.projectPath, opts.planToolUseId, opts.ctx, opts.provider ?? undefined),
-      window.solus.loadPlanAnnotations(opts.sessionId, opts.planToolUseId),
+      api.loadPlanContent(opts.sessionId, opts.projectPath, opts.planToolUseId, opts.ctx, opts.provider ?? undefined),
+      api.loadPlanAnnotations(opts.sessionId, opts.planToolUseId),
     ])
 
     const next = {
@@ -178,7 +206,7 @@ export class PlanStore {
       existing.filePath = next.filePath
       existing.title = next.title
       existing.status = next.status
-      existing.comments = next.comments
+      existing.comments.splice(0, existing.comments.length, ...next.comments)
       existing.bookmarked = next.bookmarked
       existing.bookmarkedAt = next.bookmarkedAt
     } else {
@@ -191,7 +219,8 @@ export class PlanStore {
     return id
   }
 
-  async hydrateAnnotations(planId: string): Promise<void> {
+  async hydrateAnnotations(planId: string, serverId?: string): Promise<void> {
+    if (serverId) this.rememberPlanHost(planId, serverId)
     const plan = this.plans[planId]
     if (!plan) return
     // Flush any pending save first so disk reflects the latest in-memory state
@@ -204,15 +233,16 @@ export class PlanStore {
       await this.persist(planId)
     }
     try {
-      const ann = await window.solus.loadPlanAnnotations(plan.sessionId, plan.planToolUseId)
+      const ann = await this.apiForPlan(planId, serverId).loadPlanAnnotations(plan.sessionId, plan.planToolUseId)
       if (!ann) return
       // A mutation scheduled a save during our read — in-memory is newer than disk.
       if (this._saveTimers.has(planId)) return
       const current = this.plans[planId]
       if (!current) return
-      current.comments = ann.comments ?? []
+      current.comments.splice(0, current.comments.length, ...(ann.comments ?? []))
       current.status = ann.status ?? current.status
       current.bookmarked = ann.bookmarked
+      current.bookmarkedAt = ann.bookmarkedAt
     } catch {}
   }
 
@@ -290,11 +320,40 @@ export class PlanStore {
   async toggleBookmark(planId: string): Promise<void> {
     const plan = this.plans[planId]
     if (!plan) return
-    const ann = await window.solus.toggleBookmarkPlan(
+    const ann = await this.apiForPlan(planId).toggleBookmarkPlan(
       plan.sessionId, plan.projectPath, plan.cwd, plan.planToolUseId, plan.title,
     )
     const current = this.plans[planId]
-    if (current) current.bookmarked = ann.bookmarked
+    if (current) {
+      current.bookmarked = ann.bookmarked
+      current.bookmarkedAt = ann.bookmarkedAt
+    }
+  }
+
+  async toggleBookmarkDescriptor(descriptor: PlanDescriptor): Promise<void> {
+    const planId = planKey(descriptor.sessionId, descriptor.planToolUseId)
+    if (descriptor.serverId) this.rememberPlanHost(planId, descriptor.serverId)
+    const nowBookmarked = !descriptor.bookmarked
+    descriptor.bookmarked = nowBookmarked
+    descriptor.bookmarkedAt = nowBookmarked ? Date.now() : undefined
+    const plan = this.plans[planId]
+    if (plan) {
+      plan.bookmarked = descriptor.bookmarked
+      plan.bookmarkedAt = descriptor.bookmarkedAt
+    }
+    const annotations = await this.apiForPlan(planId, descriptor.serverId).toggleBookmarkPlan(
+      descriptor.sessionId,
+      descriptor.projectPath,
+      descriptor.cwd,
+      descriptor.planToolUseId,
+      descriptor.title,
+    )
+    descriptor.bookmarked = annotations.bookmarked
+    descriptor.bookmarkedAt = annotations.bookmarkedAt
+    if (plan) {
+      plan.bookmarked = annotations.bookmarked
+      plan.bookmarkedAt = annotations.bookmarkedAt
+    }
   }
 
   // ─── Preview (gallery) ───
@@ -345,7 +404,15 @@ export class PlanStore {
   }
 
   private descriptorKey(d: PlanDescriptor): string {
-    return `${d.provider ?? 'claude-code'}:${d.sessionId}:${d.planToolUseId}`
+    const serverId = d.serverId ?? serverConnections.serverIdForApi(serverConnections.primaryApi())
+    const pathIdentity = d.planFilePath ?? `${d.provider ?? 'claude-code'}:${d.sessionId}:${d.planToolUseId}`
+    return hostKey(serverId, pathIdentity)
+  }
+
+  private stampDescriptor(serverId: string, descriptor: PlanDescriptor): PlanDescriptor {
+    descriptor.serverId = serverId
+    this.rememberPlanHost(planKey(descriptor.sessionId, descriptor.planToolUseId), serverId)
+    return descriptor
   }
 
   private syncCachedDescriptor(d: PlanDescriptor): void {
@@ -369,14 +436,39 @@ export class PlanStore {
     return items
   }
 
-  private mergeWithCached(fresh: PlanDescriptor[], cached?: PlanDescriptor[]): PlanDescriptor[] {
+  private mergeWithCached(fresh: PlanDescriptor[], cached?: PlanDescriptor[], failedServerIds = new Set<string>()): PlanDescriptor[] {
     if (!cached?.length) return fresh
     const seen = new Set(fresh.map((d) => this.descriptorKey(d)))
     for (const cachedDescriptor of this.syncCachedDescriptors(cached)) {
-      if (!seen.has(this.descriptorKey(cachedDescriptor))) fresh.push(cachedDescriptor)
+      const serverId = cachedDescriptor.serverId ?? serverConnections.serverIdForApi(serverConnections.primaryApi())
+      if (failedServerIds.has(serverId) && !seen.has(this.descriptorKey(cachedDescriptor))) fresh.push(cachedDescriptor)
     }
     fresh.sort((a, b) => b.timestamp - a.timestamp)
     return fresh
+  }
+
+  private async loadDescriptorUnion(projectPath: string | undefined, allProjects: boolean, ctx?: IpcContext): Promise<{
+    descriptors: PlanDescriptor[]
+    failedServerIds: Set<string>
+  }> {
+    const results = await Promise.all(serverConnections.connectedServerIds().map(async (serverId) => {
+      try {
+        return { serverId, descriptors: await serverConnections.apiFor(serverId).listPlans(projectPath, allProjects, ctx) }
+      } catch (error) {
+        console.error('plan descriptor load failed', serverId, error)
+        return { serverId, error }
+      }
+    }))
+    const descriptors: PlanDescriptor[] = []
+    const failedServerIds = new Set<string>()
+    for (const result of results) {
+      if (!result.descriptors) {
+        failedServerIds.add(result.serverId)
+        continue
+      }
+      for (const descriptor of result.descriptors) descriptors.push(this.stampDescriptor(result.serverId, descriptor))
+    }
+    return { descriptors, failedServerIds }
   }
 
   async getDescriptors(projectPath: string | undefined, allProjects: boolean, ctx?: IpcContext): Promise<PlanDescriptor[]> {
@@ -407,10 +499,13 @@ export class PlanStore {
   ): Promise<PlanDescriptor[]> {
     this.setDescriptorLoading(key, true)
     try {
-      const fresh = await this._descriptorCache.getOrLoad(key, () => (
-        window.solus.listPlans(projectPath, allProjects, ctx)
-      ))
-      const merged = this.mergeWithCached(fresh, cached)
+      let failedServerIds = new Set<string>()
+      const fresh = await this._descriptorCache.getOrLoad(key, async () => {
+        const loaded = await this.loadDescriptorUnion(projectPath, allProjects, ctx)
+        failedServerIds = loaded.failedServerIds
+        return loaded.descriptors
+      })
+      const merged = this.mergeWithCached(fresh, cached, failedServerIds)
       this._descriptorCache.set(key, merged)
       if (this.cachedDescriptorKey === key) this.cachedDescriptors = merged
       return merged
@@ -430,10 +525,13 @@ export class PlanStore {
     if (cached) this.setVisibleDescriptorsForKey(key, this.syncCachedDescriptors(cached.value))
     if (this._descriptorLoads.has(key)) return
     this.setDescriptorLoading(key, true)
-    this._descriptorCache.getOrLoad(key, () => (
-      window.solus.listPlans(projectPath, false, ctx)
-    )).then((fresh) => {
-      const merged = this.mergeWithCached(fresh, cached?.value)
+    let failedServerIds = new Set<string>()
+    this._descriptorCache.getOrLoad(key, async () => {
+      const loaded = await this.loadDescriptorUnion(projectPath, false, ctx)
+      failedServerIds = loaded.failedServerIds
+      return loaded.descriptors
+    }).then((fresh) => {
+      const merged = this.mergeWithCached(fresh, cached?.value, failedServerIds)
       this._descriptorCache.set(key, merged)
       if (this.cachedDescriptorKey === key) this.cachedDescriptors = merged
     }).catch(() => {}).finally(() => {
@@ -471,7 +569,7 @@ export class PlanStore {
     const plan = this.plans[planId]
     if (!plan?.filePath) return
     try {
-      await window.solus.writePlanFile(plan.filePath, plan.content)
+      await this.apiForPlan(planId).writePlanFile(plan.filePath, plan.content)
     } catch {}
   }
 
@@ -488,9 +586,10 @@ export class PlanStore {
       status: plan.status,
       comments: plan.comments,
       bookmarked: plan.bookmarked,
+      bookmarkedAt: plan.bookmarkedAt,
       updatedAt: Date.now(),
     }
-    await window.solus.savePlanAnnotations($state.snapshot(payload))
+    await this.apiForPlan(planId).savePlanAnnotations($state.snapshot(payload))
   }
 }
 

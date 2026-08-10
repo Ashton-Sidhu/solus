@@ -61,7 +61,13 @@
     return () => clearTimeout(timer);
   });
   const cardCopy = $derived(
-    mode === "blocked"
+    mode === "identity-mismatch"
+      ? {
+          title: "Different server than expected",
+          body: `The address saved for ${host?.label} answered as another Solus server. Pair again only if you intend to replace the saved host.`,
+          primary: "Pair this server",
+        }
+      : mode === "blocked"
       ? {
           title: `${host?.label} needs pairing again`,
           body: "The saved session token was rejected. Your work is safe — pair with this host again to keep going.",
@@ -75,12 +81,12 @@
   );
 
   function runPrimary(): void {
-    if (mode === "blocked") serversStore.openAddServer(host?.url ?? "");
+    if (mode === "blocked" || mode === "identity-mismatch") serversStore.openAddServer(host?.url ?? "");
     else serversStore.retryActive();
   }
 </script>
 
-{#if dimBackdrop && (mode === "reconnecting" || mode === "escalated" || mode === "blocked")}
+{#if dimBackdrop && (mode === "reconnecting" || mode === "escalated" || mode === "blocked" || mode === "identity-mismatch")}
   <!--
     Stale panes stay readable but stop reading as live. Purely decorative: it
     never swallows a click, so the user can keep navigating what they already
@@ -90,7 +96,7 @@
     class="pointer-events-none fixed inset-0 z-[10016] bg-(--solus-edge-bg) opacity-35 transition-opacity duration-500"
     aria-hidden="true"
   ></div>
-  {#if mode !== "blocked"}
+  {#if mode !== "blocked" && mode !== "identity-mismatch"}
     <div
       class="connection-hairline pointer-events-none fixed inset-x-0 top-0 z-[10017] h-0.5 overflow-hidden"
       aria-hidden="true"
@@ -120,7 +126,7 @@
       Retry now
     </button>
   </div>
-{:else if mode === "escalated" || mode === "blocked"}
+{:else if mode === "escalated" || mode === "blocked" || mode === "identity-mismatch"}
   <div
     class="pointer-events-auto fixed left-1/2 top-3 z-[10018] w-[19rem] -translate-x-1/2 rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-3.5 font-secondary shadow-(--solus-popover-shadow) backdrop-blur-xl"
     role="alert"

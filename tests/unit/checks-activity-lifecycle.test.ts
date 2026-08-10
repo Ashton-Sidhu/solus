@@ -1,10 +1,16 @@
-import { afterEach, describe, expect, jest, test } from 'bun:test'
+import { afterEach, describe, expect, jest, mock, test } from 'bun:test'
+import { Database } from 'bun:sqlite'
 import type { IpcContext } from '../../src/shared/types'
 import type { Provider, RepoRef } from '../../src/main/providers/types'
 import { SolusServer } from '../../src/main/server/server'
-import { registerChecksHandlers } from '../../src/main/server/handlers/checks-handlers'
 import { ClientEventRegistry } from '../../src/main/events/client-event-registry'
 import { HostEventPublisher } from '../../src/main/events/host-event-publisher'
+
+// The handler's default provider resolver reaches the production database
+// module, which imports node:sqlite (absent under Bun's test runtime).
+mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+
+const { registerChecksHandlers } = await import('../../src/main/server/handlers/checks-handlers')
 
 afterEach(() => jest.useRealTimers())
 
@@ -74,5 +80,59 @@ describe('PR checks client lifecycle', () => {
     jest.advanceTimersByTime(120_000)
     expect(checksCalls).toBe(0)
     expect(lifecycle.stats()).toEqual({ connectedClients: 0, activities: 0, activeRepoKey: null })
+  })
+
+  test('concurrent activity reports publish one checks refresh', async () => {
+    const server = new SolusServer()
+    let finishChecks!: () => void
+    const checksGate = new Promise<void>((resolve) => { finishChecks = resolve })
+    let finishPublish!: () => void
+    const published = new Promise<void>((resolve) => { finishPublish = resolve })
+    let publishCount = 0
+    const provider = {
+      review: {
+        listPullRequests: async () => [],
+        listChecks: async () => {
+          await checksGate
+          return []
+        },
+      },
+    } as unknown as Provider
+    const lifecycle = registerChecksHandlers(server, {
+      events: {
+        publish: () => {
+          publishCount += 1
+          finishPublish()
+          return 1
+        },
+      } as never,
+      resolveReviewTarget: async () => ({
+        repo: { host: 'github.com', owner: 'owner', repo: 'coalesced-refresh' },
+        provider,
+      }),
+    })
+    const firstClientId = 'ws:device:first'
+    const secondClientId = 'ws:device:second'
+    lifecycle.handleClientConnected(firstClientId)
+    lifecycle.handleClientConnected(secondClientId)
+
+    const first = server.handle(
+      'prChecksActivity',
+      [{} as IpcContext, true, true],
+      { clientId: firstClientId },
+    )
+    const second = server.handle(
+      'prChecksActivity',
+      [{} as IpcContext, true, true],
+      { clientId: secondClientId },
+    )
+    await Promise.resolve()
+    finishChecks()
+    await Promise.all([first, second])
+    await published
+    await Promise.resolve()
+
+    expect(publishCount).toBe(1)
+    lifecycle.handleTransportClosed()
   })
 })

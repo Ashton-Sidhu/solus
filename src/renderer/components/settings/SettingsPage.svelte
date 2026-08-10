@@ -13,6 +13,7 @@
     NotePencilIcon,
     FolderIcon,
     FlaskIcon,
+    CaretDownIcon,
   } from "phosphor-svelte";
   import {
     getWorkspaceContext,
@@ -38,6 +39,8 @@
   import SettingsTabKeybindings from "./SettingsTabKeybindings.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as Sidebar from "../ui/sidebar";
+  import * as DropdownMenu from "../ui/dropdown-menu";
+  import { serverConnections } from "@client-core/server-connections";
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
@@ -163,6 +166,41 @@
   const activeTabMeta = $derived(
     ALL_TABS.find((t) => t.id === session.settingsTab) ?? tabs[0],
   );
+  const hostFramedTab = $derived(
+    session.settingsTab === "projects" ||
+      session.settingsTab === "tools" ||
+      session.settingsTab === "skills" ||
+      session.settingsTab === "voice",
+  );
+  let selectedSettingsServerId = $state(
+    serverConnections.connectionFor()?.serverId ?? "",
+  );
+  const settingsHosts = $derived.by(() => {
+    void serversStore.servers;
+    return serverConnections.connectedServerIds().map((serverId) => ({
+      serverId,
+      label:
+        serversStore.hostFor(serverId)?.label ??
+        serverConnections.connectionFor(serverId)?.target.label ??
+        serverId,
+    }));
+  });
+  const selectedSettingsHost = $derived(
+    settingsHosts.find((host) => host.serverId === selectedSettingsServerId) ??
+      settingsHosts[0] ??
+      null,
+  );
+  const selectedSettingsApi = $derived(
+    selectedSettingsHost
+      ? serverConnections.apiFor(selectedSettingsHost.serverId)
+      : null,
+  );
+
+  $effect(() => {
+    if (selectedSettingsHost) return;
+    selectedSettingsServerId =
+      serverConnections.connectionFor()?.serverId ?? settingsHosts[0]?.serverId ?? "";
+  });
 
   let searchQuery = $state("");
   let searchInputEl = $state<HTMLInputElement | null>(null);
@@ -217,28 +255,86 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#snippet tabContent()}
-  {#if session.settingsTab === "projects"}
-    <SettingsTabProjects />
+  {#if runtime.isMobileViewport && hostFramedTab}
+    {@render hostFrame()}
+  {/if}
+  {#if session.settingsTab === "projects" && selectedSettingsHost && selectedSettingsApi}
+    <SettingsTabProjects
+      serverId={selectedSettingsHost.serverId}
+      api={selectedSettingsApi}
+    />
   {:else if session.settingsTab === "general"}
     <SettingsTabGeneral {searchQuery} />
   {:else if session.settingsTab === "instructions"}
     <SettingsTabInstructions {searchQuery} />
   {:else if session.settingsTab === "review"}
     <SettingsTabReview {searchQuery} />
-  {:else if session.settingsTab === "voice"}
-    <SettingsTabVoice />
+  {:else if session.settingsTab === "voice" && selectedSettingsHost && selectedSettingsApi}
+    <SettingsTabVoice
+      serverId={selectedSettingsHost.serverId}
+      api={selectedSettingsApi}
+      hostLabel={selectedSettingsHost.label}
+    />
   {:else if session.settingsTab === "experimental"}
     <SettingsTabExperimental {searchQuery} />
   {:else if session.settingsTab === "providers"}
     <SettingsTabProviders />
   {:else if session.settingsTab === "api-access"}
     <ConnectionsPanel />
-  {:else if session.settingsTab === "tools"}
-    <SettingsTabTools {searchQuery} />
-  {:else if session.settingsTab === "skills"}
-    <SettingsTabSkills />
+  {:else if session.settingsTab === "tools" && selectedSettingsHost && selectedSettingsApi}
+    <SettingsTabTools
+      {searchQuery}
+      serverId={selectedSettingsHost.serverId}
+      api={selectedSettingsApi}
+      hostLabel={selectedSettingsHost.label}
+    />
+  {:else if session.settingsTab === "skills" && selectedSettingsHost && selectedSettingsApi}
+    <SettingsTabSkills
+      serverId={selectedSettingsHost.serverId}
+      api={selectedSettingsApi}
+      hostLabel={selectedSettingsHost.label}
+    />
   {:else if session.settingsTab === "keybindings"}
     <SettingsTabKeybindings {searchQuery} />
+  {/if}
+{/snippet}
+
+{#snippet hostFrame()}
+  {#if selectedSettingsHost}
+    <DropdownMenu.Root
+      onOpenChange={(next) => {
+        if (!next) requestInputFocus();
+      }}
+    >
+      <DropdownMenu.Trigger>
+        {#snippet child({ props })}
+          <Button
+            {...props}
+            variant="outline"
+            size="sm"
+            class="h-7 shrink-0 gap-1.5 text-[0.6875rem] font-normal text-muted-foreground shadow-xs"
+            aria-label="Settings host"
+          >
+            On {selectedSettingsHost.label}
+            {#if settingsHosts.length > 1}
+              <CaretDownIcon size={10} class="opacity-60" />
+            {/if}
+          </Button>
+        {/snippet}
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[190px]">
+        <DropdownMenu.RadioGroup value={selectedSettingsHost.serverId}>
+          {#each settingsHosts as host (host.serverId)}
+            <DropdownMenu.RadioItem
+              value={host.serverId}
+              onSelect={() => (selectedSettingsServerId = host.serverId)}
+            >
+              <span class="truncate">{host.label}</span>
+            </DropdownMenu.RadioItem>
+          {/each}
+        </DropdownMenu.RadioGroup>
+      </DropdownMenu.Content>
+    </DropdownMenu.Root>
   {/if}
 {/snippet}
 
@@ -421,15 +517,20 @@
             </p>
           </div>
         {/if}
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onclick={close}
-          aria-label="Close settings"
-          class="shrink-0 text-muted-foreground"
-        >
-          <XIcon size={14} />
-        </Button>
+        <div class="flex shrink-0 items-center gap-2">
+          {#if hostFramedTab}
+            {@render hostFrame()}
+          {/if}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onclick={close}
+            aria-label="Close settings"
+            class="shrink-0 text-muted-foreground"
+          >
+            <XIcon size={14} />
+          </Button>
+        </div>
       </header>
 
       <div

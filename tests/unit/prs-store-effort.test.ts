@@ -1,13 +1,26 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, mock, test } from 'bun:test'
 import type { PullRequestSummary } from '../../src/shared/providers'
 import type { IpcContext } from '../../src/shared/types'
+import { singleHostServerConnections } from './helpers/server-connections-mock'
+
+const serverConnectionsMock = singleHostServerConnections()
+mock.module('@client-core/server-connections', () => ({
+  serverConnections: serverConnectionsMock,
+}))
+
+const api = () => serverConnectionsMock.primaryApi()
+const serverId = 'local'
 
 const previousWindow = globalThis.window
+const previousDocument = globalThis.document
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
 afterEach(() => {
+  serverConnectionsMock.reset()
   if (previousWindow === undefined) delete (globalThis as unknown as { window?: Window }).window
   else Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: previousWindow })
+  if (previousDocument === undefined) delete (globalThis as unknown as { document?: Document }).document
+  else Object.defineProperty(globalThis, 'document', { configurable: true, writable: true, value: previousDocument })
   if (previousState === undefined) delete (globalThis as unknown as { $state?: unknown }).$state
   else (globalThis as unknown as { $state: unknown }).$state = previousState
 })
@@ -77,10 +90,10 @@ describe('PR list effort metadata', () => {
     const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
 
-    await store.loadAll(ctx)
-    await store.loadEfforts(ctx, [33])
-    await store.loadAll(ctx, { force: true })
-    await store.loadEfforts(ctx, [33])
+    await store.loadAll(api(), serverId, ctx)
+    await store.loadEfforts(api(), serverId, ctx, [33])
+    await store.loadAll(api(), serverId, ctx, { force: true })
+    await store.loadEfforts(api(), serverId, ctx, [33])
 
     expect(store.get(33)?.additions).toBe(71_029)
     expect(store.get(33)?.deletions).toBe(22_450)
@@ -107,9 +120,9 @@ describe('PR list effort metadata', () => {
     const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
 
-    await store.loadAll(ctx)
-    await store.loadEfforts(ctx, [33])
-    await store.loadEfforts(ctx, [33])
+    await store.loadAll(api(), serverId, ctx)
+    await store.loadEfforts(api(), serverId, ctx, [33])
+    await store.loadEfforts(api(), serverId, ctx, [33])
 
     expect(store.get(33)?.additions).toBe(12)
     expect(store.get(33)?.deletions).toBe(4)
@@ -138,12 +151,12 @@ describe('PR list effort metadata', () => {
     const store = new PrsStore()
 
     for (let index = 0; index <= PR_CACHE_MAX_ENTRIES; index++) {
-      await store.loadDetail({
+      await store.loadDetail(api(), serverId, {
         ...ctx,
         session: { ...ctx.session, projectPath: `/repo/${index}` },
       } as IpcContext, 33)
     }
-    await store.loadDetail(ctx, 33)
+    await store.loadDetail(api(), serverId, ctx, 33)
 
     expect(detailCalls).toBe(PR_CACHE_MAX_ENTRIES + 2)
   })
@@ -172,9 +185,9 @@ describe('PR list effort metadata', () => {
     })
     const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
-    await store.loadAll(ctx)
+    await store.loadAll(api(), serverId, ctx)
 
-    await store.updatePullRequest(ctx, 33, {
+    await store.updatePullRequest(api(), serverId, ctx, 33, {
       title: 'Edited title',
       body: 'Edited description',
     })
@@ -183,9 +196,79 @@ describe('PR list effort metadata', () => {
       title: 'Edited title',
       body: 'Edited description',
     })
-    expect(store.cachedActivity(ctx, 33).detail).toMatchObject({
+    expect(store.cachedActivity(serverId, ctx, 33).detail).toMatchObject({
       title: 'Edited title',
       body: 'Edited description',
     })
+  })
+
+  test('keeps the same PR context isolated between hosts', async () => {
+    // WHY: the same checkout path and PR number can exist on two hosts with
+    // different provider data. A cache hit from one host must not cross over.
+    installStateRune()
+    let hostACalls = 0
+    let hostBCalls = 0
+    serverConnectionsMock.registerPrimary('host-a', {
+      prGetDetail: async () => ({ number: 33, title: `Host A ${++hostACalls}` }),
+    })
+    serverConnectionsMock.registerHost('host-b', {
+      prGetDetail: async () => ({ number: 33, title: `Host B ${++hostBCalls}` }),
+    })
+    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+
+    const hostA = await store.loadDetail(serverConnectionsMock.apiFor('host-a'), 'host-a', ctx, 33)
+    const hostB = await store.loadDetail(serverConnectionsMock.apiFor('host-b'), 'host-b', ctx, 33)
+    const hostAAgain = await store.loadDetail(serverConnectionsMock.apiFor('host-a'), 'host-a', ctx, 33)
+    const hostBAgain = await store.loadDetail(serverConnectionsMock.apiFor('host-b'), 'host-b', ctx, 33)
+
+    expect(hostA.title).toBe('Host A 1')
+    expect(hostB.title).toBe('Host B 1')
+    expect(hostAAgain.title).toBe('Host A 1')
+    expect(hostBAgain.title).toBe('Host B 1')
+    expect([hostACalls, hostBCalls]).toEqual([1, 1])
+  })
+
+  test('invalidates only the cache owned by the emitting host', async () => {
+    // WHY: a checkout change on host A must not evict the same path and PR
+    // cached for host B.
+    installStateRune()
+    let hostACalls = 0
+    let hostBCalls = 0
+    serverConnectionsMock.registerPrimary('host-a', {
+      prGetDetail: async () => ({ number: 33, title: `Host A ${++hostACalls}` }),
+    })
+    serverConnectionsMock.registerHost('host-b', {
+      prGetDetail: async () => ({ number: 33, title: `Host B ${++hostBCalls}` }),
+    })
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        setInterval: () => 1,
+        clearInterval: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      },
+    })
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      writable: true,
+      value: { visibilityState: 'hidden' },
+    })
+    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+    const hostAApi = serverConnectionsMock.apiFor('host-a')
+    const hostBApi = serverConnectionsMock.apiFor('host-b')
+    await store.loadDetail(hostAApi, 'host-a', ctx, 33)
+    await store.loadDetail(hostBApi, 'host-b', ctx, 33)
+    const unsubscribe = store.subscribeNeedsReview(() => ({ api: hostAApi, serverId: 'host-a', ctx }))
+
+    serverConnectionsMock.emit('host-a', 'prs.invalidated', { projectRoot: '/repo' })
+    await store.loadDetail(hostAApi, 'host-a', ctx, 33)
+    await store.loadDetail(hostBApi, 'host-b', ctx, 33)
+    unsubscribe()
+
+    expect([hostACalls, hostBCalls]).toEqual([2, 1])
   })
 })

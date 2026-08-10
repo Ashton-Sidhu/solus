@@ -1,8 +1,8 @@
-import type { SolusAPI } from '../preload'
+import type { LocalApi } from './host-api'
 
 type ApiMethod = (...args: unknown[]) => unknown
 
-export function createNoHostSolusApi(): SolusAPI {
+export function createNoHostSolusApi(): LocalApi {
   const overrides: Record<string, unknown> = {
     getPlatform: () => 'web',
     getPathForFile: () => '',
@@ -33,5 +33,5 @@ export function createNoHostSolusApi(): SolusAPI {
       generated.set(property, method)
       return method
     },
-  }) as unknown as SolusAPI
+  }) as unknown as LocalApi
 }

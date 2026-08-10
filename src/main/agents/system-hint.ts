@@ -47,7 +47,7 @@ const GENERAL_ASSISTANT_ROLE = [
 ].join('\n')
 
 const SESSION_LINK_GUIDANCE =
-  'Solus session references are clickable links that open in any project. Whenever you cite a session in a reply, copy its link exactly as the tool output gave it: [<slug or short-id>](session://open?provider=<providerId>&sessionId=<sessionId>&cwd=<encoded-cwd>).'
+  'Solus session references are clickable links that open in any project. Whenever you cite a session in a reply, copy its link exactly as the tool output gave it: [<slug or short-id>](session://open?provider=<providerId>&sessionId=<sessionId>&serverId=<serverId>&cwd=<encoded-cwd>).'
 
 const AUTOMATION_GUIDANCE =
   'Anything recurring, scheduled, or "remind me to…" is an automation, and `mcp__solus__create_automation` is the only correct way to create one — the `/schedule` skill and `RemoteTrigger` create cloud CCR agents instead, which is never what Solus wants.'

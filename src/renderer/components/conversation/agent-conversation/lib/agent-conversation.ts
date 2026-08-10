@@ -333,11 +333,16 @@ export interface AgentSessionOpener {
 export async function openAgentSession(
   ref: AgentConversationRef,
   provider: AgentId,
-  getSessionInfo: (sessionId: string) => Promise<SessionMeta | null>,
+  sourceServerId: string | undefined,
   opener: AgentSessionOpener,
   options: { split?: boolean; background?: boolean } = {},
 ): Promise<void> {
-  const meta = await resolveSessionLinkMeta({ provider, sessionId: ref.agentSessionId, cwd: ref.cwd }, getSessionInfo)
+  const meta = await resolveSessionLinkMeta({
+    provider,
+    sessionId: ref.agentSessionId,
+    serverId: null,
+    cwd: ref.cwd,
+  }, sourceServerId)
   const tabId = await opener.resume(meta, { background: Boolean(options.split || options.background) })
   if (options.split) opener.openInSplit(tabId)
 }

@@ -21,6 +21,7 @@ import { listProjects } from '../project-config/projects-manifest'
 import { readWav } from '../transcription/wav'
 import { MAX_VOICE_WAV_BYTES } from '../../shared/voice-audio'
 import { parseByteRange } from './byte-range'
+import { serveAssetToken } from './assets'
 
 const log = createLogger('main', 'http')
 
@@ -82,6 +83,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
   app.use('/upload', publicCors)
   app.use('/voice/transcribe', publicCors)
   app.use('/artifact', publicCors)
+  app.use('/api/assets/*', publicCors)
   app.use('/auth/refresh', publicCors)
   app.use('/auth/pair-token', publicCors)
   app.use('/auth/revoke', publicCors)
@@ -243,6 +245,17 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
       },
     })
   })
+
+  const serveSignedAsset = (c: Ctx) => {
+    const token = c.req.param('token')
+    if (!token) return new Response('Missing asset token', { status: 400 })
+    return serveAssetToken(token, {
+      method: c.req.method,
+      range: c.req.header('range'),
+    })
+  }
+  app.get('/api/assets/:token', serveSignedAsset)
+  app.on('HEAD', '/api/assets/:token', serveSignedAsset)
 
   // Internal/back-compat route for already-paired clients. The Connections panel
   // normally mints tokens through authenticated RPC.

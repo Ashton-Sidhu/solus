@@ -34,7 +34,13 @@
       </div>
     {:then automationModule}
       {@const AutomationBuilder = automationModule.default}
-      <AutomationBuilder {automation} inline onClose={pane.close} onDone={pane.close} />
+      <AutomationBuilder
+        {automation}
+        originServerId={params.serverId}
+        inline
+        onClose={pane.close}
+        onDone={pane.close}
+      />
     {/await}
   {/key}
 {/if}

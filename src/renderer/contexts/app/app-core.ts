@@ -4,8 +4,6 @@ import { WindowContext, setWindowContext } from './window.context.svelte'
 import { StatusBarContext, setStatusBarContext } from './status-bar.context.svelte'
 import { PlanStore, setPlanStore } from '../plans/plan.store.svelte'
 import { SessionEnvironmentStore, setSessionEnvironmentStore } from '../git/session-environment.store.svelte'
-import { RunStore, setRunStore } from '../run/run.store.svelte'
-import { RunDockStore, setRunDockStore } from '../run/run-dock.store.svelte'
 import { ProjectConfigStore, setProjectConfigStore } from '../projects/project-config.store.svelte'
 import { AgentContext, setAgentContext } from './agent.context.svelte'
 import { SessionSidebarStore, setSessionSidebarStore } from '../workspace/session-sidebar.store.svelte'
@@ -23,8 +21,6 @@ export interface AppCore {
   statusBar: StatusBarContext
   planStore: PlanStore
   sessionEnvironmentStore: SessionEnvironmentStore
-  runStore: RunStore
-  runDockStore: RunDockStore
   projectConfigStore: ProjectConfigStore
   sessionSidebarStore: SessionSidebarStore
   voiceModelStore: VoiceModelStore
@@ -48,8 +44,6 @@ export function createAppCore(): AppCore {
   const statusBar = new StatusBarContext(settings)
   const planStore = new PlanStore()
   const sessionEnvironmentStore = new SessionEnvironmentStore()
-  const runStore = new RunStore()
-  const runDockStore = new RunDockStore()
   const projectConfigStore = new ProjectConfigStore()
   const agent = new AgentContext(settings)
   const session = new WorkspaceContext(settings, windowCtx, statusBar, planStore, sessionEnvironmentStore, agent)
@@ -91,8 +85,6 @@ export function createAppCore(): AppCore {
   setWorkspaceContext(session)
   setPlanStore(planStore)
   setSessionEnvironmentStore(sessionEnvironmentStore)
-  setRunStore(runStore)
-  setRunDockStore(runDockStore)
   setProjectConfigStore(projectConfigStore)
   setSessionSidebarStore(sessionSidebarStore)
   setVoiceModelStore(voiceModelStore)
@@ -105,8 +97,6 @@ export function createAppCore(): AppCore {
     statusBar,
     planStore,
     sessionEnvironmentStore,
-    runStore,
-    runDockStore,
     projectConfigStore,
     sessionSidebarStore,
     voiceModelStore,

@@ -21,6 +21,8 @@ function status(overrides: Partial<ReviewGuideStatusEvent> = {}): ReviewGuideSta
   }
 }
 
+const oneHost = () => 'host-a'
+
 describe('ReviewGuideStore', () => {
   test('rehydrates a cached branch guide independently of its view component', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
@@ -35,7 +37,7 @@ describe('ReviewGuideStore', () => {
       headSha: 'head-a',
       revision: 'head-a|src/a.ts',
     }
-    const store = new ReviewGuideStore(() => new HostEventSubscriber())
+    const store = new ReviewGuideStore(() => new HostEventSubscriber(), oneHost)
 
     await store.load(api, {} as never, identity, 'branch')
 
@@ -49,7 +51,7 @@ describe('ReviewGuideStore', () => {
     const { ReviewGuideStore } = await import(
       '../../src/renderer/components/review/review-guide.store.svelte'
     )
-    const store = new ReviewGuideStore(() => new HostEventSubscriber())
+    const store = new ReviewGuideStore(() => new HostEventSubscriber(), oneHost)
     const api = {} as typeof window.solus
 
     store.set(api, status())
@@ -73,7 +75,7 @@ describe('ReviewGuideStore', () => {
           resolvers.set(ctx.request, resolve)
         }),
     } as unknown as typeof window.solus
-    const store = new ReviewGuideStore(() => new HostEventSubscriber())
+    const store = new ReviewGuideStore(() => new HostEventSubscriber(), oneHost)
     const first = {
       repoRoot: '/repo',
       key: 'feature__reviews',
@@ -109,7 +111,7 @@ describe('ReviewGuideStore', () => {
       key: 'feature__reviews',
       revision: 'head-a|src/a.ts',
     }
-    const store = new ReviewGuideStore(() => events)
+    const store = new ReviewGuideStore(() => events, oneHost)
 
     await store.generate(api, {} as never, identity, { scope: 'branch' })
     expect(store.statusFor(api, identity)?.status).toBe('queued')
@@ -130,7 +132,7 @@ describe('ReviewGuideStore', () => {
     const events = new HostEventSubscriber()
     const cached = status()
     const api = { reviewGuideStatus: async () => cached } as unknown as typeof window.solus
-    const store = new ReviewGuideStore(() => events)
+    const store = new ReviewGuideStore(() => events, oneHost)
     const readyEvents: ReviewGuideStatusEvent[] = []
     store.onReady((_api, event) => readyEvents.push(event))
 
@@ -161,7 +163,7 @@ describe('ReviewGuideStore', () => {
     const { ReviewGuideStore } = await import(
       '../../src/renderer/components/review/review-guide.store.svelte'
     )
-    const store = new ReviewGuideStore(() => new HostEventSubscriber())
+    const store = new ReviewGuideStore(() => new HostEventSubscriber(), oneHost)
     const api = {} as typeof window.solus
     const identity = { repoRoot: '/repo', key: 'feature__reviews' }
 
@@ -175,5 +177,22 @@ describe('ReviewGuideStore', () => {
     expect(store.indicatorStatusFor(api, identity)?.status).toBe('generating')
     store.set(api, status({ updatedAt: 4 }))
     expect(store.indicatorStatusFor(api, identity)?.status).toBe('ready')
+  })
+
+  test('retains guide state when a released connection is recreated', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
+    const { ReviewGuideStore } = await import(
+      '../../src/renderer/components/review/review-guide.store.svelte'
+    )
+    const firstApi = {} as typeof window.solus
+    const recreatedApi = {} as typeof window.solus
+    const store = new ReviewGuideStore(() => new HostEventSubscriber(), oneHost)
+    const identity = { repoRoot: '/repo', key: 'feature__reviews' }
+
+    store.set(firstApi, status())
+
+    // WHY: releasing an unused socket is an ownership detail. Recreating its
+    // host handle must not erase the durable guide state that the host owns.
+    expect(store.statusFor(recreatedApi, identity)).toEqual(status())
   })
 })

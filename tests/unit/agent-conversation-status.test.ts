@@ -23,7 +23,7 @@ describe('agent conversation status retention', () => {
     } as never
     const store = new AgentConversationStatusStore(() => new HostEventSubscriber())
 
-    const release = store.retain('agent-1', api)
+    const release = store.retain('agent-1', api, 'studio')
     expect(store.trackedCount()).toBe(1)
     release()
     resolveInfo({ sessionId: 'agent-1', status: 'idle', provider: 'codex' })
@@ -40,8 +40,8 @@ describe('agent conversation status retention', () => {
       getSessionInfo: async () => null,
     } as never
     const store = new AgentConversationStatusStore(() => new HostEventSubscriber())
-    const releaseFirst = store.retain('agent-1', api)
-    const releaseSecond = store.retain('agent-1', api)
+    const releaseFirst = store.retain('agent-1', api, 'studio')
+    const releaseSecond = store.retain('agent-1', api, 'studio')
     releaseFirst()
     expect(store.trackedCount()).toBe(1)
     releaseSecond()

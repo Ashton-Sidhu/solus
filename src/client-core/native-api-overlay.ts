@@ -5,8 +5,10 @@ const RPC_METHODS = new Set<string>(RPC_INVOKE_METHODS)
 export const NATIVE_ONLY_SOLUS_METHODS = [
   'getPlatform',
   'getPathForFile',
+  'readAttachmentBytes',
   'getLocalConnection',
   'openExternal',
+  'showNotification',
   'setQuoteContext',
   'onQuoteSelection',
   'onAskSelectionInNewSession',

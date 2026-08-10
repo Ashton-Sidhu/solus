@@ -11,6 +11,8 @@
   import type { Automation } from "../../../shared/types";
   import { getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
+  import { serverConnections } from "@client-core/server-connections";
+  import { resolveSessionMetaRef } from "@client-core/session-meta";
   import { folderLabel, triggerSummary } from "./lib/automation-format";
   import {
     AUTOMATION_TEMPLATES,
@@ -44,6 +46,7 @@
   let draftPrompt = $state<string | null>(null);
   let draftingCwd = $state<string | null>(null);
   let draftingSessionId = $state<string | null>(null);
+  let draftingServerId = $state<string | null>(null);
   // The automations that already existed when the handoff started, so the one
   // the agent saves can be told apart from them. `automationsStore` learns about
   // the save through `automation.changed`, with no polling here.
@@ -56,7 +59,9 @@
       ? null
       : (store.items.find(
           (a) =>
-            !automationIdsBeforeDraft.has(a.id) && a.createdBy.kind === "agent",
+            !automationIdsBeforeDraft.has(a.id) &&
+            a.createdBy.kind === "agent" &&
+            store.hostFor(a.id) === draftingServerId,
         ) ?? null),
   );
 
@@ -83,12 +88,19 @@
     const cwd = projectPath;
     draftPrompt = text;
     draftingCwd = cwd;
+    draftingServerId = serverConnections.connectionFor()?.serverId ?? null;
+    if (!draftingServerId) {
+      toasts.error("Couldn't start a session: no host is connected");
+      dismissDraft();
+      return;
+    }
     automationIdsBeforeDraft = new Set(store.items.map((a) => a.id));
     description = "";
     try {
       draftingSessionId = await session.createAutomationDraftSession(
         draftAutomationPrompt(text, cwd),
         cwd,
+        draftingServerId,
       );
     } catch {
       toasts.error("Couldn't start a session for that description");
@@ -101,15 +113,16 @@
     draftPrompt = null;
     draftingCwd = null;
     draftingSessionId = null;
+    draftingServerId = null;
   }
 
   async function openDraftingSession() {
     if (!draftingSessionId || !draftingCwd) return;
     try {
-      const api = session.activeTabId
-        ? session.apiFor(session.activeTabId)
-        : window.solus;
-      const meta = await api.getSessionInfo(draftingSessionId);
+      const meta = await resolveSessionMetaRef({
+        sessionId: draftingSessionId,
+        serverId: draftingServerId ?? undefined,
+      });
       if (!meta) throw new Error("Session not found");
       await session.resumeSession({ ...meta, cwd: meta.cwd || draftingCwd });
     } catch {
@@ -119,9 +132,15 @@
 
   async function seedTemplate(template: AutomationTemplate) {
     if (seedingId) return;
+    const serverId = serverConnections.connectionFor()?.serverId;
+    if (!serverId) {
+      toasts.error("Couldn't create that automation: no host is connected");
+      return;
+    }
     seedingId = template.id;
     try {
       const created = await store.create(
+        serverId,
         template.name,
         {
           prompt: template.prompt,

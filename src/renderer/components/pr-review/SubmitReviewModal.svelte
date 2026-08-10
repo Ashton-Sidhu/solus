@@ -14,6 +14,7 @@
   import { getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import type { HostApi } from "@client-core/host-api";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { Button } from "../ui/button";
 
@@ -30,6 +31,7 @@
     onClose,
     onSubmitted,
     getCtx,
+    getApi,
   }: {
     pr: PrReviewContext;
     drafts: ReviewDraftComment[];
@@ -40,6 +42,7 @@
     /** Context override so embedded hosts can submit against the PR's own
      *  project rather than the active tab's. Defaults to the active tab. */
     getCtx?: () => IpcContext;
+    getApi: () => HostApi;
   } = $props();
 
   const session = getWorkspaceContext();
@@ -113,7 +116,11 @@
     }));
     const review: DraftReview = { body: body.trim(), event, commitId: pr.headSha, baseSha: pr.baseSha, comments };
     try {
-      await window.solus.prSubmitReview(getCtx?.() ?? session.ctx, pr.number, review);
+      await getApi().prSubmitReview(
+        getCtx?.() ?? session.ctx,
+        pr.number,
+        review,
+      );
       body = "";
       onSubmitted();
       closeModal();

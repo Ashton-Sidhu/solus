@@ -39,6 +39,8 @@
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import type { BindingId } from "../../lib/keybindings/manifest";
   import type { Scope } from "../../lib/keybindings/types";
+  import { localApi } from "@client-core/local-api";
+  import { serverConnections } from "@client-core/server-connections";
 
   interface Props {
     /** Document title. Shown in the header's title cluster (alongside the pane
@@ -516,9 +518,9 @@
   }
 
   async function openUrl(url: string, options?: { hideAppAfterOpen?: boolean }) {
-    if (window.solus.getPlatform() !== "web") {
+    if (localApi.getPlatform() !== "web") {
       try {
-        const opened = await window.solus.openExternal(url, options);
+        const opened = await localApi.openExternal(url, options);
         if (opened) return;
       } catch {}
     }
@@ -535,13 +537,14 @@
     try {
       const markdown = currentMarkdown();
       const request = { title, markdown, oauthCallbackBaseUrl: googleOAuthCallbackBaseUrl() };
-      let result: unknown = await window.solus.googleUploadDoc(request);
+      // primary-host by decision (docs/plans/multi-host-parity.md)
+      let result: unknown = await serverConnections.primaryApi().googleUploadDoc(request);
       if (isGoogleAuthUrlResult(result)) {
         await openUrl(result.authUrl);
         const deadline = Math.min(result.expiresAt ?? Date.now() + 5 * 60_000, Date.now() + 5 * 60_000);
         while (Date.now() < deadline) {
           await sleep(2000);
-          result = await window.solus.googleUploadDoc(request);
+          result = await serverConnections.primaryApi().googleUploadDoc(request);
           if (!isGoogleAuthUrlResult(result)) break;
         }
       }

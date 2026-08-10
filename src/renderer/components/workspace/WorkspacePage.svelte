@@ -14,7 +14,6 @@
     XIcon,
   } from "phosphor-svelte";
   import type { PlanDescriptor, Work } from "../../../shared/types";
-  import { planKey } from "../../../shared/types";
   import {
     getWorkspaceContext,
     getPlanStore,
@@ -535,6 +534,7 @@
     const work = item.source.kind === "work" ? item.source.work : null;
     const tabId = await session.resumeSession(
       {
+        serverId: descriptor?.serverId ?? (work ? session.worksStore.hostFor(work.id) ?? undefined : undefined),
         provider: descriptor?.provider ?? work?.agentProvider ?? session.settings.activeAgent,
         sessionId: item.sessionId,
         slug: null,
@@ -556,21 +556,7 @@
       return;
     }
     const d = item.source.descriptor;
-    const nowPinned = !d.bookmarked;
-    d.bookmarked = nowPinned;
-    d.bookmarkedAt = nowPinned ? Date.now() : undefined;
-    const plan = planStore.get(planKey(d.sessionId, d.planToolUseId));
-    if (plan) {
-      plan.bookmarked = nowPinned;
-      plan.bookmarkedAt = d.bookmarkedAt;
-    }
-    window.solus.toggleBookmarkPlan(
-      d.sessionId,
-      d.projectPath,
-      d.cwd,
-      d.planToolUseId,
-      d.title,
-    );
+    void planStore.toggleBookmarkDescriptor(d);
   }
 
   /** Works only — a plan is a session artifact and has no delete. */

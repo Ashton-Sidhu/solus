@@ -1,5 +1,7 @@
 import { createAppContext } from './create-app-context'
 import { MOBILE_QUERY } from './runtime.svelte'
+import { localApi } from '@client-core/local-api'
+import { serverConnections } from '@client-core/server-connections'
 
 export type ViewMode = 'pill' | 'editor'
 
@@ -17,7 +19,7 @@ export class WindowContext {
   get isElectron(): boolean { return !this.isWeb && this.platform !== 'unknown' }
 
   constructor() {
-    this.platform = window.solus.getPlatform()
+    this.platform = localApi.getPlatform()
     this.viewMode = this.loadViewMode()
     // Publish the macOS-editor flag once: it drives the titlebar safe-area vars
     // (see --solus-traffic-light-inset in index.css) so all chrome reserves the
@@ -74,7 +76,7 @@ export class WindowContext {
    *  surface the other mode's window (creating it on first use). */
   async setViewMode(mode: ViewMode): Promise<void> {
     if (this.isWeb) return
-    await window.solus.switchMode(mode)
+    await serverConnections.primaryApi().switchMode(mode)
   }
 }
 

@@ -210,14 +210,14 @@
         <div class="flex items-center gap-2 min-w-0">
           <BellIcon size={14} class="text-(--solus-text-tertiary)" />
           <div class="text-[0.75rem] font-medium text-(--solus-text-primary)">
-            Notification sound
+            Notifications
           </div>
         </div>
         <Switch
           checked={theme.soundEnabled}
           onCheckedChange={(next) => theme.update({ soundEnabled: next })}
           size="default"
-          aria-label="Toggle notification sound"
+          aria-label="Toggle notifications"
         />
       </div>
 

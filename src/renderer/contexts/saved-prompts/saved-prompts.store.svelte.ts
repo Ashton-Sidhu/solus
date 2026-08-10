@@ -1,5 +1,6 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { SavedPrompt } from '../../../shared/types'
+import { serverConnections } from '@client-core/server-connections'
 
 /**
  * Renderer-side cache + RPC wrapper for saved prompts, keyed by project root.
@@ -29,7 +30,7 @@ export class SavedPromptsStore {
     }
     const load = (async () => {
       try {
-        const list = await window.solus.savedPromptsList(projectRoot)
+        const list = await serverConnections.primaryApi().savedPromptsList(projectRoot)
         this.byProjectRoot.set(projectRoot, list)
         return list
       } catch (err) {
@@ -49,12 +50,12 @@ export class SavedPromptsStore {
    * wire throws.
    */
   async create(prompt: SavedPrompt): Promise<void> {
-    const list = await window.solus.savedPromptsCreate($state.snapshot(prompt) as SavedPrompt)
+    const list = await serverConnections.primaryApi().savedPromptsCreate($state.snapshot(prompt) as SavedPrompt)
     this.byProjectRoot.set(prompt.projectRoot, list)
   }
 
   async remove(projectRoot: string, id: string): Promise<void> {
-    const list = await window.solus.savedPromptsDelete(projectRoot, id)
+    const list = await serverConnections.primaryApi().savedPromptsDelete(projectRoot, id)
     this.byProjectRoot.set(projectRoot, list)
   }
 }

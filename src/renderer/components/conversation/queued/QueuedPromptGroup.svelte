@@ -64,7 +64,7 @@
 
   function handleRemove(prompt: OutboundPrompt) {
     if (!prompt.queueId) return;
-    window.solus
+    session.apiFor(tabId)
       .cancelQueuedPrompt(session.ctxFor(tabId), prompt.queueId)
       .catch(reportError);
     requestInputFocus();
@@ -72,7 +72,7 @@
 
   function handleEdit(prompt: OutboundPrompt, text: string) {
     if (!prompt.queueId) return;
-    window.solus
+    session.apiFor(tabId)
       .editQueuedPrompt(session.ctxFor(tabId), prompt.queueId, text)
       .catch(reportError);
     requestInputFocus();

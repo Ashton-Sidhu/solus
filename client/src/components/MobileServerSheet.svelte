@@ -62,12 +62,14 @@
   const sectionLabel = "block px-1 mb-1 mt-3 text-[0.6875rem] font-semibold tracking-[0.03em] uppercase text-(--solus-text-tertiary)";
 </script>
 
-{#snippet statusDot(status: "online" | "connecting" | "offline" | "saved")}
+{#snippet statusDot(status: "online" | "connecting" | "offline" | "saved" | "different-server")}
   <span
     class="shrink-0 w-2 h-2 rounded-full {status === 'online'
       ? 'bg-(--solus-status-complete)'
       : status === 'connecting'
         ? 'bg-(--solus-accent) animate-pulse'
+        : status === 'different-server'
+          ? 'bg-(--solus-status-error)'
         : 'bg-(--solus-text-quaternary) opacity-60'}"
     aria-label={hostStatusLabel(status)}
   ></span>

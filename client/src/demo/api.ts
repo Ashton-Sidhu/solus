@@ -1,22 +1,19 @@
 import { RPC_INVOKE_METHODS } from '../../../src/shared/rpc'
 import type { DemoBackend } from './server'
+import { createNoHostSolusApi } from '@client-core/no-host-api'
+import { asHostApi, type HostApi } from '@client-core/host-api'
 
-export function createDemoSolusApi(backend: DemoBackend): Window['solus'] {
-  const api: Record<string, unknown> = {
-    getPlatform: () => 'web',
-    getPathForFile: () => '',
-    setQuoteContext: () => {},
-    onQuoteSelection: () => () => {},
-    onAskSelectionInNewSession: () => () => {},
-  }
+export function createDemoSolusApi(backend: DemoBackend): HostApi {
+  const api = createNoHostSolusApi()
+  const methods = api as unknown as Record<string, unknown>
 
   for (const method of RPC_INVOKE_METHODS) {
-    api[method] = (...args: unknown[]) => backend.handle(method, args)
+    methods[method] = (...args: unknown[]) => backend.handle(method, args)
   }
 
-  api.transcribeAudio = async () => ''
-  api.attachFiles = async () => null
-  api.uploadFiles = async () => null
+  methods.transcribeAudio = async () => ''
+  methods.attachFiles = async () => null
+  methods.uploadFiles = async () => null
 
-  return api as unknown as Window['solus']
+  return asHostApi(api)
 }

@@ -1,5 +1,6 @@
 import { track } from './analytics'
 import { disposePcmCaptureResources, PcmCapture, type PcmChunk } from './pcm-capture'
+import { serverConnections } from '@client-core/server-connections'
 
 // Audio is held back from the buffer until a chunk crosses this rms — leading
 // mic-onset noise/breath decodes as garbage punctuation (a stray "?"). Same
@@ -101,7 +102,7 @@ export class VoiceRecorder {
 
     // The ~1s worker fork + ONNX session load overlaps the recording itself
     // instead of adding to post-stop transcription latency.
-    void window.solus.warmTranscription?.().catch(() => {})
+    void serverConnections.primaryApi().warmTranscription?.().catch(() => {})
 
     let stream: MediaStream
     try {
@@ -273,7 +274,7 @@ export class VoiceRecorder {
     const transcribeStartedAt = performance.now()
     let allowAutoRearm = false
     try {
-      const result = await window.solus.transcribeAudio(pending.samples)
+      const result = await serverConnections.primaryApi().transcribeAudio(pending.samples)
       this.#logDevTranscriptionSession({
         transcript: result.transcript,
         startedAtIso: pending.startedAtIso,
@@ -357,7 +358,7 @@ export class VoiceRecorder {
     }
 
     console.debug('[Solus][VoiceTranscription]', row)
-    void window.solus.logVoiceTranscription(row)
+    void serverConnections.primaryApi().logVoiceTranscription(row)
   }
 }
 
@@ -451,7 +452,7 @@ function microphoneUnsupportedMessage(): string | null {
 }
 
 function supportsBatchTranscription(): boolean {
-  return typeof window.solus.transcribeAudio === 'function' &&
+  return typeof serverConnections.primaryApi().transcribeAudio === 'function' &&
     typeof AudioWorkletNode !== 'undefined'
 }
 

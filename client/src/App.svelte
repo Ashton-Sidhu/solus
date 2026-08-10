@@ -29,10 +29,14 @@
   import { connectionsStore, parseRoute, serversStore, runtime } from "@renderer/contexts";
   import { toasts } from "@renderer/lib/toasts";
   import { serverConnections } from "@client-core/server-connections";
+  import { unsupportedOnHost } from "@client-core/host-capabilities";
+  import { subscribeAllHosts } from "@client-core/host-events";
+  import { notificationsStore } from "@renderer/contexts/notifications/notifications.store.svelte";
   import { openProjectStore } from "@renderer/components/servers/open-project.store.svelte";
   import { hostOnboardingStore } from "@renderer/components/servers/host-onboarding.store.svelte";
   import { moveTabToHost, isRunOnHostLocked } from "@renderer/components/servers/run-on";
   import { webState } from "./lib/web-state.svelte";
+  import { webPushState } from "./lib/web-push.svelte";
   import {
     useKeybinding,
     installGlobalDispatcher,
@@ -52,17 +56,34 @@
     settings,
     windowCtx,
     planStore,
-    runStore,
     projectConfigStore,
     sessionSidebarStore,
+    voiceModelStore,
     session,
     agent,
     keybindings,
   } = createAppCore();
 
   const taskComposer = $derived(session.ui.taskComposer);
+  const taskComposerServerId = $derived(
+    taskComposer
+      ? (session.tasksStore.hostForProject(taskComposer.cwd) ??
+        serverConnections.connectionFor()?.serverId ??
+        null)
+      : null,
+  );
+  const taskComposerHost = $derived(
+    taskComposerServerId
+      ? {
+          serverId: taskComposerServerId,
+          api: serverConnections.apiFor(taskComposerServerId),
+        }
+      : null,
+  );
   const taskComposerConfig = $derived(
-    taskComposer ? projectConfigStore.configFor(taskComposer.cwd) : undefined,
+    taskComposer
+      ? projectConfigStore.configFor(taskComposerServerId, taskComposer.cwd)
+      : undefined,
   );
   const taskComposerProvider = $derived(
     taskComposerConfig?.taskProvider ?? "local",
@@ -78,8 +99,8 @@
   );
 
   $effect(() => {
-    if (!taskComposer) return;
-    void projectConfigStore.load(taskComposer.cwd);
+    if (!taskComposer || !taskComposerHost) return;
+    void projectConfigStore.load(taskComposerHost, taskComposer.cwd);
   });
 
   const initialViewMode = windowCtx.viewMode;
@@ -204,10 +225,13 @@
   });
 
   // Slash command discovery is backend-scoped, so refresh when the active agent changes.
-  // untrack the directory so this doesn't re-run on every session mutation.
+  // Keep the whole refresh outside tracking: the command loader reads more session
+  // state synchronously before its first await, but only an agent change belongs here.
   $effect(() => {
     void settings.activeAgent;
-    void session.refreshPluginCommands(untrack(() => session.tabCtx.workingDirectory));
+    untrack(() =>
+      void session.refreshPluginCommands(session.tabCtx.workingDirectory),
+    );
   });
 
   setupAgentEvents(session);
@@ -312,8 +336,8 @@
   // the picker is actually on screen. On web, LOCAL resolves to the primary.
   const directoryPickerApi = $derived(
     !directoryPickerOpen || directoryPickerServerId === LOCAL_SERVER_ID
-      ? window.solus
-      : (serverConnections.apiFor(directoryPickerServerId) as typeof window.solus),
+      ? serverConnections.primaryApi()
+      : serverConnections.apiFor(directoryPickerServerId),
   );
   const directoryPickerHostLabel = $derived.by(() => {
     const host = serversStore.hostFor(directoryPickerServerId);
@@ -337,17 +361,67 @@
     return () => media.removeEventListener('change', apply);
   });
 
+  // Host listeners belong to the lifetime of this app, not to state that a
+  // listener callback or an initial loader happens to read synchronously.
+  $effect(() =>
+    untrack(() => {
+      const events = serverConnections.eventsForPrimary();
+      const unsubVoiceModel = subscribeAllHosts('voice.modelStatusChanged', (serverId, status) =>
+        voiceModelStore.apply(status, serverId),
+      );
+      const unsubSessionStatuses = sessionSidebarStore.subscribeSessionStatuses();
+      void voiceModelStore.refresh();
+      const unsubAutomations = subscribeAllHosts('automation.changed', (serverId, event) => {
+        session.automationsStore.applyChange(serverId, event);
+        if (event.kind === 'run-finished' && event.run.status === 'failed') {
+          toasts.error(`Automation "${event.automation.name}" failed`, {
+            action: {
+              label: 'View',
+              onAction: () => session.openAutomations(event.automation.id),
+            },
+          });
+        }
+      });
+      const unsubUsage = events.subscribe('usage.limitsChanged', ({ snapshots }) =>
+        agent.applyUsage(snapshots),
+      );
+      void agent.refreshUsage();
+      return () => {
+        unsubVoiceModel();
+        unsubSessionStatuses();
+        unsubAutomations();
+        unsubUsage();
+      };
+    }),
+  );
+
   $effect(() => {
-    const events = serverConnections.eventsFor();
-    const unsubRun = events.subscribe('run.statusChanged', (status) => runStore.apply(status));
-    const unsubUsage = events.subscribe('usage.limitsChanged', ({ snapshots }) =>
-      agent.applyUsage(snapshots),
-    );
-    void agent.refreshUsage();
-    return () => {
-      unsubRun();
-      unsubUsage();
-    };
+    const enabled = settings.soundEnabled;
+    void webPushState.syncEnabled(enabled);
+    if (!enabled) {
+      notificationsStore.stop();
+      return;
+    }
+    return untrack(() => notificationsStore.start({
+      hostDisplay: (serverId) => {
+        const host = serversStore.hostFor(serverId);
+        return {
+          label: host?.label ?? "this host",
+          ...(host && "installationId" in host && host.installationId
+            ? { installationId: host.installationId }
+            : {}),
+          isPrimary: serverConnections.connectionFor()?.serverId === serverId,
+        };
+      },
+      isSessionFocused: (serverId, sessionId) =>
+        document.visibilityState === "visible" &&
+        document.hasFocus() &&
+        session.isSessionVisibleOnHost(serverId, sessionId),
+      openRoute: (serialized) => {
+        const route = parseRoute(serialized);
+        if (route) session.openRoute(route);
+      },
+    }));
   });
 
   // A notification click arrives as a serialized route — the same vocabulary the
@@ -380,7 +454,7 @@
       settings.setSystemTheme(window.matchMedia('(prefers-color-scheme: dark)').matches);
       initializeRuntime(session, sessionSidebarStore);
       void connectionsStore.refreshCapabilities();
-      session.prsStore.reportChecksActivity(session.ctx);
+      session.prsStore.reportChecksActivity(session.apiForContext(session.ctx), session.ctx);
     }
   });
 
@@ -757,9 +831,31 @@
   }
 
   async function handleAttachFile(tabId?: string) {
-    const files = await window.solus.attachFiles();
+    const targetTabId = tabId ?? session.focusedChatTabId ?? session.activeTabId;
+    const serverId =
+      (targetTabId ? session.runFor(targetTabId)?.serverId : undefined) ??
+      serverConnections.connectionFor()?.serverId;
+    if (!serverId) return;
+    const capabilities = await serverConnections.capabilitiesFor(serverId);
+    if (capabilities.attachUpload !== true) {
+      const hostLabel =
+        serversStore.hostFor(serverId)?.label ??
+        serverConnections.connectionFor(serverId)?.target.label ??
+        "this host";
+      toasts.info(unsupportedOnHost("File attachments", hostLabel));
+      return;
+    }
+    const api = targetTabId ? session.apiFor(targetTabId) : serverConnections.primaryApi();
+    const ctx = targetTabId ? session.ctxFor(targetTabId) : session.ctx;
+    const files = await api.attachFiles(ctx);
     if (!files || files.length === 0) return;
-    session.addAttachments(files, tabId);
+    const runServerId = targetTabId ? session.runFor(targetTabId)?.serverId : undefined;
+    if (runServerId) {
+      for (const file of files) {
+        if (file.hostPath) file.hostServerId = runServerId;
+      }
+    }
+    session.addAttachments(files, targetTabId);
   }
 
   async function cycleAgentProvider(via: "click" | "keybinding" | "palette" = "click") {
@@ -806,8 +902,28 @@
       isDraggingFile = false;
       const files = e.dataTransfer?.files;
       if (!files || files.length === 0) return;
-      const attachments = await (window.solus as any).uploadFiles(Array.from(files));
-      if (attachments) session.addAttachments(attachments);
+      const tabId = session.focusedChatTabId ?? session.activeTabId;
+      const serverId =
+        (tabId ? session.runFor(tabId)?.serverId : undefined) ??
+        serverConnections.connectionFor()?.serverId;
+      if (!serverId) return;
+      const capabilities = await serverConnections.capabilitiesFor(serverId);
+      if (capabilities.attachUpload !== true) {
+        const hostLabel =
+          serversStore.hostFor(serverId)?.label ??
+          serverConnections.connectionFor(serverId)?.target.label ??
+          "this host";
+        toasts.info(unsupportedOnHost("File attachments", hostLabel));
+        return;
+      }
+      const api = tabId ? session.apiFor(tabId) : serverConnections.primaryApi();
+      const ctx = tabId ? session.ctxFor(tabId) : session.ctx;
+      const attachments = await api.uploadFiles(Array.from(files), ctx);
+      const runServerId = tabId ? session.runFor(tabId)?.serverId : undefined;
+      if (attachments && runServerId) {
+        for (const attachment of attachments) attachment.hostServerId = runServerId;
+      }
+      if (attachments) session.addAttachments(attachments, tabId);
     };
     document.addEventListener("dragenter", onDragEnter);
     document.addEventListener("dragover", onDragOver);

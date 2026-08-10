@@ -45,6 +45,7 @@ export const CLOUDFLARE_TOKEN_PERMISSIONS = [
 ] as const
 
 class CloudflareStore {
+  // primary-host by decision pending WP6 host framing (docs/plans/multi-host-parity.md)
   status = $state<CloudflareStatus | null>(null)
   statusLoaded = $state(false)
   connecting = $state(false)
@@ -88,7 +89,7 @@ class CloudflareStore {
 
   private async loadStatus(): Promise<void> {
     try {
-      this.status = await window.solus.cloudflareStatus()
+      this.status = await serverConnections.primaryApi().cloudflareStatus()
     } catch (e) {
       console.error('cloudflareStatus failed', e)
     } finally {
@@ -107,7 +108,7 @@ class CloudflareStore {
     this.connecting = true
     this.failure = null
     try {
-      const result = await window.solus.cloudflareConnect(
+      const result = await serverConnections.primaryApi().cloudflareConnect(
         accountId ? { apiToken, accountId } : { apiToken },
       )
       if (result.ok) {
@@ -134,7 +135,7 @@ class CloudflareStore {
 
   async disconnect(): Promise<void> {
     try {
-      await window.solus.cloudflareDisconnect()
+      await serverConnections.primaryApi().cloudflareDisconnect()
       this.failure = null
       await this.refreshStatus()
     } catch (e) {
@@ -155,7 +156,7 @@ class CloudflareStore {
    *  if no Cloudflare surface has ever been opened, so the status read is
    *  kicked off here rather than waiting for a component to ask. */
   listenForConnectRequests(): () => void {
-    return serverConnections.eventsFor().subscribe('cloudflare.connectNeeded', () => {
+    return serverConnections.eventsForPrimary().subscribe('cloudflare.connectNeeded', () => {
       void this.ensureStatus().then(() => {
         // Main only broadcasts on a disconnected profile, but the user may have
         // connected from Settings in the meantime — don't ask twice.

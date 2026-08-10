@@ -358,12 +358,17 @@ export function findOpenTabForSession(
   sessions: Record<string, Session>,
   tabOrder: string[],
   provider?: SessionMeta['provider'],
+  serverId?: string,
 ): string | null {
   for (const tabId of tabOrder) {
     const tab = tabs[tabId]
     if (!tab) continue
     const sess = sessions[tab.sessionId]
-    if (sess?.agentSessionId === sessionId && (!provider || sess.run.provider === provider)) return tabId
+    if (
+      sess?.agentSessionId === sessionId
+      && (!provider || sess.run.provider === provider)
+      && (!serverId || sess.run.serverId === serverId)
+    ) return tabId
   }
   return null
 }

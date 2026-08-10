@@ -1,6 +1,7 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { Via } from '../../../../shared/analytics-events'
 import type { IpcContext } from '../../../../shared/types'
+import type { HostApi } from '@client-core/host-api'
 import { track } from '../../../lib/analytics'
 import { parseLocation, serializeLocation } from './codec'
 import { BrowserRouteHistory, MemoryRouteHistory, type RouteHistory } from './route-history'
@@ -257,7 +258,7 @@ export class RouterStore {
    */
   async resolve<T>(
     ref: RouteRef,
-    ctx: { api: typeof window.solus; ipc: (cwd?: string) => IpcContext },
+    ctx: { api: HostApi; ipc: (cwd?: string) => IpcContext },
   ): Promise<T | null> {
     const descriptor = ROUTES[ref.name]
     if (!descriptor.resolve) return null

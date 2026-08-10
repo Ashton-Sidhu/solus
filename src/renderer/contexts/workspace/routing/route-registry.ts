@@ -1,5 +1,7 @@
 import type { Component } from 'svelte'
 import type { DiffScope } from '../../../../shared/types'
+import type { HostApi } from '@client-core/host-api'
+import { serverConnections } from '@client-core/server-connections'
 
 /**
  * Every destination Solus can navigate to, declared once.
@@ -54,7 +56,7 @@ export interface RouteParams {
    *  active-tab pool; naming one pins that conversation into the pane. A tab is
    *  where a session is currently rendered, which is the workspace's business
    *  to resolve — routing never carries one. */
-  chat: { sessionId?: string }
+  chat: { sessionId?: string; serverId?: string }
   /** A prompt being written that has no session and no tab yet. The id is
    *  identity only — the draft it names lives in `workspace.sessionDrafts`,
    *  because a location must stay serializable. */
@@ -68,12 +70,12 @@ export interface RouteParams {
   automations: { automationId?: string }
   plan: { planId: string | null }
   work: { workId: string }
-  automation: { automationId: string | null }
+  automation: { automationId: string | null; serverId?: string }
   /** A goal belongs to a thread, so the pane names the session — not whichever
    *  tab happened to open it, which may since have closed. */
   goal: { sessionId: string }
   review: { key: string; scope: 'branch' | 'session'; sourceTabId?: string }
-  prReview: { number: number; title?: string; cwd?: string }
+  prReview: { number: number; title?: string; cwd?: string; serverId?: string }
   prDiff: { number: number; cwd?: string }
   // The working directory and checkout a viewer runs against are derived from
   // its source tab's environment, not carried: they are live Git state, and a
@@ -134,7 +136,7 @@ export interface RouteDescriptor<K extends RouteName> {
 /** What a descriptor's `resolve` is handed: the IPC surface plus the caller's
  *  project scope, with no reference back to the pane it is filling. */
 export interface RouteResolveContext {
-  api: typeof window.solus
+  api: HostApi
   ipc: (cwd?: string) => import('../../../../shared/types').IpcContext
 }
 
@@ -175,8 +177,15 @@ function parseDiffScope(segment: string | undefined): DiffScope {
 
 export const ROUTES = defineRoutes({
   chat: {
-    parse: (s) => ({ sessionId: optional(s) }),
-    serialize: (p) => p.sessionId ?? '',
+    parse: (s) => {
+      const separator = s.lastIndexOf('~')
+      return separator > 0
+        ? { sessionId: optional(s.slice(0, separator)), serverId: optional(s.slice(separator + 1)) }
+        : { sessionId: optional(s) }
+    },
+    serialize: (p) => p.sessionId
+      ? `${p.sessionId}${p.serverId ? `~${p.serverId}` : ''}`
+      : '',
     placement: 'any',
     // The pool owns a chat's lifecycle: the leading pane renders it hidden
     // rather than unmounted, so navigation never tears a conversation down.
@@ -229,9 +238,13 @@ export const ROUTES = defineRoutes({
   settings: {
     parse: (s) => {
       const [tab, ...cwd] = s.split('/')
-      if (tab && !isSettingsTab(tab)) return null
+      let settingsTab: SettingsTab | undefined
+      if (tab) {
+        if (!isSettingsTab(tab)) return null
+        settingsTab = tab
+      }
       return {
-        tab: optional(tab),
+        tab: settingsTab,
         projectCwd: optional(cwd.join('/')),
       }
     },
@@ -278,8 +291,19 @@ export const ROUTES = defineRoutes({
     component: () => import('../../../components/work/WorkPane.svelte'),
   },
   automation: {
-    parse: (s) => ({ automationId: s || null }),
-    serialize: (p) => p.automationId ?? '',
+    parse: (s) => {
+      const [first, second] = s.split('/')
+      if (first?.startsWith('host~')) {
+        return {
+          automationId: second || null,
+          serverId: optional(first.slice('host~'.length)),
+        }
+      }
+      return { automationId: s || null }
+    },
+    serialize: (p) => p.serverId
+      ? [`host~${p.serverId}`, p.automationId ?? ''].join('/').replace(/\/$/, '')
+      : p.automationId ?? '',
     placement: 'any',
     exclusiveGroup: 'artifact',
     component: () => import('../../../components/automations/AutomationPane.svelte'),
@@ -309,11 +333,20 @@ export const ROUTES = defineRoutes({
     parse: (s) => {
       const [number, ...rest] = s.split('/')
       if (!/^\d+$/.test(number)) return null
-      return { number: Number(number), cwd: optional(rest.join('/')) }
+      const hostSegment = rest[0]?.startsWith('host~') ? rest.shift() : undefined
+      const serverId = optional(hostSegment?.slice('host~'.length) ?? '')
+      const cwd = optional(rest.join('/'))
+      return {
+        number: Number(number),
+        ...(serverId ? { serverId } : {}),
+        ...(cwd ? { cwd } : {}),
+      }
     },
     // The title is display-only: it is superseded by the resolved review, so it
     // stays out of the URL rather than becoming a stale thing to keep in sync.
-    serialize: (p) => (p.cwd ? `${p.number}/${p.cwd}` : String(p.number)),
+    serialize: (p) => [String(p.number), p.serverId ? `host~${p.serverId}` : null, p.cwd]
+      .filter((segment) => segment != null)
+      .join('/'),
     // A pull request is a place inside the list, not a panel beside it: opening
     // one replaces the list in the leading pane, and the chrome band's crumb —
     // not a second copy of the list in a sidebar — is the way back and sideways.
@@ -321,7 +354,10 @@ export const ROUTES = defineRoutes({
     exclusiveGroup: 'page',
     ownsTitlebarChrome: true,
     component: () => import('../../../components/pr-review/PrReviewRoutePane.svelte'),
-    resolve: (params, ctx) => ctx.api.prOpenReview(ctx.ipc(params.cwd), params.number),
+    resolve: (params, ctx) => {
+      const api = params.serverId ? serverConnections.apiFor(params.serverId) : ctx.api
+      return api.prOpenReview(ctx.ipc(params.cwd), params.number)
+    },
   },
   prDiff: {
     parse: (s) => {
@@ -433,6 +469,6 @@ export function isArtifactRoute(ref: RouteRef | null | undefined): boolean {
 /** The chat pool's own route: the leading pane's resting state. */
 export const CHAT_ROUTE: RouteRef<'chat'> = { name: 'chat', params: {} }
 
-export function chatRoute(sessionId?: string): RouteRef<'chat'> {
-  return { name: 'chat', params: sessionId ? { sessionId } : {} }
+export function chatRoute(sessionId?: string, serverId?: string): RouteRef<'chat'> {
+  return { name: 'chat', params: sessionId ? { sessionId, ...(serverId ? { serverId } : {}) } : {} }
 }

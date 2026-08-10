@@ -19,10 +19,12 @@
    */
   let {
     number,
+    serverId,
     projectCtx,
     onExit,
   }: {
     number: number;
+    serverId: string;
     /** The *project* scope the review was opened from — sibling pull requests
      *  live there, not in this PR's worktree. */
     projectCtx: () => import("../../../shared/types").IpcContext;
@@ -45,7 +47,7 @@
   );
 
   const rowContext = $derived<PrRowContext>({
-    checks: (n) => store.checksFor(n),
+    checks: (n) => store.checksFor(serverId, projectCtx(), n),
     isMine: () => false,
   });
 
@@ -74,7 +76,10 @@
   function open(next: number) {
     menuOpen = false;
     if (next === number) return;
-    void session.openPrReview(next, store.get(next)?.title, { ctx: projectCtx() });
+    void session.openPrReview(next, store.get(next)?.title, {
+      ctx: projectCtx(),
+      serverId,
+    });
   }
 
   function step(delta: number) {

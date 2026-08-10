@@ -179,6 +179,14 @@ describe('session delegation persistence', () => {
   })
 })
 
+describe('session links', () => {
+  test('includes a client-stamped host when metadata carries one', () => {
+    const link = tools.sessionLink(meta({ serverId: 'studio' }))
+
+    expect(link).toContain('&serverId=studio')
+  })
+})
+
 describe('search_sessions executor', () => {
   function seedProject(root: string, sessionId: string, text: string): void {
     indexer.persistIndexedSessionStart(sessionId, 'codex', root, encodePathAsFolder(root), 'gpt-5.5', 'high')
@@ -186,7 +194,7 @@ describe('search_sessions executor', () => {
   }
 
   test('searches all projects by default and emits links carrying cwd + project label', async () => {
-    seedProject('/Users/test/t3code', 'found-1', 'the pelican migration plan')
+    seedProject('/Users/test/solus', 'found-1', 'the pelican migration plan')
     seedProject('/Users/test/solus', 'found-2', 'a different pelican elsewhere')
     const result = await tools.executeSessionTool('search_sessions', { query: 'pelican' }, {
       ctx: { agentProvider: 'codex', cwd: CWD, sessionId: 'me' },
@@ -196,20 +204,19 @@ describe('search_sessions executor', () => {
     expect(result.text).toContain('sessionId=found-1')
     expect(result.text).toContain('sessionId=found-2')
     // link carries the cwd for cross-project open
-    expect(result.text).toContain(`&cwd=${encodeURIComponent('/Users/test/t3code')}`)
+    expect(result.text).toContain(`&cwd=${encodeURIComponent('/Users/test/solus')}`)
     // each hit labelled with its project
-    expect(result.text).toContain('project: t3code')
+    expect(result.text).toContain('project: solus')
   })
 
   test('project param resolves a partial name and scopes (typo-tolerant via substring)', async () => {
-    seedProject('/Users/test/t3code', 'in-t3', 'pelican in t3code')
     seedProject('/Users/test/solus', 'in-solus', 'pelican in solus')
-    const result = await tools.executeSessionTool('search_sessions', { query: 'pelican', project: 't3cod' }, {
+    const result = await tools.executeSessionTool('search_sessions', { query: 'pelican', project: 'solus' }, {
       ctx: { agentProvider: 'codex', cwd: CWD, sessionId: 'me' },
     })
     expect(result.ok).toBe(true)
-    expect(result.text).toContain('Scoped to project t3code')
-    expect(result.text).toContain('sessionId=in-t3')
+    expect(result.text).toContain('Scoped to project solus')
+    expect(result.text).toContain('sessionId=in-solus')
     expect(result.text).not.toContain('sessionId=in-solus')
   })
 

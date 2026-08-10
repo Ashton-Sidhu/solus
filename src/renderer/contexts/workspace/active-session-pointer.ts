@@ -1,4 +1,5 @@
 import type { AgentId } from '../../../shared/types'
+import { localApi } from '@client-core/local-api'
 
 // Explicit "continue in the other mode" (⌥⇧E) handoff. Both Electron windows
 // share one localStorage; tab stores stay per-window, and this one-shot key
@@ -18,7 +19,7 @@ const HANDOFF_TTL_MS = 30_000
 
 function isElectron(): boolean {
   try {
-    return window.solus.getPlatform() !== 'web'
+    return localApi.getPlatform() !== 'web'
   } catch {
     return false
   }

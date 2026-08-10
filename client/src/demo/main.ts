@@ -25,6 +25,7 @@ import type { WsTransport } from '@client-core/ws-transport'
 import { armReplay, createReplayEngine } from './replay/engine'
 import DemoCtaOverlay from './DemoCtaOverlay.svelte'
 import DemoHintsOverlay from './DemoHintsOverlay.svelte'
+import type { LocalApi } from '@client-core/host-api'
 
 // The demo is only reachable through the landing-page iframe. A direct visit
 // to /demo/ redirects home; append ?standalone to bypass (local dev/testing).
@@ -51,8 +52,9 @@ registerAutomationsHandlers(backend, store)
 registerDiffHandlers(backend, store)
 registerFilesHandlers(backend, store)
 registerAgentIntercept(backend, store)
-window.solus = createDemoSolusApi(backend)
-serverConnections.registerPrimary('demo', window.solus, {
+const demoApi = createDemoSolusApi(backend)
+window.solus = demoApi as unknown as LocalApi
+serverConnections.registerPrimary('demo', demoApi, {
   events: backend.events,
   destroy: () => {},
   start: () => {},

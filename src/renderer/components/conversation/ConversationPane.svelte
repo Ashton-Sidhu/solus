@@ -45,7 +45,9 @@
       await onAttachFile(conversationTabId);
       return;
     }
-    const files = await window.solus.attachFiles();
+    const files = await session.apiFor(conversationTabId).attachFiles(
+      session.ctxFor(conversationTabId),
+    );
     if (!files || files.length === 0) return;
     session.addAttachments(files, conversationTabId);
   }

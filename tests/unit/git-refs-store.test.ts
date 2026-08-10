@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { hostKey } from '../../src/client-core/host-key'
 import type { IpcContext } from '../../src/shared/types'
 
 const previousWindow = globalThis.window
@@ -30,7 +31,8 @@ describe('SessionEnvironmentStore refs', () => {
 
     const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
-    store.refsByRoot['/repo'] = {
+    store.bindCwd('test-host', '/repo', window.solus as never)
+    store.refsByRoot[hostKey('test-host', '/repo')] = {
       worktrees: [{ path: '/repo/.worktrees/existing', branch: 'existing' }],
       branches: ['main'],
     }

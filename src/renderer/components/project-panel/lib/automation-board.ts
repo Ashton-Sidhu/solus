@@ -1,5 +1,7 @@
 import type { Automation } from '../../../../shared/types'
+import { hostKey } from '@client-core/host-key'
 import { relativeTime } from '../../automations/lib/automation-format'
+import { matchesOpenProjects } from '../../../lib/sessionUtils'
 
 // Reduces a project's automations to a glanceable status board for the panel.
 // The full catalog lives on the Automations page; the panel answers a narrower
@@ -16,6 +18,20 @@ export interface AutomationBoard {
   total: number
   /** One-line header, e.g. "2 running · 1 failed · next in 12m" (may be empty). */
   summary: string
+}
+
+/** A path matches only inside the host that owns both the automation and panel. */
+export function automationMatchesProject(
+  automation: Automation,
+  automationServerId: string | null,
+  projectServerId: string | null,
+  roots: string[],
+): boolean {
+  if (!automationServerId || !projectServerId) return false
+  return matchesOpenProjects(
+    hostKey(automationServerId, automation.action.cwd),
+    roots.map((root) => hostKey(projectServerId, root)),
+  )
 }
 
 /**

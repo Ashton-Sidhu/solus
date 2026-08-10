@@ -54,6 +54,14 @@
     answersForQuestionNote,
     pendingQuestionForPrompt,
   } from "./lib/pending-question";
+  import { localApi } from "@client-core/local-api";
+  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
+  import { hostPolicy } from "@client-core/host-policy";
+  import { serverConnections } from "@client-core/server-connections";
+  import {
+    pastedImageAttachment,
+    uploadPastedImage,
+  } from "./lib/attachment-upload";
 
   const HISTORY_KEY = "solus-prompt-history";
   const MAX_HISTORY = 100;
@@ -500,7 +508,7 @@
 
   $effect(() => {
     if (!isActiveMode) return;
-    return window.solus.onQuoteSelection((text, sourceTabId) => {
+    return localApi.onQuoteSelection((text, sourceTabId) => {
       if (sourceTabId !== targetTabId || isReadOnly) return;
       insertQuote(text);
     });
@@ -799,6 +807,7 @@
   function executeCommand(cmd: SlashCommand, argument = "") {
     if (isReadOnly && !cmd.allowReadOnly) return;
     void cmd.run?.({
+      api: session.apiForRun(run),
       argument,
       // A command run from a draft's composer has no conversation to clear or
       // to speak into; it still runs, against the project the draft points at.
@@ -1179,8 +1188,22 @@
         const reader = new FileReader();
         reader.onload = async () => {
           const dataUrl = reader.result as string;
-          const attachment = await window.solus.pasteImage(dataUrl);
-          if (attachment) prompt.attachments.push(attachment);
+          const api = session.apiForRun(run);
+          const ctx = targetTabId
+            ? session.ctxFor(targetTabId)
+            : session.ctxForDirectory(run?.workingDirectory ?? session.ctx.session.workingDirectory);
+          try {
+            const serverId = run?.serverId ?? LOCAL_SERVER_ID;
+            const capabilities = await serverConnections.capabilitiesFor(serverId);
+            const attachment = !windowCtx.isWeb && hostPolicy.isClientMachine(serverId)
+              ? await api.pasteImage(dataUrl, ctx)
+              : capabilities.attachUpload === true
+                ? await uploadPastedImage(api, ctx, serverId, dataUrl)
+                : pastedImageAttachment(dataUrl, serverId);
+            if (attachment) prompt.attachments.push(attachment);
+          } catch (error) {
+            toasts.error(error instanceof Error ? error.message : "Couldn't attach pasted image");
+          }
         };
         reader.readAsDataURL(blob);
         return;
@@ -1220,6 +1243,7 @@
     <div class="-ml-1 pt-1.5">
       <AttachmentChips
         {attachments}
+        tabId={targetTabId}
         onRemove={(id) => {
           const index = attachments.findIndex((a) => a.id === id);
           if (index !== -1) attachments.splice(index, 1);
@@ -1324,6 +1348,7 @@
         {pluginCommands}
         provider={activeProvider}
         tabId={targetTabId}
+        sessionId={sessionId ?? undefined}
         workingDirectory={composerCwd}
         onRefsChange={handleRefsChange}
         includeSolusCommands

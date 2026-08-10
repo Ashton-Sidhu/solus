@@ -1,4 +1,9 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { singleHostServerConnections } from './helpers/server-connections-mock'
+
+mock.module('@client-core/server-connections', () => ({
+  serverConnections: singleHostServerConnections(),
+}))
 
 const previousWindow = globalThis.window
 const previousState = (globalThis as unknown as { $state?: unknown }).$state

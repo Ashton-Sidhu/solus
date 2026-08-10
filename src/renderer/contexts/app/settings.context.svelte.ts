@@ -7,28 +7,23 @@ import type { KeyCombo } from '../../lib/keybindings/types'
 import { KEYBINDINGS } from '../../lib/keybindings/manifest'
 import { setAnalyticsEnabled } from '../../lib/analytics'
 import { MOBILE_QUERY } from './runtime.svelte'
+import { localApi } from '@client-core/local-api'
+import { serverConnections } from '@client-core/server-connections'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 
 export type RateLimitBehavior = 'ask' | 'queue' | 'continue' | 'stop'
-export type ProjectPanelSectionId = 'goal' | 'environment' | 'git' | 'run' | 'task' | 'automations'
+export type ProjectPanelSectionId = 'goal' | 'environment' | 'git' | 'task' | 'automations'
 const DEFAULT_PROJECT_PANEL_COLLAPSED: Record<ProjectPanelSectionId, boolean> = {
   // The section only exists while a goal is set, so it opens on arrival — a
   // collapsed default would hide the thing the user just asked to see.
   goal: false,
   environment: false,
   git: false,
-  run: false,
   // The card only exists while the session is bound to a task, so it opens on
   // arrival — the same reasoning as the goal section above.
   task: false,
   automations: true,
-}
-
-/** Default height (px) of the bottom run-log dock. */
-function defaultRunDockHeight(): number {
-  const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 1080
-  return Math.max(96, Math.round(viewportHeight * 0.33))
 }
 
 export const TAB_GROUP_MODES = ['flat', 'status', 'unread'] as const
@@ -71,8 +66,6 @@ export type SettingsFields = {
   splitProjectPanelOpen: boolean
   projectPanelCollapsed: Record<ProjectPanelSectionId, boolean>
   splitProjectPanelCollapsed: Record<ProjectPanelSectionId, boolean>
-  runDockOpen: boolean
-  runDockHeight: number
   tabGroupMode: TabGroupMode
   sidebarViewMode: SidebarViewMode
   /**
@@ -269,8 +262,6 @@ function loadSettings(): SettingsFields {
           typeof parsed.splitProjectPanelOpen === 'boolean' ? parsed.splitProjectPanelOpen : false,
         projectPanelCollapsed: loadProjectPanelCollapsed(parsed.projectPanelCollapsed),
         splitProjectPanelCollapsed: loadProjectPanelCollapsed(parsed.splitProjectPanelCollapsed),
-        runDockOpen: typeof parsed.runDockOpen === 'boolean' ? parsed.runDockOpen : false,
-        runDockHeight: typeof parsed.runDockHeight === 'number' && parsed.runDockHeight >= 96 ? parsed.runDockHeight : defaultRunDockHeight(),
         tabGroupMode: ((TAB_GROUP_MODES as readonly string[]).includes(parsed.tabGroupMode) ? parsed.tabGroupMode : 'flat') as TabGroupMode,
         sidebarViewMode: ((SIDEBAR_VIEW_MODES as readonly string[]).includes(parsed.sidebarViewMode) ? parsed.sidebarViewMode : 'flat') as SidebarViewMode,
         onboardingCompleted: typeof parsed.onboardingCompleted === 'boolean' ? parsed.onboardingCompleted : true,
@@ -309,8 +300,6 @@ function loadSettings(): SettingsFields {
     splitProjectPanelOpen: false,
     projectPanelCollapsed: { ...DEFAULT_PROJECT_PANEL_COLLAPSED },
     splitProjectPanelCollapsed: { ...DEFAULT_PROJECT_PANEL_COLLAPSED },
-    runDockOpen: false,
-    runDockHeight: defaultRunDockHeight(),
     tabGroupMode: 'flat',
     sidebarViewMode: 'flat',
     onboardingCompleted: false,
@@ -349,8 +338,6 @@ export class SettingsContext {
   splitProjectPanelOpen = $state(false)
   projectPanelCollapsed = $state<Record<ProjectPanelSectionId, boolean>>({ ...DEFAULT_PROJECT_PANEL_COLLAPSED })
   splitProjectPanelCollapsed = $state<Record<ProjectPanelSectionId, boolean>>({ ...DEFAULT_PROJECT_PANEL_COLLAPSED })
-  runDockOpen = $state(false)
-  runDockHeight = $state(defaultRunDockHeight())
   tabGroupMode = $state<TabGroupMode>('flat')
   sidebarViewMode = $state<SidebarViewMode>('flat')
   onboardingCompleted = $state(true)
@@ -391,8 +378,6 @@ export class SettingsContext {
     this.splitProjectPanelOpen = saved.splitProjectPanelOpen
     this.projectPanelCollapsed = saved.projectPanelCollapsed
     this.splitProjectPanelCollapsed = saved.splitProjectPanelCollapsed
-    this.runDockOpen = saved.runDockOpen
-    this.runDockHeight = saved.runDockHeight
     this.tabGroupMode = saved.tabGroupMode
     this.sidebarViewMode = saved.sidebarViewMode
     this.onboardingCompleted = saved.onboardingCompleted
@@ -499,8 +484,8 @@ export class SettingsContext {
     if (patch.analyticsEnabled !== undefined) {
       this.analyticsEnabled = patch.analyticsEnabled
       setAnalyticsEnabled(patch.analyticsEnabled!)
-      if (window.solus.getPlatform() !== 'web') {
-        void window.solus.setAnalyticsConsent(patch.analyticsEnabled!).catch(() => {})
+      if (localApi.getPlatform() !== 'web') {
+        void serverConnections.primaryApi().setAnalyticsConsent(patch.analyticsEnabled!).catch(() => {})
       }
     }
     if (patch.projectPanelOpen !== undefined) this.projectPanelOpen = patch.projectPanelOpen
@@ -509,8 +494,6 @@ export class SettingsContext {
     if (patch.projectPanelCollapsed !== undefined) this.projectPanelCollapsed = patch.projectPanelCollapsed
     if (patch.splitProjectPanelCollapsed !== undefined)
       this.splitProjectPanelCollapsed = patch.splitProjectPanelCollapsed
-    if (patch.runDockOpen !== undefined) this.runDockOpen = patch.runDockOpen
-    if (patch.runDockHeight !== undefined) this.runDockHeight = Math.max(96, patch.runDockHeight)
     if (patch.tabGroupMode !== undefined) this.tabGroupMode = patch.tabGroupMode
     if (patch.sidebarViewMode !== undefined) this.sidebarViewMode = patch.sidebarViewMode
     if (patch.onboardingCompleted !== undefined) this.onboardingCompleted = patch.onboardingCompleted
@@ -559,8 +542,6 @@ export class SettingsContext {
         splitProjectPanelOpen: this.splitProjectPanelOpen,
         projectPanelCollapsed: this.projectPanelCollapsed,
         splitProjectPanelCollapsed: this.splitProjectPanelCollapsed,
-        runDockOpen: this.runDockOpen,
-        runDockHeight: this.runDockHeight,
         tabGroupMode: this.tabGroupMode,
         sidebarViewMode: this.sidebarViewMode,
         onboardingCompleted: this.onboardingCompleted,

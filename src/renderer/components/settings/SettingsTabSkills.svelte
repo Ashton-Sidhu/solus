@@ -9,12 +9,29 @@
     WarningCircleIcon,
   } from "phosphor-svelte";
   import { SearchField } from "../ui/search-field";
-  import { getAgentContext, getWorkspaceContext } from "../../contexts";
+  import {
+    getAgentContext,
+    getWorkspaceContext,
+    hostCapabilitiesStore,
+  } from "../../contexts";
   import { buildAgentAvailabilityRows } from "../../lib/agentAvailability";
   import type { RemoteSkill } from "../../../shared/types";
   import { Button } from "../ui/button";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
+  import { localApi } from "@client-core/local-api";
+  import { serverConnections } from "@client-core/server-connections";
+  import { hostKey } from "@client-core/host-key";
+  import type { HostApi } from "@client-core/host-api";
+  import { supportsSettingsSurface } from "@client-core/host-capabilities";
+  import SettingsHostUnsupported from "./SettingsHostUnsupported.svelte";
+
+  interface Props {
+    serverId: string;
+    api: HostApi;
+    hostLabel: string;
+  }
+  let { serverId, api, hostLabel }: Props = $props();
 
   const agentContext = getAgentContext();
   const workspace = getWorkspaceContext();
@@ -44,23 +61,31 @@
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
   // Guards against a slow earlier search overwriting a newer one.
   let searchSeq = 0;
+  const capabilities = $derived(hostCapabilitiesStore.for(serverId));
+  const isSupported = $derived(supportsSettingsSurface(capabilities, "skills"));
+  const canInstall = $derived(capabilities?.skillsInstall === true);
+
+  $effect(() => {
+    void hostCapabilitiesStore.load(serverId);
+  });
 
   onMount(() => {
     searchEl?.focus();
   });
 
-  async function runSearch(q: string) {
+  async function runSearch(q: string, targetServerId: string, targetApi: HostApi) {
+    const seq = ++searchSeq;
     const trimmed = q.trim();
+    if (!isSupported) return;
     if (!trimmed) {
       results = [];
       hasSearched = false;
       searching = false;
       return;
     }
-    const seq = ++searchSeq;
     searching = true;
-    const found = await window.solus.skillsSearch(trimmed);
-    if (seq !== searchSeq) return; // a newer search superseded this one
+    const found = await targetApi.skillsSearch(trimmed);
+    if (seq !== searchSeq || targetServerId !== serverId) return;
     results = found;
     hasSearched = true;
     searching = false;
@@ -70,7 +95,12 @@
   // the bound value rather than an `oninput` handler.
   $effect(() => {
     const q = query;
-    debounceTimer = setTimeout(() => void runSearch(q), 350);
+    const targetServerId = serverId;
+    const targetApi = api;
+    debounceTimer = setTimeout(
+      () => void runSearch(q, targetServerId, targetApi),
+      350,
+    );
     return () => clearTimeout(debounceTimer);
   });
 
@@ -78,18 +108,20 @@
     if (e.key === "Enter") {
       e.preventDefault();
       clearTimeout(debounceTimer);
-      void runSearch(query);
+      void runSearch(query, serverId, api);
     }
   }
 
   async function install(skill: RemoteSkill) {
-    if (installing.has(skill.id) || installedIds.has(skill.id)) return;
-    installErrors.delete(skill.id);
-    installing.add(skill.id);
+    if (!canInstall) return;
+    const installKey = hostKey(serverId, skill.id);
+    if (installing.has(installKey) || installedIds.has(installKey)) return;
+    installErrors.delete(installKey);
+    installing.add(installKey);
     try {
-      const result = await window.solus.skillsInstall(skill.id);
+      const result = await api.skillsInstall(skill.id);
       if (result.ok) {
-        installedIds.add(skill.id);
+        installedIds.add(installKey);
         // The main-process command caches are cleared by the install handler, but
         // the renderer's cached `pluginCommands` (which feeds the slash menu) is
         // only refreshed on agent/dir switches. Without this, a skill installed
@@ -98,19 +130,35 @@
         const cwd =
           workspace.activeSession?.run.workingDirectory ??
           workspace.globalDefaults.workingDirectory;
-        void workspace.refreshPluginCommands(cwd);
+        const activeTabId = workspace.activeTabId;
+        const activeServerId = activeTabId
+          ? workspace.runFor(activeTabId)?.serverId
+          : serverConnections.connectionFor()?.serverId;
+        if (activeServerId === serverId) {
+          void workspace.refreshPluginCommands(cwd, activeTabId || undefined);
+        }
       } else {
-        installErrors.set(skill.id, result.error || "Install failed");
+        installErrors.set(installKey, result.error || "Install failed");
       }
     } catch (err) {
-      installErrors.set(skill.id, err instanceof Error ? err.message : "Install failed");
+      installErrors.set(
+        installKey,
+        err instanceof Error ? err.message : "Install failed",
+      );
     } finally {
-      installing.delete(skill.id);
+      installing.delete(installKey);
       searchEl?.focus();
     }
   }
 </script>
 
+{#if capabilities === undefined}
+  <div class="py-10 text-center text-[0.8125rem] text-(--solus-text-tertiary)" role="status">
+    Checking skill support…
+  </div>
+{:else if !isSupported}
+  <SettingsHostUnsupported feature="Skills" {hostLabel} />
+{:else}
 <div>
   <!-- Row flex, not column: SearchField's `basis-56` sizes the main axis, so a
        column parent would stretch the field to 14rem tall. -->
@@ -146,9 +194,10 @@
     </div>
   {:else}
     {#each visibleResults as skill (skill.id)}
-      {@const isInstalled = installedIds.has(skill.id)}
-      {@const isInstalling = installing.has(skill.id)}
-      {@const error = installErrors.get(skill.id)}
+      {@const installKey = hostKey(serverId, skill.id)}
+      {@const isInstalled = installedIds.has(installKey)}
+      {@const isInstalling = installing.has(installKey)}
+      {@const error = installErrors.get(installKey)}
       {#snippet installError()}
         <div class="flex items-center gap-1 text-[0.6875rem] text-(--solus-status-error)">
           <WarningCircleIcon size={12} />
@@ -167,7 +216,7 @@
           {#if skill.url}
             <a
               href={skill.url}
-              onclick={(e) => { e.preventDefault(); window.solus.openExternal(skill.url); }}
+              onclick={(e) => { e.preventDefault(); localApi.openExternal(skill.url); }}
               class="ml-1.5 inline-flex align-middle text-(--solus-text-tertiary) transition-colors hover:text-(--solus-accent)"
               aria-label="Open {skill.name} on skills.sh"
             >
@@ -188,7 +237,8 @@
             <Button
               size="sm"
               onclick={() => install(skill)}
-              disabled={isInstalling}
+              disabled={isInstalling || !canInstall}
+              title={!canInstall ? `Skill installation is not supported on ${hostLabel}.` : undefined}
               data-testid="skill-install"
             >
               {#if isInstalling}
@@ -205,3 +255,4 @@
     {/each}
   {/if}
 </SettingsSection>
+{/if}

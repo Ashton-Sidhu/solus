@@ -3,11 +3,13 @@
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { webPushState } from "../lib/web-push.svelte";
   import { toasts } from "@renderer/lib/toasts";
+  import { getSettingsContext } from "@renderer/contexts";
 
   interface Props {
     variant?: "status" | "row";
   }
   let { variant = "status" }: Props = $props();
+  const settings = getSettingsContext();
 
   const label = $derived(
     webPushState.subscribed ? "Disable notifications" : "Enable notifications",
@@ -19,7 +21,12 @@
       return;
     }
 
-    await webPushState.toggle();
+    try {
+      await webPushState.toggle();
+      settings.update({ soundEnabled: webPushState.subscribed });
+    } catch (error) {
+      toasts.error(error instanceof Error ? error.message : "Notifications could not be updated");
+    }
     if (webPushState.permission === "denied") {
       toasts.error("Notifications are blocked in your browser settings");
     }

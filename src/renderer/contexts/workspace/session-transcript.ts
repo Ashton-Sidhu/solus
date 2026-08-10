@@ -5,6 +5,7 @@ import { uuid } from '../../../shared/uuid'
 import { isAgentNotice, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest } from './session.utils'
 import { AgentConversationTranscriptBuilder, isAgentConversationTool } from './agent-conversation-transcript'
 import type { WorkspaceContext } from './workspace.context.svelte'
+import { serverConnections } from '@client-core/server-connections'
 
 // ─── Transcript loader ───
 
@@ -92,7 +93,9 @@ export interface SessionTranscriptLoadArgs {
 }
 
 export async function loadSessionTranscript(ctx: WorkspaceContext, args: SessionTranscriptLoadArgs): Promise<{ messages: any[]; planIds: string[]; progress: any; truncated: boolean }> {
-  const history = await ctx.apiForSession(args.ctx.session.sessionId).loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, args.limit)
+  const api = ctx.apiForSession(args.ctx.session.sessionId)
+  const serverId = serverConnections.serverIdForApi(api)
+  const history = await api.loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, args.limit)
   // A full window of messages means older ones were left on disk.
   const truncated = !!args.limit && history.length >= args.limit
   if (args.shouldApply && !args.shouldApply()) {
@@ -225,6 +228,7 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
       const toolUseId = m.planToolUseId || uuid()
       msg.planToolUseId = toolUseId
       msg.planId = ctx.planStore.upsertFromHistory({
+        serverId,
         sessionId: args.sessionId,
         planToolUseId: toolUseId,
         projectPath,

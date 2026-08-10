@@ -2,11 +2,13 @@ import { GIT_DIFF_FILE_BREAK_REGEX, parsePatchFiles, processFile, type FileDiffM
 import type { DiffResult, DiffScope, IpcContext } from '../../shared/types'
 import type { WorkspaceContext } from '../contexts'
 import { loadDiffFiles as loadScopedDiffFiles } from './diff-file-loader'
+import type { HostApi } from '@client-core/host-api'
 
 interface DiffStateOptions {
   session: WorkspaceContext
   getTabId: () => string
   getCtx?: () => IpcContext
+  getApi?: () => HostApi
 }
 
 export interface DiffLoadResult {
@@ -137,7 +139,7 @@ export class DiffState {
     const session = this.opts.session.sessionFor(this.opts.getTabId())
     const livePaths = session ? [...session.sessionChangedFiles] : undefined
     return loadScopedDiffFiles(
-      this.opts.session.apiFor(this.opts.getTabId()),
+      this.opts.getApi?.() ?? this.opts.session.apiFor(this.opts.getTabId()),
       this.opts.getCtx?.() ?? this.opts.session.ctxFor(this.opts.getTabId()),
       this.scope,
       fileDiff,
@@ -225,7 +227,7 @@ export class DiffState {
     livePaths: string[] | undefined,
   ): Promise<DiffLoadResult> {
     try {
-      const result = await this.opts.session.apiFor(this.opts.getTabId()).diff(
+      const result = await (this.opts.getApi?.() ?? this.opts.session.apiFor(this.opts.getTabId())).diff(
         this.opts.getCtx?.() ?? this.opts.session.ctxFor(this.opts.getTabId()),
         { scope: { ...scope }, livePaths },
       )

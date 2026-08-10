@@ -10,6 +10,7 @@
   import StackDiffBanner from "./StackDiffBanner.svelte";
   import { existingPrReviewState } from "./lib/pr-review.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { serverConnections } from "@client-core/server-connections";
 
   // The review's change, popped out beside it. Reading a diff is a two-handed
   // job — the conversation on one side, the code on the other — so this is a
@@ -26,7 +27,11 @@
 
   // Never created here: this pane exists only alongside a review that already
   // opened, and state it invented would have no worktree to read.
-  const review = $derived(existingPrReviewState(params.number));
+  const reviewServerId = $derived(
+    session.router.params("prReview")?.serverId ??
+      serverConnections.serverIdForApi(serverConnections.primaryApi()),
+  );
+  const review = $derived(existingPrReviewState(reviewServerId, params.number));
   const pr = $derived<PrReviewContext | null>(review?.pr ?? null);
 
   const reviewTabId = `pr-diff-${params.number}`;
@@ -81,6 +86,7 @@
         bind:this={diffPanelRef}
         tabId={reviewTabId}
         getCtx={() => review.ctx}
+        getApi={() => review.api}
         projectPath={pr.worktreePath}
         worktreePath={pr.worktreePath}
         worktreeBranch={pr.headRef}

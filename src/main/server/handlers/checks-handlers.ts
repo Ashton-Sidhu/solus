@@ -128,6 +128,7 @@ export function registerChecksHandlers(
   const resolveReviewTarget = deps.resolveReviewTarget ?? reviewTargetFor
   const activities = new Map<string, ClientChecksActivity>()
   const connectedClientTokens = new Map<string, object>()
+  const publishedRefreshes = new Map<string, Promise<void>>()
   let activeRepoKey: string | null = null
   let timer: ReturnType<typeof setTimeout> | null = null
 
@@ -159,15 +160,23 @@ export function registerChecksHandlers(
     ;(timer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.()
   }
 
-  const refresh = async (key: string): Promise<void> => {
-    const cache = caches.get(key)
-    if (!cache) return
-    await refreshCache(cache)
-    const recipientClientIds = [...activities]
-      .filter(([, activity]) => activity.repoKey === key)
-      .map(([clientId]) => clientId)
-    deps.events.publish(recipientClientIds, 'pr.checksChanged', snapshot(cache))
-    schedule(key)
+  const refresh = (key: string): Promise<void> => {
+    const existing = publishedRefreshes.get(key)
+    if (existing) return existing
+    const run = (async () => {
+      const cache = caches.get(key)
+      if (!cache) return
+      await refreshCache(cache)
+      const recipientClientIds = [...activities]
+        .filter(([, activity]) => activity.repoKey === key)
+        .map(([clientId]) => clientId)
+      deps.events.publish(recipientClientIds, 'pr.checksChanged', snapshot(cache))
+      schedule(key)
+    })()
+    publishedRefreshes.set(key, run)
+    return run.finally(() => {
+      if (publishedRefreshes.get(key) === run) publishedRefreshes.delete(key)
+    })
   }
 
   server.register('prChecks', async (args) => {

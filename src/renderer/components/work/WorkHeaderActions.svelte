@@ -20,6 +20,7 @@
   import { portal } from "../portal";
   import { getWorkspaceContext, connectionsStore } from "../../contexts";
   import type { SessionMeta, WorkStorage } from "../../../shared/types";
+  import { serverConnections } from "@client-core/server-connections";
 
   interface Props {
     onOpenChat?: (mode: "resume" | "new") => void;
@@ -99,7 +100,8 @@
 
   async function exportToFile() {
     if (!connectionsStore.desktopHandlersAvailable) return;
-    await window.solus.saveFileDialog(`${safeFileName()}.md`, currentContent);
+    // Export targets the user's client-side file picker, not the work's owner host.
+    await serverConnections.primaryApi().saveFileDialog(`${safeFileName()}.md`, currentContent);
   }
 
   function handleRestore() {

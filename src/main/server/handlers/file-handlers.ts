@@ -21,6 +21,7 @@ import { isInsideRoot, projectRootForRequest, readFilePreview, resolvePreviewPat
 import { searchProjectContents } from './lib/content-search'
 import type { SolusServer } from '../server'
 import { filePathsToAttachments } from '../attachment-utils'
+import { allowClientAttachmentReads } from '../../client-attachment-read'
 
 const log = createLogger('main', 'file-handlers')
 
@@ -205,6 +206,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     }
     const result = await dialog.showOpenDialog(win, options)
     if (result.canceled || result.filePaths.length === 0) return null
+    allowClientAttachmentReads(result.filePaths)
     return filePathsToAttachments(result.filePaths)
   })
 

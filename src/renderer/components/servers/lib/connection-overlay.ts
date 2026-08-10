@@ -6,7 +6,7 @@ import type { ConnectionStatus } from '@client-core/ws-transport'
  * for something that will probably resolve on its own, a card for something
  * that wants a decision.
  */
-export type ConnectionOverlayMode = 'hidden' | 'reconnecting' | 'escalated' | 'blocked'
+export type ConnectionOverlayMode = 'hidden' | 'reconnecting' | 'escalated' | 'blocked' | 'identity-mismatch'
 
 export interface ConnectionOverlayInput {
   status: ConnectionStatus
@@ -25,6 +25,7 @@ export function connectionOverlayMode({
   // The local server is in-process. A blip there is a bug worth surfacing
   // elsewhere, not a network condition a user can retry their way out of.
   if (!isRemote) return 'hidden'
+  if (status === 'identity-mismatch') return 'identity-mismatch'
   if (status === 'blocked') return 'blocked'
   if (status === 'connected') return 'hidden'
   if (offlineSince === null) return 'reconnecting'

@@ -17,6 +17,7 @@ export function registerUsageHandlers(server: SolusServer, deps: { controlPlane:
   const cache = new Map<AgentId, AgentUsageLimits>()
   let timer: ReturnType<typeof setTimeout> | null = null
   let refresh: Promise<void> | null = null
+  let refreshBroadcast: Promise<void> | null = null
   let lastAttemptAt = 0
   let lastRequestAt = 0
 
@@ -56,22 +57,29 @@ export function registerUsageHandlers(server: SolusServer, deps: { controlPlane:
     ;(timer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.()
   }
 
+  const refreshAndBroadcast = (): Promise<void> => {
+    if (refreshBroadcast) return refreshBroadcast
+    const run = refreshAll().then(() => {
+      deps.events.broadcast('usage.limitsChanged', { snapshots: snapshot() })
+    })
+    refreshBroadcast = run.finally(() => { refreshBroadcast = null })
+    return refreshBroadcast
+  }
+
   const tick = async (): Promise<void> => {
     timer = null
     if (Date.now() - lastRequestAt > IDLE_TIMEOUT_MS) {
       log.info('usage_poll_suspended', { lastRequestAt })
       return
     }
-    await refreshAll()
-    deps.events.broadcast('usage.limitsChanged', { snapshots: snapshot() })
+    await refreshAndBroadcast()
     schedule()
   }
 
   server.register('usageLimits', async () => {
     lastRequestAt = Date.now()
     if (Date.now() - lastAttemptAt >= REFRESH_MS) {
-      const pending = refreshAll()
-        .then(() => deps.events.broadcast('usage.limitsChanged', { snapshots: snapshot() }))
+      const pending = refreshAndBroadcast()
         .catch((err) => log.warn('usage_broadcast_failed', {
           error: err instanceof Error ? err.message : String(err),
         }))

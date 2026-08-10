@@ -22,6 +22,7 @@ export function hostStatusLabel(status: ServerItemStatus): string {
   if (status === 'online') return 'Online'
   if (status === 'connecting') return 'Connecting'
   if (status === 'offline') return 'Offline'
+  if (status === 'different-server') return 'Different server than expected'
   return 'Not checked'
 }
 
@@ -30,6 +31,7 @@ export function hostStatusDotClass(status: ServerItemStatus): string {
   if (status === 'online') return 'bg-(--solus-status-complete)'
   if (status === 'connecting') return 'animate-pulse bg-(--solus-accent)'
   if (status === 'offline') return 'bg-(--solus-status-error)'
+  if (status === 'different-server') return 'bg-(--solus-status-error)'
   return 'bg-(--solus-text-quaternary)'
 }
 
@@ -56,7 +58,7 @@ function glyphForStatus(status: ServerItemStatus): Omit<HostAffinityGlyph, 'tool
   if (status === 'connecting') {
     return { icon: GlobeSimpleIcon, className: 'animate-pulse text-(--solus-accent)', statusLabel: hostStatusLabel(status) }
   }
-  if (status === 'offline') {
+  if (status === 'offline' || status === 'different-server') {
     return { icon: CloudSlashIcon, className: 'text-(--solus-status-error)', statusLabel: hostStatusLabel(status) }
   }
   // A host nobody has probed yet is unknown, not unreachable — saying "offline"

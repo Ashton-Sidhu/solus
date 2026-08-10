@@ -48,6 +48,7 @@
   import Kbd from "../ui/Kbd.svelte";
   import { worktreeProjectRoot, type SessionMeta } from "../../../shared/types";
   import { serverConnections } from "@client-core/server-connections";
+  import { subscribeAllHosts } from "@client-core/host-events";
 
   interface Props {
     open: boolean;
@@ -415,22 +416,32 @@
   });
 
   onMount(() => {
-    const events = serverConnections.eventsFor();
-    const unsubscribeIndex = events.subscribe('session.indexChanged', (event) => {
-      if (!open || event.provider !== "codex") return;
-      const affectsScope = historyScopeRoots.some((root) =>
-        event.projectPaths.some(
-          (path) =>
-            path === root ||
-            worktreeProjectRoot(path) === root ||
-            worktreeProjectRoot(root) === path,
-        ),
-      );
-      if (affectsScope) void loadHistory(historySources, historyScopeKey);
-    });
-    const unsubscribeStatus = events.subscribe(
-      'session.statusChanged',
-      (event) => history.updateStatus(event.sessionId, event.status),
+    const unsubscribeIndex = subscribeAllHosts(
+      "session.indexChanged",
+      (serverId, event) => {
+        if (!open || event.provider !== "codex") return;
+        // The picker scope uses paths from the primary host. Preserve its narrow
+        // refresh, but reload for a remote event because that host can use a
+        // different path for the same repository.
+        if (serverId !== serverConnections.connectionFor()?.serverId) {
+          void loadHistory(historySources, historyScopeKey);
+          return;
+        }
+        const affectsScope = historyScopeRoots.some((root) =>
+          event.projectPaths.some(
+            (path) =>
+              path === root ||
+              worktreeProjectRoot(path) === root ||
+              worktreeProjectRoot(root) === path,
+          ),
+        );
+        if (affectsScope) void loadHistory(historySources, historyScopeKey);
+      },
+    );
+    const unsubscribeStatus = subscribeAllHosts(
+      "session.statusChanged",
+      (serverId, event) =>
+        history.updateStatus(serverId, event.sessionId, event.status),
     );
     return () => {
       unsubscribeIndex();

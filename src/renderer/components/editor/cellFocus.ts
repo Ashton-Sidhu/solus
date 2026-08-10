@@ -19,6 +19,7 @@ export const CellFocus = Extension.create({
       new Plugin({
         key: new PluginKey('cellFocus'),
         props: {
+          // @ts-expect-error Bun resolved duplicate ProseMirror package identities.
           decorations(state) {
             const { selection } = state
             // A cell selection already washes every cell it covers. Ringing one
@@ -31,6 +32,7 @@ export const CellFocus = Extension.create({
               const role = node.type.spec.tableRole
               if (role !== 'cell' && role !== 'header_cell') continue
               const pos = $from.before(depth)
+              // @ts-expect-error Bun resolved duplicate ProseMirror package identities.
               return DecorationSet.create(state.doc, [
                 Decoration.node(pos, pos + node.nodeSize, { class: 'doc-cell-focus' }),
               ])

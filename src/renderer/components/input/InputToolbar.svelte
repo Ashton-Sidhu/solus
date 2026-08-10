@@ -1,12 +1,19 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { getWorkspaceContext } from "../../contexts";
+  import {
+    getWorkspaceContext,
+    hostCapabilitiesStore,
+    serversStore,
+  } from "../../contexts";
   import type { RunConfig } from "../../../shared/types";
   import type { PickerSelection } from "../pickers/lib/picker-selection";
   import AddFilesButton from "./AddFilesButton.svelte";
   import PermissionModePicker from "../pickers/PermissionModePicker.svelte";
   import SessionChip from "../pickers/SessionChip.svelte";
   import StatusBarControls from "../layout/StatusBarControls.svelte";
+  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
+  import { unsupportedOnHost } from "@client-core/host-capabilities";
+  import { serverConnections } from "@client-core/server-connections";
 
   interface Props {
     mode?: "pill" | "editor";
@@ -48,6 +55,25 @@
   const isRunning = $derived(
     sess?.status === "running" || sess?.status === "connecting",
   );
+  const serverId = $derived(sess?.run.serverId ?? run?.serverId ?? LOCAL_SERVER_ID);
+  const hostLabel = $derived(
+    serversStore.hostFor(serverId)?.label ??
+      serverConnections.connectionFor(serverId)?.target.label ??
+      "this host",
+  );
+  const hostCapabilities = $derived(hostCapabilitiesStore.for(serverId));
+  const canAttachFiles = $derived(hostCapabilities?.attachUpload === true);
+  const attachTooltip = $derived(
+    hostCapabilities === undefined
+      ? "Checking file attachment support…"
+      : canAttachFiles
+        ? "Attach file (⌥⇧A)"
+        : unsupportedOnHost("File attachments", hostLabel),
+  );
+
+  $effect(() => {
+    void hostCapabilitiesStore.load(serverId);
+  });
 </script>
 
 <!--
@@ -61,6 +87,8 @@
     {onScreenshot}
     {onDesignMode}
     disabled={isRunning}
+    attachDisabled={!canAttachFiles}
+    {attachTooltip}
   />
   <PermissionModePicker {tabId} {isPrimary} {run} {onRun} />
   <SessionChip {tabId} {isPrimary} bind:selection />

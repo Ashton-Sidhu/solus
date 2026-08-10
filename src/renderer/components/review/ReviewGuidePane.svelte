@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { ArrowsClockwiseIcon } from "phosphor-svelte";
   import type { GitCheckout } from "../../../shared/types";
   import { getWorkspaceContext, getSettingsContext, getAgentContext } from "../../contexts";
@@ -43,7 +44,7 @@
   const agentContext = getAgentContext();
   const isDemo = document.documentElement.classList.contains("solus-demo");
 
-  const reviewTabId = $derived(sourceTabId ?? session.activeTabId);
+  const reviewTabId = untrack(() => sourceTabId ?? session.activeTabId);
   const reviewSession = $derived(session.sessionFor(reviewTabId));
   const reviewWorkingDirectory = $derived(
     workingDirectory ??
@@ -105,6 +106,7 @@
         activate: false,
         gitContext: reviewGitContext,
         worktreeRequested: false,
+        serverId: reviewSession?.run.serverId,
       });
       const newSession = session.sessionFor(newTabId);
       if (newSession) {

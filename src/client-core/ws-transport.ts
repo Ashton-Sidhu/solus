@@ -1,6 +1,8 @@
 import { io, type Socket } from 'socket.io-client'
 import { RPC_INVOKE_METHODS } from '../shared/rpc'
 import type { RpcInvokeMethod } from '../shared/rpc'
+import { MAX_ATTACHMENT_UPLOAD_BYTES, MAX_ATTACHMENT_UPLOAD_COUNT } from '../shared/rpc'
+import type { Attachment, IpcContext } from '../shared/types'
 import { HostEventSubscriber } from './host-event-subscriber'
 import {
   encodePcm16Wav,
@@ -10,7 +12,7 @@ import {
 
 /** WebSocket transport shared by the browser client and Electron renderer. */
 
-export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'blocked'
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'blocked' | 'identity-mismatch'
 
 export class TransportDisconnectedError extends Error {
   code = 'TRANSPORT_DISCONNECTED'
@@ -24,6 +26,8 @@ export class TransportDisconnectedError extends Error {
 export interface WsTransportOptions {
   /** Server URL like `http://host:port`. */
   serverUrl: string
+  /** Client-side identity of the host this transport addresses. */
+  serverId?: string
   /** Session token returned from pairing or the desktop local bootstrap. */
   sessionToken: string
   /** Called whenever the connection state changes. */
@@ -32,8 +36,13 @@ export interface WsTransportOptions {
   onSessionTokenRefreshed?: (sessionToken: string) => void
   /** Called when the server rejects the stored token and refresh cannot recover. */
   onAuthFailed?: () => void
+  /** Confirms that a newly opened socket is still the saved host it names. */
+  verifyConnectedHost?: () => Promise<boolean>
   /** Overrides the default POST to `${serverUrl}/auth/refresh`. */
   refreshToken?: () => Promise<{ result: RefreshResult; sessionToken?: string }>
+  /** Keep the local desktop's native picker/path fast path. Browser clients and
+   *  remote desktop targets select File objects and upload bytes instead. */
+  useHostFileDialog?: boolean
 }
 
 interface RequestEntry {
@@ -64,6 +73,17 @@ export function shouldRejectQueuedRequest(
   return !queuedBeforeFirstConnect && now - queuedAt > RECONNECT_QUEUE_MAX_AGE_MS
 }
 
+function readFileDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => typeof reader.result === 'string'
+      ? resolve(reader.result)
+      : reject(new Error('Unable to read attachment.'))
+    reader.onerror = () => reject(reader.error ?? new Error('Unable to read attachment.'))
+    reader.readAsDataURL(file)
+  })
+}
+
 export class WsTransport {
   readonly events = new HostEventSubscriber()
   private readonly socket: Socket
@@ -81,6 +101,9 @@ export class WsTransport {
   private authRefreshResetTimer: ReturnType<typeof setTimeout> | null = null
   private removeLifecycleListeners: (() => void) | null = null
   private wakeProbeInFlight = false
+  private connectedGeneration = 0
+  private isAcceptedConnection = false
+  private pendingHostEvents: unknown[] = []
 
   constructor(private opts: WsTransportOptions) {
     this.socket = io(opts.serverUrl, {
@@ -108,7 +131,7 @@ export class WsTransport {
     }
   }
 
-  destroy(): void {
+  destroy(finalStatus: ConnectionStatus = 'disconnected'): void {
     if (this.destroyed) return
     this.destroyed = true
     if (this.authRefreshResetTimer) clearTimeout(this.authRefreshResetTimer)
@@ -118,8 +141,9 @@ export class WsTransport {
     this.socket.disconnect()
     this.rejectAllRequests()
     this.events.clear()
+    this.pendingHostEvents = []
     this.onResetCallback = null
-    this.setStatus('disconnected')
+    this.setStatus(finalStatus)
   }
 
   /** Builds a `window.solus`-compatible API surface backed by this transport. */
@@ -151,21 +175,24 @@ export class WsTransport {
       return Promise.resolve(true)
     }
 
-    api['attachFiles'] = (): Promise<unknown> => {
-      return new Promise((resolve) => {
-        const input = document.createElement('input')
-        input.type = 'file'
-        input.multiple = true
-        input.addEventListener('change', async () => {
-          const files = Array.from(input.files ?? [])
-          if (files.length === 0) { resolve(null); return }
-          resolve(await this.uploadFiles(files))
-        }, { once: true })
-        input.addEventListener('cancel', () => resolve(null), { once: true })
-        input.click()
-      })
+    if (!this.opts.useHostFileDialog) {
+      api['attachFiles'] = (ctx?: IpcContext): Promise<unknown> => {
+        if (!ctx) return Promise.resolve(null)
+        return new Promise((resolve) => {
+          const input = document.createElement('input')
+          input.type = 'file'
+          input.multiple = true
+          input.addEventListener('change', async () => {
+            const files = Array.from(input.files ?? [])
+            if (files.length === 0) { resolve(null); return }
+            resolve(await this.uploadFiles(files, ctx))
+          }, { once: true })
+          input.addEventListener('cancel', () => resolve(null), { once: true })
+          input.click()
+        })
+      }
     }
-    api['uploadFiles'] = (files: File[]): Promise<unknown> => this.uploadFiles(files)
+    api['uploadFiles'] = (files: File[], ctx: IpcContext): Promise<unknown> => this.uploadFiles(files, ctx)
 
     return api
   }
@@ -177,22 +204,13 @@ export class WsTransport {
 
   private installSocketListeners(): void {
     this.socket.on('connect', () => {
-      const shouldReset = this.hasOpened && !this.socket.recovered
-      this.hasOpened = true
-      this.attempt = 0
-      this.setStatus('connected')
-      this.logConnection('socket opened', {
-        recovered: this.socket.recovered,
-        pendingRequests: this.pendingRequestSummary(),
-      })
-      if (shouldReset) this.onResetCallback?.()
-      this.flushQueuedRequests()
-      if (this.authRefreshAttempted) {
-        if (this.authRefreshResetTimer) clearTimeout(this.authRefreshResetTimer)
-        this.authRefreshResetTimer = setTimeout(() => { this.authRefreshAttempted = false }, 30_000)
-      }
+      const generation = ++this.connectedGeneration
+      void this.acceptConnectedSocket(generation)
     })
     this.socket.on('disconnect', (reason) => {
+      this.connectedGeneration += 1
+      this.isAcceptedConnection = false
+      this.pendingHostEvents = []
       this.logConnection('socket closed', { reason, pendingRequests: this.pendingRequestSummary() })
       this.requeueSentRequests()
       if (!this.destroyed && !this.blocked) this.setStatus('reconnecting')
@@ -211,7 +229,38 @@ export class WsTransport {
       this.authRefreshAttempted = true
       void this.recoverAuthentication()
     })
-    this.socket.on('host-event', (event: unknown) => this.events.receive(event))
+    this.socket.on('host-event', (event: unknown) => {
+      if (this.isAcceptedConnection) this.events.receive(event)
+      else this.pendingHostEvents.push(event)
+    })
+  }
+
+  private async acceptConnectedSocket(generation: number): Promise<void> {
+    const accepted = this.opts.verifyConnectedHost
+      ? await this.opts.verifyConnectedHost().catch(() => false)
+      : true
+    if (this.destroyed || generation !== this.connectedGeneration || !this.socket.connected) return
+    if (!accepted) {
+      this.destroy('identity-mismatch')
+      return
+    }
+
+    this.isAcceptedConnection = true
+    for (const event of this.pendingHostEvents.splice(0)) this.events.receive(event)
+    const shouldReset = this.hasOpened && !this.socket.recovered
+    this.hasOpened = true
+    this.attempt = 0
+    this.setStatus('connected')
+    this.logConnection('socket opened', {
+      recovered: this.socket.recovered,
+      pendingRequests: this.pendingRequestSummary(),
+    })
+    if (shouldReset) this.onResetCallback?.()
+    this.flushQueuedRequests()
+    if (this.authRefreshAttempted) {
+      if (this.authRefreshResetTimer) clearTimeout(this.authRefreshResetTimer)
+      this.authRefreshResetTimer = setTimeout(() => { this.authRefreshAttempted = false }, 30_000)
+    }
   }
 
   private async recoverAuthentication(): Promise<void> {
@@ -226,18 +275,29 @@ export class WsTransport {
     this.socket.connect()
   }
 
-  private async uploadFiles(files: File[]): Promise<unknown> {
-    const formData = new FormData()
-    for (const file of files) formData.append('file', file, file.name)
+  private async uploadFiles(files: File[], ctx: IpcContext): Promise<Attachment[] | null> {
+    if (files.length > MAX_ATTACHMENT_UPLOAD_COUNT) return null
     try {
-      const res = await fetch(`${this.opts.serverUrl}/upload`, {
-        method: 'POST',
-        headers: this.opts.sessionToken ? { authorization: `Bearer ${this.opts.sessionToken}` } : undefined,
-        body: formData,
-      })
-      if (!res.ok) return null
-      const json = await res.json() as { attachments?: unknown }
-      return json.attachments ?? null
+      const attachments: Attachment[] = []
+      for (const file of files) {
+        if (file.size > MAX_ATTACHMENT_UPLOAD_BYTES) return null
+        const mime = file.type || 'application/octet-stream'
+        const dataUrl = await readFileDataUrl(file)
+        const hostPath = await this.invoke('attachUpload', [ctx, { name: file.name, mime, dataUrl }]) as string
+        const isImage = mime.startsWith('image/')
+        attachments.push({
+          id: crypto.randomUUID(),
+          type: isImage ? 'image' : 'file',
+          name: file.name,
+          path: hostPath,
+          hostPath,
+          ...(this.opts.serverId ? { hostServerId: this.opts.serverId } : {}),
+          mimeType: mime,
+          ...(isImage ? { dataUrl } : {}),
+          size: file.size,
+        })
+      }
+      return attachments
     } catch {
       return null
     }

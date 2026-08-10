@@ -18,22 +18,36 @@ interface SessionHistoryStoreLoadOptions {
 
 export function updateSessionHistoryStatus(
   sessions: SessionMeta[],
+  serverId: string,
   sessionId: string,
   status: SessionStatus,
 ): void {
-  const session = sessions.find((candidate) => candidate.sessionId === sessionId)
+  const session = sessions.find(
+    (candidate) =>
+      candidate.serverId === serverId && candidate.sessionId === sessionId,
+  )
   if (session) session.status = status
 }
 
 function defaultHistoryLoaderOptions(): SessionHistoryLoaderOptions {
   return {
-    // An undefined serverId is this client's own host, which both accessors
-    // already resolve to the primary connection.
-    hostFor: (serverId) => ({
-      listSessions: (...args) => serverConnections.apiFor(serverId).listSessions(...args),
-      onSessionScan: (listener) =>
-        serverConnections.eventsFor(serverId).subscribe('session.scanProgressed', listener),
-    }),
+    hostFor: (serverId) => {
+      const resolvedServerId = serverId
+        ? serverConnections.resolveId(serverId)
+        : serverConnections.connectionFor()?.serverId
+      if (!resolvedServerId) throw new Error('Primary Solus connection has not been registered')
+      const api = serverId
+        ? serverConnections.apiFor(resolvedServerId)
+        : serverConnections.primaryApi()
+      const events = serverId
+        ? serverConnections.eventsFor(resolvedServerId)
+        : serverConnections.eventsForPrimary()
+      return {
+        serverId: resolvedServerId,
+        listSessions: api.listSessions,
+        onSessionScan: (listener) => events.subscribe('session.scanProgressed', listener),
+      }
+    },
   }
 }
 
@@ -66,8 +80,8 @@ export class SessionHistoryStore {
   }
 
   /** Keep an unmounted session's picker row live without rebuilding history. */
-  updateStatus(sessionId: string, status: SessionStatus): void {
-    updateSessionHistoryStatus(this.sessions, sessionId, status)
+  updateStatus(serverId: string, sessionId: string, status: SessionStatus): void {
+    updateSessionHistoryStatus(this.sessions, serverId, sessionId, status)
   }
 
   async load({

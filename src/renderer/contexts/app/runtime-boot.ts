@@ -2,6 +2,7 @@ import { TransportDisconnectedError, type ConnectionStatus } from '@client-core/
 import { bootstrapRuntimeTabs } from '../workspace/session-bootstrap'
 import type { SessionSidebarStore } from '../workspace/session-sidebar.store.svelte'
 import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
+import { serverConnections } from '@client-core/server-connections'
 
 /** Ignore expected connection gaps while still surfacing unrelated read failures. */
 export function logConnectionReadError(operation: string, error: unknown): void {
@@ -11,7 +12,7 @@ export function logConnectionReadError(operation: string, error: unknown): void 
 
 /** Refresh the renderer's system-theme state from the active transport. */
 export function refreshTheme(setSystemTheme: (isDark: boolean) => void): void {
-  window.solus
+  serverConnections.primaryApi()
     .getTheme()
     .then(({ isDark }: { isDark: boolean }) => setSystemTheme(isDark))
     .catch((error) => logConnectionReadError('getTheme', error))

@@ -10,6 +10,8 @@ import type { SessionDraft } from './session-draft.svelte'
 import { toasts } from '../../lib/toasts'
 import { isDispatch, startsWorktree, withCheckout, withWorktreeToggled } from './run-config'
 import { nextMsgId } from './session.utils'
+import type { HostApi } from '@client-core/host-api'
+import { serverConnections } from '@client-core/server-connections'
 
 /** What a destination command edits: the run a source owns, and the started
  *  session behind it when there is one. A draft resolves to a run with no
@@ -45,11 +47,11 @@ export interface SessionConfigControllerDeps {
   draftFor(sourceId: string): SessionDraft | undefined
   ctx(tabId?: string): IpcContext
   ctxForDirectory(dir: string): IpcContext
-  apiFor?(tabId?: string): typeof window.solus
+  apiFor?(tabId?: string): HostApi
   /** The RPC surface for the host a run names — the machine work happens on.
    *  Where a destination command talks to, resolved from the run rather than a
    *  tab, so a draft on a remote host reaches that host with no session. */
-  apiForRun(run: RunConfig | undefined): typeof window.solus
+  apiForRun(run: RunConfig | undefined): HostApi
   refreshPluginCommands(dir: string, tabId?: string): void
   refreshGitRefs(projectRoot: string, ctx: IpcContext): void
   refreshGitState(opts: { sourceId?: string; cwd?: string; worktreeRequested?: boolean }): Promise<GitRefreshResult>
@@ -79,8 +81,8 @@ export class SessionConfigController {
     this.tabGroupMode = deps.settings.tabGroupMode
   }
 
-  private apiFor(tabId?: string): typeof window.solus {
-    return this.deps.apiFor?.(tabId) ?? window.solus
+  private apiFor(tabId?: string): HostApi {
+    return this.deps.apiFor?.(tabId) ?? serverConnections.primaryApi()
   }
 
   /**
@@ -152,6 +154,16 @@ export class SessionConfigController {
     this.globalDefaults.modelConfig = this.defaultModelConfigFor(agentId)
     this.deps.setPluginCommands({ global: [], project: [] })
     this.deps.refreshPluginCommands(this.globalDefaults.workingDirectory)
+  }
+
+  /** Keep the next-session defaults aligned with the session brought to the
+   *  foreground. Selecting a tab already makes its agent the saved default;
+   *  its model default must move with it or a fresh draft can pair a Claude
+   *  provider glyph with a Codex model (or the reverse). */
+  followActiveSessionAgent(agentId: AgentId): void {
+    if (this.deps.settings.activeAgent === agentId) return
+    this.deps.settings.update({ activeAgent: agentId })
+    this.globalDefaults.modelConfig = this.defaultModelConfigFor(agentId)
   }
 
   async switchActiveAgent(agentId: AgentId, tabId?: string, via: Via = 'click'): Promise<void> {
@@ -370,7 +382,7 @@ export class SessionConfigController {
     // at all there is nothing to move.
     if (!owner) {
       this.deps.openSessionDraft(dir)
-      void this.apiFor().trackRecentProject(dir)
+      void this.deps.apiForRun(undefined).trackRecentProject(dir)
       return
     }
     const api = this.deps.apiForRun(owner.run)

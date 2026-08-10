@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import type { ProjectConfig, RunCommandConfig } from '../../shared/types'
+import type { ProjectConfig } from '../../shared/types'
 import { worktreeProjectRoot } from '../../shared/types'
 import { getDb } from '../db'
 import { git } from '../git/exec'
@@ -14,10 +14,10 @@ interface ProjectConfigRow {
  * Stable key for a project, used to co-locate per-project data on disk.
  * Memoized — the repo toplevel for a cwd is stable for the
  * process lifetime and the sync git spawn would otherwise block the main
- * process on every config/run/recents call.
+ * process on every config/recents call.
  *
  * For Solus worktrees, the marker is stripped so all worktrees of the same
- * base repo share a single config — consistent with RunManager.configRootFor.
+ * base repo share a single config.
  */
 export function resolveProjectKey(cwd: string): string {
   const cached = keyByCwd.get(cwd)
@@ -33,35 +33,16 @@ export function resolveProjectKey(cwd: string): string {
   return key
 }
 
-function normalizeRunCommand(value: unknown, index: number): RunCommandConfig | null {
-  const raw = value as { id?: string; name?: string; command?: string; port?: unknown }
-  const command = raw.command?.trim()
-  if (!command) return null
-  const entry: RunCommandConfig = {
-    id: raw.id ? raw.id : `cmd-${index}`,
-    command,
-  }
-  if (raw.name) entry.name = raw.name.trim()
-  if (typeof raw.port === 'number' && Number.isFinite(raw.port)) entry.port = raw.port
-  return entry
-}
-
 const TASK_PROVIDERS = new Set(['github', 'local'])
 
 function normalizeConfig(value: unknown): ProjectConfig | null {
   if (!value || typeof value !== 'object') return null
   const raw = value as {
     version?: unknown
-    runCommands?: unknown
     taskProvider?: unknown
     taskProviderConfig?: unknown
   }
   const config: ProjectConfig = { version: 1 }
-  if (Array.isArray(raw.runCommands)) {
-    config.runCommands = raw.runCommands
-      .map(normalizeRunCommand)
-      .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
-  }
   if (typeof raw.taskProvider === 'string' && TASK_PROVIDERS.has(raw.taskProvider)) {
     config.taskProvider = raw.taskProvider as ProjectConfig['taskProvider']
   }

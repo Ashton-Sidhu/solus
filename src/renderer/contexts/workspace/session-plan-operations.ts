@@ -61,6 +61,7 @@ export async function openPlanModal(ctx: WorkspaceContext, planId: string, ref?:
 
   try {
     await ctx.planStore.loadFromDisk({
+      serverId: ctx.planStore.hostFor?.(targetPlanId) ?? ctx.activeSession?.run.serverId,
       sessionId,
       planToolUseId,
       projectPath,
@@ -168,7 +169,7 @@ export async function approvePlanWithModel(
   if (opts.provider && opts.modelId) {
     if (!providerChanged) {
       session.run.provider = opts.provider
-      ctx.settings.update({ activeAgent: opts.provider })
+      ctx.config.followActiveSessionAgent(opts.provider)
     }
     const profile = MODEL_PROFILES[opts.provider as keyof typeof MODEL_PROFILES]?.[opts.modelId]
     session.run.modelConfig = { modelId: opts.modelId, reasoningEffort: opts.reasoningEffort ?? (profile as ModelProfile)?.defaultReasoningEffort ?? 'high', contextWindow: (profile as ModelProfile)?.defaultContextWindow ?? null, fastMode: false }
@@ -260,8 +261,8 @@ export async function rejectPlan(ctx: WorkspaceContext, planId: string, comment?
 
 // ─── Plan navigation ───
 
-async function loadOrFindTab(ctx: WorkspaceContext, sessionId: string, cwd: string, projectPath: string, provider?: AgentId, title?: string): Promise<string> {
-  const existing = findOpenTabForSession(sessionId, ctx.tabs, ctx.sessions, ctx.tabOrder, provider)
+async function loadOrFindTab(ctx: WorkspaceContext, sessionId: string, cwd: string, projectPath: string, provider?: AgentId, title?: string, serverId?: string): Promise<string> {
+  const existing = findOpenTabForSession(sessionId, ctx.tabs, ctx.sessions, ctx.tabOrder, provider, serverId)
   if (existing) {
     ctx.selectTab(existing)
     return existing
@@ -271,6 +272,7 @@ async function loadOrFindTab(ctx: WorkspaceContext, sessionId: string, cwd: stri
     provider: provider ?? ctx.settings.activeAgent as AgentId,
     cwd,
     projectPath,
+    serverId,
     slug: title ?? null,
     firstMessage: null,
     lastTimestamp: '',
@@ -284,6 +286,7 @@ async function loadOrFindTab(ctx: WorkspaceContext, sessionId: string, cwd: stri
  *  `loadDescriptorPlan`, which also warms the sibling revisions. */
 export async function loadPlanContent(ctx: WorkspaceContext, d: PlanDescriptor): Promise<string> {
   return await ctx.planStore.loadFromDisk({
+    serverId: d.serverId,
     sessionId: d.sessionId,
     planToolUseId: d.planToolUseId,
     projectPath: d.projectPath,
@@ -307,6 +310,7 @@ async function loadDescriptorPlan(ctx: WorkspaceContext, d: PlanDescriptor): Pro
     const revId = planKey(d.sessionId, rev.planToolUseId)
     if (ctx.planStore.plans[revId]) continue
     void ctx.planStore.loadFromDisk({
+      serverId: d.serverId,
       sessionId: d.sessionId,
       planToolUseId: rev.planToolUseId,
       projectPath: d.projectPath,
@@ -325,7 +329,7 @@ async function loadDescriptorPlan(ctx: WorkspaceContext, d: PlanDescriptor): Pro
 
 export async function openPlanFromDescriptor(ctx: WorkspaceContext, d: PlanDescriptor): Promise<void> {
   const planId = planKey(d.sessionId, d.planToolUseId)
-  const existing = findOpenTabForSession(d.sessionId, ctx.tabs, ctx.sessions, ctx.tabOrder, d.provider)
+  const existing = findOpenTabForSession(d.sessionId, ctx.tabs, ctx.sessions, ctx.tabOrder, d.provider, d.serverId)
   if (existing) {
     ctx.router.close('folio')
     ctx.selectTab(existing)
@@ -355,7 +359,7 @@ export async function resumeFromPreview(ctx: WorkspaceContext): Promise<void> {
   const d = ctx.planStore.previewDescriptor
   ctx.planStore.dismissPreview()
   if (d) {
-    await loadOrFindTab(ctx, d.sessionId, d.cwd, d.projectPath, d.provider, d.title)
+    await loadOrFindTab(ctx, d.sessionId, d.cwd, d.projectPath, d.provider, d.title, d.serverId)
   }
 }
 
@@ -367,7 +371,7 @@ export function closePlanPreview(ctx: WorkspaceContext): void {
 export async function resumeSessionFromDescriptor(ctx: WorkspaceContext, d: PlanDescriptor): Promise<void> {
   ctx.planStore.dismissPreview()
   await loadDescriptorPlan(ctx, d)
-  const tabId = await loadOrFindTab(ctx, d.sessionId, d.cwd, d.projectPath, d.provider, d.title)
+  const tabId = await loadOrFindTab(ctx, d.sessionId, d.cwd, d.projectPath, d.provider, d.title, d.serverId)
   ctx.router.close('folio')
   closePlanModal(ctx)
   setTimeout(() => requestConversationScrollToBottom(tabId), 50)

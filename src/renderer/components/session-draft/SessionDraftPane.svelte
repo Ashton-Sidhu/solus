@@ -148,7 +148,9 @@
       await onAttachFile();
       return;
     }
-    const files = await window.solus.attachFiles();
+    const files = await session.apiForRun(draft?.run).attachFiles(
+      draft ? session.ctxForDirectory(draft.run.workingDirectory) : undefined,
+    );
     if (!files || files.length === 0 || !draft) return;
     for (const file of files) draft.prompt.attachments.push(file);
   }

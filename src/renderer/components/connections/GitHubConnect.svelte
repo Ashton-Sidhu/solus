@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { localApi } from "@client-core/local-api";
   import {
     GithubLogoIcon,
     ArrowSquareOutIcon,
@@ -86,7 +87,7 @@
 
   function openVerification() {
     if (connections.providerPrompt)
-      void window.solus.openExternal(
+      void localApi.openExternal(
         connections.providerPrompt.verificationUri,
       );
   }

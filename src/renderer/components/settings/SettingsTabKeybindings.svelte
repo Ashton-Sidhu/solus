@@ -15,6 +15,7 @@
   import { getSettingsContext, getWindowContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { serverConnections } from "@client-core/server-connections";
   import SettingsSection from "./SettingsSection.svelte";
 
   interface Props {
@@ -162,8 +163,9 @@
 
   $effect(() => {
     if (windowCtx.isWeb) return;
+    // primary-host by decision (docs/plans/multi-host-parity.md)
     let alive = true;
-    window.solus
+    serverConnections.primaryApi()
       .getAppGlobalShortcuts()
       .then((s) => { if (alive) appShortcuts = s; })
       .catch(() => {});
@@ -176,7 +178,7 @@
     try {
       // Snapshot before IPC: the spread keeps the untouched slot as a Svelte
       // $state proxy, which structured-clone can't serialize (silent reject).
-      const result = await window.solus.setAppGlobalShortcuts($state.snapshot(next));
+      const result = await serverConnections.primaryApi().setAppGlobalShortcuts($state.snapshot(next));
       // The slot failed if its accelerator is in the returned failure list.
       const accel = comboToAccelerator(combo);
       const failed = !!accel && result.failed.includes(accel);
@@ -210,7 +212,7 @@
   }
 
   function restart(): void {
-    window.solus.restartApp();
+    void serverConnections.primaryApi().restartApp();
   }
 
   // Single capture-phase listener while recording so the press is consumed

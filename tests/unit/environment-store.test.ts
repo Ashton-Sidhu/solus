@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import type { HostApi } from '../../src/client-core/host-api'
+import { hostKey } from '../../src/client-core/host-key'
+import { serverConnections } from '../../src/client-core/server-connections'
 import type { GitCheckout, GitState, Session } from '../../src/shared/types'
 
 const previousWindow = globalThis.window
@@ -12,6 +15,35 @@ afterEach(() => {
 })
 
 describe('Git state initialization', () => {
+  test('keeps the same path distinct on two hosts', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    const cwd = '/workspace'
+    const apiA: HostApi = {} as never
+    const apiB: HostApi = {} as never
+    const state = (headSha: string): GitState => ({
+      repoRoot: cwd,
+      headSha,
+      branch: 'main',
+      targetBranch: 'main',
+      uncommittedChanges: { files: [], hasMoreFiles: false, insertions: 0, deletions: 0, mergeInProgress: false },
+    })
+
+    store.bindCwd('host-a', cwd, apiA)
+    store.set(cwd, state('head-a'))
+    store.bindCwd('host-b', cwd, apiB)
+    store.set(cwd, state('head-b'))
+
+    // WHY: path strings are display data. Two machines can use the same path
+    // for unrelated repositories, and neither answer may overwrite the other.
+    expect(store.byCwd[hostKey('host-a', cwd)]?.headSha).toBe('head-a')
+    expect(store.byCwd[hostKey('host-b', cwd)]?.headSha).toBe('head-b')
+    expect(store.statusFor(cwd)?.headSha).toBe('head-b')
+    store.bindCwd('host-a', cwd, apiA)
+    expect(store.statusFor(cwd)?.headSha).toBe('head-a')
+  })
+
   test('starts new windows in the server workspace instead of its projects root', async () => {
     const { startDirectoryForServer } = await import('../../src/renderer/contexts/workspace/workspace-lifecycle.store.svelte')
     const startInfo = {
@@ -39,6 +71,18 @@ describe('Git state initialization', () => {
         getPluginCommands: async () => ({ global: [], project: [] }),
       } },
     })
+    serverConnections.registerPrimary(
+      'test-primary',
+      window.solus as never,
+      { destroy: () => {}, events: { subscribe: () => () => {} } } as never,
+      {
+        id: 'test-primary',
+        label: 'Test primary',
+        url: 'http://test.invalid',
+        sessionToken: 'test',
+        local: false,
+      },
+    )
     let finishRefresh!: () => void
     const refresh = new Promise<void>((resolve) => { finishRefresh = resolve })
     const { WorkspaceLifecycleStore } = await import('../../src/renderer/contexts/workspace/workspace-lifecycle.store.svelte')
@@ -125,6 +169,7 @@ describe('Git state initialization', () => {
     const worktreePath = '/repo/.solus-worktrees/feature'
     const session = {
       run: {
+        serverId: 'test-host',
         workingDirectory: '/repo',
         gitContext: { repoRoot: '/repo', branch: 'feature', targetBranch: 'main', worktreePath },
         worktreeBaseBranch: null,
@@ -155,6 +200,7 @@ describe('Git state initialization', () => {
       settings: { worktreeEnabled: false },
       runFor: () => session.run,
       sessionFor: () => session,
+      apiFor: () => window.solus,
       ctxFor: () => ({ session: {} }),
     } as any
     const result = await store.refreshEnvironment(workspace, { sourceId: 'tab-1' })
@@ -170,6 +216,7 @@ describe('Git state initialization', () => {
     )
     const session = {
       run: {
+        serverId: 'test-host',
         workingDirectory: '/repo',
         gitContext: null,
         worktreeBaseBranch: null,
@@ -209,6 +256,7 @@ describe('Git state initialization', () => {
       settings: { worktreeEnabled: false },
       runFor: () => session.run,
       sessionFor: () => session,
+      apiFor: () => window.solus,
       ctxFor: () => ({ session: {} }),
     } as any
 
@@ -249,6 +297,18 @@ describe('Git state initialization', () => {
     })
     const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
+    const primaryApi: HostApi = serverConnections.registerPrimary(
+      'test-primary',
+      window.solus as never,
+      { destroy: () => {}, events: { subscribe: () => () => {} } } as never,
+      {
+        id: 'test-primary',
+        label: 'Test primary',
+        url: 'http://test.invalid',
+        sessionToken: 'test',
+        local: false,
+      },
+    ).api as never
     const globalDefaults = {
       workingDirectory: '/repo',
       gitContext: null as GitCheckout | null,
@@ -263,6 +323,7 @@ describe('Git state initialization', () => {
       settings: { worktreeEnabled: false },
       runFor: () => undefined,
       sessionFor: () => undefined,
+      apiFor: () => primaryApi,
       ctxFor: () => ({ session: {} }),
     } as any
 
@@ -347,6 +408,7 @@ describe('Git state initialization', () => {
       { snapshot: <T>(value: T) => value },
     )
     const draftRun = {
+      serverId: 'test-host',
       workingDirectory: '/studio/dotfiles',
       gitContext: null,
       worktreeBaseBranch: null,
@@ -379,6 +441,7 @@ describe('Git state initialization', () => {
       settings: { worktreeEnabled: false },
       runFor: () => draftRun,
       sessionFor: () => undefined,
+      apiFor: () => window.solus,
       ctxFor: () => ({ session: {} }),
     } as any
 
@@ -429,6 +492,7 @@ describe('Git state initialization', () => {
       sessionFor: () => session,
       ctxFor: () => ({ session: {} }),
     } as any)
+    store.bindCwd('test-host', worktreePath, {} as never)
     store.set(worktreePath, {
       repoRoot: '/repo',
       headSha: 'detached-abc123',
@@ -470,6 +534,7 @@ describe('Git state initialization', () => {
     })
     const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
+    store.bindCwd('test-host', '/not-a-repo', window.solus as never)
 
     expect(store.statusFor('/not-a-repo')).toBeUndefined()
     expect(await store.refresh('/not-a-repo', { force: true, details: true })).toBe(true)

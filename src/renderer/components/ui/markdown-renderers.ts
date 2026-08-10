@@ -3,7 +3,13 @@ import MarkdownAlert from "./MarkdownAlert.svelte";
 import MarkdownListItem from "./MarkdownListItem.svelte";
 import MarkdownRawText from "./MarkdownRawText.svelte";
 
-export const githubMarkdownRenderers = {
+type MarkdownRenderer =
+  | typeof CodeSpan
+  | typeof MarkdownAlert
+  | typeof MarkdownListItem
+  | typeof MarkdownRawText;
+
+export const githubMarkdownRenderers: Record<string, MarkdownRenderer> = {
   codespan: CodeSpan,
   alert: MarkdownAlert,
   listitem: MarkdownListItem,

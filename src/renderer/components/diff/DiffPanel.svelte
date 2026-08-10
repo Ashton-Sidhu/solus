@@ -21,7 +21,12 @@
     diffFilePath,
     diffHeaderStats,
   } from "../../lib/diffTreeAdapter";
-  import { getWorkspaceContext, getSettingsContext, runtime } from "../../contexts";
+  import {
+    getWorkspaceContext,
+    getSettingsContext,
+    hostCapabilitiesStore,
+    runtime,
+  } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import {
     InlineCommentDraft,
@@ -36,6 +41,10 @@
   import type { ReviewComment } from "../../../shared/providers";
   import type { DiffReviewThread } from "./lib/interdiff-annotations";
   import { mountDiffFileTree } from "./lib/diff-file-tree";
+  import type { HostApi } from "@client-core/host-api";
+  import { serverConnections } from "@client-core/server-connections";
+  import { hostPolicy } from "@client-core/host-policy";
+  import { supportsEditor } from "@client-core/host-capabilities";
 
   type ExternalDiffCommentSave = {
     id?: string;
@@ -51,6 +60,7 @@
   let {
     tabId,
     getCtx,
+    getApi: getApiProp,
     projectPath,
     worktreePath,
     worktreeBranch,
@@ -73,6 +83,7 @@
   }: {
     tabId: string;
     getCtx?: () => IpcContext;
+    getApi?: () => HostApi;
     projectPath: string;
     worktreePath?: string;
     worktreeBranch: string;
@@ -108,6 +119,17 @@
   const session = getWorkspaceContext();
   const theme = getSettingsContext();
   const sess = $derived(session.sessionFor(tabId));
+  const getApi = () => getApiProp?.() ?? session.apiFor(tabId);
+  const editorServerId = $derived(serverConnections.serverIdForApi(getApi()));
+  const canOpenInEditor = $derived(
+    !!theme.defaultEditor &&
+      hostPolicy.isClientMachine(editorServerId) &&
+      supportsEditor(hostCapabilitiesStore.for(editorServerId), theme.defaultEditor),
+  );
+
+  $effect(() => {
+    void hostCapabilitiesStore.load(editorServerId);
+  });
 
   // The in-progress inline-comment draft. Owned here and shared down to
   // DiffStream (this panel's only consumer) via context, so the selection /
@@ -119,6 +141,7 @@
     session,
     getTabId: () => tabId,
     getCtx: () => getCtx?.() ?? session.ctxFor(tabId),
+    getApi,
   });
   const diff = $derived(diffState.diff);
   const loadError = $derived(diffState.loadError);
@@ -424,7 +447,10 @@
 
   function openFileInEditor(path: string) {
     const fileRoot = worktreePath ?? projectPath;
+    const api = getApi?.() ?? session.apiFor(tabId);
     openInConfiguredEditor(getCtx?.() ?? session.ctxFor(tabId), {
+      api,
+      serverId: serverConnections.serverIdForApi(api),
       filePaths: [path],
       editorId: theme.defaultEditor,
       terminalId: theme.defaultTerminal,
@@ -576,7 +602,7 @@
   // have no anchor in the current diff and live in the Activity timeline.
   const navigableThreads = $derived(reviewThreads.filter((t) => t.line != null));
 
-  function navigateToThread(t: ReviewThread) {
+  function navigateToThread(t: DiffReviewThread) {
     if (t.line == null) return;
     const side = t.side === "LEFT" ? "old" : "new";
     draft.range = { startLine: t.line, endLine: t.line, side };
@@ -966,7 +992,7 @@
             draft.value = v;
             session.updateDiffCommentDraftValue(v);
           }}
-          canOpenInEditor={!!theme.defaultEditor}
+          {canOpenInEditor}
           onOpenInEditor={openFileInEditor}
           onLineRange={handleStreamLineRange}
           onLineSelect={handleStreamLineRange}

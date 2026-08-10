@@ -2,8 +2,10 @@ import { SvelteMap } from 'svelte/reactivity'
 import type { SessionMeta, SessionStatus } from '../../../../shared/types'
 import { serverConnections } from '@client-core/server-connections'
 import type { HostEventSubscriber } from '@client-core/host-event-subscriber'
+import type { HostApi } from '@client-core/host-api'
+import { stampSessionMeta } from '@client-core/session-meta'
 
-type SolusApi = typeof window.solus
+type SolusApi = HostApi
 
 /**
  * Live status + indexed metadata for agents shown in conversation cards.
@@ -19,6 +21,7 @@ class AgentConversationStatusStore {
   private statuses = new SvelteMap<string, SessionStatus>()
   private metas = new SvelteMap<string, SessionMeta>()
   private apiByAgent = new Map<string, SolusApi>()
+  private serverIdByAgent = new Map<string, string>()
   private consumers = new Map<string, number>()
   private hydrationGeneration = new Map<string, number>()
   private subscribedApis = new WeakSet<object>()
@@ -43,12 +46,13 @@ class AgentConversationStatusStore {
   }
 
   /** Retain an agent while at least one mounted card can display it. */
-  retain(agentSessionId: string, api: SolusApi = window.solus): () => void {
+  retain(agentSessionId: string, api: SolusApi, serverId: string | undefined): () => void {
     this.subscribe(api)
     const count = this.consumers.get(agentSessionId) ?? 0
     this.consumers.set(agentSessionId, count + 1)
     if (count === 0) {
       this.apiByAgent.set(agentSessionId, api)
+      if (serverId) this.serverIdByAgent.set(agentSessionId, serverId)
       this.hydrationGeneration.set(agentSessionId, (this.hydrationGeneration.get(agentSessionId) ?? 0) + 1)
       void this.hydrate(agentSessionId)
     }
@@ -63,6 +67,7 @@ class AgentConversationStatusStore {
       }
       this.consumers.delete(agentSessionId)
       this.apiByAgent.delete(agentSessionId)
+      this.serverIdByAgent.delete(agentSessionId)
       this.statuses.delete(agentSessionId)
       this.metas.delete(agentSessionId)
       this.hydrationGeneration.set(agentSessionId, (this.hydrationGeneration.get(agentSessionId) ?? 0) + 1)
@@ -70,9 +75,14 @@ class AgentConversationStatusStore {
   }
 
   private async hydrate(agentSessionId: string): Promise<void> {
-    const api = this.apiByAgent.get(agentSessionId) ?? window.solus
+    const api = this.apiByAgent.get(agentSessionId)
+    const serverId = this.serverIdByAgent.get(agentSessionId)
+    if (!api || !serverId) return
     const generation = this.hydrationGeneration.get(agentSessionId) ?? 0
-    const meta = await api.getSessionInfo(agentSessionId).catch(() => null)
+    const meta = stampSessionMeta(
+      await api.getSessionInfo(agentSessionId).catch(() => null),
+      serverConnections.resolveId(serverId),
+    )
     if (
       !meta ||
       !this.consumers.has(agentSessionId) ||

@@ -26,6 +26,8 @@
     workingDirectory: string | undefined;
     /** Session tab whose checkout and host own autocomplete requests. */
     tabId?: string;
+    /** Session whose changed files appear under "Open in this session". */
+    sessionId?: string;
     /** Notified whenever the editor's plan/work/session references change. */
     onRefsChange?: (
       planRefs: PlanReference[],
@@ -78,6 +80,7 @@
     provider,
     workingDirectory,
     tabId,
+    sessionId,
     onRefsChange,
     onEmptyChange,
     includeSolusCommands = false,
@@ -133,6 +136,7 @@
   const ac = new UnifiedAutocompleteController({
     readOnly: () => readOnly,
     tabId: () => autocompleteScope.tabId,
+    sessionId: () => sessionId,
     workingDirectory: () => autocompleteScope.workingDirectory,
     useRelativeFilePaths: () => useRelativeFilePaths,
     provider: () => provider,

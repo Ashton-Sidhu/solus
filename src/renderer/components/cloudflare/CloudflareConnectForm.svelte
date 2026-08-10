@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { localApi } from "@client-core/local-api";
   /**
    * The paste-a-token step, shared by the Settings row and the in-conversation
    * ConnectCard so the two can never disagree about what a failure means.
@@ -154,7 +155,7 @@
       <button
         type="button"
         class="-my-2 inline-flex min-h-10 shrink-0 items-center gap-1 text-(--solus-accent) underline-offset-2 hover:underline"
-        onclick={() => void window.solus.openExternal(CLOUDFLARE_TOKEN_URL)}
+        onclick={() => void localApi.openExternal(CLOUDFLARE_TOKEN_URL)}
       >
         Open API Tokens<ArrowSquareOutIcon size={10} />
       </button>
@@ -202,7 +203,7 @@
       <button
         type="button"
         class="-my-2 inline-flex min-h-10 items-center gap-0.5 text-(--solus-accent) underline-offset-2 hover:underline"
-        onclick={() => void window.solus.openExternal(CLOUDFLARE_SIGNUP_URL)}
+        onclick={() => void localApi.openExternal(CLOUDFLARE_SIGNUP_URL)}
       >
         Sign up free<ArrowSquareOutIcon size={10} />
       </button>

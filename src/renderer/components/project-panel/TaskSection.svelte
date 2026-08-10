@@ -10,6 +10,8 @@
     sessionTitle,
   } from "../../lib/sessionUtils";
   import { toasts } from "../../lib/toasts";
+  import { serverConnections } from "@client-core/server-connections";
+  import { resolveSessionMetaRef } from "@client-core/session-meta";
   import * as TooltipUI from "../ui/tooltip";
   import {
     orderSessionLinks,
@@ -105,14 +107,18 @@
    *  history. Resolve the indexed record first: the link stores a session id,
    *  not which agent backend wrote it. */
   async function reveal(sessionId: string): Promise<string | null> {
+    const link = store.sessionsByTask.get(task.id)?.find((candidate) => candidate.sessionId === sessionId);
+    const serverId = link?.executionServerId ?? store.hostFor(task.id);
     const openTab = findOpenTabForSession(
       sessionId,
       session.tabs,
       session.sessions,
       session.tabOrder,
+      undefined,
+      serverId ? serverConnections.resolveId(serverId) : undefined,
     );
     if (openTab) return openTab;
-    const meta = await window.solus.getSessionInfo(sessionId).catch(() => null);
+    const meta = await resolveSessionMetaRef({ sessionId, serverId });
     return meta ? await session.resumeSession(meta) : null;
   }
 

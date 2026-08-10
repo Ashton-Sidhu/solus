@@ -15,6 +15,8 @@ import { threadTime } from '../../../lib/relative-time'
 import { triggerSummary } from '../../automations/lib/automation-format'
 import { GLYPH, KIND_NOUN, type RefKind } from './kinds'
 import type { MenuItem } from './rows'
+import { serverConnections } from '@client-core/server-connections'
+import { stampSessionMetas } from '@client-core/session-meta'
 
 /** Per-kind cap: the index behind `#` is for reaching things, not browsing all. */
 export const PER_KIND_LIMIT = 20
@@ -239,8 +241,14 @@ export class ReferenceIndex {
     const context = workingDirectory
       ? this.deps.session.ctxForDirectory(workingDirectory)
       : this.deps.session.ctx
+    const api = this.deps.session.apiForContext(context)
     try {
-      const result = await this.deps.session.prsStore.loadFor(context, { state: 'open' })
+      const result = await this.deps.session.prsStore.loadFor(
+        api,
+        serverConnections.serverIdForApi(api),
+        context,
+        { state: 'open' },
+      )
       if (requestId !== this.#prLoadId) return
       this.#prCandidates = [...result.items].sort(
         (a, b) => timestamp(b.updatedAt) - timestamp(a.updatedAt),
@@ -260,7 +268,10 @@ export class ReferenceIndex {
         .apiFor(tabId)
         .listSessions(workingDirectory, this.deps.session.ctxFor(tabId))
       if (requestId !== this.#sessionLoadId) return
-      this.#sessionCandidates = [...sessions].sort(
+      const sourceServerId = this.deps.session.runFor(tabId)?.serverId
+      if (!sourceServerId) return
+      const serverId = serverConnections.resolveId(sourceServerId)
+      this.#sessionCandidates = [...stampSessionMetas(sessions, serverId)].sort(
         (a, b) => timestamp(b.lastTimestamp) - timestamp(a.lastTimestamp),
       )
     } catch {

@@ -1,3 +1,11 @@
+const seenAttention = new Set();
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'solus:attention-seen' && event.data.dedupKey) {
+    seenAttention.add(event.data.dedupKey);
+  }
+});
+
 self.addEventListener('push', (event) => {
   let payload = {};
   try {
@@ -11,26 +19,32 @@ self.addEventListener('push', (event) => {
   const data = {
     sessionId: payload.sessionId || null,
     kind: payload.kind || null,
-    // Where clicking lands, as a serialized route. Falling back to the session's
-    // own chat route keeps payloads sent by an older host working.
-    route:
-      payload.route ||
-      (payload.sessionId ? `/chat/@${encodeURIComponent(payload.sessionId)}` : null),
+    entryKey: payload.entryKey || null,
+    installationId: payload.installationId || null,
+    route: payload.route || null,
   };
+  const dedupKey = data.installationId && data.entryKey
+    ? `${data.installationId}:${data.entryKey}`
+    : null;
 
-  event.waitUntil(
-    self.registration.showNotification(title, {
+  event.waitUntil((async () => {
+    const windows = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of windows) {
+      client.postMessage({ type: 'solus:push-received', ...data });
+    }
+    if (dedupKey && seenAttention.has(dedupKey)) return;
+    await self.registration.showNotification(title, {
       body,
       data,
-      tag: data.sessionId ? `solus-${data.sessionId}-${data.kind || 'attention'}` : 'solus-attention',
-    }),
-  );
+      tag: dedupKey || (data.sessionId ? `solus-${data.sessionId}-${data.kind || 'attention'}` : 'solus-attention'),
+    });
+  })());
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = event.notification.data || {};
-  const message = { type: 'solus:notification-click', route: data.route || null };
+  const message = { type: 'solus:notification-click', ...data };
 
   event.waitUntil((async () => {
     const windows = await clients.matchAll({ type: 'window', includeUncontrolled: true });
@@ -42,10 +56,11 @@ self.addEventListener('notificationclick', (event) => {
     }
 
     if (clients.openWindow) {
-      // A cold open lands directly at the route: the hash is the location, so
-      // the workspace boots showing that session instead of the last one.
-      const opened = await clients.openWindow(data.route ? `/#${data.route}` : '/');
-      opened?.postMessage(message);
+      const params = new URLSearchParams();
+      if (data.sessionId) params.set('notificationSessionId', data.sessionId);
+      if (data.installationId) params.set('notificationInstallationId', data.installationId);
+      if (data.route) params.set('notificationRoute', data.route);
+      await clients.openWindow(params.size > 0 ? `/?${params}` : '/');
     }
   })());
 });

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { localApi } from "@client-core/local-api";
   import { tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
   import { SvelteSet } from "svelte/reactivity";
@@ -26,6 +27,7 @@
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { serverConnections } from "@client-core/server-connections";
+  import { subscribeAllHosts } from "@client-core/host-events";
   import SortMenu from "../ui/SortMenu.svelte";
   import { Button } from "../ui/button";
   import PageEmpty from "../ui/PageEmpty.svelte";
@@ -56,6 +58,7 @@
   } from "./lib/prs-list-view";
   import type { PrReviewTab } from "../../contexts/prs/prs.store.svelte";
   import { groupStackedPrRows } from "./lib/stack-grouping";
+  import GithubConnectionRequired from "./GithubConnectionRequired.svelte";
 
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
@@ -111,6 +114,24 @@
       : session.ctxForDirectory(activeProjectPath);
   }
 
+  // A project-scoped page follows the focused session for that project. A bare
+  // standalone list has no checkout owner to infer, so primary is the explicit
+  // default that preserves the single-host behavior.
+  const prsSourceTabId = $derived.by(() => {
+    if (!activeProjectPath) return null;
+    const focusedTabId = session.focusedChatTabId ?? session.activeTabId;
+    const ordered = [focusedTabId, ...session.tabOrder.filter((id) => id !== focusedTabId)];
+    return ordered.find((tabId) => {
+      const run = session.runFor(tabId);
+      return run?.gitContext?.repoRoot === activeProjectPath ||
+        run?.workingDirectory === activeProjectPath;
+    }) ?? null;
+  });
+  const prsApi = $derived(
+    prsSourceTabId ? session.apiFor(prsSourceTabId) : serverConnections.primaryApi(),
+  );
+  const prsServerId = $derived(serverConnections.serverIdForApi(prsApi));
+
   const projectOptions = $derived(
     sessionSidebar.projectSummaries
       .filter((project) => project.projectKey !== "~")
@@ -140,7 +161,7 @@
   // falls back to "nobody is me", which under-fills the Yours filter rather than
   // mislabelling someone else's PR as yours.
   const rowContext = $derived<PrRowContext>({
-    checks: (number) => store.checksFor(number),
+    checks: (number) => store.checksFor(prsServerId, prsCtx(), number),
     isMine: (pr) => !!viewerLogin && pr.author === viewerLogin,
   });
 
@@ -162,7 +183,7 @@
     if (listView.minesOnly) rows = rows.filter((pr) => rowContext.isMine(pr));
     if (listView.failingOnly) {
       rows = rows.filter((pr) => {
-        const checks = store.checksFor(pr.number);
+        const checks = store.checksFor(prsServerId, prsCtx(), pr.number);
         return (
           !!checks &&
           checks.headSha === pr.headSha &&
@@ -183,7 +204,7 @@
       openExternal: (pr) => {
         const repo = pr.baseRepo;
         if (repo)
-          void window.solus.openExternal(
+          void localApi.openExternal(
             `https://github.com/${repo.owner}/${repo.repo}/pull/${pr.number}`,
           );
       },
@@ -231,7 +252,7 @@
       label: "Checks failing",
       icon: WarningIcon,
       count: searched.filter((pr) => {
-        const checks = store.checksFor(pr.number);
+        const checks = store.checksFor(prsServerId, prsCtx(), pr.number);
         return (
           !!checks &&
           checks.headSha === pr.headSha &&
@@ -277,7 +298,9 @@
   });
 
   const stackGraph = $derived(
-    settings.stackedPrsEnabled && stacksReady ? stacks.graphFor() : null,
+    settings.stackedPrsEnabled && stacksReady
+      ? stacks.graphFor(prsServerId, activeProjectPath)
+      : null,
   );
   const groupedRows = $derived(groupStackedPrRows(filtered, stackGraph));
   const listNavigationItems = $derived(groupedRows.map((row) => row.pr));
@@ -324,13 +347,13 @@
           ? requestedProjectPath
           : null;
       store.filter = { state: fetchScope };
-      void store.loadAll(prsCtx());
+      void store.loadAll(prsApi, prsServerId, prsCtx());
       void store
-        .loadViewer(prsCtx())
+        .loadViewer(prsApi, prsServerId, prsCtx())
         .then((login) => (viewerLogin = login))
         .catch(() => {});
       stacksReady = false;
-      void stacks.load(prsCtx()).then(
+      void stacks.load(prsApi, prsServerId, prsCtx()).then(
         () => (stacksReady = true),
         () => (stacksReady = false),
       );
@@ -360,7 +383,7 @@
   $effect(() => {
     if (!open || !stackGraph) return;
     untrack(
-      () => void store.loadGuideMetadata(prsCtx(), store.items).catch(() => {}),
+      () => void store.loadGuideMetadata(prsApi, prsServerId, prsCtx(), store.items).catch(() => {}),
     );
   });
 
@@ -374,13 +397,13 @@
     store.resetListView();
     store.needsReviewOnly = false;
     store.filter = { state: "open" };
-    void store.loadAll(prsCtx());
+    void store.loadAll(prsApi, prsServerId, prsCtx());
     void store
-      .loadViewer(prsCtx())
+      .loadViewer(prsApi, prsServerId, prsCtx())
       .then((login) => (viewerLogin = login))
       .catch(() => {});
     stacksReady = false;
-    void stacks.load(prsCtx()).then(
+    void stacks.load(prsApi, prsServerId, prsCtx()).then(
       () => (stacksReady = true),
       () => (stacksReady = false),
     );
@@ -389,16 +412,18 @@
 
   $effect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const unsub = serverConnections
-      .eventsFor()
-      .subscribe("prs.invalidated", ({ projectRoot: changedCwd }) => {
+    const unsub = subscribeAllHosts(
+      "prs.invalidated",
+      (emittingServerId, { projectRoot: changedCwd }) => {
+        if (emittingServerId !== prsServerId) return;
         if (!open) return;
         const scopedCtx = prsCtx().session;
         const ctxCwd = scopedCtx.projectPath || scopedCtx.workingDirectory;
         if (changedCwd !== ctxCwd) return;
         clearTimeout(timer);
         timer = setTimeout(() => refreshList(), 500);
-      });
+      },
+    );
     return () => {
       unsub();
       clearTimeout(timer);
@@ -409,15 +434,19 @@
    *  the remembered view and the list resumes on it when the review exits. */
   function selectPr(pr: PullRequestSummary, tab?: PrReviewTab) {
     listView.selectedNumber = pr.number;
-    void store.loadEfforts(prsCtx(), [pr.number]);
-    void session.openPrReview(pr.number, pr.title, { ctx: prsCtx(), tab });
+    void store.loadEfforts(prsApi, prsServerId, prsCtx(), [pr.number]);
+    void session.openPrReview(pr.number, pr.title, {
+      ctx: prsCtx(),
+      tab,
+      serverId: prsServerId,
+    });
   }
 
   /** Arrow-key movement only highlights. Nothing is fetched or mounted until
    *  Enter opens the row, so walking the list costs no requests. */
   function highlightPr(pr: PullRequestSummary) {
     listView.selectedNumber = pr.number;
-    void store.loadEfforts(prsCtx(), [pr.number]);
+    void store.loadEfforts(prsApi, prsServerId, prsCtx(), [pr.number]);
   }
 
   // Checked PRs in the list order they're shown; stale checks (filtered out or
@@ -439,7 +468,7 @@
   function openReviewMode() {
     const items = selected.length > 0 ? selected : filtered;
     if (items.length === 0) return;
-    void session.openReviewMode(items, prsCtx());
+    void session.openReviewMode(items, prsCtx(), prsServerId);
   }
 
   // ── Opt-in guide generation ──
@@ -459,7 +488,7 @@
     if (numbers.length === 0) return;
     const projectPath = activeProjectPath;
     void store
-      .requestGuides(prsCtx(), numbers, {
+      .requestGuides(prsApi, prsServerId, prsCtx(), numbers, {
         onSettled: ({ total, failed }) => {
           const toastOptions = {
             action: {
@@ -493,7 +522,7 @@
 
   function refreshList() {
     store.filter = { state: fetchScope };
-    void store.loadAll(prsCtx(), { force: true });
+    void store.loadAll(prsApi, prsServerId, prsCtx(), { force: true });
   }
 
   // Narrowing within what is already loaded is free; widening past it is a
@@ -506,7 +535,7 @@
     listView.statusKeys = next;
     if (!refetch) return;
     store.filter = { state: scope };
-    void store.loadAll(prsCtx());
+    void store.loadAll(prsApi, prsServerId, prsCtx());
   }
 
   // ── Keybindings ──
@@ -548,7 +577,7 @@
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
-          void store.loadEfforts(prsCtx(), [number]);
+          void store.loadEfforts(prsApi, prsServerId, prsCtx(), [number]);
           observer.disconnect();
         }
       },
@@ -564,7 +593,8 @@
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
-        if (store.hasMore && !store.loadingMore) void store.loadMore(prsCtx());
+        if (store.hasMore && !store.loadingMore)
+          void store.loadMore(prsApi, prsServerId, prsCtx());
       },
       { rootMargin: "600px 0px" },
     );
@@ -688,6 +718,17 @@
       <div bind:this={listEl} onkeydown={onListKeydown} role="presentation">
         {#if store.loading && filtered.length === 0}
           <ListSkeleton identWidth={44} />
+        {:else if store.error?.kind === "github-auth"}
+          <PageEmpty title="Connect GitHub to load pull requests.">
+            <GithubConnectionRequired serverId={prsServerId} />
+          </PageEmpty>
+        {:else if store.error}
+          <PageEmpty title="Couldn’t load pull requests.">
+            {store.error.message}
+            {#snippet actions()}
+              <Button type="button" variant="outline" onclick={refreshList}>Retry</Button>
+            {/snippet}
+          </PageEmpty>
         {:else if store.items.length === 0}
           <PageEmpty icon={GitPullRequestIcon} title="No pull requests yet.">
             Open pull requests from this project's remote will show up here.
@@ -837,7 +878,7 @@
                     type="button"
                     class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={store.loadingMore}
-                    onclick={() => void store.loadMore(prsCtx())}
+                    onclick={() => void store.loadMore(prsApi, prsServerId, prsCtx())}
                   >
                     {store.loadingMore ? "Loading…" : "Load more pull requests"}
                   </Button>

@@ -80,7 +80,10 @@
 
   function setWarmingEnabled(enabled: boolean) {
     theme.setReviewWarmingEnabled(projectPath, enabled);
-    void session.prsStore.refreshNeedsReview(session.ctx).catch(() => {});
+    const api = session.apiForContext(session.ctx);
+    void session.prsStore
+      .refreshNeedsReview(api, session.serverIdForContext(session.ctx), session.ctx)
+      .catch(() => {});
     requestInputFocus();
   }
 

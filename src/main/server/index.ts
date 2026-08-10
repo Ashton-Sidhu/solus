@@ -41,13 +41,10 @@ import { registerUsageHandlers } from './handlers/usage-handlers'
 import { registerSkillsHandlers } from './handlers/skills-handlers'
 import { registerPinnedSessionsHandlers } from './handlers/pinned-sessions-handlers'
 import { registerSavedPromptsHandlers } from './handlers/saved-prompts-handlers'
-import { registerRunHandlers } from './handlers/run-handlers'
 import { registerProjectConfigHandlers } from './handlers/project-config-handlers'
 import { registerTasksHandlers } from './handlers/tasks-handlers'
 import { setVoiceModelStatusListener } from '../model-downloader'
 import { createLogger } from '../logger'
-import type { RunManager } from '../run/run-manager'
-import type { RunLogSubscriptions } from '../run/run-log-subscriptions'
 import { PushNotificationService, attentionEntryKey, diffNewPushAttentionEntries } from '../notifications/push-service'
 import { ensureClaimWindow, getInstallationId, isClaimable } from './auth'
 import { probeServerCapabilities, registerSetupHandlers } from './handlers/setup-handlers'
@@ -59,6 +56,9 @@ import { registerOutboxHandlers } from './handlers/outbox-handlers'
 import { registerTaskOutboxApplier } from '../tasks/task-applier'
 import { agentTargetFromMetadata } from '../agents/agent-targets'
 import { recordSessionDelegation } from '../sessions/session-delegations'
+import { registerAttachmentHandlers } from './handlers/attachment-handlers'
+import { registerAssetHandlers } from './handlers/asset-handlers'
+import { registerCapabilityHandlers } from './handlers/capability-handlers'
 
 const log = createLogger('main', 'server-boot')
 
@@ -78,8 +78,6 @@ export interface BootOptions {
   staticDir?: string
   /** Optional voice transcription implementation supplied by the desktop host. */
   transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
-  runManager?: RunManager
-  runLogSubscriptions?: RunLogSubscriptions
 }
 
 export interface BootedServer {
@@ -190,6 +188,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Browsing a host's filesystem must work headless — that is the whole point
   // of pairing a server that has no window.
   registerFilesystemHandlers(server)
+  registerAttachmentHandlers(server)
+  registerAssetHandlers(server)
   registerHistoryHandlers(server, {
     controlPlane: opts.controlPlane,
     events,
@@ -255,9 +255,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Local, in-process automation scheduler. Fires time-based triggers while the
   // app is open and catches up missed fires on launch (local-only by design).
   startAutomationScheduler()
-  if (opts.runManager && opts.runLogSubscriptions) {
-    registerRunHandlers(server, opts.runManager, opts.runLogSubscriptions)
-  }
   registerProjectConfigHandlers(server)
   registerTasksHandlers(server)
   registerOutboxHandlers(server)
@@ -284,6 +281,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     desktopHandlers: hasDesktopHandlers,
     version: packageJson.version,
   }))
+  registerCapabilityHandlers(server)
 
   // Attention: expose the active per-session entries and push every change to
   // all connected clients (payload is the full active list — see AttentionService).
@@ -309,7 +307,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     if (created.length === 0 || !pushNotifications.hasOfflineSubscription(isDeviceOnline)) return
 
     for (const entry of created) {
-      void pushNotifications.sendToOfflineDevices(entry, isDeviceOnline).catch((err) => {
+      void pushNotifications.sendToOfflineDevices(entry, isDeviceOnline, getInstallationId()).catch((err) => {
         log.warn('web_push_fanout_failed', { error: err instanceof Error ? err.message : String(err) })
       })
     }
@@ -359,7 +357,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       opts.controlPlane.handleClientDisconnected(clientId)
       checksHandlers.handleClientDisconnected(clientId)
     },
-    onClientExpired: ({ clientId }) => opts.runLogSubscriptions?.releaseClient(clientId),
   })
   let sessionIndexPollTimer: ReturnType<typeof setTimeout> | null = null
   let sessionIndexPollFailures = 0
@@ -479,7 +476,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // keep the plain http.close() callback from ever firing, since Node waits
     // for all live sockets to end on their own. Force them closed first.
     checksHandlers.handleTransportClosed()
-    opts.runLogSubscriptions?.clear()
     try { ws.close() } catch (err) { log.warn('ws_close_failed_during_rebind', { error: err instanceof Error ? err.message : String(err) }) }
     await new Promise<void>((resolve) => http.close(() => resolve()))
     actualPort = await listenWithRetries(actualPort)
@@ -494,7 +490,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         opts.controlPlane.handleClientDisconnected(clientId)
         checksHandlers.handleClientDisconnected(clientId)
       },
-      onClientExpired: ({ clientId }) => opts.runLogSubscriptions?.releaseClient(clientId),
     })
     lock = acquireLock(host, actualPort)
     if (!lock) log.warn('lock_acquisition_failed_after_rebind')
@@ -537,7 +532,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         sessionIndexPollTimer = null
         await lanDiscovery.close()
         checksHandlers.handleTransportClosed()
-        opts.runLogSubscriptions?.clear()
         try { ws.close() } catch (err) { log.warn('ws_close_failed', { error: err instanceof Error ? err.message : String(err) }) }
         await new Promise<void>((resolve) => http.close(() => resolve()))
         lock?.release()

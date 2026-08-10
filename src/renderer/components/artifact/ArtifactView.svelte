@@ -5,10 +5,23 @@
     CheckIcon,
     CopyIcon,
   } from "phosphor-svelte";
-  import { getSettingsContext } from "../../contexts";
+  import {
+    getSettingsContext,
+    getWindowContext,
+    getWorkspaceContext,
+    hostCapabilitiesStore,
+    serversStore,
+  } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { wrapSandboxSrcdoc } from "../../lib/artifactSandbox";
+  import { serverConnections } from "@client-core/server-connections";
+  import { hostPolicy } from "@client-core/host-policy";
+  import { unsupportedOnHost } from "@client-core/host-capabilities";
+  import {
+    assetUrlCache,
+    localArtifactProtocolUrl,
+  } from "./lib/asset-url";
 
   interface Artifact {
     kind: "html" | "image";
@@ -17,10 +30,15 @@
     pending?: boolean;
   }
 
-  let { artifact, skipMotion }: { artifact: Artifact; skipMotion?: boolean } =
-    $props();
+  let {
+    artifact,
+    tabId,
+    skipMotion,
+  }: { artifact: Artifact; tabId: string; skipMotion?: boolean } = $props();
 
   const theme = getSettingsContext();
+  const windowCtx = getWindowContext();
+  const session = getWorkspaceContext();
 
   const RASTER_EXTS = ["png", "jpg", "jpeg", "gif", "webp"];
 
@@ -32,10 +50,60 @@
   );
   const isSvg = $derived(artifact.kind === "image" && ext === "svg");
 
-  /** solus-artifact:// URL for a local image file (path is absolute). */
-  function protocolUrl(path: string): string {
-    return `solus-artifact://local/?p=${encodeURIComponent(path)}`;
-  }
+  let artifactUrl = $state("");
+  let artifactError = $state<string | null>(null);
+  $effect(() => {
+    const path = artifact.kind === "image" ? artifact.path : undefined;
+    const run = session.runFor(tabId);
+    if (!path || !run) {
+      artifactUrl = "";
+      artifactError = null;
+      return;
+    }
+    if (!windowCtx.isWeb && hostPolicy.isClientMachine(run.serverId)) {
+      artifactUrl = localArtifactProtocolUrl(path);
+      artifactError = null;
+      return;
+    }
+
+    const capabilities = hostCapabilitiesStore.for(run.serverId);
+    if (capabilities === undefined) {
+      artifactUrl = "";
+      artifactError = null;
+      void hostCapabilitiesStore.load(run.serverId);
+      return;
+    }
+    if (capabilities.assetUrls !== true) {
+      const hostLabel =
+        serversStore.hostFor(run.serverId)?.label ??
+        serverConnections.connectionFor(run.serverId)?.target.label ??
+        "this host";
+      artifactUrl = "";
+      artifactError = unsupportedOnHost("Artifact images", hostLabel);
+      return;
+    }
+
+    let cancelled = false;
+    artifactUrl = "";
+    artifactError = null;
+    void assetUrlCache
+      .resolve({
+        serverId: run.serverId,
+        path,
+        origin: serverConnections.httpOriginFor(run.serverId),
+        api: session.apiFor(tabId),
+        ctx: session.ctxFor(tabId),
+      })
+      .then((url) => {
+        if (!cancelled) artifactUrl = url;
+      })
+      .catch(() => {
+        if (!cancelled) artifactError = "This artifact image is unavailable.";
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
 
   // Sandboxed-iframe substrate (ADR-0003) lives in lib/artifactSandbox. Reading
   // `theme.isDark` here keeps the srcdoc reactive: toggling the app theme
@@ -48,10 +116,10 @@
   // the file via the protocol, then feed its text into srcdoc.
   let svgText = $state<string | null>(null);
   $effect(() => {
-    if (!isSvg || !artifact.path) return;
+    if (!isSvg || !artifactUrl) return;
     let cancelled = false;
     svgText = null;
-    fetch(protocolUrl(artifact.path))
+    fetch(artifactUrl)
       .then((r) => (r.ok ? r.text() : Promise.reject(new Error("not found"))))
       .then((t) => {
         if (!cancelled) svgText = t;
@@ -134,9 +202,6 @@
       : 1,
   );
 
-  const artifactUrl = $derived(
-    artifact.kind === "image" && artifact.path ? protocolUrl(artifact.path) : "",
-  );
   async function copyImage() {
     if (!artifactUrl) return;
     try {
@@ -221,12 +286,21 @@
       data-testid="artifact-view"
       bind:this={frameEl}
     >
-      {#if isRaster && artifact.path}
+      {#if artifactError}
+        <div
+          class="flex min-h-28 items-center justify-center rounded-xl border border-(--solus-status-error)/20 bg-(--solus-status-error)/5 px-5 text-center text-[0.8125rem] text-(--solus-text-secondary)"
+          role="alert"
+          data-testid="artifact-error"
+        >
+          {artifactError}
+        </div>
+      {:else if isRaster && artifact.path}
         <img
           class="artifact-img"
           src={artifactUrl}
           alt="Rendered artifact"
           data-testid="artifact-image"
+          onerror={() => (artifactError = "This artifact image is unavailable.")}
         />
       {:else if srcdoc !== null}
         <iframe
@@ -247,7 +321,7 @@
         </div>
       {/if}
 
-      {#if srcdoc !== null || isRaster}
+      {#if !artifactError && (srcdoc !== null || isRaster)}
         <div class="artifact-actions">
           {#if isRaster && artifactUrl}
             <TooltipUI.Root>

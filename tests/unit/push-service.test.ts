@@ -111,6 +111,7 @@ describe('PushNotificationService', () => {
     const stats = await svc.sendToOfflineDevices(
       entry('session-1', 'needs_approval', 'Approve Bash'),
       (deviceId) => deviceId === 'online',
+      'installation-studio',
     )
 
     expect(stats).toEqual({ attempted: 2, sent: 1, dropped: 1 })
@@ -123,9 +124,8 @@ describe('PushNotificationService', () => {
       body: 'Approve Bash',
       sessionId: 'session-1',
       kind: 'needs_approval',
-      // The click destination travels with the notification, so tapping it
-      // lands on the session that raised it rather than on the last one.
-      route: '/chat/@session-1',
+      entryKey: 'session-1:needs_approval',
+      installationId: 'installation-studio',
     })
     expect(svc.listSubscriptions().map((s) => s.deviceId).sort()).toEqual(['offline', 'online'])
 

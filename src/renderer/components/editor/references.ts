@@ -2,7 +2,6 @@
 // instance rather than any component, so reference autocomplete can attach to
 // any editor host (prompt input today, the document editor later).
 import type { Editor } from "@tiptap/core";
-import type { Node as ProseMirrorNode, ResolvedPos } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import type { PlanRefAttrs } from "./planRefExtension";
 import type { PrRefAttrs } from "./prRefExtension";
@@ -16,6 +15,9 @@ import type {
   WorkReference,
   SessionReference,
 } from "../../../shared/types";
+
+type ProseMirrorNode = Editor["state"]["doc"];
+type ResolvedPos = Editor["state"]["selection"]["$head"];
 
 export function textBeforeCursor(editor: Editor | null): string {
   if (!editor) return "";

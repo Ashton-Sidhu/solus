@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { serverConnections } from "@client-core/server-connections";
   import { existingTaskId } from "../../contexts/workspace/session-draft.svelte";
   import {
     getWorkspaceContext,
@@ -32,11 +33,13 @@
   import GitSection from "./GitSection.svelte";
   import TaskSection from "./TaskSection.svelte";
   import AutomationsSection from "./AutomationsSection.svelte";
-  import { buildAutomationBoard } from "./lib/automation-board";
+  import {
+    automationMatchesProject,
+    buildAutomationBoard,
+  } from "./lib/automation-board";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
   import { taskRef } from "../tasks/task-page/lib/task-page";
   import { taskRefTooltip } from "./lib/rail-task-card";
-  import { matchesOpenProjects } from "../../lib/sessionUtils";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import { comboHint } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
@@ -104,6 +107,11 @@
   // task links are the two things a draft genuinely does not have yet.
   const panelSession = $derived(session.sessionFor(sourceId));
   const panelRun = $derived(session.runFor(sourceId));
+  const panelServerId = $derived(
+    panelRun?.serverId
+      ? serverConnections.resolveId(panelRun.serverId)
+      : serverConnections.connectionFor()?.serverId ?? null,
+  );
   const panelEnvironment = $derived(environmentStore.environmentFor(panelRun));
   const cwd = $derived(
     panelRun?.workingDirectory ?? session.globalDefaults.workingDirectory,
@@ -141,7 +149,12 @@
   const automationBoard = $derived(
     buildAutomationBoard(
       automationsStore.items.filter((a) =>
-        matchesOpenProjects(a.action.cwd, automationScopeRoots),
+        automationMatchesProject(
+          a,
+          automationsStore.hostFor(a.id),
+          panelServerId,
+          automationScopeRoots,
+        ),
       ),
     ),
   );
@@ -250,7 +263,7 @@
   }
 
   function newAutomation() {
-    session.openAutomationBuilder(null);
+    session.openAutomationBuilder(null, "focused", sourceId);
     requestInputFocus();
   }
 </script>

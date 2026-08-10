@@ -45,6 +45,7 @@ import {
   type Trigger,
 } from "./unified-autocomplete/trigger";
 import { ReferenceIndex } from "./unified-autocomplete/reference-index.svelte";
+import { autocompleteSessionChangedFiles } from "./autocomplete-scope";
 
 export { filterPlanAutocompleteDescriptors } from "./unified-autocomplete/reference-index.svelte";
 
@@ -54,6 +55,9 @@ export interface AutocompleteDeps {
   readOnly: () => boolean;
   /** Tab whose server owns autocomplete RPCs. */
   tabId: () => string;
+  /** Session whose changed files belong in "Open in this session". A draft or
+   *  detached editor has no session and therefore no session-file group. */
+  sessionId?: () => string | undefined;
   workingDirectory: () => string | undefined;
   useRelativeFilePaths: () => boolean;
   provider: () => AgentId;
@@ -202,8 +206,10 @@ export class UnifiedAutocompleteController {
   // ─── Files (`@`) ───
 
   #openFileItems = $derived.by((): MenuItem[] => {
-    const session = this.deps.session.sessionFor(this.deps.tabId());
-    const touched = session?.sessionChangedFiles ?? [];
+    const touched = autocompleteSessionChangedFiles(
+      this.deps.session.sessions,
+      this.deps.sessionId?.(),
+    );
     return touched.slice(0, 8).map((path) => this.#fileItem(path, false));
   });
 
@@ -496,6 +502,7 @@ export class UnifiedAutocompleteController {
       );
       if (descriptor)
         void this.deps.planStore.loadFromDisk({
+          serverId: descriptor.serverId,
           sessionId: descriptor.sessionId,
           planToolUseId: descriptor.planToolUseId,
           projectPath: descriptor.projectPath,

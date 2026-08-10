@@ -1,4 +1,6 @@
 import type { AgentId, IpcContext, SessionMeta, SessionScanEvent } from '../../shared/types'
+import type { HostApi } from '@client-core/host-api'
+import { stampSessionMetas } from '@client-core/session-meta'
 
 export interface SessionHistorySource {
   id: string
@@ -11,7 +13,8 @@ export interface SessionHistorySource {
 /** The slice of one host's RPC surface a history scan needs. Resolved per source
  *  so a host that owns no source is never dialled. */
 export interface SessionHistoryHost {
-  listSessions: Window['solus']['listSessions']
+  serverId: string
+  listSessions: HostApi['listSessions']
   onSessionScan(listener: (event: SessionScanEvent) => void): () => void
 }
 
@@ -37,13 +40,6 @@ function sessionMetaKey(meta: SessionMeta): string {
   // Two hosts can hold the same provider session id — the same repo, cloned
   // twice — and those are different sessions, not one to collapse.
   return `${meta.serverId ?? ''}:${meta.provider}:${meta.sessionId}`
-}
-
-/** Name the host a row came from. Local rows are left untouched so the common
- *  path allocates nothing. */
-function withServerId(sessions: SessionMeta[], serverId: string | undefined): SessionMeta[] {
-  if (!serverId) return sessions
-  return sessions.map((meta) => ({ ...meta, serverId }))
 }
 
 export function sessionHistorySourcesFromRoots(roots: string[]): SessionHistorySource[] {
@@ -102,7 +98,7 @@ export class SessionHistoryLoader {
     // progress worth streaming and opens no subscription.
     const streaming = limitPerProvider === undefined
     /** Which host's rows arrive on a stream, so a batch can be stamped with it. */
-    const streamOwners = new Map<string, string | undefined>()
+    const streamOwners = new Map<string, string>()
     const subscribedHosts = new Set<string | undefined>()
 
     const subscribeHost = (serverId: string | undefined) => {
@@ -112,22 +108,22 @@ export class SessionHistoryLoader {
         this.options.hostFor(serverId).onSessionScan((event: SessionScanEvent) => {
           if (seq !== this.loadSeq || event.type !== 'batch') return
           if (!streamOwners.has(event.streamId)) return
-          onBatch(withServerId(event.sessions, streamOwners.get(event.streamId)))
+          onBatch(stampSessionMetas(event.sessions, streamOwners.get(event.streamId)!))
         }),
       )
     }
 
     const scan = (source: SessionHistorySource): Promise<SessionMeta[]> => {
+      const host = this.options.hostFor(source.serverId)
       let streamId: string | undefined
       if (streaming) {
         streamId = `scan-${++scanStreamCounter}-${source.id}`
-        streamOwners.set(streamId, source.serverId)
+        streamOwners.set(streamId, host.serverId)
         subscribeHost(source.serverId)
       }
-      return this.options
-        .hostFor(source.serverId)
+      return host
         .listSessions(source.projectPath, ctx, source.provider, streamId, limitPerProvider)
-        .then((sessions) => withServerId(sessions, source.serverId))
+        .then((sessions) => stampSessionMetas(sessions, host.serverId))
     }
 
     try {

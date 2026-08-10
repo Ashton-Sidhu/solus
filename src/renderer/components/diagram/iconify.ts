@@ -10,6 +10,7 @@ let registration: Promise<void> | null = null
 
 export function ensureIconCollections(): Promise<void> {
   if (!registration) {
+    // @ts-expect-error Vite supplies this build-time virtual module.
     registration = import('virtual:solus-icons').then(({ default: icons }) => {
       for (const icon of icons) addIcon(icon.name, icon.data)
     })

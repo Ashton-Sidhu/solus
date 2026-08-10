@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { localApi } from "@client-core/local-api";
   import {
     ArrowsClockwiseIcon,
     EyeglassesIcon,
@@ -28,6 +29,7 @@
   import MenuRow, { type ActionRowItem } from "./MenuRow.svelte";
   import { checksPresentation } from "../prs/lib/checks";
   import type { PullRequestSummary } from "../../../shared/providers";
+  import { serverConnections } from "@client-core/server-connections";
 
   interface Props {
     /** The tab or draft whose run this section describes — see `ProjectPanel`. */
@@ -39,6 +41,8 @@
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
   const agentContext = getAgentContext();
+  const prApi = $derived(session.apiFor(sourceId));
+  const prServerId = $derived(serverConnections.serverIdForApi(prApi));
   const env = $derived(environmentStore.environmentFor(session.runFor(sourceId)));
   const status = $derived(env.status);
   const conflictedFiles = $derived(
@@ -203,7 +207,9 @@
     if (!canViewDiff || !env.cwd) return;
     const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
     try {
-      openPrs = (await session.prsStore.loadFor(ctx, { state: "open" })).items;
+      openPrs = (
+        await session.prsStore.loadFor(prApi, prServerId, ctx, { state: "open" })
+      ).items;
     } catch {
       openPrs = [];
     }
@@ -233,9 +239,16 @@
   const prChecks = $derived(
     activePr
       ? checksPresentation(
-          session.prsStore.checksFor(activePr.number),
+          session.prsStore.checksFor(
+            prServerId,
+            session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
+            activePr.number,
+          ),
           activePr.headSha,
-          session.prsStore.checksLoadFailed,
+          session.prsStore.checksLoadFailedFor(
+            prServerId,
+            session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
+          ),
         )
       : null,
   );
@@ -273,6 +286,8 @@
     requestedChecksFor = activePr.number;
     void session.prsStore
       .loadChecks(
+        prApi,
+        prServerId,
         session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
         [activePr.number],
       )
@@ -301,6 +316,7 @@
     closeRowMenu();
     void session.enterPrReview(pr.number, pr.title, {
       ctx: session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
+      serverId: prServerId,
     });
   }
 
@@ -613,7 +629,7 @@
         {@render popRow("View pull request", {
           onclick: () => {
             closeRowMenu();
-            window.solus.openExternal(prUrl);
+            localApi.openExternal(prUrl);
           },
           emphasis: true,
         })}

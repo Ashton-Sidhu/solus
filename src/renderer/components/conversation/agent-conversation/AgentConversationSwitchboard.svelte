@@ -1,6 +1,8 @@
 <script lang="ts">
   import { CheckIcon, DotsThreeIcon } from "phosphor-svelte";
   import * as DropdownMenu from "../../ui/dropdown-menu";
+  import ClaudeIcon from "../../ClaudeIcon.svelte";
+  import OpenAIBlossom from "../../pickers/OpenAIBlossom.svelte";
   import type { AgentConversationRef } from "../../../../shared/types";
   import { getWorkspaceContext } from "../../../contexts";
   import { agentLabel } from "../../../lib/agentAvailability";
@@ -48,7 +50,7 @@
     const releases: Array<() => void> = [];
     for (const ref of refs) {
       if (!isPendingAgent(ref)) {
-        releases.push(agentConversationStatus.retain(ref.agentSessionId, api));
+        releases.push(agentConversationStatus.retain(ref.agentSessionId, api, serverId));
       }
     }
     return () => { for (const release of releases) release(); };
@@ -141,7 +143,7 @@
     void openAgentSession(
       ref,
       provider,
-      api.getSessionInfo,
+      serverId,
       {
         resume: (resumed, opts) => session.resumeSession(resumed, opts),
         openInSplit: (openedTabId) => session.openTabInSplit(openedTabId),
@@ -311,15 +313,29 @@
               : 'bg-[color-mix(in_oklch,var(--agent-accent)_14%,transparent)]'
             : 'hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)]'}"
           style:--agent-accent={isLive ? agentAccent(index) : "var(--muted-foreground)"}
+          aria-label={nameOf(ref)}
           onclick={() => (pickedId = ref.agentSessionId)}
         >
-          <span
-            class="text-[12.5px] font-semibold {isLive
-              ? 'text-[color-mix(in_oklch,var(--agent-accent)_76%,var(--foreground))]'
-              : 'text-muted-foreground'}"
-          >
-            {nameOf(ref)}
-          </span>
+          {#if (meta?.provider ?? ref.provider) === "codex"}
+            <span
+              class="flex items-center justify-center shrink-0 size-[15px] rounded-full bg-white"
+              aria-hidden="true"
+            >
+              <OpenAIBlossom size={10} />
+            </span>
+          {:else if (meta?.provider ?? ref.provider) === "claude-code"}
+            <span class="shrink-0 text-[#c15f2c]" aria-hidden="true">
+              <ClaudeIcon size={15} />
+            </span>
+          {:else}
+            <span
+              class="text-[12.5px] font-semibold {isLive
+                ? 'text-[color-mix(in_oklch,var(--agent-accent)_76%,var(--foreground))]'
+                : 'text-muted-foreground'}"
+            >
+              {nameOf(ref)}
+            </span>
+          {/if}
           <span class="text-[12px] text-muted-foreground {isLive ? '' : 'opacity-80'}">
             {worktreeLabel(ref, meta)}
           </span>

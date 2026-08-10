@@ -400,8 +400,8 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Notification sound"
-    description="Play a sound when a task completes."
+    label="Notifications"
+    description="Show an alert and play a sound when a session needs you."
     visible={isVisible("notification")}
   >
     {#snippet control()}
@@ -409,7 +409,7 @@
         checked={theme.soundEnabled}
         onCheckedChange={(next) => theme.update({ soundEnabled: next })}
         size="default"
-        aria-label="Toggle notification sound"
+        aria-label="Toggle notifications"
       />
     {/snippet}
   </SettingsRow>

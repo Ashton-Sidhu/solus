@@ -1,6 +1,9 @@
 import type { AgentId, CommentAuthor, PlanComment, PlanCommentReply, Work, WorkAnnotations, WorkMeta, WorkPrevious } from '../../../shared/types'
 import { uuid } from '../../../shared/uuid'
 import { workPreview } from '../../../shared/work-preview'
+import { serverConnections } from '@client-core/server-connections'
+import type { HostApi } from '@client-core/host-api'
+import { SvelteMap } from 'svelte/reactivity'
 
 export class WorksStore {
   works = $state<Record<string, Work>>({})
@@ -17,6 +20,8 @@ export class WorksStore {
    *  (provisional, not yet persisted). The card renders a generating skeleton
    *  while this is true; cleared on finalize. */
   streaming = $state<Record<string, boolean>>({})
+  /** Which host owns each known work. All later reads and writes use this map. */
+  private hostByWorkId = new SvelteMap<string, string>()
   /** True while a listWorks load is in flight, so surfaces that show works
    *  alongside slower data (the Workspace ledger) can say so. */
   listLoading = $state(false)
@@ -34,7 +39,7 @@ export class WorksStore {
    *  work_created, finalizeProvisional swaps in the persisted id and content.
    *  The empty entry carries the agent/cwd so finalize can preserve them.
    *  Returns the generated provisional id. */
-  addProvisional(agentProvider: AgentId, cwd: string): string {
+  addProvisional(agentProvider: AgentId, cwd: string, serverId?: string): string {
     const tempId = uuid()
     const now = new Date().toISOString()
     this.works[tempId] = {
@@ -51,6 +56,7 @@ export class WorksStore {
       storage: { kind: 'local' },
     }
     this.streaming[tempId] = true
+    if (serverId) this.hostByWorkId.set(tempId, serverId)
     return tempId
   }
 
@@ -58,8 +64,9 @@ export class WorksStore {
    *  authoritative content/title/type, and clear the streaming flag. When there
    *  is no provisional (Codex/mock emit work_created without streaming), this
    *  simply inserts the finished work. */
-  finalizeProvisional(tempId: string | null, realId: string, title: string, docType: 'doc' | 'slides' | 'diagram', content: string): void {
+  finalizeProvisional(tempId: string | null, realId: string, title: string, docType: 'doc' | 'slides' | 'diagram', content: string, serverId?: string): void {
     const provisional = tempId ? this.works[tempId] : undefined
+    const ownerServerId = serverId ?? (tempId ? this.hostByWorkId.get(tempId) : undefined)
     const now = new Date().toISOString()
     const base: Work = provisional ?? {
       id: realId,
@@ -74,7 +81,10 @@ export class WorksStore {
       cwd: '~',
       storage: { kind: 'local' },
     }
-    if (tempId && tempId !== realId) delete this.works[tempId]
+    if (tempId && tempId !== realId) {
+      delete this.works[tempId]
+      this.hostByWorkId.delete(tempId)
+    }
     if (tempId) delete this.streaming[tempId]
     base.id = realId
     base.title = title
@@ -83,23 +93,42 @@ export class WorksStore {
     base.preview = workPreview(docType, content)
     base.updatedAt = now
     this.works[realId] = base
+    if (ownerServerId) this.hostByWorkId.set(realId, ownerServerId)
   }
 
   /** Drop a provisional whose create_work never persisted (tool errored). */
   removeProvisional(tempId: string): void {
     delete this.works[tempId]
     delete this.streaming[tempId]
+    this.hostByWorkId.delete(tempId)
+  }
+
+  /** Stamp a work returned by a host-addressed create or session event. */
+  rememberHost(workId: string, serverId: string): void {
+    this.hostByWorkId.set(workId, serverId)
+  }
+
+  hostFor(workId: string): string | null {
+    return this.hostByWorkId.get(workId) ?? null
+  }
+
+  /** Legacy work ids can arrive from old transcript links before any list read
+   *  places them. Primary fallback preserves that single-host cold path only. */
+  private apiForWork(workId: string): HostApi {
+    const serverId = this.hostByWorkId.get(workId)
+    return serverId ? serverConnections.apiFor(serverId) : serverConnections.primaryApi()
   }
 
   annotationComments(workId: string): PlanComment[] {
     return this.annotations[workId]?.comments ?? []
   }
 
-  async loadAnnotations(workId: string): Promise<WorkAnnotations | null> {
+  async loadAnnotations(workId: string, serverId?: string): Promise<WorkAnnotations | null> {
+    if (serverId) this.hostByWorkId.set(workId, serverId)
     const token = ++this.nextLoadToken
     this.annotationLoadTokens.set(workId, token)
     try {
-      const ann = await window.solus.loadWorkAnnotations(workId)
+      const ann = await this.apiForWork(workId).loadWorkAnnotations(workId)
       if (this.annotationLoadTokens.get(workId) !== token) return this.annotations[workId] ?? null
       const entry = this.ensureAnnotationsEntry(workId)
       entry.updatedAt = ann?.updatedAt ?? Date.now()
@@ -109,6 +138,12 @@ export class WorksStore {
       logWorkLoad('error', 'annotation load failed', { workId, error: formatError(err) })
       return this.annotations[workId] ?? null
     }
+  }
+
+  async saveAnnotations(workId: string): Promise<void> {
+    const entry = this.ensureAnnotationsEntry(workId)
+    entry.updatedAt = Date.now()
+    await this.apiForWork(workId).saveWorkAnnotations($state.snapshot(entry))
   }
 
   addAnnotationComment(workId: string, comment: PlanComment): void {
@@ -173,7 +208,7 @@ export class WorksStore {
     const token = ++this.nextLoadToken
     this.previousLoadTokens.set(workId, token)
     try {
-      const previous = await window.solus.loadWorkPrevious(workId, cwd)
+      const previous = await this.apiForWork(workId).loadWorkPrevious(workId, cwd)
       if (this.previousLoadTokens.get(workId) !== token) return this.previousSnapshots[workId] ?? null
       this.previousSnapshots[workId] = previous
       return previous
@@ -184,7 +219,7 @@ export class WorksStore {
   }
 
   async save(workId: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>): Promise<void> {
-    const updated = await window.solus.saveWork(workId, updates, this.activeCwd)
+    const updated = await this.apiForWork(workId).saveWork(workId, updates, this.activeCwd)
     const existing = this.works[workId]
     if (existing) {
       if (updates.title !== undefined) existing.title = updated.title
@@ -201,7 +236,8 @@ export class WorksStore {
    * updatedAt and mutates the store entry in place (Svelte 5 rule — no spreads).
    * If the work isn't loaded yet, pulls it fresh from disk.
    */
-  async applyRemoteUpdate(workId: string, title: string, docType: 'doc' | 'slides' | 'diagram', content: string, updatedAt: string): Promise<void> {
+  async applyRemoteUpdate(workId: string, title: string, docType: 'doc' | 'slides' | 'diagram', content: string, updatedAt: string, serverId?: string): Promise<void> {
+    if (serverId) this.hostByWorkId.set(workId, serverId)
     const existing = this.works[workId]
     if (existing) {
       if (existing.updatedAt && updatedAt && updatedAt < existing.updatedAt) return
@@ -212,7 +248,7 @@ export class WorksStore {
       this.agentRevisions[workId] = (this.agentRevisions[workId] ?? 0) + 1
       return
     }
-    const work = await window.solus.loadWork(workId, this.activeCwd)
+    const work = await this.apiForWork(workId).loadWork(workId, this.activeCwd)
     if (work) {
       this.works[workId] = work
       this.agentRevisions[workId] = (this.agentRevisions[workId] ?? 0) + 1
@@ -226,23 +262,37 @@ export class WorksStore {
     this.activeCwd = targetCwd
     const load = (async () => {
       try {
-        const metas = await window.solus.listWorks(targetCwd)
-        if (this.activeCwd !== targetCwd) return
-        const liveIds = new Set<string>()
-        for (const meta of metas) {
-          liveIds.add(meta.id)
-          const existing = this.works[meta.id]
-          if (existing) {
-            applyMeta(existing, meta)
-          } else {
-            this.works[meta.id] = { ...meta, content: '' }
+        const results = await Promise.all(serverConnections.connectedServerIds().map(async (serverId) => {
+          try {
+            return { serverId, metas: await serverConnections.apiFor(serverId).listWorks(targetCwd) }
+          } catch (error) {
+            logWorkLoad('error', 'work list host load failed', { serverId, cwd: targetCwd, error: formatError(error) })
+            return { serverId, error }
           }
-        }
-        for (const id of Object.keys(this.works)) {
-          if (liveIds.has(id) || this.streaming[id]) continue
-          delete this.works[id]
-          delete this.agentRevisions[id]
-          this.clearCachedSidecars(id)
+        }))
+        if (this.activeCwd !== targetCwd) return
+        for (const result of results) {
+          if (!result.metas) continue
+          const liveIds = new Set<string>()
+          for (const meta of result.metas) {
+            liveIds.add(meta.id)
+            this.hostByWorkId.set(meta.id, result.serverId)
+            const existing = this.works[meta.id]
+            if (existing) {
+              applyMeta(existing, meta)
+            } else {
+              this.works[meta.id] = { ...meta, content: '' }
+            }
+          }
+          // Only an owner host that answered can confirm a deletion. A failed
+          // host contributes nothing and cannot evict another host's works.
+          for (const id of Object.keys(this.works)) {
+            if (this.hostByWorkId.get(id) !== result.serverId || liveIds.has(id) || this.streaming[id]) continue
+            delete this.works[id]
+            delete this.agentRevisions[id]
+            this.hostByWorkId.delete(id)
+            this.clearCachedSidecars(id)
+          }
         }
       } catch (err) {
         logWorkLoad('error', 'work list load failed', { cwd: targetCwd, error: formatError(err) })
@@ -280,7 +330,7 @@ export class WorksStore {
       updatedAt: existing?.updatedAt,
     })
     try {
-      const work = await window.solus.loadWork(workId, this.activeCwd)
+      const work = await this.apiForWork(workId).loadWork(workId, this.activeCwd)
       if (work) {
         this.works[workId] = work
         logWorkLoad('info', 'loaded content from disk', {
@@ -313,12 +363,14 @@ export class WorksStore {
 
   async remove(workId: string): Promise<void> {
     try {
-      await window.solus.deleteWork(workId, this.activeCwd)
+      await this.apiForWork(workId).deleteWork(workId, this.activeCwd)
     } catch (err) {
       if (!isMissingWorkError(err)) throw err
     } finally {
       await this.loadAll(this.activeCwd)
+      delete this.works[workId]
       delete this.streaming[workId]
+      this.hostByWorkId.delete(workId)
       this.clearCachedSidecars(workId)
     }
   }
@@ -346,19 +398,22 @@ export class WorksStore {
   async duplicate(workId: string): Promise<Work> {
     const existing = this.works[workId]
     const cwd = existing?.storage?.kind === 'project' ? existing.storage.projectRoot : (existing?.cwd ?? this.activeCwd)
-    const duplicated = await window.solus.duplicateWork(workId, cwd)
+    const api = this.apiForWork(workId)
+    const ownerServerId = this.hostByWorkId.get(workId) ?? serverConnections.serverIdForApi(api)
+    const duplicated = await api.duplicateWork(workId, cwd)
     this.works[duplicated.id] = duplicated
+    if (ownerServerId) this.hostByWorkId.set(duplicated.id, ownerServerId)
     return duplicated
   }
 
   async setPinned(workId: string, pinned: boolean): Promise<void> {
     const w = this.works[workId]
     if (w) w.pinned = pinned
-    await window.solus.setWorkPinned(workId, pinned, this.activeCwd)
+    await this.apiForWork(workId).setWorkPinned(workId, pinned, this.activeCwd)
   }
 
   async promoteToProject(workId: string, projectRoot: string): Promise<Work> {
-    const promoted = await window.solus.promoteWorkToProject(workId, projectRoot)
+    const promoted = await this.apiForWork(workId).promoteWorkToProject(workId, projectRoot)
     const existing = this.works[workId]
     if (existing) {
       applyMeta(existing, promoted)
@@ -372,7 +427,21 @@ export class WorksStore {
 
   linkSession(cwd: string, workId: string, sessionId: string): void {
     this.linkSessionLocal(workId, sessionId)
-    void window.solus.linkWorkSession(workId, sessionId, cwd)
+    void this.apiForWork(workId).linkWorkSession(workId, sessionId, cwd)
+  }
+
+  async revert(workId: string, cwd?: string): Promise<Work | null> {
+    const reverted = await this.apiForWork(workId).revertWork(workId, cwd)
+    if (!reverted) return null
+    const existing = this.works[workId]
+    if (existing) {
+      existing.content = reverted.content
+      existing.preview = reverted.preview
+      existing.updatedAt = reverted.updatedAt
+    } else {
+      this.works[workId] = reverted
+    }
+    return reverted
   }
 
   /** Local-only sync for links the main process already persisted (work_created events). */

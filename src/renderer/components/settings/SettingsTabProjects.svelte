@@ -5,6 +5,13 @@
   import { projectsStore, getWorkspaceContext } from "../../contexts";
   import { Button } from "../ui/button";
   import SettingsSection from "./SettingsSection.svelte";
+  import type { HostApi } from "@client-core/host-api";
+
+  interface Props {
+    serverId: string;
+    api: HostApi;
+  }
+  let { serverId, api }: Props = $props();
 
   const session = getWorkspaceContext();
   const projectMetadata = projectsStore;
@@ -23,11 +30,23 @@
     return [{ key: "", path: preset, folderName: folderName(preset), addedAt: "" }, ...list];
   }
 
-  const projects = $derived(withPresetProject(projectMetadata.projects, session.settingsProjectCwd));
-  const loaded = $derived(projectMetadata.projectsLoaded);
+  const projects = $derived(
+    withPresetProject(
+      projectMetadata.projectsFor(serverId),
+      session.settingsProjectCwd,
+    ),
+  );
+  const loaded = $derived(projectMetadata.projectsLoadedFor(serverId));
 
-  async function refresh(preferred?: string | null) {
-    const list = await projectMetadata.loadProjects({ force: true });
+  async function refresh(
+    targetServerId: string,
+    targetApi: HostApi,
+    preferred?: string | null,
+  ) {
+    const list = await projectMetadata.loadProjectsFor(targetServerId, targetApi, {
+      force: true,
+    });
+    if (serverId !== targetServerId) return;
     const preset = preferred ?? session.settingsProjectCwd;
     selected = preset ?? withPresetProject(list, preset)[0]?.path ?? null;
   }
@@ -35,16 +54,18 @@
   $effect(() => {
     // Re-read whenever the deep-linked project changes (e.g. opened via the panel gear).
     const preset = session.settingsProjectCwd;
+    const targetServerId = serverId;
+    const targetApi = api;
     untrack(() => {
-      void refresh(preset);
+      void refresh(targetServerId, targetApi, preset);
     });
   });
 
   async function remove(path: string) {
-    await projectMetadata.deleteProject(path).catch(() => {});
+    await projectMetadata.deleteProjectFor(serverId, api, path).catch(() => {});
     confirming = null;
     const nextSelect = selected === path ? null : selected;
-    await refresh(nextSelect);
+    await refresh(serverId, api, nextSelect);
   }
 </script>
 
@@ -110,10 +131,5 @@
     {/each}
   </nav>
 
-  <div class="flex-1 min-w-0">
-    {#if !selected && loaded}
-      <p class="text-[0.75rem] text-(--solus-text-tertiary) py-2">Select a project to edit its settings.</p>
-    {/if}
-  </div>
 </div>
 </SettingsSection>

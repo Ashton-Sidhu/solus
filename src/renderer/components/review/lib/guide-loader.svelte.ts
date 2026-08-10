@@ -3,11 +3,12 @@ import type { ReviewGuide, ReviewLedger, ReviewProgressStep } from "../../../../
 import type { AgentId, DiffScope, IpcContext, ReasoningEffort } from "../../../../shared/types";
 import { loadDiffFiles as loadScopedDiffFiles } from "../../../lib/diff-file-loader";
 import { requestInputFocus } from "../../../lib/inputFocus";
+import type { HostApi } from "@client-core/host-api";
 import { serverConnections } from "@client-core/server-connections";
 
 export interface GuideLoaderOptions {
   /** RPC surface that owns the review checkout. */
-  getApi?: () => typeof window.solus;
+  getApi: () => HostApi;
   /** The session IPC context to issue calls against. */
   getCtx: () => IpcContext;
   /** Stable cached-guide key (sanitized branch name or `session-<id>`). */
@@ -51,7 +52,7 @@ export class GuideLoader {
   async load(regenerate: boolean, generateIfMissing = true): Promise<void> {
     const ctx = this.#opts.getCtx();
     const key = this.#opts.getKey();
-    const api = this.#opts.getApi?.() ?? window.solus;
+    const api = this.#opts.getApi();
     this.loading = true;
     this.stale = false;
     // Prefer the cached guide; regenerate (or generate-on-first-open) otherwise.
@@ -133,7 +134,7 @@ export class GuideLoader {
    * Returns an unsubscribe, for the host's `$effect`.
    */
   trackProgress(): () => void {
-    const api = this.#opts.getApi?.() ?? window.solus;
+    const api = this.#opts.getApi();
     return serverConnections.eventsForApi(api).subscribe('review.progressChanged', (event) => {
       // Events broadcast to every subscriber; keep only this key's, and read the
       // key per event so a key change mid-flight doesn't adopt stale progress.
@@ -147,7 +148,7 @@ export class GuideLoader {
       throw new Error("Review comparison is unavailable");
     }
     return loadScopedDiffFiles(
-      this.#opts.getApi?.() ?? window.solus,
+      this.#opts.getApi(),
       this.#opts.getCtx(),
       this.diffScope,
       fileDiff,

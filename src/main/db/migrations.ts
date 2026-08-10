@@ -476,6 +476,25 @@ ALTER TABLE task_session_links ADD COLUMN execution_server_id TEXT;
   `
 ALTER TABLE sessions ADD COLUMN server_id TEXT;
 `,
+  // A pinned manifest is client-global but points at host-scoped sessions. The
+  // empty host preserves legacy bare ids; new entries use the scoped tuple as
+  // identity, so equal provider ids on two hosts can both be pinned.
+  `
+ALTER TABLE pinned_sessions RENAME TO pinned_sessions_unscoped;
+CREATE TABLE pinned_sessions (
+  session_id TEXT NOT NULL,
+  server_id TEXT NOT NULL DEFAULT '',
+  provider TEXT,
+  title TEXT,
+  cwd TEXT,
+  pinned_at INTEGER,
+  PRIMARY KEY (session_id, server_id)
+);
+INSERT INTO pinned_sessions(session_id, server_id, provider, title, cwd, pinned_at)
+  SELECT session_id, '', provider, title, cwd, pinned_at
+  FROM pinned_sessions_unscoped;
+DROP TABLE pinned_sessions_unscoped;
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

@@ -17,6 +17,7 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import MergeControl from "./MergeControl.svelte";
   import ResolveConflictsButton from "./ResolveConflictsButton.svelte";
+  import type { HostApi } from "@client-core/host-api";
 
   // The PR's action cluster, Linear-style: it lives with the merge-readiness
   // status in the right rail (and as a compact fallback when the rail is
@@ -37,6 +38,7 @@
     onAddressComments,
     onChat,
     getCtx,
+    getApi,
     onRefresh,
   }: {
     pr: { number: number; title: string; host?: string };
@@ -53,6 +55,7 @@
     onAddressComments?: () => void;
     onChat?: () => void;
     getCtx: () => IpcContext;
+    getApi: () => HostApi;
     onRefresh: () => void;
   } = $props();
 
@@ -95,7 +98,7 @@
         {getCtx}
       />
     {:else}
-      <MergeControl pr={{ number: pr.number, title: pr.title }} {getCtx} />
+      <MergeControl pr={{ number: pr.number, title: pr.title }} {getCtx} {getApi} />
     {/if}
   {/if}
 

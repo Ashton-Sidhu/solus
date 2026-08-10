@@ -7,7 +7,8 @@ import {
 import { connectionsStore } from '../contexts/connections/connections.store.svelte'
 import { toasts } from './toasts'
 import { requestInputFocus } from './inputFocus'
-import { LOCAL_SERVER_ID } from '@client-core/server-registry'
+import type { HostApi } from '@client-core/host-api'
+import { hostPolicy } from '@client-core/host-policy'
 
 export class GitActions {
   commitPushing = $state(false)
@@ -40,8 +41,8 @@ export class GitActions {
     }
   }
 
-  private api(): typeof window.solus {
-    return this.session.apiFor?.(this.sourceId) ?? window.solus
+  private api(): HostApi {
+    return this.session.apiFor(this.sourceId)
   }
 
   async commitPush(): Promise<void> {
@@ -179,8 +180,8 @@ export class GitActions {
   }
 
   openTerminal(): void {
-    if (!connectionsStore.desktopHandlersAvailable || this.session.runFor(this.sourceId)?.serverId !== LOCAL_SERVER_ID) return
-    void window.solus.openWorktreeTerminal(this.target().ctx)
+    if (!connectionsStore.desktopHandlersAvailable || !hostPolicy.isClientMachine(this.session.runFor(this.sourceId)?.serverId)) return
+    void this.api().openWorktreeTerminal(this.target().ctx)
     requestInputFocus()
   }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { localApi } from "@client-core/local-api";
   /**
    * "Connect where your work lives." Both rows drive the connections the rest of
    * the app already uses — GitHub's device flow and the Cloudflare token form —
@@ -124,7 +125,7 @@
                 size="sm"
                 variant="outline"
                 onclick={() =>
-                  void window.solus.openExternal(prompt.verificationUri)}
+                  void localApi.openExternal(prompt.verificationUri)}
               >
                 <ArrowSquareOutIcon size={12} />
                 Open github.com/login/device

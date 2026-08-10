@@ -21,6 +21,8 @@
   import { getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { localApi } from "@client-core/local-api";
+  import type { HostApi } from "@client-core/host-api";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
   import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
   import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
@@ -36,6 +38,8 @@
   import PrActivityRail from "./PrActivityRail.svelte";
   import ActivityTimeline from "./ActivityTimeline.svelte";
   import PrActions from "./PrActions.svelte";
+  import GithubConnectionRequired from "../prs/GithubConnectionRequired.svelte";
+  import { prSurfaceError, type PrSurfaceError } from "../prs/lib/pr-surface-error";
   import {
     markPrReviewProfile,
     profilePrReviewWork,
@@ -60,6 +64,8 @@
     onJump,
     onRefreshThreads,
     getCtx,
+    getApi,
+    serverId,
     masthead,
   }: {
     pr: PrActivityTarget;
@@ -84,6 +90,8 @@
      *  project (the PRs page's project switcher, embedded review panes).
      *  Defaults to the active tab's context. */
     getCtx?: () => IpcContext;
+    getApi: () => HostApi;
+    serverId: string;
     /** The shared detail masthead — status pill, refs and the content tabs.
      *  Rendered by the host above this tab's title so the same row appears
      *  whichever tab is showing. */
@@ -109,6 +117,7 @@
   // Any provider load rejecting (expired token, network) flips this so the
   // tab shows an explicit error + retry instead of masquerading as an empty PR.
   let loadFailed = $state(false);
+  let loadError = $state<PrSurfaceError | null>(null);
   const anyLoadFailed = $derived(loadFailed || threadsFailed);
 
   let composer = $state("");
@@ -209,8 +218,10 @@
   // Ghost rows until both interleaved sources are in — threads pop in from the
   // parent whenever its fetch lands (no flag), matching the previous behavior.
   const timelineLoading = $derived(commitsLoading || commentsLoading);
-  const checks = $derived(session.prsStore.checksFor(pr.number));
-  const guideStatus = $derived(session.prsStore.guideStatusFor(pr.number));
+  const checks = $derived(session.prsStore.checksFor(serverId, feedCtx(), pr.number));
+  const guideStatus = $derived(
+    session.prsStore.guideStatusFor(serverId, feedCtx(), pr.number),
+  );
   const unresolvedCount = $derived(
     threads.reduce((count, thread) => count + (thread.isResolved ? 0 : 1), 0),
   );
@@ -218,8 +229,11 @@
     unresolvedCount + comments.reduce((count, item) => count + (item.body.trim() ? 1 : 0), 0),
   );
 
-  function markLoadFailed(n: number) {
-    if (pr.number === n) loadFailed = true;
+  function markLoadFailed(n: number, error: unknown) {
+    if (pr.number !== n) return;
+    loadFailed = true;
+    const mapped = prSurfaceError(error);
+    if (mapped.kind === "github-auth" || !loadError) loadError = mapped;
   }
 
   // Fire each request independently and let its section fill in on resolve — no
@@ -231,13 +245,14 @@
   function load(force = false) {
     const n = pr.number;
     markPrReviewProfile("activity-load-start", { force });
-    const cached = force ? {} : session.prsStore.cachedActivity(feedCtx(), n);
+    const cached = force ? {} : session.prsStore.cachedActivity(serverId, feedCtx(), n);
     detail = cached.detail ?? null;
     commits = cached.commits ?? [];
     comments = cached.comments ?? [];
     reviewers = cached.reviewers ?? [];
     changedFiles = cached.changedFiles ?? [];
     loadFailed = false;
+    loadError = null;
     filter = "all";
     unresolvedOnly = false;
     detailLoading = !cached.detail;
@@ -248,55 +263,55 @@
 
     // Not PR-scoped (and cached per project) — best-effort, never an error.
     session.prsStore
-      .loadViewer(feedCtx())
+      .loadViewer(getApi(), serverId, feedCtx())
       .then((login) => (viewerLogin = login))
       .catch(() => {});
     session.prsStore
-      .loadDetail(feedCtx(), n, { force })
+      .loadDetail(getApi(), serverId, feedCtx(), n, { force })
       .then((d) => {
         if (pr.number !== n) return;
         detail = d;
         markPrReviewProfile("detail-ready", { bodyCharacters: d.body.length });
       })
-      .catch(() => {
-        markLoadFailed(n);
+      .catch((error) => {
+        markLoadFailed(n, error);
       })
       .finally(() => {
         if (pr.number === n) detailLoading = false;
       });
     session.prsStore
-      .loadCommits(feedCtx(), n, { force })
+      .loadCommits(getApi(), serverId, feedCtx(), n, { force })
       .then((c) => {
         if (pr.number === n) {
           commits = c;
           markPrReviewProfile("commits-ready", { count: c.length });
         }
       })
-      .catch(() => markLoadFailed(n))
+      .catch((error) => markLoadFailed(n, error))
       .finally(() => {
         if (pr.number === n) commitsLoading = false;
       });
     session.prsStore
-      .loadComments(feedCtx(), n, { force })
+      .loadComments(getApi(), serverId, feedCtx(), n, { force })
       .then((c) => {
         if (pr.number === n) {
           comments = c;
           markPrReviewProfile("comments-ready", { count: c.length });
         }
       })
-      .catch(() => markLoadFailed(n))
+      .catch((error) => markLoadFailed(n, error))
       .finally(() => {
         if (pr.number === n) commentsLoading = false;
       });
     session.prsStore
-      .loadReviewers(feedCtx(), n, { force })
+      .loadReviewers(getApi(), serverId, feedCtx(), n, { force })
       .then((r) => {
         if (pr.number === n) {
           reviewers = r;
           markPrReviewProfile("reviewers-ready", { count: r.length });
         }
       })
-      .catch(() => markLoadFailed(n))
+      .catch((error) => markLoadFailed(n, error))
       .finally(() => {
         if (pr.number === n) reviewersLoading = false;
       });
@@ -305,15 +320,15 @@
 
   function loadChangedFiles(n: number, force = false) {
     session.prsStore
-      .loadChangedFiles(feedCtx(), n, { force })
+      .loadChangedFiles(getApi(), serverId, feedCtx(), n, { force })
       .then((f) => {
         if (pr.number === n) {
           changedFiles = f;
           markPrReviewProfile("changed-files-ready", { count: f.length });
         }
       })
-      .catch(() => {
-        if (pr.number === n) loadFailed = true;
+      .catch((error) => {
+        markLoadFailed(n, error);
       })
       .finally(() => {
         if (pr.number === n) filesLoading = false;
@@ -352,14 +367,14 @@
   // Reply / resolve state lives in each PrThreadCard; the feed only supplies
   // the RPCs bound to this PR.
   function replyToThread(threadId: string, body: string): Promise<ReviewComment> {
-    return window.solus.prReplyThread(feedCtx(), pr.number, threadId, body);
+    return getApi().prReplyThread(feedCtx(), pr.number, threadId, body);
   }
 
   async function resolveThread(threadId: string, resolved: boolean): Promise<void> {
     if (resolved) {
-      await window.solus.prResolveThread(feedCtx(), pr.number, threadId);
+      await getApi().prResolveThread(feedCtx(), pr.number, threadId);
     } else {
-      await window.solus.prUnresolveThread(feedCtx(), pr.number, threadId);
+      await getApi().prUnresolveThread(feedCtx(), pr.number, threadId);
     }
   }
 
@@ -370,12 +385,12 @@
     let commentCreated = false;
     try {
       const n = pr.number;
-      await window.solus.prAddIssueComment(feedCtx(), n, body);
+      await getApi().prAddIssueComment(feedCtx(), n, body);
       commentCreated = true;
       composer = "";
       // Refetch rather than inventing an optimistic author/id; the server copy
       // is the source of truth and survives a reload.
-      const serverComments = await session.prsStore.loadComments(feedCtx(), n, {
+      const serverComments = await session.prsStore.loadComments(getApi(), serverId, feedCtx(), n, {
         force: true,
       });
       if (pr.number === n) comments = serverComments;
@@ -411,7 +426,7 @@
     if (!detail || !title || saving) return;
     saving = true;
     try {
-      detail = await session.prsStore.updatePullRequest(feedCtx(), pr.number, {
+      detail = await session.prsStore.updatePullRequest(getApi(), serverId, feedCtx(), pr.number, {
         title,
         body: bodyDraft,
       });
@@ -431,7 +446,7 @@
    *  progress lands back in the shared store's guide-status map. */
   function generateGuide() {
     void session.prsStore
-      .requestGuides(feedCtx(), [pr.number], {
+      .requestGuides(getApi(), serverId, feedCtx(), [pr.number], {
         onSettled: ({ failed }) => {
           if (failed > 0) {
             toasts.error(
@@ -479,7 +494,7 @@
 
   function openPr() {
     if (!prUrl) return;
-    void window.solus.openExternal(prUrl);
+    void localApi.openExternal(prUrl);
     requestInputFocus();
   }
 </script>
@@ -493,18 +508,22 @@
           class="flex items-center gap-2.5 rounded-xl border border-border bg-card px-3.5 py-3 text-[12.5px]"
           role="alert"
         >
-          <span class="min-w-0 flex-1 truncate">
-            Couldn't load some of this pull request's data. Check your connection or provider sign-in.
-          </span>
-          <Button
-            type="button"
-            variant="ghost"
-            class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-3 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-            onclick={refresh}
-          >
-            <ArrowsClockwiseIcon size={12} class="shrink-0" />
-            Retry
-          </Button>
+          {#if loadError?.kind === "github-auth"}
+            <GithubConnectionRequired {serverId} />
+          {:else}
+            <span class="min-w-0 flex-1 truncate">
+              Couldn't load some of this pull request's data. Check your connection or provider sign-in.
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-3 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+              onclick={refresh}
+            >
+              <ArrowsClockwiseIcon size={12} class="shrink-0" />
+              Retry
+            </Button>
+          {/if}
         </div>
       </div>
     {/if}
@@ -857,6 +876,7 @@
     onAddressComments={onAddressComments ? addressComments : undefined}
     {onChat}
     getCtx={feedCtx}
+    {getApi}
     onOpenRemote={openPr}
     onRefresh={refresh}
   />

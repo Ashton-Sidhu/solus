@@ -19,7 +19,14 @@
     WorkReference,
   } from "../../../shared/types";
   import { REASONING_EFFORT_LABELS } from "../../../shared/types";
-  import { getWorkspaceContext, getAgentContext, getPlanStore } from "../../contexts";
+  import {
+    getWorkspaceContext,
+    getAgentContext,
+    getPlanStore,
+    hostCapabilitiesStore,
+    serversStore,
+  } from "../../contexts";
+  import { serverConnections } from "@client-core/server-connections";
   import { toasts } from "../../lib/toasts";
   import {
     useKeybinding,
@@ -48,6 +55,7 @@
   import AutomationRunHistory from "./AutomationRunHistory.svelte";
   import AutomationScheduleFields from "./AutomationScheduleFields.svelte";
   import { formatSavedAgo } from "../document-shell/saveStatus";
+  import { automationCapableHosts } from "@client-core/host-capabilities";
 
   import { tick, untrack } from "svelte";
 
@@ -58,8 +66,16 @@
      *  and Esc closes the slot, instead of the full-page host owning both. */
     inline?: boolean;
     onClose?: () => void;
+    /** Host of the session surface that opened a new builder. */
+    originServerId?: string;
   }
-  let { automation, onDone, inline = false, onClose }: Props = $props();
+  let {
+    automation,
+    onDone,
+    inline = false,
+    onClose,
+    originServerId,
+  }: Props = $props();
 
   // ── Page shape ──
   // One page, two voices: a reading column of author-written instructions set
@@ -108,6 +124,57 @@
 
   const session = getWorkspaceContext();
   const store = session.automationsStore;
+  const primaryServerId = serverConnections.connectionFor()?.serverId;
+  let selectedServerId = $state(
+    untrack(
+      () =>
+        store.hostFor(automation?.id) ??
+        (originServerId ? serverConnections.resolveId(originServerId) : null) ??
+        primaryServerId ??
+        "",
+    ),
+  );
+  const connectedHosts = $derived.by(() => {
+    // The host directory is reactive; the connection registry supplies only
+    // hosts the app already has open and never creates a socket for this menu.
+    void serversStore.servers;
+    return serverConnections.connectedServerIds().map((serverId) => ({
+      serverId,
+      label:
+        serversStore.hostFor(serverId)?.label ??
+        serverConnections.connectionFor(serverId)?.target.label ??
+        serverId,
+    }));
+  });
+  const hostOptions = $derived(
+    automationCapableHosts(
+      connectedHosts,
+      (serverId) => hostCapabilitiesStore.for(serverId),
+    ).map((host) => ({ value: host.serverId, label: host.label })),
+  );
+  const selectedHostLabel = $derived(
+    hostOptions.find((option) => option.value === selectedServerId)?.label ??
+      "Selected host",
+  );
+  const selectedHostSupportsAutomations = $derived(
+    hostCapabilitiesStore.supports(selectedServerId, "automations"),
+  );
+  const selectedHostApi = $derived(
+    selectedServerId && selectedHostSupportsAutomations
+      ? serverConnections.apiFor(selectedServerId)
+      : null,
+  );
+
+  $effect(() => {
+    for (const host of connectedHosts) void hostCapabilitiesStore.load(host.serverId);
+  });
+
+  $effect(() => {
+    if (connectedHosts.some((host) => hostCapabilitiesStore.for(host.serverId) === undefined)) return;
+    if (!hostOptions.some((option) => option.value === selectedServerId)) {
+      selectedServerId = hostOptions[0]?.value ?? "";
+    }
+  });
 
   // Inline (pane) breadcrumb: leave the builder and reopen the full-page list.
   function paneBackToList() {
@@ -360,8 +427,12 @@
    *  update. Returns the id, or null on failure. */
   async function ensureCreated(): Promise<string | null> {
     if (current) return current.id;
+    if (!selectedServerId || !selectedHostSupportsAutomations) {
+      throw new Error("No connected host supports automations");
+    }
     const trigger = schedule.build();
     const created = await store.create(
+      selectedServerId,
       name.trim() || "Untitled automation",
       currentAction(),
       "error" in trigger ? { type: "manual" } : trigger,
@@ -496,6 +567,7 @@
     // under the exact directory used by that run (drafts may hold unsaved edits).
     void session.resumeSession({
       provider: current?.action.agentProvider ?? agentProvider,
+      serverId: selectedServerId,
       sessionId: run.agentSessionId,
       slug: null,
       firstMessage: name || "Automation run",
@@ -770,12 +842,30 @@
       <span class={EYEBROW}>Setup</span>
       <div class="flex flex-col">
         <div class={ROW}>
+          <span class="shrink-0 text-muted-foreground">Host</span>
+          {#if current}
+            <span class={VALUE}>{selectedHostLabel}</span>
+          {:else}
+            <AutomationRailSelect
+              label="Automation host"
+              value={selectedServerId}
+              options={hostOptions}
+              onSelect={(serverId) => {
+                selectedServerId = serverId;
+                pickerOpen = false;
+              }}
+            />
+          {/if}
+        </div>
+
+        <div class={ROW}>
           <span class="shrink-0 text-muted-foreground">Project</span>
           <!-- Same chip as the menu-backed values, minus the caret: this one
                opens the directory picker, and a caret would promise a menu. -->
           <button
             bind:this={pickerTriggerEl}
             type="button"
+            disabled={!selectedHostApi}
             class={VALUE_TRIGGER}
             onclick={() => (pickerOpen = true)}
             title={cwd}
@@ -884,6 +974,7 @@
   </div>
 </div>
 
+{#if selectedHostApi}
 <DirectoryPicker
   bind:open={pickerOpen}
   onClose={closePicker}
@@ -891,4 +982,8 @@
   initialPath={cwd}
   title="Choose automation project"
   actionLabel="Use project"
+  api={selectedHostApi}
+  hostLabel={selectedHostLabel}
+  serverId={selectedServerId}
 />
+{/if}

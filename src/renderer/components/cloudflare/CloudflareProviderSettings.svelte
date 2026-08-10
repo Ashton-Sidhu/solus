@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { localApi } from "@client-core/local-api";
   import { ArrowSquareOutIcon, SignOutIcon } from "phosphor-svelte";
   import { onMount } from "svelte";
   import {
@@ -56,7 +57,7 @@
       {:else}
         <Button
           size="sm"
-          onclick={() => void window.solus.openExternal(CLOUDFLARE_TOKEN_URL)}
+          onclick={() => void localApi.openExternal(CLOUDFLARE_TOKEN_URL)}
         >
           Create API token
           <ArrowSquareOutIcon size={13} />

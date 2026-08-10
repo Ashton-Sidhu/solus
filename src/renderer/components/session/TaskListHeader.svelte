@@ -5,8 +5,10 @@
   interface Props {
     label: string;
     count: number;
-    mode: SidebarViewMode;
-    onModeChange: (mode: SidebarViewMode) => void;
+    /** The view toggle, for a section that has one. The drafts section does not:
+     *  a draft belongs to no project tree, so there is nothing to group it by. */
+    mode?: SidebarViewMode;
+    onModeChange?: (mode: SidebarViewMode) => void;
   }
   let {
     label,

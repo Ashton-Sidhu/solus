@@ -1,6 +1,7 @@
 import type { ReviewDraftComment, ReviewState } from "../../../../shared/review";
 import type { DiffComment, IpcContext } from "../../../../shared/types";
 import type { GuideDiffCommentSave } from "../../pr-review/guide/lib/guide-data";
+import type { HostApi } from "@client-core/host-api";
 
 /**
  * Review-draft comments for one guide key, persisted through the review-state
@@ -15,13 +16,13 @@ export class ReviewDrafts {
 
   #loadedKey: string | null = null;
   #opts: {
-    getApi?: () => typeof window.solus;
+    getApi: () => HostApi;
     getCtx: () => IpcContext;
     getKey: () => string;
   };
 
   constructor(opts: {
-    getApi?: () => typeof window.solus;
+    getApi: () => HostApi;
     getCtx: () => IpcContext;
     getKey: () => string;
   }) {
@@ -34,7 +35,7 @@ export class ReviewDrafts {
     if (key === this.#loadedKey) return;
     this.#loadedKey = key;
     try {
-      const api = this.#opts.getApi?.() ?? window.solus;
+      const api = this.#opts.getApi();
       const state = await api.readReviewState(this.#opts.getCtx(), key);
       if (this.#opts.getKey() !== key) return;
       this.drafts = state?.drafts ?? [];
@@ -96,7 +97,7 @@ export class ReviewDrafts {
       key: this.#opts.getKey(),
       drafts: [...this.drafts],
     };
-    const api = this.#opts.getApi?.() ?? window.solus;
+    const api = this.#opts.getApi();
     return api.writeReviewState(this.#opts.getCtx(), state);
   }
 }

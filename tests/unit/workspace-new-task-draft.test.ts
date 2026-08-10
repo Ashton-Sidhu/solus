@@ -138,6 +138,113 @@ async function makeWorkspace(options: { runtimeTabCreations?: { count: number } 
   return { workspace, registry, sourceSession, runtime, navigations }
 }
 
+/**
+ * A router whose one pane remembers what it was last pointed at. The drafts
+ * section turns on rules about the draft a pane is *holding*, so a stub that
+ * always answers "nothing" cannot see them.
+ */
+function installPaneRouter(workspace: any) {
+  const pane = { id: 'pane_1', base: null as any }
+  workspace.router = {
+    asidePanes: [],
+    chatSessionIn: () => null,
+    showsChat: () => false,
+    focusedPaneId: pane.id,
+    panes: [pane],
+    pane: (paneId: string) => (paneId === pane.id ? pane : null),
+    navigate: (ref: any) => { pane.base = ref },
+  }
+  return pane
+}
+
+describe('drafts in the sidebar', () => {
+  test('several written drafts stay open at once', async () => {
+    const { workspace } = await makeWorkspace()
+    installPaneRouter(workspace)
+
+    const first = workspace.openSessionDraft({ freshTask: true })
+    first.prompt.text = 'Write the migration'
+    const second = workspace.openSessionDraft({ freshTask: true })
+    second.prompt.text = 'Fix the flaky test'
+
+    // WHY: the sidebar lists written drafts, so one that leaves the pane is
+    // still reachable. Dropping it to make room — which is what the composer did
+    // while nothing listed drafts — would throw away a prompt the user wrote.
+    expect([...workspace.sessionDrafts.keys()]).toEqual([first.id, second.id])
+    expect(workspace.sessionDrafts.get(first.id).prompt.text).toBe('Write the migration')
+  })
+
+  test('an unwritten draft is not kept behind the next one', async () => {
+    const { workspace } = await makeWorkspace()
+    installPaneRouter(workspace)
+
+    const untouched = workspace.openSessionDraft({})
+    const next = workspace.openSessionDraft({})
+
+    // WHY: every new-task gesture opens one and boot seeds one, so keeping the
+    // empties would fill the section with rows nobody wrote — and each would be
+    // unreachable, because an empty draft earns no row to return through.
+    expect(workspace.sessionDrafts.has(untouched.id)).toBe(false)
+    expect(workspace.sessionDrafts.has(next.id)).toBe(true)
+  })
+
+  test('is not a listed draft until the pane moves off it', async () => {
+    const { workspace } = await makeWorkspace()
+    installPaneRouter(workspace)
+
+    const draft = workspace.openSessionDraft({})
+    draft.prompt.text = 'Still writing this'
+
+    // WHY: the prompt in front of you is what you are typing, not something you
+    // set aside. A row for it beside the composer would be the same words twice.
+    expect(workspace.composingDraftIds.has(draft.id)).toBe(true)
+
+    workspace.openSessionDraft({})
+
+    // WHY: moving the pane off it is the moment it becomes a draft you *have*.
+    expect(workspace.composingDraftIds.has(draft.id)).toBe(false)
+    expect(workspace.sessionDrafts.has(draft.id)).toBe(true)
+  })
+
+  test('a draft row goes back to the composer it was left in', async () => {
+    const { workspace } = await makeWorkspace()
+    const pane = installPaneRouter(workspace)
+
+    const parked = workspace.openSessionDraft({})
+    parked.prompt.text = 'Half a thought'
+    const current = workspace.openSessionDraft({})
+
+    workspace.openDraft(parked.id)
+
+    // WHY: the row is a way back to writing, so the pane composes that exact
+    // draft again — and the empty one it was showing goes, on the same rule.
+    expect(pane.base).toEqual({ name: 'draft', params: { draftId: parked.id } })
+    expect(workspace.sessionDrafts.has(current.id)).toBe(false)
+    expect(workspace.sessionDrafts.get(parked.id).prompt.text).toBe('Half a thought')
+  })
+
+  test('discarding hands the words back and frees the pane that held them', async () => {
+    const { workspace } = await makeWorkspace()
+    const pane = installPaneRouter(workspace)
+
+    const draft = workspace.openSessionDraft({})
+    draft.prompt.text = 'Something worth keeping'
+
+    const discarded = workspace.discardSessionDraft(draft.id)
+
+    // WHY: discard is one click on a hover action and it destroys writing, so
+    // the caller is handed everything it needs to put the draft back.
+    expect(workspace.sessionDrafts.has(draft.id)).toBe(false)
+    expect(discarded.prompt.text).toBe('Something worth keeping')
+    // WHY: a pane pointed at a draft that no longer exists renders nothing at
+    // all, so the pane that was composing it goes back to the conversation.
+    expect(pane.base.name).toBe('chat')
+
+    workspace.restoreSessionDrafts({ order: [draft.id], drafts: { [draft.id]: discarded } })
+    expect(workspace.sessionDrafts.get(draft.id).prompt.text).toBe('Something worth keeping')
+  })
+})
+
 describe('session drafts', () => {
   test('exists only as a draft until the prompt is sent', async () => {
     const { workspace, registry, runtime, navigations } = await makeWorkspace()

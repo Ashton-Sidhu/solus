@@ -23,6 +23,7 @@ const PRS: RouteRef = { name: 'prs', params: {} }
 const PLAN: RouteRef = { name: 'plan', params: { planId: 'p_1' } }
 const WORK: RouteRef = { name: 'work', params: { workId: 'w_1' } }
 const PR_REVIEW: RouteRef = { name: 'prReview', params: { number: 4821 } }
+const PR_DIFF: RouteRef = { name: 'prDiff', params: { number: 4821 } }
 const DIFF: RouteRef = { name: 'diff', params: { sourceTabId: 'tab_a' } }
 
 function locationWith(...refs: (RouteRef | null)[]): Location {
@@ -56,10 +57,10 @@ describe('placing a route', () => {
   test("an 'aside' route never takes the leading pane", () => {
     const location = locationWith(CHAT_ROUTE)
 
-    place(location, PR_REVIEW, 'focused')
+    place(location, PR_DIFF, 'focused')
 
     expect(location.panes[0].base).toEqual(CHAT_ROUTE)
-    expect(location.panes[1].base).toEqual(PR_REVIEW)
+    expect(location.panes[1].base).toEqual(PR_DIFF)
   })
 
   test("'new' appends until the cap, then replaces the trailing pane", () => {

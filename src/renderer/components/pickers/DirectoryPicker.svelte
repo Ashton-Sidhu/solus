@@ -30,6 +30,9 @@
   import Kbd from "../ui/Kbd.svelte";
   import WorkspaceMark from "../ui/WorkspaceMark.svelte";
   import type { DirectoryEntry, RecentProject } from "../../../shared/types";
+  import type { HostApi } from "@client-core/host-api";
+  import { serverConnections } from "@client-core/server-connections";
+  import { hostPolicy } from "@client-core/host-policy";
   import {
     centringPadding,
     observeConversationBounds,
@@ -59,7 +62,7 @@
     title?: string;
     actionLabel?: string;
     /** RPC surface of the host being browsed. Defaults to the active server. */
-    api?: typeof window.solus;
+    api?: HostApi;
     /** Shown as a chip when browsing a host other than the active server. */
     hostLabel?: string;
     /** Lets remote browsing share the host store's temporary-connection recents cache. */
@@ -83,8 +86,11 @@
 
   const layer = getPopoverLayer();
 
-  const host = $derived(api ?? window.solus);
-  const isPrimaryHost = $derived(host === window.solus);
+  const host = $derived(api ?? serverConnections.primaryApi());
+  const isPrimaryHost = $derived(host === serverConnections.primaryApi());
+  const browseServerId = $derived(
+    serverId ?? serverConnections.serverIdForApi(host),
+  );
 
   /** The typed path is the only selection state; everything below derives from it. */
   let path = $state("");
@@ -190,7 +196,9 @@
   // The file manager opens on the machine running the handler, so it is only
   // meaningful when the browsed host is this one.
   const canOpenFileManager = $derived(
-    isPrimaryHost && connectionsStore.desktopHandlersAvailable && !runtime.isMobileViewport,
+    hostPolicy.isClientMachine(browseServerId) &&
+      connectionsStore.desktopHandlersAvailable &&
+      !runtime.isMobileViewport,
   );
 
   function handleBackdropMousedown(e: MouseEvent) {

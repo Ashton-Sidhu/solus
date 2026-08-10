@@ -5,9 +5,13 @@
     TaskLinkInput,
     TaskUpdatePatch,
   } from "../../../../shared/task-types";
-  import { getWorkspaceContext } from "../../../contexts";
+  import { getWindowContext, getWorkspaceContext } from "../../../contexts";
   import { findOpenTabForSession } from "../../../lib/sessionUtils";
   import { toasts } from "../../../lib/toasts";
+  import { localApi } from "@client-core/local-api";
+  import { serverConnections } from "@client-core/server-connections";
+  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
+  import { resolveSessionMetaRef } from "@client-core/session-meta";
   import { setMarkdownImageContext } from "../../conversation/lib/markdown-image";
   import {
     useKeybinding,
@@ -29,6 +33,7 @@
   let { params, paneId }: RouteSurfaceProps<"task"> = $props();
 
   const session = getWorkspaceContext();
+  const windowCtx = getWindowContext();
   const store = session.tasksStore;
   const outbox = session.outboxStore;
   const pane = paneActions(paneId);
@@ -49,7 +54,12 @@
   const projectCwd = $derived(
     task?.projectKey ?? session.tasksProjectCwd ?? undefined,
   );
-  setMarkdownImageContext(() => projectCwd);
+  setMarkdownImageContext({
+    cwd: () => projectCwd,
+    serverId: () => store.hostFor(taskId) ?? LOCAL_SERVER_ID,
+    ctx: () => projectCwd ? session.ctxForDirectory(projectCwd) : undefined,
+    isWeb: () => windowCtx.isWeb,
+  });
   const projectLabel = $derived(
     projectCwd ? (projectCwd.split("/").pop() ?? projectCwd) : "Inbox",
   );
@@ -172,14 +182,18 @@
    *  history. Resolve the indexed record first: the link stores a session id,
    *  not which agent backend wrote it. */
   async function reveal(sessionId: string): Promise<string | null> {
+    const link = store.sessionsByTask.get(taskId)?.find((candidate) => candidate.sessionId === sessionId);
+    const serverId = link?.executionServerId ?? store.hostFor(taskId);
     const openTab = findOpenTabForSession(
       sessionId,
       session.tabs,
       session.sessions,
       session.tabOrder,
+      undefined,
+      serverId ? serverConnections.resolveId(serverId) : undefined,
     );
     if (openTab) return openTab;
-    const meta = await window.solus.getSessionInfo(sessionId).catch(() => null);
+    const meta = await resolveSessionMetaRef({ sessionId, serverId });
     return meta ? await session.resumeSession(meta) : null;
   }
 
@@ -198,7 +212,11 @@
 
   async function stopSession(sessionId: string) {
     try {
-      await window.solus.stopSession(sessionId);
+      const serverId = store.hostFor(taskId);
+      const api = serverId
+        ? serverConnections.apiFor(serverId)
+        : serverConnections.primaryApi();
+      await api.stopSession(sessionId);
     } catch (err) {
       toastError("stop session", err);
     }
@@ -225,7 +243,7 @@
         : null}
       onNext={next ? () => session.goToTask(next.id, "click") : null}
       onOpenSource={task.url
-        ? () => void window.solus.openExternal(task.url!)
+        ? () => void localApi.openExternal(task.url!)
         : null}
       onRefresh={task.providerId === "github" ? refresh : null}
       {refreshing}

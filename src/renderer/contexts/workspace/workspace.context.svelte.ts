@@ -1,7 +1,7 @@
 import { createAppContext } from '../app/create-app-context'
 import type { AgentId, NormalizedEvent, EnrichedError, Message, Tab, Prompt, Session, SessionSpec, RunConfig, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, ModelConfig, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, StatusCardState, PrReviewContext, PromptDelivery, ThreadGoal, ThreadGoalSetRequest } from '../../../shared/types'
 import type { PullRequestSummary } from '../../../shared/providers'
-import type { Via } from '../../../shared/analytics-events'
+import type { SolusEventMap, Via } from '../../../shared/analytics-events'
 import { buildConflictResolutionPrompt, buildConflictResolverCard, buildConflictResolverErrorCard } from '../../lib/pr-conflict-resolution'
 import { adjacentTabAfterClose, branchKeyFor, buildTabSections, findOpenTabForSession, hasSessionStarted } from '../../lib/sessionUtils'
 import { SvelteMap } from 'svelte/reactivity'
@@ -16,6 +16,7 @@ import { automationDraftSessionRequest } from '../automations/automation-draft-s
 import { TasksStore } from '../tasks/tasks.store.svelte'
 import { OutboxStore } from '../outbox/outbox.store.svelte'
 import { PrsStore, type PrReviewTab } from '../prs/prs.store.svelte'
+import { prSurfaceError } from '../../components/prs/lib/pr-surface-error'
 import { StacksStore } from '../prs/stacks.store.svelte'
 import { type Task, type TaskSnapshot } from '../../../shared/task-types'
 import { writeSessionHandoff } from './active-session-pointer'
@@ -61,6 +62,9 @@ import { disposeGitActions } from '../../lib/git-actions.svelte'
 import { prioritizeTabHydration } from './session-bootstrap'
 import { serverConnections } from '@client-core/server-connections'
 import { LOCAL_SERVER_ID } from '@client-core/server-registry'
+import type { HostApi } from '@client-core/host-api'
+import { localApi } from '@client-core/local-api'
+import { readSessionMeta, resolveSessionMetaRef } from '@client-core/session-meta'
 import { buildPrCommentsFixPrompt, type PrFixFeedback } from './pr-fix-session'
 import { isPristineSplitTab } from '../../lib/split-chat'
 import {
@@ -208,7 +212,7 @@ export class WorkspaceContext {
       draftFor: (sourceId) => this.sessionDrafts.get(sourceId),
       ctx: (tabId) => tabId ? this.ctxFor(tabId) : this.ctx,
       ctxForDirectory: (dir) => this.ctxForDirectory(dir),
-      apiFor: (tabId) => tabId ? this.apiFor(tabId) : window.solus,
+      apiFor: (tabId) => tabId ? this.apiFor(tabId) : serverConnections.primaryApi(),
       apiForRun: (run) => this.apiForRun(run),
       refreshPluginCommands: (dir, tabId) => { void this.refreshPluginCommands(dir, tabId) },
       refreshGitRefs: (projectRoot, ctx) => { void this.environment.refreshRefs(projectRoot, ctx, { force: true }) },
@@ -425,6 +429,29 @@ export class WorkspaceContext {
       && (editorLike || this.isExpanded)
   }
 
+  isSessionVisibleOnHost(serverId: string, sessionId: string): boolean {
+    const tabId = findOpenTabForSession(
+      sessionId,
+      this.tabs,
+      this.sessions,
+      this.tabOrder,
+      undefined,
+      serverId,
+    )
+    if (!tabId) return false
+    const editorLike = this.window.viewMode === 'editor' || this.window.isWeb
+    if (editorLike && this.router.asidePanes.some((pane) => {
+      if (pane.overlay || pane.base?.name !== 'chat') return false
+      if (pane.base.params.sessionId !== sessionId) return false
+      return pane.base.params.serverId
+        ? pane.base.params.serverId === serverId
+        : this.chatTabIn(pane.id) === tabId
+    })) {
+      return true
+    }
+    return this.activeTabId === tabId && (editorLike || this.isExpanded)
+  }
+
   /** Whether the conversation pool is what the leading pane is showing. A page,
    *  an artifact or a draft sitting in it means the active tab exists but is
    *  not on screen — so selecting that tab still has somewhere to go. */
@@ -443,6 +470,20 @@ export class WorkspaceContext {
     return this.splitChatTabId ?? ''
   }
 
+  /** The drafts a pane is composing right now. A draft on screen is where the
+   *  user is typing, not something they have set aside, so nothing lists it —
+   *  moving the pane off it is the moment it becomes a draft they *have*. */
+  get composingDraftIds(): Set<string> {
+    const ids = new Set<string>()
+    for (const pane of this.router.panes) {
+      // The pane's own content, not whatever is layered over it: a settings
+      // overlay is still that composer's pane, and a row appearing behind a
+      // modal only to leave again when it closes is noise.
+      if (pane.base?.name === 'draft') ids.add(pane.base.params.draftId)
+    }
+    return ids
+  }
+
   /** Leave whatever page (and optionally artifact) is showing — what selecting
    *  another tab or creating one does, so the new conversation is what you see. */
   private resetOverlays(opts: { closeArtifact?: boolean } = {}): void {
@@ -453,18 +494,26 @@ export class WorkspaceContext {
   }
 
   /** Hand the leading pane back to the conversation when a draft is sitting in
-   *  it. A draft has no tab and no row, so the pane it opened in is the only
-   *  thing holding it: one that was never written in is dropped rather than
-   *  left in the map — and in the persisted snapshot — with nothing listing it.
-   *  One that was written in stays, reachable through history. */
+   *  it. */
   private leaveDraftInLead(): void {
     const pane = this.router.leadingPane
     if (pane.base?.name !== 'draft') return
-    const draft = this.sessionDrafts.get(pane.base.params.draftId)
-    if (draft && !draft.prompt.text.trim() && draft.prompt.attachments.length === 0) {
-      this.dropDraft(draft.id)
-    }
+    this.releaseDraftIn(pane.id)
     this.router.navigate(CHAT_ROUTE, { target: pane.id })
+  }
+
+  /** Let go of the draft a pane is showing, before it shows something else. One
+   *  that was never written in is dropped rather than left in the map — and in
+   *  the persisted snapshot — with nothing listing it. One that was written in
+   *  keeps its row in the sidebar's drafts, which is the way back to it.
+   *
+   *  `keepDraftId` is the draft the pane is about to show, so re-aiming a pane
+   *  at what it already holds never drops it out from under itself. */
+  private releaseDraftIn(paneId: PaneId, keepDraftId?: string): void {
+    const base = this.router.pane(paneId)?.base
+    if (base?.name !== 'draft' || base.params.draftId === keepDraftId) return
+    const draft = this.sessionDrafts.get(base.params.draftId)
+    if (draft?.isEmpty) this.dropDraft(draft.id)
   }
 
   lastActiveTabForBranch(branchKey: string): string | null {
@@ -522,29 +571,39 @@ export class WorkspaceContext {
   }
 
   /** Resolve the RPC surface that owns a run — the machine it runs on. */
-  apiForRun(run: RunConfig | undefined): typeof window.solus {
-    if (!run?.serverId || (
-      run.serverId === LOCAL_SERVER_ID
-      && !serverConnections.connectionFor(LOCAL_SERVER_ID)
-    )) {
-      return window.solus
-    }
-    const api = serverConnections.apiFor(run.serverId) as typeof window.solus
-    serverConnections.retain(run.serverId)
-    this.environment.bindCwd(run.workingDirectory, api)
-    this.environment.bindCwd(run.gitContext?.repoRoot, api)
-    this.environment.bindCwd(run.gitContext?.worktreePath, api)
+  apiForRun(run: RunConfig | undefined): HostApi {
+    const resolvedId = run?.serverId
+      ? serverConnections.resolveId(run.serverId)
+      : serverConnections.connectionFor()?.serverId
+    if (!resolvedId) return serverConnections.primaryApi()
+    const api = serverConnections.apiFor(resolvedId)
+    serverConnections.retain(resolvedId)
+    this.environment.bindCwd(resolvedId, run?.workingDirectory, api)
+    this.environment.bindCwd(resolvedId, run?.gitContext?.repoRoot, api)
+    this.environment.bindCwd(resolvedId, run?.gitContext?.worktreePath, api)
     return api
   }
 
   /** Resolve the RPC surface that owns this tab's — or draft's — session. */
-  apiFor(sourceId: string): typeof window.solus {
+  apiFor(sourceId: string): HostApi {
     return this.apiForRun(this.runFor(sourceId))
   }
 
   /** The same surface, for callers holding only the session's own id. */
-  apiForSession(sessionId: string): typeof window.solus {
+  apiForSession(sessionId: string): HostApi {
     return this.apiForRun(this.sessions[sessionId]?.run)
+  }
+
+  /** Resolve a host from a stateful IPC context, or choose primary for a
+   *  deliberately session-less operation. */
+  apiForContext(ctx: IpcContext): HostApi {
+    return ctx.session.sessionId
+      ? this.apiForSession(ctx.session.sessionId)
+      : serverConnections.primaryApi()
+  }
+
+  serverIdForContext(ctx: IpcContext): string {
+    return serverConnections.serverIdForApi(this.apiForContext(ctx))
   }
 
   get activeTab(): Tab | undefined {
@@ -687,7 +746,7 @@ export class WorkspaceContext {
 
   private async playNotificationIfHidden(): Promise<void> {
     if (!this.settings.soundEnabled) return
-    const visible = await window.solus.isVisible()
+    const visible = await localApi.isVisible()
     if (!visible) {
       notificationAudio.currentTime = 0
       notificationAudio.play().catch(() => {})
@@ -1104,12 +1163,10 @@ export class WorkspaceContext {
       this.settings.worktreeEnabled,
     )
     draft.task = requestedTaskTarget(options, this.rootTaskIdFor(anchorTabId))
-    // A pane already showing a draft is re-aimed rather than stacked behind a
-    // second one: the old draft would be unreachable and would leak.
-    const showing = this.router.pane(this.router.focusedPaneId)?.base
-    if (!options.target && showing?.name === 'draft') {
-      this.dropDraft(showing.params.draftId)
-    }
+    // A pane already showing a draft lets go of it before the new one takes its
+    // place. A written-in draft survives that — the sidebar lists it and can
+    // bring it back — so several drafts can be open at once.
+    if (!options.target) this.releaseDraftIn(this.router.focusedPaneId)
     this.sessionDrafts.set(draft.id, draft)
     this.router.navigate(
       { name: 'draft', params: { draftId: draft.id } },
@@ -1119,6 +1176,17 @@ export class WorkspaceContext {
     // pill open on launch — only a draft the user asked for reveals itself.
     if (options.reveal !== false) this.isExpanded = true
     return draft
+  }
+
+  /** Go back to a draft that was written in and left — what its sidebar row
+   *  does. The pane it lands in lets go of whatever draft it was holding first,
+   *  on the same rule every other route change uses. */
+  openDraft(draftId: string, via: Via = 'click'): void {
+    if (!this.sessionDrafts.has(draftId)) return
+    const target = this.router.focusedPaneId
+    this.releaseDraftIn(target, draftId)
+    this.router.navigate({ name: 'draft', params: { draftId } }, { via, target })
+    this.isExpanded = true
   }
 
   /**
@@ -1133,9 +1201,22 @@ export class WorkspaceContext {
     return tabId
   }
 
-  /** Abandon a draft without starting anything. */
-  discardSessionDraft(draftId: string): void {
+  /** Abandon a draft without starting anything, and hand back any pane that was
+   *  composing it — a pane pointed at a draft that no longer exists renders
+   *  nothing at all. Returns what was discarded, so the surface that asked can
+   *  offer it back. */
+  discardSessionDraft(draftId: string): SessionSpec | null {
+    const spec = this.sessionDrafts.get(draftId)?.spec
+    const discarded = spec ? ($state.snapshot(spec) as SessionSpec) : null
     this.dropDraft(draftId)
+    for (const pane of this.router.panes) {
+      if (pane.base?.name !== 'draft' || pane.base.params.draftId !== draftId) continue
+      // With nothing started, the conversation pool has nothing to show, so the
+      // pane composes a fresh prompt rather than going blank.
+      if (this.tabOrder.length === 0) this.openSessionDraft({ target: pane.id, reveal: false })
+      else this.router.navigate(CHAT_ROUTE, { target: pane.id })
+    }
+    return discarded
   }
 
   /** The one way a draft leaves the map, so nothing keyed on it outlives it —
@@ -1174,10 +1255,16 @@ export class WorkspaceContext {
   }
 
   /** Author an automation in a low-reasoning session with no tab routing state. */
-  async createAutomationDraftSession(prompt: string, cwd: string): Promise<string> {
+  async createAutomationDraftSession(
+    prompt: string,
+    cwd: string,
+    serverId?: string,
+  ): Promise<string> {
     const provider = this.settings.activeAgent as AgentId
     const modelConfig = this.defaultModelConfigFor(provider)
-    const api = this.activeTabId ? this.apiFor(this.activeTabId) : window.solus
+    const api = serverId
+      ? serverConnections.apiFor(serverId)
+      : serverConnections.primaryApi()
     const request = automationDraftSessionRequest(prompt, cwd, provider, modelConfig)
     const { agentSessionId } = await api.createHeadlessSession(request)
     return agentSessionId
@@ -1400,7 +1487,7 @@ export class WorkspaceContext {
       }
     }
     if (session?.run.provider && this.settings.activeAgent !== session.run.provider) {
-      this.settings.update({ activeAgent: session.run.provider })
+      this.config.followActiveSessionAgent(session.run.provider)
     }
     if (session) void this.refreshPluginCommands(session.run.workingDirectory, tabId)
     track('tab_selected', { via })
@@ -1466,7 +1553,7 @@ export class WorkspaceContext {
     splitTab.hasUnread = false
     this.closeSplitPane()
     if (splitSession.run.provider && this.settings.activeAgent !== splitSession.run.provider) {
-      this.settings.update({ activeAgent: splitSession.run.provider })
+      this.config.followActiveSessionAgent(splitSession.run.provider)
     }
     requestInputFocus({ tabId: splitTabId })
   }
@@ -1655,6 +1742,11 @@ export class WorkspaceContext {
     meta: SessionMeta,
     opts?: { background?: boolean; intoTabId?: string },
   ): Promise<string> {
+    if (!meta.serverId) {
+      const resolved = await resolveSessionMetaRef({ sessionId: meta.sessionId })
+      if (!resolved) throw new Error(`Session ${meta.sessionId} was not found on a connected host`)
+      meta = { ...meta, ...resolved }
+    }
     const background = opts?.background ?? false
     const intoTabId = opts?.intoTabId
     const provider = meta.provider ?? this.settings.activeAgent
@@ -1665,6 +1757,7 @@ export class WorkspaceContext {
         this.sessions,
         this.tabOrder,
         provider,
+        meta.serverId,
       )
       if (openTabId) {
         if (!background) {
@@ -1720,7 +1813,7 @@ export class WorkspaceContext {
       if (shouldActivate) {
         if (!background) this.isExpanded = true
         if (this.settings.activeAgent !== provider) {
-          this.settings.update({ activeAgent: provider })
+          this.config.followActiveSessionAgent(provider)
         }
       }
     } else {
@@ -1743,7 +1836,7 @@ export class WorkspaceContext {
         this.setActiveTab(targetTab!.id)
         this.isExpanded = true
         if (this.settings.activeAgent !== provider) {
-          this.settings.update({ activeAgent: provider })
+          this.config.followActiveSessionAgent(provider)
         }
       }
     }
@@ -2078,7 +2171,7 @@ export class WorkspaceContext {
     if (session.readOnlyReason) return false
 
     if (
-      window.solus.getPlatform() === 'web'
+      localApi.getPlatform() === 'web'
       && !serverConnections.connectionFor()
       && !session.run.pendingHostDispatch
     ) {
@@ -2498,8 +2591,10 @@ export class WorkspaceContext {
     const sess = this.sessionFor(this.activeTabId)
     const cwd = sess?.run.workingDirectory ?? this.globalDefaults.workingDirectory ?? '~'
     const provider: AgentId = sess?.run.provider ?? 'claude-code'
-    const work = await window.solus.createWork(title, type, content, workPreview(type, content), undefined, provider, cwd)
+    const api = sess ? this.apiFor(this.activeTabId) : serverConnections.primaryApi()
+    const work = await api.createWork(title, type, content, workPreview(type, content), undefined, provider, cwd)
     this.worksStore.works[work.id] = work
+    this.worksStore.rememberHost(work.id, sess?.run.serverId ?? serverConnections.serverIdForApi(api))
     this.router.close('folio')
     this.openWork(work.id)
   }
@@ -2523,6 +2618,7 @@ export class WorkspaceContext {
       if (openTab) { this.selectTab(openTab); targetTabId = openTab; resumed = true }
       else {
         targetTabId = await this.resumeSession({
+          serverId: this.worksStore.hostFor(workId) ?? undefined,
           provider: work.agentProvider,
           sessionId: resumeSid,
           slug: null,
@@ -2564,7 +2660,7 @@ export class WorkspaceContext {
   // pick. `showPage` adds the one thing the router does not own: the pill's
   // expansion, which is shell state rather than a location.
 
-  private showPage(ref: RouteRef, via: Via, surface: string): void {
+  private showPage(ref: RouteRef, via: Via, surface: SolusEventMap['surface_viewed']['surface']): void {
     // A page that is already open is replaced where it lives (exclusivity);
     // a page opening for the first time covers the conversation rather than
     // taking over whichever companion pane happens to hold focus.
@@ -2573,7 +2669,7 @@ export class WorkspaceContext {
     track('surface_viewed', { surface, via })
   }
 
-  private togglePage(ref: RouteRef, via: Via, surface: string): boolean {
+  private togglePage(ref: RouteRef, via: Via, surface: SolusEventMap['surface_viewed']['surface']): boolean {
     if (this.router.at(ref.name)) {
       this.router.close(ref.name)
       return false
@@ -2633,17 +2729,27 @@ export class WorkspaceContext {
    *  to openTaskSession, driven by the persisted task↔session map. */
   async openTaskLinkedSession(task: Task): Promise<void> {
     const links = this.tasksStore.sessionsByTask.get(task.id)
-    const resumeSid = links?.[links.length - 1]?.sessionId
-    if (!resumeSid) return void this.openTaskSession(task)
+    const link = links?.[links.length - 1]
+    if (!link?.sessionId) return void this.openTaskSession(task)
 
-    const openTab = this.tabIdForAgentSession(resumeSid)
+    const ownerServerId = await this.tasksStore.ownerHostForTask(task.id)
+    if (!ownerServerId) return
+    const sessionServerId = serverConnections.resolveId(link.executionServerId ?? ownerServerId)
+    const openTab = findOpenTabForSession(
+      link.sessionId,
+      this.tabs,
+      this.sessions,
+      this.tabOrder,
+      undefined,
+      sessionServerId,
+    )
     if (openTab) this.selectTab(openTab)
     else {
       // The task link stores a session id, not its agent backend. Resolve the
       // indexed record before resuming instead of assigning whichever provider
       // happens to be selected now; loading a Claude transcript through Codex
       // (or vice versa) returns an empty conversation.
-      const meta = await window.solus.getSessionInfo(resumeSid).catch(() => null)
+      const meta = await readSessionMeta(sessionServerId, link.sessionId)
       if (meta) await this.resumeSession(meta)
     }
     this.router.closeGroup('page')
@@ -2688,9 +2794,10 @@ export class WorkspaceContext {
   async openReviewMode(
     items: Array<Pick<PullRequestSummary, 'number'>>,
     ctx: IpcContext = this.ctx,
+    serverId = this.serverIdForContext(ctx),
   ): Promise<void> {
     if (this.window.viewMode !== 'editor') await this.window.setViewMode('editor')
-    this.prsStore.beginReviewMode(items.map((item) => item.number), ctx)
+    this.prsStore.beginReviewMode(items.map((item) => item.number), ctx, serverId)
     this.showPage({ name: 'reviewMode', params: {} }, 'click', 'review')
   }
 
@@ -2698,9 +2805,13 @@ export class WorkspaceContext {
   openNeedsReview(): void {
     const open = () => void this.openReviewMode(this.prsStore.needsReviewItems)
     if (this.prsStore.needsReviewItems.length > 0) open()
-    else void this.prsStore.refreshNeedsReview(this.ctx).then(open).catch((error) => {
+    else {
+      const api = this.apiForContext(this.ctx)
+      const serverId = serverConnections.serverIdForApi(api)
+      void this.prsStore.refreshNeedsReview(api, serverId, this.ctx).then(open).catch((error) => {
       toasts.error(`Couldn't load reviews: ${error instanceof Error ? error.message : String(error)}`)
-    })
+      })
+    }
   }
 
   // ─── Automations page ───
@@ -2722,10 +2833,15 @@ export class WorkspaceContext {
 
   /** Open one automation as the single artifact. `aside` puts it beside the
    *  conversation, which is what an inline chat card wants. */
-  openAutomationBuilder(automationId: string | null, target: 'focused' | 'aside' = 'focused'): void {
+  openAutomationBuilder(
+    automationId: string | null,
+    target: 'focused' | 'aside' = 'focused',
+    sourceId?: string,
+  ): void {
     this.router.closeGroup('page')
+    const serverId = sourceId ? this.runFor(sourceId)?.serverId : undefined
     const pane = this.router.navigate(
-      { name: 'automation', params: { automationId } },
+      { name: 'automation', params: { automationId, ...(serverId ? { serverId } : {}) } },
       { target: this.artifactTarget(target) },
     )
     if (target === 'aside') this.geometry.open(pane.id)
@@ -2826,7 +2942,7 @@ export class WorkspaceContext {
     }
 
     session.statusCard = buildConflictResolverCard(pr.number, 'merge')
-    const prepared = await window.solus.prPrepareConflictResolution(actionCtx, pr.number).catch((err) => ({
+    const prepared = await this.apiForContext(actionCtx).prPrepareConflictResolution(actionCtx, pr.number).catch((err) => ({
       success: false as const,
       error: err instanceof Error ? err.message : String(err),
     }))
@@ -2859,10 +2975,10 @@ export class WorkspaceContext {
   }
 
   /** The route for one PR, scoped to the project it was opened from. */
-  private prReviewRef(number: number, title?: string, ctx?: IpcContext): RouteRef<'prReview'> {
+  private prReviewRef(number: number, title: string | undefined, ctx: IpcContext, serverId: string): RouteRef<'prReview'> {
     return {
       name: 'prReview',
-      params: { number, title, cwd: ctx?.session.projectPath ?? undefined },
+      params: { number, title, cwd: ctx.session.projectPath ?? undefined, serverId },
     }
   }
 
@@ -2882,24 +2998,27 @@ export class WorkspaceContext {
     number: number,
     title: string | undefined,
     ctx: IpcContext,
-    opts: { tab?: PrReviewTab; via?: Via } = {},
+    opts: { tab?: PrReviewTab; via?: Via; serverId?: string } = {},
   ): Promise<PrReviewContext | null> {
     // The row's verb picks the tab: an inbox row that says Review lands on the
     // diff, everything else on Activity.
     this.prsStore.prReviewTab = opts.tab ?? 'activity'
-    const ref = this.prReviewRef(number, title, ctx)
+    const api = opts.serverId ? serverConnections.apiFor(opts.serverId) : this.apiForContext(ctx)
+    const serverId = opts.serverId ?? serverConnections.serverIdForApi(api)
+    const ref = this.prReviewRef(number, title, ctx, serverId)
     this.router.navigate(ref, { target: this.router.leadingPane.id, via: opts.via })
     this.isExpanded = true
     track('surface_viewed', { surface: 'pr_review', via: opts.via })
-    this.prsStore.prefetchReview(ctx, number)
+    this.prsStore.prefetchReview(api, serverId, ctx, number)
     try {
       const pr = await this.router.resolve<PrReviewContext>(ref, {
-        api: window.solus,
+        api,
         ipc: (cwd) => (cwd ? this.ctxForDirectory(cwd) : ctx),
       })
       markPrReviewProfile('review-worktree-ready')
       return pr
     } catch (err) {
+      if (prSurfaceError(err).kind === 'github-auth') return null
       // Tear down the pending surface so a failed open doesn't strand the user.
       this.router.dropResolved(ref)
       if (this.router.params('prReview')?.number === number) this.exitPrReview()
@@ -2913,20 +3032,22 @@ export class WorkspaceContext {
   async enterPrReview(
     number: number,
     title?: string,
-    opts: { openChat?: boolean; ctx?: IpcContext; via?: Via } = {},
+    opts: { openChat?: boolean; ctx?: IpcContext; via?: Via; serverId?: string } = {},
   ): Promise<void> {
     beginPrReviewProfile(number)
     // Switch to the editor layout up front so the click registers immediately.
     if (this.window.viewMode !== 'editor') await this.window.setViewMode('editor')
     const ctx = opts.ctx ?? this.ctx
-    const pr = await this.openPrReviewRoute(number, title, ctx, { via: opts.via })
+    const pr = await this.openPrReviewRoute(number, title, ctx, { via: opts.via, serverId: opts.serverId })
     if (pr && opts.openChat) await this.openPrReviewChat(pr)
   }
 
   /** Prepare one review without changing pane placement. Review Mode uses this
    * seam to warm the next item in its queue. */
-  async preparePrReview(number: number, opts: { ctx?: IpcContext } = {}): Promise<{ pr: PrReviewContext }> {
-    const pr = await window.solus.prOpenReview(opts.ctx ?? this.ctx, number)
+  async preparePrReview(number: number, opts: { ctx?: IpcContext; serverId?: string } = {}): Promise<{ pr: PrReviewContext }> {
+    const ctx = opts.ctx ?? this.ctx
+    const api = opts.serverId ? serverConnections.apiFor(opts.serverId) : this.apiForContext(ctx)
+    const pr = await api.prOpenReview(ctx, number)
     return { pr }
   }
 
@@ -2935,11 +3056,11 @@ export class WorkspaceContext {
   async openPrReview(
     number: number,
     title?: string,
-    opts: { ctx?: IpcContext; tab?: PrReviewTab } = {},
+    opts: { ctx?: IpcContext; tab?: PrReviewTab; serverId?: string } = {},
   ): Promise<void> {
     if (this.router.params('prReview')?.number === number) return
     beginPrReviewProfile(number)
-    await this.openPrReviewRoute(number, title, opts.ctx ?? this.ctx, { tab: opts.tab })
+    await this.openPrReviewRoute(number, title, opts.ctx ?? this.ctx, { tab: opts.tab, serverId: opts.serverId })
   }
 
   /** Step to the PR before or after the open one, in the list's own order —
@@ -2955,6 +3076,7 @@ export class WorkspaceContext {
     void this.openPrReview(next, this.prsStore.get(next)?.title, {
       ctx,
       tab: this.prsStore.prReviewTab,
+      serverId: this.router.params('prReview')?.serverId,
     })
   }
 
@@ -2984,6 +3106,7 @@ export class WorkspaceContext {
       activate: false,
       gitContext: reviewGitContext,
       gitInitialization: 'background',
+      serverId: this.router.params('prReview')?.serverId,
     })
     markPrReviewProfile('chat-tab-ready')
     const reviewSession = this.sessionFor(tabId)
@@ -3091,17 +3214,35 @@ export class WorkspaceContext {
         void this.openWorkModal(ref.params.workId, undefined, { via: opts.via })
         return
       case 'prReview':
-        void this.enterPrReview(ref.params.number, ref.params.title, { via: opts.via })
+        void this.enterPrReview(ref.params.number, ref.params.title, {
+          via: opts.via,
+          serverId: ref.params.serverId,
+          ctx: ref.params.cwd ? this.ctxForDirectory(ref.params.cwd) : this.ctx,
+        })
         return
       case 'chat': {
         // A chat names a session of ours; a notification or a deep link may name
         // the provider's instead, so both indexes get a look.
         const sessionId = ref.params.sessionId
         const tabId = sessionId
-          ? this.tabIdForSession(sessionId)
-            ?? findOpenTabForSession(sessionId, this.tabs, this.sessions, this.tabOrder)
+          ? ref.params.serverId
+            ? findOpenTabForSession(
+                sessionId,
+                this.tabs,
+                this.sessions,
+                this.tabOrder,
+                undefined,
+                ref.params.serverId,
+              )
+            : this.tabIdForSession(sessionId)
+              ?? findOpenTabForSession(sessionId, this.tabs, this.sessions, this.tabOrder)
           : null
         if (tabId && this.tabs[tabId]) this.selectTab(tabId)
+        else if (sessionId) {
+          void resolveSessionMetaRef({ sessionId, serverId: ref.params.serverId }).then((meta) => {
+            if (meta) void this.resumeSession(meta)
+          })
+        }
         this.isExpanded = true
         return
       }

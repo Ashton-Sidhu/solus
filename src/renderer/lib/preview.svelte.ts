@@ -4,13 +4,16 @@ import type { IpcContext, SessionMeta } from '../../shared/types'
 import type { SessionPreviewResult } from '../../shared/session-history'
 import type { PickerEntry } from './sessionUtils'
 import { extractPreviewMessages, type PreviewExtraction } from './sessionPreviewMessages'
+import type { HostApi } from '@client-core/host-api'
+import { stampSessionMeta } from '@client-core/session-meta'
 
 /** The slice of one host's RPC surface a preview needs. A history entry names
  *  the host that holds it, so a session on another machine previews from there
  *  rather than returning an empty body from this one. */
 export interface PreviewHost {
-  loadSessionPreview: Window['solus']['loadSessionPreview']
-  getSessionInfo: Window['solus']['getSessionInfo']
+  serverId: string
+  loadSessionPreview: HostApi['loadSessionPreview']
+  getSessionInfo: HostApi['getSessionInfo']
 }
 
 interface PreviewLoaderDeps {
@@ -126,7 +129,7 @@ export class PreviewLoader {
         if (seq === this.#seq && shouldApply()) {
           this.#apply(result)
           this.loading = false
-          if (info) onMeta?.(info)
+          if (info) onMeta?.(stampSessionMeta(info, host.serverId)!)
         }
       } catch {
         if (seq === this.#seq) this.loading = false
@@ -137,11 +140,19 @@ export class PreviewLoader {
 
 export function createSessionPreviewStore(): PreviewLoader {
   return new PreviewLoader({
-    // An undefined serverId is this client's own host, which `apiFor` already
-    // resolves to the primary connection.
-    hostFor: (serverId) => ({
-      loadSessionPreview: (...args) => serverConnections.apiFor(serverId).loadSessionPreview(...args),
-      getSessionInfo: (...args) => serverConnections.apiFor(serverId).getSessionInfo(...args),
-    }),
+    hostFor: (serverId) => {
+      const resolvedServerId = serverId
+        ? serverConnections.resolveId(serverId)
+        : serverConnections.connectionFor()?.serverId
+      if (!resolvedServerId) throw new Error('Primary Solus connection has not been registered')
+      const api = serverId
+        ? serverConnections.apiFor(resolvedServerId)
+        : serverConnections.primaryApi()
+      return {
+        serverId: resolvedServerId,
+        loadSessionPreview: api.loadSessionPreview,
+        getSessionInfo: api.getSessionInfo,
+      }
+    },
   })
 }

@@ -20,6 +20,32 @@ export interface SavedServer {
   lastConnected: number
 }
 
+type ServerSavedListener = (server: SavedServer) => void
+type ServerRemovingListener = (server: SavedServer) => void
+
+const serverSavedListeners = new Set<ServerSavedListener>()
+const serverRemovingListeners = new Set<ServerRemovingListener>()
+
+export function onServerSaved(listener: ServerSavedListener): () => void {
+  serverSavedListeners.add(listener)
+  return () => serverSavedListeners.delete(listener)
+}
+
+export function onServerRemoving(listener: ServerRemovingListener): () => void {
+  serverRemovingListeners.add(listener)
+  return () => serverRemovingListeners.delete(listener)
+}
+
+export type InstallationIdDecision = 'match' | 'absent' | 'mismatch'
+
+export function installationIdDecision(
+  storedInstallationId: string | undefined,
+  reportedInstallationId: string,
+): InstallationIdDecision {
+  if (!storedInstallationId) return 'absent'
+  return storedInstallationId === reportedInstallationId ? 'match' : 'mismatch'
+}
+
 export function loadServers(): SavedServer[] {
   try {
     const raw = localStorage.getItem(KEY)
@@ -42,10 +68,16 @@ export function upsertServer(server: SavedServer): void {
   if (idx >= 0) servers[idx] = server
   else servers.push(server)
   saveServers(servers)
+  for (const listener of serverSavedListeners) listener(server)
 }
 
 export function removeServer(id: string): void {
-  saveServers(loadServers().filter(s => s.id !== id))
+  const servers = loadServers()
+  const server = servers.find((candidate) => candidate.id === id)
+  if (server) {
+    for (const listener of serverRemovingListeners) listener(server)
+  }
+  saveServers(servers.filter(s => s.id !== id))
   if (getActiveServerId() === id) setActiveServerId(LOCAL_SERVER_ID)
 }
 
@@ -56,6 +88,14 @@ export function touchLastConnected(id: string): void {
     target.lastConnected = Date.now()
     saveServers(servers)
   }
+}
+
+export function stampInstallationId(id: string, installationId: string): void {
+  const servers = loadServers()
+  const target = servers.find(s => s.id === id)
+  if (!target || target.installationId === installationId) return
+  target.installationId = installationId
+  saveServers(servers)
 }
 
 export function getActiveServerId(): string {

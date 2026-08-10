@@ -152,12 +152,12 @@ describe('searchIndexedSessions filters', () => {
 
 describe('project_root (git-root grouping)', () => {
   test('populates project_root from a plain cwd', () => {
-    indexer.persistIndexedSessionStart('pr-1', 'codex', '/Users/test/t3code', encodePathAsFolder('/Users/test/t3code'), 'gpt-5.5', 'high')
-    expect(indexer.getIndexedSession('pr-1')!.projectRoot).toBe('/Users/test/t3code')
+    indexer.persistIndexedSessionStart('pr-1', 'codex', '/Users/test/solus', encodePathAsFolder('/Users/test/solus'), 'gpt-5.5', 'high')
+    expect(indexer.getIndexedSession('pr-1')!.projectRoot).toBe('/Users/test/solus')
   })
 
   test('collapses a worktree cwd to its originating project root', () => {
-    const root = '/Users/test/t3code'
+    const root = '/Users/test/solus'
     const worktree = `${root}${SOLUS_WORKTREE_PATH_MARKER}generate-names`
     indexer.persistIndexedSessionStart('pr-wt', 'codex', worktree, encodePathAsFolder(worktree), 'gpt-5.5', 'high')
     // worktree and a plain repo session share ONE project_root.
@@ -165,7 +165,7 @@ describe('project_root (git-root grouping)', () => {
   })
 
   test('a project scope includes its worktrees', () => {
-    const root = '/Users/test/t3code'
+    const root = '/Users/test/solus'
     const worktree = `${root}${SOLUS_WORKTREE_PATH_MARKER}names`
     indexer.persistIndexedSessionStart('repo-sess', 'codex', root, encodePathAsFolder(root), 'gpt-5.5', 'high')
     indexer.indexSessionMessages('repo-sess', 'codex', [msg('user', 'pelican in the repo', 10)])
@@ -177,14 +177,14 @@ describe('project_root (git-root grouping)', () => {
   })
 
   test('listProjectRoots returns distinct roots with names and counts', () => {
-    indexer.persistIndexedSessionStart('lp-1', 'codex', '/Users/test/t3code', encodePathAsFolder('/Users/test/t3code'), 'gpt-5.5', 'high')
-    indexer.persistIndexedSessionStart('lp-2', 'codex', '/Users/test/t3code', encodePathAsFolder('/Users/test/t3code'), 'gpt-5.5', 'high')
+    indexer.persistIndexedSessionStart('lp-1', 'codex', '/Users/test/solus', encodePathAsFolder('/Users/test/solus'), 'gpt-5.5', 'high')
+    indexer.persistIndexedSessionStart('lp-2', 'codex', '/Users/test/solus', encodePathAsFolder('/Users/test/solus'), 'gpt-5.5', 'high')
     indexer.persistIndexedSessionStart('lp-3', 'codex', '/Users/test/solus', encodePathAsFolder('/Users/test/solus'), 'gpt-5.5', 'high')
     const roots = indexer.listProjectRoots()
-    const t3 = roots.find((r) => r.projectRoot === '/Users/test/t3code')
-    expect(t3).toBeDefined()
-    expect(t3!.name).toBe('t3code')
-    expect(t3!.count).toBe(2)
+    const solus = roots.find((r) => r.projectRoot === '/Users/test/solus')
+    expect(solus).toBeDefined()
+    expect(solus!.name).toBe('solus')
+    expect(solus!.count).toBe(2)
     expect(roots.some((r) => r.name === 'solus')).toBe(true)
   })
 })

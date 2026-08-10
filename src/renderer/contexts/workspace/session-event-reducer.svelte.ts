@@ -528,6 +528,7 @@ export class SessionEventReducer {
         const cwd = session.run.workingDirectory
         const projectPath = encodePathAsFolder(cwd)
         const planId = this.deps.planStore.upsertFromStream({
+          serverId: session.run.serverId,
           sessionId: session.agentSessionId!,
           planToolUseId: toolUseId,
           projectPath,
@@ -745,7 +746,7 @@ export class SessionEventReducer {
       }
 
       case 'work_updated': {
-        void this.deps.worksStore.applyRemoteUpdate(event.workId, event.title, event.docType, event.content, event.updatedAt)
+        void this.deps.worksStore.applyRemoteUpdate(event.workId, event.title, event.docType, event.content, event.updatedAt, session.run.serverId)
         break
       }
 

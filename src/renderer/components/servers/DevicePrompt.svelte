@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { localApi } from "@client-core/local-api";
   /** A browser-auth prompt: what to confirm or return, where, and why.
    *  The browser is opened for the user already — the Open action is the
    *  fallback for when it wasn't, or landed behind another window. */
@@ -65,7 +66,7 @@
   <button
     type="button"
     class="inline-flex shrink-0 items-center gap-1 text-[0.71875rem] text-(--solus-accent) hover:underline"
-    onclick={() => void window.solus.openExternal(url)}
+    onclick={() => void localApi.openExternal(url)}
   >
     Open
     <ArrowSquareOutIcon size={11} />

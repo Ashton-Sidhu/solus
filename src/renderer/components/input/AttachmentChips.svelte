@@ -10,10 +10,11 @@
 
   interface Props {
     attachments: Attachment[]
+    tabId?: string
     onRemove: (id: string) => void
   }
 
-  let { attachments, onRemove }: Props = $props()
+  let { attachments, tabId, onRemove }: Props = $props()
 
   let previewSrc = $state<string | null>(null)
 
@@ -51,7 +52,7 @@
           style="cursor:{a.dataUrl ? 'zoom-in' : 'pointer'};background:none;border:none;padding:0"
           onclick={() => {
             if (a.dataUrl) previewSrc = a.dataUrl
-            else requestFilePreview({ path: a.path })
+            else requestFilePreview({ path: a.hostPath ?? a.path, tabId })
           }}
         >
           {#if a.type === 'design-selection' && a.dataUrl}

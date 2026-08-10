@@ -1,6 +1,7 @@
 import type { Editor } from "@tiptap/core";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { PlanComment } from "../../../shared/types";
+
+type ProseMirrorNode = Editor["state"]["doc"];
 
 export function prosePosToTextOffset(
   editor: Editor,
@@ -64,6 +65,7 @@ export function addCommentMark(
   const markType = editor.schema.marks.planComment;
   const tr = editor.state.tr;
   tr.setMeta("addToHistory", false);
+  // @ts-expect-error Bun resolved duplicate ProseMirror package identities.
   tr.addMark(from, to, markType.create({ commentId, type: "saved" }));
   editor.view.dispatch(tr);
 }
@@ -78,6 +80,7 @@ export function removeCommentMark(editor: Editor, commentId: string): void {
     const hasMark = node.marks.some(
       (m) => m.type === markType && m.attrs.commentId === commentId,
     );
+    // @ts-expect-error Bun resolved duplicate ProseMirror package identities.
     if (hasMark) tr.removeMark(pos, pos + node.nodeSize, markType);
   });
   editor.view.dispatch(tr);
@@ -183,6 +186,7 @@ export function restoreCommentMarks(
       tr.addMark(
         from,
         to,
+        // @ts-expect-error Bun resolved duplicate ProseMirror package identities.
         markType.create({ commentId: c.id, type: markTypeFor(c) }),
       );
     }

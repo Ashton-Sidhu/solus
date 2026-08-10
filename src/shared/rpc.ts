@@ -3,12 +3,32 @@
 // Single source of truth for every request name in the Solus client/server
 // protocol. Host events are declared separately in `host-events.ts`.
 //
-// The renderer continues to call `window.solus.<method>(...args)`. The preload
+// The renderer calls a host-addressed API handle. The preload
 // (or web client) wraps each call into a single envelope `{ method, args }`
 // sent on one channel (`solus:rpc` for Electron, `/ws` JSON frames for web).
 //
 // To add a new method, add the name here and register a handler against
 // `SolusServer`.
+
+/** Maximum decoded size of one attachment uploaded across a host boundary. */
+export const MAX_ATTACHMENT_UPLOAD_BYTES = 10 * 1024 * 1024
+/** Maximum uploaded attachment files retained for one session. */
+export const MAX_ATTACHMENT_UPLOAD_COUNT = 8
+
+export interface AttachmentUploadRequest {
+  name: string
+  mime: string
+  dataUrl: string
+}
+
+export interface AssetCreateUrlRequest {
+  path: string
+}
+
+export interface AssetCreateUrlResult {
+  relativeUrl: string
+  expiresAt: number
+}
 
 export const RPC_INVOKE_METHODS = [
   // Lifecycle / window
@@ -18,6 +38,7 @@ export const RPC_INVOKE_METHODS = [
   'getAppGlobalShortcuts',
   'setAppGlobalShortcuts',
   'restartApp',
+  'serverGetCapabilities',
 
   // Sessions / agent
   'watchSession',
@@ -49,6 +70,8 @@ export const RPC_INVOKE_METHODS = [
   'openWorktreeTerminal',
   'attachFiles',
   'attachFilePaths',
+  'attachUpload',
+  'assetCreateUrl',
   'takeScreenshot',
   'pasteImage',
   'transcribeAudio',
@@ -111,12 +134,6 @@ export const RPC_INVOKE_METHODS = [
   'gitRefreshState',
   'gitIdentity',
   'gitRegisterEnvironment',
-  'runStatus',
-  'runStart',
-  'runStop',
-  'runRestart',
-  'runLogsRetain',
-  'runLogsRelease',
   'projectConfigLoad',
   'projectConfigSave',
   'listProjects',

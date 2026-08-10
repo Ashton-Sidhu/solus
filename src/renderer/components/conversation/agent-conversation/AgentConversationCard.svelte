@@ -50,6 +50,7 @@
   // The other agent lives on the same host as the caller's tab — every RPC must
   // route through that tab's server, not the local default.
   const api = $derived(session.apiFor(tabId));
+  const serverId = $derived(session.sessionFor(tabId)?.run.serverId);
 
   /** No real session id yet (create_session still starting, or it failed) —
    *  nothing to open, prompt, or track. */
@@ -57,7 +58,7 @@
 
   $effect(() => {
     if (neverStarted) return;
-    return agentConversationStatus.retain(ref.agentSessionId, api);
+    return agentConversationStatus.retain(ref.agentSessionId, api, serverId);
   });
 
   const meta = $derived(agentConversationStatus.metaFor(ref.agentSessionId));
@@ -71,7 +72,6 @@
   const provider = $derived(meta?.provider ?? ref.provider);
   const agentName = $derived(agentLabel(provider));
   const title = $derived(agentConversationTitle(ref, meta));
-  const serverId = $derived(session.sessionFor(tabId)?.run.serverId);
   const provenance = $derived(
     provenanceLine(ref, meta, hostLabelFor(serverId)),
   );
@@ -111,7 +111,7 @@
     void openAgentSession(
       ref,
       provider,
-      api.getSessionInfo,
+      serverId,
       {
         resume: (resumed, opts) => session.resumeSession(resumed, opts),
         openInSplit: (openedTabId) => session.openTabInSplit(openedTabId),

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { localApi } from "@client-core/local-api";
   import {
     CheckIcon,
     CircleNotchIcon,
@@ -45,7 +46,7 @@
   function openDetails(item: CheckItem) {
     if (!item.detailsUrl) return;
     open = false;
-    void window.solus.openExternal(item.detailsUrl);
+    void localApi.openExternal(item.detailsUrl);
     requestInputFocus();
   }
 </script>

@@ -6,6 +6,8 @@ import { loadRestoredSessionTranscript } from './session-transcript'
 import { applyRuntimeConfig, hasConversation, nextMsgId, progressFromMessages } from './session.utils'
 import { initDraftState, loadDrafts, loadPersistedSessionDrafts, loadPersistedTabs, type PersistedTab, type PersistedTabs, type TabDrafts } from './tab-persistence'
 import type { WorkspaceContext } from './workspace.context.svelte'
+import { stampSessionMeta } from '@client-core/session-meta'
+import { serverConnections } from '@client-core/server-connections'
 
 interface DeferredHydrationState {
   pending: Map<string, PersistedTab>
@@ -170,7 +172,7 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
       if (!session || !tabId) return
 
       // Re-register with the server so event routing is alive again.
-      const api = ctx.apiFor?.(tabId) ?? window.solus
+      const api = ctx.apiFor(tabId)
       await api.watchSession({ sessionId }).catch(() => null)
 
       // Same as hydrateTab: Git doesn't depend on the bind below, so don't queue
@@ -312,9 +314,15 @@ async function _attachRuntimeTabs(
   // replay in-flight events before the persisted transcript has loaded.
   for (const snapTab of persistedTabs) {
     if (!snapTab.agentSessionId) continue
+    const sourceServerId = ctx.sessionFor(snapTab.tabId)?.run.serverId
+      ?? snapTab.serverId
+      ?? serverConnections.connectionFor()?.serverId
+    if (!sourceServerId) continue
+    const serverId = serverConnections.resolveId(sourceServerId)
     void ctx.apiFor(snapTab.tabId)
       .getSessionInfo(snapTab.agentSessionId)
-      .then((meta) => {
+      .then((readMeta) => {
+        const meta = stampSessionMeta(readMeta, serverId)
         const tab = ctx.tabs[snapTab.tabId]
         const session = tab ? ctx.sessions[tab.sessionId] : undefined
         if (
@@ -458,7 +466,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   }
 
   if (snapTab.agentSessionId) {
-    const info = await (ctx.apiFor?.(snapTab.tabId) ?? window.solus)
+    const info = await ctx.apiFor(snapTab.tabId)
       .bindRuntimeSession(ctx.ctxFor(snapTab.tabId))
       .catch(() => null)
     if (info && session) {

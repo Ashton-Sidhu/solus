@@ -178,7 +178,7 @@ const readSessionShape = {
 
 const searchSessionsShape = {
   query: z.string().describe('Full-text query to search for in session messages.'),
-  project: z.string().optional().describe("Optional project to scope to (a project name like 't3code' or a path). Scopes to sessions that RAN IN that repo (its git root + worktrees) — NOT sessions that merely mention it; a discussion about repo X held from inside repo Y is filed under Y. Omit it (the default) to search everything by content — that's the reliable way to find a past discussion. A partial name is fine; if nothing matches, the search falls back to all projects."),
+  project: z.string().optional().describe("Optional project to scope to (a project name like 'solus' or a path). Scopes to sessions that RAN IN that repo (its git root + worktrees) — NOT sessions that merely mention it; a discussion about repo X held from inside repo Y is filed under Y. Omit it (the default) to search everything by content — that's the reliable way to find a past discussion. A partial name is fine; if nothing matches, the search falls back to all projects."),
   role: z.enum(['user', 'assistant', 'any']).default('any').describe("Message role to search. Defaults to 'any'."),
   after: z
     .string()
@@ -263,10 +263,11 @@ function truncate(text: string, max: number): string {
   return oneLine.length > max ? `${oneLine.slice(0, Math.max(0, max - 1))}…` : oneLine
 }
 
-export function sessionLink(meta: Pick<SessionMeta, 'provider' | 'sessionId' | 'slug' | 'cwd'>): string {
+export function sessionLink(meta: Pick<SessionMeta, 'provider' | 'sessionId' | 'slug' | 'cwd' | 'serverId'>): string {
   const label = meta.slug || meta.sessionId.slice(0, 8)
+  const serverId = meta.serverId ? `&serverId=${encodeURIComponent(meta.serverId)}` : ''
   const cwd = meta.cwd ? `&cwd=${encodeURIComponent(meta.cwd)}` : ''
-  return `[${label}](session://open?provider=${meta.provider}&sessionId=${meta.sessionId}${cwd})`
+  return `[${label}](session://open?provider=${meta.provider}&sessionId=${meta.sessionId}${serverId}${cwd})`
 }
 
 /** Match the agent's free-text `project` against the known git-roots. Simple by

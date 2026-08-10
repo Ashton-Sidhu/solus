@@ -1,6 +1,9 @@
 import { createAppContext } from '../app/create-app-context'
 import { gitCheckoutFromState, type GitCheckout, type GitState, type IpcContext, type RunConfig, type Session, type WorktreeEntry } from '../../../shared/types'
 import { formatBranchDisplayName } from '../../lib/git-context'
+import type { HostApi } from '@client-core/host-api'
+import { hostKey } from '@client-core/host-key'
+import { serverConnections } from '@client-core/server-connections'
 
 export interface GitProjectRefs {
   branches: string[]
@@ -63,8 +66,8 @@ interface SessionEnvironmentWorkspace {
    *  host to register this environment against". */
   sessionFor(sourceId: string): Session | undefined
   ctxFor(sourceId: string): IpcContext
-  apiFor?(sourceId: string): typeof window.solus
-  apiForSession?(sessionId: string): typeof window.solus
+  apiFor?(sourceId: string): HostApi
+  apiForSession?(sessionId: string): HostApi
 }
 
 export type EnvironmentKind = 'workspace' | 'branch' | 'worktree'
@@ -109,18 +112,33 @@ export class SessionEnvironmentStore {
   private detailWatchers = new Map<string, number>()
   private detailRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private versions = new Map<string, number>()
-  private apiByCwd = new Map<string, typeof window.solus>()
+  private apiByCwd = new Map<string, HostApi>()
+  private serverIdByCwd = new Map<string, string>()
 
   bindWorkspace(workspace: SessionEnvironmentWorkspace): void {
     this.workspace = workspace
   }
 
-  bindCwd(cwd: string | null | undefined, api: typeof window.solus): void {
-    if (cwd && cwd !== '~') this.apiByCwd.set(cwd, api)
+  bindCwd(serverId: string, cwd: string | null | undefined, api: HostApi): void {
+    if (!cwd || cwd === '~') return
+    this.serverIdByCwd.set(cwd, serverId)
+    this.apiByCwd.set(hostKey(serverId, cwd), api)
   }
 
-  private apiForCwd(cwd: string): typeof window.solus {
-    return this.apiByCwd.get(cwd) ?? window.solus
+  private apiForCwd(serverId: string, cwd: string): HostApi | undefined {
+    return this.apiByCwd.get(hostKey(serverId, cwd))
+  }
+
+  private boundServerIdFor(cwd: string): string | undefined {
+    return this.serverIdByCwd.get(cwd)
+  }
+
+  private statusForHost(serverId: string, cwd: string): GitState | null | undefined {
+    return this.byCwd[hostKey(serverId, cwd)]
+  }
+
+  private refsForHost(serverId: string, projectRoot: string): GitProjectRefs {
+    return this.refsByRoot[hostKey(serverId, projectRoot)] ?? { worktrees: [], branches: [] }
   }
 
   /**
@@ -210,8 +228,14 @@ export class SessionEnvironmentStore {
     // The host that holds the directory is the only one that can read it, and
     // the run is what names that host. Resolving its surface also binds it to
     // this directory, so every later status scan follows the same machine.
-    const api = run ? (workspace.apiFor?.(sourceId) ?? window.solus) : window.solus
-    this.bindCwd(cwd, api)
+    const api = workspace.apiFor?.(sourceId)
+    if (!api) {
+      return { status: false, details: false, refs: false, registration: false, ok: false, error: 'This session has no host binding.' }
+    }
+    const serverId = run?.serverId
+      ? serverConnections.resolveId(run.serverId)
+      : serverConnections.serverIdForApi(api)
+    this.bindCwd(serverId, cwd, api)
 
     const worktreePath = run?.gitContext?.worktreePath
     const worktreeRequested = opts.worktreeRequested
@@ -233,7 +257,7 @@ export class SessionEnvironmentStore {
     const coldTarget = run
       ? run.gitContext === null
       : workspace.tabOrder.length === 0 && !workspace.globalDefaults.gitContext
-    if (coldTarget && this.statusFor(cwd) === undefined) {
+    if (coldTarget && this.statusForHost(serverId, cwd) === undefined) {
       const identity = await api.gitIdentity(cwd).catch(() => null)
       const stale = run ? movedAway() : workspace.globalDefaults.workingDirectory !== cwd
       if (identity && !stale) {
@@ -250,7 +274,7 @@ export class SessionEnvironmentStore {
       }
     }
 
-    const resolved = await this.resolveSessionStartTarget(cwd, {
+    const resolved = await this.resolveSessionStartTargetForHost(serverId, cwd, {
       force: opts.force,
       worktreePath,
       worktreeRequested,
@@ -298,13 +322,13 @@ export class SessionEnvironmentStore {
 
     const detailsOutcome: GitFacetOutcome = level === 'status'
       ? { ok: true }
-      : await this.refreshStatus(cwd, { force: true, details: true, bypassCache: true })
-    const currentStatus = this.statusFor(cwd)
+      : await this.refreshStatusForHost(serverId, cwd, { force: true, details: true, bypassCache: true })
+    const currentStatus = this.statusForHost(serverId, cwd)
     const projectRoot = currentStatus?.repoRoot ?? gitContext?.repoRoot
-    if (projectRoot) this.bindCwd(projectRoot, api)
+    if (projectRoot) this.bindCwd(serverId, projectRoot, api)
     const refsOutcome: GitFacetOutcome = level !== 'full' || !projectRoot
       ? { ok: true }
-      : await this.refreshRefsOutcome(projectRoot, workspace.ctxFor(sourceId), { force: true })
+      : await this.refreshRefsOutcomeForHost(serverId, projectRoot, workspace.ctxFor(sourceId), { force: true })
     const error = !detailsOutcome.ok
       ? gitFailure('Couldn’t read working-tree changes', detailsOutcome.error)
       : !refsOutcome.ok
@@ -332,10 +356,25 @@ export class SessionEnvironmentStore {
       fallbackGitContext?: GitCheckout | null
     },
   ): Promise<{ target: SessionStartTarget | null; error?: string }> {
-    const statusOutcome = await this.refreshStatus(workingDirectory, { force: options.force ?? true })
+    const serverId = this.boundServerIdFor(workingDirectory)
+    if (!serverId) return { target: null }
+    return this.resolveSessionStartTargetForHost(serverId, workingDirectory, options)
+  }
+
+  private async resolveSessionStartTargetForHost(
+    serverId: string,
+    workingDirectory: string,
+    options: {
+      force?: boolean
+      worktreePath?: string
+      worktreeRequested: boolean
+      fallbackGitContext?: GitCheckout | null
+    },
+  ): Promise<{ target: SessionStartTarget | null; error?: string }> {
+    const statusOutcome = await this.refreshStatusForHost(serverId, workingDirectory, { force: options.force ?? true })
     if (!statusOutcome.ok) return { target: null, error: statusOutcome.error }
 
-    const status = this.statusFor(workingDirectory) ?? null
+    const status = this.statusForHost(serverId, workingDirectory) ?? null
     const detected = gitCheckoutFromState(status, options.worktreePath)
     // Retain worktree routing while detached instead of treating a valid
     // checkout as a non-repository.
@@ -354,36 +393,41 @@ export class SessionEnvironmentStore {
 
   /** Resolves to true when the status fetch succeeded, false when it threw. */
   async refresh(cwd: string, opts: { force?: boolean; details?: boolean; bypassCache?: boolean } = {}): Promise<boolean> {
-    return (await this.refreshStatus(cwd, opts)).ok
+    const serverId = this.boundServerIdFor(cwd)
+    if (!serverId) return false
+    return (await this.refreshStatusForHost(serverId, cwd, opts)).ok
   }
 
   /** Status/details scan that also carries the failure reason, for callers that
    *  report it (e.g. the Environment panel's refresh button). */
-  private async refreshStatus(cwd: string, opts: { force?: boolean; details?: boolean; bypassCache?: boolean } = {}): Promise<GitFacetOutcome> {
+  private async refreshStatusForHost(serverId: string, cwd: string, opts: { force?: boolean; details?: boolean; bypassCache?: boolean } = {}): Promise<GitFacetOutcome> {
+    const key = hostKey(serverId, cwd)
     const includeDetails = opts.details === true
     const now = Date.now()
     const refreshTimes = includeDetails ? this.detailsLastRefresh : this.lastRefresh
-    const last = refreshTimes.get(cwd) ?? 0
+    const last = refreshTimes.get(key) ?? 0
     if (!opts.force && now - last < 2_000) return { ok: true }
-    const inflightKey = `${cwd}\0${includeDetails ? 'details' : 'summary'}`
+    const inflightKey = `${key}\0${includeDetails ? 'details' : 'summary'}`
     const existing = this.inflight.get(inflightKey)
     // A forced lifecycle refresh must observe state after the existing scan,
     // rather than silently joining a request that may predate a Git mutation.
     if (existing) {
       if (!opts.force) return existing
       await existing
-      return this.refreshStatus(cwd, opts)
+      return this.refreshStatusForHost(serverId, cwd, opts)
     }
-    const version = this.versions.get(cwd) ?? 0
-    const promise = this.apiForCwd(cwd).gitRefreshState(cwd, includeDetails
+    const version = this.versions.get(key) ?? 0
+    const api = this.apiForCwd(serverId, cwd)
+    if (!api) return { ok: false }
+    const promise = api.gitRefreshState(cwd, includeDetails
       ? { includeDetails: true, bypassCache: opts.bypassCache === true }
       : undefined)
       .then((status): GitFacetOutcome => {
         // A watcher push that landed while this request ran is newer.
-        if ((this.versions.get(cwd) ?? 0) === version) this.applyStatus(cwd, status, includeDetails)
-        this.lastRefresh.set(cwd, Date.now())
-        if (includeDetails) this.detailsLastRefresh.set(cwd, Date.now())
-        else this.scheduleDetailsRefresh(cwd)
+        if ((this.versions.get(key) ?? 0) === version) this.applyStatus(serverId, cwd, status, includeDetails)
+        this.lastRefresh.set(key, Date.now())
+        if (includeDetails) this.detailsLastRefresh.set(key, Date.now())
+        else this.scheduleDetailsRefresh(serverId, cwd)
         return { ok: true }
       })
       .catch((error): GitFacetOutcome => ({ ok: false, error: gitErrorText(error) }))
@@ -394,43 +438,50 @@ export class SessionEnvironmentStore {
 
   /** Land a status pushed from the main-process Git watcher. */
   set(cwd: string, status: GitState | null): void {
-    this.versions.set(cwd, (this.versions.get(cwd) ?? 0) + 1)
-    const prev = this.byCwd[cwd]
-    const next = this.statusWithVisibleDetails(cwd, status)
+    const serverId = this.boundServerIdFor(cwd)
+    if (!serverId) return
+    const key = hostKey(serverId, cwd)
+    this.versions.set(key, (this.versions.get(key) ?? 0) + 1)
+    const prev = this.byCwd[key]
+    const next = this.statusWithVisibleDetails(serverId, cwd, status)
     if (prev !== undefined && JSON.stringify(prev) === JSON.stringify(next)) {
-      this.lastRefresh.set(cwd, Date.now())
-      this.scheduleDetailsRefresh(cwd)
+      this.lastRefresh.set(key, Date.now())
+      this.scheduleDetailsRefresh(serverId, cwd)
       return
     }
-    this.byCwd[cwd] = next
-    this.lastRefresh.set(cwd, Date.now())
-    this.scheduleDetailsRefresh(cwd)
+    this.byCwd[key] = next
+    this.lastRefresh.set(key, Date.now())
+    this.scheduleDetailsRefresh(serverId, cwd)
   }
 
   watchDetails(cwd: string): () => void {
-    this.detailWatchers.set(cwd, (this.detailWatchers.get(cwd) ?? 0) + 1)
-    void this.refresh(cwd, { force: true, details: true })
+    const serverId = this.boundServerIdFor(cwd)
+    if (!serverId) return () => {}
+    const key = hostKey(serverId, cwd)
+    this.detailWatchers.set(key, (this.detailWatchers.get(key) ?? 0) + 1)
+    void this.refreshStatusForHost(serverId, cwd, { force: true, details: true })
     return () => {
-      const remaining = (this.detailWatchers.get(cwd) ?? 1) - 1
+      const remaining = (this.detailWatchers.get(key) ?? 1) - 1
       if (remaining > 0) {
-        this.detailWatchers.set(cwd, remaining)
+        this.detailWatchers.set(key, remaining)
         return
       }
-      this.detailWatchers.delete(cwd)
-      const timer = this.detailRefreshTimers.get(cwd)
+      this.detailWatchers.delete(key)
+      const timer = this.detailRefreshTimers.get(key)
       if (timer) clearTimeout(timer)
-      this.detailRefreshTimers.delete(cwd)
+      this.detailRefreshTimers.delete(key)
     }
   }
 
-  private applyStatus(cwd: string, status: GitState | null, includeDetails: boolean): void {
-    const current = this.byCwd[cwd]
+  private applyStatus(serverId: string, cwd: string, status: GitState | null, includeDetails: boolean): void {
+    const key = hostKey(serverId, cwd)
+    const current = this.byCwd[key]
     if (includeDetails) {
       // The Environment panel can be the first consumer for a cwd. Its detail
       // request must establish the terminal non-repository state instead of
       // leaving the panel on its `undefined` (loading) sentinel forever.
       if (!status) {
-        if (current === undefined) this.byCwd[cwd] = null
+        if (current === undefined) this.byCwd[key] = null
         return
       }
       if (current === null) return
@@ -446,16 +497,17 @@ export class SessionEnvironmentStore {
             prUrl: status.prUrl,
           }
         : status
-      if (JSON.stringify(current) !== JSON.stringify(next)) this.byCwd[cwd] = next
+      if (JSON.stringify(current) !== JSON.stringify(next)) this.byCwd[key] = next
       return
     }
-    const next = this.statusWithVisibleDetails(cwd, status)
-    if (JSON.stringify(this.byCwd[cwd]) !== JSON.stringify(next)) this.byCwd[cwd] = next
+    const next = this.statusWithVisibleDetails(serverId, cwd, status)
+    if (JSON.stringify(this.byCwd[key]) !== JSON.stringify(next)) this.byCwd[key] = next
   }
 
-  private statusWithVisibleDetails(cwd: string, status: GitState | null): GitState | null {
-    const previous = this.byCwd[cwd]
-    if (!status || !previous || !this.detailWatchers.has(cwd) || previous.branch !== status.branch) return status
+  private statusWithVisibleDetails(serverId: string, cwd: string, status: GitState | null): GitState | null {
+    const key = hostKey(serverId, cwd)
+    const previous = this.byCwd[key]
+    if (!status || !previous || !this.detailWatchers.has(key) || previous.branch !== status.branch) return status
     return {
       ...status,
       uncommittedChanges: {
@@ -467,51 +519,53 @@ export class SessionEnvironmentStore {
     }
   }
 
-  private scheduleDetailsRefresh(cwd: string): void {
-    if (!this.detailWatchers.has(cwd) || this.detailRefreshTimers.has(cwd)) return
+  private scheduleDetailsRefresh(serverId: string, cwd: string): void {
+    const key = hostKey(serverId, cwd)
+    if (!this.detailWatchers.has(key) || this.detailRefreshTimers.has(key)) return
     const timer = setTimeout(() => {
-      this.detailRefreshTimers.delete(cwd)
-      if (this.detailWatchers.has(cwd)) void this.refresh(cwd, { force: true, details: true })
+      this.detailRefreshTimers.delete(key)
+      if (this.detailWatchers.has(key)) void this.refreshStatusForHost(serverId, cwd, { force: true, details: true })
     }, 150)
-    this.detailRefreshTimers.set(cwd, timer)
+    this.detailRefreshTimers.set(key, timer)
   }
 
   statusFor(cwd: string | null | undefined): GitState | null | undefined {
     if (!cwd) return undefined
-    return this.byCwd[cwd]
+    const serverId = this.boundServerIdFor(cwd)
+    return serverId ? this.statusForHost(serverId, cwd) : undefined
   }
 
   async refreshRefs(projectRoot: string, ctx: IpcContext, opts: { force?: boolean } = {}): Promise<boolean> {
-    return (await this.refreshRefsOutcome(projectRoot, ctx, opts)).ok
+    const serverId = this.boundServerIdFor(projectRoot)
+    if (!serverId) return false
+    return (await this.refreshRefsOutcomeForHost(serverId, projectRoot, ctx, opts)).ok
   }
 
   /** Refs scan that also carries the failure reason, for callers that report it. */
-  private async refreshRefsOutcome(projectRoot: string, ctx: IpcContext, opts: { force?: boolean } = {}): Promise<GitFacetOutcome> {
+  private async refreshRefsOutcomeForHost(serverId: string, projectRoot: string, ctx: IpcContext, opts: { force?: boolean } = {}): Promise<GitFacetOutcome> {
+    const key = hostKey(serverId, projectRoot)
     const now = Date.now()
-    const last = this.refsLastRefresh.get(projectRoot) ?? 0
+    const last = this.refsLastRefresh.get(key) ?? 0
     if (!opts.force && now - last < 5_000) return { ok: true }
-    const existing = this.refsInflight.get(projectRoot)
+    const existing = this.refsInflight.get(key)
     if (existing) {
       if (!opts.force) return existing
       await existing
-      return this.refreshRefsOutcome(projectRoot, ctx, opts)
+      return this.refreshRefsOutcomeForHost(serverId, projectRoot, ctx, opts)
     }
-    // A draft has no session to resolve a surface through, so fall back to the
-    // host this project root is already bound to rather than to this machine.
-    const api = (ctx.session.sessionId ? this.workspace?.apiForSession?.(ctx.session.sessionId) : null)
-      ?? this.apiForCwd(projectRoot)
-    this.bindCwd(projectRoot, api)
+    const api = this.apiForCwd(serverId, projectRoot)
+    if (!api) return { ok: false }
     const promise = Promise.allSettled([
       api.worktreeListProject($state.snapshot(ctx)),
       api.worktreeBranches($state.snapshot(ctx)),
     ])
       .then(([worktreesResult, branchesResult]): GitFacetOutcome => {
-        const previous = this.refsFor(projectRoot)
+        const previous = this.refsForHost(serverId, projectRoot)
         const worktrees = worktreesResult.status === 'fulfilled' ? worktreesResult.value : previous.worktrees
         const branches = branchesResult.status === 'fulfilled' ? branchesResult.value : previous.branches
-        this.refsByRoot[projectRoot] = { worktrees, branches }
+        this.refsByRoot[key] = { worktrees, branches }
         const ok = worktreesResult.status === 'fulfilled' && branchesResult.status === 'fulfilled'
-        if (ok) this.refsLastRefresh.set(projectRoot, Date.now())
+        if (ok) this.refsLastRefresh.set(key, Date.now())
         const rejected = worktreesResult.status === 'rejected'
           ? worktreesResult.reason
           : branchesResult.status === 'rejected'
@@ -519,14 +573,15 @@ export class SessionEnvironmentStore {
             : undefined
         return { ok, error: ok ? undefined : gitErrorText(rejected) }
       })
-      .finally(() => this.refsInflight.delete(projectRoot))
-    this.refsInflight.set(projectRoot, promise)
+      .finally(() => this.refsInflight.delete(key))
+    this.refsInflight.set(key, promise)
     return promise
   }
 
   refsFor(projectRoot: string | null | undefined): GitProjectRefs {
     if (!projectRoot) return { worktrees: [], branches: [] }
-    return this.refsByRoot[projectRoot] ?? { worktrees: [], branches: [] }
+    const serverId = this.boundServerIdFor(projectRoot)
+    return serverId ? this.refsForHost(serverId, projectRoot) : { worktrees: [], branches: [] }
   }
 }
 

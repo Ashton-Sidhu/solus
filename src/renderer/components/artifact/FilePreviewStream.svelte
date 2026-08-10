@@ -9,6 +9,7 @@
   } from "@pierre/diffs";
   import { Editor } from "@pierre/diffs/edit";
   import type { DiffComment, IpcContext } from "../../../shared/types";
+  import type { HostApi } from "@client-core/host-api";
   import { DIFFS_THEME_CSS } from "../../lib/diffTheme";
   import {
     getDiffThemeName,
@@ -238,7 +239,7 @@
   }
 
   interface Props {
-    api?: typeof window.solus;
+    api: HostApi;
     ctx: IpcContext;
     cwd: string;
     filePath: string;
@@ -258,7 +259,7 @@
   }
 
   let {
-    api = window.solus,
+    api,
     ctx,
     cwd,
     filePath,

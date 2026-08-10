@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { serverConnections } from "@client-core/server-connections";
+  import { localApi } from "@client-core/local-api";
   import { tick } from "svelte";
   import {
     ArrowClockwiseIcon,
@@ -101,6 +103,19 @@
       })),
   );
   const projectTasks = $derived(store.tasksForProject(cwd));
+  const projectServerId = $derived(
+    store.hostForProject(cwd) ??
+      serverConnections.connectionFor()?.serverId ??
+      null,
+  );
+  const projectHost = $derived(
+    projectServerId
+      ? {
+          serverId: projectServerId,
+          api: serverConnections.apiFor(projectServerId),
+        }
+      : null,
+  );
 
   let configReady = $state(false);
   let taskLoadEpoch = 0;
@@ -380,16 +395,24 @@
 
   // ── Data loading ──
   $effect(() => {
-    if (!open || !cwd) {
+    if (!open || !cwd || !projectHost) {
       configReady = false;
       return;
     }
     const currentCwd = cwd;
+    const currentHost = projectHost;
+    const currentServerId = projectServerId;
     const epoch = ++taskLoadEpoch;
     configReady = false;
     void (async () => {
-      await projectConfig.load(currentCwd);
-      if (epoch !== taskLoadEpoch || !open || cwd !== currentCwd) return;
+      await projectConfig.load(currentHost, currentCwd);
+      if (
+        epoch !== taskLoadEpoch ||
+        !open ||
+        cwd !== currentCwd ||
+        projectServerId !== currentServerId
+      )
+        return;
       configReady = true;
       await Promise.all([
         store.load(),
@@ -454,11 +477,12 @@
   }
 
   async function switchTaskProvider(next: TaskProviderId) {
-    if (!cwd) return;
+    if (!cwd || !projectHost) return;
     const currentCwd = cwd;
-    await projectConfig.save(currentCwd, { taskProvider: next });
-    await projectConfig.load(currentCwd);
-    if (cwd !== currentCwd) return;
+    const currentHost = projectHost;
+    await projectConfig.save(currentHost, currentCwd, { taskProvider: next });
+    await projectConfig.load(currentHost, currentCwd);
+    if (cwd !== currentCwd || projectServerId !== currentHost.serverId) return;
     configReady = true;
     await Promise.all([
       store.load(),
@@ -479,7 +503,7 @@
   }
 
   function onOpenLink(task: Task) {
-    if (task.url) void window.solus.openExternal(task.url);
+    if (task.url) void localApi.openExternal(task.url);
   }
 
   function openTaskContextMenu(event: MouseEvent, task: Task) {

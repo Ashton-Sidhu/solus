@@ -33,7 +33,6 @@
     <WorkspaceBody
       active={!isMobile}
       enableProjectPanel
-      enableRunDock
       {onAttachFile}
     >
     {#snippet inputRow()}

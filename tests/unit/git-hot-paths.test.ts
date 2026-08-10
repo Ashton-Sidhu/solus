@@ -58,6 +58,7 @@ describe('git status hot path', () => {
     try {
       const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
       const store = new SessionEnvironmentStore()
+      store.bindCwd('test-host', '/repo', window.solus as never)
       expect(await store.resolveSessionStartTarget('/repo', { worktreeRequested: true })).toEqual({
         workingDirectory: '/repo',
         gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
@@ -128,6 +129,7 @@ describe('git status hot path', () => {
     try {
     const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
+      store.bindCwd('test-host', '/repo', window.solus as never)
       const detailsRequest = store.refresh('/repo', { force: true, details: true })
       const summaryRequest = store.refresh('/repo', { force: true })
 
@@ -180,6 +182,7 @@ describe('git status hot path', () => {
     try {
     const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
+      store.bindCwd('test-host', '/repo', window.solus as never)
       expect(await store.refresh('/repo', { force: true })).toBe(true)
       shouldFail = true
       expect(await store.refresh('/repo', { force: true })).toBe(false)

@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { Session } from '../../src/shared/types'
+import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const connectionCalls: string[] = []
 
 mock.module('@client-core/server-connections', () => ({
   serverConnections: {
+    ...singleHostServerConnections(),
     retain: (id: string) => connectionCalls.push(`retain:${id}`),
     unretain: (id: string) => connectionCalls.push(`unretain:${id}`),
     release: (id: string) => connectionCalls.push(`release:${id}`),

@@ -34,6 +34,7 @@ export interface ConnectionSession {
 }
 
 export class ConnectionsStore {
+  // primary-host by decision pending WP6 host framing (docs/plans/multi-host-parity.md)
   serverInfo = $state<ConnectionsServerInfo | null>(null)
   endpoints = $state<ConnectionEndpoint[]>([])
   sessions = $state<ConnectionSession[]>([])
@@ -56,9 +57,9 @@ export class ConnectionsStore {
     this.refreshing = true
     try {
       const [serverInfo, endpoints, sessions] = await Promise.all([
-        window.solus.connectionsGetServerInfo(),
-        window.solus.connectionsListEndpoints(),
-        window.solus.connectionsListSessions(),
+        serverConnections.primaryApi().connectionsGetServerInfo(),
+        serverConnections.primaryApi().connectionsListEndpoints(),
+        serverConnections.primaryApi().connectionsListSessions(),
       ])
       this.serverInfo = serverInfo
       this.endpoints = endpoints
@@ -72,7 +73,7 @@ export class ConnectionsStore {
 
   async generatePairToken(): Promise<void> {
     try {
-      this.activePair = await window.solus.connectionsGeneratePairToken()
+      this.activePair = await serverConnections.primaryApi().connectionsGeneratePairToken()
     } catch (e) {
       console.error('generate pair token failed', e)
     }
@@ -84,7 +85,7 @@ export class ConnectionsStore {
     this.serverInfo.remoteAccess = remoteAccess
     this.remoteAccessUpdating = true
     try {
-      const info = await window.solus.connectionsSetRemoteAccess({ remoteAccess })
+      const info = await serverConnections.primaryApi().connectionsSetRemoteAccess({ remoteAccess })
       this.serverInfo.remoteAccess = info.remoteAccess
       this.serverInfo.host = info.host
       this.serverInfo.port = info.port
@@ -101,7 +102,7 @@ export class ConnectionsStore {
 
   async refreshCapabilities(): Promise<void> {
     try {
-      this.capabilities = await window.solus.getServerCapabilities()
+      this.capabilities = await serverConnections.primaryApi().getServerCapabilities()
     } catch (e) {
       if (e instanceof TransportDisconnectedError) return
       console.error('getServerCapabilities failed', e)
@@ -114,13 +115,13 @@ export class ConnectionsStore {
 
   /** Where this host's folder picker starts. Empty clears it back to the home folder. */
   async setProjectsBaseDirectory(path: string): Promise<void> {
-    const result = await window.solus.setProjectsBaseDirectory(path)
+    const result = await serverConnections.primaryApi().setProjectsBaseDirectory(path)
     if (this.capabilities) this.capabilities.projectsBaseDirectory = result.projectsBaseDirectory
   }
 
   async revokeDevice(deviceId: string): Promise<void> {
     try {
-      await window.solus.connectionsRevokeDevice({ deviceId })
+      await serverConnections.primaryApi().connectionsRevokeDevice({ deviceId })
       await this.refreshServerMetadata()
     } catch (e) {
       console.error('revoke failed', e)
@@ -130,7 +131,7 @@ export class ConnectionsStore {
   async refreshProviderStatus(ctx: IpcContext): Promise<void> {
     this.providerLoading = true
     try {
-      this.providerStatus = await window.solus.providerStatus($state.snapshot(ctx))
+      this.providerStatus = await serverConnections.primaryApi().providerStatus($state.snapshot(ctx))
     } catch (e) {
       console.error('providerStatus failed', e)
     } finally {
@@ -144,7 +145,7 @@ export class ConnectionsStore {
     this.providerCancelling = false
     this.providerConnecting = true
     try {
-      this.providerStatus = await window.solus.providerConnect($state.snapshot(ctx))
+      this.providerStatus = await serverConnections.primaryApi().providerConnect($state.snapshot(ctx))
       this.providerLoaded = true
     } catch (e) {
       if (this.providerCancelling) return
@@ -160,7 +161,7 @@ export class ConnectionsStore {
     this.providerCancelling = true
     this.providerPrompt = null
     try {
-      await window.solus.providerCancelConnect($state.snapshot(ctx))
+      await serverConnections.primaryApi().providerCancelConnect($state.snapshot(ctx))
     } catch (e) {
       console.error('providerCancelConnect failed', e)
     }
@@ -168,7 +169,7 @@ export class ConnectionsStore {
 
   async disconnectProvider(ctx: IpcContext): Promise<void> {
     try {
-      await window.solus.providerDisconnect($state.snapshot(ctx))
+      await serverConnections.primaryApi().providerDisconnect($state.snapshot(ctx))
       this.providerStatus = { connected: false }
       this.providerLoaded = true
     } catch (e) {
@@ -179,7 +180,7 @@ export class ConnectionsStore {
   listenForProviderDeviceCodes(): () => void {
     this.deviceCodeSubscribers++
     if (!this.deviceCodeUnsubscribe) {
-      this.deviceCodeUnsubscribe = serverConnections.eventsFor().subscribe('provider.deviceCodeReceived', (prompt) => {
+      this.deviceCodeUnsubscribe = serverConnections.eventsForPrimary().subscribe('provider.deviceCodeReceived', (prompt) => {
         this.providerPrompt = prompt
       })
     }

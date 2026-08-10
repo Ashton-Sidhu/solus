@@ -3,8 +3,9 @@ import { reviewGuideKeyFor, type ReviewGuideStatusEvent } from '../../../shared/
 import { worktreeProjectRoot, type AgentId, type IpcContext, type ReasoningEffort, type Session } from '../../../shared/types'
 import { serverConnections } from '@client-core/server-connections'
 import type { HostEventSubscriber } from '@client-core/host-event-subscriber'
+import type { HostApi } from '@client-core/host-api'
 
-type SolusApi = typeof window.solus
+type SolusApi = HostApi
 type ReviewScope = 'branch' | 'session'
 type ReadyListener = (api: SolusApi, event: ReviewGuideStatusEvent) => void
 
@@ -56,23 +57,25 @@ function statusKey(identity: Pick<ReviewGuideIdentity, 'repoRoot' | 'key'>): str
  * may unmount while a guide is queued or generating; the store remains bound
  * to the host API and receives the eventual ready/failed event. */
 export class ReviewGuideStore {
-  private statusesByApi = new SvelteMap<SolusApi, SvelteMap<string, ReviewGuideStatusEvent>>()
+  private statusesByServer = new SvelteMap<string, SvelteMap<string, ReviewGuideStatusEvent>>()
   private subscribedApis = new WeakSet<SolusApi>()
-  private loadedTargetsByApi = new WeakMap<SolusApi, Map<string, string>>()
-  private revisionsByApi = new WeakMap<SolusApi, Map<string, string>>()
+  private loadedTargetsByServer = new Map<string, Map<string, string>>()
+  private revisionsByServer = new Map<string, Map<string, string>>()
   private readyListeners = new Set<ReadyListener>()
-  private openedReadyEventsByApi = new SvelteMap<SolusApi, SvelteSet<string>>()
+  private openedReadyEventsByServer = new SvelteMap<string, SvelteSet<string>>()
 
   constructor(
     private readonly eventsForApi: (api: SolusApi) => HostEventSubscriber = (api) => serverConnections.eventsForApi(api),
+    private readonly serverIdForApi: (api: SolusApi) => string = (api) => serverConnections.serverIdForApi(api),
   ) {}
 
   private rememberRevision(api: SolusApi, identity: ReviewGuideIdentity): void {
     if (identity.revision === undefined) return
-    let revisions = this.revisionsByApi.get(api)
+    const serverId = this.serverIdForApi(api)
+    let revisions = this.revisionsByServer.get(serverId)
     if (!revisions) {
       revisions = new Map()
-      this.revisionsByApi.set(api, revisions)
+      this.revisionsByServer.set(serverId, revisions)
     }
     revisions.set(statusKey(identity), identity.revision)
   }
@@ -80,8 +83,9 @@ export class ReviewGuideStore {
   bind(api: SolusApi): void {
     if (this.subscribedApis.has(api)) return
     this.subscribedApis.add(api)
+    const serverId = this.serverIdForApi(api)
     this.eventsForApi(api).subscribe('review.guideStatusChanged', (event) => {
-      const previous = this.statusesByApi.get(api)?.get(statusKey(event))
+      const previous = this.statusesByServer.get(serverId)?.get(statusKey(event))
       this.set(api, event)
       if (event.status === 'ready' && previous?.status !== 'ready') {
         for (const listener of this.readyListeners) listener(api, event)
@@ -104,10 +108,11 @@ export class ReviewGuideStore {
     scope: ReviewScope,
   ): Promise<void> {
     this.bind(api)
-    let loadedTargets = this.loadedTargetsByApi.get(api)
+    const serverId = this.serverIdForApi(api)
+    let loadedTargets = this.loadedTargetsByServer.get(serverId)
     if (!loadedTargets) {
       loadedTargets = new Map()
-      this.loadedTargetsByApi.set(api, loadedTargets)
+      this.loadedTargetsByServer.set(serverId, loadedTargets)
     }
 
     const key = statusKey(identity)
@@ -130,7 +135,7 @@ export class ReviewGuideStore {
       ) {
         this.set(api, event)
       } else {
-        this.statusesByApi.get(api)?.delete(key)
+        this.statusesByServer.get(serverId)?.delete(key)
       }
     } catch {
       if (loadedTargets.get(key) === targetVersion) loadedTargets.delete(key)
@@ -164,10 +169,11 @@ export class ReviewGuideStore {
   }
 
   set(api: SolusApi, event: ReviewGuideStatusEvent): void {
-    let statuses = this.statusesByApi.get(api)
+    const serverId = this.serverIdForApi(api)
+    let statuses = this.statusesByServer.get(serverId)
     if (!statuses) {
       statuses = new SvelteMap()
-      this.statusesByApi.set(api, statuses)
+      this.statusesByServer.set(serverId, statuses)
     }
     statuses.set(statusKey(event), event)
   }
@@ -177,12 +183,13 @@ export class ReviewGuideStore {
     identity: ReviewGuideIdentity | null,
   ): ReviewGuideStatusEvent | null {
     if (!identity) return null
-    const event = this.statusesByApi.get(api)?.get(statusKey(identity)) ?? null
+    const serverId = this.serverIdForApi(api)
+    const event = this.statusesByServer.get(serverId)?.get(statusKey(identity)) ?? null
     if (event && identity.headSha && event.headSha !== identity.headSha) return null
     if (
       event &&
       identity.revision !== undefined &&
-      this.revisionsByApi.get(api)?.get(statusKey(identity)) !== identity.revision
+      this.revisionsByServer.get(serverId)?.get(statusKey(identity)) !== identity.revision
     ) return null
     return event
   }
@@ -197,16 +204,17 @@ export class ReviewGuideStore {
     const event = this.statusFor(api, identity)
     if (!event || event.status !== 'ready') return event
     const openedKey = `${statusKey(event)}::${event.updatedAt}`
-    return this.openedReadyEventsByApi.get(api)?.has(openedKey) ? null : event
+    return this.openedReadyEventsByServer.get(this.serverIdForApi(api))?.has(openedKey) ? null : event
   }
 
   markOpened(api: SolusApi, identity: ReviewGuideIdentity | null): void {
     const event = this.statusFor(api, identity)
     if (!event || event.status !== 'ready') return
-    let opened = this.openedReadyEventsByApi.get(api)
+    const serverId = this.serverIdForApi(api)
+    let opened = this.openedReadyEventsByServer.get(serverId)
     if (!opened) {
       opened = new SvelteSet()
-      this.openedReadyEventsByApi.set(api, opened)
+      this.openedReadyEventsByServer.set(serverId, opened)
     }
     opened.add(`${statusKey(event)}::${event.updatedAt}`)
   }
