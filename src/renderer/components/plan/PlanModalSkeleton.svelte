@@ -45,10 +45,10 @@
         class="flex shrink-0 items-center gap-0.75 pr-[max(0.875rem,var(--solus-pane-chrome-inset,3.25rem))]"
         aria-hidden="true"
       >
-        <Skeleton class="h-7 w-[4.75rem] rounded-[0.4375rem]" />
-        <Skeleton class="h-7 w-[6rem] rounded-[0.4375rem]" />
-        <Skeleton class="size-7 rounded-[0.4375rem]" />
-        <Skeleton class="size-7 rounded-[0.4375rem]" />
+        <Skeleton class="h-7 w-[4.75rem] rounded-lg" />
+        <Skeleton class="h-7 w-[6rem] rounded-lg" />
+        <Skeleton class="size-7 rounded-lg" />
+        <Skeleton class="size-7 rounded-lg" />
       </div>
     </header>
 

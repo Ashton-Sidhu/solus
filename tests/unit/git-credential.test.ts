@@ -5,6 +5,7 @@ import { join } from 'path'
 import { PassThrough } from 'stream'
 import {
   credentialFor,
+  loadGitHubAccessToken,
   runGitCredentialHelper,
   type GitCredentialAction,
 } from '../../src/main/providers/github/git-credential'
@@ -90,5 +91,7 @@ describe('git credential helper', () => {
     expect(stdout.read()?.toString()).toBe(
       'username=x-access-token\npassword=delegated-token\n',
     )
+    expect(loadGitHubAccessToken('dev_caller')).toBe('delegated-token')
+    expect(loadGitHubAccessToken()).toBe('host-token')
   })
 })

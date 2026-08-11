@@ -322,7 +322,7 @@
     align-items: stretch;
     height: 1.75rem;
     margin-left: 0.3125rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--solus-accent);
     color: var(--solus-text-on-accent);
     overflow: hidden;

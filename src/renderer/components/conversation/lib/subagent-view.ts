@@ -281,7 +281,7 @@ export function reportText(message: Message): string {
   // Report views consistent with the running status shown in their shared pane.
   if (subagentState(message) === 'running') return ''
 
-  const result = message.toolResult?.trim()
+  const result = message.report?.trim()
   if (result) return result
   return (message.subMessages ?? [])
     .findLast((m) => m.role === 'assistant' && m.content.trim())

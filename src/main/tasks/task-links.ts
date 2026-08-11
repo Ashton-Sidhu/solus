@@ -1,6 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { appendTaskEvent, type EventActor } from './task-events'
-import type { TaskActor, TaskLink, TaskLinkInput, TaskLinkKind } from '../../shared/task-types'
+import type {
+  TaskActor,
+  TaskLink,
+  TaskLinkInput,
+  TaskLinkKind,
+  TaskSidebarPrLink,
+} from '../../shared/task-types'
 
 /** A task's links to docs, plans, PRs and automations.
  *
@@ -196,4 +202,27 @@ export function readTaskLinks(db: DatabaseSync, taskId: string): TaskLink[] {
     ORDER BY task_links.linked_at DESC, task_links.kind, task_links.target_key
   `).all(taskId) as unknown as TaskLinkRow[]
   return rows.map(linkFromRow)
+}
+
+/** One compact PR edge per task for the sidebar's cold-start snapshot. Links
+ * are newest-first because the task surface treats the most recent PR link as
+ * the active one. Invalid legacy keys stay out of the renderer contract. */
+export function readLatestTaskPrLinks(db: DatabaseSync): Record<string, TaskSidebarPrLink> {
+  const rows = db.prepare(`
+    SELECT task_id, target_key, url
+    FROM task_links
+    WHERE kind = 'pr'
+    ORDER BY linked_at DESC, rowid DESC
+  `).all() as unknown as Array<{ task_id: string; target_key: string; url: string | null }>
+  const links: Record<string, TaskSidebarPrLink> = {}
+  for (const row of rows) {
+    if (links[row.task_id]) continue
+    const number = Number(row.target_key)
+    if (!Number.isSafeInteger(number) || number <= 0) continue
+    links[row.task_id] = {
+      number,
+      ...(row.url === null ? {} : { url: row.url }),
+    }
+  }
+  return links
 }

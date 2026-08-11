@@ -161,7 +161,7 @@
 {#snippet hostRow(host: ServerItem)}
   <button
     type="button"
-    class="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors duration-[var(--duration-quick)] hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-surface-hover) focus-visible:outline-none"
+    class="group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors duration-[var(--duration-quick)] hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-surface-hover) focus-visible:outline-none"
     onclick={() => chooseHost(host)}
   >
     <span
@@ -193,7 +193,7 @@
 {#snippet nearbyRow(host: NearbyHost)}
   <button
     type="button"
-    class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors duration-[var(--duration-quick)] hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-surface-hover) focus-visible:outline-none"
+    class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors duration-[var(--duration-quick)] hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-surface-hover) focus-visible:outline-none"
     onclick={() => pairNearby(host)}
   >
     <WifiHighIcon
@@ -222,11 +222,11 @@
       <section>
         {@render sectionLabel("On this address")}
         <div
-          class="flex flex-col overflow-hidden rounded-xl border border-(--solus-container-border) bg-(--solus-surface-hover)/40 p-1"
+          class="flex flex-col overflow-hidden rounded-2xl border border-(--solus-container-border) bg-(--solus-surface-hover)/40 p-1"
         >
           <button
             type="button"
-            class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors duration-[var(--duration-quick)] hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-surface-hover) focus-visible:outline-none"
+            class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors duration-[var(--duration-quick)] hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-surface-hover) focus-visible:outline-none"
             onclick={() => selectHost(servingHost!)}
           >
             <HardDrivesIcon
@@ -256,7 +256,7 @@
       <section>
         {@render sectionLabel("Your hosts")}
         <div
-          class="flex flex-col overflow-hidden rounded-xl border border-(--solus-container-border) bg-(--solus-surface-hover)/40 p-1"
+          class="flex flex-col overflow-hidden rounded-2xl border border-(--solus-container-border) bg-(--solus-surface-hover)/40 p-1"
         >
           {#each savedHosts as host (host.id)}
             {@render hostRow(host)}
@@ -269,7 +269,7 @@
       <section>
         {@render sectionLabel("Nearby")}
         <div
-          class="flex flex-col overflow-hidden rounded-xl border border-(--solus-container-border) bg-(--solus-surface-hover)/40 p-1"
+          class="flex flex-col overflow-hidden rounded-2xl border border-(--solus-container-border) bg-(--solus-surface-hover)/40 p-1"
         >
           {#each serversStore.nearbyHosts as host (host.server.installationId)}
             {@render nearbyRow(host)}

@@ -294,7 +294,12 @@ export async function buildCommitMessagePrompt(cwd: string): Promise<string> {
 
 export interface CommitMessageOptions {
   generateCommitMessage?: (cwd: string) => Promise<string>
+}
+
+export interface CreatePROptions extends CommitMessageOptions {
   generatePRText?: (prompt: string) => Promise<string>
+  /** Token supplied only to `gh pr create`; git push uses its credential helper. */
+  githubToken?: string | null
 }
 
 async function commitPendingChanges(cwd: string, fallbackMessage: string, options: CommitMessageOptions = {}): Promise<boolean> {
@@ -341,14 +346,14 @@ function sanitizeCommitMessage(raw: string): string | null {
 export async function createPR(
   gitContext: GitCheckout,
   workingDirectory: string,
-  options: CommitMessageOptions = {},
+  options: CreatePROptions = {},
 ): Promise<WorktreePRResult> {
   const cwd = gitContext.worktreePath || workingDirectory
 
   try {
     const branch = gitContext.branch
     if (!branch) return { success: false, error: 'Cannot create a pull request from detached HEAD' }
-    const existingUrl = await getExistingPR(branch, cwd)
+    const existingUrl = await queryExistingPR(branch, cwd, options.githubToken)
     if (existingUrl) return { success: true, url: existingUrl }
 
     await commitPendingChanges(cwd, 'chore: apply agent changes', options)
@@ -364,6 +369,7 @@ export async function createPR(
         })
       : null
 
+    const ghOptions = { env: options.githubToken ? { GH_TOKEN: options.githubToken } : undefined }
     const result = draft
       ? await runAsync('gh', [
           'pr', 'create',
@@ -371,13 +377,13 @@ export async function createPR(
           '--head', branch,
           '--title', draft.title,
           '--body', draft.body,
-        ], cwd)
+        ], cwd, ghOptions)
       : await runAsync('gh', [
           'pr', 'create',
           '--base', gitContext.targetBranch,
           '--head', branch,
           '--fill',
-        ], cwd)
+        ], cwd, ghOptions)
 
     const urlMatch = result.match(/https:\/\/github\.com\/\S+/)
     return { success: true, url: urlMatch?.[0] || result }
@@ -470,6 +476,23 @@ export async function syncWithOrigin(
 const EXISTING_PR_TTL_MS = 60_000
 const existingPrCache = new Map<string, { at: number; url: Promise<string | null> }>()
 
+async function queryExistingPR(branch: string, cwd: string, githubToken?: string | null): Promise<string | null> {
+  try {
+    const result = await runAsync(
+      'gh',
+      ['pr', 'view', branch, '--json', 'url', '--jq', '.url'],
+      cwd,
+      {
+        timeout: 10_000,
+        env: githubToken ? { GH_TOKEN: githubToken } : undefined,
+      },
+    )
+    return result || null
+  } catch {
+    return null
+  }
+}
+
 /** `gh pr view` is a network call used by detailed status consumers. TTL-cache
  *  the result per (cwd, branch) for both hits and misses, and share the in-flight
  *  promise so multiple visible clients collapse to a single spawn. */
@@ -478,14 +501,7 @@ export function getExistingPR(branch: string, cwd: string, bypassCache = false):
   if (bypassCache) existingPrCache.delete(key)
   const cached = existingPrCache.get(key)
   if (cached && Date.now() - cached.at < EXISTING_PR_TTL_MS) return cached.url
-  const url = (async () => {
-    try {
-      const result = await runAsync('gh', ['pr', 'view', branch, '--json', 'url', '--jq', '.url'], cwd, { timeout: 10_000 })
-      return result || null
-    } catch {
-      return null
-    }
-  })()
+  const url = queryExistingPR(branch, cwd)
   existingPrCache.set(key, { at: Date.now(), url })
   return url
 }
@@ -535,6 +551,8 @@ export interface PrWorktree {
   baseSha: string
   /** PR head commit now checked out — the comment anchor. */
   headSha: string
+  /** Whether an existing deterministic PR checkout supplied the result. */
+  reused: boolean
 }
 
 /**
@@ -565,8 +583,12 @@ export async function fetchAndCheckoutPr(
   const existingWorktreePath = existing?.path ?? (existsSync(worktreePath) ? worktreePath : null)
   if (existingWorktreePath) {
     log.info('pr_worktree_reused', { branch, worktreePath: existingWorktreePath })
-    // Fast-forward to the freshly fetched head when it can apply cleanly; never
-    // clobber local agent work (a non-ff or dirty tree is left as-is).
+    // Only a clean checkout is reusable. Never merge through dirty or locally
+    // advanced agent work and never claim that an older checkout is current.
+    const status = await runAsync('git', ['status', '--porcelain'], existingWorktreePath)
+    if (status) {
+      throw new Error(`The existing checkout for PR #${prNumber} has local changes. They were left untouched.`)
+    }
     await runAsync('git', ['merge', '--ff-only', 'FETCH_HEAD'], existingWorktreePath).catch(() => {})
   } else {
     log.info('pr_worktree_creating', { branch, worktreePath })
@@ -589,13 +611,19 @@ export async function fetchAndCheckoutPr(
     await copyIncludedWorktreeFiles(projectPath, worktreePath)
   }
 
+  const resolvedWorktreePath = existingWorktreePath ?? worktreePath
+  const checkedOutHead = await runAsync('git', ['rev-parse', 'HEAD'], resolvedWorktreePath)
+  if (checkedOutHead !== headSha) {
+    throw new Error(`The existing checkout for PR #${prNumber} has local commits. They were left untouched.`)
+  }
+
   // Ensure the base ref is present locally, then anchor the diff at the divergence point.
   await runAsync('git', ['fetch', 'origin', baseRef], projectPath).catch(() => {})
   const baseSha = await runAsync('git', ['merge-base', headSha, `origin/${baseRef}`], projectPath).catch(
     () => headSha,
   )
 
-  return { worktreePath: existingWorktreePath ?? worktreePath, branch, baseSha, headSha }
+  return { worktreePath: resolvedWorktreePath, branch, baseSha, headSha, reused: !!existingWorktreePath }
 }
 
 export function listProjectWorktrees(projectPath: string): WorktreeEntry[] {

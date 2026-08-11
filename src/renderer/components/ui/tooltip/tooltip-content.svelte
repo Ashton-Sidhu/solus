@@ -39,7 +39,7 @@
         <span class="min-w-0 text-pretty">{display.label}</span>
         {#if display.shortcut}
           <kbd
-            class="shrink-0 rounded-[3px] bg-(--solus-surface-hover) px-[3px] py-px font-(family-name:--solus-code-font-family) text-[0.5625rem] font-medium leading-[1.3] text-(--solus-text-secondary) shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--solus-text-primary)_6%,transparent)]"
+            class="shrink-0 rounded-[0.1875rem] bg-(--solus-surface-hover) px-[3px] py-px font-(family-name:--solus-code-font-family) text-[0.5625rem] font-medium leading-[1.3] text-(--solus-text-secondary) shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--solus-text-primary)_6%,transparent)]"
           >
             {display.shortcut}
           </kbd>

@@ -8,7 +8,7 @@ import type {
   AutomationsChangedEvent,
   DeviceCodePrompt,
   EnrichedError,
-  NormalizedEvent,
+  WireNormalizedEvent,
   SessionIndexUpdatedEvent,
   SessionScanEvent,
   SessionStatus,
@@ -23,7 +23,7 @@ import type {
  * Commands and queries remain RPC methods; native shell signals stay local.
  */
 export interface HostEventMap {
-  'session.eventReceived': { sessionId: string; event: NormalizedEvent }
+  'session.eventReceived': { sessionId: string; event: WireNormalizedEvent }
   'session.errorReceived': { sessionId: string; error: EnrichedError }
   'session.scanProgressed': SessionScanEvent
   'session.indexChanged': SessionIndexUpdatedEvent

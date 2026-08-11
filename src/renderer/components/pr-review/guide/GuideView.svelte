@@ -45,7 +45,7 @@
     /** Whether the cached guide describes the checkout's current HEAD. */
     guideCurrent?: boolean;
     /** Rewrite the guide against the current HEAD. Absent where the host has no
-     *  way to regenerate, which leaves the outdated marker inert but honest. */
+     *  way to regenerate, which leaves the new-commits marker inert but honest. */
     onRegenerate?: () => void;
     /** A regeneration already in flight, so the marker can say so. */
     regenerating?: boolean;
@@ -126,7 +126,7 @@
                     Current
                   </span>
                 {:else if onRegenerate}
-                  <!-- The staleness marker *is* the fix: rather than a full-width
+                  <!-- The new-commits marker *is* the fix: rather than a full-width
                        strip above the guide announcing new commits, the line that
                        already dates the guide carries the one action it implies. -->
                   <button
@@ -142,10 +142,10 @@
                         ? "shrink-0 animate-spin [animation-duration:1.2s] motion-reduce:animate-none"
                         : "shrink-0"}
                     />
-                    {regenerating ? "Regenerating…" : "Outdated — regenerate"}
+                    {regenerating ? "Regenerating…" : "New commits since guide"}
                   </button>
                 {:else}
-                  <span class="font-medium text-amber-700 dark:text-amber-400">Outdated</span>
+                  <span class="font-medium text-amber-700 dark:text-amber-400">New commits since guide</span>
                 {/if}
               {/if}
             </div>

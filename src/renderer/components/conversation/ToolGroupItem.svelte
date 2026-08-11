@@ -51,7 +51,7 @@
   const failedTool = $derived.by(() => {
     const last = tools[tools.length - 1];
     if (!last) return undefined;
-    return last.toolStatus === "error" || last.toolResultIsError ? last : undefined;
+    return last.toolStatus === "error" ? last : undefined;
   });
 
   const parseCache = new WeakMap<Message, Record<string, unknown> | null>();
@@ -95,7 +95,7 @@
 
   const failureLine = $derived.by(() => {
     if (!failedTool) return "";
-    const text = (failedTool.toolResult || failedTool.content || "").trim();
+    const text = (failedTool.errorHead || "").trim();
     const first = text.split("\n").map((line) => line.trim()).find(Boolean);
     return first ? (first.length > 240 ? `${first.slice(0, 237)}…` : first) : "";
   });
@@ -189,7 +189,7 @@
       {#each tools as tool, i (tool.id)}
         {@const parsed = parsedInputs[i]}
         {@const Glyph = KIND_ICONS[activityKind(tool.toolName)]}
-        {@const failed = tool.toolStatus === "error" || tool.toolResultIsError}
+        {@const failed = tool.toolStatus === "error"}
         <div class:tool-step--expanded={expandedToolId === tool.id} class="tool-step">
           <span class:tool-step-glyph--failed={failed} class="tool-step-glyph">
             {#if failed}

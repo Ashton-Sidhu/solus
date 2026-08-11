@@ -181,7 +181,7 @@
     <!-- Handed off. The automation itself arrives in the list on its own once
          the agent saves it; this card tracks that arrival. -->
     <div
-      class="mt-2 rounded-[14px] bg-card shadow-[0_0_0_.5px_var(--hairline-strong)]"
+      class="mt-2 rounded-2xl bg-card shadow-[0_0_0_.5px_var(--hairline-strong)]"
     >
       <div class="flex items-start gap-[11px] pt-3.5 pr-2 pb-3 pl-3">
         <span
@@ -218,7 +218,7 @@
         <span class="flex shrink-0 items-center gap-1.5">
           <button
             type="button"
-            class="flex h-7 cursor-pointer items-center gap-[7px] rounded-[10px] border-0 bg-primary px-3 text-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] disabled:pointer-events-none disabled:opacity-45"
+            class="flex h-7 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-3 text-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] disabled:pointer-events-none disabled:opacity-45"
             onclick={() => void openDraftingSession()}
             disabled={!draftingSessionId}
           >
@@ -287,7 +287,7 @@
     </div>
   {:else}
     <div
-      class="mt-2 flex h-[46px] w-full items-center gap-2.5 rounded-xl bg-card pr-1.5 pl-3 shadow-[inset_0_0_0_.5px_var(--hairline-strong)] transition-shadow duration-150 focus-within:shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
+      class="mt-2 flex h-[46px] w-full items-center gap-2.5 rounded-2xl bg-card pr-1.5 pl-3 shadow-[inset_0_0_0_.5px_var(--hairline-strong)] transition-shadow duration-150 focus-within:shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
     >
       <PencilSimpleIcon size={13} class="shrink-0 text-[var(--primary)]" />
       <input
@@ -305,7 +305,7 @@
       />
       <button
         type="button"
-        class="flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] rounded-[10px] border-0 bg-primary px-[13px] text-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] disabled:pointer-events-none disabled:opacity-45"
+        class="flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] text-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] disabled:pointer-events-none disabled:opacity-45"
         onclick={submitDescription}
         disabled={!description.trim()}
       >
@@ -318,7 +318,7 @@
     {#each AUTOMATION_TEMPLATES as template, i (template.id)}
       <button
         type="button"
-        class="group flex cursor-pointer items-center gap-4 rounded-[10px] border-x-0 border-t-0 border-b border-[var(--hairline)] bg-transparent px-2.5 py-[13px] text-left transition-colors duration-150 hover:bg-[var(--wash-1)] disabled:cursor-wait disabled:opacity-60"
+        class="group flex cursor-pointer items-center gap-4 rounded-lg border-x-0 border-t-0 border-b border-[var(--hairline)] bg-transparent px-2.5 py-[13px] text-left transition-colors duration-150 hover:bg-[var(--wash-1)] disabled:cursor-wait disabled:opacity-60"
         onclick={() => seedTemplate(template)}
         disabled={seedingId !== null}
       >
@@ -366,7 +366,7 @@
     </span>
     <button
       type="button"
-      class="flex h-7 shrink-0 cursor-pointer items-center gap-[7px] rounded-[10px] border-0 bg-transparent px-3 text-[13px] text-muted-foreground shadow-[0_0_0_.5px_var(--hairline-strong)] transition-colors duration-150 hover:bg-[var(--wash-1)] hover:text-foreground"
+      class="flex h-7 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-transparent px-3 text-[13px] text-muted-foreground shadow-[0_0_0_.5px_var(--hairline-strong)] transition-colors duration-150 hover:bg-[var(--wash-1)] hover:text-foreground"
       onclick={onCreateBlank}
     >
       New automation

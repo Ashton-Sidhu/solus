@@ -18,6 +18,7 @@
     railLinkList,
     railSessionRow,
   } from "./lib/rail-task-card";
+  import { linkedPrNavigationTarget } from "../tasks/task-page/lib/linked-pr-navigation";
 
   interface Props {
     /** The task the rail's session is working. */
@@ -153,10 +154,16 @@
       case "pr": {
         const number = Number(link.targetKey);
         if (Number.isFinite(number)) {
+          const target = linkedPrNavigationTarget({
+            taskServerId: store.hostFor(task.id),
+            taskProjectDirectory: projectCwd ?? task.projectKey,
+            linkProjectDirectory: link.targetScope,
+          });
           void session.enterPrReview(number, link.title, {
-            ctx: link.targetScope
-              ? session.ctxForDirectory(link.targetScope)
+            ctx: target.projectDirectory
+              ? session.ctxForDirectory(target.projectDirectory)
               : session.ctx,
+            serverId: target.serverId,
           });
         }
         break;

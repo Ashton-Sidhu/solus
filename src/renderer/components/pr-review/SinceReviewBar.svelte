@@ -39,7 +39,7 @@
           Compared with {reviewedAtLabel(result.checkpoint?.reviewedAt ?? "")}
         </p>
       </div>
-      <div class="flex shrink-0 rounded-xl bg-secondary p-1" role="group" aria-label="Diff range">
+      <div class="flex shrink-0 rounded-lg bg-secondary p-1" role="group" aria-label="Diff range">
         <Button
           variant="ghost"
           size="sm"

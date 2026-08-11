@@ -21,6 +21,7 @@
   import type { RouteSurfaceProps } from "../../ui/lib/pane-surface";
   import { sortTasks } from "../lib/tasks-api";
   import { taskPageCapabilities } from "./lib/task-page";
+  import { linkedPrNavigationTarget } from "./lib/linked-pr-navigation";
   import TaskActivityFeed from "./TaskActivityFeed.svelte";
   import TaskChromeBar from "./TaskChromeBar.svelte";
   import TaskCommentComposer from "./TaskCommentComposer.svelte";
@@ -167,10 +168,16 @@
       case "pr": {
         const number = Number(link.targetKey);
         if (Number.isFinite(number)) {
+          const target = linkedPrNavigationTarget({
+            taskServerId: store.hostFor(taskId),
+            taskProjectDirectory: projectCwd,
+            linkProjectDirectory: link.targetScope,
+          });
           void session.enterPrReview(number, link.title, {
-            ctx: link.targetScope
-              ? session.ctxForDirectory(link.targetScope)
+            ctx: target.projectDirectory
+              ? session.ctxForDirectory(target.projectDirectory)
               : session.ctx,
+            serverId: target.serverId,
           });
         }
         break;

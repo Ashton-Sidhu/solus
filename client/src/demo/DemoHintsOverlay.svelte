@@ -53,7 +53,7 @@
             {@const done = completed.includes(hint.id)}
             <button
               type="button"
-              class="group flex min-h-10 w-full cursor-pointer items-center gap-2.5 rounded-xl border-0 bg-transparent px-2.5 text-left text-[0.75rem] font-medium text-[var(--solus-text-secondary)] transition-[color,background-color,transform] duration-150 hover:bg-[var(--solus-surface-hover)] hover:text-[var(--solus-text-primary)] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--solus-accent)]"
+              class="group flex min-h-10 w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2.5 text-left text-[0.75rem] font-medium text-[var(--solus-text-secondary)] transition-[color,background-color,transform] duration-150 hover:bg-[var(--solus-surface-hover)] hover:text-[var(--solus-text-primary)] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--solus-accent)]"
               aria-pressed={done}
               onmouseenter={() => startPreview(hint.id)}
               onmouseleave={stopPreview}
@@ -72,7 +72,7 @@
 
         <button
           type="button"
-          class="mt-1 min-h-10 w-full cursor-pointer rounded-xl border-0 bg-transparent px-3 text-[0.6875rem] font-semibold text-[var(--solus-text-tertiary)] transition-[color,background-color,transform] duration-150 hover:bg-[var(--solus-surface-hover)] hover:text-[var(--solus-text-primary)] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--solus-accent)]"
+          class="mt-1 min-h-10 w-full cursor-pointer rounded-lg border-0 bg-transparent px-3 text-[0.6875rem] font-semibold text-[var(--solus-text-tertiary)] transition-[color,background-color,transform] duration-150 hover:bg-[var(--solus-surface-hover)] hover:text-[var(--solus-text-primary)] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--solus-accent)]"
           onclick={dismiss}
         >
           Got it

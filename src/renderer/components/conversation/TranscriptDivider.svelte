@@ -26,6 +26,7 @@
     ariaLabel?: string;
     testid?: string;
     skipMotion?: boolean;
+    emphasized?: boolean;
   }
 
   let {
@@ -40,6 +41,7 @@
     ariaLabel,
     testid,
     skipMotion = false,
+    emphasized = false,
   }: Props = $props();
 </script>
 
@@ -61,6 +63,7 @@
 
 <div
   class="divider {skipMotion ? '' : 'animate-msg-in-side'}"
+  class:is-emphasized={emphasized}
   data-testid={testid}
 >
   <span class="divider-rule"></span>
@@ -97,7 +100,7 @@
     align-items: center;
     gap: 0.375rem;
     border: none;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: color-mix(in oklch, var(--foreground) 4%, transparent);
     padding: 0.1875rem 0.625rem;
     color: var(--solus-text-tertiary);
@@ -105,6 +108,13 @@
     line-height: 1rem;
     text-align: center;
     text-wrap: pretty;
+  }
+
+  .divider.is-emphasized .divider-pill {
+    gap: 0.4375rem;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+    line-height: 1.125rem;
   }
 
   /* The ghost segment brings its own right padding. */
@@ -166,7 +176,7 @@
     align-items: center;
     gap: 0.25rem;
     border: none;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: transparent;
     padding: 0.125rem 0.5625rem;
     color: var(--solus-text-primary);

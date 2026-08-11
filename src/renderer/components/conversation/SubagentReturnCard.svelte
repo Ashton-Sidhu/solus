@@ -43,7 +43,7 @@
 </script>
 
 <section
-  class="return-card mx-auto w-[88%] overflow-hidden rounded-xl bg-(--solus-tx-card-bg)"
+  class="return-card mx-auto w-[88%] overflow-hidden rounded-2xl bg-(--solus-tx-card-bg)"
   class:is-open={isOpen}
   aria-label="Sub-agent"
   data-testid="subagent-group"

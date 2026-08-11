@@ -120,7 +120,7 @@
                 <TooltipUI.Trigger>
                   {#snippet child({ props: tooltipProps })}
                     <button {...tooltipProps}
-                class="flex size-[var(--solus-titlebar-control-size)] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-(--solus-text-tertiary) transition-[color,background-color,transform] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] active:bg-[color-mix(in_srgb,var(--solus-accent)_12%,transparent)]"
+                class="flex size-[var(--solus-titlebar-control-size)] cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-(--solus-text-tertiary) transition-[color,background-color,transform] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] active:bg-[color-mix(in_srgb,var(--solus-accent)_12%,transparent)]"
                 onclick={onAction}
                 aria-label={actionAriaLabel}
               >

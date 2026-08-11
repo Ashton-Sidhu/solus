@@ -119,14 +119,15 @@ describe('SessionEventReducer sub-agent transcript events', () => {
     reducer.apply('session-1', {
       type: 'tool_result',
       toolUseId: 'child-tool',
-      content: 'the complete file contents',
       parentToolUseId: 'parent-tool',
+      status: 'ok',
+      contentBytes: Buffer.byteLength('the complete file contents'),
     })
 
     expect(parent.subMessages?.[0]).toMatchObject({
       toolName: 'Read',
       toolInput: '{"file_path":"src/a.ts"}',
-      toolResult: 'the complete file contents',
+      contentBytes: Buffer.byteLength('the complete file contents'),
       toolStatus: 'completed',
     })
   })
@@ -156,17 +157,15 @@ describe('SessionEventReducer sub-agent transcript events', () => {
     const { parent, reducer } = await createReducer()
 
     reducer.apply('session-1', {
-      type: 'tool_result',
+      type: 'subagent_report',
       toolUseId: 'parent-tool',
-      content: 'Child process failed',
+      text: 'Child process failed',
       isError: true,
-      parentToolUseId: 'parent-tool',
     })
 
     expect(parent).toMatchObject({
       toolStatus: 'error',
-      toolResult: 'Child process failed',
-      toolResultIsError: true,
+      report: 'Child process failed',
     })
   })
 

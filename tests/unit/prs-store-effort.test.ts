@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
-import type { PullRequestSummary } from '../../src/shared/providers'
+import type { PullRequestDetail, PullRequestSummary } from '../../src/shared/providers'
 import type { IpcContext } from '../../src/shared/types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
@@ -270,5 +270,67 @@ describe('PR list effort metadata', () => {
     unsubscribe()
 
     expect([hostACalls, hostBCalls]).toEqual([2, 1])
+  })
+})
+
+describe('PR mutation results', () => {
+  test('patches the visible row and detail cache without reloading the PR surface', async () => {
+    // WHY: an in-UI lifecycle action already returns canonical provider state.
+    // Reloading commits, comments, files, and threads adds latency and visual churn.
+    installStateRune()
+    installWindow(async () => [])
+    let detailLoads = 0
+    const detail = {
+      ...listItem(),
+      state: 'closed',
+      body: '',
+      baseRef: 'main',
+      headRef: 'feature',
+      baseSha: 'base-33',
+      changedFiles: 1,
+      mergeable: true,
+      mergeStateStatus: 'clean',
+      headRepo: { owner: 'acme', repo: 'app', isFork: false },
+      capabilities: {
+        diff: true,
+        diffFileContents: true,
+        inlineComments: true,
+        threadReplies: true,
+        threadResolution: true,
+        reviewVerdicts: ['comment', 'approve', 'request-changes'],
+        actions: ['merge', 'close', 'reopen', 'ready', 'draft'],
+        mergeMethods: ['squash'],
+        reviewerRequests: true,
+        reviewerCandidates: true,
+      },
+      viewerPermissions: {
+        actions: ['reopen'],
+        reviewVerdicts: ['comment', 'approve', 'request-changes'],
+        comment: true,
+        resolveThreads: true,
+        requestReviewers: true,
+      },
+    } satisfies PullRequestDetail
+    Object.assign((globalThis as unknown as { window: { solus: Record<string, unknown> } }).window.solus, {
+      prGetDetail: async () => {
+        detailLoads++
+        throw new Error('The mutation result should seed this cache')
+      },
+      prUpdateLifecycle: async () => detail,
+    })
+    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+    await store.loadAll(api(), serverId, ctx)
+
+    await store.updateLifecycle(api(), serverId, ctx, 33, 'close', 'head-33')
+
+    expect(store.get(33)?.state).toBe('closed')
+    expect(await store.loadDetail(api(), serverId, ctx, 33)).toBe(detail)
+    expect(detailLoads).toBe(0)
+
+    const mergedDetail = { ...detail, state: 'merged' as const }
+    store.applyDetail(serverId, ctx, 33, mergedDetail)
+    expect(store.get(33)?.state).toBe('merged')
+    expect(await store.loadDetail(api(), serverId, ctx, 33)).toBe(mergedDetail)
   })
 })

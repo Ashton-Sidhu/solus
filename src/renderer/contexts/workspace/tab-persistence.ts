@@ -305,6 +305,12 @@ export function persistDismissedSidebarRow(rowKey: string): void {
   } catch {}
 }
 
+export function clearDismissedSidebarRowKeys(): void {
+  try {
+    localStorage.removeItem(storageKey(DISMISSED_SIDEBAR_TASKS_KEY))
+  } catch {}
+}
+
 // Unsent input drafts live in their own key, written on a debounce. They change
 // per-keystroke, so coalescing the writes keeps the structural snapshot above
 // synchronous and stops the persist effect from re-running on every keypress.

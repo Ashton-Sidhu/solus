@@ -211,7 +211,7 @@
   .subagent-row__spinner {
     width: 0.75rem;
     height: 0.75rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     border: 0.09375rem solid color-mix(in oklch, var(--foreground) 14%, transparent);
     border-top-color: var(--muted-foreground);
     animation: subagent-spin 0.8s linear infinite;

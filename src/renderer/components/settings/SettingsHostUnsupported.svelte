@@ -5,7 +5,7 @@
 </script>
 
 <div
-  class="flex min-h-40 flex-col items-center justify-center gap-2 rounded-xl border border-(--solus-container-border) px-6 text-center"
+  class="flex min-h-40 flex-col items-center justify-center gap-2 rounded-2xl border border-(--solus-container-border) px-6 text-center"
   role="status"
 >
   <WarningCircleIcon size={18} class="text-(--solus-text-tertiary)" />

@@ -256,7 +256,7 @@
     outline: none;
     display: flex;
     flex-direction: column;
-    border-radius: 1.125rem;
+    border-radius: 1rem;
     border: 0.0625rem solid var(--solus-popover-border);
     background:
       linear-gradient(var(--solus-popover-bg), var(--solus-popover-bg)),

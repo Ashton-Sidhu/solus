@@ -4,8 +4,8 @@ import type { AttentionState } from '../../../lib/sessionUtils'
 
 /** The sidebar's state vocabulary. Narrower than `AttentionState`: the column
  *  reports what a task wants from a person, so "finished but unread" is not a
- *  status here — it is an idle task carrying `SidebarTask.unread`, which the
- *  margin reports with a dot rather than a glyph.
+ *  separate task status here — session attention carries it, and the margin
+ *  reports it with a dot rather than another glyph.
  *
  *  `done` is the one status the user sets rather than the agent: it is what the
  *  check in the hover cluster writes, and it only says "I am finished with
@@ -30,12 +30,11 @@ export function hasGlyph(status: TaskStatus): boolean {
   return status !== 'running' && status !== 'idle' && status !== 'done'
 }
 
-/** Unread output wins over idle or running until the user clears it. States
- * explicitly waiting on the user own a glyph that outranks both. A held turn no
- * longer marks itself unread early; this remaining overlap means a different
- * session under the same task finished while another session is still running. */
+/** Session output stays unread independently of the durable task lifecycle.
+ * A state that needs the user keeps its more specific glyph; otherwise the
+ * unread dot wins over idle, running, or done presentation. */
 export function showsUnreadIndicator(status: TaskStatus, unread: boolean): boolean {
-  return unread && (status === 'idle' || status === 'running')
+  return unread && !hasGlyph(status)
 }
 
 /**
@@ -109,6 +108,17 @@ export function formatElapsed(ms: number): string {
   return `${Math.floor(totalMinutes / 60)}h ${String(totalMinutes % 60).padStart(2, '0')}m`
 }
 
+/** Compact age for the completed shelf. The shelf answers only how long ago
+ * the task ended, so it keeps the unit stable instead of switching to a date. */
+export function formatCompletedAge(completedAt: number, now: number): string {
+  if (!completedAt) return ''
+  const elapsed = Math.max(0, now - completedAt)
+  if (elapsed < 60_000) return 'now'
+  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m`
+  if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)}h`
+  return `${Math.floor(elapsed / 86_400_000)}d`
+}
+
 export interface SidebarTask {
   /** Stable renderer identity. Unlike the branch key, this survives worktree
    *  resolution and closing any one session within the task. */
@@ -135,9 +145,8 @@ export interface SidebarTask {
   /** The raw state behind `status`, kept so glyphs can be labelled in the
    *  app's own words rather than the sidebar's narrower vocabulary. */
   attention: AttentionState
-  /** True while a session has output the user has not seen. Earns a dot in the
-   *  margin ahead of idle or running state; clearing it reveals a run still in
-   *  flight. States waiting on the user remain more urgent. */
+  /** True while any mounted session has output the user has not seen. The
+   *  active session clears its own flag, so task activity must not set this. */
   unread: boolean
   /** Durable creation position shared by task-backed and legacy loose rows. */
   createdAt: number
@@ -145,7 +154,39 @@ export interface SidebarTask {
   activityAt: number
   /** Start of the turn in flight, for the elapsed readout. 0 unless running. */
   runStartedAt: number
+  lifecycle: 'active' | 'snoozed' | 'completed'
+  completedAt: number
+  snoozedUntil: number
+  snoozeNote: string | null
+  lastReadAt: number
+  /** The last snooze expired after this task was last visited. */
+  woke: boolean
   tabIds: string[]
+}
+
+export function resolveTaskSidebarLifecycle(input: {
+  task: Pick<Task, 'status' | 'doneAt' | 'snoozedUntil' | 'lastReadAt'>
+  now: number
+}): Pick<SidebarTask, 'lifecycle' | 'completedAt' | 'snoozedUntil' | 'lastReadAt' | 'woke'> {
+  const snoozedUntil = input.task.snoozedUntil ?? 0
+  const lastReadAt = input.task.lastReadAt ?? 0
+  const isCompleted = input.task.status === 'done'
+  const isSnoozed = !isCompleted && snoozedUntil > input.now
+  return {
+    lifecycle: isCompleted ? 'completed' : isSnoozed ? 'snoozed' : 'active',
+    completedAt: input.task.doneAt ?? 0,
+    snoozedUntil,
+    lastReadAt,
+    woke: snoozedUntil > 0 && snoozedUntil <= input.now && lastReadAt < snoozedUntil,
+  }
+}
+
+/** A linked PR ending is authoritative completion for its task. */
+export function shouldCompleteTaskForPr(
+  taskStatus: Task['status'],
+  prState: 'open' | 'closed' | 'merged',
+): boolean {
+  return taskStatus !== 'done' && (prState === 'closed' || prState === 'merged')
 }
 
 /** Two things keep a row out: it is a child task, which renders under its root,
@@ -195,6 +236,12 @@ export function reconcileSidebarTasks(
       previous.createdAt === next.createdAt &&
       previous.activityAt === next.activityAt &&
       previous.runStartedAt === next.runStartedAt &&
+      previous.lifecycle === next.lifecycle &&
+      previous.completedAt === next.completedAt &&
+      previous.snoozedUntil === next.snoozedUntil &&
+      previous.snoozeNote === next.snoozeNote &&
+      previous.lastReadAt === next.lastReadAt &&
+      previous.woke === next.woke &&
       previous.tabIds.length === next.tabIds.length &&
       previous.tabIds.every((tabId, index) => tabId === next.tabIds[index])
     ) {
@@ -364,12 +411,24 @@ export interface PrChip {
   state: PrChipState
 }
 
+export function pullRequestForBranches(
+  branchNames: readonly (string | null)[],
+  prs: readonly PullRequestSummary[],
+  recordedNumber: number | null = null,
+): PullRequestSummary | undefined {
+  if (recordedNumber) return prs.find((item) => item.number === recordedNumber)
+  for (const branchName of branchNames) {
+    if (!branchName) continue
+    const pr = prs.find((item) => item.headRef === branchName)
+    if (pr) return pr
+  }
+  return undefined
+}
+
 /**
- * Match a task's branch to an open PR by head ref, falling back to the number
- * the task record captured when it opened one. The live list is preferred
- * because it is the only thing that knows the PR's *state*; the recorded number
- * is what keeps the chip on a task whose PR the list doesn't carry — another
- * project's, or one already merged out of it — where it reads as plain open.
+ * A PR linked to the task is authoritative. Use the live list only to enrich
+ * that linked number with its current state. Without a link, match the branch
+ * to the live list as a discovery fallback.
  *
  * `PullRequestSummary` carries no human verdict, so "approved" and "changes
  * requested" are not distinguishable here and render as plain open.
@@ -379,10 +438,26 @@ export function prChipFor(
   prs: readonly PullRequestSummary[],
   recordedNumber: number | null = null,
 ): PrChip | null {
-  const pr = branchName ? prs.find((item) => item.headRef === branchName) : undefined
+  const pr = recordedNumber
+    ? prs.find((item) => item.number === recordedNumber)
+    : branchName
+      ? prs.find((item) => item.headRef === branchName)
+      : undefined
   if (!pr) return recordedNumber ? { number: recordedNumber, state: 'open' } : null
   if (pr.state === 'merged') return { number: pr.number, state: 'merged' }
   if (pr.draft) return { number: pr.number, state: 'draft' }
   if (pr.needsMyReview) return { number: pr.number, state: 'approvalRequested' }
   return { number: pr.number, state: 'open' }
+}
+
+/** A linked PR wins regardless of which attempt produced it. Without a link, a
+ * task can still discover a PR from a remote worktree branch resolved after the
+ * task itself was created. */
+export function prChipForBranches(
+  branchNames: readonly (string | null)[],
+  prs: readonly PullRequestSummary[],
+  recordedNumber: number | null = null,
+): PrChip | null {
+  const pr = pullRequestForBranches(branchNames, prs, recordedNumber)
+  return prChipFor(pr?.headRef ?? null, pr ? [pr] : [], recordedNumber)
 }

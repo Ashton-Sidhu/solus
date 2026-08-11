@@ -13,7 +13,7 @@
 
 <div class="flex-1 flex items-center justify-center px-6">
   <div
-    class="flex flex-col items-center text-center gap-3 py-8 px-5 rounded-xl border border-(--solus-container-border) max-w-xs"
+    class="flex flex-col items-center text-center gap-3 py-8 px-5 rounded-2xl border border-(--solus-container-border) max-w-xs"
     style="background:var(--solus-surface-hover)"
   >
     <span

@@ -222,7 +222,7 @@
   onclick={(e) => { if (e.target === e.currentTarget) close() }}
 >
   <div
-    class="w-[clamp(22rem,56vw,38.75rem)] max-w-[calc(100vw-3rem)] max-h-[60vh] outline-none flex flex-col rounded-[1.5rem] border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.24),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.34)] [.dark_&]:shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.45),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.55)] overflow-hidden origin-top"
+    class="w-[clamp(22rem,56vw,38.75rem)] max-w-[calc(100vw-3rem)] max-h-[60vh] outline-none flex flex-col rounded-2xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.24),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.34)] [.dark_&]:shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.45),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.55)] overflow-hidden origin-top"
     class:command-palette-enter={open}
     role="dialog"
     aria-label="Command palette"
@@ -242,7 +242,7 @@
         {#if page}
           <button
             type="button"
-            class="inline-flex items-center justify-center size-[1.375rem] flex-shrink-0 border-none rounded-[0.4375rem] bg-(--solus-surface-hover) font-secondary text-(--solus-text-secondary) cursor-pointer transition-colors duration-100 hover:text-(--solus-text-primary)"
+            class="inline-flex items-center justify-center size-[1.375rem] flex-shrink-0 border-none rounded-lg bg-(--solus-surface-hover) font-secondary text-(--solus-text-secondary) cursor-pointer transition-colors duration-100 hover:text-(--solus-text-primary)"
             aria-label="Back"
             onclick={back}
           >
@@ -319,7 +319,7 @@
                     data-selected={selectedValue === cmd.id ? '' : undefined}
                     class={cn(
                       menuRowVariants({ stagger: false }),
-                      'group/command-item h-[2.625rem] gap-3 w-full px-3 border-none rounded-xl cursor-pointer text-left bg-transparent font-normal text-(--solus-text-secondary) data-[selected]:text-(--solus-text-primary) data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-accent-light)]!',
+                      'group/command-item h-[2.625rem] gap-3 w-full px-3 border-none rounded-lg cursor-pointer text-left bg-transparent font-normal text-(--solus-text-secondary) data-[selected]:text-(--solus-text-primary) data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-accent-light)]!',
                     )}
                     onpointermove={() => (selectedValue = cmd.id)}
                     onclick={() => run(cmd)}

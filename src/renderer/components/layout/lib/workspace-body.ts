@@ -35,12 +35,14 @@ export function isHomeVisible(
   session:
     | Pick<Session, 'agentSessionId' | 'messages' | 'statusCard' | 'loadingHistory'>
     | undefined,
+  hasConversationNotice = false,
 ): boolean {
   if (!session) return false
   return (
     !session.loadingHistory &&
     session.messages.length === 0 &&
-    !session.statusCard
+    !session.statusCard &&
+    !hasConversationNotice
   )
 }
 

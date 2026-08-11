@@ -187,14 +187,14 @@
      Same pair, same menu as the single-agent card. -->
 {#snippet openControls(ref: AgentConversationRef, name: string)}
   <button
-    class="shrink-0 rounded-[7px] px-2 py-1 text-[12px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+    class="shrink-0 rounded-lg px-2 py-1 text-[12px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
     onclick={(e) => open(ref, { split: e.metaKey || e.ctrlKey, background: e.shiftKey })}
   >
     Open session
   </button>
   <DropdownMenu.Root>
     <DropdownMenu.Trigger
-      class="flex items-center justify-center shrink-0 size-[26px] rounded-[7px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+      class="flex items-center justify-center shrink-0 size-[26px] rounded-lg text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
       aria-label="{name} session actions"
     >
       <DotsThreeIcon size={14} weight="bold" />
@@ -219,7 +219,7 @@
 {/snippet}
 
 <div
-  class="bg-card rounded-[13px] overflow-hidden shadow-[shadow:var(--solus-agent-card-shadow)] {skipMotion
+  class="bg-card rounded-2xl overflow-hidden shadow-[shadow:var(--solus-agent-card-shadow)] {skipMotion
     ? ''
     : 'animate-msg-in-side'}"
   data-testid="agent-conversation-switchboard"
@@ -243,7 +243,7 @@
         {totalMessages === 1 ? "message" : "messages"} · {totalElapsed}
       </span>
       <button
-        class="rounded-[7px] px-2 py-1 text-[12px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+        class="rounded-lg px-2 py-1 text-[12px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
         onclick={() => (reopened = true)}
       >
         Read
@@ -341,7 +341,7 @@
           </span>
           {#if state === "waiting"}
             <span
-              class="rounded-[9px] px-1.5 py-px text-[11.5px] font-medium bg-[color-mix(in_oklch,var(--chart-2)_18%,transparent)] text-[color-mix(in_oklch,var(--chart-2)_74%,var(--foreground))]"
+              class="rounded-full px-1.5 py-px text-[11.5px] font-medium bg-[color-mix(in_oklch,var(--chart-2)_18%,transparent)] text-[color-mix(in_oklch,var(--chart-2)_74%,var(--foreground))]"
             >
               needs you
             </span>

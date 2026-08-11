@@ -134,7 +134,7 @@
 
       {#if paired}
         <div class="space-y-4 px-4 py-4">
-          <div class="flex items-start gap-3 rounded-xl bg-(--solus-accent-light) p-3 text-(--solus-text-primary)">
+          <div class="flex items-start gap-3 rounded-2xl bg-(--solus-accent-light) p-3 text-(--solus-text-primary)">
             <CheckCircleIcon size={18} class="mt-0.5 shrink-0 text-(--solus-status-complete)" />
             <div class="min-w-0">
               <div class="text-[0.8125rem] font-medium">Server paired</div>
@@ -157,7 +157,7 @@
               mode = value as Mode;
             }}
           >
-            <Tabs.List class="mb-4 grid h-auto w-full grid-cols-2 gap-1 rounded-xl bg-(--solus-surface-hover) p-1">
+            <Tabs.List class="mb-4 grid h-auto w-full grid-cols-2 gap-1 rounded-lg bg-(--solus-surface-hover) p-1">
               <Tabs.Trigger value="link" class="h-auto rounded-lg border-0 px-3 py-2 text-[0.8125rem] font-medium text-(--solus-text-tertiary) transition-[background-color,color,transform] hover:text-(--solus-text-primary) active:scale-[0.96] data-active:bg-(--solus-popover-bg) data-active:text-(--solus-text-primary) data-active:shadow-sm">Pair link</Tabs.Trigger>
               <Tabs.Trigger value="manual" class="h-auto rounded-lg border-0 px-3 py-2 text-[0.8125rem] font-medium text-(--solus-text-tertiary) transition-[background-color,color,transform] hover:text-(--solus-text-primary) active:scale-[0.96] data-active:bg-(--solus-popover-bg) data-active:text-(--solus-text-primary) data-active:shadow-sm">Code</Tabs.Trigger>
             </Tabs.List>

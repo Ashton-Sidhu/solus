@@ -1,6 +1,6 @@
 import type { AgentId, AutomationTrigger, IpcContext, NormalizedEvent, PermissionRequest, QueuedPromptSnapshot, QuestionRequest, Session } from '../../../shared/types'
 import { encodePathAsFolder } from '../../../shared/types'
-import type { SessionLoadMessage } from '../../../shared/session-history'
+import type { AgentConversationResultProjection, WireSessionLoadMessage } from '../../../shared/session-history'
 import { uuid } from '../../../shared/uuid'
 import { isAgentNotice, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest } from './session.utils'
 import { AgentConversationTranscriptBuilder, isAgentConversationTool } from './agent-conversation-transcript'
@@ -53,14 +53,12 @@ function resolveSavedAutomation(
   return { automationId: found.id, name: found.name, trigger: found.trigger, enabled: found.enabled }
 }
 
-function automationIdFromResult(text: string | undefined): string | undefined {
-  const match = text?.match(/\(id:\s*([0-9a-f-]{36})\)/i)
-  return match?.[1]
-}
-
-function toolResultTextFor(history: SessionLoadMessage[], toolId: string | undefined): string | undefined {
+function agentConversationResultFor(
+  history: WireSessionLoadMessage[],
+  toolId: string | undefined,
+): AgentConversationResultProjection | undefined {
   if (!toolId) return undefined
-  return history.find((m) => m.role === 'tool_result' && m.toolResultForId === toolId)?.content
+  return history.find((m) => m.role === 'tool_result' && m.toolResultForId === toolId)?.agentConversationResult
 }
 
 /**
@@ -118,11 +116,11 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
 
   // Automation cards resolve against the store; ensure it's hydrated if this
   // transcript created/updated any automations.
-  if ((history as SessionLoadMessage[]).some((m) => m.role === 'tool' && isAutomationSaveTool(m.toolName)) && !ctx.automationsStore.loaded) {
+  if ((history as WireSessionLoadMessage[]).some((m) => m.role === 'tool' && isAutomationSaveTool(m.toolName)) && !ctx.automationsStore.loaded) {
     await ctx.automationsStore.loadAll()
   }
 
-  const loadedHistory = history as SessionLoadMessage[]
+  const loadedHistory = history as WireSessionLoadMessage[]
   // Thinking is never rendered as a turn — only its duration is, folded onto the
   // tool call it preceded (mirrors the live reducer's thinkingSpans). Replay has
   // no span boundaries, so the run of reasoning turns is bracketed by the first
@@ -141,9 +139,10 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
       // flat user/system bubble, so reloads don't re-leak sub-agent output.
       const target = m.toolResultForId ? toolById.get(m.toolResultForId) : undefined
       if (target) {
-        target.toolResult = m.content
-        target.toolResultIsError = m.toolResultIsError ?? false
-        target.toolStatus = m.toolResultIsError ? 'error' : 'completed'
+        target.report = m.report
+        target.errorHead = m.errorHead
+        target.contentBytes = m.contentBytes
+        target.toolStatus = m.status === 'error' ? 'error' : 'completed'
         if (m.timestamp) target.toolCompletedAt = m.timestamp
       }
       continue
@@ -168,7 +167,10 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
             toolName: m.toolName,
             toolId: m.toolId,
             toolInput: m.toolInput,
-            toolStatus: 'completed' as const,
+            toolStatus: m.status === 'error' || m.toolStatus === 'error' ? 'error' as const : 'completed' as const,
+            report: m.report,
+            errorHead: m.errorHead,
+            contentBytes: m.contentBytes,
             timestamp: m.timestamp ?? Date.now(),
           }
           parent.subMessages.push(child)
@@ -205,6 +207,11 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
       if (ms > 0) msg.thinkingMs = ms
     }
     if (m.role === 'tool' && m.toolId) toolById.set(m.toolId, msg)
+    if (m.role === 'tool' && m.report) msg.report = m.report
+    if (m.role === 'tool') {
+      msg.errorHead = m.errorHead
+      msg.contentBytes = m.contentBytes
+    }
 
     // A subagent tool call (Task/Agent, codex_subagent, or claude_subagent) renders as a
     // SubagentGroup row, not a plain tool row. The live reducer sets subMessages via isSubagent; reload
@@ -218,7 +225,7 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
     } else if (m.role === 'tool' && m.toolName?.slice(m.toolName.lastIndexOf('.') + 1) === 'claude_subagent') {
       msg.subMessages = []
       msg.subagentType = 'claude'
-      msg.toolResult = m.content
+      msg.report = m.report
     } else if (m.role === 'tool' && (m.toolName === 'Task' || m.toolName === 'Agent')) {
       msg.subMessages = []
       msg.subagentType = 'claude'
@@ -267,8 +274,6 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
       try {
         input = JSON.parse(m.toolInput || '{}')
       } catch {}
-      const resultId = automationIdFromResult(m.content) ?? automationIdFromResult(toolResultTextFor(loadedHistory, m.toolId))
-      if (resultId) input.automation_id = resultId
       const automationRef = resolveSavedAutomation(ctx, input, claimedAutomations)
       if (automationRef) {
         messages.push({
@@ -307,7 +312,7 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
       agentConversations.applyToolRow(
         m.toolName!,
         m.toolInput,
-        m.content || toolResultTextFor(loadedHistory, m.toolId),
+        m.agentConversationResult ?? agentConversationResultFor(loadedHistory, m.toolId),
         m.timestamp ?? Date.now(),
       )
       continue

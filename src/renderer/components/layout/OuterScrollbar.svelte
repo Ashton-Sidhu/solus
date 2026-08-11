@@ -179,7 +179,7 @@
     top: 0;
     right: 0.0625rem;
     width: 0.125rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--solus-scroll-thumb);
     transition: background-color 150ms ease;
   }

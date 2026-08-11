@@ -67,6 +67,16 @@
     /** The child (for example a virtual list) owns vertical scrolling. */
     contentOwnsScroll?: boolean;
     contentHeight?: number;
+    /** The list is docked beside an open detail panel: it drops the reading
+     *  measure, tightens the gutters and the head, and gives up the summary
+     *  line, because the column is now a place to navigate from rather than the
+     *  page you are reading. */
+    split?: boolean;
+    /** The page owns its titlebar chrome, so the route outlet does not pad it
+     *  down and this head reserves the window-control safe area itself. Pages
+     *  that let the outlet do it (Tasks) leave this off, or the inset lands
+     *  twice. */
+    reserveTitlebar?: boolean;
   }
   let {
     projects,
@@ -90,7 +100,18 @@
     scrollEl = $bindable(null),
     contentOwnsScroll = false,
     contentHeight = $bindable(0),
+    split = false,
+    reserveTitlebar = false,
   }: Props = $props();
+
+  // The head's own top space, plus the window-control band when this page is
+  // the one reserving it. Written as a calc so the two never compound.
+  const headTop = $derived.by(() => {
+    const own = split ? "26px" : "42px";
+    return reserveTitlebar
+      ? `calc(var(--solus-page-top-inset, 0px) + ${own})`
+      : own;
+  });
 
   const isInbox = $derived(view === "inbox");
   // A segment is either the raised card chip or plain muted text; there is no
@@ -105,43 +126,53 @@
   class="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-[13px] text-foreground"
 >
   <div
-    class="mx-auto flex min-h-0 w-full max-w-[72rem] flex-1 flex-col px-8 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4"
+    class="mx-auto flex min-h-0 w-full flex-1 flex-col {split
+      ? 'px-[18px]'
+      : 'max-w-[72rem] px-8 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4'}"
   >
     <!-- ── Head: title block + action cluster ── -->
     <div
-      class="flex shrink-0 items-end justify-between gap-8 pt-[42px] pb-[22px]"
+      class="flex shrink-0 items-end justify-between gap-8 {split
+        ? 'flex-wrap gap-y-3 pb-[18px]'
+        : 'pb-[22px]'}"
+      style="padding-top: {headTop}"
     >
       <div class="flex min-w-0 flex-col gap-[9px]">
         <h1
-          class="text-[27px] font-semibold tracking-[-.021em] whitespace-nowrap"
+          class="font-semibold tracking-[-.021em] whitespace-nowrap {split
+            ? 'text-[21px]'
+            : 'text-[27px]'}"
         >
           {title}
         </h1>
 
-        <div
-          class="flex items-center gap-2 text-[12px] text-muted-foreground"
-        >
-          {#each summary as stat, i (stat.label)}
-            {#if i > 0}<span class="opacity-35" aria-hidden="true">·</span>{/if}
-            <span
-              class="tabular-nums {i === 0 ? 'font-medium' : ''}"
-              style={i === 0 && statTintColor(stat.tint)
-                ? `color: ${statTintColor(stat.tint)}`
-                : undefined}
-            >
-              {stat.label}
-            </span>
-          {/each}
-        </div>
+        {#if !split}
+          <div class="flex items-center gap-2 text-[12px] text-muted-foreground">
+            {#each summary as stat, i (stat.label)}
+              {#if i > 0}<span class="opacity-35" aria-hidden="true">·</span
+                >{/if}
+              <span
+                class="tabular-nums {i === 0 ? 'font-medium' : ''}"
+                style={i === 0 && statTintColor(stat.tint)
+                  ? `color: ${statTintColor(stat.tint)}`
+                  : undefined}
+              >
+                {stat.label}
+              </span>
+            {/each}
+          </div>
+        {/if}
       </div>
 
       <div class="flex shrink-0 items-center gap-2">
-        <ListProjectSwitcher
-          {projects}
-          {activeProjectKey}
-          emptyLabel={emptyProjectLabel}
-          onSelect={onSelectProject}
-        />
+        {#if !split}
+          <ListProjectSwitcher
+            {projects}
+            {activeProjectKey}
+            emptyLabel={emptyProjectLabel}
+            onSelect={onSelectProject}
+          />
+        {/if}
 
         {#if onViewChange}
           <div
@@ -202,7 +233,7 @@
         {#if primaryAction}
           <button
             type="button"
-            class="flex h-[30px] cursor-pointer items-center gap-[7px] rounded-[10px] border-0 bg-primary px-[13px] text-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]"
+            class="flex h-[30px] cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] text-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]"
             onclick={primaryAction.run}
           >
             <PlusIcon size={12} weight="bold" class="shrink-0" />

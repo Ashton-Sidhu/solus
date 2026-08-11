@@ -50,7 +50,7 @@
   }}
 >
   <div
-    class="w-[clamp(18rem,38vw,26rem)] max-w-[calc(100vw-3rem)] flex flex-col gap-3 rounded-[1.125rem] border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) p-[1.125rem] shadow-[var(--solus-popover-shadow)]"
+    class="w-[clamp(18rem,38vw,26rem)] max-w-[calc(100vw-3rem)] flex flex-col gap-3 rounded-2xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) p-[1.125rem] shadow-[var(--solus-popover-shadow)]"
     role="dialog"
     aria-label="Rename session"
     aria-modal="true"

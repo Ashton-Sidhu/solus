@@ -29,6 +29,17 @@ describe('restored conversation loading', () => {
       loadingHistory: true,
     })).toBe(false)
   })
+
+  test('keeps the conversation open when an empty session has a snooze reminder', () => {
+    // WHY: the reminder is transcript content. Treating this state as a fresh
+    // tab closes the Pill body and hides the only item the user needs to see.
+    expect(isHomeVisible({
+      agentSessionId: 'provider-session',
+      messages: [],
+      statusCard: null,
+      loadingHistory: false,
+    }, true)).toBe(false)
+  })
 })
 
 describe('primary project rail visibility', () => {

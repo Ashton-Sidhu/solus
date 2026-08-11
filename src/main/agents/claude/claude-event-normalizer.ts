@@ -69,6 +69,10 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
   // content_block_stop carries only an index, so remember which indexes opened as
   // thinking blocks to know whose span just closed. Cleared alongside the inputs.
   private readonly thinkingBlocks = new Set<number>()
+  // The provider returns every tool result through the same shape. Remember
+  // which calls launched subagents so their final answer can be marked before
+  // the server projects ordinary output away.
+  private readonly subagentToolIds = new Set<string>()
 
   get summary(): TurnSummary {
     return this.turnSummary
@@ -98,7 +102,19 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
 
     if (raw.type === 'assistant') this.collectEditedFiles(raw.message?.content)
 
-    events.push(...normalize(raw, this.pendingToolInputs, this.thinkingBlocks))
+    const normalized = normalize(raw, this.pendingToolInputs, this.thinkingBlocks)
+    for (const event of normalized) {
+      if (event.type === 'tool_call' && event.isSubagent && event.toolId) {
+        this.subagentToolIds.add(event.toolId)
+      } else if (
+        event.type === 'tool_result'
+        && !event.isAsyncLaunch
+        && this.subagentToolIds.delete(event.toolUseId)
+      ) {
+        event.isSubagentReport = true
+      }
+    }
+    events.push(...normalized)
     return this.emit(events)
   }
 
@@ -235,14 +251,15 @@ function normalizeStreamSub(
       if (sub.content_block.type === 'tool_use') {
         pendingToolInputs.set(sub.index, '')
         const toolName = sub.content_block.name || 'unknown'
+        const baseToolName = toolName.slice(toolName.lastIndexOf('.') + 1)
         return [{
           type: 'tool_call',
           toolName,
           toolId: sub.content_block.id || '',
           index: sub.index,
-          ...(toolName === 'mcp__solus__codex_subagent'
+          ...(baseToolName === 'codex_subagent'
             ? { isSubagent: true, subagentType: 'codex' as const }
-            : toolName === 'Task' || toolName === 'Agent'
+            : baseToolName === 'claude_subagent' || toolName === 'Task' || toolName === 'Agent'
               ? { isSubagent: true, subagentType: 'claude' as const }
               : {}),
         }]

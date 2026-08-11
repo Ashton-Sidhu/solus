@@ -405,7 +405,7 @@
         bind:value={sortMode}
         options={SORT_OPTIONS}
         ariaLabel="Sort automations"
-        class="h-7 gap-1.5 rounded-[10px] px-2.5 text-[13px] font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
+        class="h-7 gap-1.5 rounded-lg px-2.5 text-[13px] font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
       />
     {/snippet}
   </ListFilterBar>
@@ -443,7 +443,7 @@
             <!-- No CTA of its own — the launchpad directly below is the call to
                  action, so a button here would only compete with it. -->
             <div
-              class="mt-3.5 flex max-w-[600px] flex-col gap-2.5 rounded-[14px] bg-[var(--wash-1)] px-6 py-[26px]"
+              class="mt-3.5 flex max-w-[600px] flex-col gap-2.5 rounded-2xl bg-[var(--wash-1)] px-6 py-[26px]"
             >
               <span
                 class="text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase"

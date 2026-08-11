@@ -349,7 +349,7 @@
    *  colour carries the `color:` hint so tailwind-merge classifies it and drops
    *  the trigger's own default rather than leaving both in the sheet. */
   const FILTER_CHIP =
-    "h-7 shrink-0 gap-1.5 rounded-[10px] bg-transparent px-2.5 py-0 text-[13px] font-normal text-[color:var(--muted-foreground)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:bg-[var(--wash-2)] hover:text-foreground";
+    "h-7 shrink-0 gap-1.5 rounded-lg bg-transparent px-2.5 py-0 text-[13px] font-normal text-[color:var(--muted-foreground)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:bg-[var(--wash-2)] hover:text-foreground";
 
   // ── Selection bookkeeping ──
   $effect(() => {
@@ -611,7 +611,7 @@
 )}
   <button
     type="button"
-    class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-[10px] border-0 px-2.5 text-[13px] transition-colors duration-150 {active
+    class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 text-[13px] transition-colors duration-150 {active
       ? 'bg-[color-mix(in_oklch,var(--primary)_13%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
       : 'bg-transparent text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:bg-[var(--wash-2)] hover:text-foreground'}"
     {onclick}
@@ -725,7 +725,7 @@
                   <button
                     {...props}
                     type="button"
-                    class="flex h-[30px] cursor-pointer items-center gap-[7px] rounded-[10px] border-0 bg-primary px-[13px] text-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]"
+                    class="flex h-[30px] cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] text-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]"
                     data-testid="workspace-new"
                   >
                     <PlusIcon size={12} weight="bold" class="shrink-0" />
@@ -826,7 +826,7 @@
             <div class="flex flex-col gap-1 pt-2" aria-hidden="true">
               {#each Array(8) as _, i (i)}
                 <div
-                  class="h-11 animate-pulse rounded-[10px] bg-[var(--wash-2)]"
+                  class="h-11 animate-pulse rounded-lg bg-[var(--wash-2)]"
                   style="opacity:{1 - i * 0.1}"
                 ></div>
               {/each}
@@ -907,7 +907,7 @@
               {#if pinnedOverflow > 0}
                 <button
                   type="button"
-                  class="flex h-[30px] w-full cursor-pointer items-center gap-[9px] rounded-[10px] border-0 bg-transparent pr-3 pl-2.5 text-[12px] text-muted-foreground transition-shadow duration-150 hover:shadow-[inset_0_0_0_999px_var(--wash-1)]"
+                  class="flex h-[30px] w-full cursor-pointer items-center gap-[9px] rounded-lg border-0 bg-transparent pr-3 pl-2.5 text-[12px] text-muted-foreground transition-shadow duration-150 hover:shadow-[inset_0_0_0_999px_var(--wash-1)]"
                   onclick={() => (pinnedExpanded = true)}
                 >
                   <span class="flex w-4 shrink-0 justify-center opacity-60">
@@ -941,7 +941,7 @@
               <div class="flex flex-col gap-1 pt-1" aria-hidden="true">
                 {#each Array(2) as _, i (i)}
                   <div
-                    class="h-11 animate-pulse rounded-[10px] bg-[var(--wash-2)]"
+                    class="h-11 animate-pulse rounded-lg bg-[var(--wash-2)]"
                     style="opacity:{0.55 - i * 0.25}"
                   ></div>
                 {/each}

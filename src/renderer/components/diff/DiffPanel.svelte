@@ -42,6 +42,7 @@
   import type { DiffReviewThread } from "./lib/interdiff-annotations";
   import { mountDiffFileTree } from "./lib/diff-file-tree";
   import type { HostApi } from "@client-core/host-api";
+  import type { FileDiffContentsLoader } from "@pierre/diffs";
   import { serverConnections } from "@client-core/server-connections";
   import { hostPolicy } from "@client-core/host-policy";
   import { supportsEditor } from "@client-core/host-capabilities";
@@ -77,6 +78,7 @@
     onExternalCommentDelete,
     reviewThreads = [],
     patchOverride = null,
+    patchOverrideFileLoader,
     emptyState,
     onThreadReply,
     onThreadResolve,
@@ -109,6 +111,8 @@
     reviewThreads?: DiffReviewThread[];
     /** Precomputed unified patch; null keeps the normal scope-backed RPC path. */
     patchOverride?: string | null;
+    /** Full-file loader for a provider-backed patch with omitted context. */
+    patchOverrideFileLoader?: FileDiffContentsLoader;
     emptyState?: { title: string; description: string };
     onThreadReply?: (threadId: string, body: string) => Promise<ReviewComment>;
     onThreadResolve?: (threadId: string, resolved: boolean) => Promise<void>;
@@ -977,7 +981,7 @@
         <DiffStream
           bind:this={streamRef}
           fileDiffs={orderedFiles}
-          loadDiffFiles={patchOverride === null ? diffState.loadDiffFiles : undefined}
+          loadDiffFiles={patchOverride === null ? diffState.loadDiffFiles : patchOverrideFileLoader}
           isBinaryFile={(path) => diffState.isBinaryFile(path)}
           isDark={theme.isDark}
           diffStyle={effectiveDiffStyle}

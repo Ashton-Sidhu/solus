@@ -40,7 +40,7 @@
 </script>
 
 <section
-  class="run-card mx-auto w-[88%] overflow-hidden rounded-xl bg-(--solus-tx-card-bg)"
+  class="run-card mx-auto w-[88%] overflow-hidden rounded-2xl bg-(--solus-tx-card-bg)"
   class:is-failed={failed}
   class:is-open={isOpen}
   aria-label="Sub-agent"

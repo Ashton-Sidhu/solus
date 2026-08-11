@@ -239,7 +239,7 @@ describe('normalizeCodexNotification', () => {
       },
     })).toEqual([
       { type: 'tool_call_complete', index: 0, toolId: 'agent-1' },
-      { type: 'tool_result', toolUseId: 'agent-1', content: 'No auth regressions found.', isError: false },
+      { type: 'tool_result', toolUseId: 'agent-1', content: 'No auth regressions found.', isError: false, isSubagentReport: true },
     ])
   })
 
@@ -275,6 +275,7 @@ describe('normalizeCodexNotification', () => {
         toolUseId: 'claude-agent-1',
         content: 'No auth regressions found.',
         isError: false,
+        isSubagentReport: true,
       },
     ])
   })

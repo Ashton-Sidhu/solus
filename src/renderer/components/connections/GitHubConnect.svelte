@@ -156,7 +156,7 @@
     >
       <div class="flex flex-col items-center gap-2 text-center">
         <div
-          class="size-11 rounded-xl bg-(--solus-surface-hover) flex items-center justify-center"
+          class="size-11 rounded-lg bg-(--solus-surface-hover) flex items-center justify-center"
         >
           <GithubLogoIcon
             size={22}

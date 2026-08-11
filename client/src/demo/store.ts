@@ -346,6 +346,7 @@ export class DemoStore {
       number,
       title: detail.title,
       baseRef: detail.baseRef,
+      headRef: detail.headRef,
       headSha: detail.headSha,
       baseSha: detail.baseSha,
       headRepo: detail.headRepo,

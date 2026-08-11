@@ -43,7 +43,7 @@
 
 <div
   transition:fly={{ y: 8, duration: 200 }}
-  class="mx-auto my-2 w-full max-w-[47.5rem] overflow-hidden rounded-xl border border-border bg-card text-[0.8125rem] shadow-[shadow:var(--solus-tx-raised-shadow)]"
+  class="mx-auto my-2 w-full max-w-[47.5rem] overflow-hidden rounded-2xl border border-border bg-card text-[0.8125rem] shadow-[shadow:var(--solus-tx-raised-shadow)]"
   data-testid={testId}
 >
   <div class="interrupt-head flex items-start gap-3 px-[1.125rem] pt-[0.875rem] pb-[0.8125rem]">

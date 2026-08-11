@@ -4,12 +4,15 @@
     ArrowsClockwiseIcon,
     ArrowsInIcon,
     ArrowsOutIcon,
-    ChatCircleIcon,
+    SparkleIcon,
     XIcon,
   } from "phosphor-svelte";
-  import type { PrReviewContext, IpcContext } from "../../../shared/types";
-  import { worktreeProjectRoot } from "../../../shared/types";
-  import type { DraftReview } from "../../../shared/providers";
+  import type { IpcContext } from "../../../shared/types";
+  import type {
+    DraftReview,
+    PullRequestDetail,
+    PrReviewTarget,
+  } from "../../../shared/providers";
   import type { GuideDiffCommentSave } from "./guide/lib/guide-data";
   import {
     getWorkspaceContext,
@@ -38,6 +41,8 @@
   import GithubConnectionRequired from "../prs/GithubConnectionRequired.svelte";
   import { prSurfaceError, type PrSurfaceError } from "../prs/lib/pr-surface-error";
   import PrDetailMasthead from "./PrDetailMasthead.svelte";
+  import PrPanelHeader from "./PrPanelHeader.svelte";
+  import PrViewTabs from "./PrViewTabs.svelte";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { Button } from "../ui/button";
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
@@ -71,15 +76,21 @@
     activeTab,
     onActiveTabChange,
     headless = false,
+    embedded = false,
+    fullScreen = false,
+    onToggleFullScreen,
+    onExit,
+    onStep,
     guideEnabled = true,
     onUnresolvedCountChange,
+    onRefreshTarget,
   }: {
-    pr: PrReviewContext | null;
+    pr: PrReviewTarget | null;
     api: HostApi;
     serverId: string;
     /** PR identity, known from the click; `pr` once the worktree exists. */
     target: PrActivityTarget;
-    /** Project context for the provider reads made before the worktree exists. */
+    /** Project context for provider reads and lazy checkout preparation. */
     targetCtx?: IpcContext | null;
     chatTabId?: string | null;
     onToggleMaximize?: () => void;
@@ -87,8 +98,21 @@
     activeTab?: ContentTab;
     onActiveTabChange?: (tab: ContentTab) => void;
     headless?: boolean;
+    /** Mounted as the detail panel of the pull requests page rather than as a
+     *  route of its own. The list is still on screen beside it, so the way back
+     *  and the way sideways are the page's, and the diff stays inside the panel
+     *  instead of claiming the pane the list is sitting in. */
+    embedded?: boolean;
+    /** Embedded only: the panel is covering the list rather than sitting beside it. */
+    fullScreen?: boolean;
+    onToggleFullScreen?: () => void;
+    /** How Esc and the close control get out. Defaults to leaving the review route. */
+    onExit?: () => void;
+    /** How J / K walk the queue. Defaults to stepping the review route. */
+    onStep?: (delta: number) => void;
     guideEnabled?: boolean;
     onUnresolvedCountChange?: (count: number) => void;
+    onRefreshTarget?: () => Promise<void>;
   } = $props();
 
   const session = getWorkspaceContext();
@@ -106,17 +130,6 @@
   $effect(() => {
     activeChatTabId = chatTabId;
   });
-  // Review data belongs to the checked-out PR worktree, not to whichever chat
-  // happens to be attached. Only a different review worktree changes this
-  // context, so revealing Chat cannot invalidate the cached domain state. Both
-  // contexts key PrsStore's caches by project root, so the reads made while the
-  // worktree is still checking out stay warm once it lands.
-  const reviewContext = $derived.by(() =>
-    pr
-      ? session.ctxForDirectory(worktreeProjectRoot(pr.worktreePath))
-      : (targetCtx ?? session.ctx),
-  );
-  const prCtx = () => reviewContext;
   // Sibling pull requests live in the *project*, not in this PR's worktree, so
   // stepping to one must resolve against the project scope the review was
   // opened from — `targetCtx` — rather than the checkout it is showing.
@@ -128,6 +141,7 @@
   const reviewTabId = untrack(() => activeChatTabId ?? session.activeTabId);
   const getApi = () => api;
   let surfaceError = $state<PrSurfaceError | null>(null);
+  let reviewDetail = $state<PullRequestDetail | null>(null);
 
   // The worktree open and the provider detail read fail through separate RPCs.
   // Probe the detail through the shared cache so every landing tab, including
@@ -139,6 +153,9 @@
     surfaceError = null;
     void session.prsStore
       .loadDetail(api, serverId, context, number)
+      .then((detail) => {
+        if (target.number === number) reviewDetail = detail;
+      })
       .catch((error) => {
         if (target.number === number) surfaceError = prSurfaceError(error);
       });
@@ -149,33 +166,46 @@
   // a second pane over the same review, and two `ReviewDrafts` over one
   // review-state file would silently diverge. See pr-review.store.
   const review = $derived(
-    prReviewState(serverId, target.number, {
-      getApi,
-      fallbackCtx: () => targetCtx ?? session.ctx,
-      ctxForDirectory: (path) => session.ctxForDirectory(path),
-      stackedPrsEnabled: () => settings.stackedPrsEnabled,
-      resolveDiffBase: (number, baseRef) =>
-        stacks.resolveDiffBase(number, baseRef, serverId, projectCtx().session.projectPath),
-      loadStacks: (ctx) => stacks.load(api, serverId, ctx),
-      loadThreads: (ctx, number, force) =>
-        session.prsStore.loadThreads(api, serverId, ctx, number, { force }),
-      loadInterdiff: (ctx, target, force) =>
-        session.prsStore.loadInterdiff(api, serverId, ctx, target, { force }),
-      diffStats: (ctx, scope) =>
-        api.diffStats(ctx, { scope }).then((f) => f.length),
-      replyThread: (ctx, number, threadId, body) =>
-        api.prReplyThread(ctx, number, threadId, body),
-      resolveThread: async (ctx, number, threadId, resolved) => {
-        if (resolved) await api.prResolveThread(ctx, number, threadId);
-        else await api.prUnresolveThread(ctx, number, threadId);
+    prReviewState(
+      serverId,
+      (targetCtx ?? session.ctx).session.projectPath ?? (targetCtx ?? session.ctx).session.workingDirectory,
+      target.number,
+      {
+        getApi,
+        fallbackCtx: () => targetCtx ?? session.ctx,
+        ctxForDirectory: (path) => session.ctxForDirectory(path),
+        stackedPrsEnabled: () => settings.stackedPrsEnabled,
+        resolveDiffBase: (number, baseRef) =>
+          stacks.resolveDiffBase(number, baseRef, serverId, projectCtx().session.projectPath),
+        loadStacks: (ctx) => stacks.load(api, serverId, ctx),
+        loadThreads: (ctx, number, force) =>
+          session.prsStore.loadThreads(api, serverId, ctx, number, { force }),
+        loadDiff: (ctx, request) => api.prGetDiff(ctx, request),
+        prepareCheckout: (ctx, target) => api.prPrepareCheckout(ctx, target),
+        loadInterdiff: (ctx, target, force) =>
+          session.prsStore.loadInterdiff(api, serverId, ctx, target, { force }),
+        diffStats: (ctx, scope) =>
+          api.diffStats(ctx, { scope }).then((f) => f.length),
+        replyThread: (ctx, number, threadId, body) =>
+          api.prReplyThread(ctx, number, threadId, body),
+        resolveThread: async (ctx, number, threadId, resolved) => {
+          if (resolved) await api.prResolveThread(ctx, number, threadId);
+          else await api.prUnresolveThread(ctx, number, threadId);
+        },
       },
-    }),
+    ),
   );
+
+  // Provider reads stay on the project context. Source-dependent reads switch
+  // to the checkout only after the action that needs it prepares one.
+  const prCtx = () => review.ctx;
+  const checkout = $derived(review.checkout);
 
   // The resolved worktree arrives after the surface mounts; hand it to the state
   // so everything gated on the checkout unblocks at once.
   $effect(() => {
-    review.pr = pr;
+    review.setTarget(pr);
+    if (pr) untrack(() => review.loadDiff());
   });
 
   $effect(() => {
@@ -204,6 +234,13 @@
   const guideStatus = $derived(
     session.prsStore.guideStatusFor(serverId, prCtx(), target.number),
   );
+  // A first-time generation may need to prepare the PR checkout before the
+  // durable queue can report `queued`. Cover that gap so the click changes the
+  // Guide surface immediately, then let the shared status take over.
+  let preparingGuide = $state(false);
+  const visibleGuideStatus = $derived(
+    preparingGuide ? "queued" : guideStatus,
+  );
   // Follow generation progress for the whole time this review is open, not just
   // around the loader's own call — the Generate button queues the work in the
   // background, and its progress is what fills the stepped screen.
@@ -216,7 +253,7 @@
     );
     if (backgroundStatus === "queued" || backgroundStatus === "generating")
       return;
-    const generateIfMissing = settings.generatePrGuidesOnOpen;
+    const generateIfMissing = settings.generatePrGuidesOnOpen && !!review.checkout;
     void untrack(() => guideLoader.load(false, generateIfMissing));
   });
 
@@ -270,9 +307,12 @@
       ? `${files} · a minute or two for a change this size`
       : `${files} · usually under a minute`;
   });
-  function generateGuide() {
-    void session.prsStore
-      .requestGuides(api, serverId, prCtx(), [target.number], {
+  async function generateGuide() {
+    if (preparingGuide) return;
+    preparingGuide = true;
+    try {
+      await review.ensureCheckout();
+      await session.prsStore.requestGuides(api, serverId, prCtx(), [target.number], {
         onSettled: ({ failed }) => {
           if (failed > 0) {
             toasts.error(
@@ -284,20 +324,32 @@
             );
           }
         },
-      })
-      .catch((error) => {
-        toasts.error(
-          `Couldn't queue the review guide: ${error instanceof Error ? error.message : String(error)}`,
-        );
       });
+    } catch (error) {
+      toasts.error(
+        `Couldn't prepare the review guide: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      preparingGuide = false;
+    }
+    requestInputFocus();
+  }
+
+  async function regenerateGuide() {
+    try {
+      await review.ensureCheckout();
+      await guideLoader.refresh();
+    } catch (error) {
+      toasts.error(error instanceof Error ? error.message : String(error));
+    }
     requestInputFocus();
   }
 
   // The active content tab lives in the PR store so chrome outside this
   // component can react to it (see PrsStore.prReviewTab).
   type ContentTab = "activity" | "guide" | "diff";
-  // Guide and Diff both read the worktree, so the pending phase can only be on
-  // Activity — a stored selection of either is honoured once `pr` arrives.
+  // The host target enables Activity and Diff together. A cached guide can also
+  // load then; only generation and other source actions need checkout.
   const sub = $derived(
     pr ? (activeTab ?? session.prsStore.prReviewTab) : "activity",
   );
@@ -347,7 +399,7 @@
 
   $effect(() => {
     const currentNumber = target.number;
-    const prCwd = pr?.worktreePath;
+    const prCwd = review.checkout?.worktreePath;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const unsub = subscribeAllHosts(
       "prs.invalidated",
@@ -394,9 +446,35 @@
 
   let showSubmit = $state(false);
   let activityFeedRef: ActivityFeed | null = $state(null);
+  let refreshingPr = $state(false);
   // Owned here so a typed summary survives closing/reopening the submit modal.
   let submitEvent = $state<DraftReview["event"]>("COMMENT");
   let submitBody = $state("");
+
+  async function refreshPr() {
+    if (refreshingPr) return;
+    refreshingPr = true;
+    try {
+      if (activityFeedRef) {
+        await activityFeedRef.refresh();
+      } else {
+        loadThreads(true);
+        const detailRefresh = session.prsStore
+          .loadDetail(api, serverId, projectCtx(), target.number, { force: true })
+          .then((detail) => (reviewDetail = detail));
+        await Promise.all([detailRefresh, onRefreshTarget?.()]);
+      }
+      loadInterdiff(true);
+      review.loadDiff(true);
+    } catch (error) {
+      toasts.error(
+        `Couldn't refresh PR #${target.number}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      refreshingPr = false;
+      requestInputFocus();
+    }
+  }
 
   // A submitted review creates threads and flips the viewer's review state —
   // reload so the result is visible without a manual refresh. The feed's
@@ -416,7 +494,13 @@
       submitEvent = "APPROVE";
       showSubmit = true;
     },
-    { enabled: () => !headless && !showSubmit && !!pr },
+    {
+      enabled: () =>
+        !headless &&
+        !showSubmit &&
+        !!pr &&
+        !!reviewDetail?.viewerPermissions.reviewVerdicts.includes("approve"),
+    },
   );
 
   // Keep each visited tab mounted (DiffState / scroll / derived chains survive
@@ -441,9 +525,11 @@
   // The diff is a pane, not a tab. Reading a change is a two-handed job — the
   // conversation on one side, the code on the other — so Diff pops out beside
   // the review rather than replacing what you were reading. Review Mode
-  // (headless) has no pane to pop into and keeps the diff inline.
+  // (headless) has no pane to pop into, and the embedded panel is already the
+  // companion of the list; both keep the diff inline.
+  const inlineDiff = $derived(headless || embedded);
   const diffPoppedOut = $derived(
-    !headless && session.router.params("prDiff")?.number === target.number,
+    !inlineDiff && session.router.params("prDiff")?.number === target.number,
   );
 
   /** Put the left column on Activity — the conversation that belongs beside an
@@ -457,7 +543,7 @@
   // A row whose verb was "Review" lands on the diff: honour that by popping it
   // out, with Activity behind it.
   $effect(() => {
-    if (headless || session.prsStore.prReviewTab !== "diff" || !pr) return;
+    if (inlineDiff || session.prsStore.prReviewTab !== "diff" || !pr) return;
     untrack(() => {
       showActivityColumn();
       session.openPrDiff(target.number, prCtx());
@@ -466,7 +552,7 @@
 
   function select(next: ContentTab) {
     if (next === "guide" && showingFullDiff) return;
-    if (next === "diff" && !headless) {
+    if (next === "diff" && !inlineDiff) {
       if (diffPoppedOut) {
         session.closePrDiff();
       } else {
@@ -487,7 +573,7 @@
 
   function toggleFullDiff() {
     review.showingFullDiff = !review.showingFullDiff;
-    if (headless) {
+    if (inlineDiff) {
       if (activeTab === undefined) session.prsStore.prReviewTab = "diff";
       onActiveTabChange?.("diff");
       mountedDiff = true;
@@ -507,7 +593,7 @@
     line?: number | null,
     side: "old" | "new" = "new",
   ) {
-    if (!headless) {
+    if (!inlineDiff) {
       // A jump from the guide keeps the guide: you asked to see one file while
       // reading the narrative, not to leave it.
       session.openPrDiff(target.number, prCtx());
@@ -532,11 +618,13 @@
   // Chat changes only the primary pane. The review stays mounted in secondary;
   // openPrReviewChat reveals the conversation and restores the split geometry.
   async function openChat() {
-    const review = pr;
-    if (!review || openingChat) return;
+    if (!pr || openingChat) return;
     openingChat = true;
     try {
-      activeChatTabId = await session.openPrReviewChat(review, activeChatTabId);
+      const sourceContext = await review.ensureCheckout();
+      activeChatTabId = await session.openPrReviewChat(sourceContext, activeChatTabId);
+    } catch (error) {
+      toasts.error(error instanceof Error ? error.message : String(error));
     } finally {
       openingChat = false;
     }
@@ -544,9 +632,20 @@
   }
 
   function exit() {
-    session.exitPrReview();
+    if (onExit) onExit();
+    else session.exitPrReview();
     requestInputFocus();
   }
+
+  function step(delta: number) {
+    if (onStep) onStep(delta);
+    else session.stepPrReview(delta, projectCtx());
+  }
+
+  // Where this review sits in the list order the PRs page publishes — the same
+  // rows, in the same order, as the list it was opened from.
+  const listOrder = $derived(session.prsStore.listOrder);
+  const queuePosition = $derived(listOrder.indexOf(target.number) + 1);
 
   // Built from the review context rather than `target`, whose host/owner/repo
   // are only populated once detail lands — the Activity tab owns the link that
@@ -569,17 +668,23 @@
     if (el && (el.isContentEditable || el.closest("input, textarea"))) return;
     if (e.key === "Escape") {
       e.preventDefault();
-      exit();
+      // Full screen is a state you back out of before you leave the review —
+      // unless it is the only state this surface has room for.
+      if (embedded && fullScreen && onToggleFullScreen) onToggleFullScreen();
+      else exit();
     } else if (e.key === "j" || e.key === "J") {
       e.preventDefault();
-      session.stepPrReview(1, projectCtx());
+      step(1);
     } else if (e.key === "k" || e.key === "K") {
       e.preventDefault();
-      session.stepPrReview(-1, projectCtx());
+      step(-1);
+    } else if (embedded && (e.key === "e" || e.key === "E")) {
+      e.preventDefault();
+      onToggleFullScreen?.();
     }
   }
 
-  // The pill agrees with the list's own grouping rather than inventing a second
+  // The chip agrees with the list's own grouping rather than inventing a second
   // vocabulary — a row filed under "Awaiting your review" says so here too.
   const summary = $derived(session.prsStore.get(target.number));
   const statusKey = $derived.by(() => {
@@ -597,7 +702,6 @@
 
 {#snippet detailMasthead()}
   <PrDetailMasthead
-    status={statusKey}
     headRef={pr?.headRef ?? summary?.headRef}
     baseRef={pr?.baseRef ?? summary?.baseRef}
     tab={sub === "guide" ? "guide" : "activity"}
@@ -609,8 +713,89 @@
   />
 {/snippet}
 
+<!-- The panel keeps all three views inside itself, so Diff is a peer of the
+     other two here rather than a toggle that opens a pane beside them. -->
+{#snippet panelTabs()}
+  <PrViewTabs
+    tab={sub === "diff" ? null : sub}
+    diffOpen={sub === "diff"}
+    guideDisabled={showingFullDiff}
+    guideDisabledReason="Guides cover the stacked view"
+    tabsDisabled={!pr}
+    diffHint="Read the change"
+    onSelect={select}
+  />
+{/snippet}
+
+{#snippet checksChip()}
+  <PrChecksChip
+    summary={session.prsStore.checksFor(serverId, prCtx(), target.number)}
+    headSha={pr?.headSha ?? target.headSha ?? ""}
+    loadFailed={session.prsStore.checksLoadFailedFor(serverId, prCtx())}
+    pill
+  />
+{/snippet}
+
+{#snippet refreshButton()}
+  <Button
+    type="button"
+    variant="ghost"
+    class="flex size-[26px] shrink-0 items-center justify-center rounded-full border-0 bg-transparent p-0 text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground"
+    onclick={refreshPr}
+    disabled={refreshingPr}
+    aria-label={refreshingPr ? "Refreshing pull request" : "Refresh pull request"}
+    aria-busy={refreshingPr}
+    title={refreshingPr ? "Refreshing pull request…" : "Refresh pull request"}
+  >
+    <ArrowsClockwiseIcon
+      size={13}
+      class={refreshingPr ? "animate-spin [animation-duration:0.9s]" : ""}
+    />
+  </Button>
+{/snippet}
+
+<!-- The same pill the document and work headers use to reach Solus: one filled,
+     rounded-full surface, so "ask Solus about the thing you are looking at" is
+     the same object wherever you meet it. -->
+{#snippet chatButton()}
+  <Button
+    type="button"
+    class="ml-[5px] h-7 shrink-0 gap-[0.4375rem] rounded-full border-0 bg-(--solus-accent) px-[0.6875rem] text-[0.78125rem] font-medium text-(--solus-text-on-accent) transition-colors hover:bg-[color-mix(in_srgb,var(--solus-accent)_88%,black)] disabled:opacity-50"
+    onclick={openChat}
+    disabled={openingChat || !pr}
+    aria-label="Ask Solus"
+    title={openingChat
+      ? "Preparing checkout…"
+      : activeChatTabId
+        ? "Focus the Solus chat about this pull request"
+        : "Ask Solus about this pull request"}
+  >
+    <SparkleIcon size={12} weight="fill" />
+    Ask Solus
+  </Button>
+{/snippet}
+
 <section class="flex h-full min-h-0 flex-col bg-background">
-  {#if !headless}
+  {#if embedded}
+    <PrPanelHeader
+      number={target.number}
+      headRef={pr?.headRef ?? summary?.headRef}
+      baseRef={pr?.baseRef ?? summary?.baseRef}
+      position={queuePosition}
+      total={listOrder.length}
+      {fullScreen}
+      {onToggleFullScreen}
+      onStep={step}
+      onClose={exit}
+      tabs={panelTabs}
+    >
+      {#snippet actions()}
+        {@render refreshButton()}
+        {@render checksChip()}
+        {@render chatButton()}
+      {/snippet}
+    </PrPanelHeader>
+  {:else if !headless}
     <!-- One chrome band: the way back, the way sideways, and where you are.
          The tabs have moved down into the masthead where they belong to the
          content; what stays up here is navigation and the pane controls that
@@ -635,29 +820,9 @@
         <!-- Pane controls, pill-shaped and quiet: the band's only ink is the
              breadcrumb, so these read as affordances rather than a toolbar. -->
         <div class="flex shrink-0 items-center gap-0.5">
-          <PrChecksChip
-            summary={session.prsStore.checksFor(serverId, prCtx(), target.number)}
-            headSha={pr?.headSha ?? target.headSha ?? ""}
-            loadFailed={session.prsStore.checksLoadFailedFor(serverId, prCtx())}
-            pill
-          />
-
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            class={`relative ml-1 h-[26px] gap-1.5 rounded-full border border-transparent px-2.5 text-[12px] font-normal transition-colors after:absolute after:h-10 after:w-full ${activeChatTabId ? "bg-secondary text-secondary-foreground" : "bg-transparent text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"}`}
-            onclick={openChat}
-            disabled={openingChat || !pr}
-            title={!pr
-              ? "Checking out this PR's worktree…"
-              : activeChatTabId
-                ? "Focus agent chat"
-                : "Open agent chat"}
-          >
-            <ChatCircleIcon size={13} />
-            Ask about this PR
-          </Button>
+          {@render refreshButton()}
+          {@render checksChip()}
+          {@render chatButton()}
 
           {#if sub === "guide" && !showingFullDiff}
             <Button
@@ -666,7 +831,7 @@
               class="flex size-[26px] shrink-0 items-center justify-center rounded-full border-0 bg-transparent p-0 text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground"
               aria-label="Regenerate review guide"
               title="Regenerate review"
-              onclick={() => guideLoader.refresh()}
+              onclick={regenerateGuide}
             >
               <ArrowsClockwiseIcon size={13} />
             </Button>
@@ -730,8 +895,7 @@
         <GithubConnectionRequired {serverId} />
       </div>
     {/if}
-    <!-- Both of these read the checked-out worktree, so neither can be reached
-         before `pr` lands — their tabs are disabled until then. -->
+    <!-- A cached guide can load without checkout. Generation prepares one. -->
     {#if mountedGuide && pr}
       <div
         class="absolute inset-0 flex flex-col"
@@ -755,7 +919,7 @@
           <!-- The guide reads full width: it is a narrative about the whole
                change, not a column beside a rail. The masthead rides above it
                so the same row appears whichever tab is showing. -->
-          {#if !headless}
+          {#if !headless && !embedded}
             <!-- Match GuideView's measure and asymmetric reading gutters so
                  the status/refs begin on the title's left edge and the tabs
                  end on the guide content's right edge. -->
@@ -786,7 +950,7 @@
               branch: pr.headRef,
             }}
             emptyHint={guideEmptyHint}
-            generationStatus={guideStatus}
+            generationStatus={visibleGuideStatus}
             onGenerate={generateGuide}
             onAlwaysGenerate={settings.generatePrGuidesOnOpen
               ? undefined
@@ -819,21 +983,31 @@
           />
         {/if}
         <div class="min-h-0 flex-1">
+          {#if review.diffLoading && review.diffPatch === null}
+            <div class="grid h-full place-items-center text-xs text-muted-foreground" role="status">
+              Loading pull request diff…
+            </div>
+          {:else if review.diffError}
+            <div class="grid h-full place-items-center px-6 text-center text-xs text-destructive" role="alert">
+              {review.diffError}
+            </div>
+          {:else}
           <DiffPanel
             bind:this={diffPanelRef}
             tabId={reviewTabId}
             getCtx={prCtx}
             {getApi}
-            projectPath={pr.worktreePath}
-            worktreePath={pr.worktreePath}
+            projectPath={checkout?.worktreePath ?? projectCtx().session.projectPath ?? projectCtx().session.workingDirectory}
+            worktreePath={checkout?.worktreePath}
             worktreeBranch={pr.headRef}
             targetBranch={pr.baseRef}
-            isWorktree
+            isWorktree={!!checkout}
             onClose={() => select(showingFullDiff ? "activity" : "guide")}
             embedded
             {onToggleMaximize}
             initialScope={diffScope}
-            patchOverride={isSinceReviewMode ? (interdiff?.patch ?? "") : null}
+            patchOverride={isSinceReviewMode ? (interdiff?.patch ?? "") : (review.diffPatch ?? "")}
+            patchOverrideFileLoader={isSinceReviewMode ? undefined : review.loadDiffFiles}
             emptyState={isSinceReviewMode
               ? {
                   title: "No patch changes since your review",
@@ -850,6 +1024,7 @@
             onThreadReply={replyToThread}
             onThreadResolve={resolveThread}
           />
+          {/if}
         </div>
       </div>
     {/if}
@@ -858,18 +1033,27 @@
         <ActivityFeed
           bind:this={activityFeedRef}
           pr={target}
+          status={statusKey}
           threads={reviewThreads}
           threadsFailed={threadsLoadFailed}
           getCtx={prCtx}
           {getApi}
           {serverId}
-          addressCommentsReady={!!pr}
+          addressCommentsReady={!!pr && review.checkoutStatus !== "preparing"}
           onAddressComments={async () => {
-            if (pr) await session.startPrCommentsFixSession(pr);
+            if (!pr) return;
+            try {
+              await session.startPrCommentsFixSession(await review.ensureCheckout());
+            } catch (error) {
+              toasts.error(error instanceof Error ? error.message : String(error));
+            }
           }}
+          onGenerateGuide={generateGuide}
           onRefreshThreads={() => loadThreads(true)}
+          onDetailChanged={(detail) => (reviewDetail = detail)}
+          {onRefreshTarget}
           onJump={jumpToDiff}
-          masthead={headless ? undefined : detailMasthead}
+          masthead={headless || embedded ? undefined : detailMasthead}
         />
       </div>
     {/if}
@@ -883,9 +1067,13 @@
     {drafts}
     getCtx={prCtx}
     {getApi}
+    allowedVerdicts={reviewDetail?.viewerPermissions.reviewVerdicts ?? ["comment"]}
     bind:event={submitEvent}
     bind:body={submitBody}
     onClose={() => (showSubmit = false)}
     onSubmitted={onReviewSubmitted}
+    onSendToFixAgent={async (feedback) => {
+      await session.startPrCommentsFixSession(await review.ensureCheckout(), feedback);
+    }}
   />
 {/if}

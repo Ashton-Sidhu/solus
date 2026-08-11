@@ -32,7 +32,7 @@
     class="flex size-[15px] shrink-0 items-center justify-center text-[var(--tint)] {source ===
     'github'
       ? ''
-      : 'rounded-[4px] bg-[color-mix(in_oklch,var(--tint)_13%,transparent)] shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)]'}"
+      : 'rounded-[0.25rem] bg-[color-mix(in_oklch,var(--tint)_13%,transparent)] shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)]'}"
     style="--tint: {TINT[source]}"
     {title}
   >

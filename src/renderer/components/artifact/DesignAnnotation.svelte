@@ -473,7 +473,7 @@
       <button
         onclick={() => (activeTool = activeTool === tool.id ? null : tool.id)}
         title="{tool.label} ({tool.key})"
-        style="position:relative;display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.625rem;border:none;cursor:pointer;transition:background 0.12s,color 0.12s;background:{activeTool === tool.id ? 'var(--solus-accent-soft)' : 'transparent'};color:{activeTool === tool.id ? 'var(--solus-accent)' : 'var(--solus-text-tertiary)'};"
+        style="position:relative;display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.5rem;border:none;cursor:pointer;transition:background 0.12s,color 0.12s;background:{activeTool === tool.id ? 'var(--solus-accent-soft)' : 'transparent'};color:{activeTool === tool.id ? 'var(--solus-accent)' : 'var(--solus-text-tertiary)'};"
       >
         <tool.icon size={16} />
         <span
@@ -490,7 +490,7 @@
       onclick={undo}
       disabled={undoStack.length === 0}
       title="Undo (U)"
-      style="position:relative;display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.625rem;border:none;cursor:{undoStack.length === 0 ? 'default' : 'pointer'};background:transparent;color:var(--solus-text-tertiary);opacity:{undoStack.length === 0 ? 0.55 : 1};"
+      style="position:relative;display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.5rem;border:none;cursor:{undoStack.length === 0 ? 'default' : 'pointer'};background:transparent;color:var(--solus-text-tertiary);opacity:{undoStack.length === 0 ? 0.55 : 1};"
     >
       <ArrowCounterClockwiseIcon size={16} />
       <span
@@ -503,7 +503,7 @@
       onclick={redo}
       disabled={redoStack.length === 0}
       title="Redo (R)"
-      style="position:relative;display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.625rem;border:none;cursor:{redoStack.length === 0 ? 'default' : 'pointer'};background:transparent;color:var(--solus-text-tertiary);opacity:{redoStack.length === 0 ? 0.55 : 1};"
+      style="position:relative;display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.5rem;border:none;cursor:{redoStack.length === 0 ? 'default' : 'pointer'};background:transparent;color:var(--solus-text-tertiary);opacity:{redoStack.length === 0 ? 0.55 : 1};"
     >
       <ArrowClockwiseIcon size={16} />
       <span
@@ -531,7 +531,7 @@
       onclick={handleConfirm}
       title="Add to chat (⌘↩)"
       class="bg-(--solus-send-bg) text-(--solus-text-on-accent)"
-      style="display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.625rem;border:none;cursor:pointer;"
+      style="display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.5rem;border:none;cursor:pointer;"
     >
       <CheckIcon size={16} />
     </button>
@@ -540,7 +540,7 @@
       onclick={onCancel}
       title="Cancel (Esc)"
       class="font-secondary text-(--solus-text-secondary)"
-      style="display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.625rem;border:none;cursor:pointer;background:transparent;"
+      style="display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.5rem;border:none;cursor:pointer;background:transparent;"
     >
       <XIcon size={16} />
     </button>

@@ -73,7 +73,12 @@
   // show, so a new tab leaves the pill as just the bar rather than opening onto
   // an empty body. Any surface that fills the body on its own still opens it.
   const pillSession = $derived(session.sessionFor(session.activeTabId));
-  const pillHomeVisible = $derived(!pillSession || isHomeVisible(pillSession));
+  const pillSnoozeReminder = $derived(
+    session.tasksStore.snoozeReminderForSession(pillSession?.agentSessionId),
+  );
+  const pillHomeVisible = $derived(
+    !pillSession || isHomeVisible(pillSession, !!pillSnoozeReminder),
+  );
   const pillSurfaceOpen = $derived(
     router.at("settings") ||
       router.at("folio") ||

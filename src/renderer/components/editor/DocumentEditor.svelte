@@ -781,7 +781,7 @@
     position: fixed;
     z-index: 10001;
     width: 0.1875rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--solus-accent);
     opacity: 0.72;
     pointer-events: none;

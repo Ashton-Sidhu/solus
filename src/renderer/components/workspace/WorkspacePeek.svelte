@@ -106,7 +106,7 @@
 <div
   use:portal={document.body}
   bind:clientHeight={height}
-  class="fixed z-50 flex flex-col gap-2 rounded-[14px] border border-[var(--solus-popover-border)] bg-[var(--solus-popover-bg)] p-[12px_14px_11px] text-left shadow-[shadow:var(--solus-popover-shadow)] backdrop-blur-[14px] {placed
+  class="fixed z-50 flex flex-col gap-2 rounded-2xl border border-[var(--solus-popover-border)] bg-[var(--solus-popover-bg)] p-[12px_14px_11px] text-left shadow-[shadow:var(--solus-popover-shadow)] backdrop-blur-[14px] {placed
     ? 'peek-in'
     : 'invisible'} {pinned ? '' : 'pointer-events-none'}"
   style="left:{box.left}px; top:{box.top}px; width:{box.width}px"
@@ -146,7 +146,7 @@
          place of the body. The frame is reserved at rest rather than inserted
          when the JSON lands, so the card does not jump its own height — and it
          holds an empty wash, never a spinner. -->
-    <div class="h-[240px] overflow-hidden rounded-[10px] bg-[var(--wash-1)]">
+    <div class="h-[240px] overflow-hidden rounded-lg bg-[var(--wash-1)]">
       {#if content}
         {#await import("../diagram/DiagramThumbnail.svelte") then thumbModule}
           {@const DiagramThumbnail = thumbModule.default}
@@ -157,7 +157,7 @@
   {:else if body}
     <div class="peek-body text-[12px] leading-[1.6] text-muted-foreground text-pretty">
       {#each bodyRuns as run, i (i)}{#if run.hit}<mark
-            class="rounded-[3px] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
+            class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
             >{run.text}</mark
           >{:else}{run.text}{/if}{/each}
     </div>

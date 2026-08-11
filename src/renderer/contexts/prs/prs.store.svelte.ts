@@ -7,7 +7,9 @@ import type {
   PrConversationItem,
   PrFilter,
   PrListPage,
+  PrLifecycleAction,
   PrReviewer,
+  PrReviewerCandidate,
   ReviewThread,
 } from '../../../shared/providers'
 import type { ChangedFileStat, IpcContext, PrInterdiffResult, PrReviewContext } from '../../../shared/types'
@@ -47,6 +49,12 @@ export interface PrListView {
   collapsedGroups: Record<string, boolean>
   selectedNumber: number | null
   scrollTop: number
+  /** The pull request showing in the page's detail panel, or `null` while the
+   *  list has the page to itself. Highlighting a row with the arrow keys moves
+   *  `selectedNumber` only; opening one moves both. */
+  openNumber: number | null
+  /** The panel covers the list instead of sitting beside it. */
+  panelFullScreen: boolean
 }
 
 const EMPTY_LIST_VIEW: PrListView = {
@@ -58,6 +66,8 @@ const EMPTY_LIST_VIEW: PrListView = {
   collapsedGroups: {},
   selectedNumber: null,
   scrollTop: 0,
+  openNumber: null,
+  panelFullScreen: false,
 }
 
 export class PrsStore {
@@ -79,10 +89,10 @@ export class PrsStore {
    *  is the primary conversation, toggled by `maximized`. */
   prReviewTab = $state<PrReviewTab>('guide')
   /**
-   * How the list was left. A pull request now *replaces* the list rather than
-   * docking beside it, so the page unmounts on every open — and the list has to
-   * remember the review, not just the query. Held here and reset only when the
-   * project scope changes, never on page open.
+   * How the list was left, including which pull request is open beside it. The
+   * page can still be unmounted between visits, so the reading position lives
+   * here rather than in the component. Reset only when the project scope
+   * changes, never on page open.
    */
   listView = $state<PrListView>({ ...EMPTY_LIST_VIEW })
   /** The visible rows in list order. The chrome band's crumb switcher and its
@@ -119,6 +129,7 @@ export class PrsStore {
   private readonly detailCache = new Map<string, CacheEntry<PullRequestDetail>>()
   private readonly commitsCache = new Map<string, CacheEntry<PrCommit[]>>()
   private readonly reviewersCache = new Map<string, CacheEntry<PrReviewer[]>>()
+  private readonly reviewerCandidatesCache = new Map<string, CacheEntry<PrReviewerCandidate[]>>()
   private readonly threadsCache = new Map<string, CacheEntry<ReviewThread[]>>()
   private readonly commentsCache = new Map<string, CacheEntry<PrConversationItem[]>>()
   private readonly changedFilesCache = new Map<string, CacheEntry<ChangedFileStat[]>>()
@@ -465,6 +476,91 @@ export class PrsStore {
     return this.readCached(this.reviewersCache, key, !!opts.force, () => api.prListReviewers(safeCtx, number))
   }
 
+  async loadReviewerCandidates(
+    api: HostApi,
+    serverId: string,
+    ctx: IpcContext,
+    number: number,
+    opts: { force?: boolean } = {},
+  ): Promise<PrReviewerCandidate[]> {
+    const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
+    return this.readCached(
+      this.reviewerCandidatesCache,
+      this.prKey(serverId, ctx, number),
+      !!opts.force,
+      () => api.prListReviewerCandidates(safeCtx, number),
+    )
+  }
+
+  async requestReviewers(
+    api: HostApi,
+    serverId: string,
+    ctx: IpcContext,
+    number: number,
+    logins: string[],
+  ): Promise<PrReviewer[]> {
+    const reviewers = await api.prRequestReviewers(snapshotCtx(ctx), number, logins)
+    this.seedReviewers(serverId, ctx, number, reviewers)
+    return reviewers
+  }
+
+  async removeRequestedReviewer(
+    api: HostApi,
+    serverId: string,
+    ctx: IpcContext,
+    number: number,
+    login: string,
+  ): Promise<PrReviewer[]> {
+    const reviewers = await api.prRemoveRequestedReviewer(snapshotCtx(ctx), number, login)
+    this.seedReviewers(serverId, ctx, number, reviewers)
+    return reviewers
+  }
+
+  async updateLifecycle(
+    api: HostApi,
+    serverId: string,
+    ctx: IpcContext,
+    number: number,
+    action: Exclude<PrLifecycleAction, 'merge'>,
+    expectedHeadSha: string,
+  ): Promise<PullRequestDetail> {
+    const detail = await api.prUpdateLifecycle(snapshotCtx(ctx), number, action, expectedHeadSha)
+    this.applyDetail(serverId, ctx, number, detail)
+    return detail
+  }
+
+  private seedReviewers(serverId: string, ctx: IpcContext, number: number, reviewers: PrReviewer[]): void {
+    const key = this.prKey(serverId, ctx, number)
+    this.seed(this.reviewersCache, key, reviewers)
+    const overview = this.overviewCache.get(key)?.value
+    if (!overview) return
+    overview.reviewers = reviewers
+    this.seed(this.overviewCache, key, overview)
+  }
+
+  applyDetail(serverId: string, ctx: IpcContext, number: number, detail: PullRequestDetail): void {
+    const key = this.prKey(serverId, ctx, number)
+    this.seed(this.detailCache, key, detail)
+    const overview = this.overviewCache.get(key)?.value
+    if (overview) {
+      overview.detail = detail
+      this.seed(this.overviewCache, key, overview)
+    }
+    if (this.activeContextKey !== this.contextHostKey(serverId, ctx)) return
+    for (const items of [this.items, this.needsReviewItems]) {
+      const item = items.find((candidate) => candidate.number === number)
+      if (!item) continue
+      item.state = detail.state
+      item.draft = detail.draft
+      item.updatedAt = detail.updatedAt
+      item.headSha = detail.headSha
+    }
+    if (detail.state !== 'open') {
+      const needsReviewIndex = this.needsReviewItems.findIndex((item) => item.number === number)
+      if (needsReviewIndex >= 0) this.needsReviewItems.splice(needsReviewIndex, 1)
+    }
+  }
+
   /** Login for the connected provider token's user — the identity comment
    *  composers post as. Stable per project, so the short PR TTL only costs an
    *  occasional refetch of a value the provider caches per token anyway. */
@@ -760,6 +856,7 @@ export class PrsStore {
       this.detailCache,
       this.commitsCache,
       this.reviewersCache,
+      this.reviewerCandidatesCache,
       this.threadsCache,
       this.commentsCache,
       this.changedFilesCache,

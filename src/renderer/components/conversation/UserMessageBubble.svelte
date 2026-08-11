@@ -176,7 +176,7 @@
         role={hasControls ? "group" : undefined}
         aria-label={hasControls ? "Queued prompt" : undefined}
         tabindex={hasControls ? 0 : undefined}
-        class="group/bubble relative max-w-[41.25rem] overflow-hidden rounded-xl px-3 pt-2.5 pb-2.5 outline-none {hasControls
+        class="group/bubble relative max-w-[41.25rem] overflow-hidden rounded-2xl px-3 pt-2.5 pb-2.5 outline-none {hasControls
           ? 'min-w-[9.5rem]'
           : 'min-w-0'} {isPending
           ? 'queued-bubble'
@@ -295,7 +295,7 @@
       <img
         src={previewSrc}
         onclick={(e) => e.stopPropagation()}
-        style="max-width:90vw;max-height:90vh;border-radius:0.625rem;object-fit:contain;cursor:default"
+        style="max-width:90vw;max-height:90vh;border-radius:1rem;object-fit:contain;cursor:default"
         alt="preview"
       />
     </div>

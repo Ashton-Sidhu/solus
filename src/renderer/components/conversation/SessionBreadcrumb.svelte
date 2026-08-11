@@ -12,7 +12,6 @@
     XIcon,
   } from "phosphor-svelte";
   import { getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
-  import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { frameChrome } from "../layout/frame-chrome.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { comboHint } from "../../lib/keybindings/manifest";
@@ -75,9 +74,9 @@
   const draftTaskId = $derived(draft ? existingTaskId(draft.task) : null);
   const task = $derived(
     draft
-      ? (draftTaskId
+      ? ((draftTaskId
           ? sidebarStore.allTasks.find((item) => item.taskId === draftTaskId)
-          : null) ?? null
+          : null) ?? null)
       : sidebarStore.taskForTab(tabId),
   );
   const sessions = $derived(draft ? [] : sidebarStore.sessionsForTab(tabId));
@@ -85,13 +84,13 @@
   // off the run it will use rather than off a task row it does not have.
   const projectKey = $derived(
     draft
-      ? homeGitDetails(
+      ? (homeGitDetails(
           draft.run.workingDirectory ?? "~",
           draft.run.gitContext ?? null,
           session.globalDefaults.gitContext,
         ).projectRoot ??
           draft.run.workingDirectory ??
-          "~"
+          "~")
       : (task?.projectKey ?? "~"),
   );
   const projectLabel = $derived(
@@ -135,15 +134,6 @@
   const currentStatus = $derived(taskStatusFor(current?.attention ?? null));
   const statusIcon = $derived(getAttentionIcon(current?.attention ?? null));
   const currentStatusColor = $derived(statusColor(currentStatus));
-  // Null while the session runs — or will run — on this machine: the default
-  // the band never needs to spell out.
-  const bandServerId = $derived(
-    draft?.run.serverId ?? session.sessionFor(tabId)?.run.serverId,
-  );
-  const hostAffinity = $derived(serversStore.affinityFor(bandServerId));
-  const hostLabel = $derived(
-    serversStore.hostFor(bandServerId)?.label ?? "",
-  );
 
   // The project crumb is a click, not a hover: it is the one move that changes
   // everything under it, so it must not happen on the way past.
@@ -257,7 +247,11 @@
 
   function newTask() {
     menu = null;
-    session.openSessionDraft({ freshTask: true, via: "click", sourceTabId: tabId });
+    session.openSessionDraft({
+      freshTask: true,
+      via: "click",
+      sourceTabId: tabId,
+    });
   }
 
   const crumbButton =
@@ -555,39 +549,39 @@
               />
             </span>
           {:else}
-          <Breadcrumb.Link class="{crumbButton} max-w-full gap-[0.4375rem]">
-            {#snippet child({ props })}
-              <button
-                {...props}
-                type="button"
-                aria-expanded={menu === "session"}
-                title={leafLabels.session}
-                onclick={() => (menu = menu === "session" ? null : "session")}
-                onfocus={() => (menu = "session")}
-                oncontextmenu={(event) =>
-                  current && openChildContextMenu(event, current)}
-              >
-                <span
-                  class="min-w-0 overflow-hidden font-medium tracking-[-0.005em] text-ellipsis whitespace-nowrap"
-                  >{leafLabels.session}</span
+            <Breadcrumb.Link class="{crumbButton} max-w-full gap-[0.4375rem]">
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  aria-expanded={menu === "session"}
+                  title={leafLabels.session}
+                  onclick={() => (menu = menu === "session" ? null : "session")}
+                  onfocus={() => (menu = "session")}
+                  oncontextmenu={(event) =>
+                    current && openChildContextMenu(event, current)}
                 >
-                {#if statusIcon}
-                  {@const StatusIcon = statusIcon.component}
                   <span
-                    class="flex size-[0.8125rem] shrink-0 items-center justify-center {statusIcon.spin
-                      ? 'animate-spin motion-reduce:animate-none'
-                      : ''}"
-                    style:color={currentStatusColor ?? statusIcon.color}
-                    role="img"
-                    aria-label={statusNote(currentStatus)?.text}
-                    title={statusNote(currentStatus)?.text}
+                    class="min-w-0 overflow-hidden font-medium tracking-[-0.005em] text-ellipsis whitespace-nowrap"
+                    >{leafLabels.session}</span
                   >
-                    <StatusIcon size={13} weight="regular" />
-                  </span>
-                {/if}
-              </button>
-            {/snippet}
-          </Breadcrumb.Link>
+                  {#if statusIcon}
+                    {@const StatusIcon = statusIcon.component}
+                    <span
+                      class="flex size-[0.8125rem] shrink-0 items-center justify-center {statusIcon.spin
+                        ? 'animate-spin motion-reduce:animate-none'
+                        : ''}"
+                      style:color={currentStatusColor ?? statusIcon.color}
+                      role="img"
+                      aria-label={statusNote(currentStatus)?.text}
+                      title={statusNote(currentStatus)?.text}
+                    >
+                      <StatusIcon size={13} weight="regular" />
+                    </span>
+                  {/if}
+                </button>
+              {/snippet}
+            </Breadcrumb.Link>
           {/if}
           {#if menu === "session"}
             <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
@@ -665,21 +659,6 @@
 
     <span class="min-w-4 flex-1"></span>
 
-    <!-- Where this session runs — the one fact about it the crumb's own path
-         cannot state, and the reason the old capsule carried a host chip. -->
-    {#if hostAffinity}
-      {@const HostIcon = hostAffinity.icon}
-      <span
-        class="mr-2 flex shrink-0 items-center gap-1.5 {hostAffinity.className}"
-        title={hostAffinity.tooltip}
-      >
-        <HostIcon size={12} />
-        <span class="font-mono text-[0.65625rem] whitespace-nowrap"
-          >{hostLabel}</span
-        >
-      </span>
-    {/if}
-
     <!-- The task's own controls, right of the crumb and before the session
          cluster: the code is a menu of everything you can do to the task, with
          the two moves you make most — mark done, open the task page — also
@@ -739,8 +718,7 @@
         <ArrowSquareOutIcon size={13} />
       </button>
 
-      {#if showNewSessionAction ||
-        (showProjectPanelAction && !frameChrome.projectPanelOpen)}
+      {#if showNewSessionAction || (showProjectPanelAction && !frameChrome.projectPanelOpen)}
         <span
           class="mx-[0.4375rem] h-4 w-px shrink-0 bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)]"
           aria-hidden="true"

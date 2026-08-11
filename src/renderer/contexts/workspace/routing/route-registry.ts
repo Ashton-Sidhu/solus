@@ -75,7 +75,14 @@ export interface RouteParams {
    *  tab happened to open it, which may since have closed. */
   goal: { sessionId: string }
   review: { key: string; scope: 'branch' | 'session'; sourceTabId?: string }
-  prReview: { number: number; title?: string; cwd?: string; serverId?: string }
+  prReview: {
+    number: number
+    title?: string
+    cwd?: string
+    serverId?: string
+    /** Present for a host URL so a number can never open in the wrong repo. */
+    expectedRepo?: { host: string; owner: string; repo: string }
+  }
   prDiff: { number: number; cwd?: string }
   // The working directory and checkout a viewer runs against are derived from
   // its source tab's environment, not carried: they are live Git state, and a
@@ -225,6 +232,11 @@ export const ROUTES = defineRoutes({
     serialize: (p) => p.projectPath ?? '',
     placement: 'any',
     exclusiveGroup: 'page',
+    // The review panel beside the list paints its chrome band to the window's
+    // top edge, so an outlet-level pad would read as an empty strip above that
+    // band rather than as breathing room. The list head reserves the
+    // window-control space inside itself instead.
+    ownsTitlebarChrome: true,
     component: () => import('../../../components/prs/PrsPage.svelte'),
   },
   reviewMode: {
@@ -356,7 +368,18 @@ export const ROUTES = defineRoutes({
     component: () => import('../../../components/pr-review/PrReviewRoutePane.svelte'),
     resolve: (params, ctx) => {
       const api = params.serverId ? serverConnections.apiFor(params.serverId) : ctx.api
-      return api.prOpenReview(ctx.ipc(params.cwd), params.number)
+      return api.prOpenReview(ctx.ipc(params.cwd), params.number).then((target) => {
+        const expected = params.expectedRepo
+        if (
+          expected &&
+          (target.host.toLowerCase() !== expected.host.toLowerCase() ||
+            target.owner.toLowerCase() !== expected.owner.toLowerCase() ||
+            target.repo.toLowerCase() !== expected.repo.toLowerCase())
+        ) {
+          throw new Error(`This link belongs to ${expected.owner}/${expected.repo}, not ${target.owner}/${target.repo}`)
+        }
+        return target
+      })
     },
   },
   prDiff: {

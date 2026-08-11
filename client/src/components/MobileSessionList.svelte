@@ -48,7 +48,7 @@
 
   // Shared row shell — keeps pinned + session rows visually identical.
   const rowBase =
-    "group relative flex items-center gap-2.5 w-full min-h-[3.25rem] py-2 pr-1.5 pl-3.5 rounded-[0.875rem] text-left cursor-pointer [-webkit-tap-highlight-color:transparent] transition-colors duration-100";
+    "group relative flex items-center gap-2.5 w-full min-h-[3.25rem] py-2 pr-1.5 pl-3.5 rounded-lg text-left cursor-pointer [-webkit-tap-highlight-color:transparent] transition-colors duration-100";
   const sectionLabel =
     "first:pt-2 px-3.5 pt-[1.125rem] pb-1 text-[0.75rem] font-normal text-(--solus-text-tertiary) truncate";
 
@@ -297,7 +297,7 @@
     </div>
     {#if activeServer}
       <button
-        class="mt-2 flex items-center gap-2 rounded-[0.625rem] border-0 bg-(--solus-surface-hover) px-2.5 py-2 text-left cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-active) [-webkit-tap-highlight-color:transparent]"
+        class="mt-2 flex items-center gap-2 rounded-lg border-0 bg-(--solus-surface-hover) px-2.5 py-2 text-left cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-active) [-webkit-tap-highlight-color:transparent]"
         onclick={() => nav(onOpenServers)}
         aria-label="Servers"
       >
@@ -555,7 +555,7 @@
   >
     {#snippet footBtn(label: string, Icon: typeof GearIcon, action: () => void)}
       <button
-        class="flex-1 min-w-0 flex flex-col items-center gap-1 rounded-[0.625rem] border-0 bg-transparent px-1 py-2 text-[0.625rem] font-medium text-(--solus-text-tertiary) cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-hover) active:text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
+        class="flex-1 min-w-0 flex flex-col items-center gap-1 rounded-lg border-0 bg-transparent px-1 py-2 text-[0.625rem] font-medium text-(--solus-text-tertiary) cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-hover) active:text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
         onclick={() => nav(action)}
       >
         <Icon size={18} /><span>{label}</span>

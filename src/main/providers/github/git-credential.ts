@@ -17,6 +17,16 @@ const TOKEN_USERNAME = 'x-access-token'
 
 export type GitCredentialAction = 'get' | 'store' | 'erase'
 
+/** Resolve the GitHub token owned by this host or by one paired device. */
+export function loadGitHubAccessToken(deviceId?: string): string | null {
+  try {
+    if (deviceId) return loadDelegation(deviceId)?.accessToken ?? null
+    return loadToken()?.accessToken ?? null
+  } catch {
+    return null
+  }
+}
+
 export function coerceGitCredentialAction(value: string | undefined): GitCredentialAction {
   if (value === 'get' || value === 'store' || value === 'erase') return value
   throw new Error('Unknown git-credential action. Expected: get, store or erase.')
@@ -58,16 +68,7 @@ export async function runGitCredentialHelper(
   if (action !== 'get') return
 
   const fields = parseCredentialRequest(await text(stdin))
-  const token = loadTokenSafely(deviceId)
+  const token = loadGitHubAccessToken(deviceId)
   const credential = credentialFor(fields, token)
   if (credential) stdout.write(`username=${credential.username}\npassword=${credential.password}\n`)
-}
-
-function loadTokenSafely(deviceId?: string): string | null {
-  try {
-    if (deviceId) return loadDelegation(deviceId)?.accessToken ?? null
-    return loadToken()?.accessToken ?? null
-  } catch {
-    return null
-  }
 }

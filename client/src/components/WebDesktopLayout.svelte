@@ -47,7 +47,7 @@
                 {#snippet child({ props: tooltipProps })}
                   <button
                     {...tooltipProps}
-                    class="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-(--solus-surface-hover) px-2 text-[0.75rem] text-(--solus-text-tertiary) transition-[background-color,color] hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
+                    class="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-(--solus-surface-hover) px-2 text-[0.75rem] text-(--solus-text-tertiary) transition-[background-color,color] hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
                     onclick={() => webState.openServerSetup()}
                   >
                     <PlugsIcon size={13} class="shrink-0" />
@@ -62,7 +62,7 @@
               <TooltipUI.Trigger>
                 {#snippet child({ props: tooltipProps })}
                   <span {...tooltipProps}
-              class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-(--solus-surface-hover) px-2 text-[0.75rem] tabular-nums text-(--solus-text-tertiary)"
+              class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg bg-(--solus-surface-hover) px-2 text-[0.75rem] tabular-nums text-(--solus-text-tertiary)"
             >
               <span
                 class="h-1.5 w-1.5 rounded-full bg-(--solus-accent)"

@@ -211,7 +211,7 @@
     align-items: center;
     gap: 0.125rem;
     padding: 0.3125rem;
-    border-radius: 0.625rem;
+    border-radius: 1rem;
     border: 0.0625rem solid var(--solus-popover-border);
     background: var(--solus-popover-bg);
     box-shadow: var(--solus-popover-shadow);

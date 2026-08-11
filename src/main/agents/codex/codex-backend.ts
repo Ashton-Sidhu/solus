@@ -237,6 +237,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       provider: 'codex',
       cwd: request.cwd,
       sessionId: () => handle?.agentSessionId ?? undefined,
+      solusSessionId: () => handle?.sessionId,
       abortSignal: abortController.signal,
       parentToolUseId: () => undefined,
       emit: (event) => this.emit('normalized', handle?.agentSessionId ?? null, event),

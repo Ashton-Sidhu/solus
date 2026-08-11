@@ -206,7 +206,7 @@
       <div
         bind:this={cards[file.path]}
         use:lazyDiffCard={file.path}
-        class="scroll-mt-6 overflow-hidden rounded-xl border border-(--solus-art-border) bg-(--solus-art-surface) [contain-intrinsic-size:auto_12rem] [content-visibility:auto]"
+        class="scroll-mt-6 overflow-hidden rounded-2xl border border-(--solus-art-border) bg-(--solus-art-surface) [contain-intrinsic-size:auto_12rem] [content-visibility:auto]"
       >
         <div
           class="flex items-center gap-2 border-(--solus-art-border) px-3 py-2.5"

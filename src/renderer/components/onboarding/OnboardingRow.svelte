@@ -55,7 +55,7 @@
   this={onpick ? "button" : "div"}
   type={onpick ? "button" : undefined}
   onclick={onpick}
-  class="onboarding-enter relative flex w-full flex-col overflow-hidden rounded-xl bg-[var(--wash-1)] text-left transition-colors duration-150 hover:bg-[var(--wash-2)]"
+  class="onboarding-enter relative flex w-full flex-col overflow-hidden rounded-2xl bg-[var(--wash-1)] text-left transition-colors duration-150 hover:bg-[var(--wash-2)]"
   class:cursor-pointer={!!onpick}
   style="animation-delay: {delay}s"
 >

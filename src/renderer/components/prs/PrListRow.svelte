@@ -109,7 +109,7 @@
 <div
   class="group relative mb-0.5 flex w-full cursor-pointer items-start text-left transition-colors {compact
     ? 'gap-2.5 rounded-lg px-2.5 py-2.5'
-    : 'gap-3.5 rounded-xl px-4 py-3.5'} {selected
+    : 'gap-3.5 rounded-lg px-4 py-3.5'} {selected
     ? 'bg-muted'
     : 'hover:bg-muted'}"
   role="button"

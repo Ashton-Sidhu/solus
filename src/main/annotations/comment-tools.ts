@@ -7,6 +7,7 @@ import { loadWorkAnnotations, saveWorkAnnotations } from '../folio/work-annotati
 import { loadAnnotations, saveAnnotations } from '../plans/annotations'
 import { extractPlanTitle } from '../agents/plan-text'
 import { findSession, getSessionController, type SessionToolCtx } from '../sessions/session-tools'
+import { foreignLinkedItemsFor } from '../tasks/foreign-tasks'
 import { notifyAnnotationsChanged } from './annotation-events'
 import type { CommentAgentAuthor, PlanAnnotations, PlanComment, SessionMeta } from '../../shared/types'
 
@@ -243,7 +244,7 @@ export async function executeCommentTool(
   deps: CommentToolDeps = {},
 ): Promise<CommentToolResult> {
   try {
-    if (name === 'read_plan') return await readPlan(args)
+    if (name === 'read_plan') return await readPlan(args, deps)
     if (name === 'comment_document') return await commentDocument(args, deps)
     if (name === 'reply_comment') return await replyComment(args, deps)
     if (name === 'resolve_comment') return await resolveComment(args)
@@ -254,17 +255,33 @@ export async function executeCommentTool(
   }
 }
 
-async function readPlan(args: Record<string, unknown>): Promise<CommentToolResult> {
-  const controller = getSessionController()
-  if (!controller) return { ok: false, text: 'read_plan is unavailable — no session controller is wired.' }
+async function readPlan(args: Record<string, unknown>, deps: CommentToolDeps = {}): Promise<CommentToolResult> {
   const sessionId = String(args.session_id ?? '').trim()
   if (!sessionId) return { ok: false, text: 'read_plan requires session_id.' }
-  const meta = await findSession(sessionId)
-  if (!meta) return { ok: false, text: `Session ${sessionId} not found.` }
-
-  const planToolUseId = typeof args.plan_tool_use_id === 'string' && args.plan_tool_use_id.trim()
+  const requestedPlanId = typeof args.plan_tool_use_id === 'string' && args.plan_tool_use_id.trim()
     ? args.plan_tool_use_id.trim()
-    : await latestPlanToolUseId(controller, meta)
+    : null
+
+  const controller = getSessionController()
+  const meta = controller ? await findSession(sessionId) : null
+  if (!controller || !meta) {
+    // The plan's session is not on this host. A dispatched session may still
+    // hold a shipped copy of the task's linked plan — serve that, read-only.
+    const foreign = foreignLinkedItemsFor(deps.ctx?.solusSessionId).find(
+      (item) => item.kind === 'plan' && item.scope === sessionId
+        && (requestedPlanId === null || item.key === requestedPlanId),
+    )
+    if (foreign) {
+      return {
+        ok: true,
+        text: `Plan "${foreign.title}" (id: ${foreign.scope}__${foreign.key}) — a read-only copy shipped from the task's host; its comment threads are not available here:\n\n${foreign.content}`,
+      }
+    }
+    if (!controller) return { ok: false, text: 'read_plan is unavailable — no session controller is wired.' }
+    return { ok: false, text: `Session ${sessionId} not found.` }
+  }
+
+  const planToolUseId = requestedPlanId ?? await latestPlanToolUseId(controller, meta)
   if (!planToolUseId) return { ok: true, text: `Session ${sessionId} has no plan.` }
 
   const content = await controller.loadPlanContent(meta.provider, sessionId, meta.projectPath || meta.cwd, planToolUseId)
@@ -277,6 +294,17 @@ async function readPlan(args: Record<string, unknown>): Promise<CommentToolResul
     ok: true,
     text: `Plan "${title}" (${status}, id: ${sessionId}__${planToolUseId}):\n\n${content}${formatOpenThreads(annotations?.comments ?? [])}`,
   }
+}
+
+/** Whether a comment target the local stores cannot resolve names a shipped
+ *  linked item — a work id, or a plan id shaped `<sessionId>__<planToolUseId>`. */
+function isForeignCommentTarget(solusSessionId: string | undefined, targetId: string): boolean {
+  const items = foreignLinkedItemsFor(solusSessionId)
+  if (!isPlanTarget(targetId)) return items.some((item) => item.kind === 'work' && item.key === targetId)
+  const separator = targetId.indexOf('__')
+  const scope = targetId.slice(0, separator)
+  const key = targetId.slice(separator + 2)
+  return items.some((item) => item.kind === 'plan' && item.scope === scope && item.key === key)
 }
 
 async function latestPlanToolUseId(
@@ -296,7 +324,15 @@ async function commentDocument(args: Record<string, unknown>, deps: CommentToolD
   if (!requested.length) return { ok: false, text: 'comment_document requires at least one comment.' }
 
   const target = await resolveTarget(targetId)
-  if (!target) return { ok: false, text: `No plan or work found with id "${targetId}".` }
+  if (!target) {
+    if (isForeignCommentTarget(deps.ctx?.solusSessionId, targetId)) {
+      return {
+        ok: false,
+        text: `"${targetId}" is a read-only copy shipped from the task's host (this session was dispatched); its comment threads live there and cannot be written from here. Put the feedback in a comment_task instead.`,
+      }
+    }
+    return { ok: false, text: `No plan or work found with id "${targetId}".` }
+  }
 
   const author = await callerAgent(deps.ctx)
   const created: PlanComment[] = []
@@ -390,6 +426,7 @@ function commentAgentTool(name: string, description: string, inputShape: z.ZodRa
         agentProvider: context.provider,
         cwd: context.cwd,
         sessionId: context.sessionId(),
+        solusSessionId: context.solusSessionId(),
       },
     }),
   }

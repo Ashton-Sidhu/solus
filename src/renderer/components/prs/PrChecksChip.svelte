@@ -145,7 +145,7 @@
         sideOffset={6}
         collisionPadding={8}
         onOpenAutoFocus={(event) => event.preventDefault()}
-        class="z-[10002] w-[18rem] gap-0 overflow-hidden rounded-[14px] border-border bg-(--solus-popover-bg) p-0 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl"
+        class="z-[10002] w-[18rem] gap-0 overflow-hidden rounded-2xl border-border bg-(--solus-popover-bg) p-0 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl"
       >
         <div role="dialog" aria-label="Check details">
           <div class="border-b border-border px-3 py-2">

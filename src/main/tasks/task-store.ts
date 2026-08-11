@@ -51,6 +51,10 @@ interface TaskRow {
   updated_at: number
   triaged_at: number | null
   done_at: number | null
+  snoozed_until: number | null
+  snoozed_at: number | null
+  snooze_note: string | null
+  last_read_at: number | null
 }
 
 interface TaskCommentRow {
@@ -62,6 +66,7 @@ interface TaskCommentRow {
   origin_session_id: string | null
   body: string
   created_at: number
+  dirty: number
 }
 
 type TasksChangedListener = () => void
@@ -125,6 +130,10 @@ export function taskFromRow(row: TaskRow): Task {
     updatedAt: row.updated_at,
     ...(row.triaged_at === null ? {} : { triagedAt: row.triaged_at }),
     ...(row.done_at === null ? {} : { doneAt: row.done_at }),
+    ...(row.snoozed_until === null ? {} : { snoozedUntil: row.snoozed_until }),
+    ...(row.snoozed_at === null ? {} : { snoozedAt: row.snoozed_at }),
+    ...(row.snooze_note === null ? {} : { snoozeNote: row.snooze_note }),
+    ...(row.last_read_at === null ? {} : { lastReadAt: row.last_read_at }),
   }
 }
 
@@ -138,6 +147,7 @@ function commentFromRow(row: TaskCommentRow): TaskComment {
     ...(row.origin_session_id === null ? {} : { originSessionId: row.origin_session_id }),
     body: row.body,
     createdAt: row.created_at,
+    ...(row.dirty === 1 ? { syncPending: true } : {}),
   }
 }
 

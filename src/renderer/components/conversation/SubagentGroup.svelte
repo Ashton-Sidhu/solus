@@ -125,7 +125,7 @@
     </button>
   {:else}
     <section
-      class="subagent-group mx-auto w-[88%] overflow-hidden rounded-[0.875rem]"
+      class="subagent-group mx-auto w-[88%] overflow-hidden rounded-2xl"
       aria-label={`${messages.length} sub-agents`}
       data-testid="subagent-group"
     >
@@ -210,7 +210,7 @@
     flex-shrink: 0;
     align-items: center;
     gap: 0.375rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     padding: 0.125rem 0.5rem;
     font-size: 0.65625rem;
     font-weight: 500;
@@ -229,7 +229,7 @@
   .subagent-group__chip-dot {
     width: 0.3125rem;
     height: 0.3125rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: currentColor;
   }
 

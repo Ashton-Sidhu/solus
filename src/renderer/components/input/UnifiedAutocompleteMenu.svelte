@@ -107,7 +107,7 @@
       : `bottom:${window.innerHeight - anchorRect.top + 4}px`}"
   >
     <div
-      class="unified-menu rounded-xl bg-(--solus-popover-bg) p-1.5"
+      class="unified-menu rounded-2xl bg-(--solus-popover-bg) p-1.5"
       style="box-shadow:var(--solus-popover-shadow), 0 0 0 0.03125rem var(--wash-ring);backdrop-filter:blur(1.25rem)"
     >
       <div
@@ -240,7 +240,7 @@
       {@const parts = entry.parts}
       {@const mono = entry.type === "item" && entry.item.mono}
       <span
-        class="flex max-w-[20rem] shrink-0 overflow-hidden whitespace-nowrap text-[0.78125rem] font-medium tracking-[-0.005em] text-(--solus-text-primary) {mono
+        class="block max-w-[20rem] shrink-0 truncate text-[0.78125rem] font-medium tracking-[-0.005em] text-(--solus-text-primary) {mono
           ? 'font-mono'
           : ''}"
       >

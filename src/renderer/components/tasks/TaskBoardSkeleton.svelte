@@ -32,11 +32,11 @@
       </div>
 
       <div
-        class="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden rounded-[14px] bg-[var(--wash-1)] p-2 pb-5 shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_6%,transparent)]"
+        class="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden rounded-2xl bg-[var(--wash-1)] p-2 pb-5 shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_6%,transparent)]"
       >
         {#each PLAN[col.status] ?? [64] as width, i (i)}
           <div
-            class="flex shrink-0 flex-col gap-2 rounded-xl bg-card px-3 pt-[11px] pb-2.5 shadow-[0_0_0_.5px_var(--hairline-strong),0_1px_2px_-1px_rgba(24,20,16,.10),0_6px_14px_-10px_rgba(24,20,16,.20)]"
+            class="flex shrink-0 flex-col gap-2 rounded-2xl bg-card px-3 pt-[11px] pb-2.5 shadow-[0_0_0_.5px_var(--hairline-strong),0_1px_2px_-1px_rgba(24,20,16,.10),0_6px_14px_-10px_rgba(24,20,16,.20)]"
           >
             <Skeleton class="h-2 w-10 rounded-full" />
             <Skeleton

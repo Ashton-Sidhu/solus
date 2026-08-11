@@ -196,7 +196,7 @@
     flex: none;
     width: 2.25rem;
     height: var(--weight);
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--diagram-edge-stroke);
   }
 

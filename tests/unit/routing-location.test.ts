@@ -46,6 +46,19 @@ describe('placing a route', () => {
     expect(location.panes[1]).toBe(companion)
   })
 
+  test('a PR review can open beside the conversation', () => {
+    // WHY: transcript PR links must keep the conversation visible while the
+    // in-app review opens in the companion pane.
+    const location = locationWith(CHAT_ROUTE)
+
+    place(location, PR_REVIEW, 'aside')
+
+    expect(location.panes.map((pane) => pane.base)).toEqual([
+      CHAT_ROUTE,
+      PR_REVIEW,
+    ])
+  })
+
   test('one artifact across all panes, whichever pane already holds one', () => {
     const location = locationWith(PLAN, chatRoute('tab_b'))
 

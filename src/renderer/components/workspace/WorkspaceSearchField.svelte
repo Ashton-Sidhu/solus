@@ -66,7 +66,7 @@
 <!-- The field takes the focus ring every other Solus field takes: 45% primary,
      no glow, no offset. -->
 <div
-  class="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-[10px] px-[9px] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
+  class="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-lg px-[9px] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
 >
   <MagnifyingGlassIcon size={12} class="shrink-0 text-muted-foreground opacity-70" />
 

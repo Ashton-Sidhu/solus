@@ -325,7 +325,7 @@
     align-items: center;
     gap: 0.375rem;
     padding: 0.25rem 0.625rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--solus-accent);
     color: var(--solus-on-accent, #fff);
     font-size: 0.6875rem;
@@ -356,7 +356,7 @@
   .work-live-badge__dot {
     width: 0.375rem;
     height: 0.375rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: currentColor;
     animation: work-live-dot 1s ease-in-out infinite;
   }

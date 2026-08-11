@@ -13,6 +13,7 @@ async function createReducer(
   isSessionVisible = true,
   refreshSessionBinding: (sessionId: string) => Promise<unknown> = async () => null,
   trackSessionStart: (taskId: string, sessionId: string) => void = () => {},
+  linkSession: (...args: unknown[]) => Promise<unknown> = () => new Promise(() => {}),
 ) {
   ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
   const { SessionEventReducer } = await import('../../src/renderer/contexts/workspace/session-event-reducer.svelte')
@@ -35,7 +36,7 @@ async function createReducer(
     // `linkSession` is the durable write to the task's host; this test is about
     // what the renderer holds while that write is in flight, so it only has to
     // exist and not resolve.
-    tasksStore: { refreshSessionBinding, trackSessionStart, linkSession: () => new Promise(() => {}) },
+    tasksStore: { refreshSessionBinding, trackSessionStart, linkSession },
     workStreamTracker: { sweep: () => {} },
     onTurnSettled: () => {},
     refreshTurnSnapshots: () => {},
@@ -80,6 +81,51 @@ describe('SessionEventReducer card stream boundaries', () => {
     // WHY: the durable link is authoritative once it exists, so the pending
     // target is released rather than shadowing it.
     expect(session.task).toEqual({ kind: 'new' })
+  })
+
+  test('captures the execution worktree branch when the provider session starts', async () => {
+    let linked: unknown[] | null = null
+    const { reducer, session } = await createReducer(
+      [],
+      true,
+      async () => null,
+      () => {},
+      async (...args) => { linked = args },
+    )
+    session.task = { kind: 'existing', taskId: 'task-1' }
+    session.run.serverId = 'remote-host'
+    session.run.taskServerId = 'task-host'
+    session.run.provider = 'claude-code'
+    session.run.projectGroupPath = '/Users/sidhu/solus'
+    session.run.gitContext = {
+      branch: 'solus/remote-worktree',
+      targetBranch: 'main',
+      repoRoot: '/home/sidhu/solus',
+      worktreePath: '/home/sidhu/solus/.solus-worktrees/remote-worktree',
+    }
+
+    reducer.apply('session-1', {
+      type: 'session_init',
+      sessionId: 'agent-session-1',
+      model: 'claude-test',
+      skills: [],
+    })
+    await Promise.resolve()
+
+    // WHY: the task was prepared on its local checkout before remote host
+    // selection. Only the started session knows the worktree branch that the PR
+    // list can match for the sidebar chip.
+    expect(linked).toEqual([
+      'task-host',
+      'task-1',
+      'agent-session-1',
+      {
+        serverId: 'remote-host',
+        provider: 'claude-code',
+        projectRoot: '/Users/sidhu/solus',
+      },
+      'solus/remote-worktree',
+    ])
   })
 
   test('advances the visible startup lifecycle from connection to thinking', async () => {

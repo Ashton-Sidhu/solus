@@ -141,7 +141,7 @@
     font-weight: 500;
     letter-spacing: 0.04em;
     padding: 0.125rem 0.5rem;
-    border-radius: 0.625rem;
+    border-radius: 9999px;
     background: color-mix(in srgb, var(--solus-accent) 12%, transparent);
     color: var(--solus-accent);
     line-height: 1.4;

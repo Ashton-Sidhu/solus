@@ -146,7 +146,7 @@
   }}
 >
   <div
-    class="flex max-h-[min(30rem,66vh)] w-[clamp(22rem,56vw,38.75rem)] max-w-[calc(100vw-3rem)] origin-top flex-col overflow-hidden rounded-[1.5rem] border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) outline-none shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.24)] [.dark_&]:shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.45)]"
+    class="flex max-h-[min(30rem,66vh)] w-[clamp(22rem,56vw,38.75rem)] max-w-[calc(100vw-3rem)] origin-top flex-col overflow-hidden rounded-2xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) outline-none shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.24)] [.dark_&]:shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.45)]"
     class:file-picker-enter={open}
     role="dialog"
     aria-label="Go to file"
@@ -198,7 +198,7 @@
             aria-selected={selected}
             data-file-index={index}
             class={cn(
-              "flex h-[2.25rem] w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-xl border-none bg-transparent px-3 text-left transition-colors duration-75",
+              "flex h-[2.25rem] w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border-none bg-transparent px-3 text-left transition-colors duration-75",
               selected
                 ? "text-(--solus-text-primary) shadow-[shadow:inset_0_0_0_62rem_var(--solus-accent-light)]"
                 : "text-(--solus-text-secondary) hover:bg-(--solus-surface-hover)",

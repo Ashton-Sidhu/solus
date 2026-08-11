@@ -110,7 +110,7 @@
     left: 0;
     width: 0.1875rem;
     height: 0.1875rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
   }
   /* One step down in size under a parent step, same colour — and a shorter line

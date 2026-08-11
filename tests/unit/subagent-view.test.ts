@@ -68,7 +68,7 @@ describe('subagent header', () => {
     // toolStatus tracks the agent, not the tool call. A result here must not make
     // the sentence claim the run finished a minute ago.
     const header = subagentHeader(
-      agent({ id: 'a', toolStatus: 'running', toolResult: 'Launched', toolCompletedAt: NOW - 59_000 }),
+      agent({ id: 'a', toolStatus: 'running', report: 'Launched', toolCompletedAt: NOW - 59_000 }),
       FALLBACK,
       'run-host-selection',
       NOW,
@@ -82,7 +82,7 @@ describe('subagent header', () => {
   })
 
   test('a failed agent says so instead of reporting a finish time', () => {
-    expect(subagentHeader(agent({ id: 'a', toolResultIsError: true }), FALLBACK, '', NOW).verb)
+    expect(subagentHeader(agent({ id: 'a', toolStatus: 'error' }), FALLBACK, '', NOW).verb)
       .toBe('failed after')
   })
 
@@ -133,7 +133,7 @@ describe('report text', () => {
     const message = agent({
       id: 'a',
       toolStatus: 'running',
-      toolResult: 'Launched',
+      report: 'Launched',
       subMessages: [
         { id: 's1', role: 'assistant', content: 'Still editing the files.', timestamp: NOW - 10_000 } as Message,
       ],
@@ -160,7 +160,7 @@ describe('report text', () => {
   })
 
   test('the tool result wins when there is one — that is what the main agent was told', () => {
-    expect(reportText(agent({ id: 'a', toolResult: 'The answer.', subMessages: [] }))).toBe('The answer.')
+    expect(reportText(agent({ id: 'a', report: 'The answer.', subMessages: [] }))).toBe('The answer.')
   })
 })
 
@@ -315,7 +315,7 @@ describe('timeline', () => {
   test('the block the Report tab shows is marked in the stream, never a second message', () => {
     const message = agent({
       id: 'a',
-      toolResult: 'Five headings, one per ask.',
+      report: 'Five headings, one per ask.',
       subMessages: [
         { id: 's1', role: 'assistant', content: 'Looking into it.', timestamp: NOW - 50_000 } as Message,
         {
@@ -335,7 +335,7 @@ describe('timeline', () => {
   test('a last block that is not the answer stays plain prose — the run ended without a report', () => {
     const message = agent({
       id: 'a',
-      toolResult: 'Interrupted before it answered.',
+      report: 'Interrupted before it answered.',
       subMessages: [
         { id: 's1', role: 'assistant', content: 'Halfway through ask 03…', timestamp: NOW - 10_000 } as Message,
       ],
@@ -357,7 +357,7 @@ describe('timeline', () => {
 
     expect(subagentTail(message)).toEqual({ label: 'Turn ended', facts: '2 tool calls · 1 file read' })
     expect(subagentTail(agent({ id: 'a', toolStatus: 'running' })).label).toBe('Still running')
-    expect(subagentTail(agent({ id: 'a', toolResultIsError: true })).label).toBe('Turn failed')
+    expect(subagentTail(agent({ id: 'a', toolStatus: 'error' })).label).toBe('Turn failed')
     // Nothing ran, so there is nothing to size — the row prints no facts at all.
     expect(subagentTail(agent({ id: 'a' })).facts).toBe('')
   })
@@ -413,7 +413,7 @@ describe('progress line', () => {
       agent({
         id: 'a',
         toolInput: JSON.stringify({ prompt: BRIEF }),
-        toolResult: '## Worktree name\nRead it.\n\n## Diff stats\nNone exist.',
+        report: '## Worktree name\nRead it.\n\n## Diff stats\nNone exist.',
       }),
       NOW,
     )
@@ -430,7 +430,7 @@ describe('progress line', () => {
         id: 'a',
         toolStatus: 'running',
         toolInput: JSON.stringify({ prompt: BRIEF }),
-        toolResult: 'Launched',
+        report: 'Launched',
       }),
       NOW,
     )
@@ -446,7 +446,7 @@ describe('progress line', () => {
   test('a stopped run keeps the step it stopped on visible, and its partial work counted', () => {
     const plan = [todo('one', 'completed'), todo('two', 'in_progress'), todo('three', 'pending')]
 
-    expect(subagentProgress(agent({ id: 'a', toolResultIsError: true, subTodos: plan }), NOW))
+    expect(subagentProgress(agent({ id: 'a', toolStatus: 'error', subTodos: plan }), NOW))
       .toMatchObject({
         label: 'Stopped at step 2',
         segments: [{ status: 'done' }, { status: 'stopped' }, { status: 'pending' }],
@@ -456,9 +456,9 @@ describe('progress line', () => {
       subagentProgress(
         agent({
           id: 'a',
-          toolResultIsError: true,
+          toolStatus: 'error',
           toolInput: JSON.stringify({ prompt: BRIEF }),
-          toolResult: '## Worktree name\nRead it.\n\n## Diff stats\nNone exist.',
+          report: '## Worktree name\nRead it.\n\n## Diff stats\nNone exist.',
         }),
         NOW,
       ).label,

@@ -316,7 +316,7 @@
       bind:this={dialogEl}
       id="open-project"
       class="flex max-h-[min(85dvh,44rem)] w-full origin-top flex-col overflow-hidden overscroll-contain
-        rounded-[0.875rem] bg-popover text-foreground
+        rounded-2xl bg-popover text-foreground
         shadow-[0_1.5rem_4rem_-1rem_rgba(28,22,15,0.34),0_0.0625rem_0.1875rem_rgba(28,22,15,0.10)]
         dark:shadow-[0_1.5rem_4rem_-1rem_rgba(0,0,0,0.55),inset_0_0_0_0.0625rem_var(--border)]
         [transition:max-width_var(--duration-modal)_var(--ease-premium)] motion-reduce:transition-none

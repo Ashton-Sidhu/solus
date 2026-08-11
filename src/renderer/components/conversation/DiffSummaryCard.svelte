@@ -112,7 +112,7 @@
 {#if tree.total > 0}
   <div
     bind:this={cardEl}
-    class="diff-summary px-[0.8125rem] py-[0.6875rem] {embedded ? 'diff-summary-embedded' : 'rounded-xl'}"
+    class="diff-summary px-[0.8125rem] py-[0.6875rem] {embedded ? 'diff-summary-embedded' : 'rounded-2xl'}"
     data-testid="diff-summary"
   >
     <div class="flex items-center gap-2">

@@ -112,6 +112,9 @@
     },
   });
   const sess = $derived(session.sessionFor(session.activeTabId));
+  const snoozeReminder = $derived(
+    session.tasksStore.snoozeReminderForSession(sess?.agentSessionId),
+  );
   const hasStartedSession = $derived(hasSessionStarted(sess));
   // The home reads as a headline sitting on top of the composer, so the column
   // centres the pair as one block rather than pinning the composer to the floor.
@@ -130,7 +133,7 @@
       : null,
   );
   const centerHome = $derived(
-    isHomeVisible(sess) && poolInLead,
+    isHomeVisible(sess, !!snoozeReminder) && poolInLead,
   );
   // A draft's rail follows the fresh-tab rule regardless of what the tab behind
   // it was doing: nothing has started here either.
@@ -181,11 +184,14 @@
   const secondaryCollapsesSidebar = $derived(
     secondaryVisible && companionRef?.name !== "automation",
   );
-  // Both review surfaces read edge-to-edge: the standalone guide pane and the
-  // PR review, which replaces the list in the leading pane. Neither wants a
-  // session column beside it.
+  // The review surfaces read edge-to-edge and none of them wants a session
+  // column beside it: the standalone guide pane, the PR review route, and the
+  // pull requests page, which carries its own review in a panel beside the list
+  // and needs the width for both.
   const primaryReviewOpen = $derived(
-    leadingRef?.name === "review" || leadingRef?.name === "prReview",
+    leadingRef?.name === "review" ||
+      leadingRef?.name === "prReview" ||
+      leadingRef?.name === "prs",
   );
   const maximizedPaneId = $derived(geometry.maximizedPaneId);
   const sidebarOpenForChrome = $derived(

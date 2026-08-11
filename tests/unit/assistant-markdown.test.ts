@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { IncrementalParser } from "../../node_modules/@humanspeak/svelte-markdown/dist/index.js";
-import { assistantMarkdownOptions } from "../../src/renderer/components/conversation/lib/assistant-markdown";
+import {
+  assistantMarkdownOptions,
+  codeFileLinkLabel,
+} from "../../src/renderer/components/conversation/lib/assistant-markdown";
 
 describe("assistant markdown", () => {
   test("keeps parser hooks disabled so append-only streams can use the tail window", () => {
@@ -60,5 +63,12 @@ describe("assistant markdown", () => {
       tag: "button",
     });
     expect(matchedInline.tokens[0].tokens?.[0]?.text).toBe("ok");
+  });
+
+  test("flattens a code-formatted file-link label so it cannot create a nested file chip", () => {
+    expect(codeFileLinkLabel("`client-core/ws-transport.ts:232`", 232)).toBe(
+      "client-core/ws-transport.ts",
+    );
+    expect(codeFileLinkLabel("plain label", 232)).toBeNull();
   });
 });

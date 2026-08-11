@@ -415,7 +415,7 @@
     align-items: center;
     gap: 0.25rem;
     padding: 0.1875rem 0.5rem;
-    border-radius: 0.375rem;
+    border-radius: 0.5rem;
     border: none;
     background: transparent;
     cursor: pointer;
@@ -460,7 +460,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 0.625rem;
+    border-radius: 0.5rem;
     border: none;
     background: transparent;
     color: var(--solus-text-secondary);
@@ -500,7 +500,7 @@
     background: transparent;
     cursor: pointer;
     padding: 0.25rem 0.5rem;
-    border-radius: 0.625rem;
+    border-radius: 0.5rem;
     -webkit-tap-highlight-color: transparent;
     transition: background-color 0.12s ease;
   }

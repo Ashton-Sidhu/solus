@@ -23,7 +23,7 @@
 
 <div
   class={cn(
-    "flex min-w-0 flex-1 basis-56 items-center gap-2 rounded-[0.625rem] border border-[color-mix(in_srgb,var(--solus-container-border)_60%,transparent)] bg-transparent px-2.5 py-[0.375rem] transition-[border-color] duration-100 ease-in-out focus-within:border-[color-mix(in_srgb,var(--solus-accent)_45%,transparent)] @max-[44rem]:basis-full",
+    "flex min-w-0 flex-1 basis-56 items-center gap-2 rounded-lg border border-[color-mix(in_srgb,var(--solus-container-border)_60%,transparent)] bg-transparent px-2.5 py-[0.375rem] transition-[border-color] duration-100 ease-in-out focus-within:border-[color-mix(in_srgb,var(--solus-accent)_45%,transparent)] @max-[44rem]:basis-full",
     className,
   )}
 >

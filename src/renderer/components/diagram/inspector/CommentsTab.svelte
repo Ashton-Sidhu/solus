@@ -209,7 +209,7 @@
     flex: none;
     width: 0.375rem;
     height: 0.375rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--solus-art-2);
   }
 
@@ -222,7 +222,7 @@
     flex: none;
     width: 1.0625rem;
     height: 1.0625rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--solus-accent);
     color: var(--solus-text-on-accent);
     font-size: 0.53125rem;
@@ -291,7 +291,7 @@
     flex: none;
     width: 0.375rem;
     height: 0.375rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: color-mix(in srgb, var(--solus-art-3) 70%, transparent);
   }
 

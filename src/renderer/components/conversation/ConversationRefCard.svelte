@@ -95,7 +95,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <Card.Root
-    class="conversation-ref-card group mx-auto w-[88%] gap-0 rounded-xl py-0 shadow-none {extraClass}"
+    class="conversation-ref-card group mx-auto w-[88%] gap-0 rounded-2xl py-0 shadow-none {extraClass}"
     data-testid={dataTestId}
     onclick={handleClick}
     role="button"

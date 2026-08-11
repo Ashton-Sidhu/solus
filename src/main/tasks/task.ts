@@ -14,6 +14,13 @@ import {
   taskFromRow,
 } from './task-store'
 import { taskSessions, writeSessionLink, type SessionLinkDetails } from './task-sessions'
+import { wakeTaskForActivity } from './task-lifecycle'
+import { loadProjectConfig } from '../project-config/project-config'
+import {
+  externalLinkForTask,
+  markTaskFieldsDirty,
+  notifyTaskSyncDirty,
+} from './task-sync-store'
 import type {
   Task as TaskRecord,
   TaskComment,
@@ -40,6 +47,13 @@ interface AddTaskCommentOptions {
    *  the same row and `INSERT OR IGNORE` makes the write idempotent). Omitted
    *  for ordinary comments, which mint their own ULID. */
   id?: string
+  /** Queue this local-first comment for the linked external ticket. */
+  pushToExternal?: boolean
+}
+
+interface TaskUpdateOptions {
+  /** External pulls must not immediately mark the fields dirty again. */
+  markSyncDirty?: boolean
 }
 
 export interface TaskPullRequestInput {
@@ -160,12 +174,14 @@ export class Task implements TaskRecord {
 
   async details(): Promise<TaskDetails> {
     const db = database()
+    const externalLink = externalLinkForTask(this.id, db)
     return {
       task: this.record(),
       subtasks: listTaskChildren(this.id),
       comments: commentsForTask(this.id, db),
       links: readTaskLinks(db, this.id),
       events: readTaskEvents(db, this.id),
+      ...(externalLink ? { externalLink } : {}),
     }
   }
 
@@ -177,11 +193,17 @@ export class Task implements TaskRecord {
     return readTaskEvents(database(), this.id)
   }
 
-  async update(patch: TaskUpdatePatch, actor: EventActor = { actor: 'user' }): Promise<this> {
+  async update(
+    patch: TaskUpdatePatch,
+    actor: EventActor = { actor: 'user' },
+    options: TaskUpdateOptions = {},
+  ): Promise<this> {
+    let syncDirty = false
     withTx(() => {
       const db = database()
       const existing = requireTask(this.id, db)
       const now = Date.now()
+      wakeTaskForActivity(db, this.id)
       let parentId = existing.parent_id
       let projectKey = existing.project_key
       let worktreeKey = existing.worktree_key
@@ -249,23 +271,39 @@ export class Task implements TaskRecord {
       // so no field can be changed here and silently go unrecorded.
       const updated = requireTask(this.id, db)
       diffTaskEvents(db, this.id, existing, updated, actor, now)
+      if (options.markSyncDirty !== false) {
+        const changedFields: string[] = []
+        if (existing.title !== updated.title) changedFields.push('title')
+        if (existing.body !== updated.body) changedFields.push('body')
+        if (existing.status !== updated.status) changedFields.push('status')
+        if (existing.labels !== updated.labels) changedFields.push('labels')
+        syncDirty = markTaskFieldsDirty(db, this.id, changedFields)
+      }
     })
     emitChanged()
+    if (syncDirty) notifyTaskSyncDirty(this.id)
     return this.refresh()
   }
 
   async comment(body: string, options: AddTaskCommentOptions = {}): Promise<TaskDetails> {
     const text = body.trim()
     if (!text) throw new Error('Task comment cannot be empty.')
+    const existing = requireTask(this.id)
+    const autoPush = existing.project_key
+      ? (await loadProjectConfig(existing.project_key))?.tasksAutoPushComments === true
+      : false
+    const shouldPush = externalLinkForTask(this.id) !== null
+      && (options.pushToExternal === true || autoPush)
     withTx(() => {
       const db = database()
       requireTask(this.id, db)
       const now = Date.now()
+      wakeTaskForActivity(db, this.id)
       db.prepare(`
         INSERT OR IGNORE INTO task_comments(
           id, task_id, author, source, external_id, origin_session_id, body,
-          created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          created_at, dirty
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         options.id ?? ulid(now),
         this.id,
@@ -275,12 +313,14 @@ export class Task implements TaskRecord {
         normalizedOptional(options.originSessionId),
         text,
         now,
+        shouldPush ? 1 : 0,
       )
       // No mirrored event: task_comments already is that log, and a second row
       // would be one more thing to keep in sync.
       db.prepare('UPDATE tasks SET updated_at = ? WHERE id = ?').run(now, this.id)
     })
     emitChanged()
+    if (shouldPush) notifyTaskSyncDirty(this.id)
     this.refresh()
     return this.details()
   }
@@ -444,7 +484,11 @@ export class Task implements TaskRecord {
     role: TaskSessionRole = 'working',
     details: SessionLinkDetails = {},
   ): Promise<void> {
-    withTx(() => writeSessionLink(database(), this.id, sessionId, role, details, Date.now()))
+    withTx(() => {
+      const db = database()
+      wakeTaskForActivity(db, this.id)
+      writeSessionLink(db, this.id, sessionId, role, details, Date.now())
+    })
     emitChanged()
     this.refresh()
   }
@@ -458,7 +502,8 @@ export class Task implements TaskRecord {
 
 /** Assemble the serializable state a dispatched prompt carries — exactly what
  * `formatTaskContext` consumes, read on the task's own host
- * (docs/plans/dispatch-parity.md). */
+ * (docs/plans/dispatch-parity.md). The RPC layer attaches linked-item content
+ * (`attachLinkedContent`) before shipping, so this stays a pure store read. */
 export async function taskSnapshot(taskId: string): Promise<TaskSnapshot> {
   const details = await (await Task.byId(taskId)).details()
   const parent = details.task.parentId

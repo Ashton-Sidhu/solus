@@ -142,7 +142,7 @@
           class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3.5 border-b border-[color-mix(in_srgb,var(--solus-container-border)_32%,transparent)] px-4 py-3.5 text-[0.75rem] lg:text-[0.75rem]"
         >
           <span
-            class="inline-flex size-8 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--solus-text-tertiary)_8%,transparent)] text-(--solus-text-secondary)"
+            class="inline-flex size-8 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--solus-text-tertiary)_8%,transparent)] text-(--solus-text-secondary)"
             aria-hidden="true"
           >
             <GaugeIcon size={16} weight="regular" />

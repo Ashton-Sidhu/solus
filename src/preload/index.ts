@@ -1,9 +1,9 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AgentId, AgentUsageLimits, ReasoningEffort, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionStatus, SessionSearchResult, SessionScanEvent, SessionIndexUpdatedEvent, SessionGeneratedMetadata, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitCommitResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, ProjectConfig, ProjectEntry, ProjectIdentity, PlanDescriptor, PlanAnnotations, AnnotationsChanged, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupLogEvent, SetupSshAccessResult, SetupStatusEvent, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential } from '../shared/types'
-import type { PrEffortRequest, PrEffortResult, PrFilter, PrListPage, PrReviewer, PullRequestDetail, PullRequestOverview, PullRequestSummary, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview } from '../shared/providers'
-import type { PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskCreateInput, TaskDetails, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskListFilter, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarSnapshot, TaskSnapshot, TaskUpdatePatch } from '../shared/task-types'
+import type { AgentId, AgentUsageLimits, ReasoningEffort, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionStatus, SessionSearchResult, SessionScanEvent, SessionIndexUpdatedEvent, SessionGeneratedMetadata, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitCommitResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, ProjectConfig, ProjectEntry, ProjectIdentity, PlanDescriptor, PlanAnnotations, AnnotationsChanged, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupLogEvent, SetupSshAccessResult, SetupStatusEvent, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential } from '../shared/types'
+import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrEffortRequest, PrEffortResult, PrFilter, PrLifecycleAction, PrListPage, PrReviewer, PrReviewerCandidate, PrReviewTarget, PullRequestDetail, PullRequestOverview, PullRequestSummary, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview } from '../shared/providers'
+import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskCandidateOptions, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskListFilter, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarSnapshot, TaskSnapshot, TaskSnoozeInput, TaskUpdatePatch } from '../shared/task-types'
 import type { OutboxApplyResult, OutboxOp } from '../shared/outbox-types'
-import type { SessionLoadMessage, SessionPreviewResult } from '../shared/session-history'
+import type { SessionPreviewResult, WireSessionLoadMessage } from '../shared/session-history'
 import type { AttentionEntry } from '../shared/attention-types'
 import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewProgressEvent, ReviewGuideStatusEvent, PrGuideMetadata, PrGuideMetadataRequest, PrGuideStatusEvent } from '../shared/review'
 import type { StackGraph } from '../shared/stack-types'
@@ -77,7 +77,7 @@ export interface SolusAPI {
   resetSession(ctx: IpcContext): Promise<void>
   listSessions(projectPath?: string, ctx?: IpcContext, provider?: AgentId, streamId?: string, limit?: number): Promise<SessionMeta[]>
   searchSessions(request: SearchSessionsRequest): Promise<SessionSearchResult[]>
-  loadSession(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId, limit?: number): Promise<SessionLoadMessage[]>
+  loadSession(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId, limit?: number): Promise<WireSessionLoadMessage[]>
   loadSessionPreview(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId): Promise<SessionPreviewResult>
   getSessionInfo(sessionId: string): Promise<SessionMeta | null>
   /** Name a session and describe its task from the opening prompt. */
@@ -88,6 +88,7 @@ export interface SolusAPI {
     title: string | null,
     source?: 'generated' | 'manual',
     generatedDescription?: string,
+    publishEvent?: boolean,
   ): Promise<void>
   listRecentProjects(): Promise<RecentProject[]>
   trackRecentProject(path: string): Promise<void>
@@ -179,8 +180,11 @@ export interface SolusAPI {
   prNeedsReview(ctx: IpcContext): Promise<PullRequestSummary[]>
   prGetEfforts(ctx: IpcContext, requests: PrEffortRequest[]): Promise<PrEffortResult[]>
   prGuideMetadata(ctx: IpcContext, requests: PrGuideMetadataRequest[]): Promise<PrGuideMetadata[]>
-  /** Fetch + check out the PR worktree and return the assembled review context. */
-  prOpenReview(ctx: IpcContext, number: number): Promise<PrReviewContext>
+  /** Resolve the exact host revision without changing local repository state. */
+  prOpenReview(ctx: IpcContext, number: number): Promise<PrReviewTarget>
+  prGetDiff(ctx: IpcContext, request: PrDiffRequest): Promise<PrDiffSlice>
+  prGetDiffFileContents(ctx: IpcContext, request: PrDiffFileContentsRequest): Promise<PrDiffFileContents>
+  prPrepareCheckout(ctx: IpcContext, target: PrReviewTarget): Promise<PrCheckoutContext>
   /** Fetch the PR's body, author, and state for the Activity overview. */
   prGetDetail(ctx: IpcContext, number: number): Promise<PullRequestDetail>
   prUpdate(ctx: IpcContext, number: number, patch: PullRequestUpdate): Promise<PullRequestDetail>
@@ -192,6 +196,10 @@ export interface SolusAPI {
   prListComments(ctx: IpcContext, number: number): Promise<PrConversationItem[]>
   prListCommits(ctx: IpcContext, number: number): Promise<PrCommit[]>
   prListReviewers(ctx: IpcContext, number: number): Promise<PrReviewer[]>
+  prListReviewerCandidates(ctx: IpcContext, number: number): Promise<PrReviewerCandidate[]>
+  prRequestReviewers(ctx: IpcContext, number: number, logins: string[]): Promise<PrReviewer[]>
+  prRemoveRequestedReviewer(ctx: IpcContext, number: number, login: string): Promise<PrReviewer[]>
+  prUpdateLifecycle(ctx: IpcContext, number: number, action: Exclude<PrLifecycleAction, 'merge'>, expectedHeadSha: string): Promise<PullRequestDetail>
   prSubmitReview(ctx: IpcContext, number: number, review: DraftReview): Promise<void>
   prAddIssueComment(ctx: IpcContext, number: number, body: string): Promise<void>
   prInterdiff(ctx: IpcContext, pr: PrReviewContext): Promise<import('../shared/types').PrInterdiffResult>
@@ -200,7 +208,7 @@ export interface SolusAPI {
   prUnresolveThread(ctx: IpcContext, number: number, threadId: string): Promise<void>
   /** Queue background guide generation for these PRs; resolves once queued. */
   prGenerateGuides(ctx: IpcContext, numbers: number[]): Promise<void>
-  prMerge(ctx: IpcContext, number: number, method: MergeMethod): Promise<PrMergeResult>
+  prMerge(ctx: IpcContext, number: number, method: MergeMethod, expectedHeadSha: string): Promise<PrMergeResult>
   prPrepareConflictResolution(ctx: IpcContext, number: number): Promise<PrConflictResolutionResult>
   /** Cached checks for the repository's open PRs; failures are represented in the snapshot. */
   prChecks(ctx: IpcContext, numbers?: number[]): Promise<PrChecksSnapshot>
@@ -243,6 +251,10 @@ export interface SolusAPI {
   tasksGetUpstream(cwd: string, id: string): Promise<Task>
   tasksUpdateUpstream(cwd: string, id: string, patch: TaskUpdatePatch): Promise<Task>
   tasksCommentUpstream(cwd: string, id: string, body: string): Promise<Task>
+  tasksListCandidates(cwd: string, opts?: TaskCandidateOptions): Promise<CandidateTicket[]>
+  tasksImport(cwd: string, externalIds: string[]): Promise<TaskDetails[]>
+  tasksPublish(id: string, cwd: string): Promise<TaskDetails>
+  tasksSyncNow(id?: string): Promise<TaskExternalLink[]>
   tasksList(filter?: TaskListFilter): Promise<TaskListResult>
   tasksSidebarSnapshot(): Promise<TaskSidebarSnapshot>
   tasksGet(id: string): Promise<TaskDetails>
@@ -250,14 +262,20 @@ export interface SolusAPI {
   tasksPrepareForSession(input: PrepareSessionTaskRequest): Promise<PrepareSessionTaskResult>
   tasksSnapshot(taskId: string): Promise<TaskSnapshot>
   tasksUpdate(id: string, patch: TaskUpdatePatch): Promise<Task>
+  tasksSnooze(id: string, input: TaskSnoozeInput): Promise<Task>
+  tasksMarkRead(id: string, read: boolean): Promise<Task>
+  tasksRecordActivity(id: string): Promise<Task>
   tasksDelete(id: string): Promise<boolean>
-  tasksComment(id: string, body: string): Promise<TaskDetails>
+  tasksComment(id: string, body: string, opts?: { pushToExternal?: boolean }): Promise<TaskDetails>
   tasksLinkSession(
     taskId: string,
     sessionId: string,
     role?: TaskSessionRole,
     /** Where the agent ran, when that is not this host. See `SessionExecutionHost`. */
     execution?: SessionExecutionHost | null,
+    /** The resolved checkout branch. A remote worktree can differ from the task
+     *  host's branch, so capture it only after the execution host starts. */
+    branch?: string | null,
   ): Promise<void>
   tasksSessions(taskId?: string): Promise<Record<string, TaskSessionLink[]>>
   tasksForSession(sessionId: string): Promise<TaskForSessionResult | null>

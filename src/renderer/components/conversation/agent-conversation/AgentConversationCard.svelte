@@ -152,7 +152,7 @@
 </script>
 
 <div
-  class="group/agent-card bg-card rounded-[13px] overflow-hidden {stateRing} {state ===
+  class="group/agent-card bg-card rounded-2xl overflow-hidden {stateRing} {state ===
   'closed'
     ? 'opacity-70'
     : ''} {skipMotion ? '' : 'animate-msg-in-side'}"
@@ -173,7 +173,7 @@
          body is folded: a control that is always available is not always worth
          looking at, and the header's job is to be read, not operated. -->
     <button
-      class="flex items-center justify-center shrink-0 -ml-1 -mr-[3px] size-[18px] rounded-[5px] cursor-pointer transition-colors hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] focus-visible:text-foreground {bodyOpen
+      class="flex items-center justify-center shrink-0 -ml-1 -mr-[3px] size-[18px] rounded-[0.3125rem] cursor-pointer transition-colors hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] focus-visible:text-foreground {bodyOpen
         ? 'text-transparent group-hover/agent-card:text-muted-foreground'
         : 'text-muted-foreground'}"
       aria-expanded={bodyOpen}
@@ -195,7 +195,7 @@
       </svg>
     </button>
     <span
-      class="flex items-center justify-center shrink-0 size-6 rounded-[7px] {provider ===
+      class="flex items-center justify-center shrink-0 size-6 rounded-lg {provider ===
       'codex'
         ? 'bg-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.1)]'
         : provider === 'claude-code'
@@ -269,7 +269,7 @@
       </span>
       {#if !neverStarted}
         <button
-          class="shrink-0 rounded-[7px] px-2 py-1 text-[12px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+          class="shrink-0 rounded-lg px-2 py-1 text-[12px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
           onclick={retry}
         >
           Retry
@@ -295,7 +295,7 @@
 
     {#if !neverStarted}
       <button
-        class="flex items-center justify-center shrink-0 size-[26px] rounded-[7px] text-muted-foreground cursor-pointer transition-[background-color,color,scale] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground active:scale-[0.96]"
+        class="flex items-center justify-center shrink-0 size-[26px] rounded-lg text-muted-foreground cursor-pointer transition-[background-color,color,scale] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground active:scale-[0.96]"
         title="Open session in a new tab"
         aria-label="Open {agentName} session in a new tab"
         onclick={() => open()}
@@ -304,7 +304,7 @@
       </button>
       <DropdownMenu.Root>
         <DropdownMenu.Trigger
-          class="flex items-center justify-center shrink-0 size-[26px] rounded-[7px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+          class="flex items-center justify-center shrink-0 size-[26px] rounded-lg text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
           aria-label="{agentName} exchange actions"
         >
           <DotsThreeIcon size={14} weight="bold" />

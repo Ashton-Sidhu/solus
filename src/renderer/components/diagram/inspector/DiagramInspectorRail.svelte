@@ -226,7 +226,7 @@
     right: 0.1875rem;
     width: 0.3125rem;
     height: 0.3125rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--solus-art-2);
   }
 

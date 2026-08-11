@@ -115,7 +115,7 @@
 
     {#if openNote}
       <div
-        class="mt-1 rounded-xl border border-(--solus-container-border) bg-(--solus-surface-hover)/60 p-3"
+        class="mt-1 rounded-2xl border border-(--solus-container-border) bg-(--solus-surface-hover)/60 p-3"
         transition:slide={{ duration: 160 }}
       >
         {#if openNote === "git"}

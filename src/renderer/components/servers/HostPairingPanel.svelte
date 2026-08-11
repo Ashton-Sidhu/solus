@@ -89,7 +89,7 @@
         bind:ref={sshTargetInput}
         bind:value={store.sshTarget}
         disabled={store.pairingBusy}
-        class="mt-1.5 h-10 w-full rounded-[0.625rem] border-(--solus-input-border) px-3 font-mono text-[0.8125rem] text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[0.8125rem]"
+        class="mt-1.5 h-10 w-full rounded-lg border-(--solus-input-border) px-3 font-mono text-[0.8125rem] text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[0.8125rem]"
         placeholder="user@host"
         autocomplete="off"
         spellcheck={false}
@@ -117,7 +117,7 @@
         bind:ref={sshPasswordInput}
         bind:value={store.sshPassword}
         disabled={store.pairingBusy}
-        class="mt-1.5 h-10 w-full rounded-[0.625rem] border-(--solus-input-border) px-3 text-[0.8125rem] tracking-[0.12em] text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:tracking-normal placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[0.8125rem]"
+        class="mt-1.5 h-10 w-full rounded-lg border-(--solus-input-border) px-3 text-[0.8125rem] tracking-[0.12em] text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:tracking-normal placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[0.8125rem]"
         type="password"
         placeholder="••••••••"
         autocomplete="current-password"
@@ -141,7 +141,7 @@
         bind:ref={codeInput}
         bind:value={store.pairCode}
         disabled={store.pairingBusy}
-        class="mt-1.5 h-10 w-full max-w-[12rem] rounded-[0.625rem] border-(--solus-input-border) px-3 text-center font-mono text-[1rem] tracking-[0.3em] tabular-nums text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[1rem]"
+        class="mt-1.5 h-10 w-full max-w-[12rem] rounded-lg border-(--solus-input-border) px-3 text-center font-mono text-[1rem] tracking-[0.3em] tabular-nums text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[1rem]"
         placeholder="000000"
         inputmode="numeric"
         maxlength="6"

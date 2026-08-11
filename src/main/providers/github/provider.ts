@@ -3,8 +3,14 @@ import { buildClient, type GitHubClient } from './octokit'
 import type { ChangedFileStat, MergeMethod } from '../../../shared/types'
 import type {
   DraftReview,
+  PrDiffFileContents,
+  PrDiffFileContentsRequest,
+  PrDiffRequest,
+  PrDiffSlice,
   PrCommit,
+  PrLifecycleAction,
   PrReviewer,
+  PrReviewerCandidate,
   Provider,
   PrFilter,
   PullRequestDetail,
@@ -24,6 +30,11 @@ import {
   type GqlChecksResponse,
 } from './checks'
 import type { NumberedPrChecksSummary } from '../../../shared/checks-rpc-types'
+import {
+  githubPullRequestAccessFor,
+  listGithubReviewerCandidates,
+  updateGithubPullRequestLifecycle,
+} from './pull-request-actions'
 
 const log = createLogger('main', 'github-provider')
 
@@ -33,6 +44,55 @@ const GITHUB_FILE_STATUS: Record<string, ChangedFileStat['status']> = {
   added: 'A',
   removed: 'D',
   renamed: 'R',
+}
+
+interface GithubDiffFile {
+  filename: string
+  previous_filename?: string
+  status: string
+  patch?: string
+}
+
+function diffPath(path: string): string {
+  return /[\s"\\]/.test(path) ? JSON.stringify(path) : path
+}
+
+/** Convert complete GitHub file records into a unified patch. Keeping this
+ * file-based is what guarantees pagination never cuts through a hunk. */
+export function githubFilesToUnifiedPatch(files: GithubDiffFile[]): { patch: string; truncated: boolean } {
+  let truncated = false
+  const patches = files.map((file) => {
+    const oldPath = file.previous_filename ?? file.filename
+    const oldLabel = file.status === 'added' ? '/dev/null' : `a/${oldPath}`
+    const newLabel = file.status === 'removed' ? '/dev/null' : `b/${file.filename}`
+    const lines = [`diff --git ${diffPath(`a/${oldPath}`)} ${diffPath(`b/${file.filename}`)}`]
+    if (file.status === 'added') lines.push('new file mode 100644')
+    if (file.status === 'removed') lines.push('deleted file mode 100644')
+    if (file.status === 'renamed') {
+      lines.push(`rename from ${oldPath}`, `rename to ${file.filename}`)
+      if (!file.patch) lines.push('similarity index 100%')
+    }
+    lines.push(`--- ${diffPath(oldLabel)}`, `+++ ${diffPath(newLabel)}`)
+    if (file.patch) lines.push(file.patch)
+    else if (file.status !== 'renamed') {
+      // GitHub omits `patch` for binary and oversized files. The file remains
+      // visible, but expanded source context must come from the contents RPC.
+      truncated = true
+      lines.push(`Binary files ${diffPath(oldLabel)} and ${diffPath(newLabel)} differ`)
+    }
+    return lines.join('\n')
+  })
+  return { patch: patches.join('\n'), truncated }
+}
+
+/** GitHub's compare response has no `head_commit` field. The last ahead
+ * commit is the compared head; when there are no ahead commits, the merge
+ * base is the head because it is equal to or behind the base revision. */
+export function githubComparedHeadSha(comparison: {
+  commits: Array<{ sha: string }>
+  merge_base_commit: { sha: string }
+}): string {
+  return comparison.commits[comparison.commits.length - 1]?.sha ?? comparison.merge_base_commit.sha
 }
 
 // ─── GraphQL documents ────────────────────────────────────────────────────────
@@ -441,6 +501,7 @@ function toThread(t: GqlThread): ReviewThread {
  * and leaving review comments work identically for fork and same-repo PRs.
  */
 class GitHubProvider implements ReviewProvider {
+  private diffBaseCache = new Map<string, Promise<string>>()
   private viewerCache: { token: string; login: Promise<string> } | null = null
 
   constructor(private readonly auth: GitHubAuth) {}
@@ -539,13 +600,101 @@ class GitHubProvider implements ReviewProvider {
     return { detail, commits, reviewers }
   }
 
-  async getPullRequest(repo: RepoRef, number: number): Promise<PullRequestDetail> {
+  async getPullRequestDiffBase(repo: RepoRef, pullRequest: PullRequestDetail): Promise<string> {
+    const key = `${repo.host}/${repo.owner}/${repo.repo}:${pullRequest.number}:${pullRequest.baseSha}:${pullRequest.headSha}`
+    let pending = this.diffBaseCache.get(key)
+    if (!pending) {
+      pending = this.client().then(async ({ rest }) => {
+        const { data } = await rest.repos.compareCommitsWithBasehead({
+          owner: repo.owner,
+          repo: repo.repo,
+          basehead: `${pullRequest.baseSha}...${pullRequest.headRepo.owner}:${pullRequest.headRef}`,
+        })
+        if (githubComparedHeadSha(data) !== pullRequest.headSha) {
+          throw new Error('This pull request changed while its diff base was loading.')
+        }
+        return data.merge_base_commit.sha
+      }).catch((error) => {
+        this.diffBaseCache.delete(key)
+        throw error
+      })
+      this.diffBaseCache.set(key, pending)
+    }
+    return pending
+  }
+
+  async getPullRequestDiff(repo: RepoRef, request: PrDiffRequest): Promise<PrDiffSlice> {
+    const detail = await this.getPullRequest(repo, request.number)
+    if (detail.headSha !== request.headSha) {
+      throw new Error('This pull request changed. Refresh it before reviewing the new diff.')
+    }
+    const diffBaseSha = await this.getPullRequestDiffBase(repo, detail)
+    if (diffBaseSha !== request.baseSha) {
+      throw new Error('This pull request base changed. Refresh it before reviewing the new diff.')
+    }
+    if (request.commitSha && request.commitSha !== request.headSha) {
+      throw new Error('Commit-specific pull request diffs are not available from GitHub yet.')
+    }
+
+    const page = request.cursor === undefined ? 1 : Number(request.cursor)
+    if (!Number.isSafeInteger(page) || page < 1) throw new Error('Invalid pull request diff cursor.')
     const { rest } = await this.client()
-    const { data: pr } = await rest.pulls.get({
+    const response = await rest.pulls.listFiles({
+      owner: repo.owner,
+      repo: repo.repo,
+      pull_number: request.number,
+      page,
+      per_page: 100,
+    })
+    const converted = githubFilesToUnifiedPatch(response.data)
+    const hasNextPage = /<[^>]+>;\s*rel="next"/.test(response.headers.link ?? '')
+    return {
+      patch: converted.patch,
+      truncated: converted.truncated,
+      nextCursor: hasNextPage ? String(page + 1) : null,
+    }
+  }
+
+  async getPullRequestDiffFileContents(
+    repo: RepoRef,
+    request: PrDiffFileContentsRequest,
+  ): Promise<PrDiffFileContents> {
+    const detail = await this.getPullRequest(repo, request.number)
+    if (detail.headSha !== request.headSha) {
+      throw new Error('This pull request changed. Refresh it before loading file contents.')
+    }
+    const newRef = request.commitSha ?? request.headSha
+    const { rest } = await this.client()
+    const diffBaseSha = await this.getPullRequestDiffBase(repo, detail)
+    if (diffBaseSha !== request.baseSha) {
+      throw new Error('This pull request base changed. Refresh it before loading file contents.')
+    }
+    const readFile = async (source: RepoRef, path: string, ref: string): Promise<string> => {
+      const { data } = await rest.repos.getContent({ owner: source.owner, repo: source.repo, path, ref })
+      if (Array.isArray(data) || data.type !== 'file' || !('content' in data) || typeof data.content !== 'string') {
+        throw new Error(`GitHub did not return file contents for ${path}.`)
+      }
+      if (data.encoding !== 'base64') throw new Error(`GitHub returned an unsupported encoding for ${path}.`)
+      return Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf8')
+    }
+    const headRepo: RepoRef = { host: repo.host, owner: detail.headRepo.owner, repo: detail.headRepo.repo }
+    const oldContents = request.changeType === 'new'
+      ? ''
+      : await readFile(repo, request.oldPath, diffBaseSha)
+    const newContents = request.changeType === 'deleted'
+      ? ''
+      : await readFile(headRepo, request.newPath, newRef)
+    return { oldContents, newContents }
+  }
+
+  async getPullRequest(repo: RepoRef, number: number): Promise<PullRequestDetail> {
+    const client = await this.client()
+    const [{ data: pr }, viewer] = await Promise.all([client.rest.pulls.get({
       owner: repo.owner,
       repo: repo.repo,
       pull_number: number,
-    })
+    }), this.getViewer()])
+    const access = await githubPullRequestAccessFor(client, repo, viewer, pr.user?.login ?? '')
     const baseFull = pr.base.repo?.full_name
     const headFull = pr.head.repo?.full_name
     return {
@@ -564,6 +713,7 @@ class GitHubProvider implements ReviewProvider {
         // The head branch lives in a fork when its repo differs from the base repo.
         isFork: !!headFull && !!baseFull && headFull !== baseFull,
       },
+      ...access,
     }
   }
 
@@ -653,6 +803,33 @@ class GitHubProvider implements ReviewProvider {
       }
     }
     return [...map.values()]
+  }
+
+  async listReviewerCandidates(repo: RepoRef, number: number): Promise<PrReviewerCandidate[]> {
+    const [client, pullRequest] = await Promise.all([this.client(), this.getPullRequest(repo, number)])
+    return listGithubReviewerCandidates(client, repo, pullRequest.author)
+  }
+
+  async requestReviewers(repo: RepoRef, number: number, logins: string[]): Promise<PrReviewer[]> {
+    const { rest } = await this.client()
+    await rest.pulls.requestReviewers({ owner: repo.owner, repo: repo.repo, pull_number: number, reviewers: logins })
+    return this.listReviewers(repo, number)
+  }
+
+  async removeRequestedReviewer(repo: RepoRef, number: number, login: string): Promise<PrReviewer[]> {
+    const { rest } = await this.client()
+    await rest.pulls.removeRequestedReviewers({ owner: repo.owner, repo: repo.repo, pull_number: number, reviewers: [login] })
+    return this.listReviewers(repo, number)
+  }
+
+  async updatePullRequestLifecycle(
+    repo: RepoRef,
+    number: number,
+    action: Exclude<PrLifecycleAction, 'merge'>,
+    expectedHeadSha: string,
+  ): Promise<PullRequestDetail> {
+    await updateGithubPullRequestLifecycle(await this.client(), repo, number, action, expectedHeadSha)
+    return this.getPullRequest(repo, number)
   }
 
   async createReview(repo: RepoRef, number: number, review: DraftReview): Promise<void> {

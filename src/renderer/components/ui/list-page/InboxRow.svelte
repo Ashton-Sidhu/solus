@@ -40,7 +40,7 @@
 </script>
 
 <div
-  class="group flex h-[55px] w-full items-center gap-[11px] rounded-[10px] py-2 pr-3 pl-2 transition-shadow duration-150 {selected
+  class="group flex h-[55px] w-full items-center gap-[11px] rounded-lg py-2 pr-3 pl-2 transition-shadow duration-150 {selected
     ? 'bg-[var(--wash-2)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)]'
     : 'hover:bg-[var(--wash-1)]'}"
   data-selected={selected}

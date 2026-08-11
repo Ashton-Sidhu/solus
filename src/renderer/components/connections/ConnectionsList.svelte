@@ -147,7 +147,7 @@
   {#if connections.sessions.length === 0}
     <div class="flex flex-col items-center justify-center gap-2 py-8">
       <div
-        class="flex size-10 items-center justify-center rounded-xl bg-(--solus-surface-hover)"
+        class="flex size-10 items-center justify-center rounded-lg bg-(--solus-surface-hover)"
       >
         <MonitorIcon size={20} class="text-(--solus-text-tertiary)" />
       </div>

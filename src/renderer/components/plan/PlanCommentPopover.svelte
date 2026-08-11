@@ -85,7 +85,7 @@
     /* The folded layout's stand-in for a margin thread, so it is the width of
        one: 268px, anchored to the run rather than parked at the pane edge. */
     width: 16.75rem;
-    border-radius: 0.625rem;
+    border-radius: 1rem;
     border: 0.0625rem solid var(--pc-edge);
     background: color-mix(in srgb, var(--solus-art-2) 9%, var(--solus-popover-bg));
     box-shadow: var(--solus-popover-shadow);
@@ -111,7 +111,7 @@
     justify-content: center;
     width: 1.1875rem;
     height: 1.1875rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--solus-accent);
     color: var(--solus-text-on-accent);
     font-size: 0.5rem;

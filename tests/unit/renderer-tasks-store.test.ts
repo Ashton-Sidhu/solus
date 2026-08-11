@@ -101,6 +101,36 @@ describe('renderer task hydration', () => {
     expect(store.tasks.map(({ id }) => id).sort()).toEqual(['child', 'parent'])
   })
 
+  test('restores a durable PR link from the cold-start sidebar snapshot', async () => {
+    // WHY: the PR list is renderer memory and starts empty after refresh. A
+    // linked PR must still render before branch discovery runs again.
+    installStateRune()
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        solus: {
+          tasksSidebarSnapshot: async () => ({
+            tasks: [task()],
+            sessionsByTask: {},
+            prLinksByTask: {
+              'task-1': { number: 43, url: 'https://github.com/openai/solus/pull/43' },
+            },
+          }),
+        },
+      },
+    })
+
+    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+
+    expect(store.prLinkFor('task-1')).toEqual({
+      number: 43,
+      url: 'https://github.com/openai/solus/pull/43',
+    })
+  })
+
   test('refreshes the authoritative snapshot when an opened session binding is missing', async () => {
     // WHY: a session may be opened after another actor created its task link.
     // One missing-binding refresh recovers it without renderer-side tree merges.

@@ -19,8 +19,6 @@
     /** 62px fits `SOL-412`; 44px fits `#418`. Fixed per page, never per row. */
     identWidth?: number;
     selected?: boolean;
-    /** 36px instead of 44px, for the list docked beside an open detail. */
-    compact?: boolean;
     /** What occupies the lead-avatar slot when this row has no person. */
     fallbackAvatar?: "solus";
     onSelect?: () => void;
@@ -32,7 +30,6 @@
     row,
     identWidth = 62,
     selected = false,
-    compact = false,
     fallbackAvatar,
     onSelect,
     onContextMenu,
@@ -50,9 +47,7 @@
 </script>
 
 <div
-  class="group flex w-full items-center rounded-[10px] pr-3 pl-2.5 transition-shadow duration-150 {compact
-    ? 'h-9'
-    : 'h-11'} {selected
+  class="group flex h-11 w-full items-center rounded-lg pr-3 pl-2.5 transition-shadow duration-150 {selected
     ? 'bg-[var(--wash-2)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)]'
     : 'hover:bg-[var(--wash-1)]'}"
   data-selected={selected}

@@ -45,14 +45,14 @@
           class="overflow-hidden text-ellipsis whitespace-nowrap text-[0.8125rem] font-[550] leading-[1.3] tracking-[-0.01em] text-[var(--solus-text-primary)]"
           title={title}
         >{#each titleRuns as run, i (i)}{#if run.hit}<mark
-              class="rounded-[3px] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
+              class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
               >{run.text}</mark
             >{:else}{run.text}{/if}{/each}</div>
         <div class="flex min-w-0 items-center gap-1.5 text-[0.6875rem] text-[var(--solus-text-tertiary)]">
           {#if byline}<span
               class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
               >{#each bylineRuns as run, i (i)}{#if run.hit}<mark
-                    class="rounded-[3px] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
+                    class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
                     >{run.text}</mark
                   >{:else}{run.text}{/if}{/each}</span
             >{/if}
@@ -85,21 +85,21 @@
     </div>
   {:else if loading}
     <div class="flex flex-1 flex-col gap-3 overflow-y-auto px-[1.125rem] pb-4 pt-1">
-      <Skeleton class="ml-auto h-8 w-[62%] rounded-xl" />
+      <Skeleton class="ml-auto h-8 w-[62%] rounded-2xl" />
       <div class="flex flex-col gap-2 py-2">
         <Skeleton class="h-3 w-[82%] rounded-[0.375rem]" />
         <Skeleton class="h-3 w-[68%] rounded-[0.375rem]" />
       </div>
-      <Skeleton class="ml-auto h-8 w-[48%] rounded-xl" />
+      <Skeleton class="ml-auto h-8 w-[48%] rounded-2xl" />
     </div>
   {:else}
     <div class="flex flex-1 flex-col overflow-y-auto px-[1.125rem] pb-4 pt-0.5">
       {#if preview?.firstUserMessage}
         <div class="flex justify-end pb-1.5 pt-3">
           <span
-            class="prose-transcript-user max-w-[88%] overflow-hidden break-words rounded-xl bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)] px-3 py-2.5 text-(--solus-text-primary)"
+            class="prose-transcript-user max-w-[88%] overflow-hidden break-words rounded-2xl bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)] px-3 py-2.5 text-(--solus-text-primary)"
             >{#each firstMessageRuns as run, i (i)}{#if run.hit}<mark
-                  class="rounded-[3px] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
+                  class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
                   >{run.text}</mark
                 >{:else}{run.text}{/if}{/each}</span
           >

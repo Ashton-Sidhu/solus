@@ -138,7 +138,7 @@ describe('the verdict', () => {
     const verdict = subagentVerdict(
       agent({
         id: 'a',
-        toolResult: 'The picker re-fetched hosts on every open.\n\nKeying on machine id fixes it.',
+        report: 'The picker re-fetched hosts on every open.\n\nKeying on machine id fixes it.',
       }),
     )
     expect(verdict).toBe('The picker re-fetched hosts on every open.')
@@ -146,7 +146,7 @@ describe('the verdict', () => {
 
   test('a report that opens on a heading still has a first sentence', () => {
     const verdict = subagentVerdict(
-      agent({ id: 'a', toolResult: '## Summary\n\nThe cache key included the panel instance.' }),
+      agent({ id: 'a', report: '## Summary\n\nThe cache key included the panel instance.' }),
     )
     expect(verdict).toBe('The cache key included the panel instance.')
   })
@@ -155,24 +155,24 @@ describe('the verdict', () => {
     const verdict = subagentVerdict(
       agent({
         id: 'a',
-        toolResult: '## Entry point\n\nFound the handler.\n\n## Transport\n\nIt crosses RPC.',
+        report: '## Entry point\n\nFound the handler.\n\n## Transport\n\nIt crosses RPC.',
       }),
     )
     expect(verdict).toBe('')
   })
 
   test('a report that opens on a list keeps its own shape instead of being washed into prose', () => {
-    expect(subagentVerdict(agent({ id: 'a', toolResult: '- one finding\n- another' }))).toBe('')
+    expect(subagentVerdict(agent({ id: 'a', report: '- one finding\n- another' }))).toBe('')
   })
 
   test('a paragraph too long to take at a glance is left to the pane', () => {
     const long = `${'The cache key included the panel instance. '.repeat(12)}`
-    expect(subagentVerdict(agent({ id: 'a', toolResult: long }))).toBe('')
+    expect(subagentVerdict(agent({ id: 'a', report: long }))).toBe('')
   })
 
   test('a running agent has no verdict yet, so the card claims none', () => {
     expect(
-      subagentVerdict(agent({ id: 'a', toolStatus: 'running', toolResult: 'partial thinking' })),
+      subagentVerdict(agent({ id: 'a', toolStatus: 'running', report: 'partial thinking' })),
     ).toBe('')
   })
 })
@@ -182,7 +182,7 @@ describe('the report preview', () => {
     const preview = subagentReportPreview(
       agent({
         id: 'a',
-        toolResult:
+        report:
           'Findings below.\n\n## Entry point\n\nThe prompt starts in SessionPicker.\n\n## Transport\n\nThe request crosses the typed RPC boundary.',
       }),
     )
@@ -200,7 +200,7 @@ describe('the report preview', () => {
     const preview = subagentReportPreview(
       agent({
         id: 'a',
-        toolResult: [
+        report: [
           '## One\n\nFirst.',
           '## Two\n\nSecond.',
           '## Three\n\nThird.',

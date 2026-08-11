@@ -245,7 +245,7 @@
     width: min(22rem, calc(100vw - 1.5rem));
     padding: 0.375rem;
     border: 0.0625rem solid var(--solus-popover-border);
-    border-radius: 0.625rem;
+    border-radius: 1rem;
     background: var(--solus-popover-bg);
     box-shadow: var(--solus-popover-shadow);
     backdrop-filter: blur(1.25rem) saturate(1.1);

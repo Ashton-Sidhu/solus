@@ -248,7 +248,7 @@
     gap: 0.1875rem;
     height: 1.25rem;
     padding: 0 0.375rem;
-    border-radius: 0.625rem;
+    border-radius: 9999px;
     background: var(--solus-accent-light);
     color: var(--solus-accent);
     border: none;

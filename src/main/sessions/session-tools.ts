@@ -112,7 +112,10 @@ export function getSessionController(): SessionController | null {
 export interface SessionToolCtx {
   agentProvider: AgentId
   cwd: string
+  /** Provider thread id — provenance on durable rows. */
   sessionId: string | undefined
+  /** Solus session id — keys a dispatched session's shipped task snapshot. */
+  solusSessionId?: string
 }
 
 export interface SessionToolDeps {

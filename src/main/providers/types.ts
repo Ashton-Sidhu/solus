@@ -2,11 +2,17 @@ import type { AuthStatus, ChangedFileStat, DeviceCodePrompt, MergeMethod, Provid
 import type {
   DraftReview,
   DraftReviewComment,
+  PrDiffFileContents,
+  PrDiffFileContentsRequest,
+  PrDiffRequest,
+  PrDiffSlice,
   PrCommit,
   PrConversationItem,
   PrFilter,
   PrListPage,
   PrReviewer,
+  PrReviewerCandidate,
+  PrLifecycleAction,
   PullRequestDetail,
   PullRequestOverview,
   PullRequestSummary,
@@ -23,11 +29,17 @@ export type { AuthStatus, DeviceCodePrompt, ProviderId }
 export type {
   DraftReview,
   DraftReviewComment,
+  PrDiffFileContents,
+  PrDiffFileContentsRequest,
+  PrDiffRequest,
+  PrDiffSlice,
   PrCommit,
   PrConversationItem,
   PrFilter,
   PrListPage,
   PrReviewer,
+  PrReviewerCandidate,
+  PrLifecycleAction,
   PullRequestDetail,
   PullRequestOverview,
   PullRequestSummary,
@@ -70,9 +82,13 @@ export interface ReviewProvider {
   getPullRequest(repo: RepoRef, number: number): Promise<PullRequestDetail>
   updatePullRequest(repo: RepoRef, number: number, patch: PullRequestUpdate): Promise<PullRequestDetail>
   getPullRequestOverview(repo: RepoRef, number: number): Promise<PullRequestOverview>
+  getPullRequestDiffBase(repo: RepoRef, pullRequest: PullRequestDetail): Promise<string>
+  getPullRequestDiff(repo: RepoRef, request: PrDiffRequest): Promise<PrDiffSlice>
+  getPullRequestDiffFileContents(repo: RepoRef, request: PrDiffFileContentsRequest): Promise<PrDiffFileContents>
   listReviewThreads(repo: RepoRef, number: number): Promise<ReviewThread[]>
   listCommits(repo: RepoRef, number: number): Promise<PrCommit[]>
   listReviewers(repo: RepoRef, number: number): Promise<PrReviewer[]>
+  listReviewerCandidates(repo: RepoRef, number: number): Promise<PrReviewerCandidate[]>
   listComments(repo: RepoRef, number: number): Promise<PrConversationItem[]>
   listChecks(repo: RepoRef, numbers: number[]): Promise<NumberedPrChecksSummary[]>
 
@@ -81,6 +97,14 @@ export interface ReviewProvider {
   replyToThread(repo: RepoRef, threadId: string, body: string): Promise<ReviewComment>
   resolveThread(repo: RepoRef, threadId: string): Promise<void>
   unresolveThread(repo: RepoRef, threadId: string): Promise<void>
+  updatePullRequestLifecycle(
+    repo: RepoRef,
+    number: number,
+    action: Exclude<PrLifecycleAction, 'merge'>,
+    expectedHeadSha: string,
+  ): Promise<PullRequestDetail>
+  requestReviewers(repo: RepoRef, number: number, logins: string[]): Promise<PrReviewer[]>
+  removeRequestedReviewer(repo: RepoRef, number: number, login: string): Promise<PrReviewer[]>
 
   /** Merge via the host's merge button. Host refusals are returned as
    *  `merged: false` with a user-facing message. */

@@ -99,7 +99,7 @@
     }}
   >
     <div
-      class="flex max-h-[calc(100vh-2rem)] min-h-[26rem] w-full max-w-[58.75rem] overflow-hidden rounded-[1.125rem] border border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[0_40px_90px_-24px_rgba(0,0,0,0.34)] sm:max-h-[calc(100vh-3rem)]"
+      class="flex max-h-[calc(100vh-2rem)] min-h-[26rem] w-full max-w-[58.75rem] overflow-hidden rounded-2xl border border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[0_40px_90px_-24px_rgba(0,0,0,0.34)] sm:max-h-[calc(100vh-3rem)]"
       role="dialog"
       aria-modal="true"
       aria-labelledby="host-onboarding-title"

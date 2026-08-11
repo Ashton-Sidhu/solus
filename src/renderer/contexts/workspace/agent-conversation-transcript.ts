@@ -1,4 +1,5 @@
 import type { AgentConversationRef, AgentExchange, Message } from '../../../shared/types'
+import type { AgentConversationResultProjection } from '../../../shared/session-history'
 import { nextMsgId } from './session.utils'
 
 /** Matches the session-orchestration tools for both Claude (`mcp__solus__*`)
@@ -14,8 +15,6 @@ export function isAgentConversationTool(name: string | undefined): boolean {
 }
 
 const REPORT_HEAD = /^\[session report\] Session ([0-9a-f-]{36}) (finished|is waiting) \(status: ([a-z_]+)\)/
-const SESSION_ID_IN_RESULT = /sessionId=([0-9a-f-]{36})/
-
 interface ParsedReport {
   agentSessionId: string
   kind: 'settled' | 'awaiting'
@@ -58,12 +57,11 @@ export class AgentConversationTranscriptBuilder {
   }
 
   /** Handle one session-tool row (already pushed as a tool row for debug
-   *  visibility). `resultText` is the tool result, used to learn the created
-   *  session's id. */
+   *  visibility). The server extracts only the correlation facts needed here. */
   applyToolRow(
     toolName: string,
     toolInput: string | undefined,
-    resultText: string | undefined,
+    result: AgentConversationResultProjection | undefined,
     timestamp: number,
   ): void {
     let input: Record<string, unknown> = {}
@@ -79,7 +77,7 @@ export class AgentConversationTranscriptBuilder {
     }
 
     if (toolName.endsWith('create_session')) {
-      const agentSessionId = resultText?.match(SESSION_ID_IN_RESULT)?.[1]
+      const agentSessionId = result?.agentSessionId
       if (!agentSessionId) return
       this.openExchange(agentSessionId, {
         prompt: typeof input.prompt === 'string' ? input.prompt : '',
@@ -105,7 +103,7 @@ export class AgentConversationTranscriptBuilder {
       })
     } else if (toolName.endsWith('wait_for_session')) {
       // A watch that never armed (target was idle) produced no exchange.
-      if (resultText?.includes('no watcher was registered')) return
+      if (result?.watcherRegistered === false) return
       this.openExchange(agentSessionId, { prompt: '', origin: 'watched', cwd: '', timestamp })
     }
   }

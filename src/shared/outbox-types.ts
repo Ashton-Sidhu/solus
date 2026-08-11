@@ -9,7 +9,7 @@
  */
 
 /** Domains that have registered an applier. Widens as domains join. */
-export type OutboxDomain = 'tasks'
+export type OutboxDomain = 'tasks' | 'works'
 
 export interface OutboxOp {
   /** ULID minted at record time; the idempotence key. */
@@ -56,4 +56,31 @@ export interface TaskSetStatusOpPayload {
   status: string
   /** Actor label recorded with the status event (usually the session id). */
   actorLabel?: string
+}
+
+// ─── Works-domain op payloads (dispatched sessions only) ───
+//
+// A dispatched session's works belong to its task's host, not the borrowed
+// machine — so `create`/`update` record ops instead of writing locally. Every
+// works op carries `taskId`: a `create` op names a work id NO host has yet, so
+// the courier resolves the owner through the task instead of probing hosts for
+// the work. The op's resourceId is the work id (minted at record time for a
+// create), which is also the row id the applier writes — id-keyed idempotence.
+
+export interface WorkCreateOpPayload {
+  /** The dispatched session's task — owner resolution and the owner-side link. */
+  taskId: string
+  title: string
+  docType: 'doc' | 'slides' | 'diagram'
+  content: string
+  agentProvider?: string
+  originSessionId?: string
+  cwd?: string
+}
+
+export interface WorkUpdateOpPayload {
+  /** Same role as on create: how the courier finds the owner host. */
+  taskId: string
+  content: string
+  title?: string
 }

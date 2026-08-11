@@ -1,4 +1,4 @@
-import type { TaskDetails, TaskSessionLink } from '../../shared/task-types'
+import type { TaskDetails, TaskLink, TaskSessionLink } from '../../shared/task-types'
 
 /** Render the local task packet appended to the system prompt of every run on a
  *  task-backed session. Attempts are passed in rather than read off `details`:
@@ -36,6 +36,11 @@ export function formatTaskContext(
     }
   }
 
+  if (details.links.length) {
+    lines.push('Linked:')
+    for (const link of details.links) lines.push(`- ${formatTaskLink(link)}`)
+  }
+
   lines.push('', task.body.trim() || '(no description)')
 
   if (comments.length) {
@@ -68,4 +73,21 @@ export function formatTaskContext(
   )
 
   return lines.join('\n')
+}
+
+/** One linked item as the agent should address it: the id its read tool takes,
+ *  the human title, and the live status when the link carries one. */
+export function formatTaskLink(link: TaskLink): string {
+  const title = link.liveTitle ?? link.title
+  const status = link.liveStatus ? ` [${link.liveStatus}]` : ''
+  switch (link.kind) {
+    case 'work':
+      return `work ${link.targetKey} — "${title}"${status} (read_work)`
+    case 'plan':
+      return `plan ${link.targetScope}__${link.targetKey} — "${title}"${status} (read_plan with session_id "${link.targetScope}")`
+    case 'pr':
+      return `PR #${link.targetKey} — "${title}"${link.url ? ` — ${link.url}` : ''} (read_pr)`
+    case 'automation':
+      return `automation ${link.targetKey} — "${title}"${status} (read_automation)`
+  }
 }

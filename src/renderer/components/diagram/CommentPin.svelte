@@ -67,7 +67,7 @@
     /* The visible pill is 20px; the padding block below pads the hit target out
        to the 24px minimum without moving the pill. */
     padding: 0 0.375rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     border: 0.0625rem solid color-mix(in srgb, var(--pin-tint) var(--pin-edge), transparent);
     background: color-mix(in srgb, var(--pin-tint) var(--pin-fill), var(--solus-container-bg));
     box-shadow: 0 0.125rem 0.3125rem rgba(60, 40, 25, 0.14);
@@ -108,7 +108,7 @@
   .comment-pin__dot {
     width: 0.3125rem;
     height: 0.3125rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--pin-tint);
   }
 

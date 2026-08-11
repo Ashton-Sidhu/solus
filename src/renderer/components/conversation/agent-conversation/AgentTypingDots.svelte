@@ -16,7 +16,7 @@
 
 <span
   class="flex items-center w-fit {variant === 'pill'
-    ? 'gap-1 px-2.5 py-1.5 rounded-xl bg-[color-mix(in_oklch,var(--agent-accent)_13%,transparent)]'
+    ? 'gap-1 px-2.5 py-1.5 rounded-full bg-[color-mix(in_oklch,var(--agent-accent)_13%,transparent)]'
     : 'gap-[3px]'}"
   aria-label="writing a reply"
 >

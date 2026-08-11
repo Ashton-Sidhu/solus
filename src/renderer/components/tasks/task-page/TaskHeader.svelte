@@ -73,7 +73,7 @@
     <span class="flex h-[9px] shrink-0 items-end gap-[1.5px]" aria-hidden="true">
       {#each bars as bar (bar.height)}
         <span
-          class="w-[2.5px] rounded-[1px]"
+          class="w-[2.5px] rounded-[0.0625rem]"
           style="height:{bar.height};background:{bar.background}"
         ></span>
       {/each}

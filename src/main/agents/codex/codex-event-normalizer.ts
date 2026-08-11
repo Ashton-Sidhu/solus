@@ -622,6 +622,7 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
       toolUseId: item.id,
       content: codexItemResultText(item),
       isError: item.status === 'failed' || item.success === false || !!item.error,
+      ...(isSubagent ? { isSubagentReport: true } : {}),
     })
   }
   if (parentToolUseId) {
@@ -730,6 +731,7 @@ function normalizeTurnCompleted(params: any): NormalizedEvent[] {
         content: message || 'Codex subagent failed',
         isError: true,
         parentToolUseId,
+        isSubagentReport: true,
       }]
     }
     if (
@@ -744,6 +746,7 @@ function normalizeTurnCompleted(params: any): NormalizedEvent[] {
         content: 'Interrupted',
         isError: true,
         parentToolUseId,
+        isSubagentReport: true,
       }]
     }
     return []

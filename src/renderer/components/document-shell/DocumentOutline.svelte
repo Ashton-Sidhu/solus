@@ -169,7 +169,7 @@
   .doc-outline__bar {
     width: 1.25rem;
     height: 0.125rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: color-mix(in srgb, var(--solus-text-tertiary) 32%, transparent);
     transition: background var(--duration-quick) var(--ease-premium);
   }
@@ -212,7 +212,7 @@
     overflow-x: hidden;
     overscroll-behavior: contain;
     padding: 0.9375rem 0.875rem 0.875rem 1rem;
-    border-radius: 0.75rem;
+    border-radius: 1rem;
     /* This panel deliberately unfolds over the document. Use the shell's solid
        canvas rather than the slightly translucent popover token so text and
        table rules underneath can never show through it. */
@@ -315,7 +315,7 @@
     flex: 0 0 auto;
     width: 0.125rem;
     height: 0.9375rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: transparent;
     transition: background var(--duration-quick) var(--ease-premium);
   }
@@ -331,7 +331,7 @@
     flex: 0 0 auto;
     min-width: 1rem;
     padding: 0.0625rem 0;
-    border-radius: 999px;
+    border-radius: 9999px;
     text-align: center;
     font-size: 0.65625rem;
     font-variant-numeric: tabular-nums;

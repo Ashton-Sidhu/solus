@@ -14,7 +14,7 @@
 </script>
 
 <div
-  class="mt-3.5 overflow-hidden rounded-xl border border-(--solus-container-border) bg-card shadow-[0_0.0625rem_0.125rem_rgba(0,0,0,0.04)]"
+  class="mt-3.5 overflow-hidden rounded-2xl border border-(--solus-container-border) bg-card shadow-[0_0.0625rem_0.125rem_rgba(0,0,0,0.04)]"
   role="list"
   aria-label={label}
 >

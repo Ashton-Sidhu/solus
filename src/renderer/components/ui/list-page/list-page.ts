@@ -156,6 +156,21 @@ export interface ListStatusOption {
   count: number
 }
 
+/** Resolve one controlled checkbox change into the ordered status selection.
+ *  The checkbox supplies its next state so the menu does not toggle the same
+ *  value once locally and once again in the page that owns the filter. */
+export function updateListStatusSelection(
+  options: readonly ListStatusOption[],
+  selected: readonly string[],
+  value: string,
+  checked: boolean,
+): string[] {
+  const next = new Set(selected)
+  if (checked) next.add(value)
+  else next.delete(value)
+  return options.map((option) => option.value).filter((status) => next.has(status))
+}
+
 /**
  * The 32px time slot. Two characters of number and one of unit, so the column
  * stays a column — "12m", "3h", "5d", "2w". Anything older than a year is "1y+"

@@ -47,7 +47,7 @@ describe('subagent row', () => {
         toolInput: JSON.stringify({ description: 'MenuRow' }),
         // A backgrounded agent answers its tool call at launch, so a result here
         // must not make the row claim the agent finished.
-        toolResult: 'Launched',
+        report: 'Launched',
         subMessages: [step('s1', 'Read', JSON.stringify({ file_path: 'src/MenuRow.svelte' }))],
       }),
       NOW,
@@ -66,7 +66,7 @@ describe('subagent row', () => {
         id: 'a',
         toolStatus: 'completed',
         toolInput: JSON.stringify({ description: 'MenuRow' }),
-        toolResult: '8 call sites rewritten, guard test added\nmore detail',
+        report: '8 call sites rewritten, guard test added\nmore detail',
         toolCompletedAt: NOW - 14_000,
         subMessages: [step('s1', 'Read'), step('s2', 'Edit')],
       }),
@@ -195,7 +195,7 @@ describe('subagent group summary', () => {
     const summary = summarize([
       agent({ id: 'a', toolStatus: 'completed', toolCompletedAt: NOW }),
       agent({ id: 'b', toolStatus: 'completed', toolCompletedAt: NOW }),
-      agent({ id: 'c', toolStatus: 'completed', toolResultIsError: true, toolCompletedAt: NOW }),
+      agent({ id: 'c', toolStatus: 'error', toolCompletedAt: NOW }),
     ])
 
     expect(summary.running).toBe(0)

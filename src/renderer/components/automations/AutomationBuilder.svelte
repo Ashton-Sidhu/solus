@@ -117,7 +117,7 @@
   // Wraps the prompt editor as one tall field at the prose column's own measure,
   // so the writing view and the reading view sit on the same grid.
   const PROMPT_FIELD =
-    "-ml-2 flex w-full min-h-[16rem] flex-col rounded-[0.625rem] bg-transparent px-2 [outline:0.0625rem_solid_transparent] transition-[outline-color,background-color] duration-120 " +
+    "-ml-2 flex w-full min-h-[16rem] flex-col rounded-lg bg-transparent px-2 [outline:0.0625rem_solid_transparent] transition-[outline-color,background-color] duration-120 " +
     "[&_[data-testid=message-input]]:flex [&_[data-testid=message-input]]:flex-1 [&_[data-testid=message-input]]:min-h-0 " +
     "[&_.cm-editor]:flex-1 [&_.cm-editor]:min-h-0 [&_.cm-scroller]:max-h-none! [&_.cm-content]:min-h-full [&_.cm-content]:![font-weight:400] " +
     "[&_.cm-content]:![font-size:0.9375rem] [&_.cm-content]:![line-height:1.75]";
@@ -732,7 +732,7 @@
 <!-- ── Next / Last / Health: the three facts worth reading before the prose ── -->
 {#snippet statStrip()}
   <div
-    class="mt-6 grid grid-cols-[auto_auto_1fr] items-center gap-x-10 gap-y-3.5 rounded-xl bg-muted/60 px-4.5 py-4 @max-[43.75rem]:grid-cols-1 @max-[43.75rem]:gap-4"
+    class="mt-6 grid grid-cols-[auto_auto_1fr] items-center gap-x-10 gap-y-3.5 rounded-2xl bg-muted/60 px-4.5 py-4 @max-[43.75rem]:grid-cols-1 @max-[43.75rem]:gap-4"
   >
     <div class="flex min-w-0 flex-col gap-1">
       <span class={STAT_LABEL}>Next</span>
@@ -825,7 +825,7 @@
 <!-- ── The rail: machine facts, set like data ── -->
 {#snippet railCard()}
   <div
-    class="flex flex-col gap-6.5 rounded-[0.875rem] border border-border/55 bg-card p-5 @max-[65rem]:flex-row @max-[65rem]:flex-wrap @max-[65rem]:gap-x-10 @max-[65rem]:gap-y-6.5"
+    class="flex flex-col gap-6.5 rounded-2xl border border-border/55 bg-card p-5 @max-[65rem]:flex-row @max-[65rem]:flex-wrap @max-[65rem]:gap-x-10 @max-[65rem]:gap-y-6.5"
   >
     <!-- Schedule -->
     <div class={RAIL_BLOCK}>

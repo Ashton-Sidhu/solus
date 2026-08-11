@@ -60,7 +60,7 @@
     {#if probing}
       {#each [0, 1] as index (index)}
         <div
-          class="flex h-[4.5rem] items-center gap-4 rounded-xl bg-[var(--wash-1)] px-4"
+          class="flex h-[4.5rem] items-center gap-4 rounded-2xl bg-[var(--wash-1)] px-4"
         >
           <span class="size-10 shrink-0 rounded-full bg-[var(--wash-2)]"></span>
           <span class="flex flex-col gap-2">

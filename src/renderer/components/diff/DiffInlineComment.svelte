@@ -30,7 +30,7 @@
      value: the color-mix border and the comma-bearing rgba shadow both compile
      to classes that drop their value silently. -->
 <div
-  class="group relative mx-3 my-1.5 overflow-hidden rounded-xl bg-(--solus-popover-bg) px-3 py-2.5"
+  class="group relative mx-3 my-1.5 overflow-hidden rounded-2xl bg-(--solus-popover-bg) px-3 py-2.5"
   style="border:0.0625rem solid color-mix(in oklab, var(--solus-accent) 22%, var(--solus-container-border));box-shadow:0 0.75rem 1.875rem -1.25rem rgba(0, 0, 0, 0.5)"
   data-diff-line="{comment.side}:{comment.endLine}"
   data-comment-id={comment.id}

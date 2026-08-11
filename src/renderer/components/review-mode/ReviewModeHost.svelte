@@ -8,8 +8,8 @@
     WarningCircleIcon,
     XIcon,
   } from "phosphor-svelte";
-  import type { PullRequestSummary } from "../../../shared/providers";
-  import type { IpcContext, PrReviewContext } from "../../../shared/types";
+  import type { PrReviewTarget, PullRequestSummary } from "../../../shared/providers";
+  import type { IpcContext } from "../../../shared/types";
   import type { ReviewOutcome } from "../../../shared/review-session-types";
   import { getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
@@ -32,7 +32,7 @@
   const store = reviewSessionStore;
 
   interface PreparedReview {
-    pr: PrReviewContext;
+    pr: PrReviewTarget;
   }
 
   const prepared = new SvelteMap<number, PreparedReview>();

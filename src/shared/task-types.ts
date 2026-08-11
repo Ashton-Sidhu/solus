@@ -21,6 +21,66 @@ export type TaskStatus =
 export type TaskTitleSource = 'prompt' | 'generated' | 'manual'
 export type TaskSource = 'user' | 'agent' | 'automation' | 'import' | 'session'
 export type TaskSessionRole = 'working' | 'referenced'
+export type TaskSyncState = 'ok' | 'dirty' | 'error' | 'auth_error'
+export type ExternalTaskStatus = 'open' | 'in_progress' | 'closed'
+
+export interface ExternalTicketRef {
+  provider: Exclude<TaskProviderId, 'local'>
+  /** Provider-owned scope, for example `owner/repo` on GitHub. */
+  externalKey: string
+  externalId: string
+  url: string
+}
+
+export interface TaskExternalLink extends ExternalTicketRef {
+  taskId: string
+  externalUpdatedAt?: string | null
+  snapshot?: unknown
+  dirtyFields: Array<'title' | 'body' | 'status' | 'labels'>
+  syncState: TaskSyncState
+  syncError?: string | null
+  lastSyncedAt?: number | null
+  retryAt?: number | null
+  failureCount: number
+}
+
+export interface NormalizedTaskComment {
+  externalId: string
+  author?: string | null
+  body: string
+  createdAt: number
+}
+
+export interface NormalizedTicket extends ExternalTicketRef {
+  title: string
+  body: string
+  status: ExternalTaskStatus
+  labels: string[]
+  externalUpdatedAt: string
+  comments: NormalizedTaskComment[]
+  snapshot?: unknown
+  priorityHint?: TaskPriority
+}
+
+export interface TicketPatch {
+  title?: string
+  body?: string
+  status?: ExternalTaskStatus
+  labels?: string[]
+}
+
+export interface CandidateTicket extends ExternalTicketRef {
+  title: string
+  status: ExternalTaskStatus
+  labels: string[]
+  externalUpdatedAt: string
+  priorityHint?: TaskPriority
+}
+
+export interface TaskCandidateOptions {
+  query?: string
+  limit?: number
+}
 
 /** Normalized priority (undefined = unset). For GitHub it's inferred from
  *  conventional priority labels; for local it's an explicit field. Drives the
@@ -35,6 +95,12 @@ export interface TaskPr {
   url: string
   /** Parsed from the URL for compact display (`#123`); 0 if unparseable. */
   number: number
+}
+
+/** The newest durable PR edge needed by the lightweight sidebar snapshot. */
+export interface TaskSidebarPrLink {
+  number: number
+  url?: string
 }
 
 export interface Task {
@@ -86,6 +152,12 @@ export interface Task {
   updatedAt: number
   triagedAt?: number
   doneAt?: number
+  snoozedUntil?: number
+  snoozedAt?: number
+  /** Local reminder shown when this snooze expires. Never synced upstream. */
+  snoozeNote?: string
+  /** Last time the task rollup was visited or explicitly marked read. */
+  lastReadAt?: number
   /** Full provider payload, kept for hydration / context injection at session start. */
   raw?: unknown
 }
@@ -152,6 +224,8 @@ export interface TaskComment {
   originSessionId?: string | null
   body: string
   createdAt: number
+  /** True only when this local-first comment was explicitly queued upstream. */
+  syncPending?: boolean
 }
 
 /** What a task can be linked to. `work` is the storage noun for what the
@@ -220,6 +294,14 @@ export type TaskEventKind =
   | 'linked'
   | 'unlinked'
   | 'session_started'
+  | 'snoozed'
+  | 'woke'
+
+export interface TaskSnoozeInput {
+  /** Epoch milliseconds. Null wakes the task immediately. */
+  until: number | null
+  note?: string | null
+}
 
 export interface TaskEvent {
   id: string
@@ -251,6 +333,8 @@ export interface TaskDetails {
   /** Newest-last, capped at `TASK_EVENT_LIMIT`. Merge with `comments` by
    *  timestamp to build the activity feed. */
   events: TaskEvent[]
+  /** The external ticket this native task synchronizes with, when linked. */
+  externalLink?: TaskExternalLink
 }
 
 export interface TaskForSessionResult {
@@ -294,6 +378,25 @@ export interface PrepareSessionTaskResult {
   snapshot: TaskSnapshot | null
 }
 
+/** A read-only copy of a content-bearing linked item — a work's document or a
+ *  plan's markdown — shipped alongside the snapshot for dispatched sessions:
+ *  the execution host cannot read the task host's stores, so
+ *  `read_work`/`read_plan`/`list_works` answer from these copies. PR and
+ *  automation links ship no content: their facts (title, url, live status)
+ *  already ride `TaskDetails.links`. */
+export interface TaskLinkedItemSnapshot {
+  kind: 'work' | 'plan'
+  /** The link's target key: a work id, or a plan's `planToolUseId`. */
+  key: string
+  /** The link's target scope: `''` for works; the plan's owning session id. */
+  scope: string
+  title: string
+  /** Works only: how the content renders. */
+  workType?: 'doc' | 'slides' | 'diagram'
+  content: string
+  updatedAt?: string
+}
+
 /**
  * The serializable task state a dispatched prompt carries: exactly what
  * `formatTaskContext` consumes, so the execution host renders the packet from
@@ -304,11 +407,17 @@ export interface TaskSnapshot {
   details: TaskDetails
   parent: TaskDetails | null
   sessions: TaskSessionLink[]
+  /** Full content of the task's content-bearing linked items (works, plans),
+   *  so the dispatched agent can read the documents its task points at.
+   *  Absent on snapshots from older hosts. */
+  linked?: TaskLinkedItemSnapshot[]
 }
 
 export interface TaskSidebarSnapshot {
   tasks: Task[]
   sessionsByTask: Record<string, TaskSessionLink[]>
+  /** Optional for compatibility with hosts that predate durable sidebar PRs. */
+  prLinksByTask?: Record<string, TaskSidebarPrLink>
 }
 
 /** One comment on a task, as providers surface it (also the shape stored in a

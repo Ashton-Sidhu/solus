@@ -44,7 +44,7 @@
   }: Props = $props();
 
   const actBtn =
-    "grid size-6 shrink-0 cursor-pointer place-items-center rounded-[7px] border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-3)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40";
+    "grid size-6 shrink-0 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-3)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40";
 
   const tone = $derived(
     a.lastRunStatus === "running"
@@ -82,7 +82,7 @@
 </script>
 
 <div
-  class="group relative flex h-11 w-full items-center rounded-[10px] pr-2 pl-2.5 transition-shadow duration-150 {selected
+  class="group relative flex h-11 w-full items-center rounded-lg pr-2 pl-2.5 transition-shadow duration-150 {selected
     ? 'bg-[var(--wash-2)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)]'
     : 'hover:bg-[var(--wash-1)]'} {a.enabled ? '' : 'opacity-70'}"
   data-selected={selected}

@@ -347,7 +347,7 @@
   .cf-server-row {
     display: flex;
     align-items: stretch;
-    border-radius: 0.625rem;
+    border-radius: 0.5rem;
     background: var(--solus-surface-hover);
     overflow: hidden;
   }
@@ -374,7 +374,7 @@
   .cf-server-btn:focus-visible {
     outline: 0.125rem solid var(--solus-accent);
     outline-offset: -0.125rem;
-    border-radius: 0.625rem 0 0 0.625rem;
+    border-radius: 0.5rem 0 0 0.5rem;
   }
 
   .cf-dot {
@@ -487,7 +487,7 @@
     gap: 0.375rem;
     padding: 0.625rem 1rem;
     border: 0.0625rem dashed var(--solus-container-border);
-    border-radius: 0.625rem;
+    border-radius: 0.5rem;
     background: transparent;
     color: var(--solus-text-tertiary);
     font-size: 0.8125rem;

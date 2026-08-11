@@ -63,10 +63,9 @@ describe('session sidebar dismissal', () => {
     expect(store.closedTabIds).toEqual(['child-tab'])
   })
 
-  test('closing a durable task unloads every tab in its tree and dismisses the row', () => {
-    // WHY: this is the one path completion also takes, so it has to clear the
-    // whole task at once — the root row's tabIds already span its subtasks, and
-    // the dismissal is what removes the row rather than any lifecycle status.
+  test('closing a durable task unloads every tab and dismisses the row', () => {
+    // WHY: removing a row is presentation state only. It must not complete or
+    // otherwise change the task's workflow status.
     const store = sidebarStoreForDismissal()
 
     store.closeTask({

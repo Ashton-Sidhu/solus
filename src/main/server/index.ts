@@ -44,7 +44,7 @@ import { registerSavedPromptsHandlers } from './handlers/saved-prompts-handlers'
 import { registerProjectConfigHandlers } from './handlers/project-config-handlers'
 import { registerTasksHandlers } from './handlers/tasks-handlers'
 import { setVoiceModelStatusListener } from '../model-downloader'
-import { createLogger } from '../logger'
+import { createLogger, isDebugEnabled } from '../logger'
 import { PushNotificationService, attentionEntryKey, diffNewPushAttentionEntries } from '../notifications/push-service'
 import { ensureClaimWindow, getInstallationId, isClaimable } from './auth'
 import { probeServerCapabilities, registerSetupHandlers } from './handlers/setup-handlers'
@@ -54,11 +54,13 @@ import { onTasksChanged } from '../tasks/task-store'
 import { onOutboxChanged } from '../outbox/outbox-store'
 import { registerOutboxHandlers } from './handlers/outbox-handlers'
 import { registerTaskOutboxApplier } from '../tasks/task-applier'
+import { registerWorkOutboxApplier } from '../folio/work-applier'
 import { agentTargetFromMetadata } from '../agents/agent-targets'
 import { recordSessionDelegation } from '../sessions/session-delegations'
 import { registerAttachmentHandlers } from './handlers/attachment-handlers'
 import { registerAssetHandlers } from './handlers/asset-handlers'
 import { registerCapabilityHandlers } from './handlers/capability-handlers'
+import { projectSessionEvent, serializedBytes } from './result-projection'
 
 const log = createLogger('main', 'server-boot')
 
@@ -258,8 +260,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerProjectConfigHandlers(server)
   registerTasksHandlers(server)
   registerOutboxHandlers(server)
-  // Any host can own tasks, so the owner-side applier registers unconditionally.
+  // Any host can own tasks (and their works), so the owner-side appliers
+  // register unconditionally.
   registerTaskOutboxApplier()
+  registerWorkOutboxApplier()
   registerGoogleHandlers(server, { getServerInfo: () => ({ host, port: actualPort }) })
   registerCloudflareHandlers(server)
   setCloudflareConnectNeededListener((reason) => events.broadcast('cloudflare.connectNeeded', { reason }))
@@ -317,10 +321,20 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // One publish per watching client. Two panes on one renderer are one client
   // and receive one payload; desktop and web are two, with the same payload.
   opts.controlPlane.on('event', (sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
+    if (isDebugEnabled) {
+      log.debug('session_event_bytes', {
+        sessionId,
+        eventType: event.type,
+        ...('toolName' in event && event.toolName ? { toolName: event.toolName } : {}),
+        bytes: serializedBytes(event),
+      })
+    }
+    const projectedEvent = projectSessionEvent(event)
+    if (!projectedEvent) return
     let clients = opts.controlPlane.clientsWatching(sessionId)
     if (to?.only) clients = clients.filter((clientId) => clientId === to.only)
     if (to?.except) clients = clients.filter((clientId) => clientId !== to.except)
-    if (clients.length) events.publish(clients, 'session.eventReceived', { sessionId, event })
+    if (clients.length) events.publish(clients, 'session.eventReceived', { sessionId, event: projectedEvent })
   })
   opts.controlPlane.on('error', (sessionId: string, error: EnrichedError) => {
     const clients = opts.controlPlane.clientsWatching(sessionId)

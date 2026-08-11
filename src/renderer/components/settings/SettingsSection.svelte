@@ -27,7 +27,7 @@
         {@render action?.()}
       </div>
     {/if}
-    <div class="overflow-hidden rounded-xl border border-border bg-card shadow-xs">
+    <div class="overflow-hidden rounded-2xl border border-border bg-card shadow-xs">
       {@render children()}
     </div>
   </section>

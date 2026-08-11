@@ -8,31 +8,36 @@
  */
 export type PrStatusKey = 'review' | 'open' | 'draft' | 'merged' | 'closed'
 
-const TINTS: Record<PrStatusKey, string | null> = {
-  review: 'warning',
-  open: 'running',
-  // Draft has no state to report yet, so it takes the neutral idle token rather
-  // than a mixed tint that would read as a status.
+/**
+ * The same tones the session sidebar's PR chip uses, so one pull request reads
+ * identically wherever it surfaces: a review the person owes leads in the brand
+ * accent, a merged PR settles into plum, a live open PR shows the on-brand sage.
+ * Draft has no state to report yet, so it stays neutral rather than taking a
+ * tint that would read as a status.
+ */
+const TONES: Record<PrStatusKey, string | null> = {
+  review: 'var(--primary)',
+  open: 'var(--solus-art-positive)',
   draft: null,
-  merged: 'success',
-  closed: 'failure',
+  merged: 'var(--solus-art-6)',
+  closed: 'var(--failure)',
 }
 
 export function statusDotColor(key: string): string {
-  const tint = TINTS[key as PrStatusKey]
-  if (tint === undefined || tint === null) return 'var(--idle)'
-  return `color-mix(in oklch, var(--${tint}) 78%, transparent)`
+  const tone = TONES[key as PrStatusKey]
+  if (tone === undefined || tone === null) return 'var(--idle)'
+  return `color-mix(in oklch, ${tone} 78%, transparent)`
 }
 
-/** The pill on the detail masthead — same table, filled rather than a speck. */
+/** The chip in a pull request's subtitle — same table, filled rather than a speck. */
 export function statusPillColors(key: string): { background: string; color: string } {
-  const tint = TINTS[key as PrStatusKey]
-  if (tint === undefined || tint === null) {
+  const tone = TONES[key as PrStatusKey]
+  if (tone === undefined || tone === null) {
     return { background: 'var(--wash-3)', color: 'var(--muted-foreground)' }
   }
   return {
-    background: `color-mix(in oklch, var(--${tint}) 15%, transparent)`,
-    color: `color-mix(in oklch, var(--${tint}) 60%, var(--foreground))`,
+    background: `color-mix(in oklch, ${tone} 14%, transparent)`,
+    color: `color-mix(in oklch, ${tone} 58%, var(--foreground))`,
   }
 }
 

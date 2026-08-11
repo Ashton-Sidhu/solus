@@ -4,21 +4,27 @@
     CaretRightIcon,
     CircleNotchIcon,
     FileIcon,
+    XIcon,
   } from "phosphor-svelte";
   import Icon from "@iconify/svelte";
   import type { Snippet } from "svelte";
   import type { ChangedFileStat } from "../../../shared/types";
   import type { CheckItem, PrChecksSummary } from "../../../shared/checks-types";
-  import type { PullRequestDetail, PrReviewer } from "../../../shared/providers";
+  import type {
+    PullRequestDetail,
+    PrReviewer,
+    PrReviewerCandidate,
+  } from "../../../shared/providers";
   import { fileTypeIcon } from "../../lib/fileTypeIcon";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { ensureIconCollections } from "../diagram/iconify";
   import { Button } from "../ui/button";
   import PrAvatar from "../prs/PrAvatar.svelte";
-  import PrReviewStateBadge from "../prs/PrReviewStateBadge.svelte";
   import { checkDuration, orderedChecks } from "../prs/lib/checks";
+  import { reviewerStateColor, reviewerStateLabel } from "./lib/reviewer-state";
   import { fileName, dirName } from "./lib/activity-data";
   import { Skeleton } from "../ui/skeleton";
+  import * as DropdownMenu from "../ui/dropdown-menu";
 
   // Register the small offline icon subset used by changed-file rows.
   ensureIconCollections();
@@ -31,6 +37,11 @@
     detail,
     reviewers,
     reviewersLoading,
+    reviewerCandidates = [],
+    reviewerCandidatesLoading = false,
+    reviewerMutation = null,
+    onRequestReviewer,
+    onRemoveReviewer,
     changedFiles,
     filesLoading,
     openedTime,
@@ -38,10 +49,16 @@
     unresolvedCount,
     onFileJump,
     actions,
+    menu,
   }: {
     detail: PullRequestDetail | null;
     reviewers: PrReviewer[];
     reviewersLoading: boolean;
+    reviewerCandidates?: PrReviewerCandidate[];
+    reviewerCandidatesLoading?: boolean;
+    reviewerMutation?: string | null;
+    onRequestReviewer?: (login: string) => void;
+    onRemoveReviewer?: (login: string) => void;
     changedFiles: ChangedFileStat[];
     filesLoading: boolean;
     openedTime: string | null;
@@ -51,12 +68,18 @@
     /** The PR's action cluster (merge CTA + quiet secondary row) — it lives
      *  with the readiness status it acts on, Linear-style, not in the header. */
     actions?: Snippet;
+    /** The ⋯ menu of rarely-used PR actions. It rides in this section's own
+     *  header, where it is always present, rather than under a cluster that a
+     *  draft or a closed PR leaves empty. */
+    menu?: Snippet;
   } = $props();
 
   const FILES_PREVIEW = 6;
   const CHECKS_PREVIEW = 4;
   let filesExpanded = $state(false);
   let checksExpanded = $state(false);
+  let reviewerMenuOpen = $state(false);
+  let reviewerTrigger = $state<HTMLButtonElement | null>(null);
 
   // Failing checks lead, so the 4-row preview always shows what's broken rather
   // than whichever four the host happened to list first.
@@ -77,6 +100,14 @@
     reviewers.reduce(
       (count, reviewer) => count + (reviewer.state === "APPROVED" ? 1 : 0),
       0,
+    ),
+  );
+  const availableReviewerCandidates = $derived(
+    reviewerCandidates.filter(
+      (candidate) =>
+        !reviewers.some(
+          (reviewer) => reviewer.login.toLowerCase() === candidate.login.toLowerCase(),
+        ),
     ),
   );
   const checksCurrent = $derived(
@@ -141,10 +172,17 @@
 {/snippet}
 
 <!-- How the merge will be recorded, stated where the section names it rather
-     than only inside the button's menu. -->
-{#snippet mergeMethodNote()}
-  <span class="font-mono text-[10.5px] text-muted-foreground opacity-75">
-    {detail?.state === "merged" ? "squashed" : blocked ? "rebase" : "squash"}
+     than only inside the button's menu — and only while there is a merge to
+     record. A draft has no merge button, so naming a method there was a fact
+     about a thing that is not on offer yet. -->
+{#snippet mergeSectionTrailing()}
+  <span class="flex items-center gap-2.5">
+    {#if detail?.state === "merged" || (detail?.state === "open" && !detail.draft)}
+      <span class="font-mono text-[10.5px] text-muted-foreground opacity-75">
+        {detail.state === "merged" ? "squashed" : blocked ? "rebase" : "squash"}
+      </span>
+    {/if}
+    {#if menu}{@render menu()}{/if}
   </span>
 {/snippet}
 
@@ -168,7 +206,7 @@
          runs from the list through to here. A hairline closes the section, which
          is what separates it from Reviewers without a box. -->
     <section class="flex flex-col">
-      {@render sectionHead("Merge", mergeMethodNote)}
+      {@render sectionHead("Merge", mergeSectionTrailing)}
 
       <div class="flex items-start gap-[9px]">
         {#if !detail}
@@ -219,15 +257,35 @@
         </div>
       </div>
 
-      {#if actions}
-        <div class="mt-3.5">{@render actions()}</div>
-      {/if}
+      {#if actions}{@render actions()}{/if}
 
       <div class="mt-[22px] h-px bg-[var(--hairline)]" aria-hidden="true"></div>
     </section>
 
-    <!-- Reviewers -->
+    <!-- Reviewers. One 30px row per person: avatar, login, and the verdict as a
+         single lower-case word in its own colour. The section's action is a word
+         ("Request"), not a glyph — it is the only thing you can do here, and the
+         rail has no other icon buttons to read it against. -->
     <section>
+      {#snippet reviewerActions()}
+        {#if onRequestReviewer}
+          <Button
+            bind:ref={reviewerTrigger}
+            type="button"
+            variant="ghost"
+            class="h-auto cursor-pointer p-0 text-[11px] font-normal text-muted-foreground hover:bg-transparent hover:text-foreground"
+            aria-label="Request a reviewer"
+            aria-haspopup="menu"
+            aria-expanded={reviewerMenuOpen}
+            onclick={() => (reviewerMenuOpen = !reviewerMenuOpen)}
+          >
+            {#if reviewerCandidatesLoading}
+              <CircleNotchIcon size={11} class="animate-spin" />
+            {/if}
+            Request
+          </Button>
+        {/if}
+      {/snippet}
       {#snippet reviewerCount()}
         <span class="text-[11px] tabular-nums text-muted-foreground">
           {approvedReviewers} of {reviewers.length} approved
@@ -235,27 +293,93 @@
       {/snippet}
       {@render sectionHead(
         "Reviewers",
-        !reviewersLoading && reviewers.length > 0 ? reviewerCount : undefined,
+        onRequestReviewer
+          ? reviewerActions
+          : !reviewersLoading && reviewers.length > 0
+            ? reviewerCount
+            : undefined,
       )}
       {#if reviewersLoading}
-        <div class="flex items-center gap-2 px-2">
-          <Skeleton class="size-[22px] shrink-0 rounded-full bg-muted" />
+        <div class="flex h-[30px] items-center gap-[9px] px-2">
+          <Skeleton class="size-5 shrink-0 rounded-full bg-muted" />
           <Skeleton class="h-3 w-24 rounded bg-muted" />
         </div>
       {:else if reviewers.length === 0}
-        <p class="px-2 text-[11.5px] text-muted-foreground">No reviewers yet</p>
+        <p class="px-2 text-[11.5px] text-muted-foreground">
+          No one requested yet
+        </p>
       {:else}
         <ul class="-mx-2 flex flex-col" role="list">
           {#each reviewers as reviewer (reviewer.login)}
-            <li class="flex items-center gap-2.5 rounded-lg px-2 py-1.5">
-              <PrAvatar name={reviewer.login} size="size-[22px] text-[10px]" />
-              <span class="min-w-0 flex-1 truncate text-[12.5px] font-medium">
+            <li
+              class="group/reviewer flex h-[30px] items-center gap-[9px] rounded-md px-2 transition-colors hover:bg-[var(--wash-1)]"
+            >
+              <PrAvatar name={reviewer.login} size="size-5 text-[9.5px]" />
+              <span class="min-w-0 flex-1 truncate text-[12.5px]">
                 {reviewer.login}
               </span>
-              <PrReviewStateBadge state={reviewer.state} />
+              <span
+                class="shrink-0 text-[10.5px] tracking-[.03em] whitespace-nowrap"
+                style={`color:${reviewerStateColor(reviewer.state)}`}
+              >
+                {reviewerStateLabel(reviewer.state)}
+              </span>
+              {#if reviewer.state === null && onRemoveReviewer}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={reviewerMutation === reviewer.login}
+                  class="size-4 shrink-0 cursor-pointer text-muted-foreground opacity-0 transition-opacity group-hover/reviewer:opacity-100 focus-visible:opacity-100 hover:text-foreground"
+                  aria-label={`Remove ${reviewer.login} as a requested reviewer`}
+                  onclick={() => onRemoveReviewer?.(reviewer.login)}
+                >
+                  {#if reviewerMutation === reviewer.login}
+                    <CircleNotchIcon size={11} class="animate-spin" />
+                  {:else}
+                    <XIcon size={11} />
+                  {/if}
+                </Button>
+              {/if}
             </li>
           {/each}
         </ul>
+      {/if}
+
+      {#if onRequestReviewer}
+        <DropdownMenu.Root bind:open={reviewerMenuOpen}>
+          <DropdownMenu.Content
+            customAnchor={reviewerTrigger}
+            side="bottom"
+            align="end"
+            sideOffset={6}
+            class="w-52"
+            aria-label="Request a reviewer"
+          >
+            {#if reviewerCandidatesLoading}
+              <DropdownMenu.Item disabled>Loading reviewers…</DropdownMenu.Item>
+            {:else if availableReviewerCandidates.length === 0}
+              <DropdownMenu.Item disabled>No reviewers available</DropdownMenu.Item>
+            {:else}
+              {#each availableReviewerCandidates as candidate (candidate.login)}
+                <DropdownMenu.Item
+                  disabled={reviewerMutation === candidate.login}
+                  onSelect={() => {
+                    reviewerMenuOpen = false;
+                    onRequestReviewer?.(candidate.login);
+                  }}
+                >
+                  <PrAvatar
+                    name={candidate.login}
+                    url={candidate.avatarUrl ?? ""}
+                    size="size-[20px] text-[9px]"
+                  />
+                  <span class="truncate">{candidate.login}</span>
+                </DropdownMenu.Item>
+              {/each}
+            {/if}
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
       {/if}
     </section>
 

@@ -113,7 +113,6 @@ import { ghostCompletion, showGhost } from "./lib/ghost-completion";
   // emphasis without defaultHighlightStyle's syntax palette — in particular,
   // that palette paints URL tokens purple (#219).
   const composerHighlightStyle = HighlightStyle.define([
-    { tag: tags.heading, fontWeight: "bold" },
     { tag: tags.emphasis, fontStyle: "italic" },
     { tag: tags.strong, fontWeight: "bold" },
     { tag: tags.strikethrough, textDecoration: "line-through" },

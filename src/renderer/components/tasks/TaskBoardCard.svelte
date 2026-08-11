@@ -78,7 +78,7 @@
   role="button"
   tabindex={floating ? -1 : 0}
   data-task-card={card.key}
-  class="group relative flex w-full shrink-0 flex-col items-stretch gap-[7px] overflow-hidden rounded-[10px] bg-card px-2.5 py-[9px] text-left select-none {floating
+  class="group relative flex w-full shrink-0 flex-col items-stretch gap-[7px] overflow-hidden rounded-2xl bg-card px-2.5 py-[9px] text-left select-none {floating
     ? 'cursor-grabbing shadow-[0_0_0_1px_color-mix(in_oklch,var(--foreground)_18%,transparent),0_4px_12px_-6px_rgba(24,20,16,.22)]'
     : 'cursor-pointer transition-[box-shadow,transform] duration-150 ease-out hover:-translate-y-px hover:shadow-[0_0_0_.5px_var(--hairline-strong),0_1px_2px_-1px_rgba(24,20,16,.10),0_12px_26px_-12px_rgba(24,20,16,.26)] focus-visible:-translate-y-px focus-visible:shadow-[0_0_0_.5px_var(--hairline-strongest),0_1px_2px_-1px_rgba(24,20,16,.10),0_12px_26px_-12px_rgba(24,20,16,.26)] focus-visible:outline-none'} {flashing
     ? 'shadow-[0_0_0_1px_color-mix(in_oklch,var(--primary)_55%,transparent),0_0_0_4px_color-mix(in_oklch,var(--primary)_12%,transparent)]'

@@ -627,7 +627,7 @@
     align-items: center;
     justify-content: center;
     border: 0.0625rem solid var(--border);
-    border-radius: 999px;
+    border-radius: 9999px;
     color: var(--primary-foreground);
   }
   .option-mark.is-multi {
@@ -642,7 +642,7 @@
   .option-dot {
     width: 0.4375rem;
     height: 0.4375rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--primary);
   }
 

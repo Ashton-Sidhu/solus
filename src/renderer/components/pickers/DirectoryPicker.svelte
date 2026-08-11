@@ -498,7 +498,7 @@
       bind:this={popoverEl}
       id="directory-picker"
       class="flex w-[clamp(35rem,64vw,56rem)] max-w-full h-[clamp(21.25rem,50vh,36.25rem)] origin-top flex-col overflow-hidden overscroll-contain
-        rounded-[0.875rem] bg-popover text-foreground
+        rounded-2xl bg-popover text-foreground
         shadow-[0_1.5rem_4rem_-1rem_rgba(28,22,15,0.34),0_0.0625rem_0.1875rem_rgba(28,22,15,0.10)]
         dark:shadow-[0_1.5rem_4rem_-1rem_rgba(0,0,0,0.55),inset_0_0_0_0.0625rem_var(--border)]
         max-md:mt-auto max-md:h-[90dvh] max-md:w-full max-md:rounded-b-none max-md:rounded-t-2xl"

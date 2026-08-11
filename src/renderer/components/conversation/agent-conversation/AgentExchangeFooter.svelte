@@ -58,7 +58,7 @@
 
   {#if onStop}
     <button
-      class="flex items-center gap-1.5 shrink-0 rounded-[7px] px-2.5 py-1 text-[12px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--destructive)_12%,transparent)] hover:text-(--destructive)"
+      class="flex items-center gap-1.5 shrink-0 rounded-lg px-2.5 py-1 text-[12px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--destructive)_12%,transparent)] hover:text-(--destructive)"
       onclick={onStop}
     >
       <svg
@@ -77,7 +77,7 @@
   {/if}
 
   <button
-    class="flex items-center gap-1.5 shrink-0 rounded-[7px] px-2.5 py-1 text-[12px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+    class="flex items-center gap-1.5 shrink-0 rounded-lg px-2.5 py-1 text-[12px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
     title="Open in a new tab"
     onclick={(e) =>
       onOpen({ split: e.metaKey || e.ctrlKey, background: e.shiftKey })}
@@ -100,7 +100,7 @@
   </button>
 
   <button
-    class="flex items-center justify-center shrink-0 size-[26px] rounded-[7px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+    class="flex items-center justify-center shrink-0 size-[26px] rounded-lg text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
     title="Open in split view"
     aria-label="Open {agentName} beside this conversation"
     onclick={() => onOpen({ split: true })}

@@ -50,7 +50,7 @@
   const state = $derived(
     message.toolStatus === "running"
       ? "running"
-      : message.toolResultIsError || message.toolStatus === "error"
+      : message.toolStatus === "error"
         ? "failed"
         : "done",
   );

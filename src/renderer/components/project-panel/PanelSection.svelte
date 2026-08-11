@@ -31,7 +31,7 @@
      collapsed section leaves a visible gap rather than silently shortening. -->
 <Sidebar.Group
   role="group"
-  class="group/section min-h-0 shrink-0 gap-0 rounded-[0.625rem] border border-[color-mix(in_srgb,var(--solus-text-primary)_8%,transparent)] bg-(--solus-container-bg) p-1.5 shadow-[0_1px_2px_-1px_rgba(0,0,0,0.05)] dark:border-[color-mix(in_srgb,var(--solus-text-primary)_11%,transparent)] dark:shadow-none"
+  class="group/section min-h-0 shrink-0 gap-0 rounded-2xl border border-[color-mix(in_srgb,var(--solus-text-primary)_8%,transparent)] bg-(--solus-container-bg) p-1.5 shadow-[0_1px_2px_-1px_rgba(0,0,0,0.05)] dark:border-[color-mix(in_srgb,var(--solus-text-primary)_11%,transparent)] dark:shadow-none"
 >
   <Sidebar.GroupLabel
     class="group/header h-auto min-h-6 justify-between gap-1 px-1.5 py-0"

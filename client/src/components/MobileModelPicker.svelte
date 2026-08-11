@@ -107,7 +107,7 @@
   });
 
   // Solus grouped bottom-sheet utilities — matches MobilePlusMenu's language.
-  const groupCard = "flex flex-col rounded-xl overflow-hidden border border-(--solus-container-border) bg-(--solus-surface-hover)";
+  const groupCard = "flex flex-col rounded-2xl overflow-hidden border border-(--solus-container-border) bg-(--solus-surface-hover)";
   const listRow =
     "flex items-center gap-3 w-full min-h-12 px-3.5 py-3 border-0 bg-transparent text-left cursor-pointer transition-colors duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:bg-(--solus-accent-light) disabled:opacity-40 disabled:cursor-default disabled:active:bg-transparent [-webkit-tap-highlight-color:transparent]";
   const rowDivider = "h-px bg-(--solus-container-border) opacity-60 ml-3.5";
@@ -145,7 +145,7 @@
        The sheet doesn't scroll; touch-none claims vertical drags for swipe-to-dismiss. -->
   <div
     bind:this={sheetEl}
-    class="fixed bottom-0 inset-x-0 z-[41] select-none rounded-t-[1.25rem] border-t border-(--solus-popover-border) bg-(--solus-popover-bg) backdrop-blur-[1.25rem] backdrop-saturate-[1.1] shadow-(--solus-popover-shadow) px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] touch-none will-change-transform [-webkit-user-select:none]"
+    class="fixed bottom-0 inset-x-0 z-[41] select-none rounded-t-2xl border-t border-(--solus-popover-border) bg-(--solus-popover-bg) backdrop-blur-[1.25rem] backdrop-saturate-[1.1] shadow-(--solus-popover-shadow) px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] touch-none will-change-transform [-webkit-user-select:none]"
     class:invisible={!visible}
     class:pointer-events-none={!visible}
     role="dialog"

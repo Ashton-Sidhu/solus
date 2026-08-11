@@ -104,7 +104,7 @@
   <div class="absolute inset-0 bg-black/20" aria-hidden="true"></div>
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div
-    class="relative flex max-h-[60vh] w-[460px] flex-col overflow-hidden rounded-xl bg-popover shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_14%,transparent),0_28px_50px_-18px_rgba(0,0,0,.24)]"
+    class="relative flex max-h-[60vh] w-[460px] flex-col overflow-hidden rounded-2xl bg-popover shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_14%,transparent),0_28px_50px_-18px_rgba(0,0,0,.24)]"
     onclick={(e) => e.stopPropagation()}
     role="dialog"
     aria-label="Link something to this task"

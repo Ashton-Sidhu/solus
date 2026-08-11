@@ -391,7 +391,7 @@
     height: 1.25rem;
     padding: 0 0.5rem;
     border: 0.0625rem solid color-mix(in srgb, var(--solus-art-2) 45%, transparent);
-    border-radius: 999px;
+    border-radius: 9999px;
     background: color-mix(in srgb, var(--solus-art-2) 12%, var(--solus-container-bg));
     font-size: 0.625rem;
     color: color-mix(in srgb, var(--solus-text-primary) 84%, var(--solus-text-tertiary));

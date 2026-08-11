@@ -11,11 +11,14 @@ import type {
   TaskProviderStatus,
   TaskSessionLink,
   TaskSidebarSnapshot,
+  TaskSidebarPrLink,
   TaskSnapshot,
+  TaskSnoozeInput,
   TaskStatus,
   TaskUpdatePatch,
 } from '../../../shared/task-types'
 import { upstreamTaskDetails } from './upstream-task-details'
+import { resolveTaskSnoozeReminder, type TaskSnoozeReminder } from './task-snooze'
 import type { HostApi } from '@client-core/host-api'
 
 const INVALIDATION_DEBOUNCE_MS = 100
@@ -39,6 +42,7 @@ export class TasksStore {
   loaded = $state(false)
   error = $state<string | null>(null)
   refreshedAt = $state<number | null>(null)
+  lifecycleNow = $state(Date.now())
 
   byProject: Map<string, Task[]> = $derived.by(() => {
     const grouped = new Map<string, Task[]>()
@@ -68,6 +72,7 @@ export class TasksStore {
   )
 
   sessionsByTask = new SvelteMap<string, TaskSessionLink[]>()
+  private prLinkByTask = new SvelteMap<string, TaskSidebarPrLink>()
   /** Comments, links and activity for tasks a detail surface has opened. */
   detailsByTask = new SvelteMap<string, TaskDetails>()
   providerStatusByCwd = new SvelteMap<string, TaskProviderStatus>()
@@ -88,6 +93,18 @@ export class TasksStore {
   private subscribedServerIds = new Set<string>()
 
   constructor() {
+    $effect(() => {
+      const now = this.lifecycleNow
+      const nextWake = this.tasks.reduce((next, task) => {
+        const until = task.snoozedUntil ?? 0
+        return until > now && (next === 0 || until < next) ? until : next
+      }, 0)
+      if (!nextWake) return
+      const timeout = window.setTimeout(() => {
+        this.lifecycleNow = Date.now()
+      }, Math.max(1, nextWake - Date.now()))
+      return () => window.clearTimeout(timeout)
+    })
     for (const serverId of serverConnections.connectedServerIds()) {
       this.watchHost(serverId)
     }
@@ -191,10 +208,28 @@ export class TasksStore {
     return this.taskById(id, projectKey) ?? null
   }
 
+  /** The durable linked PR wins. The captured task field keeps older hosts and
+   * migrated tasks working until their next explicit link write. */
+  prLinkFor(taskId: string | null | undefined): TaskSidebarPrLink | null {
+    if (!taskId) return null
+    const linked = this.prLinkByTask.get(taskId)
+    if (linked) return linked
+    const captured = this.taskById(taskId)?.pr
+    return captured ? { number: captured.number, url: captured.url } : null
+  }
+
   taskForSession(sessionId: string | null | undefined): Task | null {
     if (!sessionId) return null
     const taskId = this.taskIdBySessionId.get(sessionId)
     return taskId ? (this.tasks.find((task) => task.id === taskId) ?? null) : null
+  }
+
+  snoozeReminderForSession(sessionId: string | null | undefined): TaskSnoozeReminder | null {
+    return resolveTaskSnoozeReminder(this.taskForSession(sessionId), this.lifecycleNow)
+  }
+
+  sessionBranchFor(taskId: string, sessionId: string): string | null {
+    return this.sessionsByTask.get(taskId)?.find((link) => link.sessionId === sessionId)?.branch ?? null
   }
 
   providerStatus(cwd: string | null | undefined): TaskProviderStatus | null {
@@ -268,6 +303,7 @@ export class TasksStore {
         const failed = snapshots.filter((entry) => 'error' in entry)
         const ok = snapshots.filter((entry) => 'snapshot' in entry)
         this.hostByTaskId.clear()
+        this.prLinkByTask.clear()
         const merged: Task[] = []
         const links: Record<string, TaskSessionLink[]> = {}
         for (const { serverId, snapshot } of ok as Array<{ serverId: string; snapshot: TaskSidebarSnapshot }>) {
@@ -277,6 +313,9 @@ export class TasksStore {
           }
           for (const [taskId, list] of Object.entries(snapshot.sessionsByTask)) {
             links[taskId] = list as TaskSessionLink[]
+          }
+          for (const [taskId, pr] of Object.entries(snapshot.prLinksByTask ?? {})) {
+            this.prLinkByTask.set(taskId, pr)
           }
         }
         this.tasks.splice(0, this.tasks.length, ...merged)
@@ -461,6 +500,24 @@ export class TasksStore {
     return updated
   }
 
+  async snooze(id: string, input: TaskSnoozeInput): Promise<Task> {
+    const updated = await this.apiForTask(id).tasksSnooze(id, input)
+    this.replace(id, updated)
+    return updated
+  }
+
+  async markRead(id: string, read: boolean): Promise<Task> {
+    const updated = await this.apiForTask(id).tasksMarkRead(id, read)
+    this.replace(id, updated)
+    return updated
+  }
+
+  async recordActivity(id: string): Promise<Task> {
+    const updated = await this.apiForTask(id).tasksRecordActivity(id)
+    this.replace(id, updated)
+    return updated
+  }
+
   /** `serverId` is the host the task belongs to — the one that owns the project
    *  it was created from. Omitted, it lands on the primary host. */
   async create(input: TaskCreateInput, serverId?: string): Promise<Task> {
@@ -535,10 +592,11 @@ export class TasksStore {
     taskId: string,
     sessionId: string,
     execution: SessionExecutionHost | null,
+    branch: string | null,
   ): Promise<void> {
     await serverConnections
       .apiFor(serverId)
-      .tasksLinkSession(taskId, sessionId, 'working', execution)
+      .tasksLinkSession(taskId, sessionId, 'working', execution, branch)
   }
 
   /** Attach a doc, plan, PR or automation to a task. */
@@ -597,6 +655,15 @@ export class TasksStore {
    * session-tree read, and nothing else, so no surface can narrow it by opening. */
   private reconcileDetails(details: TaskDetails): void {
     this.replace(details.task.id, details.task)
+    const pr = details.links.find((link) => link.kind === 'pr' && Number.isSafeInteger(Number(link.targetKey)))
+    if (pr) {
+      this.prLinkByTask.set(details.task.id, {
+        number: Number(pr.targetKey),
+        ...(pr.url ? { url: pr.url } : {}),
+      })
+    } else {
+      this.prLinkByTask.delete(details.task.id)
+    }
     for (const subtask of details.subtasks) this.replace(subtask.id, subtask)
     this.detailsByTask.set(details.task.id, details)
   }

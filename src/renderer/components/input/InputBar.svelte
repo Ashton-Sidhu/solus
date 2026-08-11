@@ -62,9 +62,10 @@
     pastedImageAttachment,
     uploadPastedImage,
   } from "./lib/attachment-upload";
-
-  const HISTORY_KEY = "solus-prompt-history";
-  const MAX_HISTORY = 100;
+  import {
+    loadPromptHistory,
+    savePromptToHistory,
+  } from "./lib/prompt-history";
 
   import type { Snippet } from "svelte";
 
@@ -195,25 +196,9 @@
 
   // ─── Prompt history ───
 
-  function loadHistory(): string[] {
-    try {
-      const stored = localStorage.getItem(HISTORY_KEY);
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  }
-  let promptHistory = $state<string[]>(loadHistory());
+  let promptHistory = $state<string[]>(loadPromptHistory(localStorage));
   let historyIndex = $state(-1);
   let savedInput = "";
-
-  function savePromptToHistory(text: string) {
-    if (!text || promptHistory[promptHistory.length - 1] === text) return;
-
-    promptHistory.push(text);
-    if (promptHistory.length > MAX_HISTORY) promptHistory.shift();
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(promptHistory));
-  }
 
   function resetHistoryNavigation() {
     historyIndex = -1;
@@ -236,6 +221,16 @@
   });
   const editorValue = $derived(isActiveMode ? prompt.text : frozenText);
   let composerEl: ReturnType<typeof PromptEditor> | null = $state(null);
+  // The draft route stays mounted while its draft id changes. The editor then
+  // receives a different prompt object without an input event, so explicitly
+  // retire any trigger state that belonged to the previous draft.
+  let autocompletePrompt = untrack(() => prompt);
+  $effect(() => {
+    const nextPrompt = prompt;
+    if (nextPrompt === autocompletePrompt) return;
+    autocompletePrompt = nextPrompt;
+    untrack(() => composerEl?.clearCompletions());
+  });
   /** The composer card — the saved-prompts sheet matches its width. */
   let composerRootEl = $state<HTMLElement | null>(null);
 
@@ -1048,7 +1043,7 @@
       return false;
     }
 
-    savePromptToHistory(text);
+    promptHistory = savePromptToHistory(localStorage, text);
     prompt.text = "";
     resetHistoryNavigation();
     composerEl?.clearEditor();
@@ -1111,6 +1106,12 @@
   }
 
   function navigateHistory(delta: -1 | 1) {
+    // Editor mode, Pill mode, and split panes keep separate composers mounted.
+    // Ctrl+C can refocus a composer other than the one that sent the prompt, so
+    // refresh from the shared durable history before recall.
+    if (historyIndex === -1) {
+      promptHistory = loadPromptHistory(localStorage);
+    }
     if (delta === -1) {
       if (historyIndex === -1) {
         savedInput = inputText;

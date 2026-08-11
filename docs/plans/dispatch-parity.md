@@ -23,6 +23,49 @@ implementing, worth keeping:
 4. **The snapshot marks foreignness.** The execution host skips its local
    `_linkPreparedTask` write exactly when a snapshot was shipped — no separate
    flag, since shipping one is the definition of "this task lives elsewhere".
+5. **Foreign lookups key by the Solus session id, and tools must present it.**
+   The ControlPlane holds the snapshot under Solus's `sessionId`, but
+   `AgentToolContext.sessionId()` reports the provider's thread id — a
+   different string — so every production `foreignTaskFor` lookup missed and
+   the tools fell through to the execution host's empty store ("not found").
+   The unit tests used one string for both ids and could not see it.
+   `AgentToolContext` now also carries `solusSessionId()` (backed by
+   `RunHandle.sessionId`); foreign lookups use it, while durable rows
+   (comments, links, provenance) keep the provider id.
+6. **Linked items ride the snapshot, at per-kind depth.** The packet and
+   comments point the agent at linked items, and the execution host cannot
+   read the task host's stores. The snapshot RPC sites now wrap `taskSnapshot`
+   with `attachLinkedContent` (`src/main/tasks/linked-content.ts`), which ships
+   the full content of content-bearing links — works from the folio store,
+   plans through the session controller — as `TaskSnapshot.linked`
+   (`TaskLinkedItemSnapshot`). PR and automation links ship nothing extra;
+   their facts already ride `details.links`. On the execution host:
+   `read_work`/`read_plan`/`list_works` serve the shipped copies marked
+   read-only; `read_pr` falls back to the link's facts when no provider is
+   reachable; `read_automation` serves the link's facts; and every write
+   against a shipped item (`update_work`, `comment_document`, automation
+   mutations) fails honestly, pointing at `comment_task`. Content ships in
+   full on every prompt — ship-on-change is a later optimization if payload
+   profiles demand it.
+7. **The packet and `read_task` render the Linked list.** Links previously
+   rendered nowhere agent-visible, so an agent — local or dispatched — could
+   not discover the design doc its task pointed at. `formatTaskContext` and
+   `read_task` now list each link with the id its read tool takes
+   (`formatTaskLink`).
+8. **`works` is the outbox's second domain.** A dispatched session's works
+   belong to its task's host: `create_work`/`update_work` record ops instead
+   of writing to the borrowed machine (`src/main/folio/work-applier.ts`; the
+   dispatch marker is the held foreign snapshot, via `foreignTaskIdFor`). The
+   op's resourceId is the work id — minted at record time for a create — and
+   the applier writes the row under it (id-keyed idempotence) then links the
+   task, so the next snapshot re-ship carries the work back and converges with
+   the record-time overlay, exactly as task comments do. Because a create op
+   names a work id no host has yet, every works op carries `taskId` and the
+   courier's `OwnerResolver` now receives the op group: the works resolver
+   locates the owner through the task. A dispatched session without a bound
+   task keeps today's local-write behavior — there is no owner pointer to
+   route by. Annotations (`comment_document`) remain unsupported cross-host;
+   automations and plans can join the same registry later.
 
 - **Decisions**: [ADR-0006](../adr/0006-the-task-host-is-the-projects-host.md)
   (a run names two hosts), [ADR-0007](../adr/0007-clients-ferry-cross-host-writes-through-an-outbox.md)

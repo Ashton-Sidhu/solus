@@ -110,7 +110,7 @@
   }
 </script>
 
-<div class="overflow-hidden rounded-xl border border-border bg-card">
+<div class="overflow-hidden rounded-2xl border border-border bg-card">
   <div class="flex items-center gap-2 border-b border-border px-3 py-2">
     {#if diffHunk && !collapsed}
       <Button

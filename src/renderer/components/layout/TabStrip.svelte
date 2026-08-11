@@ -280,7 +280,7 @@
   // tick→rAF→scrollIntoView→setTimeout chain.
   let lastActiveId = "";
   $effect(() => {
-    const activeId = session.activeTabId;
+    const activeId = session.onScreenTabId;
     // Re-run on active-tab change or a real reorder/group-move — not on every
     // background status tick (see layoutKey).
     void layoutKey;
@@ -306,7 +306,7 @@
     // measures the tab at its old width, which can leave its trailing edge just
     // outside the viewport when the rightmost active tab is closed.
     const t = setTimeout(() => {
-      if (activeChanged && session.activeTabId === activeId) {
+      if (activeChanged && session.onScreenTabId === activeId) {
         const settledActiveEl = sc.querySelector(
           '[aria-selected="true"]',
         ) as HTMLElement | null;
@@ -398,7 +398,7 @@
 {/snippet}
 
 <Tabs.Root
-  value={session.activeTabId}
+  value={session.onScreenTabId}
   onValueChange={(value) => {
     session.selectTab(value);
     requestInputFocus();
@@ -457,7 +457,7 @@
             {#each group.tabIds as tabId (tabId)}
               {@const tab = session.tabs[tabId]}
               {@const sess = session.sessionFor(tabId)}
-              {@const isActive = tabId === session.activeTabId}
+              {@const isActive = tabId === session.onScreenTabId}
               {@const attention =
                 tab && sess
                   ? getAttentionState(sess, tab, planStore.plans)
@@ -498,7 +498,7 @@
           {#each renderedTabIds as tabId (tabId)}
             {@const tab = session.tabs[tabId]}
             {@const sess = session.sessionFor(tabId)}
-            {@const isActive = tabId === session.activeTabId}
+            {@const isActive = tabId === session.onScreenTabId}
             {@const attention =
               tab && sess
                 ? getAttentionState(sess, tab, planStore.plans)

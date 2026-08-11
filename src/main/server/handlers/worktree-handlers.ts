@@ -8,12 +8,21 @@ import { getDiff, getDiffFileContents, getDiffStats, listTurnSnapshots } from '.
 import { TextGenerator } from '../../agents/text-generator'
 import { createLogger } from '../../logger'
 import { Task } from '../../tasks/task'
-import type { SolusServer } from '../server'
+import { loadGitHubAccessToken } from '../../providers/github/git-credential'
+import { LOCAL_DEVICE_LABEL, type HandlerCtx, type SolusServer } from '../server'
 
 const log = createLogger('main', 'worktree-handlers')
 
 export interface WorktreeDeps {
   controlPlane: ControlPlane
+}
+
+/** A remote caller may use only its delegated credential, never the host owner's token. */
+export function githubTokenForWorktreeRequest(ctx: HandlerCtx): string | null {
+  if (ctx.deviceLabel === LOCAL_DEVICE_LABEL || (!ctx.clientId && !ctx.deviceId)) {
+    return loadGitHubAccessToken()
+  }
+  return ctx.deviceId ? loadGitHubAccessToken(ctx.deviceId) : null
 }
 
 async function resolveGitCheckout(ctx: IpcContext) {
@@ -105,13 +114,14 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     return await listTurnSnapshots(repoRoot, sid)
   })
 
-  server.register('worktreePR', async (args) => {
+  server.register('worktreePR', async (args, handlerCtx) => {
     const [ctx] = args as [IpcContext]
     log.info('rpc_worktree_pr', { sessionId: ctx.session.sessionId })
     if (!ctx.session.gitContext) return { success: false, error: 'No active git branch for this tab' }
     const cwd = ctx.session.gitContext.worktreePath || ctx.session.workingDirectory
     const result = await createPR(ctx.session.gitContext, ctx.session.workingDirectory, {
       ...commitMessageOptions(ctx),
+      githubToken: githubTokenForWorktreeRequest(handlerCtx),
       generatePRText: (prompt) => textGenerator.generate({
         provider: ctx.session.provider ?? ctx.settings.activeAgent,
         model: ctx.statusBar.model,

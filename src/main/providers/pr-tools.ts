@@ -4,6 +4,7 @@ import { resolveRepoRef, resolveRepoRoot } from '../git/git-helpers'
 import { runAsync } from '../git/exec'
 import { writeReviewCheckpoint } from '../review/checkpoints'
 import { providerForRepo } from './registry'
+import { foreignTaskLinksFor } from '../tasks/foreign-tasks'
 import { GitHubReauthRequiredError } from './github/octokit'
 import type { DraftReview, DraftReviewComment, PrFilter, RepoRef, ReviewThread } from '../../shared/providers'
 import type { AgentTool } from '../agents/tools/agent-tool'
@@ -72,6 +73,9 @@ const SUBMIT_REVIEW_DESC = 'Submit a PR review with COMMENT or REQUEST_CHANGES. 
 
 export interface PrToolCtx {
   cwd: string
+  /** Solus session id — keys a dispatched session's shipped task snapshot,
+   *  whose PR links still answer when this host has no provider access. */
+  solusSessionId?: string
 }
 
 export interface PrToolDeps {
@@ -129,7 +133,29 @@ export async function executePrTool(
   const cwd = deps.ctx.cwd
   try {
     const target = await targetFor(cwd)
-    if ('error' in target) return { ok: false, text: target.error }
+    if ('error' in target) {
+      // A dispatched session's task may link PRs this host cannot reach (no
+      // remote, no auth). The link's snapshot facts still answer read_pr
+      // honestly instead of a bare provider error.
+      if (name === 'read_pr') {
+        const number = Number(args.number ?? 0)
+        const link = foreignTaskLinksFor(deps.ctx.solusSessionId).find(
+          (candidate) => candidate.kind === 'pr' && candidate.targetKey === String(number),
+        )
+        if (link) {
+          return {
+            ok: true,
+            text: [
+              `#${link.targetKey} ${link.title}`,
+              ...(link.url ? [`url: ${link.url}`] : []),
+              '',
+              `This host cannot read the PR itself (${target.error}) — only the task's linked facts are available here. Use the URL, or work the PR from the task's host.`,
+            ].join('\n'),
+          }
+        }
+      }
+      return { ok: false, text: target.error }
+    }
     const { repo, provider } = target
 
     if (name === 'list_prs') {
@@ -273,7 +299,9 @@ function prAgentTool(
     description,
     inputShape,
     requiresApproval,
-    execute: async (args, context) => executePrTool(name, args, { ctx: { cwd: context.cwd } }),
+    execute: async (args, context) => executePrTool(name, args, {
+      ctx: { cwd: context.cwd, solusSessionId: context.solusSessionId() },
+    }),
   }
 }
 

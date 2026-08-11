@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { PrReviewContext } from "../../../shared/types";
+  import type { PrReviewTarget } from "../../../shared/providers";
   import { getWorkspaceContext } from "../../contexts";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
@@ -18,9 +18,10 @@
 
   const session = getWorkspaceContext();
   const pane = paneActions(paneId);
+  const embedded = $derived(!pane.isLeading);
 
   const ref = $derived({ name: "prReview" as const, params });
-  const pr = $derived(session.router.resolvedFor<PrReviewContext>(ref));
+  const pr = $derived(session.router.resolvedFor<PrReviewTarget>(ref));
   const api = $derived(
     params.serverId
       ? serverConnections.apiFor(params.serverId)
@@ -29,6 +30,12 @@
   const serverId = $derived(
     params.serverId ?? serverConnections.serverIdForApi(api),
   );
+
+  async function refreshTarget(): Promise<void> {
+    const ctx = params.cwd ? session.ctxForDirectory(params.cwd) : session.ctx;
+    const next = await api.prOpenReview(ctx, params.number);
+    session.router.setResolved(ref, next);
+  }
 
   // The review's chat is whichever open tab is rooted in this PR's worktree —
   // derived rather than stored, so nothing has to be attached or torn down.
@@ -47,4 +54,9 @@
   {chatTabId}
   maximized={pane.maximized}
   onToggleMaximize={pane.toggleMaximize}
+  onRefreshTarget={refreshTarget}
+  {embedded}
+  fullScreen={pane.maximized}
+  onToggleFullScreen={pane.toggleMaximize}
+  onExit={embedded ? pane.close : undefined}
 />

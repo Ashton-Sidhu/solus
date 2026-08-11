@@ -27,7 +27,7 @@
 
 <div class="flex shrink-0 items-center gap-2 pb-3.5">
   <div
-    class="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-[10px] px-[9px] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
+    class="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-lg px-[9px] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
   >
     <MagnifyingGlassIcon size={12} class="shrink-0 text-muted-foreground opacity-70" />
     <input
@@ -48,7 +48,7 @@
     {@const Icon = filter.icon}
     <button
       type="button"
-      class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-[10px] border-0 px-2.5 text-[13px] transition-colors duration-150 {filter.active
+      class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 text-[13px] transition-colors duration-150 {filter.active
         ? 'bg-[color-mix(in_oklch,var(--primary)_13%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
         : 'bg-transparent text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)]'}"
       onclick={filter.toggle}

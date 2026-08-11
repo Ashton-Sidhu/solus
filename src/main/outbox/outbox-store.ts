@@ -124,6 +124,18 @@ export function pendingOutboxOpsFor(domain: OutboxDomain, resourceId: string): O
   return rows.map(opFromRow)
 }
 
+/** Every pending op in one domain — how a re-shipped task snapshot finds the
+ *  works ops that must overlay it (they are keyed by work id, not task id, so
+ *  the caller filters by payload). */
+export function pendingOutboxOpsForDomain(domain: OutboxDomain): OutboxOp[] {
+  const rows = getDb().prepare(`
+    SELECT * FROM outbox_ops
+    WHERE domain = ? AND state = 'pending'
+    ORDER BY id
+  `).all(domain) as unknown as OutboxOpRow[]
+  return rows.map(opFromRow)
+}
+
 /** Delivered (or permanently failed-elsewhere) ops leave the queue. Unknown ids
  *  are a no-op: a lost ack means the client re-acks after redelivery. */
 export function ackOutboxOps(opIds: string[]): void {

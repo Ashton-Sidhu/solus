@@ -784,6 +784,7 @@
         voiceModelStore.apply(status, serverId),
       );
       const unsubSessionStatuses = sessionSidebarStore.subscribeSessionStatuses();
+      const unsubPrLifecycle = sessionSidebarStore.subscribePrLifecycle();
       void voiceModelStore.refresh();
       const unsubUsage = events.subscribe('usage.limitsChanged', ({ snapshots }) =>
         agent.applyUsage(snapshots),
@@ -835,6 +836,7 @@
       return () => {
         unsubVoiceModel();
         unsubSessionStatuses();
+        unsubPrLifecycle();
         unsubUsage();
         unsubAutomations();
         unsubAnnotations();
@@ -2575,7 +2577,7 @@
     align-items: center;
     gap: 0.625rem;
     padding: 1.5rem 2.5rem;
-    border-radius: 0.75rem;
+    border-radius: 1rem;
     border: 0.0938rem dashed var(--color-zinc-600);
     color: var(--color-zinc-400);
     font-size: 0.8125rem;

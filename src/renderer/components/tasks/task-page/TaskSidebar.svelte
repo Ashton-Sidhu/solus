@@ -57,7 +57,7 @@
 </script>
 
 <div
-  class="sticky top-0 flex w-[308px] shrink-0 flex-col rounded-[14px] bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent),0_1px_2px_-1px_rgba(0,0,0,.05),0_12px_28px_-12px_rgba(0,0,0,.14)]"
+  class="sticky top-0 flex w-[308px] shrink-0 flex-col rounded-2xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent),0_1px_2px_-1px_rgba(0,0,0,.05),0_12px_28px_-12px_rgba(0,0,0,.14)]"
 >
   <div class={GROUP}>
     <div class={ROW}>
@@ -113,7 +113,7 @@
           <span class="flex h-[9px] shrink-0 items-end gap-[1.5px]" aria-hidden="true">
             {#each bars as bar (bar.height)}
               <span
-                class="w-[2.5px] rounded-[1px]"
+                class="w-[2.5px] rounded-[0.0625rem]"
                 style="height:{bar.height};background:{bar.background}"
               ></span>
             {/each}

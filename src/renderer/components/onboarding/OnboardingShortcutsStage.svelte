@@ -77,7 +77,7 @@
     {#each keys as key, index (key.id)}
       {@const lit = !!pressed[key.id]}
       <div
-        class="onboarding-enter flex min-h-[4.5rem] items-center gap-3.5 rounded-xl px-4 py-3 transition-[background-color,transform] duration-200"
+        class="onboarding-enter flex min-h-[4.5rem] items-center gap-3.5 rounded-lg px-4 py-3 transition-[background-color,transform] duration-200"
         style="animation-delay: {index * 0.05}s; {lit
           ? 'background: color-mix(in oklch, var(--primary) 10%, transparent); transform: translate3d(0, -2px, 0)'
           : 'background: var(--wash-1)'}"

@@ -281,6 +281,17 @@ export function eventLine(event: TaskEvent): { icon: string; text: string } {
       return { icon: EVENT_GLYPHS.link, text: `${who} unlinked ${target}` }
     case 'session_started':
       return { icon: EVENT_GLYPHS.clock, text: 'Session started' }
+    case 'snoozed':
+      return {
+        icon: EVENT_GLYPHS.clock,
+        text: target ? `${who} snoozed this task — ${target}` : `${who} snoozed this task`,
+      }
+    case 'woke':
+      return { icon: EVENT_GLYPHS.clock, text: `${who} woke this task` }
+    case 'pr_merged':
+      return { icon: EVENT_GLYPHS.link, text: 'Pull request merged' }
+    case 'pr_closed':
+      return { icon: EVENT_GLYPHS.link, text: 'Pull request closed' }
   }
 }
 

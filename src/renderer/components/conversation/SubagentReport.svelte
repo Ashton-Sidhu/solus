@@ -62,7 +62,7 @@
          agent didn't write. Collapsed it states what it asked for and what the
          run cost the checkout; opened it is the prompt, verbatim. -->
     <div
-      class="mb-5 w-full rounded-xl bg-[color-mix(in_oklch,var(--foreground)_2.5%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
+      class="mb-5 w-full rounded-2xl bg-[color-mix(in_oklch,var(--foreground)_2.5%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
     >
       <button
         type="button"

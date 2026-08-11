@@ -39,7 +39,7 @@
 </script>
 
 <div
-  class="status-row flex items-center gap-2.5 rounded-xl py-[0.4375rem] pr-3 pl-2.5"
+  class="status-row flex items-center gap-2.5 rounded-lg py-[0.4375rem] pr-3 pl-2.5"
   role="status"
   data-testid={dataTestId}
 >
@@ -114,7 +114,7 @@
     width: 4.5rem;
     height: 0.1875rem;
     overflow: hidden;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: color-mix(in oklch, var(--foreground) 8%, transparent);
   }
 

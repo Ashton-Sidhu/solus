@@ -103,13 +103,13 @@
   onmousemove={onHover}
 >
   <div
-    class="relative flex w-full items-center rounded-[0.625rem] px-3 py-1.5 group-focus-visible:shadow-[inset_0.125rem_0_0_var(--solus-accent),0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_22%,transparent)]
+    class="relative flex w-full items-center rounded-lg px-3 py-1.5 group-focus-visible:shadow-[inset_0.125rem_0_0_var(--solus-accent),0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_22%,transparent)]
       {isSelected
       ? 'bg-[var(--solus-accent-light)] group-hover:bg-[var(--solus-accent-soft)]'
       : 'group-hover:bg-(--solus-surface-hover)'}"
   >
     <span
-      class="relative mr-[0.5625rem] inline-flex h-[1.375rem] w-[1.375rem] flex-shrink-0 items-center justify-center rounded-[0.4375rem] {statusIcon
+      class="relative mr-[0.5625rem] inline-flex h-[1.375rem] w-[1.375rem] flex-shrink-0 items-center justify-center rounded-lg {statusIcon
         ? 'opacity-100'
         : 'opacity-[0.92]'} {iconClass}"
       aria-label={providerLabel}
@@ -143,7 +143,7 @@
             ? 'font-[550]'
             : 'font-[450]'}"
           >{#each titleRuns as run, i (i)}{#if run.hit}<mark
-                class="rounded-[3px] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
+                class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
                 >{run.text}</mark
               >{:else}{run.text}{/if}{/each}</span
         >
@@ -170,7 +170,7 @@
         <span
           class="min-w-0 flex-shrink overflow-hidden text-ellipsis whitespace-nowrap text-[0.6875rem] tracking-[0.005em] text-[var(--solus-text-tertiary)]"
           >{#each bylineRuns as run, i (i)}{#if run.hit}<mark
-                class="rounded-[3px] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
+                class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
                 >{run.text}</mark
               >{:else}{run.text}{/if}{/each}</span
         >

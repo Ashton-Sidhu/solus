@@ -18,6 +18,22 @@ export interface SessionLoadMessage {
   timestamp: number
 }
 
+export interface AgentConversationResultProjection {
+  agentSessionId?: string
+  watcherRegistered?: boolean
+}
+
+/** History row shape allowed across the host-to-client boundary. */
+export interface WireSessionLoadMessage extends Omit<SessionLoadMessage, 'toolResultIsError'> {
+  /** A subagent's answer, separated from ordinary tool output. */
+  report?: string
+  status?: 'ok' | 'error'
+  errorHead?: string
+  contentBytes?: number
+  /** Structured correlation facts extracted before tool output is discarded. */
+  agentConversationResult?: AgentConversationResultProjection
+}
+
 export interface SessionPreviewResult {
   head: SessionLoadMessage[]
   tail: SessionLoadMessage[]

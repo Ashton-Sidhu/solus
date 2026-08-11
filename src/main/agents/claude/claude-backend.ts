@@ -180,6 +180,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       provider: 'claude-code',
       cwd: request.cwd,
       sessionId: () => handle.agentSessionId ?? sessionRef.current ?? undefined,
+      solusSessionId: () => handle.sessionId,
       abortSignal: abortController.signal,
       parentToolUseId: () => undefined,
       emit: (event) => this.emit('normalized', handle.agentSessionId, event),

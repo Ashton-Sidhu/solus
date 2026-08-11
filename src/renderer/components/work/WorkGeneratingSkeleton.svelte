@@ -15,7 +15,7 @@
        a fill, it only travels: a 10% accent highlight sweeping the bones plus a
        2px indeterminate hairline along the bottom edge. -->
   <div
-    class="work-skeleton mx-auto flex w-[88%] flex-col overflow-hidden rounded-xl"
+    class="work-skeleton mx-auto flex w-[88%] flex-col overflow-hidden rounded-2xl"
     role="status"
     aria-label="Generating {kicker.toLowerCase()}"
   >

@@ -194,7 +194,7 @@
     bind:this={popoverEl}
     use:portal={layer.el}
     transition:fly={{ y: 4, duration: 120 }}
-    class="rounded-[14px] bg-(--solus-popover-bg) border border-(--solus-popover-border)"
+    class="rounded-2xl bg-(--solus-popover-bg) border border-(--solus-popover-border)"
     style="
         position:fixed;
         bottom:{pos.bottom}px;
@@ -266,7 +266,7 @@
           </button>
           {#if agentOpen}
             <div
-              class="rounded-[14px] bg-(--solus-popover-bg) border border-(--solus-popover-border)"
+              class="rounded-2xl bg-(--solus-popover-bg) border border-(--solus-popover-border)"
               style="
                 position:absolute;
                 top:calc(100% + 0.25rem);
@@ -498,7 +498,7 @@
             {#if editorOpen}
               {@const selected = theme.defaultEditor ?? ""}
               <div
-                class="rounded-[14px] bg-(--solus-popover-bg) border border-(--solus-popover-border)"
+                class="rounded-2xl bg-(--solus-popover-bg) border border-(--solus-popover-border)"
                 style="
                     position:absolute;
                     top:calc(100% + 0.25rem);
@@ -562,7 +562,7 @@
             {#if terminalOpen}
               {@const selected = theme.defaultTerminal ?? "default-terminal"}
               <div
-                class="rounded-[14px] bg-(--solus-popover-bg) border border-(--solus-popover-border)"
+                class="rounded-2xl bg-(--solus-popover-bg) border border-(--solus-popover-border)"
                 style="
                     position:absolute;
                     top:calc(100% + 0.25rem);
@@ -626,7 +626,7 @@
           {#if rateLimitOpen}
             {@const selected = theme.rateLimitBehavior}
             <div
-              class="rounded-[14px] bg-(--solus-popover-bg) border border-(--solus-popover-border)"
+              class="rounded-2xl bg-(--solus-popover-bg) border border-(--solus-popover-border)"
               style="
                 position:absolute;
                 bottom:calc(100% + 0.25rem);

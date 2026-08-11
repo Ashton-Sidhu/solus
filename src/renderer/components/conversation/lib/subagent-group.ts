@@ -61,7 +61,7 @@ export function subagentState(message: Message): SubagentRowState {
   // toolStatus tracks the agent, not its tool call: a backgrounded agent's
   // tool_result lands at launch, so only toolStatus says "still working".
   if (message.toolStatus === 'running') return 'running'
-  if (message.toolResultIsError || message.toolStatus === 'error') return 'failed'
+  if (message.toolStatus === 'error') return 'failed'
   return 'done'
 }
 
@@ -116,7 +116,7 @@ function resultSummary(message: Message, subs: Message[]): string {
   // A backgrounded agent never returns a tool_result, so fall back to the last
   // thing it said in its own transcript — that is its answer.
   const text =
-    message.toolResult ||
+    message.report ||
     subs.findLast((m) => m.role === 'assistant' && m.content.trim())?.content ||
     ''
   const first = text

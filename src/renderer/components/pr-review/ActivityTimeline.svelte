@@ -212,7 +212,7 @@
             <ul class="mt-2 flex flex-col gap-1.5" role="list">
               {#each preview.visible as commit (commit.sha)}
                 <li
-                  class="flex items-center gap-3 rounded-[10px] bg-card px-3 py-[9px] shadow-[inset_0_0_0_.5px_var(--hairline-strong)]"
+                  class="flex items-center gap-3 rounded-2xl bg-card px-3 py-[9px] shadow-[inset_0_0_0_.5px_var(--hairline-strong)]"
                 >
                   <code class="shrink-0 font-mono text-[11px] text-primary"
                     >{commit.sha.slice(0, 7)}</code

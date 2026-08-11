@@ -1,11 +1,11 @@
-import type { DraftReview } from '../../../../shared/providers'
-import type { IpcContext, PrReviewContext } from '../../../../shared/types'
+import type { DraftReview, PrReviewTarget } from '../../../../shared/providers'
+import type { IpcContext } from '../../../../shared/types'
 import type { PendingDisposition } from '../../../../shared/review-session-types'
 import type { DispositionPoster } from './review-session-core'
 
 interface ReviewDispositionPosterOptions {
   getContext: () => IpcContext
-  getReview: (prNumber: number) => PrReviewContext | null
+  getReview: (prNumber: number) => PrReviewTarget | null
   submit: (ctx: IpcContext, prNumber: number, review: DraftReview) => Promise<void>
 }
 
