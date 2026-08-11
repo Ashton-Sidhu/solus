@@ -78,7 +78,7 @@
     <div
       class="text-[12px] mb-[7px] {message.from === 'you'
         ? 'font-medium text-muted-foreground'
-        : 'font-semibold text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]'}"
+        : 'font-medium text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]'}"
     >
       {label}
     </div>
@@ -91,7 +91,7 @@
            is speaking, and the switchboard's tabs make that ambiguous. -->
       <span class="flex items-center gap-2">
         <span
-          class="text-[12px] font-semibold text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]"
+          class="text-[12px] font-medium text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]"
         >
           {agentName} is responding
         </span>

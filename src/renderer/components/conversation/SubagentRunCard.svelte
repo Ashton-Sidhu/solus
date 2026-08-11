@@ -75,7 +75,7 @@
     {/if}
     <span class="min-w-0 max-w-[27.5rem]">
       <span
-        class="block truncate text-[0.84375rem] leading-[1.25] font-semibold tracking-[-0.014em]"
+        class="block truncate text-[0.84375rem] leading-[1.25] font-medium "
         >{row.name}</span
       >
       <!-- One slot, not a fixed field: the live tool while it runs, the reason it
@@ -88,7 +88,7 @@
       {:else}
         <span class="mt-[0.1875rem] flex items-baseline gap-[0.4375rem]">
           <span
-            class="run-card__shim shrink-0 text-[0.6875rem] font-medium tracking-[0.01em]"
+            class="run-card__shim shrink-0 text-[0.6875rem] font-medium "
             >{row.activity}</span
           >
           {#if path.file}
@@ -107,7 +107,7 @@
     <span class="flex shrink-0 items-baseline gap-[0.6875rem]">
       {#if hasSteps}
         <span
-          class="font-mono text-[0.71875rem] tracking-[-0.01em] tabular-nums"
+          class="font-mono text-[0.71875rem] tabular-nums"
           ><span class="opacity-95">{steps.done}</span><span
             class="text-(--muted-foreground) opacity-50">{steps.total}</span
           ></span
@@ -128,7 +128,7 @@
           aria-hidden="true"
         ></span>
         <span
-          class="font-mono text-[0.65625rem] tracking-[0.01em] text-(--muted-foreground) opacity-45"
+          class="font-mono text-[0.65625rem] text-(--muted-foreground) opacity-45"
           >{row.meta}</span
         >
       {/if}

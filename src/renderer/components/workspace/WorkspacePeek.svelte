@@ -107,8 +107,8 @@
   use:portal={document.body}
   bind:clientHeight={height}
   class="fixed z-50 flex flex-col gap-2 rounded-2xl border border-[var(--solus-popover-border)] bg-[var(--solus-popover-bg)] p-[12px_14px_11px] text-left shadow-[shadow:var(--solus-popover-shadow)] backdrop-blur-[14px] {placed
-    ? 'peek-in'
-    : 'invisible'} {pinned ? '' : 'pointer-events-none'}"
+ ? 'peek-in'
+ : 'invisible'} {pinned ? '' : 'pointer-events-none'}"
   style="left:{box.left}px; top:{box.top}px; width:{box.width}px"
   role="tooltip"
   data-testid="workspace-peek"
@@ -116,7 +116,7 @@
   <!-- Kind · origin · age, then the plan's status word in its own colour. The
        title is not repeated — it is two pixels above, in the row. -->
   <div class="flex items-center gap-2 text-[11px] text-muted-foreground">
-    <span class="text-[10px] font-[450] tracking-[.09em] uppercase">
+    <span class="text-[10px] font-normal uppercase">
       {KIND_LABELS[item.type]}
     </span>
     <span class="opacity-35" aria-hidden="true">·</span>
@@ -129,8 +129,8 @@
       <span class="opacity-35" aria-hidden="true">·</span>
       <span
         class="shrink-0 {item.status === 'pending'
-          ? 'font-medium text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]'
-          : ''}"
+ ? 'font-medium text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]'
+ : ''}"
       >
         {statusLabel}
       </span>

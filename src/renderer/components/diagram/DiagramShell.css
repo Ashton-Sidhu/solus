@@ -39,8 +39,7 @@
   .diagram-shell__title-input {
     flex: 1 1 auto;
     font-size: 0.8125rem;
-    font-weight: 600;
-    letter-spacing: -0.01em;
+    font-weight: 500;
     min-width: 6rem;
     max-width: 24rem;
     padding: 0.125rem 0.25rem;
@@ -85,7 +84,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--solus-text-primary);
-    font-weight: 600;
+    font-weight: 500;
   }
 
   /* Marks the crumb as a nested level rather than another diagram. */
@@ -395,7 +394,7 @@
   .diagram-empty__title {
     margin: 0.375rem 0 0;
     font-size: 0.8125rem;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--solus-text-secondary);
   }
 
@@ -819,7 +818,7 @@
 
   .diagram-inspector .inspector-segment--active {
     color: var(--solus-text-primary);
-    font-weight: 550;
+    font-weight: 500;
     background: var(--solus-container-bg);
     border-color: var(--solus-container-border);
   }
@@ -1018,7 +1017,7 @@
 
   .diagram-inspector__title {
     font-size: 0.96875rem;
-    font-weight: 600;
+    font-weight: 500;
     line-height: 1.25;
     color: var(--solus-text-primary);
     overflow: hidden;
@@ -1127,7 +1126,7 @@
 
   .diagram-inspector__tab--active {
     color: var(--solus-text-primary);
-    font-weight: 600;
+    font-weight: 500;
     border-bottom-color: var(--solus-accent);
   }
 

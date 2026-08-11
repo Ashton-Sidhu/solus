@@ -199,7 +199,7 @@
        sets a step below that header's 10px so the two never compete. -->
   <div class="flex items-center gap-2 px-2">
     <span
-      class="text-[0.59375rem] font-medium tracking-[0.09em] text-(--solus-text-tertiary) uppercase"
+      class="text-[0.59375rem] font-medium text-(--solus-text-tertiary) uppercase"
     >
       Sessions
     </span>
@@ -216,8 +216,8 @@
            value column and never changes height. -->
       <div
         class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-[0.8125rem] text-(--solus-text-secondary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {row.current
-          ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
-          : ''} {row.dimmed ? 'opacity-[.62] hover:opacity-100' : ''}"
+ ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
+ : ''} {row.dimmed ? 'opacity-[.62] hover:opacity-100' : ''}"
         role="button"
         tabindex="0"
         title="{row.stateLabel} · {row.startedAt}"
@@ -235,8 +235,8 @@
              left edge as a Git or Environment row. -->
         <span
           class="inline-flex shrink-0 transition-colors duration-150 {row.iconColor
-            ? ''
-            : 'text-(--solus-text-secondary) group-hover:text-(--solus-text-primary)'}"
+ ? ''
+ : 'text-(--solus-text-secondary) group-hover:text-(--solus-text-primary)'}"
           style={row.iconColor ? `color:${row.iconColor}` : undefined}
           role="img"
           aria-label={row.stateLabel}
@@ -251,8 +251,8 @@
              single value column and never changes width. -->
         <span
           class="shrink-0 truncate text-[0.71875rem] text-(--solus-text-tertiary) group-hover:hidden {row.valueMono
-            ? 'tabular-nums'
-            : ''}"
+ ? 'tabular-nums'
+ : ''}"
         >
           {row.value}
         </span>
@@ -300,7 +300,7 @@
     ></div>
     <div class="flex items-center gap-2 px-2">
       <span
-        class="text-[0.59375rem] font-medium tracking-[0.09em] text-(--solus-text-tertiary) uppercase"
+        class="text-[0.59375rem] font-medium text-(--solus-text-tertiary) uppercase"
       >
         Linked
       </span>
@@ -315,8 +315,8 @@
         <button
           type="button"
           class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-[0.8125rem] text-(--solus-text-secondary) transition-[background-color,color,opacity] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {row.dimmed
-            ? 'opacity-[.62] hover:opacity-100'
-            : ''}"
+ ? 'opacity-[.62] hover:opacity-100'
+ : ''}"
           title="{row.kindLabel} · {row.label}"
           onclick={() => openLink(row.link)}
         >
@@ -340,8 +340,8 @@
           {#if row.value}
             <span
               class="shrink-0 text-[0.71875rem] text-(--solus-text-tertiary) {row.valueMono
-                ? 'tabular-nums'
-                : ''}"
+ ? 'tabular-nums'
+ : ''}"
             >
               {row.value}
             </span>

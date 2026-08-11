@@ -171,7 +171,7 @@
        the next section of the page rather than a panel bolted underneath it. -->
   <div class="flex h-[30px] items-center gap-2.5 px-1.5">
     <span
-      class="text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase"
+      class="text-[10px] font-normal text-muted-foreground uppercase"
       >Describe it, or start from a template</span
     >
     <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
@@ -199,7 +199,7 @@
         </span>
         <span class="flex min-w-0 flex-1 flex-col gap-[5px] pt-px">
           <span class="flex flex-wrap items-center gap-2.5">
-            <span class="text-[14px] font-semibold tracking-[-.01em]">
+            <span class="text-[14px] font-medium ">
               {savedDraft
                 ? "Automation drafted in a session"
                 : "Creating this automation in a session…"}
@@ -278,7 +278,7 @@
         {/each}
         {#if savedDraft}
           <span class="mt-0.5 text-[13px] leading-[1.6] text-pretty text-muted-foreground">
-            Saved as <span class="font-semibold text-foreground">{savedDraft.name}</span>
+            Saved as <span class="font-medium text-foreground">{savedDraft.name}</span>
             · {triggerSummary(savedDraft.trigger)}. Open the session to review
             the instructions before it runs.
           </span>
@@ -301,7 +301,7 @@
         }}
         placeholder="Describe the automation…"
         aria-label="Describe the automation"
-        class="min-w-0 flex-1 border-0 bg-transparent text-[13px] tracking-[-.005em] caret-[var(--primary)] outline-none placeholder:text-muted-foreground"
+        class="min-w-0 flex-1 border-0 bg-transparent text-[13px] caret-[var(--primary)] outline-none placeholder:text-muted-foreground"
       />
       <button
         type="button"
@@ -327,7 +327,7 @@
           >{String(i + 1).padStart(2, "0")}</span
         >
         <span
-          class="w-[236px] shrink-0 text-[13px] font-[450] tracking-[-.005em] text-pretty @max-[56rem]:w-auto"
+          class="w-[236px] shrink-0 text-[13px] font-normal text-pretty @max-[56rem]:w-auto"
           >{template.name}</span
         >
         <span
@@ -363,7 +363,7 @@
 
   <div class="flex items-center gap-3 px-2.5 pt-3.5">
     <span class="flex min-w-0 flex-1 flex-col gap-[3px]">
-      <span class="text-[13px] font-[450] tracking-[-.005em]"
+      <span class="text-[13px] font-normal "
         >Start from scratch</span
       >
       <span class="text-[12px] text-muted-foreground"

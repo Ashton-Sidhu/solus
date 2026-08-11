@@ -348,8 +348,7 @@
     border-radius: 9999px;
     background: var(--solus-accent);
     color: var(--solus-text-on-accent);
-    font-weight: 600;
-    letter-spacing: 0.01em;
+    font-weight: 500;
   }
   .ctc__avatar {
     width: 1.1875rem;
@@ -378,7 +377,7 @@
   /* The only bold text in the card. */
   .ctc__author {
     font-size: 0.75rem;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--solus-text-primary);
   }
   .ctc--solus .ctc__author {
@@ -477,7 +476,7 @@
     line-height: 1.55;
   }
   .ctc__reply-author {
-    font-weight: 600;
+    font-weight: 500;
     color: var(--solus-text-primary);
     margin-right: 0.25rem;
   }

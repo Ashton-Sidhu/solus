@@ -236,7 +236,7 @@
         {@render stateIcon()}
         <span
           class="min-w-0 truncate text-[14px] {selected
-            ? 'font-semibold'
+            ? 'font-medium'
             : 'font-medium'}">{pr.title}</span
         >
         {#if attentionLabel}
@@ -245,7 +245,7 @@
               {#snippet child({ props: tooltipProps })}
                 <span
                   {...tooltipProps}
-                  class="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[11px] font-[450] text-secondary-foreground"
+                  class="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[11px] font-normal text-secondary-foreground"
                 >
                   {attentionLabel}
                 </span>

@@ -10,9 +10,9 @@ export function hasDiagramClipboard(): boolean {
   return !!diagramClipboard?.nodes.length;
 }
 
-export function buildClipboardPaste(
-  nodeHandlers: Record<string, unknown>,
-  edgeHandlers: Record<string, unknown>,
+export function buildClipboardPaste<TNodeHandlers extends object, TEdgeHandlers extends object>(
+  nodeHandlers: TNodeHandlers,
+  edgeHandlers: TEdgeHandlers,
   stamp = Date.now(),
 ): { nodes: Node[]; edges: Edge[] } | null {
   if (!diagramClipboard?.nodes.length) return null;

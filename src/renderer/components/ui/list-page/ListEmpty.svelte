@@ -14,7 +14,7 @@
 <div
   class="mt-2.5 flex flex-col items-center gap-1.5 rounded-2xl bg-[var(--wash-1)] py-[70px]"
 >
-  <span class="text-[14px] font-semibold tracking-[-.01em]">{title}</span>
+  <span class="text-[14px] font-medium ">{title}</span>
   {#if children}
     <span class="text-[12px] text-muted-foreground">{@render children()}</span>
   {/if}

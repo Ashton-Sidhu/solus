@@ -122,7 +122,7 @@
     class="flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <h2
-      class="m-0 text-[1.03rem] leading-tight font-semibold tracking-[-0.021em]"
+      class="m-0 text-[1.03rem] leading-tight font-medium "
     >
       {#if message && header}
         {header.title}

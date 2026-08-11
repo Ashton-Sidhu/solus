@@ -11,7 +11,7 @@ import type { DiagramEdge, DiagramField, DiagramNode, DiagramDoc } from '../../.
 // component-scoped handlers and z-index layering that don't belong in a helper.
 
 export function flowNodeToDiagram(n: FlowNode): DiagramNode {
-  const d = n.data as Record<string, unknown>
+  const d = n.data as unknown as DiagramNode & { height?: number }
   // A collapsed group renders at a shrunken header height (n.height), but its
   // real (expanded) height is preserved on data.height — persist that so the box
   // restores to size on expand.
@@ -43,7 +43,7 @@ export function flowNodeToDiagram(n: FlowNode): DiagramNode {
 }
 
 export function flowEdgeToDiagram(e: FlowEdge): DiagramEdge {
-  const d = (e.data ?? {}) as Record<string, unknown>
+  const d = (e.data ?? {}) as Partial<DiagramEdge>
   return {
     id: e.id,
     source: e.source,

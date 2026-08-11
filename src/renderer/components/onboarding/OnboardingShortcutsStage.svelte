@@ -57,12 +57,12 @@
   class="flex min-h-full flex-col items-center justify-center px-6 py-10 sm:px-10 sm:py-12"
 >
   <h1
-    class="onboarding-title m-0 shrink-0 text-center text-[1.5rem] font-semibold leading-[1.12] tracking-[-0.028em] sm:text-[1.8125rem]"
+    class="onboarding-title m-0 shrink-0 text-center text-[1.5rem] font-medium leading-[1.12] sm:text-[1.8125rem]"
   >
     {title}
   </h1>
   <p
-    class="onboarding-title mt-3 max-w-[34ch] shrink-0 text-center text-[0.875rem] leading-[1.6] tracking-[-0.006em] text-muted-foreground"
+    class="onboarding-title mt-3 max-w-[34ch] shrink-0 text-center text-[0.875rem] leading-[1.6] text-muted-foreground"
     style="animation-delay: 0.06s"
   >
     Press one now and it lights up. The full list is under {helpCombo} whenever
@@ -83,7 +83,7 @@
           : 'background: var(--wash-1)'}"
       >
         <span
-          class="flex h-10 shrink-0 items-center justify-center rounded-full px-3 font-mono text-[0.75rem] tracking-[0.03em] transition-[background-color,color] duration-200"
+          class="flex h-10 shrink-0 items-center justify-center rounded-full px-3 font-mono text-[0.75rem] transition-[background-color,color] duration-200"
           style="min-width: 2.5rem; {lit
             ? 'background: color-mix(in oklch, var(--primary) 20%, transparent); color: color-mix(in oklch, var(--primary) 68%, var(--foreground))'
             : 'background: var(--wash-2); color: var(--muted-foreground)'}"
@@ -91,11 +91,11 @@
           {formatCombo(key.combo).join("")}
         </span>
         <span class="flex min-w-0 flex-col gap-1">
-          <span class="text-[0.90625rem] font-semibold tracking-[-0.013em]"
+          <span class="text-[0.90625rem] font-medium "
             >{key.label}</span
           >
           <span
-            class="truncate text-[0.78125rem] tracking-[-0.004em] text-muted-foreground"
+            class="truncate text-[0.78125rem] text-muted-foreground"
             >{key.hint}</span
           >
         </span>

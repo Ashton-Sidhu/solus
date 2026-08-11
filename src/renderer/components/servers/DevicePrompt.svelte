@@ -57,7 +57,7 @@
   </span>
   {#if code}
     <code
-      class="shrink-0 font-mono text-[0.875rem] tracking-widest text-(--solus-text-primary)"
+      class="shrink-0 font-mono text-[0.875rem] st text-(--solus-text-primary)"
     >
       {code}
     </code>

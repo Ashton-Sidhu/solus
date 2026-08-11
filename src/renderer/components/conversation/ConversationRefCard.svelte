@@ -237,7 +237,7 @@
     margin-bottom: 0.3125rem;
     font-size: 0.59375rem;
     font-weight: 500;
-    letter-spacing: 0.12em;
+
     text-transform: uppercase;
     color: var(--muted-foreground);
     opacity: 0.7;
@@ -245,8 +245,7 @@
 
   .conversation-ref-card__title {
     font-size: 0.875rem;
-    font-weight: 600;
-    letter-spacing: -0.012em;
+    font-weight: 500;
     color: var(--solus-text-primary);
   }
 

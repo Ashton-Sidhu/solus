@@ -108,13 +108,13 @@
         class="flex w-[18rem] shrink-0 flex-col bg-[color-mix(in_srgb,var(--solus-accent)_4%,var(--solus-popover-bg))] px-[1.875rem] pb-6 pt-[1.875rem]"
       >
         <p
-          class="text-[0.625rem] font-medium uppercase tracking-[0.1em] text-(--solus-text-tertiary)"
+          class="text-[0.625rem] font-medium uppercase text-(--solus-text-tertiary)"
         >
           Set up a server
         </p>
         <h2
           id="host-onboarding-title"
-          class="mt-[1.125rem] text-pretty text-[1.5625rem] font-semibold leading-[1.12] tracking-[-0.02em] text-(--solus-text-primary)"
+          class="mt-[1.125rem] text-pretty text-[1.5625rem] font-medium leading-[1.12] text-(--solus-text-primary)"
         >
           {hostName}
           {isPairing || current ? "is joining" : "is ready"}
@@ -190,7 +190,7 @@
           {:else}
             <div class="flex items-baseline gap-2.5">
               <p
-                class="shrink-0 text-[1.1875rem] font-semibold tracking-[-0.02em] text-(--solus-text-primary)"
+                class="shrink-0 text-[1.1875rem] font-medium text-(--solus-text-primary)"
               >
                 {hostName}
               </p>
@@ -209,12 +209,12 @@
             {#if current}
               <div class="mt-[1.625rem] max-w-[30rem]">
                 <p
-                  class="text-[0.625rem] font-medium uppercase tracking-[0.11em] text-(--solus-accent)"
+                  class="text-[0.625rem] font-medium uppercase text-(--solus-accent)"
                 >
                   Step {currentNumber} of {decisions.length}
                 </p>
                 <h3
-                  class="mt-2.5 text-[1.3125rem] font-semibold tracking-[-0.02em] text-(--solus-text-primary)"
+                  class="mt-2.5 text-[1.3125rem] font-medium text-(--solus-text-primary)"
                 >
                   {current.label}
                 </h3>
@@ -233,12 +233,12 @@
             {:else}
               <div class="mt-[1.625rem] max-w-[30rem]">
                 <p
-                  class="text-[0.625rem] font-medium uppercase tracking-[0.11em] text-(--solus-text-tertiary)"
+                  class="text-[0.625rem] font-medium uppercase text-(--solus-text-tertiary)"
                 >
                   All clear
                 </p>
                 <h3
-                  class="mt-2.5 text-[1.3125rem] font-semibold tracking-[-0.02em] text-(--solus-text-primary)"
+                  class="mt-2.5 text-[1.3125rem] font-medium text-(--solus-text-primary)"
                 >
                   {hostName} is fully set up
                 </h3>
@@ -258,7 +258,7 @@
             >
               {#if upcoming.length > 0}
                 <p
-                  class="text-[0.5625rem] font-medium uppercase tracking-[0.1em] text-(--solus-text-tertiary)"
+                  class="text-[0.5625rem] font-medium uppercase text-(--solus-text-tertiary)"
                 >
                   After this
                 </p>

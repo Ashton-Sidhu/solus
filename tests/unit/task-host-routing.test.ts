@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { runTarget } from '../../src/renderer/components/servers/lib/run-target'
+import { environmentProjectKey, type SessionEnvironment } from '../../src/renderer/contexts/git/session-environment.store.svelte'
 import { isDispatch, startsWorktree, withCheckout, withHost, withProjectHost, withWorktreeToggled } from '../../src/renderer/contexts/workspace/run-config'
 import type { RunConfig } from '../../src/shared/types'
 
@@ -27,6 +28,27 @@ beforeEach(() => {
 })
 
 describe('which host owns a run’s tasks', () => {
+  test('a non-git project files session tasks under its working directory', () => {
+    // WHY: a folder does not need to be a Git repository to be a Solus project.
+    // Dropping its cwd files the task under the inbox sentinel (`~`) and moves
+    // an active session into the wrong sidebar project group.
+    const environment: SessionEnvironment = {
+      cwd: '/home/dev/model-routing',
+      checkout: null,
+      kind: 'workspace',
+      name: 'Workspace',
+      branch: null,
+      targetBranch: null,
+      isolated: false,
+      pending: false,
+      repoRoot: null,
+      worktreePath: null,
+      status: null,
+    }
+
+    expect(environmentProjectKey(environment, null)).toBe('/home/dev/model-routing')
+  })
+
   test('dispatching moves where it runs, never where it files', () => {
     // WHY: dispatch hands the target host a *clone* (ADR-0002). The project was
     // and remains this machine's, so a task minted on the far side would land in

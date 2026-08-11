@@ -39,7 +39,7 @@
 <div class="flex flex-col gap-6">
   <div class="min-w-0">
     <h2
-      class="text-[clamp(1.25rem,1.15rem+0.35vw,1.5rem)] font-semibold tracking-tight text-foreground"
+      class="text-[clamp(1.25rem,1.15rem+0.35vw,1.5rem)] font-medium text-foreground"
     >
       {host.label}
     </h2>

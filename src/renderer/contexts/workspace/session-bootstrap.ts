@@ -1,4 +1,4 @@
-import { defaultContextWindowFor, isSessionBusyStatus, type AgentId, type Message, type ModelConfig, type Session } from '../../../shared/types'
+import { defaultContextWindowFor, isSessionBusyStatus, type AgentId, type Message, type ModelConfig, type Session, type SessionMeta } from '../../../shared/types'
 import { loadServers, LOCAL_SERVER_ID } from '../../../client-core/server-registry'
 import { makePrompt, makeSession, makeTab } from './session.factories'
 import { taskTargetFrom } from './session-draft.svelte'
@@ -42,12 +42,16 @@ async function hydrateDeferredTab(
 ): Promise<void> {
   const snapTab = state.pending.get(tabId)
   if (!snapTab || state.running.has(tabId)) return
-  state.pending.delete(tabId)
   state.running.add(tabId)
   try {
     await hydrateTab(ctx, snapTab)
+    // A successful hydration is complete. A failed one stays pending so the
+    // next selection can retry it instead of leaving a durable conversation
+    // looking like a fresh draft for the rest of this renderer lifetime.
+    state.pending.delete(tabId)
   } catch {
-    // A missing/deleted transcript leaves this cold tab empty until reopened.
+    // Keep the persisted tab pending. Connection startup and host recovery can
+    // fail before loadSession reaches the host; selecting the tab is the retry.
   } finally {
     state.running.delete(tabId)
   }
@@ -118,6 +122,15 @@ function seedSessionDraft(ctx: WorkspaceContext): void {
 export function restoreLocation(ctx: WorkspaceContext, serialized: string | undefined): void {
   if (!serialized) return
   ctx.router.enter(serialized, { replace: true })
+  reconcileReloadLocation(ctx)
+}
+
+/** Make a reloaded location consistent with the durable tab snapshot. A draft
+ * may remain saved for later, but it must not replace a session that survived
+ * this reload. Web calls this after the address bar has supplied its location;
+ * desktop calls it through restoreLocation above. */
+export function reconcileReloadLocation(ctx: WorkspaceContext): void {
+  const hasRestoredTab = ctx.tabOrder.some((tabId) => !!ctx.tabs[tabId])
   for (const pane of [...ctx.router.panes]) {
     const sessionId = pane.base?.name === 'chat' ? pane.base.params.sessionId : undefined
     if (sessionId && !ctx.tabIdForSession(sessionId)) ctx.router.closePane(pane.id)
@@ -125,7 +138,9 @@ export function restoreLocation(ctx: WorkspaceContext, serialized: string | unde
     // A pre-fix snapshot can still point at an empty draft that was deliberately
     // not restored. Treat it like any other dead pane: the leading pane falls
     // back to the active conversation and a companion pane closes.
-    if (draftId && !ctx.sessionDrafts.has(draftId)) ctx.router.closePane(pane.id)
+    if (draftId && (hasRestoredTab || !ctx.sessionDrafts.has(draftId))) {
+      ctx.router.closePane(pane.id)
+    }
   }
 }
 
@@ -214,6 +229,19 @@ function restoredModelConfig(snapTab: PersistedTab): ModelConfig {
   return modelConfig
 }
 
+/** Apply the lightweight host record that every restored tab reads on startup.
+ * This path updates sidebar-visible state only; transcript hydration remains a
+ * separate active-first operation and cannot gate these fields on selection. */
+export function applyRestoredSessionMeta(session: Session, meta: SessionMeta): void {
+  if (meta.status) session.status = meta.status
+  session.run.provider = meta.provider
+  if (meta.model) session.run.modelConfig.modelId = meta.model
+  if (meta.reasoningEffort) session.run.modelConfig.reasoningEffort = meta.reasoningEffort
+  session.currentTurnStartedAt = isSessionBusyStatus(session.status)
+    ? meta.currentTurnStartedAt ?? session.currentTurnStartedAt
+    : null
+}
+
 /** Synchronous builder: create tabs/sessions from the snapshot and restore order +
  *  active tab. Pure client-state mutation, no RPC — safe to run before first paint. */
 function _materializeTabs(
@@ -241,7 +269,8 @@ function _materializeTabs(
         ...(snapTab.sessionId ? { id: snapTab.sessionId } : {}),
         agentSessionId: snapTab.agentSessionId,
         handoffFrom: snapTab.handoffFrom ? { ...snapTab.handoffFrom } : undefined,
-        status: 'idle',
+        status: snapTab.status ?? 'idle',
+        currentTurnStartedAt: snapTab.currentTurnStartedAt ?? null,
         additionalDirs: [...snapTab.additionalDirs],
         run: {
           serverId,
@@ -330,15 +359,9 @@ async function _attachRuntimeTabs(
         const meta = stampSessionMeta(readMeta, serverId)
         const tab = ctx.tabs[snapTab.tabId]
         const session = tab ? ctx.sessions[tab.sessionId] : undefined
-        if (
-          session?.agentSessionId === snapTab.agentSessionId
-          && session.status === 'idle'
-          && meta?.status
-          && isSessionBusyStatus(meta.status)
-        ) {
-          session.status = meta.status
-          prioritizeTabHydration(ctx, snapTab.tabId)
-        }
+        if (session?.agentSessionId !== snapTab.agentSessionId || !meta) return
+        applyRestoredSessionMeta(session, meta)
+        if (isSessionBusyStatus(session.status)) prioritizeTabHydration(ctx, snapTab.tabId)
       })
       .catch(() => null)
   }
@@ -351,15 +374,15 @@ async function _attachRuntimeTabs(
   // Hydrate the tab the user is actually looking at first (its loadingHistory
   // flag drives the conversation skeleton). Cold inactive tabs remain on disk;
   // selecting one promotes it immediately.
-  const activeSnap = persistedTabs.find((t) => t.tabId === ctx.activeTabId)
-  if (activeSnap) void hydrateTab(ctx, activeSnap).catch(() => {})
-
-  const rest = persistedTabs.filter((t) => t.tabId !== ctx.activeTabId)
+  // Register every persisted tab before starting the active one. The active
+  // read can fail during connection startup too; keeping it in the same pending
+  // state gives a later selection a real retry path.
   const deferredState: DeferredHydrationState = {
-    pending: new Map(rest.map((snapTab) => [snapTab.tabId, snapTab])),
+    pending: new Map(persistedTabs.map((snapTab) => [snapTab.tabId, snapTab])),
     running: new Set(),
   }
   deferredHydrations.set(ctx, deferredState)
+  if (ctx.activeTabId) void hydrateDeferredTab(ctx, deferredState, ctx.activeTabId)
 }
 
 /**

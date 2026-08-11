@@ -28,6 +28,10 @@
   import { Button } from "../ui/button";
   import ProjectChip from "./ProjectChip.svelte";
   import TaskPicker from "./TaskPicker.svelte";
+  import {
+    shouldResetTaskForProjectChange,
+    type TaskProjectScope,
+  } from "./lib/task-project-scope";
 
   interface Props {
     /** The tab or draft this header describes. A draft has no tab, so the header
@@ -65,6 +69,19 @@
       session.globalDefaults.workingDirectory ??
       "~",
   );
+  // Tasks belong to a project. The directory picker updates a draft outside
+  // this component, so observe the run rather than only the project-chip click.
+  // Changing active tabs is not a project change for either composer.
+  let previousTaskProjectScope: TaskProjectScope | null = null;
+  $effect(() => {
+    const nextScope = { sourceId: source, workingDirectory: projectDir };
+    const shouldReset = shouldResetTaskForProjectChange(
+      previousTaskProjectScope,
+      nextScope,
+    );
+    previousTaskProjectScope = nextScope;
+    if (shouldReset) selectTask({ kind: "new" });
+  });
   const defaultGitContext = $derived(session.globalDefaults.gitContext);
   const gitHome = $derived(
     homeGitDetails(projectDir, run?.gitContext, defaultGitContext),
@@ -310,15 +327,15 @@
             variant="ghost"
             aria-haspopup="menu"
             aria-expanded={gitOpen}
-            class="group relative h-auto min-w-0 gap-1.5 rounded-lg px-2 py-1 text-[0.8125rem] font-normal tracking-[-0.006em] transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-0 after:absolute after:left-0 after:top-1/2 after:h-10 after:w-full after:-translate-y-1/2 after:content-[''] {gitOpen
-              ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
-              : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
+            class="group relative h-auto min-w-0 gap-1.5 rounded-lg px-2 py-1 text-[0.8125rem] font-normal transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-0 after:absolute after:left-0 after:top-1/2 after:h-10 after:w-full after:-translate-y-1/2 after:content-[''] {gitOpen
+ ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
+ : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
           >
             <GitBranchIcon
               size={14}
               class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {gitOpen
-                ? 'opacity-100'
-                : 'opacity-70'}"
+ ? 'opacity-100'
+ : 'opacity-70'}"
             />
             <span class="truncate">{branchLabel}</span>
           </Button>

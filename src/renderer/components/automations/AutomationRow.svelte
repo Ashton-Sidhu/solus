@@ -8,11 +8,11 @@
     StarIcon,
     ClockIcon,
     CircleNotchIcon,
-    FolderIcon,
   } from "phosphor-svelte";
   import type { Automation } from "../../../shared/types";
   import { compactRelativeTime } from "../ui/list-page";
-  import { triggerSummary, folderLabel } from "./lib/automation-format";
+  import ProjectFavicon from "../ui/ProjectFavicon.svelte";
+  import { triggerSummary } from "./lib/automation-format";
 
   /** One line of the automations list, in the shared list-page row grammar:
    *  a 20px status tile, the name, the machine facts, then a right end that
@@ -23,6 +23,7 @@
   interface Props {
     automation: Automation;
     projectLabel: string;
+    projectPath: string;
     /** Ticking clock from the page, so the age column counts up on its own. */
     now: number;
     selected?: boolean;
@@ -36,6 +37,7 @@
   let {
     automation: a,
     projectLabel,
+    projectPath,
     now,
     selected = false,
     onOpen,
@@ -92,7 +94,7 @@
 >
   <button
     type="button"
-    class="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-[11px] border-0 bg-transparent p-0 text-left focus-visible:outline-none"
+    class="grid h-full min-w-0 flex-1 cursor-pointer grid-cols-[20px_minmax(140px,330px)_minmax(148px,1fr)_156px_64px] items-center gap-x-[11px] border-0 bg-transparent p-0 text-left focus-visible:outline-none @max-[44rem]:grid-cols-[20px_minmax(100px,1fr)_128px_64px]"
     onclick={() => onOpen(a)}
   >
     <!-- Slot 1 — cadence kind as a glyph, status as the tile's tint. -->
@@ -111,44 +113,33 @@
 
     <!-- Slot 2 — the only full-strength text in the row. -->
     <span
-      class="max-w-[330px] shrink-0 truncate text-[13px] font-[450] tracking-[-.005em]"
+      class="min-w-0 truncate text-[13px] font-normal "
       title={a.name}
     >
       {a.name}
     </span>
 
-    <!-- Slot 3 — the project is a stable column across the complete catalog. -->
+    <!-- Slot 3 — the project where this automation runs. -->
     <span
-      class="flex w-[148px] shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground"
+      class="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground"
       title="Project: {projectLabel}"
     >
-      <FolderIcon size={12} weight="fill" class="shrink-0 opacity-70" />
+      <ProjectFavicon projectRoot={projectPath} class="size-3 shrink-0" />
       <span class="truncate">{projectLabel}</span>
     </span>
 
-    <!-- Slot 4 — exact run folder and creator. -->
-    <span class="min-w-0 truncate font-mono text-[11px] text-muted-foreground opacity-75">
-      {folderLabel(a.action.cwd)}{a.createdBy.kind === "agent" ? " · agent" : ""}
-    </span>
-
-    <span class="flex-1"></span>
-
-    <!-- Slots 5 and 6 — what it does and when it last did it. They step aside
+    <!-- Slots 4 and 5 — what it does and when it last did it. They step aside
          for the verbs rather than sharing the line with them, so the right end
          is never two things at once. -->
     <span
-      class="flex shrink-0 items-center gap-2 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
+      class="truncate text-right font-mono text-[11px] whitespace-nowrap text-muted-foreground opacity-85 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0 @max-[44rem]:hidden"
     >
-      <span
-        class="w-[156px] text-right font-mono text-[11px] whitespace-nowrap text-muted-foreground opacity-85"
-      >
-        {schedule}
-      </span>
-      <span
-        class="w-11 text-right font-mono text-[11px] tabular-nums text-muted-foreground opacity-70"
-      >
-        {age}
-      </span>
+      {schedule}
+    </span>
+    <span
+      class="text-right font-mono text-[11px] tabular-nums text-muted-foreground opacity-70 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
+    >
+      {age}
     </span>
   </button>
 

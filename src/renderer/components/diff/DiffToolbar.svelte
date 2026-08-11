@@ -250,7 +250,7 @@
             <DropdownMenu.Content customAnchor={turnTriggerEl} side="top" align="start" sideOffset={6} class="w-[176px]">
             <div class="turn-menu-scroll">
               <DropdownMenu.Item
-                class={selectedTurnIndex === null ? "font-semibold" : undefined}
+                class={selectedTurnIndex === null ? "font-medium" : undefined}
                 onSelect={() => {
                   turnMenuOpen = false;
                   onTurnSelect(null);
@@ -261,7 +261,7 @@
               </DropdownMenu.Item>
               {#each turns as turn (turn.index)}
                 <DropdownMenu.Item
-                  class={selectedTurnIndex === turn.index ? "font-semibold" : undefined}
+                  class={selectedTurnIndex === turn.index ? "font-medium" : undefined}
                   onSelect={() => {
                     turnMenuOpen = false;
                     onTurnSelect(turn.index);
@@ -533,7 +533,7 @@
           <ChatCircleTextIcon size={14} weight="fill" />
           <span
             style="font-family:{MONO_FONT};font-size:var(--solus-font-ui-sm)"
-            class="font-semibold tabular-nums"
+            class="font-medium tabular-nums"
           >
             {commentsCount}
           </span>
@@ -784,7 +784,7 @@
     border-radius: 0.3125rem;
     color: var(--solus-text-secondary);
     font-size: 0.625rem;
-    font-weight: 600;
+    font-weight: 500;
     white-space: nowrap;
     cursor: pointer;
     transition:

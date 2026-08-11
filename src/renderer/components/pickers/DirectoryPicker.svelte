@@ -510,7 +510,7 @@
       transition:fly={{ y: 10, duration: 220, easing: expoOut }}
     >
       <header class="flex h-14 shrink-0 items-center gap-3 px-5 max-md:h-auto max-md:px-4 max-md:pb-2 max-md:pt-3">
-        <span id="directory-picker-title" class="min-w-0 flex-1 truncate text-[0.9375rem] font-semibold tracking-tight">
+        <span id="directory-picker-title" class="min-w-0 flex-1 truncate text-[0.9375rem] font-medium ">
           {title}
         </span>
         {#if hostLabel}

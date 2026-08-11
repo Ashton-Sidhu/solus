@@ -996,6 +996,8 @@ export class ControlPlane extends EventEmitter {
           && this._backendFor(active.backendId).isSessionRunning(agentSessionId)
           ? 'running'
           : active.status
+      meta.currentTurnStartedAt = this._backendFor(active.backendId)
+        .getSessionHandle(agentSessionId)?.startedAt
       meta.lastTimestamp = new Date(active.lastActivityAt).toISOString()
     }
     return meta

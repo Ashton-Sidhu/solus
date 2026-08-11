@@ -52,7 +52,7 @@
     <div class="min-w-0 flex-1">
       <div class="mb-1.5 flex items-center gap-2">
         <span
-          class="text-[0.59375rem] font-medium tracking-[0.13em] text-(--muted-foreground) uppercase opacity-60"
+          class="text-[0.59375rem] font-medium text-(--muted-foreground) uppercase opacity-60"
           >Subagent</span
         >
         <span
@@ -60,7 +60,7 @@
           aria-hidden="true"
         ></span>
         <span
-          class="flex items-center gap-1.5 text-[0.59375rem] font-medium tracking-[0.13em] text-(--muted-foreground) uppercase opacity-60"
+          class="flex items-center gap-1.5 text-[0.59375rem] font-medium text-(--muted-foreground) uppercase opacity-60"
         >
           <svg
             width="8"
@@ -76,7 +76,7 @@
           Returned
         </span>
       </div>
-      <h3 class="m-0 text-[0.9375rem] leading-[1.3] font-semibold tracking-[-0.018em]">
+      <h3 class="m-0 text-[0.9375rem] leading-[1.3] font-medium ">
         {row.name}
       </h3>
     </div>
@@ -95,7 +95,7 @@
         aria-hidden="true"
       ></span>
       <p
-        class="m-0 text-[0.875rem] leading-[1.62] tracking-[-0.004em] text-pretty"
+        class="m-0 text-[0.875rem] leading-[1.62] text-pretty"
         data-testid="subagent-verdict"
       >
         {verdict}
@@ -110,7 +110,7 @@
           class="border-t border-[color-mix(in_oklch,var(--foreground)_7%,transparent)] py-2.5"
         >
           <div
-            class="text-[0.59375rem] font-medium tracking-[0.1em] text-(--muted-foreground) uppercase opacity-70"
+            class="text-[0.59375rem] font-medium text-(--muted-foreground) uppercase opacity-70"
           >
             {highlight.heading}
           </div>
@@ -160,7 +160,7 @@
     class="mt-3.5 flex items-center gap-2.5 border-t border-[color-mix(in_oklch,var(--foreground)_7%,transparent)] px-[1.0625rem] pt-2.5 pb-3"
   >
     <span
-      class="flex items-baseline gap-2.5 font-mono text-[0.65625rem] tracking-[0.01em] text-(--muted-foreground) opacity-60"
+      class="flex items-baseline gap-2.5 font-mono text-[0.65625rem] text-(--muted-foreground) opacity-60"
     >
       {#if steps.total}
         <span class="tabular-nums">{steps.done}{steps.total}</span>

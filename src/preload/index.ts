@@ -375,6 +375,8 @@ export interface NativeSolusAPI {
   getPathForFile(file: File): string
   readAttachmentBytes(path: string, mime: string): Promise<{ dataUrl: string; size: number }>
   setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean; focus?: boolean }): void
+  /** Applies UI zoom to this window's webContents; main clamps the factor. */
+  setZoomFactor(factor: number): void
   setQuoteContext(tabId: string | null): void
   onQuoteSelection(callback: (text: string, sourceTabId: string) => void): () => void
   onAskSelectionInNewSession(callback: (text: string, sourceTabId: string) => void): () => void
@@ -408,6 +410,8 @@ const nativeApi: NativeSolusAPI = {
     ipcRenderer.invoke('solus:read-attachment-bytes', path, mime) as Promise<{ dataUrl: string; size: number }>,
   setIgnoreMouseEvents: (ignore: boolean, options?: { forward?: boolean; focus?: boolean }) =>
     ipcRenderer.send('solus:set-ignore-mouse-events', ignore, options || {}),
+  setZoomFactor: (factor: number) =>
+    ipcRenderer.send('solus:set-zoom-factor', factor),
   setQuoteContext: (tabId: string | null) =>
     ipcRenderer.send('solus:set-quote-context', tabId),
   onQuoteSelection: (cb: (text: string, sourceTabId: string) => void) => {

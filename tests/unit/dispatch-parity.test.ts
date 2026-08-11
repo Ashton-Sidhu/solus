@@ -308,7 +308,7 @@ describe('linked-item tools on a dispatched session', () => {
     title: 'Rollout plan',
     content: '## Plan\n\nShip in two slices.',
   }
-  const linkRow = (kind: 'pr' | 'automation', targetKey: string, extra: Record<string, unknown> = {}) => ({
+  const linkRow = (kind: 'pr' | 'automation', targetKey: string, extra: object = {}) => ({
     taskId: foreignTaskId,
     kind,
     targetScope: '',

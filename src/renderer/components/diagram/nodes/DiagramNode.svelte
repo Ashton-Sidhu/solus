@@ -565,8 +565,7 @@
 
   .diagram-node__label {
     font-size: 0.84375rem;
-    font-weight: 650;
-    letter-spacing: -0.014em;
+    font-weight: 500;
     line-height: 1.15;
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -581,9 +580,9 @@
   .diagram-node__subtitle {
     font-size: 0.53125rem;
     color: var(--solus-text-tertiary);
-    font-weight: 650;
+    font-weight: 500;
     line-height: 1.2;
-    letter-spacing: 0.13em;
+
     text-transform: uppercase;
     opacity: 0.8;
     white-space: nowrap;
@@ -599,8 +598,7 @@
     outline: none;
     color: var(--solus-text-primary);
     font-size: 0.84375rem;
-    font-weight: 650;
-    letter-spacing: -0.014em;
+    font-weight: 500;
     padding: 0;
   }
 
@@ -729,9 +727,8 @@
 
   .diagram-node__field-key--letters {
     font-size: 0.46875rem;
-    font-weight: 700;
+    font-weight: 500;
     line-height: 0.5625rem;
-    letter-spacing: 0.02em;
     color: var(--solus-text-tertiary);
   }
 
@@ -740,7 +737,7 @@
     min-width: 0;
     font-family: var(--solus-code-font-family);
     font-size: 0.625rem;
-    letter-spacing: -0.01em;
+
     color: var(--solus-text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -817,7 +814,7 @@
 
   .diagram-node__metric-val {
     font-size: 0.625rem;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--solus-text-primary);
     font-variant-numeric: tabular-nums;
     margin: 0;

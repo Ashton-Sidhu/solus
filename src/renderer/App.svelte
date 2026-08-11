@@ -44,7 +44,7 @@
     cloudflareStore,
     parseRoute,
   } from "./contexts";
-  import { taskTargetFields } from "./contexts/workspace/session-draft.svelte";
+  import { snapshotPersistedTabs } from "./contexts/workspace/tab-snapshot";
   import {
     withCheckout,
     withHost,
@@ -66,7 +66,7 @@
   import type { PullRequestSummary } from "../shared/providers";
   import { setupAgentEvents } from "./hooks/agentEvents.svelte";
   import { materializeTabs } from "./contexts/workspace/session-bootstrap";
-  import { loadServers, LOCAL_SERVER_ID } from "../client-core/server-registry";
+  import { LOCAL_SERVER_ID } from "../client-core/server-registry";
   import { serverConnections } from "../client-core/server-connections";
   import { hostPolicy } from "../client-core/host-policy";
   import { unsupportedOnHost } from "../client-core/host-capabilities";
@@ -102,7 +102,6 @@
   import { defaultCombo, eventMatches } from "./lib/keybindings/match";
   import { requestInputFocus } from "./lib/inputFocus";
   import { requestSavedPrompts } from "./lib/savedPromptsRequest";
-  import { initRootScaling } from "./lib/uiScale";
   import { dictation, isDictationTarget } from "./lib/dictation.svelte";
   import { branchKeyFor, buildTabSections } from "./lib/sessionUtils";
   import {
@@ -180,45 +179,7 @@
   // Skipped while bootstrap is in progress so an empty initial state doesn't clobber saved data.
   $effect(() => {
     if (session.hydrating) return;
-    const savedServers = loadServers();
-    const tabs = session.tabOrder
-      .filter((id) => session.tabs[id])
-      .map((tabId) => {
-        const tab = session.tabs[tabId];
-        const sess = session.sessionFor(tabId);
-        return {
-          tabId,
-          sessionId: tab.sessionId,
-          title: sess?.title ?? "New Tab",
-          titleCustom: sess?.titleCustom ?? false,
-          serverId: sess?.run.serverId ?? LOCAL_SERVER_ID,
-          serverInstallationId: savedServers.find(
-            (server) => server.id === sess?.run.serverId,
-          )?.installationId,
-          agentSessionId: sess?.agentSessionId ?? null,
-          provider: sess?.run.provider ?? null,
-          handoffFrom: sess?.handoffFrom ? { ...sess.handoffFrom } : undefined,
-          workingDirectory:
-            sess?.run.workingDirectory ?? session.globalDefaults.workingDirectory,
-          projectGroupPath: sess?.run.projectGroupPath ?? null,
-          additionalDirs: sess ? [...sess.additionalDirs] : [],
-          gitContext: sess?.run.gitContext ? { ...sess.run.gitContext } : null,
-          worktreeBaseBranch: sess?.run.worktree?.baseBranch ?? null,
-          worktreeRequested: !!sess?.run.worktree,
-          taskServerId: sess?.run.taskServerId ?? LOCAL_SERVER_ID,
-          modelConfig: sess
-            ? { ...sess.run.modelConfig }
-            : { ...session.globalDefaults.modelConfig },
-          permissionMode:
-            sess?.run.permissionMode ?? session.globalDefaults.permissionMode,
-          hasUnread: tab.hasUnread ?? false,
-          ...(sess ? taskTargetFields(sess.task) : {}),
-          terminalFailure: sess?.terminalFailure
-            ? { ...sess.terminalFailure }
-            : null,
-          contextUsage: sess?.contextUsage ? { ...sess.contextUsage } : null,
-        };
-      });
+    const tabs = snapshotPersistedTabs(session);
     const snapshot: PersistedTabs = {
       version: 1,
       activeTabId: session.activeTabId,
@@ -338,8 +299,6 @@
       force: false,
     });
   };
-
-  initRootScaling();
 
   // Popovers portal into `overlayEl` via setPopoverLayer; bind it reactively so children see it post-mount.
   let overlayEl: HTMLElement | null = $state(null);
@@ -814,6 +773,7 @@
       const unsubStackGraph = session.stacksStore.subscribe();
       const unsubChecks = session.prsStore.subscribeChecks(activePrScope);
       const unsubGuideStatus = session.prsStore.subscribeGuideStatus();
+      const unsubPrLifecycleChanges = session.prsStore.subscribeLifecycleChanges();
       const unsubNeedsReview = session.prsStore.subscribeNeedsReview(
         activePrScope,
       );
@@ -843,6 +803,7 @@
         unsubStackGraph();
         unsubChecks();
         unsubGuideStatus();
+        unsubPrLifecycleChanges();
         unsubNeedsReview();
         unsubCloudflare();
         unsubShown();
@@ -1143,6 +1104,36 @@
     shortcutsActiveScopes = keybindings.activeScopes();
     shortcutsModalOpen = true;
   });
+  // Desktop-only: on web the browser owns these combos (and its own zoom), so
+  // the disabled registration lets the events fall through untouched.
+  const zoomAvailable = typeof localApi.setZoomFactor === "function";
+  const showZoomToast = () => {
+    toasts.info(`Zoom ${Math.round(settings.zoomFactor * 100)}%`, { id: "ui-zoom" });
+  };
+  useKeybinding(
+    "global.zoom-in",
+    () => {
+      settings.zoomIn();
+      showZoomToast();
+    },
+    { enabled: () => zoomAvailable },
+  );
+  useKeybinding(
+    "global.zoom-out",
+    () => {
+      settings.zoomOut();
+      showZoomToast();
+    },
+    { enabled: () => zoomAvailable },
+  );
+  useKeybinding(
+    "global.zoom-reset",
+    () => {
+      settings.resetZoom();
+      showZoomToast();
+    },
+    { enabled: () => zoomAvailable },
+  );
   useKeybinding(
     "global.command-palette",
     () => {

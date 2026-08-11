@@ -130,8 +130,8 @@
         <button
           type="button"
           class="flex h-7 cursor-pointer items-center gap-[7px] rounded pr-1.5 pl-2 text-[13px] text-foreground transition-colors duration-150 hover:bg-[var(--wash-1)] {menuOpen
-            ? 'bg-[var(--wash-2)]'
-            : ''}"
+ ? 'bg-[var(--wash-2)]'
+ : ''}"
           aria-expanded={menuOpen}
           aria-label="Switch pull request"
           onclick={() => (menuOpen = !menuOpen)}
@@ -199,7 +199,7 @@
         {#each menuGroups as group (group.key)}
           <div class="flex items-center gap-2 px-[9px] pt-1.5 pb-1">
             <span
-              class="text-[9px] font-medium tracking-[.09em] text-muted-foreground uppercase"
+              class="text-[9px] font-medium text-muted-foreground uppercase"
               >{group.label}</span
             >
             <span class="h-px flex-1 bg-[var(--hairline)]"></span>
@@ -215,8 +215,8 @@
               role="option"
               aria-selected={active}
               class="flex h-[34px] w-full cursor-pointer items-center gap-[9px] rounded-md px-[9px] transition-colors duration-150 hover:bg-[var(--wash-2)] {active
-                ? 'bg-[var(--wash-2)]'
-                : ''}"
+ ? 'bg-[var(--wash-2)]'
+ : ''}"
               onclick={() => open(rowNumber)}
             >
               <span
@@ -229,9 +229,9 @@
                 >{row.ident}</span
               >
               <span
-                class="min-w-0 flex-1 truncate text-left text-[13px] tracking-[-.005em] {active
-                  ? 'font-medium'
-                  : ''}">{row.title}</span
+                class="min-w-0 flex-1 truncate text-left text-[13px] {active
+ ? 'font-medium'
+ : ''}">{row.title}</span
               >
               {#if active}
                 <CheckIcon size={12} weight="bold" class="shrink-0 text-primary" />

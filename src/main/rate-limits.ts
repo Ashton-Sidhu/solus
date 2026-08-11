@@ -41,7 +41,6 @@ export function findResetTimestamp(value: unknown): number | null {
 
   if (typeof value !== 'object') return null
 
-  const record = value as Record<string, unknown>
   for (const key of [
     'resetsAt',
     'resetAt',
@@ -52,7 +51,7 @@ export function findResetTimestamp(value: unknown): number | null {
     'secondsUntilReset',
     'resetInSeconds',
   ]) {
-    const found = findResetTimestamp(record[key])
+    const found = findResetTimestamp(Reflect.get(value, key))
     if (found) return found
   }
 

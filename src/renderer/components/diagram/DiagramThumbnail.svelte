@@ -267,8 +267,7 @@
   .diagram-thumbnail__group text {
     fill: var(--solus-text-tertiary);
     font-size: 18px;
-    font-weight: 600;
-    letter-spacing: 0;
+    font-weight: 500;
   }
 
   .diagram-thumbnail__edge {
@@ -308,8 +307,7 @@
   .diagram-thumbnail__node-title {
     fill: var(--solus-text-primary);
     font-size: 18px;
-    font-weight: 650;
-    letter-spacing: 0;
+    font-weight: 500;
   }
 
   .diagram-thumbnail__node-rule {
@@ -321,7 +319,6 @@
     fill: var(--solus-text-tertiary);
     font-size: 13px;
     font-weight: 500;
-    letter-spacing: 0;
   }
 
   .diagram-thumbnail__badge {

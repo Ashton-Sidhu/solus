@@ -22,6 +22,16 @@ interface ParsedReport {
   body: string
 }
 
+interface SessionToolInput {
+  session_id?: unknown
+  prompt?: unknown
+  mode?: unknown
+  model_id?: unknown
+  reasoning_effort?: unknown
+  cwd?: unknown
+  delivery?: unknown
+}
+
 /** Parse a persisted `[session report]` user turn (session-report.ts formats).
  *  Null means "not a report" — the caller renders the row as ordinary text. */
 export function parseSessionReport(text: string): ParsedReport | null {
@@ -64,7 +74,7 @@ export class AgentConversationTranscriptBuilder {
     result: AgentConversationResultProjection | undefined,
     timestamp: number,
   ): void {
-    let input: Record<string, unknown> = {}
+    let input: SessionToolInput = {}
     try {
       input = JSON.parse(toolInput || '{}')
     } catch {}

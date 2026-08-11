@@ -15,7 +15,7 @@ const capabilities: HostCapabilities = {
 }
 
 function currentApi(): HostApi {
-  const api = (globalThis as unknown as { window: { solus: Record<string, unknown> } }).window.solus
+  const api = (globalThis as unknown as { window: { solus: object } }).window.solus
   return asHostApi(api)
 }
 
@@ -49,12 +49,12 @@ export function singleHostServerConnections() {
 
   return {
     registerTarget: () => {},
-    registerPrimary: (serverId: string, nextApi: Record<string, unknown>) => {
+    registerPrimary: (serverId: string, nextApi: object) => {
       primaryServerId = serverId
       apis.set(serverId, asHostApi(nextApi))
       return connection(serverId)
     },
-    registerHost: (serverId: string, nextApi: Record<string, unknown>) => {
+    registerHost: (serverId: string, nextApi: object) => {
       apis.set(serverId, asHostApi(nextApi))
       return connection(serverId)
     },

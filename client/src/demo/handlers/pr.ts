@@ -53,12 +53,14 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
     return reviewers
   })
   backend.register('prUpdateLifecycle', (args) => {
+    const ctx = args[0] as IpcContext
     const action = args[2] as 'close' | 'reopen' | 'ready' | 'draft'
     const detail = store.prOverview().detail
     if (action === 'close') detail.state = 'closed'
     if (action === 'reopen') detail.state = 'open'
     if (action === 'ready') detail.draft = false
     if (action === 'draft') detail.draft = true
+    backend.broadcast('pr.lifecycleChanged', { projectRoot: projectCwd(ctx), detail })
     return detail
   })
   backend.register('prChangedFiles', () => store.prChangedFiles())

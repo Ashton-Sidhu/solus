@@ -86,7 +86,7 @@
 
     <!-- Slot 3 — the only full-strength text in the row. -->
     <span
-      class="max-w-[520px] truncate text-[13px] font-[450] tracking-[-.005em]"
+      class="max-w-[520px] truncate text-[13px] font-normal "
       title={row.title}
     >
       {row.title}
@@ -115,7 +115,7 @@
     {/each}
     {#if participants.overflow > 0}
       <span
-        class="flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--wash-3)] font-mono text-[11px] font-[450] text-muted-foreground"
+        class="flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--wash-3)] font-mono text-[11px] font-normal text-muted-foreground"
         title="{participants.overflow} more"
       >
         +{participants.overflow}

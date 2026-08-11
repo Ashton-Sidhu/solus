@@ -149,7 +149,7 @@
           <div class="py-1">
             {#each CLICK_OPTIONS as opt (opt.value)}
               <DropdownMenu.Item
-                class={clickKind === opt.value ? 'font-semibold' : undefined}
+                class={clickKind === opt.value ? 'font-medium' : undefined}
                 onSelect={() => {
                   clickKind = opt.value
                   clickValue = ''

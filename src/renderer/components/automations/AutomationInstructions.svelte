@@ -158,7 +158,7 @@
   .automation-prose :global(h4) {
     margin: 0;
     font-size: 0.9375rem;
-    font-weight: 600;
+    font-weight: 500;
     line-height: 1.5;
     color: var(--foreground);
   }

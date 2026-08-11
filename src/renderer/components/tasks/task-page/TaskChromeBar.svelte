@@ -57,7 +57,7 @@
     Tasks
   </button>
   <span class="px-[3px] text-[13px] opacity-30" aria-hidden="true">/</span>
-  <span class="flex h-7 items-center rounded px-[7px] font-mono text-[13px] tracking-[-.005em]">
+  <span class="flex h-7 items-center rounded px-[7px] font-mono text-[13px] ">
     {taskRef(task)}
   </span>
   <CopyButton text={task.id} title="Copy task ID" iconOnly />

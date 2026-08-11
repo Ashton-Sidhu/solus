@@ -29,15 +29,15 @@
 {#snippet shellInner()}
   <div
     class="relative flex flex-col overflow-hidden bg-(--solus-container-bg) @container {inline
-      ? 'h-full'
-      : 'h-[min(86vh,90vh)] w-[min(100rem,96vw)] rounded-2xl border border-(--solus-tool-border) shadow-[shadow:var(--solus-popover-shadow)]'}"
+ ? 'h-full'
+ : 'h-[min(86vh,90vh)] w-[min(100rem,96vw)] rounded-2xl border border-(--solus-tool-border) shadow-[shadow:var(--solus-popover-shadow)]'}"
     role="status"
     aria-label="Loading plan"
   >
     <!-- The title is known before the content is, so it stays real type; only
          the verbs on the right are ghosts. -->
     <header class="flex h-[2.875rem] shrink-0 items-center pl-[1.375rem]">
-      <span class="text-[0.78125rem] font-semibold tracking-[-0.01em] text-(--solus-text-primary)">
+      <span class="text-[0.78125rem] font-medium text-(--solus-text-primary)">
         Review Plan
       </span>
       <div class="min-w-4 flex-auto"></div>

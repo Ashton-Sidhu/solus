@@ -226,12 +226,12 @@
     background: var(--solus-accent);
     color: var(--solus-text-on-accent);
     font-size: 0.53125rem;
-    font-weight: 600;
+    font-weight: 500;
   }
 
   .ct-name {
     font-size: 0.75rem;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--solus-text-primary);
   }
 
@@ -263,7 +263,7 @@
   .ct-agent-name {
     flex: none;
     font-size: 0.75rem;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--solus-accent);
   }
 

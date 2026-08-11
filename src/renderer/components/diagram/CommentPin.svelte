@@ -120,7 +120,7 @@
   .comment-pin__count {
     font-family: var(--solus-code-font-family);
     font-size: 0.625rem;
-    font-weight: 600;
+    font-weight: 500;
     font-variant-numeric: tabular-nums;
     color: color-mix(in srgb, var(--pin-tint) 70%, var(--solus-text-primary));
   }

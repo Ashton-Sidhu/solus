@@ -58,7 +58,7 @@
 
 <div class="flex flex-col gap-[7px] pt-[26px]">
   <div class="flex items-center gap-2">
-    <span class="text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase">
+    <span class="text-[10px] font-normal text-muted-foreground uppercase">
       Sessions
     </span>
     <span class="font-mono text-[11px] tabular-nums text-muted-foreground opacity-70">
@@ -93,24 +93,24 @@
     >
       <span class="w-3.5 shrink-0"></span>
       <span
-        class="min-w-0 flex-1 text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase opacity-75"
+        class="min-w-0 flex-1 text-[10px] font-normal text-muted-foreground uppercase opacity-75"
       >
         Session
       </span>
       <span
-        class="w-[92px] shrink-0 text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase opacity-75"
+        class="w-[92px] shrink-0 text-[10px] font-normal text-muted-foreground uppercase opacity-75"
       >
         Agent
       </span>
       <!-- Attempts of one task can sit on different machines, and after the fact
            that is the only thing distinguishing them. -->
       <span
-        class="w-[104px] shrink-0 text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase opacity-75"
+        class="w-[104px] shrink-0 text-[10px] font-normal text-muted-foreground uppercase opacity-75"
       >
         Ran on
       </span>
       <span
-        class="w-[88px] shrink-0 text-right text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase opacity-75"
+        class="w-[88px] shrink-0 text-right text-[10px] font-normal text-muted-foreground uppercase opacity-75"
       >
         Active
       </span>
@@ -139,7 +139,7 @@
             ></span>
           {/if}
         </span>
-        <span class="min-w-0 flex-1 truncate text-[13px] tracking-[-.006em]">{row.title}</span>
+        <span class="min-w-0 flex-1 truncate text-[13px] ">{row.title}</span>
 
         <span class="w-[92px] shrink-0 truncate text-[12px] text-muted-foreground opacity-70">
           {row.agent}

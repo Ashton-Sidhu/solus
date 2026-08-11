@@ -38,7 +38,7 @@ import { type SettingsContext, type TabGroupMode } from '../app/settings.context
 import { type WindowContext } from '../app/window.context.svelte'
 import { type StatusBarContext } from '../app/status-bar.context.svelte'
 import { type AgentContext } from '../app/agent.context.svelte'
-import { type GitRefreshResult, type SessionEnvironmentStore } from '../git/session-environment.store.svelte'
+import { environmentProjectKey, type GitRefreshResult, type SessionEnvironmentStore } from '../git/session-environment.store.svelte'
 import { makeSession, makeTab, makePrompt } from './session.factories'
 import {
   SessionDraft,
@@ -1482,6 +1482,11 @@ export class WorkspaceContext {
   }
 
   selectTab(tabId: string, via: Via = 'click'): void {
+    // Selecting is also the user's explicit request to see this transcript.
+    // Retry even when this is already active behind a draft/page: setActiveTab
+    // does not run in that branch, and a failed boot hydration must not strand
+    // the conversation as an empty composer for the renderer lifetime.
+    prioritizeTabHydration(this, tabId)
     if (tabId === this.splitChatTabId) {
       const paneId = this.splitChatPaneId
       if (paneId) this.router.focusPane(paneId)
@@ -2075,6 +2080,15 @@ export class WorkspaceContext {
     // Watch before prompting, or the run's own events would have nowhere to go.
     api.watchSession({ sessionId: watchedSessionId })
       .then(() => this.config.pendingSessionStartTarget(tabId))
+      .then(async () => {
+        if (options.taskId) {
+          try {
+            await this.tasksStore.recordActivity(options.taskId)
+          } catch (error) {
+            console.warn('[Solus] Task activity update failed; the prompt will still send.', error)
+          }
+        }
+      })
       .then(() => this.resolveTaskOnItsHost(tabId, options))
       .then((resolved) => {
         // Guard: user may have interrupted between the watch resolving and this
@@ -2132,7 +2146,7 @@ export class WorkspaceContext {
       const { task, snapshot } = await this.tasksStore.prepareForSession(session.run.taskServerId, {
         existingTaskId: options.taskId ?? null,
         parentTaskId: options.taskId ? null : options.parentTaskId ?? null,
-        projectKey: session.run.projectGroupPath ?? environment.repoRoot ?? null,
+        projectKey: environmentProjectKey(environment, session.run.projectGroupPath),
         worktreeKey: environment.worktreePath ?? null,
         prompt: options.prompt,
         branch: environment.branch ?? null,
@@ -2319,12 +2333,6 @@ export class WorkspaceContext {
       existingTaskId(session.task) ??
       this.tasksStore.taskForSession(session.agentSessionId)?.id ??
       undefined
-    if (promptTaskId) {
-      void this.tasksStore.recordActivity(promptTaskId).catch((error) => {
-        console.warn('[Solus] Task activity wake failed; the prompt will still send.', error)
-      })
-    }
-
     this.promptTab(targetTabId, {
       prompt: fullPrompt,
       displayPrompt: prompt,

@@ -139,9 +139,26 @@ interface TaskToolResult {
   text: string
 }
 
+interface TaskToolArgs {
+  body?: unknown
+  due_date?: unknown
+  inbox?: unknown
+  kind?: unknown
+  labels?: unknown
+  parent_id?: unknown
+  priority?: unknown
+  role?: unknown
+  scope?: unknown
+  session_id?: unknown
+  status?: unknown
+  target_id?: unknown
+  task_id?: unknown
+  title?: unknown
+}
+
 async function executeTaskTool(
   name: string,
-  args: Record<string, unknown>,
+  args: TaskToolArgs,
   deps: TaskToolDeps,
 ): Promise<TaskToolResult> {
   const cwd = deps.ctx.cwd

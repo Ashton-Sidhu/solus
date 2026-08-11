@@ -170,8 +170,8 @@
     max-width: 100%;
     padding: 0 0.125rem;
     font-size: 0.5rem;
-    font-weight: 650;
-    letter-spacing: 0.09em;
+    font-weight: 500;
+
     text-transform: uppercase;
     color: var(--solus-text-tertiary);
     opacity: 0.85;
@@ -240,8 +240,7 @@
     writing-mode: vertical-rl;
     max-height: 7rem;
     font-size: 0.65625rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
+    font-weight: 500;
     color: var(--solus-text-tertiary);
     overflow: hidden;
     text-overflow: ellipsis;

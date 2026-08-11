@@ -125,6 +125,31 @@ export interface SessionToolDeps {
   onAgentConversationUpdate?: (update: AgentConversationUpdate) => void
 }
 
+interface SessionToolArgs {
+  after?: unknown
+  agent_provider?: unknown
+  before?: unknown
+  cwd?: unknown
+  delivery?: unknown
+  limit?: unknown
+  match?: unknown
+  mode?: unknown
+  model_id?: unknown
+  notify_on_completion?: unknown
+  parent_task_id?: unknown
+  project?: unknown
+  project_path?: unknown
+  prompt?: unknown
+  query?: unknown
+  reasoning_effort?: unknown
+  role?: unknown
+  session_id?: unknown
+  status?: unknown
+  tail?: unknown
+  task_id?: unknown
+  worktree_base_branch?: unknown
+}
+
 // ─── Schema ───
 
 const createSessionShape = {
@@ -391,7 +416,7 @@ export interface SessionToolResult {
 
 export async function executeSessionTool(
   name: string,
-  args: Record<string, unknown>,
+  args: SessionToolArgs,
   deps: SessionToolDeps = {},
 ): Promise<SessionToolResult> {
   try {

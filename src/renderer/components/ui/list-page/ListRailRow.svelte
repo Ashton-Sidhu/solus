@@ -67,7 +67,7 @@
 
     <span class="flex min-w-0 flex-1 flex-col gap-[3px]">
       <span
-        class="truncate text-[12.5px] leading-[17px] font-medium tracking-[-.005em]"
+        class="truncate text-[12.5px] leading-[17px] font-medium "
         title={row.title}
       >
         {row.title}

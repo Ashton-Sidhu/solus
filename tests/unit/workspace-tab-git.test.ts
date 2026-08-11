@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import type { RunConfig, Session, Tab } from '../../src/shared/types'
 
+type WorkspaceContextInstance = InstanceType<typeof import('../../src/renderer/contexts/workspace/workspace.context.svelte')['WorkspaceContext']>
+type CreateTabOptions = NonNullable<Parameters<WorkspaceContextInstance['createTab']>[1]>
+
 const previousWindow = globalThis.window
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 const previousAudio = globalThis.Audio
@@ -496,8 +499,8 @@ describe('WorkspaceContext task-bound tab creation', () => {
 
     const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
     const workspace = Object.create(WorkspaceContext.prototype) as any
-    let createOptions: Record<string, unknown> | undefined
-    workspace.createTab = async (cwd: string, options: Record<string, unknown>) => {
+    let createOptions: CreateTabOptions | undefined
+    workspace.createTab = async (cwd: string, options: CreateTabOptions) => {
       expect(cwd).toBe('/repo')
       createOptions = options
       return 'subtask-tab'
@@ -609,7 +612,7 @@ describe('WorkspaceContext resumed-session tab creation', () => {
         return tab ? this.sessions[tab.sessionId] : undefined
       },
     }
-    let createOptions: Record<string, unknown> | undefined
+    let createOptions: CreateTabOptions | undefined
     const workspace = Object.create(WorkspaceContext.prototype) as any
     workspace.registry = registry
     workspace.config = {
@@ -625,7 +628,7 @@ describe('WorkspaceContext resumed-session tab creation', () => {
       update: () => {},
     }
     workspace.ui = { isExpanded: false }
-    workspace.createTab = async (cwd: string, options: Record<string, unknown>) => {
+    workspace.createTab = async (cwd: string, options: CreateTabOptions) => {
       expect(cwd).toBe('/repo')
       createOptions = options
       const resumedSession = {

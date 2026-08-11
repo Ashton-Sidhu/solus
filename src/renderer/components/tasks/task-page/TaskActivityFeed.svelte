@@ -59,7 +59,7 @@
 <div class="pt-7">
   <div class="flex items-center gap-2.5 pb-1">
     <span
-      class="text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase"
+      class="text-[10px] font-normal text-muted-foreground uppercase"
     >
       Activity
     </span>
@@ -132,7 +132,7 @@
         {@const agent = isAgent(comment)}
         <div class="relative flex gap-3 py-3">
           <span
-            class="flex size-[25px] shrink-0 items-center justify-center rounded-full text-[10px] font-medium tracking-[.02em] shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
+            class="flex size-[25px] shrink-0 items-center justify-center rounded-full text-[10px] font-medium shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
             style={agent
               ? "background:color-mix(in oklch, var(--primary) 15%, transparent);color:color-mix(in oklch, var(--primary) 78%, var(--foreground))"
               : "background:color-mix(in oklch, var(--chart-1) 22%, transparent);color:color-mix(in oklch, var(--chart-1) 72%, var(--foreground))"}
@@ -165,12 +165,12 @@
           </span>
           <span class="flex min-w-0 flex-1 flex-col gap-1.5">
             <span class="flex min-h-[25px] flex-wrap items-center gap-2">
-              <span class="text-[13px] font-medium tracking-[-.005em]">
+              <span class="text-[13px] font-medium ">
                 {authorName(comment)}
               </span>
               {#if comment.originSessionId}
                 <span
-                  class="rounded-full px-1.5 py-px font-mono text-[11px] tracking-[.03em]"
+                  class="rounded-full px-1.5 py-px font-mono text-[11px] "
                   style="background:color-mix(in oklch, var(--primary) 13%, transparent);color:color-mix(in oklch, var(--primary) 82%, var(--foreground))"
                 >
                   {comment.originSessionId.slice(0, 8)}

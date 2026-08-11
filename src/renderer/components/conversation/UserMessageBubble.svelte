@@ -177,12 +177,12 @@
         aria-label={hasControls ? "Queued prompt" : undefined}
         tabindex={hasControls ? 0 : undefined}
         class="group/bubble relative max-w-[41.25rem] overflow-hidden rounded-2xl px-3 pt-2.5 pb-2.5 outline-none {hasControls
-          ? 'min-w-[9.5rem]'
-          : 'min-w-0'} {isPending
-          ? 'queued-bubble'
-          : isAutomation
-            ? 'bg-card shadow-[shadow:var(--solus-tx-hairline)]'
-            : 'bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)]'}"
+ ? 'min-w-[9.5rem]'
+ : 'min-w-0'} {isPending
+ ? 'queued-bubble'
+ : isAutomation
+ ? 'bg-card shadow-[shadow:var(--solus-tx-hairline)]'
+ : 'bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)]'}"
       >
         {#if isAutomation}
           <!-- Required origin label: the only thing separating an agent-sent
@@ -193,7 +193,7 @@
               ? `Open automation: ${message.automationName}`
               : "Open automation"}
             onclick={() => session.openAutomations(message?.automationId)}
-            class="mb-[0.1875rem] flex items-center gap-1 text-[0.5625rem] font-medium tracking-[0.05em] text-(--solus-text-tertiary) uppercase transition-colors duration-100 hover:text-(--solus-text-secondary) focus-visible:text-(--solus-text-secondary) focus-visible:outline-none"
+            class="mb-[0.1875rem] flex items-center gap-1 text-[0.5625rem] font-medium text-(--solus-text-tertiary) uppercase transition-colors duration-100 hover:text-(--solus-text-secondary) focus-visible:text-(--solus-text-secondary) focus-visible:outline-none"
           >
             <LightningIcon size={9} weight="fill" />
             <span>{message?.automationName || "Automation"}</span>
@@ -319,8 +319,8 @@
        sit flush under the last bubble. -->
   <div
     class="user-cv-body flex flex-col items-end gap-1.5 {isPending
-      ? 'py-[0.1875rem]'
-      : 'pt-4 pb-1.5'}"
+ ? 'py-[0.1875rem]'
+ : 'pt-4 pb-1.5'}"
   >
     {@render bubbleBody()}
   </div>

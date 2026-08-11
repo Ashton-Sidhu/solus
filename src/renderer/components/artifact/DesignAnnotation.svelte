@@ -519,7 +519,7 @@
     {#if annotations.length > 0}
       <span
         class="text-(--solus-text-tertiary)"
-        style="font-size:0.6875rem;font-weight:600;font-family:-apple-system,sans-serif;padding:0.125rem 0"
+        style="font-size:0.6875rem;font-weight: 500;font-family:-apple-system,sans-serif;padding:0.125rem 0"
         >{annotations.length}</span
       >
       <div

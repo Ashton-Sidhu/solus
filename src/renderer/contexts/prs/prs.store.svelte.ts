@@ -539,26 +539,42 @@ export class PrsStore {
   }
 
   applyDetail(serverId: string, ctx: IpcContext, number: number, detail: PullRequestDetail): void {
-    const key = this.prKey(serverId, ctx, number)
+    this.applyDetailForContext(this.contextHostKey(serverId, ctx), number, detail)
+  }
+
+  private applyDetailForContext(contextKey: string, number: number, detail: PullRequestDetail): void {
+    const key = `${contextKey}::${number}`
     this.seed(this.detailCache, key, detail)
     const overview = this.overviewCache.get(key)?.value
     if (overview) {
       overview.detail = detail
       this.seed(this.overviewCache, key, overview)
     }
-    if (this.activeContextKey !== this.contextHostKey(serverId, ctx)) return
-    for (const items of [this.items, this.needsReviewItems]) {
+    const patch = (items: PullRequestSummary[]): void => {
       const item = items.find((candidate) => candidate.number === number)
-      if (!item) continue
+      if (!item) return
       item.state = detail.state
       item.draft = detail.draft
       item.updatedAt = detail.updatedAt
       item.headSha = detail.headSha
     }
+    const listPrefix = `${contextKey}::`
+    for (const [cacheKey, entry] of this.listCache) {
+      if (cacheKey.startsWith(listPrefix) && entry.value) patch(entry.value.items)
+    }
+    if (this.activeContextKey !== contextKey) return
+    patch(this.items)
+    patch(this.needsReviewItems)
     if (detail.state !== 'open') {
       const needsReviewIndex = this.needsReviewItems.findIndex((item) => item.number === number)
       if (needsReviewIndex >= 0) this.needsReviewItems.splice(needsReviewIndex, 1)
     }
+  }
+
+  subscribeLifecycleChanges(): () => void {
+    return subscribeAllHosts('pr.lifecycleChanged', (serverId, event) => {
+      this.applyDetailForContext(hostKey(serverId, event.projectRoot), event.detail.number, event.detail)
+    })
   }
 
   /** Login for the connected provider token's user — the identity comment

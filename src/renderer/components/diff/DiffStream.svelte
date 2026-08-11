@@ -933,7 +933,7 @@
     color: var(--solus-text-tertiary);
     font-family: var(--solus-code-font-family);
     font-size: 0.625rem;
-    font-weight: 600;
+    font-weight: 500;
     line-height: 1.4;
   }
 
@@ -943,7 +943,7 @@
     min-width: 0;
     font-family: var(--solus-code-font-family);
     font-size: 0.8125rem;
-    letter-spacing: -0.005em;
+
   }
 
   :global(.diff-file-dir) {
@@ -999,7 +999,7 @@
   :global(.diff-ergonomics-label.is-unreviewed) {
     color: var(--solus-accent);
     font-style: normal;
-    font-weight: 600;
+    font-weight: 500;
   }
 
   :global([data-solus-unreviewed]) {

@@ -120,9 +120,19 @@ export interface WorkToolResult {
   text: string
 }
 
+interface WorkToolArgs {
+  work_id?: unknown
+  query?: unknown
+  type?: unknown
+  limit?: unknown
+  title?: unknown
+  doc_type?: unknown
+  content?: unknown
+}
+
 export async function executeWorkTool(
   name: string,
-  args: Record<string, unknown>,
+  args: WorkToolArgs,
   deps: WorkToolDeps = {},
 ): Promise<WorkToolResult> {
   try {

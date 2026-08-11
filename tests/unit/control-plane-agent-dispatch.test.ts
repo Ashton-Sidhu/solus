@@ -3,6 +3,7 @@ import { Database } from 'bun:sqlite'
 import { EventEmitter } from 'node:events'
 import type { AgentRunRequest } from '../../src/main/agents/agent-runner'
 import type { RunHandle } from '../../src/main/agents/agent-backend'
+import type { AgentBackend } from '../../src/main/agents/agent-backend'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -13,7 +14,7 @@ beforeAll(async () => {
 })
 
 function backend() {
-  const emitter = new EventEmitter() as EventEmitter & Record<string, unknown>
+  const emitter = new EventEmitter() as EventEmitter & Pick<AgentBackend, 'id' | 'metadata' | 'permissions' | 'startRun' | 'getPendingHandles' | 'shutdown'>
   let handle: RunHandle
   emitter.id = 'codex'
   emitter.metadata = { id: 'codex', label: 'Codex', models: [], defaultModel: '' }

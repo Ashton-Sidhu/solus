@@ -88,6 +88,11 @@ export interface PullRequestDetail extends PullRequestSummary {
 
 export type PrReviewVerdict = 'comment' | 'approve' | 'request-changes'
 export type PrLifecycleAction = 'merge' | 'close' | 'reopen' | 'ready' | 'draft'
+
+/** Canonical lifecycle fields returned by a provider mutation. The mutation
+ * response owns these values; callers must not immediately re-read an
+ * eventually consistent list/detail endpoint to discover them. */
+export type PrLifecycleUpdate = Pick<PullRequestSummary, 'state' | 'draft' | 'updatedAt'>
 export type PrMergeMethod = 'merge' | 'squash' | 'rebase'
 
 /** Operations supported by the provider and repository configuration. */

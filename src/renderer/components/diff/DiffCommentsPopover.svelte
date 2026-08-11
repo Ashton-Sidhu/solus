@@ -217,7 +217,7 @@
                       L{entry.thread.line}
                     </span>
                     {#if entry.thread.isResolved}
-                      <span class="inline-flex items-center gap-0.5 text-[0.5625rem] font-semibold text-(--solus-art-positive)">
+                      <span class="inline-flex items-center gap-0.5 text-[0.5625rem] font-medium text-(--solus-art-positive)">
                         <CheckCircleIcon size={9} weight="fill" /> Resolved
                       </span>
                     {/if}

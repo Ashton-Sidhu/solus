@@ -96,6 +96,20 @@ const readRunShape = {
   run_id: z.string().describe('The id of the run (from list_automation_runs).'),
 }
 
+interface AutomationToolArgs {
+  automation_id?: string
+  run_id?: string
+  name?: string
+  prompt?: string
+  cwd?: string
+  agent_provider?: AgentId
+  model_id?: string | null
+  reasoning_effort?: ReasoningEffort
+  enabled?: boolean
+  run_in_session?: boolean
+  trigger?: z.infer<typeof triggerSchema>
+}
+
 // ─── Descriptions ───
 
 const CREATE_DESC =
@@ -127,7 +141,13 @@ function agentProvider(value: unknown, fallback: AgentId): AgentId {
 function toTrigger(raw: unknown): AutomationTrigger | string {
   if (raw === undefined || raw === null) return { type: 'manual' }
   if (typeof raw !== 'object') return 'trigger must be an object.'
-  const t = raw as Record<string, unknown>
+  const t = raw as {
+    type?: unknown
+    run_at?: unknown
+    every_minutes?: unknown
+    cron?: unknown
+    timezone?: unknown
+  }
   let trigger: AutomationTrigger
   switch (t.type) {
     case 'manual':
@@ -213,7 +233,7 @@ function foreignAutomationError(operation: string, automationId: string): string
 
 export async function executeAutomationTool(
   name: string,
-  args: Record<string, unknown>,
+  args: AutomationToolArgs,
   deps: AutomationToolDeps = {},
 ): Promise<AutomationToolResult> {
   try {

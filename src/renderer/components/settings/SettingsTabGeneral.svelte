@@ -322,7 +322,7 @@
         <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[216px]">
           {#each agentRows as agent (agent.id)}
             <DropdownMenu.Item
-              class={agent.id === theme.activeAgent ? "font-semibold" : undefined}
+              class={agent.id === theme.activeAgent ? "font-medium" : undefined}
               disabled={!agent.enabled}
               onSelect={() => selectAgent(agent.id)}
             >
@@ -356,7 +356,7 @@
         <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="max-h-72 w-[216px] overflow-y-auto">
           {#each defaultAgentModels as model (model.id)}
             <DropdownMenu.Item
-              class={model.id === defaultModelId ? "font-semibold" : undefined}
+              class={model.id === defaultModelId ? "font-medium" : undefined}
               onSelect={() => selectDefaultModel(model.id)}
             >
               <span class="min-w-0 flex-1 truncate">{model.label}</span>

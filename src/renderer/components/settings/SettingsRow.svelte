@@ -40,8 +40,8 @@
   <div
     data-testid={testId}
     class="border-t border-border px-4 py-3.5 transition-colors first:border-t-0 {comingSoon
-      ? 'opacity-55'
-      : '[@media(hover:hover)]:hover:bg-muted'}"
+ ? 'opacity-55'
+ : '[@media(hover:hover)]:hover:bg-muted'}"
   >
     <div class="flex items-center gap-6">
       <div class="min-w-0 flex-1">
@@ -51,7 +51,7 @@
           <span>{label}{@render labelExtra?.()}</span>
           {#if comingSoon}
             <span
-              class="rounded-full border border-border px-1.5 py-px text-[0.5625rem] font-medium uppercase tracking-wide text-muted-foreground"
+              class="rounded-full border border-border px-1.5 py-px text-[0.5625rem] font-medium uppercase text-muted-foreground"
             >
               Coming soon
             </span>

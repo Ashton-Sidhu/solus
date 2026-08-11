@@ -93,7 +93,7 @@
           <BookOpenTextIcon size={20} />
         </span>
 
-        <h2 class="mt-4 text-[18px] font-semibold tracking-[-0.01em]">
+        <h2 class="mt-4 text-[18px] font-medium ">
           No guide yet for this pull request
         </h2>
 

@@ -39,7 +39,7 @@
       aria-label={placeholder}
     />
     <span
-      class="shrink-0 rounded-md bg-[var(--wash-2)] px-[7px] py-[3px] font-mono text-[11px] tracking-[.04em] text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent),inset_0_-1px_0_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
+      class="shrink-0 rounded-md bg-[var(--wash-2)] px-[7px] py-[3px] font-mono text-[11px] text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent),inset_0_-1px_0_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
       aria-hidden="true">/</span
     >
   </div>
@@ -49,8 +49,8 @@
     <button
       type="button"
       class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 text-[13px] transition-colors duration-150 {filter.active
-        ? 'bg-[color-mix(in_oklch,var(--primary)_13%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
-        : 'bg-transparent text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)]'}"
+ ? 'bg-[color-mix(in_oklch,var(--primary)_13%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
+ : 'bg-transparent text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)]'}"
       onclick={filter.toggle}
       aria-pressed={filter.active}
     >

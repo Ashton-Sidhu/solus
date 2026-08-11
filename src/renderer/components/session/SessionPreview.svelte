@@ -42,7 +42,7 @@
     <div class="flex min-w-0 flex-shrink-0 items-center gap-3 px-[1.125rem] pb-2.5 pt-3">
       <div class="flex min-w-0 flex-1 flex-col gap-0.5">
         <div
-          class="overflow-hidden text-ellipsis whitespace-nowrap text-[0.8125rem] font-[550] leading-[1.3] tracking-[-0.01em] text-[var(--solus-text-primary)]"
+          class="overflow-hidden text-ellipsis whitespace-nowrap text-[0.8125rem] font-medium leading-[1.3] text-[var(--solus-text-primary)]"
           title={title}
         >{#each titleRuns as run, i (i)}{#if run.hit}<mark
               class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
@@ -79,7 +79,7 @@
   {#if !preview && !loading}
     <div class="flex h-full flex-col items-center justify-center gap-2.5">
       <ChatCircleIcon size={26} class="text-(--solus-text-muted) opacity-35" />
-      <span class="text-[0.7188rem] tracking-[0.005em] text-[var(--solus-text-tertiary)]"
+      <span class="text-[0.7188rem] text-[var(--solus-text-tertiary)]"
         >Select a session to preview</span
       >
     </div>
@@ -111,7 +111,7 @@
           class="my-2 flex items-center gap-2.5 before:h-px before:flex-1 before:bg-[var(--solus-tx-rule)] before:content-[''] after:h-px after:flex-1 after:bg-[var(--solus-tx-rule)] after:content-['']"
         >
           <span
-            class="whitespace-nowrap font-mono text-[0.5938rem] uppercase tracking-[0.08em] text-(--solus-text-tertiary)"
+            class="whitespace-nowrap font-mono text-[0.5938rem] uppercase text-(--solus-text-tertiary)"
             >{hiddenCount > 0
               ? `+${hiddenCount} more · last reply`
               : "last reply"}</span
@@ -124,7 +124,7 @@
         </div>
       {:else if !preview?.firstUserMessage}
         <div class="flex h-full flex-col items-center justify-center gap-2.5 pt-10">
-          <span class="text-[0.7188rem] tracking-[0.005em] text-[var(--solus-text-tertiary)]"
+          <span class="text-[0.7188rem] text-[var(--solus-text-tertiary)]"
             >No messages</span
           >
         </div>

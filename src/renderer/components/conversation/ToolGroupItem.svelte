@@ -14,6 +14,7 @@
     getToolDescriptionFromParsed,
     liveActivityLabel,
     participleFor,
+    type ParsedToolInput,
   } from "./lib/activity-summary";
   import { waitingOnLabel } from "./agent-conversation/lib/agent-conversation";
   import type { Message, TurnStartKind } from "../../../shared/types";
@@ -54,7 +55,7 @@
     return last.toolStatus === "error" ? last : undefined;
   });
 
-  const parseCache = new WeakMap<Message, Record<string, unknown> | null>();
+  const parseCache = new WeakMap<Message, ParsedToolInput | null>();
 
   // A running tool's toolInput is empty/absent — the full input lands only at
   // completion. Parsing (and caching) it while running would pin a stale null, so
@@ -64,9 +65,10 @@
       if (!tool.toolInput || tool.toolStatus === "running") return null;
       const cached = parseCache.get(tool);
       if (cached !== undefined) return cached;
-      let parsed: Record<string, unknown> | null = null;
+      let parsed: ParsedToolInput | null = null;
       try {
-        parsed = JSON.parse(tool.toolInput) as Record<string, unknown>;
+        const value: unknown = JSON.parse(tool.toolInput);
+        parsed = value !== null && typeof value === "object" ? value as ParsedToolInput : null;
       } catch {}
       parseCache.set(tool, parsed);
       return parsed;
@@ -100,7 +102,7 @@
     return first ? (first.length > 240 ? `${first.slice(0, 237)}…` : first) : "";
   });
 
-  function describe(tool: Message, parsed: Record<string, unknown> | null): string {
+  function describe(tool: Message, parsed: ParsedToolInput | null): string {
     const toolName = tool.toolName || "Tool";
     if (tool.toolStatus === "running") return prettyToolName(toolName);
     return parsed

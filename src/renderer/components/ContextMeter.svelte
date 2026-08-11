@@ -149,7 +149,7 @@
           </span>
           <div class="flex min-w-0 items-baseline gap-2">
             <Popover.Title
-              class="truncate text-[0.8125rem] leading-[1.25] font-semibold text-(--solus-text-primary)"
+              class="truncate text-[0.8125rem] leading-[1.25] font-medium text-(--solus-text-primary)"
               >Context window</Popover.Title
             >
             <span
@@ -209,7 +209,7 @@
           <div
             class="flex flex-col gap-1 border-t border-[color-mix(in_srgb,var(--solus-container-border)_32%,transparent)] px-4 py-2.5"
           >
-            <span class="font-semibold text-(--solus-text-secondary)"
+            <span class="font-medium text-(--solus-text-secondary)"
               >This run</span
             >
             {#each runRows as row (row.label)}

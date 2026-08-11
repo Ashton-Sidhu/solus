@@ -570,9 +570,9 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     const [ctx, number, action, expectedHeadSha] = args as [IpcContext, number, Exclude<PrLifecycleAction, 'merge'>, string]
     if (!['close', 'reopen', 'ready', 'draft'].includes(action)) throw new Error('Unsupported pull request action.')
     const { repo, provider } = await reviewTargetFor(ctx)
-    const current = await provider.review.getPullRequest(repo, number)
-    if (!current.viewerPermissions.actions.includes(action)) throw new Error(`You do not have permission to ${action} this pull request.`)
     const detail = await provider.review.updatePullRequestLifecycle(repo, number, action, expectedHeadSha)
+    const projectRoot = ctx.session.projectPath || ctx.session.workingDirectory
+    if (projectRoot) deps.events.broadcast('pr.lifecycleChanged', { projectRoot, detail })
     return detail
   })
 

@@ -51,7 +51,7 @@
   class="flex min-h-full flex-col items-center justify-center px-6 py-10 sm:px-10 sm:py-12"
 >
   <h1
-    class="onboarding-title m-0 shrink-0 text-center text-[1.5rem] font-semibold leading-[1.12] tracking-[-0.028em] sm:text-[1.8125rem]"
+    class="onboarding-title m-0 shrink-0 text-center text-[1.5rem] font-medium leading-[1.12] sm:text-[1.8125rem]"
   >
     {title}
   </h1>

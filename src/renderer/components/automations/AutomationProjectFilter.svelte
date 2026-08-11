@@ -1,6 +1,7 @@
 <script lang="ts">
   import { CaretDownIcon, FolderIcon } from "phosphor-svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
+  import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import { abbreviateHome } from "../../lib/paths";
   import type { AutomationProject } from "./lib/automation-projects";
 
@@ -57,7 +58,7 @@
           value={project.key}
           title={abbreviateHome(project.projectPath)}
         >
-          <FolderIcon size={14} weight="fill" class="shrink-0 text-muted-foreground" />
+          <ProjectFavicon projectRoot={project.projectPath} class="size-3.5" />
           <span class="min-w-0 flex-1 truncate">{project.label}</span>
           <span class="font-mono text-[11px] tabular-nums text-muted-foreground opacity-60">
             {project.count}

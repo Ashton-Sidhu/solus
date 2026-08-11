@@ -4,7 +4,7 @@
 
 /** The page's single primary action (New / Run now) — filled accent pill. */
 export const PAGE_PRIMARY_BTN =
-  'inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-(--solus-accent) py-[0.4375rem] pl-2.5 pr-3 text-xs font-semibold text-[var(--solus-accent-contrast,#fff)] transition-[filter] duration-120 hover:brightness-[1.07] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_55%,transparent)] [@media(pointer:coarse)]:min-h-10 [@media(pointer:coarse)]:px-3.5 [@media(pointer:coarse)]:text-[0.8125rem]'
+  'inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-(--solus-accent) py-[0.4375rem] pl-2.5 pr-3 text-xs font-medium text-[var(--solus-accent-contrast,#fff)] transition-[filter] duration-120 hover:brightness-[1.07] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_55%,transparent)] [@media(pointer:coarse)]:min-h-10 [@media(pointer:coarse)]:px-3.5 [@media(pointer:coarse)]:text-[0.8125rem]'
 
 /** Quiet square icon button (close, refresh, row hover actions). */
 export const PAGE_ICON_BTN =
@@ -12,7 +12,7 @@ export const PAGE_ICON_BTN =
 
 /** Outlined secondary action rendered beside PAGE_PRIMARY_BTN (Retry, Refresh…). */
 export const PAGE_SECONDARY_BTN =
-  'inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-(--solus-container-border) bg-transparent px-3 py-[0.375rem] text-xs font-semibold text-(--solus-text-secondary) transition-[background-color,color] duration-100 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] [@media(pointer:coarse)]:min-h-10 [@media(pointer:coarse)]:px-3.5 [@media(pointer:coarse)]:text-[0.8125rem]'
+  'inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-(--solus-container-border) bg-transparent px-3 py-[0.375rem] text-xs font-medium text-(--solus-text-secondary) transition-[background-color,color] duration-100 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] [@media(pointer:coarse)]:min-h-10 [@media(pointer:coarse)]:px-3.5 [@media(pointer:coarse)]:text-[0.8125rem]'
 
 /** Borderless text/icon toggle for command bars (Starred, Mine, Bookmarked). */
 export const PAGE_GHOST_BTN =

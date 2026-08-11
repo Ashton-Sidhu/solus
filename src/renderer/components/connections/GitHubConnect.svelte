@@ -164,7 +164,7 @@
             class="text-(--solus-text-primary)"
           />
         </div>
-        <p class="text-[0.9375rem] font-semibold text-(--solus-text-primary)">
+        <p class="text-[0.9375rem] font-medium text-(--solus-text-primary)">
           Authorize Solus on GitHub
         </p>
         <p class="text-[0.75rem] text-(--solus-text-tertiary)">
@@ -174,7 +174,7 @@
 
       <div class="flex items-center justify-center gap-2">
         <code
-          class="text-[1.625rem] font-semibold tracking-[0.18em] text-(--solus-text-primary) tabular-nums"
+          class="text-[1.625rem] font-medium text-(--solus-text-primary) tabular-nums"
           style="font-family: 'Geist Mono', ui-monospace, monospace"
           >{connections.providerPrompt.userCode}</code
         >

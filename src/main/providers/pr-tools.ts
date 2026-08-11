@@ -64,6 +64,17 @@ const submitReviewShape = {
   })).optional().describe('Optional inline review comments anchored to the PR head.'),
 }
 
+interface PrToolArgs {
+  state?: PrFilter['state']
+  author?: string
+  number?: number
+  include_resolved?: boolean
+  thread_id?: string
+  body?: string
+  event?: DraftReview['event']
+  comments?: unknown
+}
+
 const LIST_PRS_DESC = 'List pull requests for the current git repository.'
 const READ_PR_DESC = 'Read a pull request overview, including body, headSha, commits, reviewers, mergeability, and top-level conversation.'
 const LIST_THREADS_DESC = 'List PR review threads. Use the verbatim thread_id values when replying or resolving.'
@@ -114,7 +125,9 @@ function formatThreads(threads: ReviewThread[]): string {
 function toReviewComments(raw: unknown): DraftReviewComment[] {
   if (!Array.isArray(raw)) return []
   return raw.map((item) => {
-    const obj = item && typeof item === 'object' ? item as Record<string, unknown> : {}
+    const obj = item && typeof item === 'object'
+      ? item as { path?: unknown; line?: unknown; start_line?: unknown; side?: unknown; body?: unknown }
+      : {}
     return {
       path: String(obj.path ?? ''),
       line: Number(obj.line ?? 0),
@@ -127,7 +140,7 @@ function toReviewComments(raw: unknown): DraftReviewComment[] {
 
 export async function executePrTool(
   name: string,
-  args: Record<string, unknown>,
+  args: PrToolArgs,
   deps: PrToolDeps,
 ): Promise<PrToolResult> {
   const cwd = deps.ctx.cwd

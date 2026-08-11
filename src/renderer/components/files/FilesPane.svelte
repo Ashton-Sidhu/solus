@@ -354,7 +354,7 @@
         <Icon {icon} width="14" height="14" class="shrink-0" />
       {:else}
         <span
-          class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 font-mono text-[0.625rem] font-semibold text-(--solus-text-tertiary)"
+          class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 font-mono text-[0.625rem] font-medium text-(--solus-text-tertiary)"
         >
           {ext(selectedPath)}
         </span>

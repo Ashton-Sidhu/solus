@@ -101,7 +101,7 @@
     <div class="flex items-center justify-between gap-3">
       <div class="flex items-center gap-3">
         <code
-          class="text-[1.75rem] font-semibold tracking-[0.15em] text-(--solus-text-primary) tabular-nums"
+          class="text-[1.75rem] font-medium text-(--solus-text-primary) tabular-nums"
           class:opacity-40={pairExpired}
           style="font-family: 'Geist Mono', ui-monospace, monospace"
           >{connections.activePair.code}</code

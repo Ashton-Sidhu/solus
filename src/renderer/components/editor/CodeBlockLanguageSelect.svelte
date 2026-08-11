@@ -35,7 +35,7 @@
     title="Language"
     size="sm"
     onmousedown={(event) => event.stopPropagation()}
-    class="relative h-[1.375rem] gap-1 rounded-[0.3125rem] border-0 bg-transparent px-1.5 py-0 font-(family-name:--solus-doc-mono) text-[0.65625rem] uppercase tracking-[0.06em] text-(--solus-text-tertiary) transition-[background-color,color,transform] after:absolute after:inset-x-0 after:-inset-y-[0.5625rem] hover:bg-(--solus-surface-hover) hover:text-(--solus-doc-ink-strong) active:scale-[0.96] data-[state=open]:bg-(--solus-surface-hover) data-[state=open]:text-(--solus-doc-ink-strong) focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent dark:hover:bg-(--solus-surface-hover) [&_svg]:size-2.5"
+    class="relative h-[1.375rem] gap-1 rounded-[0.3125rem] border-0 bg-transparent px-1.5 py-0 font-(family-name:--solus-doc-mono) text-[0.65625rem] uppercase text-(--solus-text-tertiary) transition-[background-color,color,transform] after:absolute after:inset-x-0 after:-inset-y-[0.5625rem] hover:bg-(--solus-surface-hover) hover:text-(--solus-doc-ink-strong) active:scale-[0.96] data-[state=open]:bg-(--solus-surface-hover) data-[state=open]:text-(--solus-doc-ink-strong) focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent dark:hover:bg-(--solus-surface-hover) [&_svg]:size-2.5"
   >
     {label}
   </Select.Trigger>

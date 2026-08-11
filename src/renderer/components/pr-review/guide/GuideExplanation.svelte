@@ -45,7 +45,7 @@
   {#if detailRecords.length > 0}
     <details class="group rounded-lg bg-(--solus-art-surface) px-3 py-2">
       <summary
-        class="flex cursor-pointer list-none items-center gap-1.5 text-[0.875rem] font-semibold text-(--solus-text-tertiary) select-none"
+        class="flex cursor-pointer list-none items-center gap-1.5 text-[0.875rem] font-medium text-(--solus-text-tertiary) select-none"
       >
         <span
           class="inline-block size-1.5 rotate-45 border-r-[1.5px] border-b-[1.5px] border-current transition-transform duration-150 group-open:rotate-[225deg]"
@@ -55,12 +55,12 @@
       <div class="detail-body mt-2.5 flex flex-col gap-3">
         {#each detailRecords as record (record.id)}
           <div class="flex flex-col gap-2.5">
-            <p class="text-[0.875rem] font-semibold text-(--solus-text-primary)">{record.title}</p>
+            <p class="text-[0.875rem] font-medium text-(--solus-text-primary)">{record.title}</p>
             {#each DETAIL_FIELDS as field (field.key)}
               {@const detail = record[field.key]}
               {#if detail}
                 <div class="flex flex-col gap-1">
-                  <p class="font-mono text-[0.6875rem] font-semibold tracking-wide text-(--solus-text-tertiary) uppercase">
+                  <p class="font-mono text-[0.6875rem] font-medium text-(--solus-text-tertiary) uppercase">
                     {field.label}
                   </p>
                   <div class="prose-cloud prose-reading font-secondary text-(--solus-text-secondary)">

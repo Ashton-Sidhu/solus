@@ -2,14 +2,20 @@
 // These are specific to the Claude Agent SDK stream format.
 // Shared/canonical types (NormalizedEvent, etc.) stay in types.ts.
 
-import type { PermissionOption } from './types'
+import type { PermissionOption, PermissionToolInput } from './types'
+
+export interface ClaudeToolInput extends PermissionToolInput {
+  file_path?: unknown
+  notebook_path?: unknown
+  todos?: unknown
+}
 
 export interface ContentBlock {
   type: 'text' | 'tool_use' | 'thinking'
   text?: string
   id?: string
   name?: string
-  input?: Record<string, unknown>
+  input?: ClaudeToolInput
   /** Extended-thinking span. The transcript prints how long it took, never the
    *  text, so only the block's start/stop boundary is consumed. */
   thinking?: string
@@ -158,7 +164,7 @@ export interface ResultEvent {
 
 export interface PermissionEvent {
   type: 'permission_request'
-  tool: { name: string; description?: string; input?: Record<string, unknown> }
+  tool: { name: string; description?: string; input?: ClaudeToolInput }
   question_id: string
   options: PermissionOption[]
   session_id: string

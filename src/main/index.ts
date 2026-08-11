@@ -11,6 +11,7 @@ import { syncBundledPlugins } from './agents/plugins'
 import { warmCliPath } from './cli-env'
 import { createLogger, flushLogs } from './logger'
 import type { AppGlobalShortcuts, AppShortcutCombo } from '../shared/types'
+import { clampZoomFactor } from '../shared/zoom'
 import { comboToAccelerator } from '../renderer/lib/keybindings/match'
 import { initAutoUpdater } from './updater'
 import type { BootedServer } from './server'
@@ -924,6 +925,11 @@ ipcMain.on('solus:set-ignore-mouse-events', (event, ignore: boolean, options?: {
       win.webContents.focus()
     }
   }
+})
+
+ipcMain.on('solus:set-zoom-factor', (event, factor: unknown) => {
+  if (typeof factor !== 'number') return
+  event.sender.setZoomFactor(clampZoomFactor(factor))
 })
 
 function restoreDesignModeWindow(): void {

@@ -802,17 +802,17 @@
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
             class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
-              'folio',
-            )
-              ? 'text-foreground'
-              : ''}"
+ 'folio',
+ )
+ ? 'text-foreground'
+ : ''}"
             isActive={session.router.at("folio")}
             onclick={() => session.toggleFolio()}
           >
             <span class="flex shrink-0 items-center"
               ><BooksIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]"
+            <span class="flex-1 text-left text-[0.84375rem] "
               >Workspace</span
             >
             <span
@@ -824,17 +824,17 @@
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
             class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
-              'automations',
-            )
-              ? 'text-foreground'
-              : ''}"
+ 'automations',
+ )
+ ? 'text-foreground'
+ : ''}"
             isActive={session.router.at("automations")}
             onclick={() => session.toggleAutomations()}
           >
             <span class="flex shrink-0 items-center"
               ><ArrowsClockwiseIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]"
+            <span class="flex-1 text-left text-[0.84375rem] "
               >Automations</span
             >
             <span
@@ -846,19 +846,19 @@
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
             class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
-              'prs',
-            )
-              ? 'text-foreground'
-              : ''}"
+ 'prs',
+ )
+ ? 'text-foreground'
+ : ''}"
             isActive={session.router.at("prs")}
             onclick={togglePrs}
           >
             <span class="flex shrink-0 items-center"
               ><GitPullRequestIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]"
+            <span class="flex-1 text-left text-[0.84375rem] "
               >Pull requests<span
-                class="ml-1.5 inline-flex items-center rounded-[0.3125rem] px-[0.3125rem] py-0.5 align-middle font-mono text-[0.5625rem] leading-none font-medium tracking-[0.07em] text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))] uppercase bg-[color-mix(in_oklch,var(--primary)_13%,transparent)]"
+                class="ml-1.5 inline-flex items-center rounded-[0.3125rem] px-[0.3125rem] py-0.5 align-middle font-mono text-[0.5625rem] leading-none font-medium text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))] uppercase bg-[color-mix(in_oklch,var(--primary)_13%,transparent)]"
                 >Beta</span
               ></span
             >
@@ -875,19 +875,19 @@
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
             class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
-              'tasks',
-            )
-              ? 'text-foreground'
-              : ''}"
+ 'tasks',
+ )
+ ? 'text-foreground'
+ : ''}"
             isActive={session.router.at("tasks")}
             onclick={() => session.toggleTasks()}
           >
             <span class="flex shrink-0 items-center"
               ><ListChecksIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]"
+            <span class="flex-1 text-left text-[0.84375rem] "
               >Tasks<span
-                class="ml-1.5 inline-flex items-center rounded-[0.3125rem] px-[0.3125rem] py-0.5 align-middle font-mono text-[0.5625rem] leading-none font-medium tracking-[0.07em] text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))] uppercase bg-[color-mix(in_oklch,var(--primary)_13%,transparent)]"
+                class="ml-1.5 inline-flex items-center rounded-[0.3125rem] px-[0.3125rem] py-0.5 align-middle font-mono text-[0.5625rem] leading-none font-medium text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))] uppercase bg-[color-mix(in_oklch,var(--primary)_13%,transparent)]"
                 >Beta</span
               ></span
             >
@@ -908,7 +908,7 @@
             <span class="flex shrink-0 items-center"
               ><ClockIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]"
+            <span class="flex-1 text-left text-[0.84375rem] "
               >History</span
             >
             <span
@@ -1073,7 +1073,7 @@
                 letterClass="text-[0.53125rem]"
               />
               <span
-                class="shrink-0 text-[0.59375rem] font-semibold tracking-[0.1em] text-[color-mix(in_oklch,var(--foreground)_68%,transparent)] uppercase"
+                class="shrink-0 text-[0.59375rem] font-medium text-[color-mix(in_oklch,var(--foreground)_68%,transparent)] uppercase"
                 >{group.projectLabel}</span
               >
               <span
@@ -1103,10 +1103,10 @@
               <CaretRightIcon
                 size={14}
                 class="shrink-0 text-muted-foreground transition-transform duration-150 {collapsedProjectKeys.has(
-                  group.projectKey,
-                )
-                  ? ''
-                  : 'rotate-90'}"
+ group.projectKey,
+ )
+ ? ''
+ : 'rotate-90'}"
               />
             </div>
             {#if !collapsedProjectKeys.has(group.projectKey)}
@@ -1138,8 +1138,8 @@
               <CaretRightIcon
                 size={14}
                 class="transition-transform duration-150 {snoozedShelfOpen
-                  ? 'rotate-90'
-                  : ''}"
+ ? 'rotate-90'
+ : ''}"
               />
             </span>
           </button>
@@ -1168,8 +1168,8 @@
               <CaretRightIcon
                 size={14}
                 class="transition-transform duration-150 {completedShelfOpen
-                  ? 'rotate-90'
-                  : ''}"
+ ? 'rotate-90'
+ : ''}"
               />
             </span>
           </button>
@@ -1199,7 +1199,7 @@
             <span class="flex shrink-0 items-center"
               ><PushPinIcon size={14} weight="fill" /></span
             >
-            <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]"
+            <span class="flex-1 text-left text-[0.84375rem] "
               >Saved sessions</span
             >
             <span
@@ -1209,8 +1209,8 @@
             <CaretRightIcon
               size={14}
               class="shrink-0 transition-transform duration-150 {savedSessionsOpen
-                ? 'rotate-90'
-                : ''}"
+ ? 'rotate-90'
+ : ''}"
             />
           </Sidebar.MenuButton>
         </Sidebar.MenuItem>
@@ -1241,8 +1241,8 @@
               >
                 <span
                   class="min-w-0 flex-1 overflow-hidden text-[0.78125rem] text-ellipsis whitespace-nowrap {isActive
-                    ? 'font-[560] text-foreground'
-                    : 'text-[color-mix(in_oklch,var(--foreground)_88%,transparent)]'}"
+ ? 'font-medium text-foreground'
+ : 'text-[color-mix(in_oklch,var(--foreground)_88%,transparent)]'}"
                   >{pin.title}</span
                 >
                 <button
@@ -1265,10 +1265,10 @@
       <Sidebar.MenuItem>
         <Sidebar.MenuButton
           class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
-            'settings',
-          )
-            ? 'text-foreground'
-            : ''}"
+ 'settings',
+ )
+ ? 'text-foreground'
+ : ''}"
           isActive={session.router.at("settings")}
           onclick={() => session.showSettings()}
         >
@@ -1276,7 +1276,7 @@
             class="flex shrink-0 items-center motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:rotate-90"
             ><GearIcon size={14} /></span
           >
-          <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]"
+          <span class="flex-1 text-left text-[0.84375rem] "
             >Settings</span
           >
           <span

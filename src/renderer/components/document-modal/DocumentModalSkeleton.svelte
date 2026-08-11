@@ -39,8 +39,8 @@
 {#snippet shellInner()}
   <div
     class="relative flex flex-col overflow-hidden bg-(--solus-container-bg) @container {inline
-      ? 'h-full'
-      : 'h-[min(86vh,90vh)] w-[min(100rem,96vw)] rounded-2xl border border-(--solus-tool-border) shadow-[shadow:var(--solus-popover-shadow)]'}"
+ ? 'h-full'
+ : 'h-[min(86vh,90vh)] w-[min(100rem,96vw)] rounded-2xl border border-(--solus-tool-border) shadow-[shadow:var(--solus-popover-shadow)]'}"
     role="status"
     aria-label="Loading document"
   >
@@ -51,7 +51,7 @@
       {/if}
       {#if title}
         <span
-          class="min-w-0 truncate text-[0.78125rem] font-semibold tracking-[-0.01em] text-(--solus-text-primary)"
+          class="min-w-0 truncate text-[0.78125rem] font-medium text-(--solus-text-primary)"
         >
           {title}
         </span>
@@ -145,7 +145,7 @@
     white-space: nowrap;
     font-family: 'Geist Mono', var(--solus-code-font-family);
     font-size: 0.6875rem;
-    letter-spacing: 0.02em;
+
     color: var(--solus-text-tertiary);
   }
 

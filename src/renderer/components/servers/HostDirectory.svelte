@@ -77,7 +77,7 @@
             <span class="truncate">{server.label}</span>
             {#if isActive}
               <span
-                class="shrink-0 rounded-full bg-(--solus-accent-light) px-1.5 py-0.5 text-[0.5625rem] font-medium uppercase tracking-wide text-(--solus-accent)"
+                class="shrink-0 rounded-full bg-(--solus-accent-light) px-1.5 py-0.5 text-[0.5625rem] font-medium uppercase text-(--solus-accent)"
               >
                 Running sessions
               </span>
@@ -126,7 +126,7 @@
             {host.server.name}
           </p>
           <span
-            class="shrink-0 rounded-full bg-(--solus-surface-active) px-1.5 py-0.5 text-[0.5625rem] font-medium uppercase tracking-wide text-(--solus-text-tertiary)"
+            class="shrink-0 rounded-full bg-(--solus-surface-active) px-1.5 py-0.5 text-[0.5625rem] font-medium uppercase text-(--solus-text-tertiary)"
           >
             {host.server.source === "lan" ? "LAN" : "Tailnet"}
           </span>

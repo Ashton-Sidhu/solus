@@ -247,7 +247,7 @@
   .plan-card-placeholder-text {
     font-size: 0.75rem;
     line-height: 1.4;
-    font-weight: 550;
+    font-weight: 500;
     color: var(--solus-accent);
   }
 
@@ -311,7 +311,7 @@
 
   .diagram-loading__status {
     font-size: 0.625rem;
-    letter-spacing: 0.06em;
+
     text-transform: uppercase;
     color: var(--solus-text-tertiary);
     animation: diagram-sk-breathe 2.6s ease-in-out infinite;

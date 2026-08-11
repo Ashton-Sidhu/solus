@@ -195,7 +195,7 @@
     background: var(--solus-surface-hover);
     color: var(--solus-text-tertiary);
     font-size: 0.625rem;
-    font-weight: 700;
+    font-weight: 500;
     font-variant-numeric: tabular-nums;
     cursor: pointer;
     transition:

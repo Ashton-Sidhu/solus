@@ -347,7 +347,7 @@
         {/if}
 
         {#if currentQuestion.multiSelect && hasOptions}
-          <div class="px-[1.125rem] pb-2 text-[0.65625rem] tracking-[0.07em] uppercase text-(--muted-foreground)">
+          <div class="px-[1.125rem] pb-2 text-[0.65625rem] uppercase text-(--muted-foreground)">
             Select all that apply
           </div>
         {/if}
@@ -418,7 +418,7 @@
             {#if previewOpen}
               <div
                 in:fly={{ y: -2, duration: 140 }}
-                class="interrupt-payload px-[0.8125rem] py-[0.6875rem] font-mono text-[0.75rem] leading-[1.75] whitespace-pre-wrap text-(--muted-foreground) [&_code]:!bg-transparent [&_p:last-child]:mb-0 [&_p]:mb-1 [&_p]:whitespace-pre-wrap [&_pre]:!bg-transparent [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_strong]:font-semibold [&_strong]:text-(--solus-text-primary)"
+                class="interrupt-payload px-[0.8125rem] py-[0.6875rem] font-mono text-[0.75rem] leading-[1.75] whitespace-pre-wrap text-(--muted-foreground) [&_code]:!bg-transparent [&_p:last-child]:mb-0 [&_p]:mb-1 [&_p]:whitespace-pre-wrap [&_pre]:!bg-transparent [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_strong]:font-medium [&_strong]:text-(--solus-text-primary)"
               >
                 <SvelteMarkdown
                   source={activeOption.preview ?? ""}

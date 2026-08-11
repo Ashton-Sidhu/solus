@@ -11,7 +11,7 @@
 >
   <ChatCircleIcon size={13} weight="fill" class="mt-0.5 shrink-0 text-(--solus-accent)" />
   <div class="min-w-0 flex-1">
-    <div class="flex items-center gap-1 text-[9.5px] font-medium tracking-wider text-primary uppercase">
+    <div class="flex items-center gap-1 text-[9.5px] font-medium r text-primary uppercase">
       Your comment here <ArrowRightIcon size={10} weight="bold" /> this changed
     </div>
     <p class="mt-0.5 truncate text-[11px] text-muted-foreground">

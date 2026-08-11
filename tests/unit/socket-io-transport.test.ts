@@ -187,7 +187,7 @@ function getClientInstanceId(client: WsTransport): string {
 function hasServerFrameCompression(harness: Harness): boolean {
   const session = [...harness.transport.sessions.values()][0]
   const raw = (session.socket.conn.transport as unknown as {
-    socket?: { extensions?: unknown; _extensions?: Record<string, unknown> }
+    socket?: { extensions?: unknown; _extensions?: { 'permessage-deflate'?: unknown } }
   }).socket
   if (typeof raw?.extensions === 'string') return raw.extensions.includes('permessage-deflate')
   return !!raw?._extensions?.['permessage-deflate']

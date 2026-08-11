@@ -192,16 +192,16 @@
         <SessionNameInput
           value={session.label}
           class="text-[0.8125rem] {titleIsEmphasized
-            ? 'font-semibold tracking-[-0.008em]'
-            : 'tracking-[-0.006em]'}"
+            ? 'font-medium '
+            : ''}"
           onCommit={onRename}
           onCancel={onRenameCancel}
         />
       {:else}
         <span
           class="min-w-0 flex-1 overflow-hidden text-[0.8125rem] leading-[1.125rem] text-ellipsis whitespace-nowrap transition-colors duration-150 {titleIsEmphasized
-            ? 'font-semibold tracking-[-0.008em]'
-            : 'tracking-[-0.006em]'} {titleLeads
+            ? 'font-medium '
+            : ''} {titleLeads
             ? 'text-foreground'
             : 'text-(--solus-text-secondary)'}">{session.label}</span
         >

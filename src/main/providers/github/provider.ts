@@ -423,6 +423,7 @@ function githubApiErrorMessage(err: unknown, fallback: string): string {
 
 /** Shared shape of a PR across the REST list and get responses we read. */
 interface RestPull {
+  node_id?: string
   number: number
   title: string
   user: { login: string; avatar_url?: string } | null
@@ -437,6 +438,9 @@ interface RestPull {
   requested_reviewers?: Array<{ login: string } | null>
   assignees?: Array<{ login: string } | null>
   body?: string | null
+  changed_files?: number
+  mergeable?: boolean | null
+  mergeable_state?: string | null
   base: { ref: string; sha: string; repo?: { full_name?: string } | null }
   head: { ref: string; sha: string; repo?: { full_name?: string; name?: string; owner?: { login?: string } } | null }
 }
@@ -470,6 +474,33 @@ function toSummary(pr: RestPull): PullRequestSummary {
 
 function withBaseRepo(summary: PullRequestSummary, repo: RepoRef): PullRequestSummary {
   return { ...summary, baseRepo: repo }
+}
+
+function toDetail(
+  pr: RestPull,
+  repo: RepoRef,
+  access: Awaited<ReturnType<typeof githubPullRequestAccessFor>>,
+): PullRequestDetail {
+  const baseFull = pr.base.repo?.full_name
+  const headFull = pr.head.repo?.full_name
+  return {
+    ...withBaseRepo(toSummary(pr), repo),
+    body: pr.body ?? '',
+    baseRef: pr.base.ref,
+    headRef: pr.head.ref,
+    baseSha: pr.base.sha,
+    headSha: pr.head.sha,
+    changedFiles: pr.changed_files ?? 0,
+    mergeable: pr.mergeable ?? null,
+    mergeStateStatus: pr.mergeable_state ?? null,
+    headRepo: {
+      owner: pr.head.repo?.owner?.login ?? repo.owner,
+      repo: pr.head.repo?.name ?? repo.repo,
+      // The head branch lives in a fork when its repo differs from the base repo.
+      isFork: !!headFull && !!baseFull && headFull !== baseFull,
+    },
+    ...access,
+  }
 }
 
 function toComment(c: GqlComment): ReviewComment {
@@ -695,26 +726,7 @@ class GitHubProvider implements ReviewProvider {
       pull_number: number,
     }), this.getViewer()])
     const access = await githubPullRequestAccessFor(client, repo, viewer, pr.user?.login ?? '')
-    const baseFull = pr.base.repo?.full_name
-    const headFull = pr.head.repo?.full_name
-    return {
-      ...withBaseRepo(toSummary(pr as unknown as RestPull), repo),
-      body: pr.body ?? '',
-      baseRef: pr.base.ref,
-      headRef: pr.head.ref,
-      baseSha: pr.base.sha,
-      headSha: pr.head.sha,
-      changedFiles: (pr as any).changed_files ?? 0,
-      mergeable: pr.mergeable ?? null,
-      mergeStateStatus: (pr as any).mergeable_state ?? null,
-      headRepo: {
-        owner: pr.head.repo?.owner?.login ?? repo.owner,
-        repo: pr.head.repo?.name ?? repo.repo,
-        // The head branch lives in a fork when its repo differs from the base repo.
-        isFork: !!headFull && !!baseFull && headFull !== baseFull,
-      },
-      ...access,
-    }
+    return toDetail(pr as unknown as RestPull, repo, access)
   }
 
   async updatePullRequest(
@@ -828,8 +840,27 @@ class GitHubProvider implements ReviewProvider {
     action: Exclude<PrLifecycleAction, 'merge'>,
     expectedHeadSha: string,
   ): Promise<PullRequestDetail> {
-    await updateGithubPullRequestLifecycle(await this.client(), repo, number, action, expectedHeadSha)
-    return this.getPullRequest(repo, number)
+    const client = await this.client()
+    const [{ data: pullRequest }, viewer] = await Promise.all([
+      client.rest.pulls.get({ owner: repo.owner, repo: repo.repo, pull_number: number }),
+      this.getViewer(),
+    ])
+    const raw = pullRequest as unknown as RestPull
+    const access = await githubPullRequestAccessFor(client, repo, viewer, pullRequest.user?.login ?? '')
+    if (!access.viewerPermissions.actions.includes(action)) {
+      throw new Error(`You do not have permission to ${action} this pull request.`)
+    }
+    if (!raw.node_id) throw new Error('GitHub did not return the pull request node ID.')
+    const current = toDetail(raw, repo, access)
+    const lifecycle = await updateGithubPullRequestLifecycle(
+      client,
+      repo,
+      number,
+      action,
+      expectedHeadSha,
+      { headSha: current.headSha, nodeId: raw.node_id, draft: current.draft },
+    )
+    return { ...current, ...lifecycle }
   }
 
   async createReview(repo: RepoRef, number: number, review: DraftReview): Promise<void> {

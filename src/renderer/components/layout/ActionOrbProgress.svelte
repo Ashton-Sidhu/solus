@@ -96,7 +96,7 @@
         {@render progressRing(progressFraction)}
       {/if}
       <span
-        class="min-w-0 flex-1 truncate text-[length:var(--pop-title-size)] font-semibold text-foreground"
+        class="min-w-0 flex-1 truncate text-[length:var(--pop-title-size)] font-medium text-foreground"
       >
         {#if stepsLeft > 0}
           {stepsLeft} step{stepsLeft === 1 ? "" : "s"} left
@@ -339,7 +339,7 @@
     align-items: center;
     justify-content: center;
     font-size: calc(0.5469rem * var(--orb-scale));
-    font-weight: 600;
+    font-weight: 500;
     line-height: 1;
     color: var(--solus-text-secondary);
   }
@@ -364,7 +364,7 @@
   .pt-count-text {
     flex-shrink: 0;
     font-size: calc(0.6563rem * var(--orb-scale));
-    font-weight: 600;
+    font-weight: 500;
     line-height: 1;
     color: var(--solus-text-secondary);
   }

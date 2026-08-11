@@ -273,9 +273,9 @@
   .doc-outline__label {
     font-family: 'Geist Mono', var(--solus-code-font-family);
     font-size: 0.59375rem;
-    font-weight: 600;
+    font-weight: 500;
     text-transform: uppercase;
-    letter-spacing: 0.12em;
+
     color: var(--solus-text-tertiary);
   }
   .doc-outline__totals {
@@ -296,7 +296,6 @@
     text-align: left;
     font-size: 0.8125rem;
     line-height: 1.45;
-    letter-spacing: -0.005em;
     padding: 0.3125rem 0.375rem 0.3125rem 0;
     color: var(--solus-text-tertiary);
     background: transparent;
@@ -351,7 +350,7 @@
   }
   .doc-outline__item--active {
     color: var(--solus-accent);
-    font-weight: 550;
+    font-weight: 500;
   }
   .doc-outline__item--active .doc-outline__mark,
   .doc-outline__item--active .doc-outline__index {
@@ -382,7 +381,7 @@
     border-top: 0.0625rem solid color-mix(in srgb, var(--solus-art-border) 55%, transparent);
     font-family: 'Geist Mono', var(--solus-code-font-family);
     font-size: 0.59375rem;
-    letter-spacing: 0.04em;
+
     color: var(--solus-text-tertiary);
   }
   .doc-outline__foot-key {

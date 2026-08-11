@@ -43,7 +43,7 @@
   <div class="flex flex-col gap-2 px-3 py-2.5">
     <div class="flex items-center gap-[0.4375rem]">
       <span class="plan-comment-popover__avatar" aria-hidden="true">You</span>
-      <span class="text-[0.75rem] font-semibold text-(--solus-text-primary)">You</span>
+      <span class="text-[0.75rem] font-medium text-(--solus-text-primary)">You</span>
       <div class="ml-auto flex gap-1">
         <Button
           variant="ghost"
@@ -115,7 +115,7 @@
     background: var(--solus-accent);
     color: var(--solus-text-on-accent);
     font-size: 0.5rem;
-    font-weight: 600;
+    font-weight: 500;
   }
   .plan-comment-popover__body {
     font-size: 0.78125rem;

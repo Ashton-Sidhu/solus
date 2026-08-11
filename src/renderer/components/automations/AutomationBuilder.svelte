@@ -93,8 +93,8 @@
   const RAIL_BLOCK =
     "flex min-w-0 flex-col gap-3 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]";
   const STAT_LABEL =
-    "text-[11px] font-[450] tracking-[0.09em] text-muted-foreground uppercase";
-  const STAT_VALUE = "text-[14px] font-[550] tracking-[-0.01em]";
+    "text-[11px] font-normal  text-muted-foreground uppercase";
+  const STAT_VALUE = "text-[14px] font-medium ";
   // Pill actions in the title row. Both sit at 2.0625rem so they read as one
   // pair; only "Run now" carries fill.
   const PILL = "h-[2.0625rem] shrink-0 rounded-full text-[13px]";
@@ -110,7 +110,7 @@
   // The title, editable in place: same 2.125rem type as the h1 it replaces, so
   // entering edit mode doesn't reflow the page.
   const TITLE_INPUT =
-    "h-auto w-full -ml-1.5 rounded-lg border-0 bg-transparent px-1.5 py-0 text-[2.125rem] max-md:text-[2.125rem] font-[620] leading-[1.1] tracking-[-0.03em] " +
+    "h-auto w-full -ml-1.5 rounded-lg border-0 bg-transparent px-1.5 py-0 text-[2.125rem] max-md:text-[2.125rem] font-medium leading-[1.1]  " +
     "text-foreground shadow-none [outline:0.0625rem_solid_transparent] transition-[outline-color,background-color] duration-120 " +
     "placeholder:text-muted-foreground hover:bg-muted focus-visible:bg-transparent focus-visible:ring-0 " +
     "focus-visible:[outline-color:color-mix(in_srgb,var(--solus-accent)_55%,transparent)]";
@@ -624,7 +624,7 @@
         <Breadcrumb.Separator class="text-muted-foreground/45">/</Breadcrumb.Separator>
         <Breadcrumb.Item class="min-w-0">
           <Breadcrumb.Page
-            class="truncate font-[550] tracking-[-0.01em] text-[color:color-mix(in_oklab,var(--foreground)_80%,var(--muted-foreground))]"
+            class="truncate font-medium text-[color:color-mix(in_oklab,var(--foreground)_80%,var(--muted-foreground))]"
             >{name || "Untitled automation"}</Breadcrumb.Page
           >
         </Breadcrumb.Item>
@@ -643,14 +643,14 @@
       <div class="flex items-center gap-2">
         <span
           class="size-1.5 shrink-0 rounded-full {enabled
-            ? 'bg-chart-3'
-            : 'bg-muted-foreground/60'} {isRunning ? 'animate-pulse' : ''}"
+ ? 'bg-chart-3'
+ : 'bg-muted-foreground/60'} {isRunning ? 'animate-pulse' : ''}"
           aria-hidden="true"
         ></span>
         <span
-          class="text-[12px] font-[450] tracking-[0.09em] uppercase {enabled
-            ? 'text-[color:color-mix(in_oklab,var(--chart-3)_72%,var(--foreground))]'
-            : 'text-muted-foreground'}">{enabled ? "Active" : "Paused"}</span
+          class="text-[12px] font-normal uppercase {enabled
+ ? 'text-[color:color-mix(in_oklab,var(--chart-3)_72%,var(--foreground))]'
+ : 'text-muted-foreground'}">{enabled ? "Active" : "Paused"}</span
         >
         {#if scheduleNote}
           <span class="truncate text-[12px] text-muted-foreground"
@@ -671,7 +671,7 @@
         />
       {:else}
         <h1
-          class="m-0 text-[2.125rem] font-[620] leading-[1.1] tracking-[-0.03em] text-foreground"
+          class="m-0 text-[2.125rem] font-medium leading-[1.1] text-foreground"
         >
           {name || "Untitled automation"}
         </h1>
@@ -682,7 +682,7 @@
       {#if isEditing}
         <Button
           variant="outline"
-          class="{PILL} gap-1.5 border-border/85 bg-transparent px-3 font-[550] text-[color:color-mix(in_oklab,var(--foreground)_85%,var(--muted-foreground))] dark:bg-transparent"
+          class="{PILL} gap-1.5 border-border/85 bg-transparent px-3 font-medium text-[color:color-mix(in_oklab,var(--foreground)_85%,var(--muted-foreground))] dark:bg-transparent"
           onclick={endEdit}
         >
           <CheckIcon size={12} weight="bold" />
@@ -691,7 +691,7 @@
       {:else}
         <Button
           variant="outline"
-          class="{PILL} gap-1.5 border-border/85 bg-transparent px-3 font-[550] text-[color:color-mix(in_oklab,var(--foreground)_85%,var(--muted-foreground))] dark:bg-transparent"
+          class="{PILL} gap-1.5 border-border/85 bg-transparent px-3 font-medium text-[color:color-mix(in_oklab,var(--foreground)_85%,var(--muted-foreground))] dark:bg-transparent"
           onclick={beginEdit}
         >
           <PencilSimpleIcon size={12} />
@@ -702,7 +702,7 @@
       {#if isRunning}
         <Button
           variant="destructive"
-          class="{PILL} gap-1.5 px-3.5 font-semibold"
+          class="{PILL} gap-1.5 px-3.5 font-medium"
           onclick={cancelRun}
           disabled={cancelling}
           aria-label="Stop run"
@@ -717,7 +717,7 @@
         </Button>
       {:else}
         <Button
-          class="{PILL} gap-[0.4375rem] pr-[0.9375rem] pl-[0.8125rem] font-semibold tracking-[-0.005em] hover:bg-[color:color-mix(in_oklab,var(--primary)_89%,black)]"
+          class="{PILL} gap-[0.4375rem] pr-[0.9375rem] pl-[0.8125rem] font-medium hover:bg-[color:color-mix(in_oklab,var(--primary)_89%,black)]"
           onclick={runNow}
           aria-label="Run now"
         >
@@ -752,10 +752,10 @@
             {#each health.bars as bar (bar.id)}
               <span
                 class="min-w-0 flex-1 rounded-[0.09375rem] {bar.failed
-                  ? 'bg-[var(--solus-status-error,#e53e3e)]'
-                  : bar.latest
-                    ? 'bg-chart-3/80'
-                    : 'bg-chart-3/38'}"
+ ? 'bg-[var(--solus-status-error,#e53e3e)]'
+ : bar.latest
+ ? 'bg-chart-3/80'
+ : 'bg-chart-3/38'}"
                 style="height: {bar.heightPct}%"
               ></span>
             {/each}
@@ -958,8 +958,8 @@
 
 <div
   class="@container flex min-h-0 flex-1 flex-col {inline
-    ? `h-full ${SIDEBAR_PANEL_BG}`
-    : ''}"
+ ? `h-full ${SIDEBAR_PANEL_BG}`
+ : ''}"
 >
   {@render chromeBar()}
   <div class={BODY}>

@@ -273,7 +273,7 @@
   }
   .work-refresh-banner__btn {
     font-size: 0.6875rem;
-    font-weight: 600;
+    font-weight: 500;
     padding: 0.25rem 0.75rem;
     border-radius: 0.375rem;
     border: 0.0625rem solid var(--solus-accent-border);
@@ -329,8 +329,7 @@
     background: var(--solus-accent);
     color: var(--solus-on-accent, #fff);
     font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.01em;
+    font-weight: 500;
     pointer-events: none;
     box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.18);
     animation: work-live-badge 1900ms var(--ease-premium) forwards;

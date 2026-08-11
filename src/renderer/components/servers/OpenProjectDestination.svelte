@@ -212,7 +212,7 @@
       {#each PROTOCOLS as option (option)}
         <button
           type="button"
-          class="h-6 rounded-md px-2.5 text-[0.6875rem] font-medium uppercase tracking-wide
+          class="h-6 rounded-md px-2.5 text-[0.6875rem] font-medium uppercase
             [transition:background-color_var(--duration-quick)_var(--ease-premium),color_var(--duration-quick)_var(--ease-premium)] motion-reduce:transition-none
             {store.protocol === option ? 'bg-secondary text-secondary-foreground' : 'text-muted-foreground'}"
           aria-pressed={store.protocol === option}

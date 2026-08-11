@@ -274,6 +274,56 @@ describe('PR list effort metadata', () => {
 })
 
 describe('PR mutation results', () => {
+  test('applies lifecycle events to the visible row and cached list page', async () => {
+    // WHY: another connected client can change a PR while this list stays
+    // mounted. Applying the delta must not wait for a provider reload, and a
+    // later cache hit must not restore the old draft value.
+    installStateRune()
+    installWindow(async () => [])
+    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+    await store.loadAll(api(), serverId, ctx)
+    const unsubscribe = store.subscribeLifecycleChanges()
+    const detail = {
+      ...listItem(),
+      draft: true,
+      body: '',
+      baseRef: 'main',
+      headRef: 'feature',
+      baseSha: 'base-33',
+      changedFiles: 1,
+      mergeable: true,
+      mergeStateStatus: 'clean',
+      headRepo: { owner: 'acme', repo: 'app', isFork: false },
+      capabilities: {
+        diff: true,
+        diffFileContents: true,
+        inlineComments: true,
+        threadReplies: true,
+        threadResolution: true,
+        reviewVerdicts: ['comment', 'approve', 'request-changes'],
+        actions: ['merge', 'close', 'reopen', 'ready', 'draft'],
+        mergeMethods: ['squash'],
+        reviewerRequests: true,
+        reviewerCandidates: true,
+      },
+      viewerPermissions: {
+        actions: ['ready'],
+        reviewVerdicts: ['comment'],
+        comment: true,
+        resolveThreads: true,
+        requestReviewers: false,
+      },
+    } satisfies PullRequestDetail
+
+    serverConnectionsMock.emit(serverId, 'pr.lifecycleChanged', { projectRoot: '/repo', detail })
+    expect(store.get(33)?.draft).toBe(true)
+
+    await store.loadAll(api(), serverId, ctx)
+    expect(store.get(33)?.draft).toBe(true)
+    unsubscribe()
+  })
+
   test('patches the visible row and detail cache without reloading the PR surface', async () => {
     // WHY: an in-UI lifecycle action already returns canonical provider state.
     // Reloading commits, comments, files, and threads adds latency and visual churn.
@@ -311,7 +361,7 @@ describe('PR mutation results', () => {
         requestReviewers: true,
       },
     } satisfies PullRequestDetail
-    Object.assign((globalThis as unknown as { window: { solus: Record<string, unknown> } }).window.solus, {
+    Object.assign((globalThis as unknown as { window: { solus: object } }).window.solus, {
       prGetDetail: async () => {
         detailLoads++
         throw new Error('The mutation result should seed this cache')
@@ -327,6 +377,9 @@ describe('PR mutation results', () => {
     expect(store.get(33)?.state).toBe('closed')
     expect(await store.loadDetail(api(), serverId, ctx, 33)).toBe(detail)
     expect(detailLoads).toBe(0)
+
+    await store.loadAll(api(), serverId, ctx)
+    expect(store.get(33)?.state).toBe('closed')
 
     const mergedDetail = { ...detail, state: 'merged' as const }
     store.applyDetail(serverId, ctx, 33, mergedDetail)

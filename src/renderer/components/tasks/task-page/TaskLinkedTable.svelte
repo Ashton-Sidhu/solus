@@ -26,7 +26,7 @@
 
 <div class="flex flex-col gap-[7px] pt-[26px]">
   <div class="flex items-center gap-2">
-    <span class="text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase">
+    <span class="text-[10px] font-normal text-muted-foreground uppercase">
       Linked
     </span>
     <span class="font-mono text-[11px] tabular-nums text-muted-foreground opacity-70">
@@ -38,8 +38,8 @@
       <button
         type="button"
         class="flex h-[22px] cursor-pointer items-center gap-[5px] rounded-md px-2 text-[12px] transition-colors hover:text-foreground {active
-          ? 'bg-[var(--wash-2)] text-foreground'
-          : 'text-muted-foreground'}"
+ ? 'bg-[var(--wash-2)] text-foreground'
+ : 'text-muted-foreground'}"
         onclick={() => (filter = item.kind)}
       >
         {item.label}
@@ -74,17 +74,17 @@
       >
         <span class="w-3.5 shrink-0"></span>
         <span
-          class="min-w-0 flex-1 text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase opacity-75"
+          class="min-w-0 flex-1 text-[10px] font-normal text-muted-foreground uppercase opacity-75"
         >
           Item
         </span>
         <span
-          class="w-[92px] shrink-0 text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase opacity-75"
+          class="w-[92px] shrink-0 text-[10px] font-normal text-muted-foreground uppercase opacity-75"
         >
           Kind
         </span>
         <span
-          class="w-[88px] shrink-0 text-right text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase opacity-75"
+          class="w-[88px] shrink-0 text-right text-[10px] font-normal text-muted-foreground uppercase opacity-75"
         >
           Status
         </span>
@@ -125,7 +125,7 @@
                 {row.ref}
               </span>
             {/if}
-            <span class="min-w-0 truncate text-[13px] tracking-[-.006em]">{row.label}</span>
+            <span class="min-w-0 truncate text-[13px] ">{row.label}</span>
           </span>
           <span class="w-[92px] shrink-0 text-[12px] whitespace-nowrap text-muted-foreground opacity-70">
             {row.kindLabel}

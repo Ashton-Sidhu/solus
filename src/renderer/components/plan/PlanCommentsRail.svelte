@@ -299,8 +299,8 @@
     padding: 0 0.125rem 0.625rem;
     font-family: 'Geist Mono', var(--solus-code-font-family);
     font-size: 0.65625rem;
-    font-weight: 600;
-    letter-spacing: 0.1em;
+    font-weight: 500;
+
     text-transform: uppercase;
     color: var(--solus-text-tertiary);
     font-variant-numeric: tabular-nums;

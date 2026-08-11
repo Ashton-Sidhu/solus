@@ -24,6 +24,7 @@
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { localApi } from "@client-core/local-api";
+  import { subscribeAllHosts } from "@client-core/host-events";
   import type { HostApi } from "@client-core/host-api";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
   import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
@@ -118,6 +119,17 @@
   const feedCtx = (): IpcContext => getCtx?.() ?? session.ctx;
 
   let detail = $state<PullRequestDetail | null>(null);
+
+  $effect(() => {
+    const number = pr.number;
+    return subscribeAllHosts("pr.lifecycleChanged", (eventServerId, event) => {
+      if (eventServerId !== serverId || event.detail.number !== number) return;
+      const ctx = feedCtx().session;
+      if (event.projectRoot !== (ctx.projectPath || ctx.workingDirectory)) return;
+      detail = event.detail;
+      onDetailChanged?.(event.detail);
+    });
+  });
   let commits = $state<PrCommit[]>([]);
   let comments = $state<PrConversationItem[]>([]);
   let reviewers = $state<PrReviewer[]>([]);
@@ -426,16 +438,38 @@
     action: Exclude<PrLifecycleAction, "merge">,
   ): Promise<void> {
     if (!detail) return;
-    const updated = await session.prsStore.updateLifecycle(
-      getApi(),
-      serverId,
-      feedCtx(),
-      pr.number,
-      action,
-      detail.headSha,
-    );
-    detail = updated;
-    onDetailChanged?.(updated);
+    const previous = detail;
+    const optimistic: PullRequestDetail = {
+      ...previous,
+      ...(action === "close" ? { state: "closed" as const } : {}),
+      ...(action === "reopen" ? { state: "open" as const } : {}),
+      ...(action === "ready" ? { draft: false } : {}),
+      ...(action === "draft" ? { draft: true } : {}),
+    };
+    detail = optimistic;
+    session.prsStore.applyDetail(serverId, feedCtx(), pr.number, optimistic);
+    onDetailChanged?.(optimistic);
+    try {
+      const updated = await session.prsStore.updateLifecycle(
+        getApi(),
+        serverId,
+        feedCtx(),
+        pr.number,
+        action,
+        previous.headSha,
+      );
+      detail = updated;
+      onDetailChanged?.(updated);
+    } catch (error) {
+      // A newer provider event wins over this rollback. Reference equality is
+      // the mutation token for this one in-flight action.
+      if (detail === optimistic) {
+        detail = previous;
+        session.prsStore.applyDetail(serverId, feedCtx(), pr.number, previous);
+        onDetailChanged?.(previous);
+      }
+      throw error;
+    }
   }
 
   function applyMergedDetail(updated: PullRequestDetail): void {
@@ -631,7 +665,7 @@
         <header>
           {#if !masthead}
             <p
-              class="flex items-center gap-2 font-mono text-[9.5px] tracking-widest text-muted-foreground uppercase"
+              class="flex items-center gap-2 font-mono text-[9.5px] st text-muted-foreground uppercase"
             >
               <!-- Identity, not state — the subtitle chip below carries the
                    state, and a tinted mark up here read as a second one. -->
@@ -646,7 +680,7 @@
             <input
               bind:this={titleInput}
               bind:value={titleDraft}
-              class="{masthead ? '' : 'mt-3.5'} w-full rounded-lg border border-border bg-card px-3 py-2 text-[24px] leading-[1.28] font-semibold tracking-[-0.018em] outline-none transition-colors focus:border-ring"
+              class="{masthead ? '' : 'mt-3.5'} w-full rounded-lg border border-border bg-card px-3 py-2 text-[24px] leading-[1.28] font-medium outline-none transition-colors focus:border-ring"
               aria-label="Pull request title"
               onkeydown={(event) => {
                 if (event.key === "Escape") cancelEditing();
@@ -658,7 +692,7 @@
             />
           {:else if prTitle}
             <h1
-              class="{masthead ? '' : 'mt-3.5'} text-[24px] leading-[1.28] font-semibold tracking-[-0.018em] text-pretty"
+              class="{masthead ? '' : 'mt-3.5'} text-[24px] leading-[1.28] font-medium text-pretty"
             >
               {prTitle}
             </h1>
@@ -817,7 +851,7 @@
              opened event always leads. -->
         <div class="mt-10 mb-4 flex items-center gap-2">
           <h2
-            class="text-[9.5px] font-medium tracking-widest text-muted-foreground uppercase"
+            class="text-[9.5px] font-medium st text-muted-foreground uppercase"
           >
             Activity
           </h2>
@@ -842,9 +876,9 @@
                     variant="ghost"
                     aria-pressed={!unresolvedOnly && filter === chip.value}
                     class="h-full cursor-pointer rounded-md border-0 px-2.5 text-[12px] transition-colors {!unresolvedOnly &&
-                    filter === chip.value
-                      ? 'bg-card font-medium text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] dark:shadow-none dark:ring-1 dark:ring-white/10'
-                      : 'bg-transparent font-normal text-muted-foreground hover:text-foreground'}"
+ filter === chip.value
+ ? 'bg-card font-medium text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] dark:shadow-none dark:ring-1 dark:ring-white/10'
+ : 'bg-transparent font-normal text-muted-foreground hover:text-foreground'}"
                     onclick={() => setFilter(chip.value)}
                   >
                     {chip.label}
@@ -858,8 +892,8 @@
                 variant="ghost"
                 aria-pressed={unresolvedOnly}
                 class="h-7 cursor-pointer rounded-lg border-0 px-2.5 text-[12px] font-medium tabular-nums transition-colors {unresolvedOnly
-                  ? 'bg-secondary text-secondary-foreground'
-                  : 'bg-muted text-muted-foreground hover:text-foreground'}"
+ ? 'bg-secondary text-secondary-foreground'
+ : 'bg-muted text-muted-foreground hover:text-foreground'}"
                 onclick={toggleUnresolved}
               >
                 {unresolvedCount} unresolved

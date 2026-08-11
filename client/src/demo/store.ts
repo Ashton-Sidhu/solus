@@ -360,7 +360,7 @@ export class DemoStore {
   }
 
   private hydrateTask(task: Task): Task {
-    const raw = task.raw && typeof task.raw === 'object' ? task.raw as Record<string, unknown> : {}
+    const raw = task.raw && typeof task.raw === 'object' ? task.raw : {}
     return { ...task, raw: { ...raw, comments: this.commentsForTask(task.id) } }
   }
 

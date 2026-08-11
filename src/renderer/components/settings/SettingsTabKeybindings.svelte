@@ -325,7 +325,7 @@
   {@const custom = isOverridden(id) && !recording && !conflict}
   <div
     class="flex items-center justify-between gap-4 min-h-[2.375rem] px-4 py-[0.3125rem] border-t border-border first:border-t-0
-      {recording ? 'bg-(--solus-accent)/5' : ''}"
+ {recording ? 'bg-(--solus-accent)/5' : ''}"
   >
     <span class="text-[0.8125rem] text-(--solus-text-primary) min-w-0">{def.label}</span>
     <div class="flex items-center gap-1.5 shrink-0">
@@ -357,11 +357,11 @@
           Press shortcut… <span class="text-[0.625rem] text-(--solus-text-tertiary)">Esc to cancel</span>
         </button>
       {:else}
-        {#if custom}<span class="text-[0.625rem] font-semibold tracking-[0.01em] text-(--solus-accent) bg-(--solus-accent)/10 border border-(--solus-accent)/30 py-px px-1.5 rounded-full">Custom</span>{/if}
+        {#if custom}<span class="text-[0.625rem] font-medium text-(--solus-accent) bg-(--solus-accent)/10 border border-(--solus-accent)/30 py-px px-1.5 rounded-full">Custom</span>{/if}
         <button
           type="button"
           class="inline-flex items-center gap-[0.1875rem] py-1 px-1.5 rounded-md border border-transparent [transition:border-color_var(--duration-base)_var(--ease-premium),background_var(--duration-base)_var(--ease-premium)] hover:bg-(--solus-surface-hover) hover:border-(--solus-container-border)
-            {custom ? 'border-(--solus-accent)/35 bg-(--solus-accent)/8' : ''}"
+ {custom ? 'border-(--solus-accent)/35 bg-(--solus-accent)/8' : ''}"
           aria-label={`Rebind ${def.label}`}
           onclick={() => startRecord(id)}
         >
@@ -391,7 +391,7 @@
   {@const recording = recordingId === `app:${key}`}
   {@const failed = appFailed[key]}
   <div class="flex items-center justify-between gap-4 min-h-[2.375rem] px-4 py-[0.3125rem] border-t border-border first:border-t-0
-    {recording ? 'bg-(--solus-accent)/5' : ''}">
+ {recording ? 'bg-(--solus-accent)/5' : ''}">
     <span class="text-[0.8125rem] text-(--solus-text-primary) min-w-0">{label}</span>
     <div class="flex items-center gap-1.5 shrink-0">
       {#if recording}
@@ -450,15 +450,15 @@
         <button
           type="button"
           class="flex items-center justify-between gap-2 w-full h-8 px-2.5 rounded-md border cursor-pointer text-left [transition:color_0.15s_ease,background_0.15s_ease,border-color_0.15s_ease,opacity_0.15s_ease] outline-none focus-visible:shadow-[inset_0_0_0_0.0938rem_var(--solus-accent)]
-            {active
-              ? 'border-border bg-card text-foreground shadow-xs'
-              : searchQuery && item.matchCount === 0
-                ? 'border-transparent bg-transparent font-secondary text-(--solus-text-secondary) opacity-40'
-                : 'border-transparent bg-transparent font-secondary text-(--solus-text-secondary) [@media(hover:hover)]:hover:text-(--solus-text-primary) [@media(hover:hover)]:hover:bg-(--solus-text-primary)/5'}"
+ {active
+ ? 'border-border bg-card text-foreground shadow-xs'
+ : searchQuery && item.matchCount === 0
+ ? 'border-transparent bg-transparent font-secondary text-(--solus-text-secondary) opacity-40'
+ : 'border-transparent bg-transparent font-secondary text-(--solus-text-secondary) [@media(hover:hover)]:hover:text-(--solus-text-primary) [@media(hover:hover)]:hover:bg-(--solus-text-primary)/5'}"
           aria-current={active ? "true" : undefined}
           onclick={() => selectScope(item.key)}
         >
-          <span class="text-[0.8125rem] tracking-[-0.01em] min-w-0 overflow-hidden text-ellipsis whitespace-nowrap {active ? 'font-medium' : 'font-normal'}">{item.label}</span>
+          <span class="text-[0.8125rem] min-w-0 overflow-hidden text-ellipsis whitespace-nowrap {active ? 'font-medium' : 'font-normal'}">{item.label}</span>
           <span class="inline-flex items-center gap-1.5 shrink-0">
             {#if item.overrides > 0}
               <span class="w-1.5 h-1.5 rounded-full bg-(--solus-accent)" title={`${item.overrides} customized`}></span>

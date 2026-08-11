@@ -65,7 +65,7 @@
       aria-label="Search nodes"
     />
     {#if count !== null}
-      <span class="text-[0.625rem] font-semibold text-(--solus-text-tertiary) tabular-nums">{count}</span>
+      <span class="text-[0.625rem] font-medium text-(--solus-text-tertiary) tabular-nums">{count}</span>
     {/if}
     <button type="button" class="grid size-[1.125rem] cursor-pointer place-items-center rounded-md border-0 bg-transparent text-(--solus-text-tertiary) transition-[background,color] duration-120 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)" onclick={onClose} title="Close (Esc)" aria-label="Close search">
       <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">

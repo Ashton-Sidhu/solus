@@ -3,6 +3,19 @@ import type { Task } from '../../src/shared/task-types'
 import type { SidebarTask } from '../../src/renderer/components/session/lib/task-list'
 import { SessionSidebarStore } from '../../src/renderer/contexts/workspace/session-sidebar.store.svelte'
 
+type SidebarStoreHarness = Pick<SessionSidebarStore, 'sessionsFor'> & {
+  session: unknown
+  visibleTabIds: string[]
+  pendingTabByTaskId: Map<string, unknown>
+  dismissedRowKeys: Set<string>
+  tabIdBySessionId: Map<string, string>
+  sessionsByTaskId: Map<string, unknown>
+}
+
+function sidebarStore(): SidebarStoreHarness {
+  return Object.create(SessionSidebarStore.prototype) as SidebarStoreHarness
+}
+
 function task(id: string, title: string, parentId?: string): Task {
   return {
     id,
@@ -25,7 +38,7 @@ describe('session sidebar subtask rows', () => {
     // that row after the parent makes the sidebar unable to represent the plan.
     const root = task('root', 'Ship the release')
     const subtask = task('child', 'Verify the release', root.id)
-    const store = Object.create(SessionSidebarStore.prototype) as SessionSidebarStore & Record<string, unknown>
+    const store = sidebarStore()
     store.session = {
       tasksStore: {
         tasks: [root, subtask],
@@ -78,7 +91,7 @@ describe('session sidebar subtask rows', () => {
     // sidebar has to place it by the parent it will hang under, or the fork is
     // projected as a loose session sitting outside the task it came from.
     const root = task('root', 'Ship the release')
-    const store = Object.create(SessionSidebarStore.prototype) as SessionSidebarStore & Record<string, unknown>
+    const store = sidebarStore()
     store.session = { tasksStore: { tasks: [root] } }
     const resolve = (session: unknown) =>
       (store as unknown as { pendingTaskFor(session: unknown): Task | undefined }).pendingTaskFor(session)
@@ -93,7 +106,7 @@ describe('session sidebar subtask rows', () => {
     // session dispatched to another host, which is the one case where the mark
     // is the only thing that could have told you.
     const root = task('root', 'Ship the release')
-    const store = Object.create(SessionSidebarStore.prototype) as SessionSidebarStore & Record<string, unknown>
+    const store = sidebarStore()
     store.session = {
       tasksStore: {
         tasks: [root],

@@ -41,8 +41,8 @@
 
 <div
   class="group flex h-[55px] w-full items-center gap-[11px] rounded-lg py-2 pr-3 pl-2 transition-shadow duration-150 {selected
-    ? 'bg-[var(--wash-2)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)]'
-    : 'hover:bg-[var(--wash-1)]'}"
+ ? 'bg-[var(--wash-2)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)]'
+ : 'hover:bg-[var(--wash-1)]'}"
   data-selected={selected}
   oncontextmenu={onContextMenu}
 >
@@ -57,9 +57,9 @@
     <span class="flex min-w-0 flex-1 flex-col gap-[3px]">
       <span class="flex min-w-0 items-center gap-2">
         <span
-          class="truncate text-[13px] leading-[19px] tracking-[-.005em] {row.unread
-            ? 'font-medium text-foreground'
-            : 'font-[450] text-[color-mix(in_oklch,var(--foreground)_72%,transparent)]'}"
+          class="truncate text-[13px] leading-[19px] {row.unread
+ ? 'font-medium text-foreground'
+ : 'font-normal text-[color-mix(in_oklch,var(--foreground)_72%,transparent)]'}"
           title={row.title}
         >
           {row.title}
@@ -104,8 +104,8 @@
       <button
         type="button"
         class="flex h-[26px] cursor-pointer items-center gap-1.5 rounded-md border-0 px-2.5 text-[12px] font-medium transition-[background-color] {hot
-          ? 'bg-primary text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]'
-          : 'bg-card text-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:bg-[var(--wash-2)]'}"
+ ? 'bg-primary text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]'
+ : 'bg-card text-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:bg-[var(--wash-2)]'}"
         onclick={row.primary.run}
       >
         {row.primary.label}

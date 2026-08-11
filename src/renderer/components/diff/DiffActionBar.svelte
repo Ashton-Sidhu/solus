@@ -253,7 +253,7 @@
     color: var(--solus-accent);
     border: none;
     font-size: 0.625rem;
-    font-weight: 600;
+    font-weight: 500;
     line-height: 1;
     cursor: pointer;
     transition: background-color 0.12s ease, transform 0.1s ease;

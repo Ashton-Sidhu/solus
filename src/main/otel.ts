@@ -72,7 +72,7 @@ function getHistogram(label: string): Histogram {
   return histogram
 }
 
-function toAttributes(data: Record<string, unknown>): Attributes {
+function toAttributes(data: object): Attributes {
   const attributes: Attributes = {}
   for (const [key, value] of Object.entries(data)) {
     if (value == null) continue
@@ -94,7 +94,7 @@ function toAttributes(data: Record<string, unknown>): Attributes {
 export function emitOtelLog(
   level: 'debug' | 'info' | 'warn' | 'error',
   msg: string,
-  data: Record<string, unknown>,
+  data: object,
 ): void {
   if (!logsEnabled) return
   try {
@@ -107,7 +107,7 @@ export function emitOtelLog(
   } catch {}
 }
 
-export function recordOtelDuration(label: string, durationMs: number, data: Record<string, unknown>): void {
+export function recordOtelDuration(label: string, durationMs: number, data: object): void {
   if (!metricsEnabled) return
   try {
     getHistogram(label).record(durationMs, toAttributes(data))

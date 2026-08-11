@@ -619,7 +619,7 @@
 {#snippet renameField()}
   <!-- svelte-ignore a11y_autofocus -->
   <input
-    class="doc-shell-title-input min-w-24 max-w-96 flex-1 rounded-md border border-(--solus-accent-border) bg-(--solus-surface-hover) px-1.5 py-0.5 text-[0.8125rem] font-semibold text-(--solus-text-primary) tracking-[-0.01em] outline-none"
+    class="doc-shell-title-input min-w-24 max-w-96 flex-1 rounded-md border border-(--solus-accent-border) bg-(--solus-surface-hover) px-1.5 py-0.5 text-[0.8125rem] font-medium text-(--solus-text-primary) outline-none"
     bind:value={renameValue}
     onblur={commitRename}
     onkeydown={renameKeydown}
@@ -676,10 +676,10 @@
     tabindex="-1"
     onkeydown={handleSectionJump}
     class="doc-shell-root {rootClass} relative [container:doc-shell/inline-size] flex flex-col {inline
-      ? 'h-full'
-      : 'doc-shell-root--floating h-[min(86vh,90vh)] w-[min(100rem,96vw)] rounded-2xl'} overflow-hidden bg-(--solus-container-bg) {inline
-      ? ''
-      : 'border border-(--solus-tool-border)'}"
+ ? 'h-full'
+ : 'doc-shell-root--floating h-[min(86vh,90vh)] w-[min(100rem,96vw)] rounded-2xl'} overflow-hidden bg-(--solus-container-bg) {inline
+ ? ''
+ : 'border border-(--solus-tool-border)'}"
     class:doc-shell-root--inline={inline}
   >
     <!-- Pane-level chrome lives in the floating PaneChrome cluster; the floating
@@ -949,7 +949,7 @@
     white-space: nowrap;
     font-family: 'Geist Mono', var(--solus-code-font-family);
     font-size: 0.6875rem;
-    letter-spacing: 0.02em;
+
     color: var(--solus-text-tertiary);
   }
   .doc-shell-title {
@@ -958,8 +958,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 0.78125rem;
-    font-weight: 600;
-    letter-spacing: -0.01em;
+    font-weight: 500;
     color: var(--solus-text-primary);
     background: transparent;
     border: none;
@@ -1083,8 +1082,7 @@
   }
   .doc-shell-toolbar-text {
     font-size: 0.8125rem;
-    font-weight: 600;
-    letter-spacing: -0.01em;
+    font-weight: 500;
   }
   .doc-shell-toolbar-text sub {
     font-size: 0.625rem;

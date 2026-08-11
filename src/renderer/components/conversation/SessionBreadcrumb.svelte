@@ -261,7 +261,7 @@
   const menuLabel =
     "min-w-0 flex-1 overflow-hidden text-[0.8125rem] text-ellipsis whitespace-nowrap";
   const menuHeading =
-    "px-[0.5625rem] pt-1.5 pb-1.5 text-[0.5625rem] font-semibold tracking-[0.09em] text-muted-foreground uppercase";
+    "px-[0.5625rem] pt-1.5 pb-1.5 text-[0.5625rem] font-medium  text-muted-foreground uppercase";
   // Rows you can close reserve the slot the X lands in, so nothing reflows the
   // moment a pointer crosses the row.
   // The wash follows the row, not the pointer's exact target: reaching for the X
@@ -292,9 +292,9 @@
        the band, and the only affordance is the hover wash under each part. -->
   <div
     class="crumb-band @container z-[3] flex items-center gap-px text-[0.84375rem] {variant ===
-    'inline'
-      ? 'crumb-band--inline relative h-full min-w-0 flex-1 px-1'
-      : 'absolute inset-x-0 top-1 h-[2.875rem] pr-3.5'}"
+ 'inline'
+ ? 'crumb-band--inline relative h-full min-w-0 flex-1 px-1'
+ : 'absolute inset-x-0 top-1 h-[2.875rem] pr-3.5'}"
     style={variant === "floating"
       ? "padding-left:max(1.125rem, var(--solus-chrome-lead-inset, 0px))"
       : undefined}
@@ -355,8 +355,8 @@
                     />
                     <span
                       class="{menuLabel} {project.projectKey === projectKey
-                        ? 'font-medium'
-                        : ''}">{project.label}</span
+ ? 'font-medium'
+ : ''}">{project.label}</span
                     >
                     {#if note}
                       <span
@@ -433,8 +433,8 @@
                          have not reached the task's own host yet (ADR-0007). -->
                     <span
                       class="ml-1 size-1.5 shrink-0 rounded-full {taskSyncFailed
-                        ? 'bg-red-500'
-                        : 'bg-amber-500'}"
+ ? 'bg-red-500'
+ : 'bg-amber-500'}"
                       title={taskSyncFailed
                         ? "Some task updates failed to sync"
                         : `${taskSyncOps.length} task update${taskSyncOps.length === 1 ? "" : "s"} waiting to sync`}
@@ -460,8 +460,8 @@
                       >
                         <span
                           class="{menuLabel} {item.key === task?.key
-                            ? 'font-medium'
-                            : ''}">{item.title}</span
+ ? 'font-medium'
+ : ''}">{item.title}</span
                         >
                         {#if item.status === "running"}
                           <span
@@ -521,8 +521,8 @@
              keeps the whole remainder and pushes the trailing actions off. -->
         <Breadcrumb.Item
           class="relative min-w-0 shrink {renamingTabId === tabId
-            ? 'w-[min(20rem,42vw)]'
-            : 'max-w-[20rem] @max-[68rem]:max-w-[12rem] @max-[52rem]:max-w-[9rem]'}"
+ ? 'w-[min(20rem,42vw)]'
+ : 'max-w-[20rem] @max-[68rem]:max-w-[12rem] @max-[52rem]:max-w-[9rem]'}"
           onmouseenter={() => {
             if (renamingTabId !== tabId) menu = "session";
           }}
@@ -536,7 +536,7 @@
               <SessionNameInput
                 value={current?.label ?? leafLabels.session}
                 variant="band"
-                class="text-[0.84375rem] font-medium tracking-[-0.005em]"
+                class="text-[0.84375rem] font-medium "
                 onCommit={(next) => {
                   void session.renameTab(tabId, next);
                   renamingTabId = null;
@@ -562,15 +562,15 @@
                     current && openChildContextMenu(event, current)}
                 >
                   <span
-                    class="min-w-0 overflow-hidden font-medium tracking-[-0.005em] text-ellipsis whitespace-nowrap"
+                    class="min-w-0 overflow-hidden font-medium text-ellipsis whitespace-nowrap"
                     >{leafLabels.session}</span
                   >
                   {#if statusIcon}
                     {@const StatusIcon = statusIcon.component}
                     <span
                       class="flex size-[0.8125rem] shrink-0 items-center justify-center {statusIcon.spin
-                        ? 'animate-spin motion-reduce:animate-none'
-                        : ''}"
+ ? 'animate-spin motion-reduce:animate-none'
+ : ''}"
                       style:color={currentStatusColor ?? statusIcon.color}
                       role="img"
                       aria-label={statusNote(currentStatus)?.text}
@@ -600,8 +600,8 @@
                     >
                       <span
                         class="{menuLabel} {child.tabId === tabId
-                          ? 'font-medium'
-                          : ''}">{child.label}</span
+ ? 'font-medium'
+ : ''}">{child.label}</span
                       >
                       {#if status === "running"}
                         <span
@@ -668,8 +668,8 @@
       <button
         type="button"
         class="flex h-[1.875rem] shrink-0 cursor-pointer items-center gap-1.5 rounded px-[0.4375rem] transition-[background] duration-150 hover:bg-accent {taskDone
-          ? 'bg-[color-mix(in_oklch,var(--chart-3)_12%,transparent)]'
-          : ''}"
+ ? 'bg-[color-mix(in_oklch,var(--chart-3)_12%,transparent)]'
+ : ''}"
         title="Task actions"
         aria-haspopup="menu"
         onclick={(event) => openTaskActions(event, task)}
@@ -679,8 +679,8 @@
         {/if}
         <span
           class="font-mono text-[0.65625rem] whitespace-nowrap {taskDone
-            ? 'text-chart-3'
-            : 'opacity-75'}">{taskRef(record)}</span
+ ? 'text-chart-3'
+ : 'opacity-75'}">{taskRef(record)}</span
         >
         <CaretDownIcon
           size={14}
@@ -692,8 +692,8 @@
       <button
         type="button"
         class="{bandAction} @max-[36rem]:hidden {taskDone
-          ? 'text-chart-3 hover:text-chart-3'
-          : ''}"
+ ? 'text-chart-3 hover:text-chart-3'
+ : ''}"
         title={taskDone ? "Reopen task" : "Mark done"}
         aria-label={taskDone ? "Reopen task" : "Mark done"}
         onclick={() => {

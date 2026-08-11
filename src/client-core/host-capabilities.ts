@@ -15,10 +15,21 @@ export type HostSettingsSurface = 'skills' | 'tools' | 'voice'
 
 const EDITOR_IDS = new Set<EditorId>(['vscode', 'vim', 'nvim', 'helix'])
 
+interface HostCapabilitiesWire {
+  attachUpload?: unknown
+  assetUrls?: unknown
+  skillsInstall?: unknown
+  skillsSearch?: unknown
+  voiceModel?: unknown
+  automations?: unknown
+  githubProvider?: unknown
+  editors?: unknown
+}
+
 /** Keep only protocol fields this client understands. */
 export function normalizeHostCapabilities(value: unknown): HostCapabilities {
   if (!value || typeof value !== 'object') return {}
-  const source = value as Record<string, unknown>
+  const source = value as HostCapabilitiesWire
   const capabilities: HostCapabilities = {}
   for (const key of HOST_BOOLEAN_CAPABILITY_KEYS) {
     if (typeof source[key] === 'boolean') capabilities[key] = source[key]

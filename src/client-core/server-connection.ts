@@ -11,6 +11,7 @@ import {
 import { WsTransport, type ConnectionStatus } from './ws-transport'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import { asHostApi, type HostApi } from './host-api'
+import type { NativeSolusAPI } from '../preload'
 
 export interface LocalConnectionInfoLike {
   port: number
@@ -81,7 +82,7 @@ export function savedServerTarget(server: SavedServer): SolusServerTarget {
 
 export function installWsBackedSolusApi(
   target: SolusServerTarget,
-  nativeApi: Record<string, unknown>,
+  nativeApi: NativeSolusAPI,
   options: InstallSolusConnectionOptions = {},
 ): InstalledSolusConnection {
   const refreshLocalSessionToken = nativeApi.refreshLocalSessionToken as (() => Promise<string>) | undefined
@@ -91,7 +92,7 @@ export function installWsBackedSolusApi(
     refreshLocalSessionToken,
   })
   const mergedApi = mergeNativeOnlySolusApi(
-    connection.api as unknown as Record<string, unknown>,
+    connection.api,
     nativeApi,
   )
   const api = asHostApi(mergedApi)

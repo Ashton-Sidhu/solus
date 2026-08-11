@@ -107,7 +107,7 @@
     {#if caption}
       <div class="mt-px flex items-center justify-end gap-1.5">
         <span
-          class="text-[0.5625rem] font-medium tracking-[0.12em] text-(--muted-foreground) uppercase opacity-70"
+          class="text-[0.5625rem] font-medium text-(--muted-foreground) uppercase opacity-70"
         >
           {caption.label}
         </span>

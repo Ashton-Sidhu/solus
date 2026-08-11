@@ -324,7 +324,7 @@
        Snooze follow it as glyphs, then the section's own disclosure caret. -->
   <span class="header-extra">
     <button
-      class="cursor-pointer font-mono text-[0.65625rem] tracking-[.02em] underline decoration-[color-mix(in_oklch,var(--foreground)_22%,transparent)] underline-offset-[3px] opacity-85 transition-colors hover:text-(--solus-text-primary) hover:opacity-100"
+      class="cursor-pointer font-mono text-[0.65625rem] underline decoration-[color-mix(in_oklch,var(--foreground)_22%,transparent)] underline-offset-[3px] opacity-85 transition-colors hover:text-(--solus-text-primary) hover:opacity-100"
       type="button"
       title={panelTask ? taskRefTooltip(panelTask) : "Open task page"}
       onclick={(e) => {

@@ -32,7 +32,7 @@
   }
 </script>
 
-<p class="text-[1.1875rem] font-semibold tracking-[-0.02em] text-(--solus-text-primary)">
+<p class="text-[1.1875rem] font-medium text-(--solus-text-primary)">
   {target.name}
 </p>
 <p
@@ -82,7 +82,7 @@
     </p>
     <label class="mt-3.5 block">
       <span
-        class="text-[0.625rem] font-semibold uppercase tracking-[0.09em] text-(--solus-text-tertiary)"
+        class="text-[0.625rem] font-medium uppercase text-(--solus-text-tertiary)"
         >SSH target</span
       >
       <Input
@@ -110,14 +110,14 @@
     </p>
     <label class="mt-3.5 block">
       <span
-        class="text-[0.625rem] font-semibold uppercase tracking-[0.09em] text-(--solus-text-tertiary)"
+        class="text-[0.625rem] font-medium uppercase text-(--solus-text-tertiary)"
         >Password or passphrase</span
       >
       <Input
         bind:ref={sshPasswordInput}
         bind:value={store.sshPassword}
         disabled={store.pairingBusy}
-        class="mt-1.5 h-10 w-full rounded-lg border-(--solus-input-border) px-3 text-[0.8125rem] tracking-[0.12em] text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:tracking-normal placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[0.8125rem]"
+        class="mt-1.5 h-10 w-full rounded-lg border-(--solus-input-border) px-3 text-[0.8125rem] text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[0.8125rem]"
         type="password"
         placeholder="••••••••"
         autocomplete="current-password"
@@ -134,14 +134,14 @@
     </p>
     <label class="mt-3.5 block">
       <span
-        class="text-[0.625rem] font-semibold uppercase tracking-[0.09em] text-(--solus-text-tertiary)"
+        class="text-[0.625rem] font-medium uppercase text-(--solus-text-tertiary)"
         >{target.claimable ? "Claim code" : "Pair code"}</span
       >
       <Input
         bind:ref={codeInput}
         bind:value={store.pairCode}
         disabled={store.pairingBusy}
-        class="mt-1.5 h-10 w-full max-w-[12rem] rounded-lg border-(--solus-input-border) px-3 text-center font-mono text-[1rem] tracking-[0.3em] tabular-nums text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[1rem]"
+        class="mt-1.5 h-10 w-full max-w-[12rem] rounded-lg border-(--solus-input-border) px-3 text-center font-mono text-[1rem] tabular-nums text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[1rem]"
         placeholder="000000"
         inputmode="numeric"
         maxlength="6"

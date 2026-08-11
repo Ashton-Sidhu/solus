@@ -43,7 +43,7 @@
   {:else}
     <SquaresFourIcon size={14} class="shrink-0 text-muted-foreground" />
   {/if}
-  <span class="min-w-0 flex-1 truncate text-[13px] font-[450] tracking-[-.005em]">
+  <span class="min-w-0 flex-1 truncate text-[13px] font-normal ">
     {active ? active.label : "All projects"}
   </span>
   <CaretDownIcon

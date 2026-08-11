@@ -50,7 +50,7 @@
     <div class="flex min-w-0 flex-1 flex-col gap-[0.125rem]">
       <span class="interrupt-eyebrow">{eyebrow}</span>
       <div class="flex min-w-0 items-center gap-2.5">
-        <h2 class="m-0 min-w-0 truncate text-[0.9375rem] leading-[1.3] font-semibold tracking-tight">
+        <h2 class="m-0 min-w-0 truncate text-[0.9375rem] leading-[1.3] font-medium ">
           {title}
         </h2>
         {@render chip?.()}
@@ -88,7 +88,7 @@
   .interrupt-eyebrow {
     font-size: 0.625rem;
     font-weight: 500;
-    letter-spacing: 0.09em;
+
     text-transform: uppercase;
     color: var(--muted-foreground);
   }
@@ -202,7 +202,7 @@
     font-family: var(--solus-code-font-family);
     font-size: 0.59375rem;
     font-weight: 500;
-    letter-spacing: 0.07em;
+
     text-transform: uppercase;
     color: var(--muted-foreground);
   }

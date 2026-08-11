@@ -612,8 +612,8 @@
   <button
     type="button"
     class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 text-[13px] transition-colors duration-150 {active
-      ? 'bg-[color-mix(in_oklch,var(--primary)_13%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
-      : 'bg-transparent text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:bg-[var(--wash-2)] hover:text-foreground'}"
+ ? 'bg-[color-mix(in_oklch,var(--primary)_13%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
+ : 'bg-transparent text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:bg-[var(--wash-2)] hover:text-foreground'}"
     {onclick}
     aria-pressed={active}
   >
@@ -648,7 +648,7 @@
      named, even 300 rows down. -->
 {#snippet groupHeader(label: string, count: number)}
   <span
-    class="text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase"
+    class="text-[10px] font-normal text-muted-foreground uppercase"
   >
     {label}
   </span>
@@ -676,7 +676,7 @@
           class="flex shrink-0 items-end justify-between gap-6 pt-[calc(var(--solus-page-top-inset,0px)+42px)] pb-3.5 mx-auto w-full max-w-[72rem] @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] px-8 @max-[44rem]:px-5 @max-[34rem]:px-4"
         >
           <div class="flex min-w-0 flex-col gap-[7px]">
-            <h1 class="m-0 text-[27px] font-semibold tracking-[-.021em]">
+            <h1 class="m-0 text-[27px] font-medium ">
               Workspace
             </h1>
             <!-- While the ledger is still empty the stats are all zero, which
@@ -880,8 +880,8 @@
                 <button
                   type="button"
                   class="flex shrink-0 cursor-pointer items-center border-0 bg-transparent p-0 text-muted-foreground opacity-60 transition-transform duration-200 {pinnedCollapsed
-                    ? ''
-                    : 'rotate-90'}"
+ ? ''
+ : 'rotate-90'}"
                   onclick={togglePinnedCollapsed}
                   aria-label={pinnedCollapsed
                     ? "Expand pinned"

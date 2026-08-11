@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { restoreLocation } from '../../src/renderer/contexts/workspace/session-bootstrap'
+import {
+  reconcileReloadLocation,
+  restoreLocation,
+} from '../../src/renderer/contexts/workspace/session-bootstrap'
 
 describe('restored workspace location', () => {
   test('drops a route for an empty draft that was not restored', () => {
@@ -15,6 +18,8 @@ describe('restored workspace location', () => {
         closePane: (paneId: string) => closed.push(paneId),
       },
       sessionDrafts: new Map(),
+      tabOrder: [],
+      tabs: {},
       tabIdForSession: () => undefined,
     }
 
@@ -39,11 +44,37 @@ describe('restored workspace location', () => {
         closePane: (paneId: string) => closed.push(paneId),
       },
       sessionDrafts: new Map([['written-draft', {}]]),
+      tabOrder: [],
+      tabs: {},
       tabIdForSession: () => undefined,
     }
 
     restoreLocation(workspace as never, '/draft/written-draft')
 
     expect(closed).toEqual([])
+  })
+
+  test('a restored tab always wins over a composer route on reload', () => {
+    const pane = {
+      id: 'leading',
+      base: { name: 'draft', params: { draftId: 'written-draft' } },
+    }
+    const closed: string[] = []
+    const workspace = {
+      router: {
+        panes: [pane],
+        closePane: (paneId: string) => closed.push(paneId),
+      },
+      sessionDrafts: new Map([['written-draft', {}]]),
+      tabOrder: ['tab-1'],
+      tabs: { 'tab-1': { id: 'tab-1' } },
+      tabIdForSession: () => undefined,
+    }
+
+    // WHY: on web the address bar is applied after tab materialization. Even a
+    // valid saved draft URL must not cover the session selected before reload.
+    reconcileReloadLocation(workspace as never)
+
+    expect(closed).toEqual(['leading'])
   })
 })

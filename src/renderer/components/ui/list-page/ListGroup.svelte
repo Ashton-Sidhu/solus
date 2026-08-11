@@ -40,8 +40,8 @@
     this={collapsible ? "button" : "div"}
     type={collapsible ? "button" : undefined}
     class="flex h-[30px] w-full items-center gap-2.5 border-0 bg-transparent px-1.5 {collapsible
-      ? 'cursor-pointer'
-      : ''}"
+ ? 'cursor-pointer'
+ : ''}"
     onclick={collapsible ? onToggle : undefined}
     aria-expanded={collapsible ? open : undefined}
     role={collapsible ? undefined : "presentation"}
@@ -50,14 +50,14 @@
       <CaretRightIcon
         size={14}
         class="shrink-0 text-muted-foreground opacity-60 transition-transform duration-200 {open
-          ? 'rotate-90'
-          : ''}"
+ ? 'rotate-90'
+ : ''}"
       />
     {/if}
     <span
-      class="text-[10px] font-[450] tracking-[.09em] uppercase {accent
-        ? 'text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
-        : 'text-muted-foreground'}"
+      class="text-[10px] font-normal uppercase {accent
+ ? 'text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
+ : 'text-muted-foreground'}"
     >
       {label}
     </span>

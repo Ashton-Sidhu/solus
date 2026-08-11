@@ -274,7 +274,7 @@
                row's subject and never truncates; the worktree beside it is the
                disambiguator and gives way, in mono because it is a path. -->
           <span class="flex items-baseline gap-1.5 shrink-0 w-[120px]">
-            <span class="shrink-0 text-[12.5px] font-semibold">{nameOf(ref)}</span>
+            <span class="shrink-0 text-[12.5px] font-medium">{nameOf(ref)}</span>
             <span class="min-w-0 truncate text-[12px] text-muted-foreground">
               {worktreeLabel(ref, meta)}
             </span>
@@ -329,7 +329,7 @@
             </span>
           {:else}
             <span
-              class="text-[12.5px] font-semibold {isLive
+              class="text-[12.5px] font-medium {isLive
                 ? 'text-[color-mix(in_oklch,var(--agent-accent)_76%,var(--foreground))]'
                 : 'text-muted-foreground'}"
             >

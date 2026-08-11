@@ -117,6 +117,32 @@ describe('task sidebar lifecycle', () => {
     expect((await lifecycle.recordTaskActivity(task.id)).snoozedUntil).toBeUndefined()
   })
 
+  test('a linked conversation prompt reopens completed and dropped tasks', async () => {
+    // WHY: typing another turn means work resumed. The agent must not need to
+    // repair the task status before it can continue the user's request.
+    for (const status of ['done', 'dropped'] as const) {
+      const task = await taskStore.createTask({ title: `Resume ${status}`, status })
+      const active = await lifecycle.recordTaskActivity(task.id)
+
+      expect(active.status).toBe('in_progress')
+      expect(active.doneAt).toBeUndefined()
+      expect(taskEvents.readTaskEvents(taskStore.database(), task.id)).toContainEqual(
+        expect.objectContaining({
+          kind: 'status_changed',
+          from: status,
+          to: 'in_progress',
+          actor: 'user',
+        }),
+      )
+    }
+  })
+
+  test('a linked conversation prompt keeps an open task in its current status', async () => {
+    const task = await taskStore.createTask({ title: 'Keep review state', status: 'in_review' })
+
+    expect((await lifecycle.recordTaskActivity(task.id)).status).toBe('in_review')
+  })
+
   test('completed tasks must be reopened before snoozing', async () => {
     const task = await taskStore.createTask({ title: 'Finished work', status: 'done' })
     await expect(lifecycle.snoozeTask(task.id, { until: Date.now() + 60_000 })).rejects.toThrow(

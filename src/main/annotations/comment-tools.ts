@@ -238,9 +238,25 @@ export interface CommentToolDeps {
   ctx?: SessionToolCtx
 }
 
+interface CommentRequest {
+  quote?: unknown
+  comment?: unknown
+  node_id?: unknown
+  edge_id?: unknown
+}
+
+interface CommentToolArgs {
+  session_id?: unknown
+  plan_tool_use_id?: unknown
+  target_id?: unknown
+  comments?: CommentRequest[]
+  comment_id?: unknown
+  text?: unknown
+}
+
 export async function executeCommentTool(
   name: string,
-  args: Record<string, unknown>,
+  args: CommentToolArgs,
   deps: CommentToolDeps = {},
 ): Promise<CommentToolResult> {
   try {
@@ -255,7 +271,7 @@ export async function executeCommentTool(
   }
 }
 
-async function readPlan(args: Record<string, unknown>, deps: CommentToolDeps = {}): Promise<CommentToolResult> {
+async function readPlan(args: CommentToolArgs, deps: CommentToolDeps = {}): Promise<CommentToolResult> {
   const sessionId = String(args.session_id ?? '').trim()
   if (!sessionId) return { ok: false, text: 'read_plan requires session_id.' }
   const requestedPlanId = typeof args.plan_tool_use_id === 'string' && args.plan_tool_use_id.trim()
@@ -317,10 +333,10 @@ async function latestPlanToolUseId(
   return mine.reduce((latest, plan) => (plan.timestamp > latest.timestamp ? plan : latest)).planToolUseId
 }
 
-async function commentDocument(args: Record<string, unknown>, deps: CommentToolDeps): Promise<CommentToolResult> {
+async function commentDocument(args: CommentToolArgs, deps: CommentToolDeps): Promise<CommentToolResult> {
   const targetId = String(args.target_id ?? '').trim()
   if (!targetId) return { ok: false, text: 'comment_document requires target_id.' }
-  const requested = Array.isArray(args.comments) ? (args.comments as Array<Record<string, unknown>>) : []
+  const requested = Array.isArray(args.comments) ? args.comments : []
   if (!requested.length) return { ok: false, text: 'comment_document requires at least one comment.' }
 
   const target = await resolveTarget(targetId)
@@ -375,7 +391,7 @@ async function commentDocument(args: Record<string, unknown>, deps: CommentToolD
   return { ok: true, text: `Left ${created.length} comment${created.length === 1 ? '' : 's'} on ${target.label}.` }
 }
 
-async function replyComment(args: Record<string, unknown>, deps: CommentToolDeps): Promise<CommentToolResult> {
+async function replyComment(args: CommentToolArgs, deps: CommentToolDeps): Promise<CommentToolResult> {
   const targetId = String(args.target_id ?? '').trim()
   const commentId = String(args.comment_id ?? '').trim()
   const text = typeof args.text === 'string' ? args.text.trim() : ''
@@ -396,7 +412,7 @@ async function replyComment(args: Record<string, unknown>, deps: CommentToolDeps
   return { ok: true, text: `Replied in thread "${thread.selectedText}" on ${target.label}.` }
 }
 
-async function resolveComment(args: Record<string, unknown>): Promise<CommentToolResult> {
+async function resolveComment(args: CommentToolArgs): Promise<CommentToolResult> {
   const targetId = String(args.target_id ?? '').trim()
   const commentId = String(args.comment_id ?? '').trim()
   if (!targetId || !commentId) return { ok: false, text: 'resolve_comment requires target_id and comment_id.' }

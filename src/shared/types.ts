@@ -387,8 +387,21 @@ export interface PermissionRequest {
   questionId: string
   toolTitle: string
   toolDescription?: string
-  toolInput?: Record<string, unknown>
+  toolInput?: PermissionToolInput
   options: Array<{ optionId: string; kind?: string; label: string }>
+}
+
+/** Fields the permission UI and policy inspect from provider tool payloads. */
+export interface PermissionToolInput {
+  command?: unknown
+  cwd?: unknown
+  description?: unknown
+  plan?: unknown
+  planFilePath?: unknown
+  url?: unknown
+  old_string?: unknown
+  new_string?: unknown
+  changes?: unknown
 }
 
 export interface QuestionOption {
@@ -1306,7 +1319,7 @@ export type NormalizedEvent =
   | { type: 'rate_limit'; status: string; resetsAt: number; rateLimitType: string; isUsingOverage?: boolean; usedPercent?: number; windowDurationMins?: number; info?: RateLimitInfo; message?: string; deferCurrentRun?: boolean }
   | { type: 'usage'; context?: ContextUsage; run?: UsageData }
   | { type: 'session_changed_files_updated'; paths: string[] }
-  | { type: 'permission_request'; questionId: string; toolName: string; toolDescription?: string; toolInput?: Record<string, unknown>; options: PermissionOption[] }
+  | { type: 'permission_request'; questionId: string; toolName: string; toolDescription?: string; toolInput?: PermissionToolInput; options: PermissionOption[] }
   | { type: 'permission_resolved'; questionId: string }
   /** `kind` rides along from Codex's MCP elicitation normalizer — an elicitation
    *  form is answered with an extra `__action` entry, so anything answering this
@@ -1718,6 +1731,9 @@ export interface SessionMeta {
   serverId?: string
   isWorktree?: boolean
   status?: SessionStatus
+  /** Start of the live turn, when this metadata describes an attached run. Used
+   * by restored clients to resume the sidebar clock without loading history. */
+  currentTurnStartedAt?: number
   model?: string
   reasoningEffort?: ReasoningEffort
   /** Git-root that groups a repo with all its worktrees. The canonical

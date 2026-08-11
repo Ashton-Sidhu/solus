@@ -76,7 +76,7 @@ function isoTime(value: number): string {
 }
 
 function automationFromRow(row: AutomationRow): Automation {
-  const metadata = row.last_run ? JSON.parse(row.last_run) as Record<string, unknown> : {}
+  const metadata = row.last_run ? JSON.parse(row.last_run) as Partial<Automation> : {}
   return {
     ...metadata,
     id: row.id,
@@ -92,7 +92,7 @@ function automationFromRow(row: AutomationRow): Automation {
 }
 
 function runFromRow(row: AutomationRunRow): AutomationRun {
-  const data = row.data ? JSON.parse(row.data) as Record<string, unknown> : {}
+  const data = row.data ? JSON.parse(row.data) as Partial<AutomationRun> : {}
   return {
     ...data,
     id: row.id,

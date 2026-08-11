@@ -119,7 +119,7 @@
     >
       <header class="flex items-center justify-between gap-3 border-b border-(--solus-popover-border) px-4 py-3">
         <div class="min-w-0">
-          <h2 id="add-server-title" class="truncate text-[0.9375rem] font-semibold text-(--solus-text-primary)">Add server</h2>
+          <h2 id="add-server-title" class="truncate text-[0.9375rem] font-medium text-(--solus-text-primary)">Add server</h2>
           <p class="mt-0.5 text-[0.75rem] text-(--solus-text-tertiary)">Pair this desktop with another Solus server.</p>
         </div>
         <button
@@ -176,7 +176,7 @@
                 </label>
                 <label class="block">
                   <span class="text-[0.75rem] font-medium text-(--solus-text-secondary)">Pair code</span>
-                  <Input bind:value={pairCode} class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 font-mono text-[0.8125rem] tracking-[0.16em] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]" placeholder="000000" inputmode="numeric" maxlength="6" autocomplete="one-time-code" />
+                  <Input bind:value={pairCode} class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 font-mono text-[0.8125rem] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]" placeholder="000000" inputmode="numeric" maxlength="6" autocomplete="one-time-code" />
                 </label>
               </Tabs.Content>
 

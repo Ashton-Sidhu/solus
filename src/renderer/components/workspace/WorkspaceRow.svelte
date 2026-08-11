@@ -101,8 +101,8 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="group flex h-11 cursor-pointer items-center gap-2 rounded-lg pr-3 pl-2.5 transition-shadow duration-150 select-none hover:shadow-[inset_0_0_0_999px_var(--wash-1)] focus-visible:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--primary)_45%,transparent)] focus-visible:outline-none {selected
-    ? 'bg-[var(--wash-2)]'
-    : ''}"
+ ? 'bg-[var(--wash-2)]'
+ : ''}"
   data-selected={selected ? "true" : null}
   role="option"
   aria-selected={selected}
@@ -141,7 +141,7 @@
        right edge and opened a dead band across the middle of every row; sharing
        the growth closes that band and spends it on the one other column with
        prose in it. Ellipsis, never wraps. -->
-  <span class="min-w-0 flex-[3] truncate text-[13px] font-[450] tracking-[-.005em]">
+  <span class="min-w-0 flex-[3] truncate text-[13px] font-normal ">
     {#each titleRuns as run, i (i)}{#if run.hit}<mark
           class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
           >{run.text}</mark
@@ -215,10 +215,10 @@
     <button
       type="button"
       class="flex size-[22px] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent transition-[background-color,color,opacity] duration-150 hover:bg-[var(--wash-3)] focus-visible:opacity-100 {item.pinned
-        ? 'text-[color-mix(in_oklch,var(--primary)_78%,var(--foreground))] opacity-100'
-        : 'text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'} {selected
-        ? 'opacity-100'
-        : ''}"
+ ? 'text-[color-mix(in_oklch,var(--primary)_78%,var(--foreground))] opacity-100'
+ : 'text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'} {selected
+ ? 'opacity-100'
+ : ''}"
       onclick={(e) => {
         e.stopPropagation();
         onTogglePin();
@@ -244,10 +244,10 @@
        these are the facts a person scans the ledger for, and the title leads on
        weight instead. Pending is the one coloured word — the one live state. -->
   <span
-    class="w-[3.75rem] shrink-0 text-right text-[12px] tracking-[.03em] {item.status ===
-    'pending'
-      ? 'font-medium text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]'
-      : ''}"
+    class="w-[3.75rem] shrink-0 text-right text-[12px] {item.status ===
+ 'pending'
+ ? 'font-medium text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]'
+ : ''}"
   >
     {statusLabel}
   </span>
@@ -268,8 +268,8 @@
       <button
         type="button"
         class="flex size-[22px] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground opacity-0 transition-[background-color,color,opacity] duration-150 group-focus-within:opacity-100 group-hover:opacity-60 hover:bg-[color-mix(in_oklch,var(--failure)_10%,transparent)] hover:text-[var(--failure)] hover:opacity-100! focus-visible:opacity-100 {selected
-          ? 'opacity-60'
-          : ''}"
+ ? 'opacity-60'
+ : ''}"
         onclick={(e) => {
           e.stopPropagation();
           onDelete();

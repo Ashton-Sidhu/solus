@@ -8,13 +8,23 @@ import { emitOtelLog, recordOtelDuration } from './otel'
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 export interface Logger {
-  debug(msg: string, data?: Record<string, unknown>): void
-  info(msg: string, data?: Record<string, unknown>): void
-  warn(msg: string, data?: Record<string, unknown>): void
-  error(msg: string, data?: Record<string, unknown>): void
-  metric(label: string, durationMs: number, data?: Record<string, unknown>): void
+  debug(msg: string, data?: object): void
+  info(msg: string, data?: object): void
+  warn(msg: string, data?: object): void
+  error(msg: string, data?: object): void
+  metric(label: string, durationMs: number, data?: object): void
   /** Returns a logger that stamps `bound` fields (e.g. `{ sessionId }`) onto every entry. */
-  child(bound: Record<string, unknown>): Logger
+  child(bound: object): Logger
+}
+
+interface LogEntry {
+  ts: string
+  level: string
+  tag: string
+  file: string
+  msg?: string
+  label?: string
+  count?: number
 }
 
 const isDevRuntime = !isPackagedRuntime()
@@ -50,7 +60,7 @@ function writeToConsole(level: LogLevel, message: string): void {
   guard?.write(() => CONSOLE_FN[level](message))
 }
 
-function formatDevData(data: Record<string, unknown>): string {
+function formatDevData(data: object): string {
   return inspect(data, {
     colors: true,
     compact: false,
@@ -133,24 +143,22 @@ function boundedLogValue(
     return result
   }
 
-  const result: Record<string, unknown> = {}
-  let keys = 0
-  for (const key in value as Record<string, unknown>) {
-    if (!Object.prototype.hasOwnProperty.call(value, key)) continue
-    if (keys++ >= MAX_LOG_OBJECT_KEYS) {
-      result.logTruncated = 'additional object keys omitted'
-      break
-    }
+  const result: Array<[string, unknown]> = []
+  const entries = Object.entries(value)
+  for (const [key, item] of entries.slice(0, MAX_LOG_OBJECT_KEYS)) {
     try {
-      result[key] = boundedLogValue((value as Record<string, unknown>)[key], depth + 1, state)
+      result.push([key, boundedLogValue(item, depth + 1, state)])
     } catch {
-      result[key] = '[Unreadable]'
+      result.push([key, '[Unreadable]'])
     }
   }
-  return result
+  if (entries.length > MAX_LOG_OBJECT_KEYS) {
+    result.push(['logTruncated', 'additional object keys omitted'])
+  }
+  return Object.fromEntries(result)
 }
 
-export function serializeLogEntry(entry: Record<string, unknown>): string {
+export function serializeLogEntry(entry: LogEntry): string {
   let line: string
   try {
     line = JSON.stringify(boundedLogValue(entry, 0, { nodes: 0, seen: new WeakSet() }))
@@ -170,7 +178,7 @@ export function serializeLogEntry(entry: Record<string, unknown>): string {
   return line + '\n'
 }
 
-function pushEntry(entry: Record<string, unknown>): void {
+function pushEntry(entry: LogEntry): void {
   const line = serializeLogEntry(entry)
   const lineBytes = Buffer.byteLength(line)
   if (bufferedBytes + lineBytes > MAX_BUFFER_BYTES) {
@@ -229,7 +237,7 @@ function ensureTimer(): void {
 
 // ─── Core emit ───
 
-function emit(level: LogLevel, tag: string, file: string, bound: Record<string, unknown> | undefined, msg: string, data?: Record<string, unknown>): void {
+function emit(level: LogLevel, tag: string, file: string, bound: object | undefined, msg: string, data?: object): void {
   if (LEVEL_PRIORITY[level] < LEVEL_PRIORITY[activeLogLevel]) return
 
   const merged = bound ? { ...bound, ...data } : data
@@ -246,7 +254,7 @@ function emit(level: LogLevel, tag: string, file: string, bound: Record<string, 
     }
   }
 
-  const entry: Record<string, unknown> = { ts: new Date().toISOString(), level, tag, file, msg }
+  const entry: LogEntry = { ts: new Date().toISOString(), level, tag, file, msg }
   if (merged) Object.assign(entry, merged)
   pushEntry(entry)
   emitOtelLog(level, msg, { tag, file, ...merged })
@@ -266,13 +274,13 @@ function emit(level: LogLevel, tag: string, file: string, bound: Record<string, 
  */
 export const isDebugEnabled = LEVEL_PRIORITY.debug >= LEVEL_PRIORITY[activeLogLevel]
 
-function makeLogger(tag: string, file: string, bound?: Record<string, unknown>): Logger {
+function makeLogger(tag: string, file: string, bound?: object): Logger {
   return {
     debug: (msg, data?) => emit('debug', tag, file, bound, msg, data),
     info: (msg, data?) => emit('info', tag, file, bound, msg, data),
     warn: (msg, data?) => emit('warn', tag, file, bound, msg, data),
     error: (msg, data?) => emit('error', tag, file, bound, msg, data),
-    metric(label: string, durationMs: number, data?: Record<string, unknown>) {
+    metric(label: string, durationMs: number, data?: object) {
       const payload = bound ? { durationMs, ...bound, ...data } : { durationMs, ...data }
       if (isDevRuntime) {
         const t = new Date().toISOString().slice(11, 23)

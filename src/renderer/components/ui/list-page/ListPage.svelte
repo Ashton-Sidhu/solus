@@ -127,21 +127,21 @@
 >
   <div
     class="mx-auto flex min-h-0 w-full flex-1 flex-col {split
-      ? 'px-[18px]'
-      : 'max-w-[72rem] px-8 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4'}"
+ ? 'px-[18px]'
+ : 'max-w-[72rem] px-8 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4'}"
   >
     <!-- ── Head: title block + action cluster ── -->
     <div
       class="flex shrink-0 items-end justify-between gap-8 {split
-        ? 'flex-wrap gap-y-3 pb-[18px]'
-        : 'pb-[22px]'}"
+ ? 'flex-wrap gap-y-3 pb-[18px]'
+ : 'pb-[22px]'}"
       style="padding-top: {headTop}"
     >
       <div class="flex min-w-0 flex-col gap-[9px]">
         <h1
-          class="font-semibold tracking-[-.021em] whitespace-nowrap {split
-            ? 'text-[21px]'
-            : 'text-[27px]'}"
+          class="font-medium whitespace-nowrap {split
+ ? 'text-[21px]'
+ : 'text-[27px]'}"
         >
           {title}
         </h1>
@@ -184,9 +184,9 @@
           >
             <button
               type="button"
-              class="flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full border-0 px-[13px] text-[13px] tracking-[-.005em] transition-colors duration-150 {segment(
-                !isInbox,
-              )}"
+              class="flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full border-0 px-[13px] text-[13px] transition-colors duration-150 {segment(
+ !isInbox,
+ )}"
               onclick={() => onViewChange?.("global")}
               aria-pressed={!isInbox}
             >
@@ -195,9 +195,9 @@
             </button>
             <button
               type="button"
-              class="flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full border-0 px-[13px] text-[13px] tracking-[-.005em] transition-colors duration-150 {segment(
-                isInbox,
-              )}"
+              class="flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full border-0 px-[13px] text-[13px] transition-colors duration-150 {segment(
+ isInbox,
+ )}"
               onclick={() => onViewChange?.("inbox")}
               aria-pressed={isInbox}
             >
@@ -205,8 +205,8 @@
               {inboxLabel}
               <span
                 class="rounded-full px-[5px] py-px font-mono text-[11px] tabular-nums {isInbox
-                  ? 'bg-[color-mix(in_oklch,var(--primary)_15%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
-                  : 'bg-[var(--wash-3)] text-muted-foreground'}"
+ ? 'bg-[color-mix(in_oklch,var(--primary)_15%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
+ : 'bg-[var(--wash-3)] text-muted-foreground'}"
               >
                 {unreadCount}
               </span>
@@ -268,8 +268,8 @@
       bind:this={scrollEl}
       bind:clientHeight={contentHeight}
       class="min-h-0 flex-1 {contentOwnsScroll
-        ? 'overflow-hidden'
-        : 'overflow-y-auto overscroll-y-contain pb-5 [scrollbar-width:none] [&::-webkit-scrollbar]:w-0'}"
+ ? 'overflow-hidden'
+ : 'overflow-y-auto overscroll-y-contain pb-5 [scrollbar-width:none] [&::-webkit-scrollbar]:w-0'}"
     >
       {@render children()}
     </div>

@@ -96,7 +96,11 @@ export function registerTasksHandlers(backend: DemoServer, store: DemoStore): vo
 
   backend.register('tasksRecordActivity', (args) => {
     const [id] = args as [string]
+    const existing = store.getTask(id)
     const task = store.updateTask(id, {
+      ...(existing?.status === 'done' || existing?.status === 'dropped'
+        ? { status: 'in_progress' as const, doneAt: undefined }
+        : {}),
       snoozedUntil: undefined,
       snoozedAt: undefined,
       snoozeNote: undefined,

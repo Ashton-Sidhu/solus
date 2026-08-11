@@ -212,7 +212,7 @@
         <PaperPlaneTiltIcon size={17} weight="fill" />
       </span>
       <div class="flex min-w-0 flex-col">
-        <h2 class="text-[15px] font-semibold tracking-tight">
+        <h2 class="text-[15px] font-medium ">
           Submit review
         </h2>
         <span class="font-mono text-[11px] text-muted-foreground">#{pr.number}</span>
@@ -235,21 +235,21 @@
 
     <div class="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 py-5">
       <fieldset class="flex flex-col gap-2">
-        <legend class="mb-2 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">Event</legend>
+        <legend class="mb-2 text-[11px] font-medium r text-muted-foreground uppercase">Event</legend>
         {#each availableEvents as e (e.id)}
           {@const selected = event === e.id}
           {@const Icon = e.icon}
           <label
             style="--ev:{e.color}; --ev-soft:{e.soft};"
             class="group flex cursor-pointer items-center gap-3 rounded-2xl border px-3 py-2.5 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-(--ev) has-[:focus-visible]:ring-offset-1 has-[:focus-visible]:ring-offset-(--solus-container-bg) {selected
-              ? 'border-(--ev) bg-(--ev-soft)'
-              : 'border-border hover:bg-muted'}"
+ ? 'border-(--ev) bg-(--ev-soft)'
+ : 'border-border hover:bg-muted'}"
           >
             <input type="radio" name="event" value={e.id} bind:group={event} class="sr-only" />
             <span
               class="flex size-8 shrink-0 items-center justify-center rounded-lg {selected
-                ? 'bg-(--ev) text-white'
-                : 'bg-muted text-muted-foreground'}"
+ ? 'bg-(--ev) text-white'
+ : 'bg-muted text-muted-foreground'}"
             >
               <Icon size={17} weight={selected ? "fill" : "regular"} />
             </span>
@@ -268,7 +268,7 @@
       </fieldset>
 
       <div class="flex flex-col gap-2">
-        <span class="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">Summary</span>
+        <span class="text-[11px] font-medium r text-muted-foreground uppercase">Summary</span>
         <CommentEditor
           bind:this={bodyEditor}
           value={body}
@@ -285,7 +285,7 @@
 
       <div class="flex flex-col gap-2">
         <div class="flex items-center gap-2">
-          <span class="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">Queued comments</span>
+          <span class="text-[11px] font-medium r text-muted-foreground uppercase">Queued comments</span>
           <span class="flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10.5px] font-medium text-foreground tabular-nums">
             {drafts.length}
           </span>
@@ -300,7 +300,7 @@
               <li class="rounded-2xl border border-border bg-card px-3 py-2.5">
                 <div class="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
                   <span class="truncate">{d.path}:{d.line}</span>
-                  <span class="shrink-0 rounded bg-muted px-1 py-px text-[10.5px] font-medium tracking-wide text-foreground">
+                  <span class="shrink-0 rounded bg-muted px-1 py-px text-[10.5px] font-medium text-foreground">
                     {d.side === "old" ? "LEFT" : "RIGHT"}
                   </span>
                 </div>

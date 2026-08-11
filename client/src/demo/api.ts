@@ -5,15 +5,14 @@ import { asHostApi, type HostApi } from '@client-core/host-api'
 
 export function createDemoSolusApi(backend: DemoBackend): HostApi {
   const api = createNoHostSolusApi()
-  const methods = api as unknown as Record<string, unknown>
 
   for (const method of RPC_INVOKE_METHODS) {
-    methods[method] = (...args: unknown[]) => backend.handle(method, args)
+    Reflect.set(api, method, (...args: unknown[]) => backend.handle(method, args))
   }
 
-  methods.transcribeAudio = async () => ''
-  methods.attachFiles = async () => null
-  methods.uploadFiles = async () => null
+  Reflect.set(api, 'transcribeAudio', async () => '')
+  Reflect.set(api, 'attachFiles', async () => null)
+  Reflect.set(api, 'uploadFiles', async () => null)
 
   return asHostApi(api)
 }

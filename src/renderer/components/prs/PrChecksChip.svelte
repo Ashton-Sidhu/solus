@@ -87,7 +87,7 @@
     >
       {@render checkIcon(item)}
       <span class="min-w-0 flex-1">
-        <span class="block truncate text-[12px] font-[450] text-foreground">{item.name}</span>
+        <span class="block truncate text-[12px] font-normal text-foreground">{item.name}</span>
         {#if item.appName}
           <span class="block truncate text-[10px] text-muted-foreground">{item.appName}</span>
         {/if}
@@ -98,7 +98,7 @@
     <div class="flex items-center gap-2 rounded-lg px-2 py-1.5">
       {@render checkIcon(item)}
       <span class="min-w-0 flex-1">
-        <span class="block truncate text-[12px] font-[450] text-foreground">{item.name}</span>
+        <span class="block truncate text-[12px] font-normal text-foreground">{item.name}</span>
         {#if item.appName}
           <span class="block truncate text-[10px] text-muted-foreground">{item.appName}</span>
         {/if}
@@ -149,7 +149,7 @@
       >
         <div role="dialog" aria-label="Check details">
           <div class="border-b border-border px-3 py-2">
-            <p class="text-[12px] font-[450] text-foreground">{display.label}</p>
+            <p class="text-[12px] font-normal text-foreground">{display.label}</p>
             {#if summary}
               <p class="mt-0.5 text-[11px] tabular-nums text-muted-foreground">{checksCounts(summary)}</p>
             {:else}
@@ -160,13 +160,13 @@
           {#if summary && summary.state !== "none"}
             <div class="max-h-[19rem] overflow-y-auto p-1.5">
               {#if summary.required.length > 0}
-                <p class="px-2 pt-1 pb-0.5 text-[10px] font-[450] tracking-[0.09em] text-muted-foreground uppercase">Required</p>
+                <p class="px-2 pt-1 pb-0.5 text-[10px] font-normal text-muted-foreground uppercase">Required</p>
                 {#each summary.required as item (item.id)}
                   {@render checkRow(item)}
                 {/each}
               {/if}
               {#if summary.optional.length > 0}
-                <p class="px-2 pt-2 pb-0.5 text-[10px] font-[450] tracking-[0.09em] text-muted-foreground uppercase">Optional</p>
+                <p class="px-2 pt-2 pb-0.5 text-[10px] font-normal text-muted-foreground uppercase">Optional</p>
                 {#each summary.optional as item (item.id)}
                   {@render checkRow(item)}
                 {/each}

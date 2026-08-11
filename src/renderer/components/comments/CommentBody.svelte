@@ -111,7 +111,7 @@
   }
   .cb__mention {
     color: var(--solus-accent);
-    font-weight: 550;
+    font-weight: 500;
   }
   .cb__link {
     color: var(--solus-accent);

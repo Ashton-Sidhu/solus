@@ -48,7 +48,7 @@
   .work-skeleton__kicker {
     font-size: 0.59375rem;
     font-weight: 500;
-    letter-spacing: 0.12em;
+
     text-transform: uppercase;
     color: var(--muted-foreground);
     opacity: 0.7;

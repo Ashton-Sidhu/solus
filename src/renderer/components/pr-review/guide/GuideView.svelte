@@ -90,7 +90,7 @@
              deep top pad on top of them read as a hole rather than as air. The
              weight stays below the header, where the guide starts. -->
         <header class="guide-intro border-b border-(--solus-art-border) pt-6 pr-8 pb-10 pl-14">
-          <h1 class="text-[2rem] leading-[1.15] font-bold tracking-tight text-balance text-(--solus-text-primary)">
+          <h1 class="text-[2rem] leading-[1.15] font-medium text-balance text-(--solus-text-primary)">
             {guide.title}
           </h1>
 
@@ -178,7 +178,7 @@
         {#if lowSignalSections.length > 0}
           <details class="group border-t border-(--solus-art-border)">
             <summary
-              class="flex cursor-pointer list-none items-center gap-1.5 py-3.5 pr-8 pl-14 text-[0.8125rem] font-semibold text-(--solus-text-tertiary) select-none hover:text-(--solus-text-secondary)"
+              class="flex cursor-pointer list-none items-center gap-1.5 py-3.5 pr-8 pl-14 text-[0.8125rem] font-medium text-(--solus-text-tertiary) select-none hover:text-(--solus-text-secondary)"
             >
               <span
                 class="inline-block size-1.5 rotate-45 border-r-[1.5px] border-b-[1.5px] border-current transition-transform duration-150 group-open:rotate-[225deg]"

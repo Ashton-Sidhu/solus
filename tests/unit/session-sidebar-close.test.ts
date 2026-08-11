@@ -5,15 +5,26 @@ import {
   type SidebarSessionChild,
 } from '../../src/renderer/contexts/workspace/session-sidebar.store.svelte'
 
-function sidebarStoreForDismissal(): SessionSidebarStore & Record<string, unknown> {
-  const store = Object.create(SessionSidebarStore.prototype) as SessionSidebarStore &
-    Record<string, unknown>
+type SidebarStoreHarness = Pick<SessionSidebarStore, 'closeTask' | 'closeChild' | 'closeProject' | 'runningTaskCountIn' | 'renameTask'> & {
+  doneTaskIds: Set<string>
+  dismissedRowKeys: Set<string>
+  closedTabIds: string[]
+  unloadedCompletedTaskIds: Set<string>
+  closeTabs: (tabIds: string[]) => void
+  allTasks: SidebarTask[]
+  session: unknown
+  tabIdBySessionId: Map<string, string>
+  renameSession: (tabId: string) => Promise<void>
+}
+
+function sidebarStoreForDismissal(): SidebarStoreHarness {
+  const store = Object.create(SessionSidebarStore.prototype) as SidebarStoreHarness
   store.doneTaskIds = new Set<string>()
   store.dismissedRowKeys = new Set<string>()
   store.closedTabIds = []
   store.unloadedCompletedTaskIds = new Set<string>()
   store.closeTabs = (tabIds: string[]) => {
-    ;(store.closedTabIds as string[]).push(...tabIds)
+    store.closedTabIds.push(...tabIds)
   }
   return store
 }

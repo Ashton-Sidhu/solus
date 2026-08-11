@@ -118,7 +118,7 @@
     <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
       {#each results as group (group.menuKind)}
         <div
-          class="px-2 pt-2 pb-1 text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase"
+          class="px-2 pt-2 pb-1 text-[10px] font-normal text-muted-foreground uppercase"
         >
           {group.label}
         </div>

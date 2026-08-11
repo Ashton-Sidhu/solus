@@ -48,16 +48,16 @@
       <EmptyMedia
         variant="icon"
         class="mb-1 size-12 rounded-full [&_svg:not([class*='size-'])]:size-[1.375rem] {tone ===
-        'accent'
-          ? 'bg-(--solus-accent-light) text-(--solus-accent) shadow-[0_0_0_0.4375rem_color-mix(in_srgb,var(--solus-accent-light)_45%,transparent)]'
-          : 'bg-(--solus-surface-hover) font-secondary text-(--solus-text-secondary) shadow-[0_0_0_0.4375rem_color-mix(in_srgb,var(--solus-surface-hover)_45%,transparent)]'}"
+ 'accent'
+ ? 'bg-(--solus-accent-light) text-(--solus-accent) shadow-[0_0_0_0.4375rem_color-mix(in_srgb,var(--solus-accent-light)_45%,transparent)]'
+ : 'bg-(--solus-surface-hover) font-secondary text-(--solus-text-secondary) shadow-[0_0_0_0.4375rem_color-mix(in_srgb,var(--solus-surface-hover)_45%,transparent)]'}"
       >
         <Icon weight="fill" />
       </EmptyMedia>
     {/if}
     {#if title}
       <EmptyTitle
-        class="text-[0.9375rem] font-semibold tracking-[-0.01em] text-(--solus-text-primary)"
+        class="text-[0.9375rem] font-medium text-(--solus-text-primary)"
       >
         {title}
       </EmptyTitle>

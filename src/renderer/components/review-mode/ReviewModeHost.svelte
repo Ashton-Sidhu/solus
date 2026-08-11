@@ -350,12 +350,12 @@
 
 <section class="flex h-full min-h-0 flex-col bg-(--solus-container-bg) antialiased" aria-label="Review mode">
   <header class="flex h-(--solus-chrome-row-h) shrink-0 items-center gap-3 border-b border-(--solus-container-border) pr-3 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]">
-    <span class="rounded-md bg-(--solus-accent-light) px-2 py-1 text-[0.625rem] font-semibold tracking-[0.06em] text-(--solus-accent) uppercase ring-1 ring-inset ring-(--solus-accent-border)">
+    <span class="rounded-md bg-(--solus-accent-light) px-2 py-1 text-[0.625rem] font-medium text-(--solus-accent) uppercase ring-1 ring-inset ring-(--solus-accent-border)">
       Review mode
     </span>
     <span class="text-xs font-secondary text-(--solus-text-secondary) tabular-nums">
       {settledCount + (state?.pending.length ?? 0)} of {state?.entries.length ?? items.length} reviewed
-      {#if currentEntry} · viewing <strong class="font-semibold text-(--solus-text-primary)">{store.position}</strong>{/if}
+      {#if currentEntry} · viewing <strong class="font-medium text-(--solus-text-primary)">{store.position}</strong>{/if}
     </span>
     <span class="ml-auto hidden text-[0.6875rem] text-(--solus-text-tertiary) xl:inline">Single-key controls are active outside text fields</span>
     <Button
@@ -388,17 +388,17 @@
           {@const selectedView = views.get(currentItem.number) ?? defaultReviewModeView(currentItem.effort)}
           <div class="flex min-h-14 shrink-0 items-center gap-3 border-b border-(--solus-container-border) px-4">
             <div class="min-w-0 flex-1">
-              <h1 class="truncate text-sm font-semibold tracking-[-0.01em] text-(--solus-text-primary)">{currentItem.title}</h1>
+              <h1 class="truncate text-sm font-medium text-(--solus-text-primary)">{currentItem.title}</h1>
               <div class="mt-1 flex items-center gap-2 text-[0.6875rem] text-(--solus-text-tertiary)">
                 <span class="tabular-nums">#{currentItem.number}</span>
                 <span aria-hidden="true">·</span>
                 <span>{currentItem.author}</span>
                 {#if currentItem.effort?.band}
                   <span class="rounded px-1.5 py-px text-[0.625rem] font-medium ring-1 ring-inset {currentItem.effort.band === 'quick'
-                    ? 'text-(--solus-art-positive) ring-[color:color-mix(in_srgb,var(--solus-art-positive)_28%,transparent)]'
-                    : currentItem.effort.band === 'involved'
-                      ? 'text-(--solus-art-negative) ring-[color:color-mix(in_srgb,var(--solus-art-negative)_24%,transparent)]'
-                      : 'text-(--solus-accent) ring-(--solus-accent-border)'}">
+ ? 'text-(--solus-art-positive) ring-[color:color-mix(in_srgb,var(--solus-art-positive)_28%,transparent)]'
+ : currentItem.effort.band === 'involved'
+ ? 'text-(--solus-art-negative) ring-[color:color-mix(in_srgb,var(--solus-art-negative)_24%,transparent)]'
+ : 'text-(--solus-accent) ring-(--solus-accent-border)'}">
                     {currentItem.effort.band}
                   </span>
                 {/if}
@@ -427,8 +427,8 @@
                   role="tab"
                   aria-selected={selectedView === tab[0]}
                   class="min-h-7 rounded-md px-2.5 text-xs font-medium transition-[background-color,color,box-shadow] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent-border) {selectedView === tab[0]
-                    ? 'bg-(--solus-container-bg) text-(--solus-text-primary) shadow-sm'
-                    : 'text-(--solus-text-tertiary) hover:text-(--solus-text-primary)'}"
+ ? 'bg-(--solus-container-bg) text-(--solus-text-primary) shadow-sm'
+ : 'text-(--solus-text-tertiary) hover:text-(--solus-text-primary)'}"
                   onclick={() => selectView(tab[0] as ReviewModeView)}
                 >
                   {tab[1]} <span class="ml-1 font-mono text-[0.5625rem] opacity-60">{tab[2]}</span>
@@ -459,7 +459,7 @@
                 {:else if prepareErrors.has(entry.prNumber)}
                   <div class="grid h-full place-items-center px-6 text-center">
                     <div class="max-w-md">
-                      <p class="text-sm font-semibold text-(--solus-text-primary)">Couldn’t prepare PR #{entry.prNumber}</p>
+                      <p class="text-sm font-medium text-(--solus-text-primary)">Couldn’t prepare PR #{entry.prNumber}</p>
                       <p class="mt-1 text-pretty text-xs text-(--solus-text-tertiary)">{prepareErrors.get(entry.prNumber)}</p>
                       <Button class="mt-4" size="sm" variant="outline" onclick={() => void prepare(entry.prNumber)}>Try again</Button>
                     </div>
@@ -477,7 +477,7 @@
         {#if composerOutcome}
           <div class="flex shrink-0 items-end gap-2 border-t border-(--solus-accent-border) bg-(--solus-accent-light) px-3 py-2">
             <div class="min-w-0 flex-1">
-              <label for="review-mode-summary" class="mb-1 block text-[0.6875rem] font-semibold text-(--solus-text-secondary)">
+              <label for="review-mode-summary" class="mb-1 block text-[0.6875rem] font-medium text-(--solus-text-secondary)">
                 {composerOutcome === "changes_requested" ? "Why are you requesting changes?" : "Leave a review comment"}
               </label>
               <textarea

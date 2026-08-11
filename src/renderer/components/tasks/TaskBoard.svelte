@@ -180,7 +180,7 @@
            as a shouted state. -->
       <div class="flex h-8 shrink-0 items-center gap-[7px] pr-1 pl-[3px]">
         <TaskStatusGlyph status={col.status} />
-        <span class="text-[12px] font-[450] tracking-[-.004em]">{col.label}</span>
+        <span class="text-[12px] font-normal ">{col.label}</span>
         <span class="font-mono text-[11px] tabular-nums text-muted-foreground opacity-[.65]">
           {col.ordered.length}
         </span>

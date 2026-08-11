@@ -46,7 +46,7 @@
     <CheckIcon size={13} />
     Approve
     {#if !isMobile}<span
-        class="ml-0.5 font-mono text-[0.5625rem] tracking-[0.02em] tabular-nums opacity-45"
+        class="ml-0.5 font-mono text-[0.5625rem] tabular-nums opacity-45"
         >⌥A</span
       >{/if}
   </button>

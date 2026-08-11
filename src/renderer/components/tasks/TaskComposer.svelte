@@ -345,7 +345,7 @@
     "inline-flex items-center justify-center size-6 flex-shrink-0 border-none rounded-md bg-transparent text-(--solus-text-tertiary) cursor-pointer transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) disabled:opacity-50";
   // Shared option-row styling inside a picker popover.
   const OPT =
-    "flex w-full items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[13px] font-secondary text-(--solus-text-secondary) cursor-pointer outline-none transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) data-[selected=true]:font-semibold data-[selected=true]:text-(--solus-text-primary)";
+    "flex w-full items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[13px] font-secondary text-(--solus-text-secondary) cursor-pointer outline-none transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) data-[selected=true]:font-medium data-[selected=true]:text-(--solus-text-primary)";
   // Layout-only prompt wrapper: the editor reads like AutomationBuilder's unboxed
   // prompt area — the plain-text editor ships no border/background of its own, so the
   // wrapper only needs a transparent base plus flex sizing.
@@ -364,8 +364,8 @@
 <div
   data-solus-ui
   class="fixed inset-0 z-[10008] flex items-start justify-center {expanded
-    ? 'pt-[7vh]'
-    : 'pt-[13vh]'} pointer-events-auto bg-transparent [animation:task-modal-backdrop-in_160ms_ease_both]"
+ ? 'pt-[7vh]'
+ : 'pt-[13vh]'} pointer-events-auto bg-transparent [animation:task-modal-backdrop-in_160ms_ease_both]"
   role="presentation"
   onclick={(e) => {
     if (e.target === e.currentTarget && !saving) onCancel();
@@ -374,8 +374,8 @@
 >
   <div
     class="{expanded
-      ? 'w-[clamp(20rem,76vw,54rem)] h-[min(44rem,84vh)]'
-      : 'w-[clamp(20rem,52vw,34rem)]'} max-w-[calc(100vw-3rem)] outline-none flex flex-col rounded-2xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] [.dark_&]:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] overflow-hidden origin-top transition-[width,height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] [animation:task-modal-enter_200ms_cubic-bezier(0.22,1,0.36,1)_both]"
+ ? 'w-[clamp(20rem,76vw,54rem)] h-[min(44rem,84vh)]'
+ : 'w-[clamp(20rem,52vw,34rem)]'} max-w-[calc(100vw-3rem)] outline-none flex flex-col rounded-2xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] [.dark_&]:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] overflow-hidden origin-top transition-[width,height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] [animation:task-modal-enter_200ms_cubic-bezier(0.22,1,0.36,1)_both]"
     role="dialog"
     aria-label={heading}
     aria-modal="true"
@@ -398,7 +398,7 @@
         />
       {/if}
       <span
-        class="text-[13px] font-medium tracking-[-0.005em] text-(--solus-text-primary)"
+        class="text-[13px] font-medium text-(--solus-text-primary)"
         >{heading}</span
       >
       {#if initialParentId && parentEpic}
@@ -422,14 +422,14 @@
           <ArrowsInSimpleIcon
             size={14}
             class="col-start-1 row-start-1 transition-[opacity,scale,filter] duration-300 ease-[cubic-bezier(0.2,0,0,1)] {expanded
-              ? 'opacity-100 scale-100 blur-none'
-              : 'opacity-0 scale-[0.25] blur-[4px]'}"
+ ? 'opacity-100 scale-100 blur-none'
+ : 'opacity-0 scale-[0.25] blur-[4px]'}"
           />
           <ArrowsOutSimpleIcon
             size={14}
             class="col-start-1 row-start-1 transition-[opacity,scale,filter] duration-300 ease-[cubic-bezier(0.2,0,0,1)] {expanded
-              ? 'opacity-0 scale-[0.25] blur-[4px]'
-              : 'opacity-100 scale-100 blur-none'}"
+ ? 'opacity-0 scale-[0.25] blur-[4px]'
+ : 'opacity-100 scale-100 blur-none'}"
           />
         </span>
       </button>
@@ -447,8 +447,8 @@
     <!-- Body -->
     <div
       class="flex flex-col gap-1.5 px-[1.125rem] pt-3.5 pb-2 {expanded
-        ? 'flex-1 min-h-0'
-        : ''}"
+ ? 'flex-1 min-h-0'
+ : ''}"
     >
       <input
         bind:this={titleEl}
@@ -457,7 +457,7 @@
         placeholder="Task title"
         aria-label="Task title"
         disabled={saving}
-        class="w-full border-0 border-none outline-none shadow-none appearance-none bg-transparent text-[16px] font-medium tracking-[-0.01em] text-(--solus-text-primary) placeholder:text-(--solus-text-tertiary) disabled:opacity-60"
+        class="w-full border-0 border-none outline-none shadow-none appearance-none bg-transparent text-[16px] font-medium text-(--solus-text-primary) placeholder:text-(--solus-text-tertiary) disabled:opacity-60"
         onkeydown={(e) => {
           if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
             e.preventDefault();
@@ -876,15 +876,15 @@
       >
         <span
           class="grid size-3.5 place-items-center rounded-[0.25rem] border transition-colors duration-100 {createAnother
-            ? 'border-(--solus-accent) bg-(--solus-accent) text-white'
-            : 'border-(--solus-container-border)'}"
+ ? 'border-(--solus-accent) bg-(--solus-accent) text-white'
+ : 'border-(--solus-container-border)'}"
         >
           <CheckIcon
             size={14}
             weight="bold"
             class="transition-[opacity,scale,filter] duration-300 ease-[cubic-bezier(0.2,0,0,1)] {createAnother
-              ? 'opacity-100 scale-100 blur-none'
-              : 'opacity-0 scale-[0.25] blur-[4px]'}"
+ ? 'opacity-100 scale-100 blur-none'
+ : 'opacity-0 scale-[0.25] blur-[4px]'}"
           />
         </span>
         Create more
@@ -900,7 +900,7 @@
         </button>
         <button
           type="button"
-          class="inline-flex items-center gap-1.5 cursor-pointer rounded-md border-0 bg-(--solus-accent) px-3 py-[0.3125rem] text-[12px] font-semibold text-white transition-[opacity,scale] duration-100 hover:opacity-90 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
+          class="inline-flex items-center gap-1.5 cursor-pointer rounded-md border-0 bg-(--solus-accent) px-3 py-[0.3125rem] text-[12px] font-medium text-white transition-[opacity,scale] duration-100 hover:opacity-90 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
           disabled={!canSubmit}
           onclick={submit}
         >

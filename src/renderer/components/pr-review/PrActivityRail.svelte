@@ -161,7 +161,7 @@
 {#snippet sectionHead(label: string, trailing?: Snippet)}
   <div class="mb-2.5 flex items-center gap-2">
     <h3
-      class="text-[9.5px] font-medium tracking-widest text-muted-foreground uppercase"
+      class="text-[9.5px] font-medium st text-muted-foreground uppercase"
     >
       {label}
     </h3>
@@ -223,7 +223,7 @@
             <Skeleton class="h-3.5 w-28 rounded bg-muted" />
             <Skeleton class="mt-1 h-3 w-20 rounded bg-muted" />
           {:else}
-            <span class="text-[13.5px] font-semibold tracking-[-0.01em]">
+            <span class="text-[13.5px] font-medium ">
               {detail.state === "merged"
                 ? "Merged into " + (detail.baseRef ?? "main")
                 : detail.state === "closed"
@@ -319,7 +319,7 @@
                 {reviewer.login}
               </span>
               <span
-                class="shrink-0 text-[10.5px] tracking-[.03em] whitespace-nowrap"
+                class="shrink-0 text-[10.5px] whitespace-nowrap"
                 style={`color:${reviewerStateColor(reviewer.state)}`}
               >
                 {reviewerStateLabel(reviewer.state)}
@@ -391,9 +391,9 @@
                stays neutral so the colour keeps meaning something. -->
           <span
             class="text-[11px] font-medium tabular-nums {checks?.state ===
-            'passing'
-              ? 'text-(--solus-art-positive)'
-              : 'text-muted-foreground'}"
+ 'passing'
+ ? 'text-(--solus-art-positive)'
+ : 'text-muted-foreground'}"
           >
             {#if checks?.state === "passing"}
               {passedChecks} passing
@@ -426,10 +426,10 @@
                        as a column of states, and the colour alone carries it. -->
                   <span
                     class="size-1.5 shrink-0 rounded-full {item.inFlight
-                      ? 'animate-pulse bg-chart-2'
-                      : passed
-                        ? 'bg-(--solus-art-positive)'
-                        : 'bg-(--solus-art-negative)'}"
+ ? 'animate-pulse bg-chart-2'
+ : passed
+ ? 'bg-(--solus-art-positive)'
+ : 'bg-(--solus-art-negative)'}"
                     aria-hidden="true"
                   ></span>
                   <span class="min-w-0 flex-1 truncate text-[12.5px]">

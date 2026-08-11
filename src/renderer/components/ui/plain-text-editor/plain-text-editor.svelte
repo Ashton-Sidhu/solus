@@ -114,7 +114,7 @@ import { ghostCompletion, showGhost } from "./lib/ghost-completion";
   // that palette paints URL tokens purple (#219).
   const composerHighlightStyle = HighlightStyle.define([
     { tag: tags.emphasis, fontStyle: "italic" },
-    { tag: tags.strong, fontWeight: "bold" },
+    { tag: tags.strong, fontWeight: "500" },
     { tag: tags.strikethrough, textDecoration: "line-through" },
   ]);
 

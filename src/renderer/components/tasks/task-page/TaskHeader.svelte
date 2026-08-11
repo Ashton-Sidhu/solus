@@ -52,7 +52,7 @@
 
 <div class="flex items-center gap-[13px] pb-[11px]">
   <span
-    class="inline-flex items-center gap-1.5 text-[13px] font-[450] tracking-[-.005em]"
+    class="inline-flex items-center gap-1.5 text-[13px] font-normal "
     style="color:{statusTextColor(task.status)}"
   >
     <svg
@@ -88,7 +88,7 @@
 
 {#if canEdit}
   <input
-    class="m-0 w-full bg-transparent text-[27px] leading-[1.25] font-semibold tracking-[-.021em] text-pretty outline-none"
+    class="m-0 w-full bg-transparent text-[27px] leading-[1.25] font-medium text-pretty outline-none"
     bind:value={titleDraft}
     onblur={commitTitle}
     onkeydown={(e) => {
@@ -101,7 +101,7 @@
     aria-label="Task title"
   />
 {:else}
-  <h1 class="m-0 text-[27px] leading-[1.25] font-semibold tracking-[-.021em] text-pretty">
+  <h1 class="m-0 text-[27px] leading-[1.25] font-medium text-pretty">
     {task.title}
   </h1>
 {/if}

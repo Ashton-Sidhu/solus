@@ -76,7 +76,7 @@
     <div class="flex items-center gap-3 px-[1.0625rem] pt-[0.9375rem] pb-3">
       <div class="min-w-0 flex-1">
         <div class="setup-kicker">Setup</div>
-        <div class="truncate text-[0.875rem] leading-tight font-semibold tracking-[-0.012em]">
+        <div class="truncate text-[0.875rem] leading-tight font-medium ">
           {card.title}
         </div>
         <div class="mt-0.5 truncate text-[0.71875rem] text-(--muted-foreground)">{meta}</div>
@@ -164,7 +164,7 @@
     margin-bottom: 0.3125rem;
     font-size: 0.59375rem;
     font-weight: 500;
-    letter-spacing: 0.12em;
+
     text-transform: uppercase;
     color: var(--muted-foreground);
     opacity: 0.7;

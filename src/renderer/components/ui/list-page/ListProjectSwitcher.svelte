@@ -87,8 +87,8 @@
   <button
     type="button"
     class="relative z-40 flex h-[26px] max-w-full cursor-pointer items-center gap-2 rounded-md border-0 px-[7px] transition-colors duration-150 hover:bg-[var(--wash-1)] {menuOpen
-      ? 'bg-[var(--wash-2)]'
-      : 'bg-transparent'}"
+ ? 'bg-[var(--wash-2)]'
+ : 'bg-transparent'}"
     title="Switch project"
     aria-haspopup="menu"
     aria-expanded={menuOpen}
@@ -100,15 +100,15 @@
       {/key}
     {/if}
     <span
-      class="max-w-[180px] truncate text-[13px] font-[450] tracking-[-.005em]"
+      class="max-w-[180px] truncate text-[13px] font-normal "
     >
       {active?.label ?? emptyLabel}
     </span>
     <CaretDownIcon
       size={14}
       class="shrink-0 text-muted-foreground opacity-50 transition-transform duration-200 {menuOpen
-        ? 'rotate-180'
-        : ''}"
+ ? 'rotate-180'
+ : ''}"
     />
   </button>
 
@@ -136,7 +136,7 @@
       {/if}
 
       <div
-        class="px-[9px] pt-[5px] pb-1 text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase"
+        class="px-[9px] pt-[5px] pb-1 text-[10px] font-normal text-muted-foreground uppercase"
       >
         Projects
       </div>
@@ -146,16 +146,16 @@
         <button
           type="button"
           class="flex h-[34px] w-full cursor-pointer items-center gap-[9px] rounded-lg border-0 px-[9px] text-left transition-colors duration-150 hover:bg-[var(--wash-2)] {isActive
-            ? 'bg-[var(--wash-2)]'
-            : 'bg-transparent'}"
+ ? 'bg-[var(--wash-2)]'
+ : 'bg-transparent'}"
           title={abbreviateHome(project.projectKey)}
           onclick={() => pick(project.projectKey)}
         >
           <ProjectFavicon projectRoot={project.projectKey} class="size-3.5" />
           <span
-            class="min-w-0 flex-1 truncate text-[13px] tracking-[-.005em] {isActive
-              ? 'font-medium'
-              : ''}"
+            class="min-w-0 flex-1 truncate text-[13px] {isActive
+ ? 'font-medium'
+ : ''}"
           >
             {project.label}
           </span>

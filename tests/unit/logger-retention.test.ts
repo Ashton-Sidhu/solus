@@ -3,7 +3,7 @@ import { serializeLogEntry } from '../../src/main/logger'
 
 describe('logger retention bounds', () => {
   test('serializes large object graphs into a valid byte-bounded NDJSON entry', () => {
-    const circular: Record<string, unknown> = {}
+    const circular: { self?: object } = {}
     circular.self = circular
     const line = serializeLogEntry({
       ts: new Date(0).toISOString(),

@@ -494,7 +494,7 @@ function isMissingWorkError(err: unknown): boolean {
   return err instanceof Error && err.message.includes('Work not found:')
 }
 
-function logWorkLoad(level: 'debug' | 'info' | 'warn' | 'error', message: string, data: Record<string, unknown>): void {
+function logWorkLoad(level: 'debug' | 'info' | 'warn' | 'error', message: string, data: object): void {
   console[level](`[Solus][WorksStore] ${message}`, data)
 }
 

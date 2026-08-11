@@ -16,6 +16,7 @@ export const NATIVE_ONLY_SOLUS_METHODS = [
   'onWindowShown',
   'onWindowHidden',
   'setIgnoreMouseEvents',
+  'setZoomFactor',
   'rendererReady',
   'rendererMounted',
 ] as const
@@ -28,23 +29,23 @@ const CLIENT_LOCAL_RPC_METHODS = new Set<string>(['openExternal'])
 export type NativeOnlySolusMethod = (typeof NATIVE_ONLY_SOLUS_METHODS)[number]
 
 export function mergeNativeOnlySolusApi(
-  transportApi: Record<string, unknown>,
-  nativeApi: Record<string, unknown>,
+  transportApi: object,
+  nativeApi: object,
   nativeMethods: readonly string[] = NATIVE_ONLY_SOLUS_METHODS,
-): Record<string, unknown> {
-  const merged: Record<string, unknown> = { ...transportApi }
+): object {
+  const merged = { ...transportApi }
 
   for (const method of nativeMethods) {
     if (RPC_METHODS.has(method) && !CLIENT_LOCAL_RPC_METHODS.has(method)) continue
-    const value = nativeApi[method]
-    if (typeof value === 'function') merged[method] = value
+    const value = Reflect.get(nativeApi, method)
+    if (typeof value === 'function') Reflect.set(merged, method, value)
   }
 
   return merged
 }
 
-export function installWindowSolusApi(api: Record<string, unknown>): void {
-  const target = window as unknown as { solus?: Record<string, unknown> }
+export function installWindowSolusApi(api: object): void {
+  const target = window as unknown as { solus?: object }
   try {
     target.solus = api
     if (target.solus === api) return
@@ -70,7 +71,7 @@ export function installWindowSolusApi(api: Record<string, unknown>): void {
         })
       } catch {}
     }
-    if (existing.start === api.start) return
+    if (Reflect.get(existing, 'start') === Reflect.get(api, 'start')) return
   }
 
   throw new Error('Unable to install WS-backed Solus API')

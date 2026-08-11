@@ -46,7 +46,7 @@ function logRawClaudeEvent(sessionId: string | null, msg: unknown): void {
   log.debug('raw_provider_event', {
     provider: 'claude-code',
     sessionId,
-    event: msg as Record<string, unknown>,
+    event: msg,
   })
 }
 

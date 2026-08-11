@@ -440,7 +440,7 @@
   }
   .wha-diff-title {
     font-size: 0.8125rem;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--solus-text-primary);
   }
   .wha-diff-header__actions {
@@ -455,7 +455,7 @@
     padding: 0.25rem 0.625rem;
     border-radius: 0.4375rem;
     font-size: 0.6875rem;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--solus-accent);
     background: var(--solus-accent-light);
     border: 0.0625rem solid var(--solus-accent-border);

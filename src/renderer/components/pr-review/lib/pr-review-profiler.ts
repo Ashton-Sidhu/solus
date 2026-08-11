@@ -1,13 +1,13 @@
 interface ProfileSample {
   label: string
   duration: number
-  detail?: Record<string, unknown>
+  detail?: object
 }
 
 interface ProfileMark {
   label: string
   elapsed: number
-  detail?: Record<string, unknown>
+  detail?: object
 }
 
 interface PrReviewProfile {
@@ -121,7 +121,7 @@ export function beginPrReviewProfile(number: number, options: { restart?: boolea
   }
 }
 
-export function markPrReviewProfile(label: string, detail?: Record<string, unknown>): void {
+export function markPrReviewProfile(label: string, detail?: object): void {
   const profile = activeProfile
   if (!profile || !isEnabled) return
   const now = performance.now()
@@ -132,7 +132,7 @@ export function markPrReviewProfile(label: string, detail?: Record<string, unkno
 export function profilePrReviewWork<T>(
   label: string,
   work: () => T,
-  detail?: Record<string, unknown>,
+  detail?: object,
 ): T {
   const profile = activeProfile
   if (!profile || !isEnabled) return work()

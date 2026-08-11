@@ -32,7 +32,7 @@
      the column keeps one left edge from the new-task bar down to the footer. -->
 <div class="flex h-[2.625rem] flex-shrink-0 items-center gap-[0.5625rem] px-6">
   <span
-    class="overflow-hidden text-[0.59375rem] font-semibold tracking-[0.12em] text-ellipsis whitespace-nowrap text-[color-mix(in_oklch,var(--foreground)_68%,transparent)] uppercase"
+    class="overflow-hidden text-[0.59375rem] font-medium text-ellipsis whitespace-nowrap text-[color-mix(in_oklch,var(--foreground)_68%,transparent)] uppercase"
     >{label}</span
   >
   <!-- A pill rather than a bare figure: it is the total the section is named

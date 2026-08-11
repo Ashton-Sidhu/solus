@@ -174,7 +174,7 @@
       <span class="flex min-w-0 flex-1 flex-wrap items-center gap-1 pt-1 pl-2">
         {#each task.labels as label (label)}
           <span
-            class="inline-flex h-[19px] items-center gap-1 rounded-full px-1.5 text-[11px] font-[450] tracking-[.02em] text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)]"
+            class="inline-flex h-[19px] items-center gap-1 rounded-full px-1.5 text-[11px] font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)]"
           >
             {label}
             {#if canEdit}
@@ -227,7 +227,7 @@
   {#if branches.length}
     <div class="{GROUP} gap-[11px] border-t-[.5px] border-[var(--hairline)]">
       <span
-        class="pl-0.5 text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase"
+        class="pl-0.5 text-[10px] font-normal text-muted-foreground uppercase"
       >
         Work
       </span>

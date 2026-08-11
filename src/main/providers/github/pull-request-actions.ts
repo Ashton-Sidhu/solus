@@ -1,5 +1,6 @@
 import type {
   PrLifecycleAction,
+  PrLifecycleUpdate,
   PrReviewerCandidate,
   PrReviewCapabilities,
   PrViewerPermissions,
@@ -98,7 +99,7 @@ export function githubPullRequestAccess(access: RepositoryAccess): {
 const READY_MUTATION = `
   mutation($pullRequestId: ID!) {
     markPullRequestReadyForReview(input: { pullRequestId: $pullRequestId }) {
-      pullRequest { id }
+      pullRequest { isDraft state updatedAt }
     }
   }
 `
@@ -106,7 +107,7 @@ const READY_MUTATION = `
 const DRAFT_MUTATION = `
   mutation($pullRequestId: ID!) {
     convertPullRequestToDraft(input: { pullRequestId: $pullRequestId }) {
-      pullRequest { id }
+      pullRequest { isDraft state updatedAt }
     }
   }
 `
@@ -117,29 +118,47 @@ export async function updateGithubPullRequestLifecycle(
   number: number,
   action: MutableLifecycleAction,
   expectedHeadSha: string,
-): Promise<void> {
-  const { data: pullRequest } = await client.rest.pulls.get({
-    owner: repo.owner,
-    repo: repo.repo,
-    pull_number: number,
-  })
-  if (pullRequest.head.sha !== expectedHeadSha) {
+  pullRequest: { headSha: string; nodeId: string; draft: boolean },
+): Promise<PrLifecycleUpdate> {
+  if (pullRequest.headSha !== expectedHeadSha) {
     throw new Error('This pull request changed. Refresh it before changing its state.')
   }
 
   if (action === 'close' || action === 'reopen') {
-    await client.rest.pulls.update({
+    const { data } = await client.rest.pulls.update({
       owner: repo.owner,
       repo: repo.repo,
       pull_number: number,
       state: action === 'close' ? 'closed' : 'open',
     })
-    return
+    return {
+      state: data.merged_at ? 'merged' : data.state as 'open' | 'closed',
+      draft: data.draft ?? pullRequest.draft,
+      updatedAt: data.updated_at,
+    }
   }
 
-  await client.graphql(action === 'ready' ? READY_MUTATION : DRAFT_MUTATION, {
-    pullRequestId: pullRequest.node_id,
+  const result = await client.graphql<{
+    markPullRequestReadyForReview?: { pullRequest: GithubLifecycleResult }
+    convertPullRequestToDraft?: { pullRequest: GithubLifecycleResult }
+  }>(action === 'ready' ? READY_MUTATION : DRAFT_MUTATION, {
+    pullRequestId: pullRequest.nodeId,
   })
+  const updated = action === 'ready'
+    ? result.markPullRequestReadyForReview?.pullRequest
+    : result.convertPullRequestToDraft?.pullRequest
+  if (!updated) throw new Error('GitHub did not return the updated pull request state.')
+  return {
+    state: updated.state.toLowerCase() as PrLifecycleUpdate['state'],
+    draft: updated.isDraft,
+    updatedAt: updated.updatedAt,
+  }
+}
+
+interface GithubLifecycleResult {
+  isDraft: boolean
+  state: 'OPEN' | 'CLOSED' | 'MERGED'
+  updatedAt: string
 }
 
 export async function listGithubReviewerCandidates(

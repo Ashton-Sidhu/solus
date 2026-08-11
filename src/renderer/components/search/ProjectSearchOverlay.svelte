@@ -270,7 +270,7 @@
         name="project-search"
         aria-label={`Search file contents in ${scopeName}`}
         placeholder={`Search in ${scopeName}…`}
-        class="h-auto min-w-0 flex-1 border-none bg-transparent text-[length:calc(0.96875rem*var(--solus-font-scale,1))] tracking-[-0.012em] text-(--solus-text-primary) caret-(--solus-accent) outline-none placeholder:text-(--solus-text-tertiary) [&::-webkit-search-cancel-button]:hidden"
+        class="h-auto min-w-0 flex-1 border-none bg-transparent text-[length:calc(0.96875rem*var(--solus-font-scale,1))] text-(--solus-text-primary) caret-(--solus-accent) outline-none placeholder:text-(--solus-text-tertiary) [&::-webkit-search-cancel-button]:hidden"
         autocomplete="off"
         spellcheck="false"
       />

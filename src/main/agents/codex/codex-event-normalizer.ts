@@ -262,7 +262,17 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
 
 export function normalizeThreadGoal(value: unknown): ThreadGoal | null {
   if (!value || typeof value !== 'object') return null
-  const goal = value as Record<string, unknown>
+  const goal = value as {
+    threadId?: unknown
+    objective?: unknown
+    status?: unknown
+    tokenBudget?: unknown
+    tokensUsed?: unknown
+    timeUsedSeconds?: unknown
+    createdAt?: unknown
+    updatedAt?: unknown
+    completedAt?: unknown
+  }
   if (typeof goal.threadId !== 'string' || typeof goal.objective !== 'string') return null
   const status = typeof goal.status === 'string' ? goal.status : 'active'
   if (!isThreadGoalStatus(status)) return null
@@ -640,7 +650,7 @@ function codexItemResultText(item: any): string {
       .map((part: unknown) => {
         if (typeof part === 'string') return part
         if (!part || typeof part !== 'object') return ''
-        const record = part as Record<string, unknown>
+        const record = part as { text?: unknown }
         return typeof record.text === 'string' ? record.text : ''
       })
       .filter(Boolean)
@@ -655,7 +665,7 @@ function codexItemResultText(item: any): string {
         .map((part: unknown) => {
           if (typeof part === 'string') return part
           if (!part || typeof part !== 'object') return ''
-          const record = part as Record<string, unknown>
+          const record = part as { text?: unknown }
           return typeof record.text === 'string' ? record.text : ''
         })
         .filter(Boolean)
@@ -674,10 +684,21 @@ function codexStartedToolInput(item: any): string | undefined {
   if (item.type !== 'collabAgentToolCall') return undefined
 
   const args = item.arguments && typeof item.arguments === 'object'
-    ? item.arguments as Record<string, unknown>
+    ? item.arguments as {
+        settings?: unknown
+        prompt?: unknown
+        task?: unknown
+        instructions?: unknown
+        description?: unknown
+        title?: unknown
+        model?: unknown
+        model_id?: unknown
+        reasoning_effort?: unknown
+        reasoningEffort?: unknown
+      }
     : {}
   const settings = args.settings && typeof args.settings === 'object'
-    ? args.settings as Record<string, unknown>
+    ? args.settings as { model?: unknown; reasoning_effort?: unknown; reasoningEffort?: unknown }
     : {}
   const prompt = stringField(item.prompt) || stringField(args.prompt) || stringField(args.task) || stringField(args.instructions)
   const description = stringField(args.description) || stringField(args.title) || prompt || stringField(item.name) || stringField(item.tool)
@@ -810,23 +831,24 @@ function codexErrorKind(info: unknown): string | null {
   if (typeof info === 'string') return info
   if (typeof info !== 'object') return null
 
-  const record = info as Record<string, unknown>
+  const record = info as { type?: unknown; code?: unknown; kind?: unknown; name?: unknown }
   for (const key of ['type', 'code', 'kind', 'name']) {
-    if (typeof record[key] === 'string') return record[key] as string
+    const value = Reflect.get(record, key)
+    if (typeof value === 'string') return value
   }
 
-  const variantKey = Object.keys(record).find((key) => key !== 'httpStatusCode')
+  const variantKey = Object.keys(info).find((key) => key !== 'httpStatusCode')
   return variantKey || null
 }
 
 function codexHttpStatusCode(info: unknown): number | null {
   if (!info || typeof info !== 'object') return null
-  const record = info as Record<string, unknown>
+  const record = info as { httpStatusCode?: unknown }
   if (typeof record.httpStatusCode === 'number') return record.httpStatusCode
 
-  for (const value of Object.values(record)) {
+  for (const value of Object.values(info)) {
     if (value && typeof value === 'object') {
-      const nested = (value as Record<string, unknown>).httpStatusCode
+      const nested = (value as { httpStatusCode?: unknown }).httpStatusCode
       if (typeof nested === 'number') return nested
     }
   }

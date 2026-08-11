@@ -436,11 +436,11 @@
               class="mt-3.5 flex max-w-[600px] flex-col gap-2.5 rounded-2xl bg-[var(--wash-1)] px-6 py-[26px]"
             >
               <span
-                class="text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase"
+                class="text-[10px] font-normal text-muted-foreground uppercase"
                 >Nothing running yet</span
               >
               <h2
-                class="text-[19.5px] leading-[1.35] font-semibold tracking-[-.014em] text-pretty"
+                class="text-[19.5px] leading-[1.35] font-medium text-pretty"
               >
                 What would you rather not do again next week?
               </h2>
@@ -465,6 +465,16 @@
               {/snippet}
             </ListEmpty>
           {:else}
+            <div
+              class="grid h-7 grid-cols-[20px_minmax(140px,330px)_minmax(148px,1fr)_156px_64px] items-center gap-x-[11px] pr-2 pl-2.5 text-[10px] font-normal text-muted-foreground uppercase @max-[44rem]:grid-cols-[20px_minmax(100px,1fr)_128px_64px]"
+              aria-hidden="true"
+            >
+              <span></span>
+              <span>Automation</span>
+              <span class="whitespace-nowrap">Runs in</span>
+              <span class="text-right @max-[44rem]:hidden">Schedule</span>
+              <span class="text-right whitespace-nowrap">Last run</span>
+            </div>
             {#each automationSections as section (section.id)}
               <ListGroup
                 label={section.label}
@@ -491,6 +501,7 @@
                       <AutomationRow
                         automation={a}
                         projectLabel={project?.label ?? folderLabel(a.action.cwd)}
+                        projectPath={project?.projectPath ?? a.action.cwd}
                         {now}
                         selected={selectedId === a.id}
                         onOpen={startEdit}

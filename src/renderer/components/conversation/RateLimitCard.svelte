@@ -162,14 +162,13 @@
   .limit-clock {
     font-size: 1.1875rem;
     line-height: 1.05;
-    letter-spacing: -0.03em;
     font-variant-numeric: tabular-nums;
   }
   .limit-clock-caption {
     margin-top: 0.1875rem;
     font-size: 0.53125rem;
     font-weight: 500;
-    letter-spacing: 0.13em;
+
     text-transform: uppercase;
     color: var(--muted-foreground);
     opacity: 0.65;

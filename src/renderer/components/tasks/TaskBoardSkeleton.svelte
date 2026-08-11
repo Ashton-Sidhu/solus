@@ -25,7 +25,7 @@
     >
       <div class="flex h-[30px] shrink-0 items-center gap-2 pr-1 pl-0.5">
         <span
-          class="text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase"
+          class="text-[10px] font-normal text-muted-foreground uppercase"
         >
           {col.label}
         </span>

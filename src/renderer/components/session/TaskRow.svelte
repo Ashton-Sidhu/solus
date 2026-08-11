@@ -287,8 +287,8 @@
     {#if isCompleted || disclosable}
       <span
         class="-mr-[0.375rem] flex size-4 shrink-0 items-center justify-center text-(--solus-text-tertiary) {showsBottomRow
-          ? 'mt-2 self-start'
-          : ''}"
+ ? 'mt-2 self-start'
+ : ''}"
         aria-hidden="true"
       >
         {#if isCompleted}
@@ -335,19 +335,19 @@
         {#if renamingLead}
           <SessionNameInput
             value={task.title}
-            class="text-[0.84375rem] tracking-[-0.008em] {titleIsEmphasized
-              ? 'font-[560]'
-              : ''}"
+            class="text-[0.84375rem] {titleIsEmphasized
+ ? 'font-medium'
+ : ''}"
             onCommit={(next) => onRename(null, next)}
             onCancel={onRenameCancel}
           />
         {:else}
           <span
-            class="min-w-0 flex-1 overflow-hidden text-[0.84375rem] leading-[1.1875rem] tracking-[-0.008em] text-ellipsis whitespace-nowrap transition-colors duration-150 {titleIsEmphasized
-              ? 'font-[560]'
-              : ''} {titleLeads
-              ? 'text-foreground'
-              : 'text-(--solus-text-secondary)'}">{task.title}</span
+            class="min-w-0 flex-1 overflow-hidden text-[0.84375rem] leading-[1.1875rem] text-ellipsis whitespace-nowrap transition-colors duration-150 {titleIsEmphasized
+ ? 'font-medium'
+ : ''} {titleLeads
+ ? 'text-foreground'
+ : 'text-(--solus-text-secondary)'}">{task.title}</span
           >
         {/if}
 
@@ -427,8 +427,8 @@
                      one level down. -->
                 <span
                   class="shrink-0 font-mono text-[0.65625rem] tabular-nums {isCurrentSession
-                    ? 'text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))]'
-                    : 'text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]'}">{elapsed}</span
+ ? 'text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))]'
+ : 'text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]'}">{elapsed}</span
                 >
               {/if}
             </span>

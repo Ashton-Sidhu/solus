@@ -67,7 +67,7 @@
       class="shrink-0 {chip.state === 'draft' ? 'opacity-70' : ''}"
     />
   {/if}
-  <span class="font-mono text-[0.6875rem] tracking-[-0.01em] tabular-nums"
+  <span class="font-mono text-[0.6875rem] tabular-nums"
     >#{chip.number}</span
   >
   <CaretRightIcon

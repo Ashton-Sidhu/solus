@@ -342,7 +342,7 @@
         {/if}
         <h2
           id="open-project-title"
-          class="min-w-0 flex-1 truncate text-[0.9375rem] font-semibold tracking-tight"
+          class="min-w-0 flex-1 truncate text-[0.9375rem] font-medium "
         >
           {title}
         </h2>

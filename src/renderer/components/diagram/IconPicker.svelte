@@ -348,7 +348,7 @@
     padding: 0.0625rem 0.25rem;
     border-radius: 0.25rem;
     font-size: inherit;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--solus-accent);
     cursor: pointer;
     transition: background var(--duration-quick) var(--ease-premium);

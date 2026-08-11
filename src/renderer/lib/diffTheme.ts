@@ -263,7 +263,7 @@ export const DIFFS_THEME_CSS = `
   }
   [data-additions-count],
   [data-deletions-count] {
-    font-weight: 600;
+    font-weight: 500;
     letter-spacing: 0;
     padding: 1px 5px;
     border-radius: 5px;

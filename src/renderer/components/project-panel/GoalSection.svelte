@@ -112,7 +112,7 @@
            micro-caps so the header line stays one rhythm, and takes the status
            colour rather than trailing a separate indicator. -->
       <span
-        class="mr-1 min-w-0 truncate text-[0.625rem] font-medium tracking-[0.07em] uppercase"
+        class="mr-1 min-w-0 truncate text-[0.625rem] font-medium uppercase"
         style:color={goalStatusColor(goalStatus ?? goal.status)}
       >
         {goalStatusLabel(goalStatus ?? goal.status)}
@@ -208,8 +208,8 @@
              ink; every reading below it steps down from here. -->
         <p
           class="m-0 text-[0.8125rem] leading-5 text-pretty whitespace-pre-wrap text-(--solus-text-primary) {objectiveExpanded
-            ? 'max-h-56 overflow-y-auto overscroll-contain'
-            : 'line-clamp-6'}"
+ ? 'max-h-56 overflow-y-auto overscroll-contain'
+ : 'line-clamp-6'}"
         >
           {goal.objective}
         </p>

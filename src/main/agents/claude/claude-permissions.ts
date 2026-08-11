@@ -1,5 +1,5 @@
 import { createLogger } from '../../logger'
-import type { NormalizedEvent, PermissionOption } from '../../../shared/types'
+import type { NormalizedEvent, PermissionOption, PermissionToolInput } from '../../../shared/types'
 
 const log = createLogger('Permissions', 'permissions.ts')
 
@@ -89,24 +89,21 @@ function extractDomain(url: unknown): string | null {
   try { return new URL(url).hostname } catch { return null }
 }
 
-export function maskSensitiveFields(input: Record<string, unknown>): Record<string, unknown> {
-  const masked: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(input)) {
-    if (SENSITIVE_FIELD_RE.test(key)) {
-      masked[key] = '***'
-    } else if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-      masked[key] = maskSensitiveFields(value as Record<string, unknown>)
-    } else if (Array.isArray(value)) {
-      masked[key] = value.map(item =>
-        item !== null && typeof item === 'object' && !Array.isArray(item)
-          ? maskSensitiveFields(item as Record<string, unknown>)
-          : item
-      )
-    } else {
-      masked[key] = value
+export function maskSensitiveFields(input: object): PermissionToolInput {
+  return Object.fromEntries(Object.entries(input).map(([key, value]) => {
+    if (SENSITIVE_FIELD_RE.test(key)) return [key, '***']
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      return [key, maskSensitiveFields(value)]
     }
-  }
-  return masked
+    if (Array.isArray(value)) {
+      return [key, value.map(item =>
+        item !== null && typeof item === 'object' && !Array.isArray(item)
+          ? maskSensitiveFields(item)
+          : item
+      )]
+    }
+    return [key, value]
+  }))
 }
 
 function getOptionsForTool(toolName: string): PermissionOption[] {

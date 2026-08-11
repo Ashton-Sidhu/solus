@@ -49,7 +49,6 @@ describe('GitHub pull request lifecycle', () => {
     const client = {
       rest: {
         pulls: {
-          get: async () => ({ data: { head: { sha: 'new-head' }, node_id: 'PR_node' } }),
           update: async () => { updates++ },
         },
       },
@@ -62,7 +61,39 @@ describe('GitHub pull request lifecycle', () => {
       12,
       'close',
       'old-head',
+      { headSha: 'new-head', nodeId: 'PR_node', draft: false },
     )).rejects.toThrow('This pull request changed')
     expect(updates).toBe(0)
+  })
+
+  test('returns the ready state from the mutation without a follow-up read', async () => {
+    // WHY: GitHub's REST detail can briefly lag a successful GraphQL lifecycle
+    // mutation. The mutation response is the completion boundary for the UI.
+    let mutations = 0
+    const client = {
+      rest: { pulls: { update: async () => { throw new Error('not used') } } },
+      graphql: async () => {
+        mutations++
+        return {
+          markPullRequestReadyForReview: {
+            pullRequest: { isDraft: false, state: 'OPEN', updatedAt: '2026-08-11T18:00:00Z' },
+          },
+        }
+      },
+    } as unknown as GitHubClient
+
+    await expect(updateGithubPullRequestLifecycle(
+      client,
+      { host: 'github.com', owner: 'acme', repo: 'app' },
+      12,
+      'ready',
+      'head',
+      { headSha: 'head', nodeId: 'PR_node', draft: true },
+    )).resolves.toEqual({
+      state: 'open',
+      draft: false,
+      updatedAt: '2026-08-11T18:00:00Z',
+    })
+    expect(mutations).toBe(1)
   })
 })

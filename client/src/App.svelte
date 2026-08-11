@@ -10,7 +10,7 @@
     flushPersistedSessionDrafts,
     type PersistedTabs,
   } from "@renderer/contexts/workspace/tab-persistence";
-  import { taskTargetFields } from "@renderer/contexts/workspace/session-draft.svelte";
+  import { snapshotPersistedTabs } from "@renderer/contexts/workspace/tab-snapshot";
   import type { RunConfig } from "@shared/types";
   import {
     withCheckout,
@@ -18,8 +18,11 @@
     withProjectHost,
   } from "@renderer/contexts/workspace/run-config";
   import { setupAgentEvents } from "@renderer/hooks/agentEvents.svelte";
-  import { materializeTabs } from "@renderer/contexts/workspace/session-bootstrap";
-  import { loadServers, LOCAL_SERVER_ID } from "@client-core/server-registry";
+  import {
+    materializeTabs,
+    reconcileReloadLocation,
+  } from "@renderer/contexts/workspace/session-bootstrap";
+  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import {
     createReconnectDetector,
     initializeRuntime,
@@ -143,44 +146,14 @@
   // pane, its overlay, and the focused index are in the URL, which is what makes
   // a workspace shareable and browser-back meaningful here.
   session.router.bindAddressBar();
+  reconcileReloadLocation(session);
 
   // Persist open-tab snapshot to localStorage so it survives refresh and cold restarts.
   // Reads only the persisted fields, so it won't re-run on message streaming.
   // Skipped while bootstrap is in progress so an empty initial state doesn't clobber saved data.
   $effect(() => {
     if (session.hydrating) return;
-    const savedServers = loadServers();
-    const tabs = session.tabOrder
-      .filter((id) => session.tabs[id])
-      .map((tabId) => {
-        const tab = session.tabs[tabId];
-        const sess = session.sessionFor(tabId);
-        return {
-          tabId,
-          title: sess?.title ?? "New Tab",
-          titleCustom: sess?.titleCustom ?? false,
-          serverId: sess?.run.serverId ?? LOCAL_SERVER_ID,
-          serverInstallationId: savedServers.find(
-            (server) => server.id === sess?.run.serverId,
-          )?.installationId,
-          agentSessionId: sess?.agentSessionId ?? null,
-          provider: sess?.run.provider ?? null,
-          handoffFrom: sess?.handoffFrom ? { ...sess.handoffFrom } : undefined,
-          workingDirectory: sess?.run.workingDirectory ?? session.globalDefaults.workingDirectory,
-          projectGroupPath: sess?.run.projectGroupPath ?? null,
-          additionalDirs: sess ? [...sess.additionalDirs] : [],
-          gitContext: sess?.run.gitContext ? { ...sess.run.gitContext } : null,
-          worktreeBaseBranch: sess?.run.worktree?.baseBranch ?? null,
-          worktreeRequested: !!sess?.run.worktree,
-          taskServerId: sess?.run.taskServerId ?? LOCAL_SERVER_ID,
-          modelConfig: sess ? { ...sess.run.modelConfig } : { ...session.globalDefaults.modelConfig },
-          permissionMode: sess?.run.permissionMode ?? session.globalDefaults.permissionMode,
-          hasUnread: tab.hasUnread ?? false,
-          ...(sess ? taskTargetFields(sess.task) : {}),
-          terminalFailure: sess?.terminalFailure ? { ...sess.terminalFailure } : null,
-          contextUsage: sess?.contextUsage ? { ...sess.contextUsage } : null,
-        };
-      });
+    const tabs = snapshotPersistedTabs(session);
     const snapshot: PersistedTabs = {
       version: 1,
       activeTabId: session.activeTabId,

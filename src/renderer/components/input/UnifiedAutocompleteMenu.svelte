@@ -163,7 +163,7 @@
 {#snippet label(text: string, hint: string)}
   <div class="flex items-center gap-2.5 px-[0.5625rem] pt-[0.5625rem] pb-[0.3125rem]">
     <span
-      class="text-[0.59375rem] font-medium tracking-[0.12em] uppercase text-(--solus-text-tertiary)"
+      class="text-[0.59375rem] font-medium uppercase text-(--solus-text-tertiary)"
       >{text}</span
     >
     <span class="h-px flex-1 bg-(--wash-rule)"></span>
@@ -229,7 +229,7 @@
     {#if entry.type === "deadEnd"}
       <!-- A dead end always offers a next move instead of an empty box. -->
       <span
-        class="max-w-[20rem] shrink-0 overflow-hidden whitespace-nowrap text-[0.78125rem] font-medium tracking-[-0.005em] text-(--solus-text-tertiary)"
+        class="max-w-[20rem] shrink-0 overflow-hidden whitespace-nowrap text-[0.78125rem] font-medium text-(--solus-text-tertiary)"
         >{entry.title}</span
       >
       <span
@@ -240,9 +240,9 @@
       {@const parts = entry.parts}
       {@const mono = entry.type === "item" && entry.item.mono}
       <span
-        class="block max-w-[20rem] shrink-0 truncate text-[0.78125rem] font-medium tracking-[-0.005em] text-(--solus-text-primary) {mono
-          ? 'font-mono'
-          : ''}"
+        class="block max-w-[20rem] shrink-0 truncate text-[0.78125rem] font-medium text-(--solus-text-primary) {mono
+ ? 'font-mono'
+ : ''}"
       >
         <!-- Matched characters light up in every row; a metadata-only match
              lights nothing, because none of the title matched. -->
@@ -255,9 +255,9 @@
       {#if entry.type === "item"}
         <span
           class="min-w-0 flex-1 truncate text-[0.71875rem] text-(--solus-text-tertiary) {entry
-            .item.monoMeta
-            ? 'font-mono text-[0.6875rem]'
-            : ''}">{rowMeta(entry.item, entry.showKind)}</span
+ .item.monoMeta
+ ? 'font-mono text-[0.6875rem]'
+ : ''}">{rowMeta(entry.item, entry.showKind)}</span
         >
         {#if entry.item.when}
           <span

@@ -197,7 +197,7 @@
   {:else}
     <span class="size-[1.625rem] flex-shrink-0"></span>
   {/if}
-  <span class="min-w-0 flex-1 truncate text-[length:calc(0.90625rem*var(--solus-font-scale,1))] tracking-[-0.01em]">{cmd.label}</span>
+  <span class="min-w-0 flex-1 truncate text-[length:calc(0.90625rem*var(--solus-font-scale,1))] ">{cmd.label}</span>
   {#if cmd.hint}
     <Kbd variant="keycap" class="flex-shrink-0">{cmd.hint}</Kbd>
   {/if}
@@ -248,7 +248,7 @@
           >
             <CaretLeftIcon size={14} weight="bold" />
           </button>
-          <span class="flex-shrink-0 text-[length:calc(0.96875rem*var(--solus-font-scale,1))] font-semibold tracking-[-0.012em] text-(--solus-text-primary)">{page.title}</span>
+          <span class="flex-shrink-0 text-[length:calc(0.96875rem*var(--solus-font-scale,1))] font-medium text-(--solus-text-primary)">{page.title}</span>
         {:else}
           <MagnifyingGlassIcon size={14} class="flex-shrink-0 text-(--solus-text-tertiary) opacity-65" />
         {/if}
@@ -264,7 +264,7 @@
           aria-activedescendant={selectedValue ? `command-palette-option-${selectedValue}` : undefined}
           role="combobox"
           placeholder={page ? `Search ${page.title.toLowerCase()}…` : 'Type a command or search…'}
-          class="flex-1 min-w-0 h-auto bg-transparent border-none outline-none text-[length:calc(0.96875rem*var(--solus-font-scale,1))] tracking-[-0.012em] text-(--solus-text-primary) caret-(--solus-accent) placeholder:text-(--solus-text-tertiary) [&::-webkit-search-cancel-button]:hidden"
+          class="flex-1 min-w-0 h-auto bg-transparent border-none outline-none text-[length:calc(0.96875rem*var(--solus-font-scale,1))] text-(--solus-text-primary) caret-(--solus-accent) placeholder:text-(--solus-text-tertiary) [&::-webkit-search-cancel-button]:hidden"
           autocomplete="off"
           spellcheck="false"
         />
@@ -299,7 +299,7 @@
               <div
                 role="group"
                 aria-labelledby={`command-palette-group-${groupIndex}`}
-                class="overflow-hidden p-0 text-(--solus-text-primary) [&_[data-command-group-heading]]:flex [&_[data-command-group-heading]]:items-center [&_[data-command-group-heading]]:gap-3 [&_[data-command-group-heading]]:px-3 [&_[data-command-group-heading]]:pt-3 [&_[data-command-group-heading]]:pb-[0.4375rem] [&_[data-command-group-heading]]:text-[length:calc(0.59375rem*var(--solus-font-scale,1))] [&_[data-command-group-heading]]:font-medium [&_[data-command-group-heading]]:uppercase [&_[data-command-group-heading]]:tracking-[0.13em] [&_[data-command-group-heading]]:text-(--solus-text-tertiary) [&_[data-command-group-heading]]:select-none [&_[data-command-group-heading]]:pointer-events-none [&_[data-command-group-heading]]:after:content-[''] [&_[data-command-group-heading]]:after:flex-1 [&_[data-command-group-heading]]:after:h-[0.0625rem] [&_[data-command-group-heading]]:after:bg-(--solus-menu-hairline)"
+                class="overflow-hidden p-0 text-(--solus-text-primary) [&_[data-command-group-heading]]:flex [&_[data-command-group-heading]]:items-center [&_[data-command-group-heading]]:gap-3 [&_[data-command-group-heading]]:px-3 [&_[data-command-group-heading]]:pt-3 [&_[data-command-group-heading]]:pb-[0.4375rem] [&_[data-command-group-heading]]:text-[length:calc(0.59375rem*var(--solus-font-scale,1))] [&_[data-command-group-heading]]:font-medium [&_[data-command-group-heading]]:uppercase [&_[data-command-group-heading]]:text-(--solus-text-tertiary) [&_[data-command-group-heading]]:select-none [&_[data-command-group-heading]]:pointer-events-none [&_[data-command-group-heading]]:after:content-[''] [&_[data-command-group-heading]]:after:flex-1 [&_[data-command-group-heading]]:after:h-[0.0625rem] [&_[data-command-group-heading]]:after:bg-(--solus-menu-hairline)"
               >
                 <div
                   id={`command-palette-group-${groupIndex}`}

@@ -127,7 +127,7 @@
     <Icon {icon} width="14" height="14" class="shrink-0" />
   {:else}
     <span
-      class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 font-mono text-[0.625rem] font-semibold text-(--solus-text-tertiary)"
+      class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 font-mono text-[0.625rem] font-medium text-(--solus-text-tertiary)"
     >
       {ext(path)}
     </span>
@@ -142,14 +142,14 @@
   <div class="guide-why flex flex-col gap-5 lg:sticky lg:top-12 lg:self-start">
     {#if index && total}
       <span
-        class="tabular-nums text-[0.8125rem] font-semibold tracking-wide text-(--solus-text-tertiary)"
+        class="tabular-nums text-[0.8125rem] font-medium text-(--solus-text-tertiary)"
       >
         {String(index).padStart(2, "0")} / {String(total).padStart(2, "0")}
       </span>
     {/if}
 
     <h2
-      class="text-[1.125rem] leading-snug font-semibold tracking-tight text-balance text-(--solus-text-primary)"
+      class="text-[1.125rem] leading-snug font-medium text-balance text-(--solus-text-primary)"
     >
       {section.title}
     </h2>
@@ -224,8 +224,8 @@
           >
             <span
               class="inline-block size-1.5 shrink-0 border-r-[1.5px] border-b-[1.5px] border-current text-(--solus-text-tertiary) transition-transform duration-150 {open
-                ? 'rotate-[225deg]'
-                : 'rotate-45'}"
+ ? 'rotate-[225deg]'
+ : 'rotate-45'}"
             ></span>
             {@render typeBadge(file.path)}
             <span class="min-w-0 flex-1 truncate font-mono text-[0.8125rem]">

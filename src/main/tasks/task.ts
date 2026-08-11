@@ -122,7 +122,7 @@ export class Task implements TaskRecord {
    * cleared `doneAt` or `dueDate` standing from the previous read. */
   private hydrate(record: TaskRecord): void {
     for (const key of Object.keys(this)) {
-      if (!(key in record)) delete (this as Record<string, unknown>)[key]
+      if (!(key in record)) Reflect.deleteProperty(this, key)
     }
     Object.assign(this, record)
   }
