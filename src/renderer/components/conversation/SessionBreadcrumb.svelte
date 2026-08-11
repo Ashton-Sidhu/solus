@@ -389,7 +389,7 @@
                     );
                   }}
                 >
-                  <FolderOpenIcon size={15} class="shrink-0" />
+                  <FolderOpenIcon size={14} class="shrink-0" />
                   <span class="flex-1 text-[0.8125rem]">Open project…</span>
                 </button>
               </div>
@@ -471,7 +471,7 @@
                             title="Running"
                           >
                             <SpinnerGapIcon
-                              size={13}
+                              size={14}
                               class="animate-spin motion-reduce:animate-none"
                             />
                           </span>
@@ -488,7 +488,7 @@
                         aria-label="Close {item.title}"
                         onclick={() => closeTask(item)}
                       >
-                        <XIcon size={11} weight="bold" />
+                        <XIcon size={14} weight="bold" />
                       </button>
                     </div>
                   {/each}
@@ -576,7 +576,7 @@
                       aria-label={statusNote(currentStatus)?.text}
                       title={statusNote(currentStatus)?.text}
                     >
-                      <StatusIcon size={13} weight="regular" />
+                      <StatusIcon size={14} weight="regular" />
                     </span>
                   {/if}
                 </button>
@@ -611,7 +611,7 @@
                           title="Running"
                         >
                           <SpinnerGapIcon
-                            size={13}
+                            size={14}
                             class="animate-spin motion-reduce:animate-none"
                           />
                         </span>
@@ -629,7 +629,7 @@
                         aria-label="Close {child.label}"
                         onclick={() => closeSession(child.tabId!)}
                       >
-                        <XIcon size={11} weight="bold" />
+                        <XIcon size={14} weight="bold" />
                       </button>
                     {/if}
                   </div>
@@ -675,7 +675,7 @@
         onclick={(event) => openTaskActions(event, task)}
       >
         {#if taskDone}
-          <CheckIcon size={12} weight="bold" class="shrink-0 text-chart-3" />
+          <CheckIcon size={14} weight="bold" class="shrink-0 text-chart-3" />
         {/if}
         <span
           class="font-mono text-[0.65625rem] whitespace-nowrap {taskDone
@@ -683,7 +683,7 @@
             : 'opacity-75'}">{taskRef(record)}</span
         >
         <CaretDownIcon
-          size={9}
+          size={14}
           weight="bold"
           class="shrink-0 text-muted-foreground opacity-60"
         />
@@ -702,9 +702,9 @@
         }}
       >
         {#if taskDone}
-          <ArrowUUpLeftIcon size={13} weight="bold" />
+          <ArrowUUpLeftIcon size={14} weight="bold" />
         {:else}
-          <CheckIcon size={13} weight="bold" />
+          <CheckIcon size={14} weight="bold" />
         {/if}
       </button>
 
@@ -715,7 +715,7 @@
         aria-label="Open task page"
         onclick={() => session.goToTask(record.id)}
       >
-        <ArrowSquareOutIcon size={13} />
+        <ArrowSquareOutIcon size={14} />
       </button>
 
       {#if showNewSessionAction || (showProjectPanelAction && !frameChrome.projectPanelOpen)}
@@ -735,7 +735,7 @@
         aria-label="New session in this task"
         onclick={newSession}
       >
-        <PlusIcon size={13} class="text-muted-foreground" />
+        <PlusIcon size={14} class="text-muted-foreground" />
         <span
           class="text-[0.8125rem] font-medium whitespace-nowrap @max-[36rem]:hidden"
           >New Task</span
@@ -754,7 +754,7 @@
           requestInputFocus();
         }}
       >
-        <SidebarSimpleIcon size={13} mirrored />
+        <SidebarSimpleIcon size={14} mirrored />
       </button>
     {/if}
   </div>

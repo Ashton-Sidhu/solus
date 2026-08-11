@@ -686,7 +686,7 @@
         aria-label="List layout"
         title="List"
       >
-        <ListIcon size={13} weight="bold" />
+        <ListIcon size={14} weight="bold" />
       </button>
       <button
         type="button"
@@ -699,7 +699,7 @@
         aria-label="Board layout"
         title="Board"
       >
-        <KanbanIcon size={13} weight="bold" />
+        <KanbanIcon size={14} weight="bold" />
       </button>
     </div>
   {/if}
@@ -824,7 +824,7 @@
                 class={PAGE_SECONDARY_BTN}
                 onclick={refresh}
               >
-                <ArrowClockwiseIcon size={13} />
+                <ArrowClockwiseIcon size={14} />
                 Retry
               </button>
             {/snippet}
@@ -840,7 +840,7 @@
                   class={PAGE_PRIMARY_BTN}
                   onclick={() => beginComposing()}
                 >
-                  <PlusIcon size={13} weight="bold" />
+                  <PlusIcon size={14} weight="bold" />
                   <span>New task</span>
                 </button>
                 <button
@@ -848,7 +848,7 @@
                   class={PAGE_SECONDARY_BTN}
                   onclick={() => void switchTaskProvider("github")}
                 >
-                  <GithubLogoIcon size={13} weight="fill" />
+                  <GithubLogoIcon size={14} weight="fill" />
                   <span>Connect a task provider</span>
                 </button>
               {/if}
@@ -1005,7 +1005,7 @@
             type="button"
             class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-[12px] font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
             onclick={() => void bulkComplete()}
-          ><CheckIcon size={12} />Complete</button>
+          ><CheckIcon size={14} />Complete</button>
           <button
             type="button"
             class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-[12px] font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
@@ -1015,12 +1015,12 @@
                 .map((id) => taskById(id))
                 .filter((task): task is Task => !!task);
             }}
-          ><MoonIcon size={12} />Snooze</button>
+          ><MoonIcon size={14} />Snooze</button>
           <button
             type="button"
             class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-[12px] font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
             onclick={() => void bulkMarkUnread()}
-          ><DotOutlineIcon size={12} weight="fill" />Unread</button>
+          ><DotOutlineIcon size={14} weight="fill" />Unread</button>
           <span class="h-4 w-px bg-(--solus-container-border)" aria-hidden="true"></span>
           {#each BOARD_COLUMNS as col (col.status)}
             <button
@@ -1046,7 +1046,7 @@
             onclick={bulkDelete}
             title="Delete selected"
           >
-            <TrashIcon size={12} />
+            <TrashIcon size={14} />
             Delete
           </button>
           <span

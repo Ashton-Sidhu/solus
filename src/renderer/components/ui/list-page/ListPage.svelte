@@ -37,11 +37,11 @@
     /** The project the list is reading, and the projects it can be pointed at.
      *  The switcher stands above the title — the scope is stated and changed in
      *  the same place. */
-    projects: ListProjectOption[];
-    activeProjectKey: string;
+    projects?: ListProjectOption[];
+    activeProjectKey?: string;
     /** Shown when no project is scoped yet. */
     emptyProjectLabel?: string;
-    onSelectProject: (projectKey: string) => void;
+    onSelectProject?: (projectKey: string) => void;
     title: string;
     /** The first stat is the lead and the only coloured text in the header. */
     summary: ListSummaryStat[];
@@ -147,7 +147,9 @@
         </h1>
 
         {#if !split}
-          <div class="flex items-center gap-2 text-[12px] text-muted-foreground">
+          <div
+            class="flex items-center gap-2 text-[12px] text-muted-foreground"
+          >
             {#each summary as stat, i (stat.label)}
               {#if i > 0}<span class="opacity-35" aria-hidden="true">·</span
                 >{/if}
@@ -165,7 +167,7 @@
       </div>
 
       <div class="flex shrink-0 items-center gap-2">
-        {#if !split}
+        {#if !split && projects}
           <ListProjectSwitcher
             {projects}
             {activeProjectKey}

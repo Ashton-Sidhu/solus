@@ -2,15 +2,18 @@
   import { tick } from "svelte";
   import { StarIcon } from "phosphor-svelte";
   import type { Automation } from "../../../shared/types";
-  import { getWorkspaceContext, getWindowContext, runtime } from "../../contexts";
+  import {
+    getWorkspaceContext,
+    getWindowContext,
+    runtime,
+    serversStore,
+  } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import {
     useKeybinding,
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { projectDirLabel } from "../../lib/paths";
-  import { matchesOpenProjects } from "../../lib/sessionUtils";
   import { Button } from "../ui/button";
   import SegmentedControl from "../ui/SegmentedControl.svelte";
   import SortMenu from "../ui/SortMenu.svelte";
@@ -26,7 +29,12 @@
   import { folderLabel, relativeTime } from "./lib/automation-format";
   import AutomationBuilder from "./AutomationBuilder.svelte";
   import AutomationLaunchpad from "./AutomationLaunchpad.svelte";
+  import AutomationProjectFilter from "./AutomationProjectFilter.svelte";
   import AutomationRow from "./AutomationRow.svelte";
+  import {
+    automationProject,
+    automationProjects,
+  } from "./lib/automation-projects";
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
@@ -43,40 +51,21 @@
     | { kind: "edit"; automation: Automation | null };
   let view = $state<View>({ kind: "list" });
 
-  // ── Project scope ──
-  // One project at a time, like Tasks and Pull requests: `null` follows the
-  // project being worked in, a key pins the list to another open one. Scoping
-  // still goes through the project's *roots* rather than its key, so an
-  // automation whose cwd is a worktree of that repo stays with its project.
-  let pinnedProjectKey = $state<string | null>(null);
-  // An automation doesn't have to live in an open project: the workspace-scoped
-  // template seeds into My Workspace, and an agent creates one wherever it was
-  // told to. Every such home gets its own scope option — without one the row is
-  // saved and then invisible under every scope, which reads as "it didn't save".
-  const projects = $derived.by(() => {
-    const list = [...session.openProjects];
-    for (const a of store.items) {
-      if (list.some((p) => matchesOpenProjects(a.action.cwd, p.roots))) continue;
-      list.push({
-        key: a.action.cwd,
-        label: projectDirLabel(a.action.cwd, session.staticInfo?.workspacePath),
-        roots: [a.action.cwd],
-      });
-    }
-    return list;
-  });
-  // The project being worked in is matched through its roots, not by key: the
-  // active session's directory is often a worktree or a subfolder, and comparing
-  // it to the project key then scoped the page to some unrelated open project.
-  const activeProject = $derived(
-    projects.find((p) => p.key === pinnedProjectKey) ??
-      projects.find((p) =>
-        matchesOpenProjects(session.galleryProjectPath, p.roots),
-      ) ??
-      projects[0],
+  // ── Project filter ──
+  // The page starts with the complete catalog. Its project facet comes from
+  // that catalog, not from open tabs, so every automation always has a choice.
+  let selectedProjectKey = $state<string | null>(null);
+  const projects = $derived(
+    automationProjects(
+      store.items,
+      session.openProjects,
+      session.staticInfo?.workspacePath,
+      (automation) => store.hostFor(automation.id),
+      (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
+    ),
   );
-  const projectOptions = $derived(
-    projects.map((p) => ({ projectKey: p.key, label: p.label })),
+  const selectedProject = $derived(
+    projects.find((project) => project.key === selectedProjectKey) ?? null,
   );
 
   // ── Command bar: search + status filter + favourites + sort ──
@@ -118,13 +107,15 @@
     return () => clearInterval(interval);
   });
 
-  // The visible universe: automations belonging to the scoped project.
+  // The visible universe is all automations until a project facet is selected.
   const scoped = $derived(
-    activeProject
-      ? store.items.filter((a) =>
-          matchesOpenProjects(a.action.cwd, activeProject.roots),
+    selectedProject
+      ? store.items.filter(
+          (a) =>
+            automationProject(a, store.hostFor(a.id), projects)?.key ===
+            selectedProject.key,
         )
-      : [],
+      : store.items,
   );
 
   const counts = $derived.by(() => {
@@ -136,14 +127,24 @@
 
   const statusSegments = $derived([
     { value: "all" as StatusFilter, label: "All", count: counts.all },
-    { value: "active" as StatusFilter, label: "Active", short: "On", count: counts.active },
-    { value: "paused" as StatusFilter, label: "Paused", short: "Off", count: counts.paused },
+    {
+      value: "active" as StatusFilter,
+      label: "Active",
+      short: "On",
+      count: counts.active,
+    },
+    {
+      value: "paused" as StatusFilter,
+      label: "Paused",
+      short: "Off",
+      count: counts.paused,
+    },
   ]);
 
   const isInitialLoading = $derived(!store.loaded && store.loading);
   // The zero-state owns the page, so the header hides its New button and the
   // command bar (search/filter noise with nothing to filter) while it shows.
-  const showEmpty = $derived(!isInitialLoading && counts.all === 0);
+  const showEmpty = $derived(!isInitialLoading && store.items.length === 0);
 
   // The lead statistic is what the page is for — how much is running unattended
   // — and it is the only coloured text in the header.
@@ -173,9 +174,15 @@
         if (statusFilter === "paused" && a.enabled) return false;
         if (showStarred && !a.favorite) return false;
         if (!q) return true;
+        const projectLabel = automationProject(
+          a,
+          store.hostFor(a.id),
+          projects,
+        )?.label;
         return (
           a.name.toLowerCase().includes(q) ||
-          folderLabel(a.action.cwd).toLowerCase().includes(q)
+          folderLabel(a.action.cwd).toLowerCase().includes(q) ||
+          projectLabel?.toLowerCase().includes(q) === true
         );
       })
       .sort((a, b) => {
@@ -229,6 +236,7 @@
       statusFilter = "all";
       showStarred = false;
       sortMode = "recent";
+      selectedProjectKey = null;
       selectedId = null;
       // Deep-link: jump straight into one automation's editor when the route
       // names one (e.g. from the project panel or a "Sent via automation"
@@ -288,44 +296,23 @@
     view = { kind: "list" };
   }
 
-  /** Open an automation the launchpad just created, moving the list scope to
-   *  wherever it landed. A template can seed outside the project on screen, and
-   *  backing out of the builder onto a list that doesn't contain it is exactly
-   *  what makes an auto-saved automation look like it was never saved. */
+  /** Open an automation the launchpad just created without letting an old facet
+   *  hide it when the user returns to the list. */
   function openSeeded(a: Automation) {
-    const home = projects.find((p) =>
-      matchesOpenProjects(a.action.cwd, p.roots),
-    );
-    if (home) {
-      pinnedProjectKey = matchesOpenProjects(
-        session.galleryProjectPath,
-        home.roots,
-      )
-        ? null
-        : home.key;
-    }
-    // A template is seeded paused, so a live search or an "Active" filter would
-    // hide it just as effectively as the wrong project scope did.
+    selectedProjectKey = null;
     query = "";
     statusFilter = "all";
     showStarred = false;
     startEdit(a);
   }
 
-  // A different project is a different list, so nothing about how the old one
-  // was being read survives the switch.
-  function selectProject(projectKey: string) {
-    const picked = projects.find((p) => p.key === projectKey);
-    pinnedProjectKey =
-      picked && matchesOpenProjects(session.galleryProjectPath, picked.roots)
-        ? null
-        : projectKey;
-    clearFilters();
+  function selectProject(projectKey: string | null) {
+    selectedProjectKey = projectKey;
     selectedId = null;
-    collapsedGroups = {};
   }
 
   function clearFilters() {
+    selectedProjectKey = null;
     query = "";
     statusFilter = "all";
     showStarred = false;
@@ -364,7 +351,8 @@
 
   // ── List keyboard nav ── the four keys the footer rail advertises.
   function onListKeydown(e: KeyboardEvent) {
-    const inField = e.target instanceof HTMLElement && e.target.closest("input, textarea");
+    const inField =
+      e.target instanceof HTMLElement && e.target.closest("input, textarea");
     const selected = automations.find((a) => a.id === selectedId) ?? null;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       if (automations.length === 0) return;
@@ -407,6 +395,12 @@
         ariaLabel="Sort automations"
         class="h-7 gap-1.5 rounded-lg px-2.5 text-[13px] font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
       />
+      <AutomationProjectFilter
+        {projects}
+        value={selectedProject?.key ?? null}
+        allCount={store.items.length}
+        onSelect={selectProject}
+      />
     {/snippet}
   </ListFilterBar>
 {/snippet}
@@ -423,10 +417,6 @@
       <AutomationBuilder automation={view.automation} onDone={backToList} />
     {:else}
       <ListPage
-        projects={projectOptions}
-        activeProjectKey={activeProject?.key ?? ""}
-        emptyProjectLabel="No project"
-        onSelectProject={selectProject}
         title="Automations"
         {summary}
         primaryAction={showEmpty
@@ -486,11 +476,21 @@
                     [section.id]: !collapsedGroups[section.id],
                   })}
               >
-                <ul class="flex flex-col" role="list" aria-label={section.label}>
+                <ul
+                  class="flex flex-col"
+                  role="list"
+                  aria-label={section.label}
+                >
                   {#each section.items as a (a.id)}
+                    {@const project = automationProject(
+                      a,
+                      store.hostFor(a.id),
+                      projects,
+                    )}
                     <li>
                       <AutomationRow
                         automation={a}
+                        projectLabel={project?.label ?? folderLabel(a.action.cwd)}
                         {now}
                         selected={selectedId === a.id}
                         onOpen={startEdit}
@@ -512,7 +512,7 @@
           {#if !isInitialLoading}
             <div class={showEmpty ? "pt-[22px]" : "pt-[30px]"}>
               <AutomationLaunchpad
-                projectPath={activeProject?.key ?? session.galleryProjectPath}
+                projectPath={selectedProject?.projectPath ?? session.galleryProjectPath}
                 onOpen={openSeeded}
                 onCreateBlank={startCreate}
               />

@@ -124,7 +124,7 @@
   <div class="toolbar-section toolbar-left">
     <div class="flex items-center gap-1 min-w-0 shrink desktop-only">
       <GitBranchIcon
-        size={10}
+        size={14}
         class="text-(--solus-accent) flex-shrink-0"
         weight="bold"
       />
@@ -197,7 +197,7 @@
             aria-label="Show all changes"
             aria-pressed={selectedTurnIndex === null}
           >
-            <StackIcon size={11} weight="bold" />
+            <StackIcon size={14} weight="bold" />
           </button>
               {/snippet}
             </TooltipUI.Trigger>
@@ -212,7 +212,7 @@
             onclick={() => onStepTurn(-1)}
             aria-label="Previous turn"
           >
-            <CaretLeftIcon size={10} weight="bold" />
+            <CaretLeftIcon size={14} weight="bold" />
           </button>
               {/snippet}
             </TooltipUI.Trigger>
@@ -228,7 +228,7 @@
             aria-expanded={turnMenuOpen}
           >
             <span>{selectedTurnLabel}</span>
-            <CaretDownIcon size={9} weight="bold" />
+            <CaretDownIcon size={14} weight="bold" />
           </button>
           <TooltipUI.Root>
             <TooltipUI.Trigger>
@@ -239,7 +239,7 @@
             onclick={() => onStepTurn(1)}
             aria-label="Next turn"
           >
-            <CaretRightIcon size={10} weight="bold" />
+            <CaretRightIcon size={14} weight="bold" />
           </button>
               {/snippet}
             </TooltipUI.Trigger>
@@ -256,7 +256,7 @@
                   onTurnSelect(null);
                 }}
               >
-                <StackIcon size={11} weight="bold" />
+                <StackIcon size={14} weight="bold" />
                 All changes
               </DropdownMenu.Item>
               {#each turns as turn (turn.index)}
@@ -268,7 +268,7 @@
                   }}
                 >
                   <GitCommitIcon
-                    size={11}
+                    size={14}
                     weight={turnRunning && turn.index === lastTurnIndex
                       ? "fill"
                       : "regular"}
@@ -298,7 +298,7 @@
             aria-label="Show all changes"
             aria-pressed={selectedTurnIndex === null}
           >
-            <StackIcon size={11} weight="bold" />
+            <StackIcon size={14} weight="bold" />
           </button>
               {/snippet}
             </TooltipUI.Trigger>
@@ -318,7 +318,7 @@
               aria-pressed={selectedTurnIndex === turn.index}
             >
               <GitCommitIcon
-                size={11}
+                size={14}
                 weight={turnRunning && turn.index === lastTurnIndex
                   ? "fill"
                   : "regular"}

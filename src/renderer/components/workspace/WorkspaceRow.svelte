@@ -120,19 +120,19 @@
     aria-hidden="true"
   >
     {#if item.glyph === "claude"}
-      <ClaudeIcon size={12} />
+      <ClaudeIcon size={14} />
     {:else if item.glyph === "codex"}
       <span class="flex size-4 items-center justify-center rounded-full bg-white">
-        <OpenAIBlossom size={11} />
+        <OpenAIBlossom size={14} />
       </span>
     {:else if item.glyph === "plan"}
-      <AsteriskIcon size={12} />
+      <AsteriskIcon size={14} />
     {:else if item.glyph === "diagram"}
-      <GraphIcon size={12} />
+      <GraphIcon size={14} />
     {:else if item.glyph === "slides"}
-      <PresentationIcon size={12} />
+      <PresentationIcon size={14} />
     {:else}
-      <FileTextIcon size={12} />
+      <FileTextIcon size={14} />
     {/if}
   </span>
 
@@ -157,7 +157,7 @@
        running away on an ultrawide window, where the name has long since fit. -->
   <span class="flex min-w-0 max-w-[26rem] flex-[2] items-center gap-[5px]">
     {#if item.sessionId}
-      <ChatCircleIcon size={12} class="shrink-0 opacity-70" />
+      <ChatCircleIcon size={14} class="shrink-0 opacity-70" />
       <span class="min-w-0 flex-1 truncate text-[12px]" title={sessionLabel ?? undefined}>
         {sessionLabel ?? "Session"}
       </span>
@@ -177,7 +177,7 @@
             aria-label="Open session"
             title="Open session{sessionLabel ? ` — ${sessionLabel}` : ''}"
           >
-            <ArrowSquareOutIcon size={12} />
+            <ArrowSquareOutIcon size={14} />
           </button>
         {/if}
         {#if onOpenSessionSplit}
@@ -191,7 +191,7 @@
             aria-label="Open session in split"
             title="Open session in split"
           >
-            <ColumnsIcon size={12} />
+            <ColumnsIcon size={14} />
           </button>
         {/if}
       </span>
@@ -226,7 +226,7 @@
       aria-label={item.pinned ? "Unpin" : "Pin"}
       title={item.pinned ? "Unpin (⌥P)" : "Pin (⌥P)"}
     >
-      <PushPinIcon size={12} />
+      <PushPinIcon size={14} />
     </button>
   </span>
 
@@ -277,7 +277,7 @@
         aria-label="Delete document"
         title="Delete (⌥⌫)"
       >
-        <TrashIcon size={12} />
+        <TrashIcon size={14} />
       </button>
     {/if}
   </span>

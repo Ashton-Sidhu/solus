@@ -50,7 +50,7 @@
                     class="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-(--solus-surface-hover) px-2 text-[0.75rem] text-(--solus-text-tertiary) transition-[background-color,color] hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
                     onclick={() => webState.openServerSetup()}
                   >
-                    <PlugsIcon size={13} class="shrink-0" />
+                    <PlugsIcon size={14} class="shrink-0" />
                     <span>No host</span>
                   </button>
                 {/snippet}
@@ -87,7 +87,7 @@
               document.dispatchEvent(new CustomEvent("solus:logout"))}
             aria-label="Switch server"
           >
-            <SignOutIcon size={13} />
+            <SignOutIcon size={14} />
           </button>
               {/snippet}
             </TooltipUI.Trigger>

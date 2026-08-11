@@ -66,7 +66,7 @@
        claiming an effect. -->
   {#if tone === 'destructive'}
     <div class="interrupt-danger flex items-center gap-2 px-[1.125rem] py-[0.4375rem]">
-      <WarningIcon size={12} weight="fill" class="shrink-0" />
+      <WarningIcon size={14} weight="fill" class="shrink-0" />
       <span>Matches a destructive command pattern — its effects can reach outside the worktree.</span>
     </div>
   {/if}

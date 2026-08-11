@@ -1257,13 +1257,22 @@ export class WorkspaceContext {
       draft.run = spec.run
       draft.task = spec.task
       draft.prompt = spec.prompt
+      // Empty drafts are disposable UI state, not user work. Older snapshots
+      // persisted the foreground empty composer and could therefore restore its
+      // `draft/<id>` route over a real active session after reload.
+      if (draft.isEmpty) continue
       this.sessionDrafts.set(draftId, draft)
     }
   }
 
   /** The plain shape the drafts persist as. */
   get sessionDraftsSnapshot(): { version: 1; order: string[]; drafts: Record<string, SessionSpec> } {
-    const order = [...this.sessionDrafts.keys()]
+    // The same rule used when a pane leaves a draft: only words or attachments
+    // make it durable. Persisting the empty foreground composer gives reload a
+    // draft route with no user state to recover and hides the active session.
+    const order = [...this.sessionDrafts.entries()]
+      .filter(([, draft]) => !draft.isEmpty)
+      .map(([draftId]) => draftId)
     return {
       version: 1,
       order,

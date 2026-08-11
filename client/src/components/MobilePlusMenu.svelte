@@ -246,7 +246,7 @@
         aria-label="Close menu"
         onclick={onClose}
       >
-        <XIcon size={18} weight="bold" />
+        <XIcon size={14} weight="bold" />
       </button>
       <h2 class="text-[0.9375rem] font-semibold text-(--solus-text-primary)">Add to Chat</h2>
     </div>
@@ -260,7 +260,7 @@
           disabled={!canAttachFiles}
           title={!canAttachFiles ? `File attachments are not supported on ${attachmentHostLabel}.` : undefined}
         >
-          <span class={heroIcon}><PaperclipIcon size={22} /></span>
+          <span class={heroIcon}><PaperclipIcon size={20} /></span>
           <span class={heroLabel}>{canAttachFiles ? "Attach file" : "Files unavailable"}</span>
           {#if attachmentCapabilities !== undefined && !canAttachFiles}
             <span class="text-[0.625rem] leading-tight text-muted-foreground">
@@ -273,12 +273,12 @@
           class={heroCard}
           onclick={() => handleAction(() => window.dispatchEvent(new CustomEvent("solus:open-directory-picker")))}
         >
-          <span class={heroIcon}><FolderOpenIcon size={22} /></span>
+          <span class={heroIcon}><FolderOpenIcon size={20} /></span>
           <span class={heroLabel}>Project</span>
         </button>
 
         <button class={heroCard} onclick={() => handleAction(onToggleWorkspace)}>
-          <span class={heroIcon}><BooksIcon size={22} /></span>
+          <span class={heroIcon}><BooksIcon size={20} /></span>
           <span class={heroLabel}>Workspace</span>
         </button>
         <div class={rowDivider}></div>
@@ -291,26 +291,26 @@
           class={listRow}
           onclick={() => handleAction(() => window.dispatchEvent(new CustomEvent("solus:open-directory-picker")))}
         >
-          <span class={listIcon}><FolderOpenIcon size={18} /></span>
+          <span class={listIcon}><FolderOpenIcon size={14} /></span>
           <span class={listLabel}>Project</span>
           <span class={listValue}>{projectName}</span>
-          <CaretRightIcon size={16} class={chevronClass} />
+          <CaretRightIcon size={14} class={chevronClass} />
         </button>
         <div class={rowDivider}></div>
         <button class={listRow} onclick={() => handleAction(onOpenServers)}>
-          <span class={listIcon}><HardDrivesIcon size={18} /></span>
+          <span class={listIcon}><HardDrivesIcon size={14} /></span>
           <span class={listLabel}>Server</span>
           <span class={listValue}>{serversStore.activeServer?.label ?? ""}</span>
-          <CaretRightIcon size={16} class={chevronClass} />
+          <CaretRightIcon size={14} class={chevronClass} />
         </button>
         <div class={rowDivider}></div>
         <button class={listRow} disabled={!canShowDiffPanel} onclick={() => handleAction(onToggleDiff)}>
-          <span class={listIcon}><GitDiffIcon size={18} /></span>
+          <span class={listIcon}><GitDiffIcon size={14} /></span>
           <span class={listLabel}>Changes</span>
           {#if changedFilesCount > 0}
             <span class="shrink-0 min-w-[1.125rem] h-[1.125rem] px-1.5 rounded-[0.5625rem] bg-(--solus-accent) text-(--solus-text-on-accent) text-[0.6875rem] font-semibold flex items-center justify-center leading-none tabular-nums">{changedFilesCount}</span>
           {/if}
-          <CaretRightIcon size={16} class={chevronClass} />
+          <CaretRightIcon size={14} class={chevronClass} />
         </button>
         <div class={rowDivider}></div>
         <button
@@ -320,9 +320,9 @@
             else session.showSettings();
           })}
         >
-          <span class={listIcon}><GearIcon size={18} /></span>
+          <span class={listIcon}><GearIcon size={14} /></span>
           <span class={listLabel}>Settings</span>
-          <CaretRightIcon size={16} class={chevronClass} />
+          <CaretRightIcon size={14} class={chevronClass} />
         </button>
       </div>
 
@@ -334,11 +334,11 @@
               {#key actions.syncing ? "busy" : actions.synced ? "done" : "idle"}
                 <span class="icon-swap">
                   {#if actions.syncing}
-                    <SpinnerIcon size={18} class="animate-spin" />
+                    <SpinnerIcon size={14} class="animate-spin" />
                   {:else if actions.synced}
-                    <CheckIcon size={18} />
+                    <CheckIcon size={14} />
                   {:else}
-                    <ArrowsClockwiseIcon size={18} />
+                    <ArrowsClockwiseIcon size={14} />
                   {/if}
                 </span>
               {/key}
@@ -351,11 +351,11 @@
               {#key actions.commitPushing ? "busy" : actions.commitPushed ? "done" : "idle"}
                 <span class="icon-swap">
                   {#if actions.commitPushing}
-                    <SpinnerIcon size={18} class="animate-spin" />
+                    <SpinnerIcon size={14} class="animate-spin" />
                   {:else if actions.commitPushed}
-                    <CheckIcon size={18} />
+                    <CheckIcon size={14} />
                   {:else}
-                    <GitCommitIcon size={18} />
+                    <GitCommitIcon size={14} />
                   {/if}
                 </span>
               {/key}
@@ -365,7 +365,7 @@
           <div class={rowDivider}></div>
           <button class={listRow} onclick={() => void actions.commitPush()} disabled={actions.commitPushing}>
             <span class={listIcon}>
-              <ArrowSquareUpIcon size={18} />
+              <ArrowSquareUpIcon size={14} />
             </span>
             <span class={listLabel}>Commit & Push</span>
           </button>
@@ -399,9 +399,9 @@
               >
                 <span class={listIcon}>
                   {#if actions.discarding}
-                    <SpinnerIcon size={18} class="animate-spin" />
+                    <SpinnerIcon size={14} class="animate-spin" />
                   {:else}
-                    <ArrowCounterClockwiseIcon size={18} />
+                    <ArrowCounterClockwiseIcon size={14} />
                   {/if}
                 </span>
                 <span class={listLabel}>Discard changes</span>

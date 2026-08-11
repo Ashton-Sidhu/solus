@@ -48,7 +48,7 @@
   >
     {#if collapsible}
       <CaretRightIcon
-        size={11}
+        size={14}
         class="shrink-0 text-muted-foreground opacity-60 transition-transform duration-200 {open
           ? 'rotate-90'
           : ''}"

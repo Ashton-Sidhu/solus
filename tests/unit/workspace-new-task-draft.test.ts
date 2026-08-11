@@ -395,6 +395,23 @@ describe('session drafts', () => {
     expect(restored.run.workingDirectory).toBe(draft.run.workingDirectory)
   })
 
+  test('does not persist or restore an empty foreground draft', async () => {
+    const { workspace } = await makeWorkspace()
+    const draft = workspace.openSessionDraft({ freshTask: true })
+
+    // WHY: an empty composer contains no user work. Persisting it lets its
+    // `draft/<id>` route cover the real active session after an app reload.
+    expect(workspace.sessionDraftsSnapshot.order).toEqual([])
+
+    const next = await makeWorkspace()
+    next.workspace.restoreSessionDrafts({
+      version: 1,
+      order: [draft.id],
+      drafts: { [draft.id]: JSON.parse(JSON.stringify(draft.spec)) },
+    })
+    expect(next.workspace.sessionDrafts.has(draft.id)).toBe(false)
+  })
+
   test('two views of one conversation share the unsent message', async () => {
     const { workspace, registry } = await makeWorkspace()
 

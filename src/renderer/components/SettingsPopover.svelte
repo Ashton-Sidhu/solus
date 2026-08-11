@@ -181,7 +181,7 @@
     onclick={handleToggle}
     class="rounded-full text-(--solus-text-tertiary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)"
   >
-    <GearIcon size={15} />
+    <GearIcon size={14} />
   </Button>
 </span>
     {/snippet}
@@ -262,7 +262,7 @@
             class="flex items-center gap-1 text-[0.6875rem] rounded-full px-2 py-0.5 transition-colors font-secondary text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
           >
             <span class="max-w-20 truncate">{activeAgentLabel}</span>
-            <CaretDownIcon size={9} style="opacity:0.6" />
+            <CaretDownIcon size={14} style="opacity:0.6" />
           </button>
           {#if agentOpen}
             <div
@@ -294,7 +294,7 @@
                       <span class="shrink-0 text-[0.6875rem] text-(--solus-text-tertiary)">Not installed</span>
                     {/if}
                     {#if agent.id === theme.activeAgent}<CheckIcon
-                        size={12}
+                        size={14}
                         class="absolute end-2 text-(--solus-accent)"
                       />{/if}
                   </button>
@@ -330,7 +330,7 @@
             {/each}
           </select>
           <CaretDownIcon
-            size={9}
+            size={14}
             class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-(--solus-text-tertiary)"
           />
         </div>
@@ -402,7 +402,7 @@
             {/each}
           </select>
           <CaretDownIcon
-            size={9}
+            size={14}
             class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-(--solus-text-tertiary)"
           />
         </div>
@@ -493,7 +493,7 @@
             >
               {tools.detectedEditors.find((e) => e.id === theme.defaultEditor)
                 ?.name ?? "None"}
-              <CaretDownIcon size={9} style="opacity:0.6" />
+              <CaretDownIcon size={14} style="opacity:0.6" />
             </button>
             {#if editorOpen}
               {@const selected = theme.defaultEditor ?? ""}
@@ -519,7 +519,7 @@
                     >
                       <span class="min-w-0 flex-1 truncate text-left">{editor.name}</span>
                       {#if selected === editor.id}<CheckIcon
-                          size={12}
+                          size={14}
                           class="absolute end-2 text-(--solus-accent)"
                         />{/if}
                     </button>
@@ -557,7 +557,7 @@
               {tools.detectedTerminals.find(
                 (t) => t.id === (theme.defaultTerminal ?? "default-terminal"),
               )?.name ?? "Default"}
-              <CaretDownIcon size={9} style="opacity:0.6" />
+              <CaretDownIcon size={14} style="opacity:0.6" />
             </button>
             {#if terminalOpen}
               {@const selected = theme.defaultTerminal ?? "default-terminal"}
@@ -583,7 +583,7 @@
                     >
                       <span class="min-w-0 flex-1 truncate text-left">{terminal.name}</span>
                       {#if selected === terminal.id}<CheckIcon
-                          size={12}
+                          size={14}
                           class="absolute end-2 text-(--solus-accent)"
                         />{/if}
                     </button>
@@ -621,7 +621,7 @@
           >
             {theme.rateLimitBehavior.at(0)?.toUpperCase() +
               theme.rateLimitBehavior.slice(1)}
-            <CaretDownIcon size={9} style="opacity:0.6" />
+            <CaretDownIcon size={14} style="opacity:0.6" />
           </button>
           {#if rateLimitOpen}
             {@const selected = theme.rateLimitBehavior}
@@ -650,7 +650,7 @@
                   >
                     <span class="min-w-0 flex-1 truncate text-left">{label}</span>
                     {#if selected === val}<CheckIcon
-                        size={12}
+                        size={14}
                         class="absolute end-2 text-(--solus-accent)"
                       />{/if}
                   </button>
@@ -699,7 +699,7 @@
           </div>
         </div>
         <CaretDownIcon
-          size={11}
+          size={14}
           class="text-(--solus-text-tertiary)"
           style="transform: rotate(-90deg)"
         />

@@ -125,9 +125,9 @@
         onclick={toggleDiff}
       >
         {#if diffOpen}
-          <CaretDownIcon size={13} weight="bold" />
+          <CaretDownIcon size={14} weight="bold" />
         {:else}
-          <CaretRightIcon size={13} weight="bold" />
+          <CaretRightIcon size={14} weight="bold" />
         {/if}
       </Button>
     {/if}
@@ -148,7 +148,7 @@
       <span
         class="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color:color-mix(in_srgb,var(--solus-art-positive)_12%,transparent)] py-0.5 pr-1.5 pl-1 text-[10.5px] font-medium text-(--solus-art-positive)"
       >
-        <CheckCircleIcon size={11} weight="fill" class="shrink-0" /> Resolved
+        <CheckCircleIcon size={14} weight="fill" class="shrink-0" /> Resolved
       </span>
     {/if}
   </div>
@@ -161,13 +161,13 @@
       onclick={() => (showResolved = true)}
       aria-expanded="false"
     >
-      <CheckCircleIcon size={13} weight="fill" class="shrink-0 text-(--solus-art-positive)" />
+      <CheckCircleIcon size={20} weight="fill" class="shrink-0 text-(--solus-art-positive)" />
       <span class="text-[12.5px] font-medium text-foreground">
         Marked as resolved
       </span>
       <span class="ml-auto inline-flex items-center gap-1 text-[12px] text-muted-foreground">
         Show thread
-        <CaretDownIcon size={11} weight="bold" />
+        <CaretDownIcon size={14} weight="bold" />
       </span>
     </Button>
   {:else}
@@ -254,7 +254,7 @@
             class="inline-flex min-h-10 cursor-pointer items-center gap-1 rounded-lg py-1 pr-3 pl-2.5 text-[12px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
             onclick={() => (replying = true)}
           >
-            <ArrowBendUpLeftIcon size={13} class="shrink-0" /> Reply
+            <ArrowBendUpLeftIcon size={14} class="shrink-0" /> Reply
           </Button>
           <Button
             type="button"

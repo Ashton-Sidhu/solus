@@ -57,12 +57,12 @@
   >
     {#if failed}
       <span
-        class="relative flex h-[0.9375rem] w-[0.9375rem] shrink-0 items-center justify-center"
+        class="relative flex size-5 shrink-0 items-center justify-center"
         aria-hidden="true"
       >
         <svg
-          width="12"
-          height="12"
+          width="20"
+          height="20"
           viewBox="0 0 12 12"
           fill="none"
           stroke="var(--destructive)"

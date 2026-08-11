@@ -305,14 +305,14 @@
             />
           {/if}
         {:else if expanded}
-          <CaretDownIcon size={10} weight="bold" />
+          <CaretDownIcon size={14} weight="bold" />
         {:else}
           <span
             class="font-mono text-[0.625rem] tabular-nums group-hover/row:hidden"
             >{sessions.length}</span
           >
           <CaretRightIcon
-            size={10}
+            size={14}
             weight="bold"
             class="hidden group-hover/row:block"
           />
@@ -369,7 +369,7 @@
                 title="Generating review guide"
               >
                 <CircleNotchIcon
-                  size={13}
+                  size={14}
                   class="animate-spin [animation-duration:0.9s] motion-reduce:animate-none"
                 />
               </span>
@@ -380,7 +380,7 @@
                 aria-label="Review guide ready"
                 title="Review guide ready"
               >
-                <BookOpenTextIcon size={13} weight="fill" />
+                <BookOpenTextIcon size={14} weight="fill" />
               </span>
             {/if}
             {#if task.woke}
@@ -390,7 +390,7 @@
                 aria-label="Snooze reminder"
                 title="Snooze reminder"
               >
-                <AlarmIcon size={13} />
+                <AlarmIcon size={14} />
               </span>
             {/if}
             {#if snoozeReturn}
@@ -418,7 +418,7 @@
                   role="img"
                   aria-label={attentionLabel(task.attention)}
                 >
-                  <SpinnerGapIcon size={13} class="animate-spin" />
+                  <SpinnerGapIcon size={14} class="animate-spin" />
                 </span>
               {:else if elapsed}
                 <!-- One session running, so running spends a number rather than a
@@ -457,7 +457,7 @@
                   onSnooze(event.currentTarget);
                 }}
               >
-                <MoonIcon size={13} />
+                <MoonIcon size={14} />
               </button>
             {/if}
             <button
@@ -485,7 +485,7 @@
                   onClose();
                 }}
               >
-                <XIcon size={13} weight="bold" />
+                <XIcon size={14} weight="bold" />
               </button>
             {/if}
           </span>
@@ -508,7 +508,7 @@
                 />
               {:else}
                 <FolderIcon
-                  size={13}
+                  size={14}
                   weight="fill"
                   class="shrink-0 text-(--solus-text-tertiary)"
                 />
@@ -519,9 +519,9 @@
               {#if showsHost}
                 <span class="shrink-0">·</span>
                 {#if isRemote}
-                  <GlobeIcon size={11} class="shrink-0" aria-label={host?.label} />
+                  <GlobeIcon size={14} class="shrink-0" aria-label={host?.label} />
                 {:else}
-                  <LaptopIcon size={11} class="shrink-0" aria-label="This machine" />
+                  <LaptopIcon size={14} class="shrink-0" aria-label="This machine" />
                 {/if}
               {/if}
             </span>

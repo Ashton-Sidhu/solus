@@ -115,12 +115,17 @@ function seedSessionDraft(ctx: WorkspaceContext): void {
  * is gone by this point; this covers the one thing it cannot know — whether the
  * chat a pane names still exists.
  */
-function restoreLocation(ctx: WorkspaceContext, serialized: string | undefined): void {
+export function restoreLocation(ctx: WorkspaceContext, serialized: string | undefined): void {
   if (!serialized) return
   ctx.router.enter(serialized, { replace: true })
   for (const pane of [...ctx.router.panes]) {
     const sessionId = pane.base?.name === 'chat' ? pane.base.params.sessionId : undefined
     if (sessionId && !ctx.tabIdForSession(sessionId)) ctx.router.closePane(pane.id)
+    const draftId = pane.base?.name === 'draft' ? pane.base.params.draftId : undefined
+    // A pre-fix snapshot can still point at an empty draft that was deliberately
+    // not restored. Treat it like any other dead pane: the leading pane falls
+    // back to the active conversation and a companion pane closes.
+    if (draftId && !ctx.sessionDrafts.has(draftId)) ctx.router.closePane(pane.id)
   }
 }
 

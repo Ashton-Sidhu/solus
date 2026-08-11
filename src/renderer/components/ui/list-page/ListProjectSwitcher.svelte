@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { CaretDownIcon, MagnifyingGlassIcon, CheckIcon } from "phosphor-svelte";
+  import {
+    CaretDownIcon,
+    MagnifyingGlassIcon,
+    CheckIcon,
+  } from "phosphor-svelte";
   import ProjectFavicon from "../ProjectFavicon.svelte";
   import { abbreviateHome } from "../../../lib/paths";
   import type { ListProjectOption } from "./list-page";
@@ -14,10 +18,10 @@
   interface Props {
     projects: ListProjectOption[];
     /** Repo root of the project on screen; `""` when there is none. */
-    activeProjectKey: string;
+    activeProjectKey?: string;
     /** Stands in when nothing is scoped yet. */
     emptyLabel?: string;
-    onSelect: (projectKey: string) => void;
+    onSelect?: (projectKey: string) => void;
   }
   let {
     projects,
@@ -30,7 +34,9 @@
   let query = $state("");
   let queryEl = $state<HTMLInputElement | null>(null);
 
-  const active = $derived(projects.find((p) => p.projectKey === activeProjectKey));
+  const active = $derived(
+    projects.find((p) => p.projectKey === activeProjectKey),
+  );
   // A handful of projects is a list you read; past that it is one you search.
   const showFilter = $derived(projects.length > 6);
   const matches = $derived(
@@ -65,7 +71,7 @@
   function pick(projectKey: string) {
     menuOpen = false;
     query = "";
-    onSelect(projectKey);
+    if (onSelect) onSelect(projectKey);
   }
 </script>
 
@@ -99,7 +105,7 @@
       {active?.label ?? emptyLabel}
     </span>
     <CaretDownIcon
-      size={11}
+      size={14}
       class="shrink-0 text-muted-foreground opacity-50 transition-transform duration-200 {menuOpen
         ? 'rotate-180'
         : ''}"
@@ -117,7 +123,7 @@
           class="mx-px mt-px mb-[3px] flex h-[30px] items-center gap-2 rounded-lg bg-[var(--wash-1)] px-[9px]"
         >
           <MagnifyingGlassIcon
-            size={12}
+            size={14}
             class="shrink-0 text-muted-foreground opacity-70"
           />
           <input
@@ -155,7 +161,7 @@
           </span>
           <span class="flex w-3 shrink-0 justify-end">
             {#if isActive}
-              <CheckIcon size={12} class="text-primary" />
+              <CheckIcon size={14} class="text-primary" />
             {/if}
           </span>
         </button>

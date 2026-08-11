@@ -118,7 +118,7 @@
 >
   <!-- Where it lives, and when it last moved. -->
   <span class="flex min-w-0 items-center gap-1.5">
-    <TaskStatusGlyph status={card.lifecycle} />
+    <TaskStatusGlyph status={card.lifecycle} size={20} />
     {#if card.source.id !== "local"}
       <SourceLogo source={card.source.id} title={card.source.title} />
     {/if}

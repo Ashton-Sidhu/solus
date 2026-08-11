@@ -88,7 +88,7 @@
         aria-label="Close"
         onclick={onClose}
       >
-        <XIcon size={18} weight="bold" />
+        <XIcon size={14} weight="bold" />
       </button>
       <h2 class="text-[0.9375rem] font-semibold text-(--solus-text-primary)">{title}</h2>
     </div>

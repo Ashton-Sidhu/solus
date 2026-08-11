@@ -73,7 +73,7 @@
       aria-hidden="true"
       onclick={toggle}
     >
-      <CaretDownIcon size={9} weight="bold" />
+      <CaretDownIcon size={14} weight="bold" />
     </button>
   </Sidebar.GroupLabel>
   {#if !collapsed}

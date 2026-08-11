@@ -180,7 +180,7 @@
         onclick={() => { sidebarDrawerOpen = true; }}
         aria-label="Sessions"
       >
-        <SidebarSimpleIcon size={18} />
+        <SidebarSimpleIcon size={14} />
       </button>
 
       <button
@@ -193,11 +193,11 @@
               class="mh-navbar-status {statusIcon.spin ? 'animate-spin' : ''}"
               style="color:{statusIcon.color}"
             >
-              <statusIcon.component size={12} />
+              <statusIcon.component size={14} />
             </span>
           {/if}
           <span class="mh-navbar-title">{title}</span>
-          <CaretDownIcon size={11} class="mh-navbar-caret" />
+          <CaretDownIcon size={14} class="mh-navbar-caret" />
         </div>
       </button>
 
@@ -206,7 +206,7 @@
         onclick={() => session.openSessionDraft({ via: "click" })}
         aria-label="New session"
       >
-        <PlusIcon size={18} weight="bold" />
+        <PlusIcon size={14} weight="bold" />
       </button>
     </div>
 
@@ -217,14 +217,14 @@
             class="mh-navbar-chip"
             onclick={() => webState.openServerSetup()}
           >
-            <PlugsIcon size={12} />
+            <PlugsIcon size={14} />
             <span>No host</span>
           </button>
         {/if}
         {#if sessionStarted && hostGlyph && hostName}
           {@const HostIcon = hostGlyph.icon}
           <span class="mh-navbar-chip mh-navbar-chip--inert" title={hostGlyph.tooltip}>
-            <HostIcon size={12} class={hostGlyph.className} />
+            <HostIcon size={14} class={hostGlyph.className} />
             <span>{hostName}</span>
           </span>
         {/if}
@@ -234,7 +234,7 @@
             class="mh-navbar-chip"
             onclick={toggleGitMenu}
           >
-            <GitBranchIcon size={12} />
+            <GitBranchIcon size={14} />
             <span>{branch}</span>
           </button>
         {/if}
@@ -254,7 +254,7 @@
             aria-label="Close goal"
             onclick={() => session.router.close("goal")}
           >
-            <XIcon size={16} />
+            <XIcon size={14} />
           </button>
         </div>
         <GoalSection
@@ -318,7 +318,7 @@
             onclick={() => (plusMenuOpen = true)}
             aria-label="More options"
           >
-            <PlusIcon size={18} />
+            <PlusIcon size={14} />
             {#if changedFilesCount > 0}
               <span class="mobile-pill-plus-dot" aria-hidden="true"></span>
             {/if}

@@ -203,7 +203,7 @@
   {/if}
   {#if cmd.children}
     <CaretRightIcon
-      size={10}
+      size={14}
       weight="bold"
       class="flex-shrink-0 text-(--solus-text-tertiary) opacity-50 group-data-[selected]/command-item:opacity-70"
     />
@@ -250,7 +250,7 @@
           </button>
           <span class="flex-shrink-0 text-[length:calc(0.96875rem*var(--solus-font-scale,1))] font-semibold tracking-[-0.012em] text-(--solus-text-primary)">{page.title}</span>
         {:else}
-          <MagnifyingGlassIcon size={16} class="flex-shrink-0 text-(--solus-text-tertiary) opacity-65" />
+          <MagnifyingGlassIcon size={14} class="flex-shrink-0 text-(--solus-text-tertiary) opacity-65" />
         {/if}
         <input
           bind:this={searchEl}
@@ -285,7 +285,7 @@
         >
           {#if !hasResults}
             <div role="status" class="flex flex-col items-center justify-center gap-2.5 py-11 px-6 text-center text-[length:calc(0.8125rem*var(--solus-font-scale,1))] text-(--solus-text-tertiary)">
-              <MagnifyingGlassIcon size={18} weight="light" class="text-(--solus-text-tertiary)" />
+              <MagnifyingGlassIcon size={14} weight="light" class="text-(--solus-text-tertiary)" />
               <span>
                 {#if activeCommands.length === 0}
                   {page ? "Nothing here yet" : "No commands available yet"}

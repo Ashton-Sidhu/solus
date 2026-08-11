@@ -139,7 +139,7 @@
             onOpenSecondary();
           }}
         >
-          <ArrowLineRightIcon size={13} />
+          <ArrowLineRightIcon size={14} />
         </button>
       {/if}
       {#if actions}

@@ -161,7 +161,7 @@
         aria-label="Close"
         onclick={close}
       >
-        <XIcon size={18} weight="bold" />
+        <XIcon size={14} weight="bold" />
       </button>
       <h2 class="text-[0.9375rem] font-semibold text-(--solus-text-primary)">Select model</h2>
     </div>
@@ -179,7 +179,7 @@
         >
           <span class="flex-1 min-w-0 truncate text-[0.9375rem] font-medium text-(--solus-text-primary)">{m.label}</span>
           {#if isSelected}
-            <CheckIcon size={17} weight="bold" class="shrink-0 text-(--solus-accent)" />
+            <CheckIcon size={14} weight="bold" class="shrink-0 text-(--solus-accent)" />
           {/if}
         </button>
       {/each}
@@ -201,7 +201,7 @@
           <span class="flex-1 min-w-0 text-[0.9375rem] font-medium text-(--solus-text-primary)">Effort</span>
           <span class="shrink-0 text-[0.8125rem] text-(--solus-text-tertiary)">{REASONING_EFFORT_LABELS[currentReasoning]}</span>
           <span class="shrink-0 text-(--solus-text-tertiary) transition-transform duration-200" class:rotate-90={effortExpanded}>
-            <CaretRightIcon size={15} />
+            <CaretRightIcon size={14} />
           </span>
         </button>
 
@@ -215,7 +215,7 @@
             >
               <span class="flex-1 min-w-0 text-[0.875rem] font-secondary text-(--solus-text-secondary)">{REASONING_EFFORT_LABELS[level]}</span>
               {#if currentReasoning === level}
-                <CheckIcon size={16} weight="bold" class="shrink-0 text-(--solus-accent)" />
+                <CheckIcon size={14} weight="bold" class="shrink-0 text-(--solus-accent)" />
               {/if}
             </button>
           {/each}

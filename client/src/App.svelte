@@ -183,7 +183,7 @@
       });
     const snapshot: PersistedTabs = {
       version: 1,
-      activeTabId: session.durableActiveTabId,
+      activeTabId: session.activeTabId,
       tabOrder: [...session.tabOrder],
       tabs,
     };
@@ -1080,7 +1080,7 @@
 {#if isDraggingFile}
   <div data-solus-ui class="drop-overlay">
     <div class="drop-overlay-content">
-      <DownloadSimpleIcon size={24} weight="regular" />
+      <DownloadSimpleIcon size={20} weight="regular" />
       <span>Drop files to attach</span>
     </div>
   </div>

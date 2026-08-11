@@ -125,7 +125,7 @@
     <div
       class="flex items-center gap-2 px-[1.125rem] py-[0.875rem] text-[0.71875rem] text-(--muted-foreground)"
     >
-      <ClockIcon size={12} class="shrink-0 opacity-50" />
+      <ClockIcon size={14} class="shrink-0 opacity-50" />
       <span
         >Nothing runs until you choose. Queuing sends it the moment the window
         opens.</span
@@ -134,7 +134,7 @@
 
     {#snippet footer()}
       <button type="button" class="interrupt-btn" onclick={handleStop}>
-        <StopIcon size={11} weight="bold" />
+        <StopIcon size={14} weight="bold" />
         Stop &amp; discard
       </button>
       <div class="flex-1"></div>
@@ -150,7 +150,7 @@
         class="interrupt-btn interrupt-btn--primary"
         onclick={handleSendNow}
       >
-        <ArrowUpIcon size={12} weight="bold" />
+        <ArrowUpIcon size={14} weight="bold" />
         Send now
       </button>
     {/snippet}

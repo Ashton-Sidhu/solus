@@ -564,7 +564,7 @@
         title="Priority (⌥P)"
       >
         <FlagIcon
-          size={12}
+          size={14}
           weight={priority ? "fill" : "regular"}
           class={priority
             ? PRIORITY_META[priority].flagClass
@@ -594,7 +594,7 @@
             class={OPT}
             onclick={() => commit(() => (priority = ""))}
           >
-            <FlagIcon size={12} class="text-(--solus-text-tertiary)" />
+            <FlagIcon size={14} class="text-(--solus-text-tertiary)" />
             No priority
           </button>
           {#each PRIORITY_OPTIONS as p (p)}
@@ -606,7 +606,7 @@
               onclick={() => commit(() => (priority = p))}
             >
               <FlagIcon
-                size={12}
+                size={14}
                 weight="fill"
                 class={PRIORITY_META[p].flagClass}
               />
@@ -628,7 +628,7 @@
         aria-label="Due date"
         title="Due date (⌥D)"
       >
-        <CalendarBlankIcon size={12} class="text-(--solus-text-tertiary)" />
+        <CalendarBlankIcon size={14} class="text-(--solus-text-tertiary)" />
         {dueLabel ?? "Due date"}
       </button>
       <Dropdown
@@ -655,7 +655,7 @@
               onclick={() => commit(() => (dueDate = preset.iso))}
             >
               <CalendarBlankIcon
-                size={12}
+                size={14}
                 class="text-(--solus-text-tertiary)"
               />
               {preset.label}
@@ -678,7 +678,7 @@
               class={OPT}
               onclick={() => commit(() => (dueDate = ""))}
             >
-              <XIcon size={12} class="text-(--solus-text-tertiary)" />
+              <XIcon size={14} class="text-(--solus-text-tertiary)" />
               Clear
             </button>
           {/if}
@@ -698,7 +698,7 @@
         aria-label="Labels"
         title="Labels (⌥L)"
       >
-        <TagIcon size={12} class="text-(--solus-text-tertiary)" />
+        <TagIcon size={14} class="text-(--solus-text-tertiary)" />
         {labels.length
           ? `${labels.length} label${labels.length > 1 ? "s" : ""}`
           : "Labels"}
@@ -724,7 +724,7 @@
                     onclick={() => removeLabel(label)}
                     aria-label={`Remove ${label}`}
                   >
-                    <XIcon size={9} weight="bold" />
+                    <XIcon size={14} weight="bold" />
                   </button>
                 </span>
               {/each}
@@ -760,7 +760,7 @@
                     labelInputEl?.focus();
                   }}
                 >
-                  <TagIcon size={11} class="text-(--solus-text-tertiary)" />
+                  <TagIcon size={14} class="text-(--solus-text-tertiary)" />
                   {s}
                 </button>
               {/each}
@@ -781,7 +781,7 @@
             disabled={saving}
           >
             <CheckSquareIcon
-              size={12}
+              size={14}
               weight={kind === "task" ? "fill" : "regular"}
             />
             Task
@@ -794,7 +794,7 @@
             disabled={saving}
           >
             <StackIcon
-              size={12}
+              size={14}
               weight={kind === "epic" ? "fill" : "regular"}
             />
             Epic
@@ -812,7 +812,7 @@
             disabled={saving}
             aria-label="Parent epic"
           >
-            <StackIcon size={12} class="text-(--solus-text-tertiary)" />
+            <StackIcon size={14} class="text-(--solus-text-tertiary)" />
             <span class="max-w-[10rem] truncate"
               >{parentEpic ? parentEpic.title : "No epic"}</span
             >
@@ -850,7 +850,7 @@
                   onclick={() => commit(() => (parentId = epic.id))}
                 >
                   <StackIcon
-                    size={12}
+                    size={14}
                     class="text-(--solus-text-tertiary) flex-shrink-0"
                   />
                   <span class="truncate">{epic.title}</span>
@@ -880,7 +880,7 @@
             : 'border-(--solus-container-border)'}"
         >
           <CheckIcon
-            size={9}
+            size={14}
             weight="bold"
             class="transition-[opacity,scale,filter] duration-300 ease-[cubic-bezier(0.2,0,0,1)] {createAnother
               ? 'opacity-100 scale-100 blur-none'
@@ -906,7 +906,7 @@
         >
           {#if saving}
             <CircleNotchIcon
-              size={12}
+              size={14}
               class="animate-spin [animation-duration:0.7s]"
             />
             Creating…

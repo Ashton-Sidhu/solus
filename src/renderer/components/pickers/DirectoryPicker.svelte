@@ -515,12 +515,12 @@
         </span>
         {#if hostLabel}
           <span class="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-[0.71875rem] text-muted-foreground">
-            <DesktopTowerIcon size={11} />
+            <DesktopTowerIcon size={14} />
             {hostLabel}
           </span>
         {/if}
         <Button variant="ghost" size="icon-xs" class="-mr-1.5 text-muted-foreground" onclick={onClose} aria-label="Cancel">
-          <XIcon size={11} />
+          <XIcon size={14} />
         </Button>
       </header>
 
@@ -550,11 +550,11 @@
               {#if icon === "workspace"}
                 <WorkspaceMark class="size-3.5 shrink-0" />
               {:else if icon === "home"}
-                <HouseIcon size={13} class="shrink-0" />
+                <HouseIcon size={14} class="shrink-0" />
               {:else if icon === "recent"}
-                <ClockCounterClockwiseIcon size={12} class="shrink-0" />
+                <ClockCounterClockwiseIcon size={14} class="shrink-0" />
               {:else}
-                <FolderIcon size={13} class="shrink-0" />
+                <FolderIcon size={14} class="shrink-0" />
               {/if}
               <span class="truncate">{label}</span>
             </button>
@@ -582,7 +582,7 @@
             >
               {#each crumbs as crumb, i (crumb.path)}
                 {#if i > 0}
-                  <CaretRightIcon size={8} class="shrink-0 text-muted-foreground/60" />
+                  <CaretRightIcon size={14} class="shrink-0 text-muted-foreground/60" />
                 {/if}
                 <!-- Kept out of the tab order: the trail is walked with ← and
                      Backspace from the filter, which never loses focus. -->
@@ -605,9 +605,9 @@
                  folder toggle read as one object instead of three loose parts. -->
             <div class="flex h-8 items-center gap-2 rounded-lg bg-muted px-2.5 max-md:h-10">
               {#if willCreate}
-                <FolderPlusIcon size={13} weight="fill" class="shrink-0 text-primary" />
+                <FolderPlusIcon size={14} weight="fill" class="shrink-0 text-primary" />
               {:else}
-                <MagnifyingGlassIcon size={13} class="shrink-0 text-muted-foreground" />
+                <MagnifyingGlassIcon size={14} class="shrink-0 text-muted-foreground" />
               {/if}
               <Input
                 bind:ref={pathInputEl}
@@ -638,7 +638,7 @@
                 aria-label={showHidden ? "Hide hidden folders" : "Show hidden folders"}
                 aria-pressed={showHidden}
               >
-                {#if showHidden}<EyeSlashIcon size={13} />{:else}<EyeIcon size={13} />{/if}
+                {#if showHidden}<EyeSlashIcon size={14} />{:else}<EyeIcon size={14} />{/if}
               </Button>
             </div>
           </div>
@@ -671,7 +671,7 @@
               </div>
             {:else if loadError}
               <div class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center" role="alert">
-                <FolderIcon size={18} class="text-(--solus-status-error)" />
+                <FolderIcon size={20} class="text-(--solus-status-error)" />
                 <span class="text-pretty text-xs text-(--solus-text-tertiary)">{loadError}</span>
                 {#if willCreate}
                   <span class="text-pretty text-xs text-(--solus-text-tertiary)">
@@ -687,14 +687,14 @@
               </div>
             {:else if willCreate && rows.length === 0}
               <div class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
-                <FolderPlusIcon size={18} class="text-(--solus-text-muted)" />
+                <FolderPlusIcon size={20} class="text-(--solus-text-muted)" />
                 <span class="text-pretty text-xs text-(--solus-text-tertiary)">
                   Press <Kbd variant="hint">↵</Kbd> to create “{targetName}” and {actionLabel.toLowerCase()} it.
                 </span>
               </div>
             {:else if rows.length === 0}
               <div class="flex h-full flex-col items-center justify-center gap-2">
-                <FolderIcon size={18} class="text-(--solus-text-muted)" />
+                <FolderIcon size={20} class="text-(--solus-text-muted)" />
                 <span class="text-xs text-(--solus-text-tertiary)">{leaf ? "No matching folders" : "Empty"}</span>
               </div>
             {:else if runtime.isMobileViewport}

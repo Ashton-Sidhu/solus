@@ -8,6 +8,7 @@
     StarIcon,
     ClockIcon,
     CircleNotchIcon,
+    FolderIcon,
   } from "phosphor-svelte";
   import type { Automation } from "../../../shared/types";
   import { compactRelativeTime } from "../ui/list-page";
@@ -21,6 +22,7 @@
    *  already says. */
   interface Props {
     automation: Automation;
+    projectLabel: string;
     /** Ticking clock from the page, so the age column counts up on its own. */
     now: number;
     selected?: boolean;
@@ -33,6 +35,7 @@
   }
   let {
     automation: a,
+    projectLabel,
     now,
     selected = false,
     onOpen,
@@ -98,11 +101,11 @@
       title="{schedule} — {toneLabel}"
     >
       {#if tone === "running"}
-        <CircleNotchIcon size={11} class="animate-spin [animation-duration:0.9s]" />
+        <CircleNotchIcon size={14} class="animate-spin [animation-duration:0.9s]" />
       {:else if a.trigger.type === "manual"}
-        <PlayIcon size={9} weight="fill" />
+        <PlayIcon size={14} weight="fill" />
       {:else}
-        <ClockIcon size={10} />
+        <ClockIcon size={14} />
       {/if}
     </span>
 
@@ -114,14 +117,23 @@
       {a.name}
     </span>
 
-    <!-- Slot 3 — where it runs, and who wrote it. -->
+    <!-- Slot 3 — the project is a stable column across the complete catalog. -->
+    <span
+      class="flex w-[148px] shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground"
+      title="Project: {projectLabel}"
+    >
+      <FolderIcon size={12} weight="fill" class="shrink-0 opacity-70" />
+      <span class="truncate">{projectLabel}</span>
+    </span>
+
+    <!-- Slot 4 — exact run folder and creator. -->
     <span class="min-w-0 truncate font-mono text-[11px] text-muted-foreground opacity-75">
       {folderLabel(a.action.cwd)}{a.createdBy.kind === "agent" ? " · agent" : ""}
     </span>
 
     <span class="flex-1"></span>
 
-    <!-- Slots 4 and 5 — what it does and when it last did it. They step aside
+    <!-- Slots 5 and 6 — what it does and when it last did it. They step aside
          for the verbs rather than sharing the line with them, so the right end
          is never two things at once. -->
     <span
@@ -151,7 +163,7 @@
       aria-pressed={a.favorite}
       title={a.favorite ? "Unstar" : "Star"}
     >
-      <StarIcon size={12} weight={a.favorite ? "fill" : "regular"} />
+      <StarIcon size={14} weight={a.favorite ? "fill" : "regular"} />
     </button>
     <button
       type="button"
@@ -161,7 +173,7 @@
       aria-label="Run now"
       title="Run now"
     >
-      <PlayIcon size={12} weight="fill" />
+      <PlayIcon size={14} weight="fill" />
     </button>
     <button
       type="button"
@@ -173,7 +185,7 @@
       aria-label="Edit"
       title="Edit"
     >
-      <PencilSimpleIcon size={12} />
+      <PencilSimpleIcon size={14} />
     </button>
     {#if a.lastRunStatus === "running"}
       <button
@@ -183,7 +195,7 @@
         aria-label="Stop run"
         title="Stop this run"
       >
-        <StopIcon size={12} weight="fill" />
+        <StopIcon size={14} weight="fill" />
       </button>
     {:else if a.enabled}
       <button
@@ -193,7 +205,7 @@
         aria-label="Pause automation"
         title="Pause — stop running on schedule"
       >
-        <PauseIcon size={12} weight="fill" />
+        <PauseIcon size={14} weight="fill" />
       </button>
     {:else}
       <button
@@ -203,7 +215,7 @@
         aria-label="Resume automation"
         title="Resume — run on schedule again"
       >
-        <PlayIcon size={12} weight="fill" />
+        <PlayIcon size={14} weight="fill" />
       </button>
     {/if}
     <button
@@ -213,7 +225,7 @@
       aria-label="Delete"
       title="Delete"
     >
-      <TrashIcon size={12} />
+      <TrashIcon size={14} />
     </button>
   </div>
 </div>

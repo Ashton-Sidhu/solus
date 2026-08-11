@@ -214,7 +214,7 @@
         onclick={() => (detailsOpen = !detailsOpen)}
       >
         <span class="interrupt-caret" class:is-open={detailsOpen}>
-          <CaretRightIcon size={9} weight="bold" />
+          <CaretRightIcon size={14} weight="bold" />
         </span>
         Request details
       </button>

@@ -53,27 +53,27 @@
 
 {#snippet stateIcon(state: NonNullable<typeof display>["state"])}
   {#if state === "pending"}
-    <CircleNotchIcon size={11} weight="bold" class="size-[11px] animate-spin [animation-duration:0.9s]" />
+    <CircleNotchIcon size={14} weight="bold" class="size-3.5 animate-spin [animation-duration:0.9s]" />
   {:else if state === "passing"}
-    <CheckIcon size={11} weight="bold" class="size-[11px]" />
+    <CheckIcon size={14} weight="bold" class="size-3.5" />
   {:else if state === "failing"}
-    <XIcon size={11} weight="bold" class="size-[11px]" />
+    <XIcon size={14} weight="bold" class="size-3.5" />
   {:else if state === "unavailable"}
-    <WarningCircleIcon size={11} weight="fill" class="size-[11px]" />
+    <WarningCircleIcon size={14} weight="fill" class="size-3.5" />
   {:else}
-    <MinusCircleIcon size={11} weight="bold" class="size-[11px]" />
+    <MinusCircleIcon size={14} weight="bold" class="size-3.5" />
   {/if}
 {/snippet}
 
 {#snippet checkIcon(item: CheckItem)}
   {#if item.inFlight}
-    <CircleNotchIcon size={12} class="animate-spin text-chart-2 [animation-duration:0.9s]" />
+    <CircleNotchIcon size={14} class="animate-spin text-chart-2 [animation-duration:0.9s]" />
   {:else if item.conclusion === "success" || item.conclusion === "neutral" || item.conclusion === "skipped"}
-    <CheckIcon size={12} weight="bold" class="text-(--solus-art-positive)" />
+    <CheckIcon size={14} weight="bold" class="text-(--solus-art-positive)" />
   {:else if isFailing(item)}
-    <XIcon size={12} weight="bold" class="text-(--solus-art-negative)" />
+    <XIcon size={14} weight="bold" class="text-(--solus-art-negative)" />
   {:else}
-    <MinusCircleIcon size={12} class="text-muted-foreground" />
+    <MinusCircleIcon size={14} class="text-muted-foreground" />
   {/if}
 {/snippet}
 

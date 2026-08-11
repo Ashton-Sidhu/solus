@@ -282,7 +282,7 @@
           aria-label="Previous question"
           onclick={goPrev}
         >
-          <CaretLeftIcon size={11} weight="bold" />
+          <CaretLeftIcon size={14} weight="bold" />
         </button>
         <span class="interrupt-pager-count font-mono">{currentIndex + 1} of {total}</span>
         <button
@@ -292,7 +292,7 @@
           aria-label="Next question"
           onclick={() => !isLast && (currentIndex += 1)}
         >
-          <CaretRightIcon size={11} weight="bold" />
+          <CaretRightIcon size={14} weight="bold" />
         </button>
       </div>
     {/if}
@@ -313,7 +313,7 @@
                 onclick={() => goTo(entry.index)}
               >
                 <span class="trail-index font-mono">{entry.index + 1}</span>
-                <CheckIcon size={11} weight="bold" class="trail-check" />
+                <CheckIcon size={14} weight="bold" class="trail-check" />
                 <span class="min-w-0 flex-1 truncate text-[0.75rem] text-(--muted-foreground)">
                   {entry.question.question}
                 </span>
@@ -391,7 +391,7 @@
                   class:is-multi={currentQuestion.multiSelect}
                 >
                   {#if selected && currentQuestion.multiSelect}
-                    <CheckIcon size={9} weight="bold" />
+                    <CheckIcon size={14} weight="bold" />
                   {:else if selected}
                     <span class="option-dot"></span>
                   {/if}
@@ -410,7 +410,7 @@
               onclick={() => (previewOpen = !previewOpen)}
             >
               <span class="interrupt-caret" class:is-open={previewOpen}>
-                <CaretRightIcon size={9} weight="bold" />
+                <CaretRightIcon size={14} weight="bold" />
               </span>
               Preview “{activeOption.label}”
               <span class="key-chip font-mono">P</span>
@@ -435,7 +435,7 @@
              Card fill, not a grey well — it is an alternative, not the emphasis. -->
         <div class="px-[1.125rem] pt-3">
           <div class="answer-field flex items-start gap-2 rounded-lg px-2.5 py-2">
-            <ChatTeardropTextIcon size={12} class="mt-[0.1875rem] shrink-0 text-(--muted-foreground)" />
+            <ChatTeardropTextIcon size={14} class="mt-[0.1875rem] shrink-0 text-(--muted-foreground)" />
             <Textarea
               value={getComment(currentQuestion)}
               placeholder={hasOptions ? "Or answer in your own words…" : "Type your answer…"}
@@ -484,7 +484,7 @@
       onclick={goNext}
     >
       {#if responded}
-        <CheckIcon size={11} weight="bold" />
+        <CheckIcon size={14} weight="bold" />
         Answered
       {:else}
         {primaryLabel}

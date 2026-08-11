@@ -20,7 +20,7 @@
       class="flex items-center justify-center rounded-full"
       style="width:2.25rem;height:2.25rem;background:var(--solus-status-error-bg);color:var(--solus-status-error)"
     >
-      <WarningIcon size={18} weight="duotone" />
+      <WarningIcon size={20} weight="duotone" />
     </span>
     <div class="flex flex-col gap-1">
       <span class="text-[0.75rem] font-medium text-(--solus-text-primary)">
@@ -36,7 +36,7 @@
       onclick={onRetry}
       class="flex items-center gap-1.5 text-[0.6875rem] font-medium px-2.5 py-1 rounded-md cursor-pointer transition-colors text-(--solus-text-primary) hover:bg-(--solus-surface-hover) border border-(--solus-container-border)"
     >
-      <ArrowClockwiseIcon size={11} weight="bold" />
+      <ArrowClockwiseIcon size={14} weight="bold" />
       {retryLabel}
     </button>
   </div>

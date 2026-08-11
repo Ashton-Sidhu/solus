@@ -810,7 +810,7 @@
             onclick={() => session.toggleFolio()}
           >
             <span class="flex shrink-0 items-center"
-              ><BooksIcon size={16} /></span
+              ><BooksIcon size={14} /></span
             >
             <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]"
               >Workspace</span
@@ -832,7 +832,7 @@
             onclick={() => session.toggleAutomations()}
           >
             <span class="flex shrink-0 items-center"
-              ><ArrowsClockwiseIcon size={16} /></span
+              ><ArrowsClockwiseIcon size={14} /></span
             >
             <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]"
               >Automations</span
@@ -854,7 +854,7 @@
             onclick={togglePrs}
           >
             <span class="flex shrink-0 items-center"
-              ><GitPullRequestIcon size={16} /></span
+              ><GitPullRequestIcon size={14} /></span
             >
             <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]"
               >Pull requests<span
@@ -883,7 +883,7 @@
             onclick={() => session.toggleTasks()}
           >
             <span class="flex shrink-0 items-center"
-              ><ListChecksIcon size={16} /></span
+              ><ListChecksIcon size={14} /></span
             >
             <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]"
               >Tasks<span
@@ -906,7 +906,7 @@
               )}
           >
             <span class="flex shrink-0 items-center"
-              ><ClockIcon size={16} /></span
+              ><ClockIcon size={14} /></span
             >
             <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]"
               >History</span
@@ -1098,10 +1098,10 @@
                   closeProject(group);
                 }}
               >
-                <XIcon size={12} weight="bold" />
+                <XIcon size={14} weight="bold" />
               </button>
               <CaretRightIcon
-                size={11}
+                size={14}
                 class="shrink-0 text-muted-foreground transition-transform duration-150 {collapsedProjectKeys.has(
                   group.projectKey,
                 )
@@ -1136,7 +1136,7 @@
             >
             <span class="flex size-4 shrink-0 items-center justify-center">
               <CaretRightIcon
-                size={11}
+                size={14}
                 class="transition-transform duration-150 {snoozedShelfOpen
                   ? 'rotate-90'
                   : ''}"
@@ -1166,7 +1166,7 @@
             >
             <span class="flex size-4 shrink-0 items-center justify-center">
               <CaretRightIcon
-                size={11}
+                size={14}
                 class="transition-transform duration-150 {completedShelfOpen
                   ? 'rotate-90'
                   : ''}"
@@ -1197,7 +1197,7 @@
             onclick={() => (savedSessionsOpen = !savedSessionsOpen)}
           >
             <span class="flex shrink-0 items-center"
-              ><PushPinIcon size={16} weight="fill" /></span
+              ><PushPinIcon size={14} weight="fill" /></span
             >
             <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]"
               >Saved sessions</span
@@ -1207,7 +1207,7 @@
               >{sidebarStore.pinnedSessions.length}</span
             >
             <CaretRightIcon
-              size={11}
+              size={14}
               class="shrink-0 transition-transform duration-150 {savedSessionsOpen
                 ? 'rotate-90'
                 : ''}"
@@ -1255,7 +1255,7 @@
                     requestInputFocus();
                   }}
                 >
-                  <PushPinIcon size={12} weight="fill" />
+                  <PushPinIcon size={14} weight="fill" />
                 </button>
               </div>
             {/each}
@@ -1274,7 +1274,7 @@
         >
           <span
             class="flex shrink-0 items-center motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:rotate-90"
-            ><GearIcon size={16} /></span
+            ><GearIcon size={14} /></span
           >
           <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]"
             >Settings</span

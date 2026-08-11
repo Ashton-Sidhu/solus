@@ -183,7 +183,7 @@
       <CheckIcon size={14} class="shrink-0 text-(--solus-accent)" />
     {:else}
       <ArrowRightIcon
-        size={13}
+        size={14}
         class="shrink-0 text-(--solus-text-quaternary) opacity-0 transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 group-focus-visible:opacity-100"
       />
     {/if}
@@ -197,7 +197,7 @@
     onclick={() => pairNearby(host)}
   >
     <WifiHighIcon
-      size={16}
+      size={14}
       class="shrink-0 text-(--solus-text-tertiary)"
     />
     <span class="flex min-w-0 flex-1 flex-col">
@@ -230,7 +230,7 @@
             onclick={() => selectHost(servingHost!)}
           >
             <HardDrivesIcon
-              size={16}
+              size={14}
               class="shrink-0 text-(--solus-text-tertiary)"
             />
             <span class="flex min-w-0 flex-1 flex-col">
@@ -305,7 +305,7 @@
             class="flex items-center gap-3 rounded-lg border border-(--solus-container-border) bg-(--solus-accent-light) px-3 py-2.5"
           >
             <HardDrivesIcon
-              size={16}
+              size={14}
               class="shrink-0 text-(--solus-accent)"
             />
             <span class="flex min-w-0 flex-1 flex-col">
@@ -440,7 +440,7 @@
           aria-label="Close"
           onclick={close}
         >
-          <XIcon size={16} />
+          <XIcon size={14} />
         </button>
       </header>
       <div class="px-4 py-4">{@render body()}</div>

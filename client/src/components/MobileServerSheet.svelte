@@ -84,9 +84,9 @@
       <button class={listRow} onclick={() => connect(server.id)}>
         <span class={listIcon}>
           {#if server.local}
-            <HardDrivesIcon size={18} />
+            <HardDrivesIcon size={14} />
           {:else}
-            <GlobeSimpleIcon size={18} />
+            <GlobeSimpleIcon size={14} />
           {/if}
         </span>
         <span class="flex-1 min-w-0 flex flex-col gap-px">
@@ -96,7 +96,7 @@
           </span>
         </span>
         {#if server.id === activeId}
-          <CheckIcon size={16} class="shrink-0 text-(--solus-accent)" />
+          <CheckIcon size={14} class="shrink-0 text-(--solus-accent)" />
         {:else}
           {@render statusDot(server.status)}
         {/if}
@@ -112,7 +112,7 @@
           <div class={rowDivider}></div>
         {/if}
         <button class={listRow} onclick={() => pairNearby(host.server.installationId)}>
-          <span class={listIcon}><WifiHighIcon size={18} /></span>
+          <span class={listIcon}><WifiHighIcon size={14} /></span>
           <span class="flex-1 min-w-0 flex flex-col gap-px">
             <span class="truncate text-[0.9375rem] font-medium text-(--solus-text-primary)">{host.server.name}</span>
             <span class="truncate text-[0.6875rem] text-(--solus-text-tertiary)" style="font-family: 'Geist Mono', ui-monospace, monospace">
@@ -127,12 +127,12 @@
 
   <div class="mt-3 {groupCard}">
     <button class={listRow} onclick={addServer}>
-      <span class={listIcon}><PlusIcon size={18} /></span>
+      <span class={listIcon}><PlusIcon size={14} /></span>
       <span class="flex-1 min-w-0 truncate text-[0.9375rem] font-medium text-(--solus-text-primary)">Add server</span>
     </button>
     <div class={rowDivider}></div>
     <button class={listRow} onclick={manageServers}>
-      <span class={listIcon}><GearIcon size={18} /></span>
+      <span class={listIcon}><GearIcon size={14} /></span>
       <span class="flex-1 min-w-0 truncate text-[0.9375rem] font-medium text-(--solus-text-primary)">Manage servers</span>
     </button>
   </div>

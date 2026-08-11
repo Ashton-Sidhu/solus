@@ -29,7 +29,7 @@
   <div
     class="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-lg px-[9px] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
   >
-    <MagnifyingGlassIcon size={12} class="shrink-0 text-muted-foreground opacity-70" />
+    <MagnifyingGlassIcon size={14} class="shrink-0 text-muted-foreground opacity-70" />
     <input
       bind:this={searchEl}
       bind:value={query}
@@ -54,7 +54,7 @@
       onclick={filter.toggle}
       aria-pressed={filter.active}
     >
-      {#if Icon}<Icon size={11} class="shrink-0 opacity-75" />{/if}
+      {#if Icon}<Icon size={14} class="shrink-0 opacity-75" />{/if}
       {filter.label}
       {#if filter.count !== undefined && !filter.active}
         <span class="font-mono text-[11px] tabular-nums opacity-60">{filter.count}</span>

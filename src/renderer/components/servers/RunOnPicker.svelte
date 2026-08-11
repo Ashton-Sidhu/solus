@@ -379,13 +379,13 @@
   >
     {#if affinity}
       {@const HostIcon = affinity.icon}
-      <HostIcon size={13} class="shrink-0 {affinity.className}" />
+      <HostIcon size={14} class="shrink-0 {affinity.className}" />
     {:else}
-      <DesktopTowerIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+      <DesktopTowerIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
     {/if}
     <span class="min-w-0 flex-1 truncate">{hostLabel(server)}</span>
     {#if isSelectedHost}
-      <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
+      <CheckIcon size={14} class="shrink-0 text-(--solus-accent)" />
     {:else if affinity && server.status !== "saved"}
       <span class="shrink-0 text-[0.6875rem] text-(--solus-text-tertiary)">{affinity.statusLabel}</span>
     {/if}
@@ -399,7 +399,7 @@
       window.dispatchEvent(new CustomEvent("solus:open-server-connect"));
     }}
   >
-    <PlusIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+    <PlusIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
     <span class="min-w-0 flex-1 truncate">Connect a host…</span>
   </DropdownMenu.Item>
 {/snippet}
@@ -566,29 +566,29 @@
             >
               {#if inWorktree}
                 <GitForkIcon
-                  size={13}
+                  size={14}
                   class="shrink-0 text-(--solus-text-tertiary)"
                 />
               {:else}
                 <DesktopTowerIcon
-                  size={13}
+                  size={14}
                   class="shrink-0 text-(--solus-text-tertiary)"
                 />
               {/if}
               <span class="min-w-0 flex-1 truncate">{stayLabel}</span>
               {#if !onRemoteHost && !startsNewWorktree}<CheckIcon
-                  size={12}
+                  size={14}
                   class="shrink-0 text-(--solus-accent)"
                 />{/if}
             </DropdownMenu.Item>
             {#snippet newWorktreeItemContent()}
                 <PlusIcon
-                  size={13}
+                  size={14}
                   class="shrink-0 text-(--solus-text-tertiary)"
                 />
                 <span class="min-w-0 flex-1 truncate">New worktree</span>
                 {#if !onRemoteHost && startsNewWorktree}<CheckIcon
-                    size={12}
+                    size={14}
                     class="shrink-0 text-(--solus-accent)"
                   />{/if}
               {/snippet}

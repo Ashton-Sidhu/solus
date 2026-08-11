@@ -251,7 +251,7 @@
         style="color:{icon.color}"
         aria-label={attentionLabel(att) || undefined}
       >
-        <Icon size={13} weight="bold" />
+        <Icon size={14} weight="bold" />
       </span>
     {/if}
   {/if}
@@ -291,7 +291,7 @@
         onclick={newSession}
         aria-label="New session"
       >
-        <PlusIcon size={17} weight="bold" />
+        <PlusIcon size={14} weight="bold" />
         <span>New</span>
       </button>
     </div>
@@ -301,13 +301,13 @@
         onclick={() => nav(onOpenServers)}
         aria-label="Servers"
       >
-        <HardDrivesIcon size={15} class="shrink-0 text-(--solus-text-tertiary)" />
+        <HardDrivesIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
         <span class="flex-1 min-w-0 truncate text-[0.75rem] font-medium text-(--solus-text-secondary)">{activeServer.label}</span>
         <span
           class="shrink-0 w-1.5 h-1.5 rounded-full {serverOnline ? 'bg-(--solus-status-complete)' : 'bg-(--solus-text-quaternary) opacity-60'}"
           aria-hidden="true"
         ></span>
-        <CaretRightIcon size={12} class="shrink-0 text-(--solus-text-quaternary)" />
+        <CaretRightIcon size={14} class="shrink-0 text-(--solus-text-quaternary)" />
       </button>
     {/if}
   </header>
@@ -338,14 +338,14 @@
             <span class="truncate text-[0.6875rem] leading-tight text-(--solus-text-tertiary)">{row.projectLabel}</span>
           </span>
           {#if row.hasAttachments}
-            <span class="shrink-0 flex items-center text-(--solus-text-tertiary)" aria-label="Has attachments"><PaperclipIcon size={13} /></span>
+            <span class="shrink-0 flex items-center text-(--solus-text-tertiary)" aria-label="Has attachments"><PaperclipIcon size={14} /></span>
           {/if}
           <button
             class="shrink-0 w-9 h-9 flex items-center justify-center rounded-full border-0 bg-transparent text-(--solus-text-muted) cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-tertiary) active:text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
             aria-label="Discard draft"
             onclick={(e) => discardDraft(row, e)}
           >
-            <XIcon size={15} />
+            <XIcon size={14} />
           </button>
         </div>
       {/each}
@@ -416,10 +416,10 @@
             aria-label="Close {group.projectLabel} and remove its tasks from the sidebar"
             onclick={(e) => removeProject(group, e)}
           >
-            <XIcon size={15} />
+            <XIcon size={14} />
           </button>
           <CaretRightIcon
-            size={12}
+            size={14}
             class="shrink-0 transition-transform duration-150 {collapsedProjectKeys.has(
               group.projectKey,
             )
@@ -475,14 +475,14 @@
                 aria-label="Mark task completed"
                 onclick={(e) => completeTask(task, e)}
               >
-                <CheckIcon size={15} weight="bold" />
+                <CheckIcon size={14} weight="bold" />
               </button>
               <button
                 class="shrink-0 w-9 h-9 flex items-center justify-center rounded-full border-0 bg-transparent text-(--solus-text-muted) cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-tertiary) active:text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
                 aria-label="Remove task from sidebar"
                 onclick={(e) => removeTask(task, e)}
               >
-                <XIcon size={15} />
+                <XIcon size={14} />
               </button>
             {/if}
           </div>
@@ -519,7 +519,7 @@
                   aria-label="Mark subtask completed"
                   onclick={(e) => completeChild(child, e)}
                 >
-                  <CheckIcon size={15} weight="bold" />
+                  <CheckIcon size={14} weight="bold" />
                 </button>
               {/if}
               {#if child.tabId || child.dismissalKey}
@@ -528,7 +528,7 @@
                   aria-label="Remove subtask from sidebar"
                   onclick={(e) => removeChild(child, e)}
                 >
-                  <XIcon size={15} />
+                  <XIcon size={14} />
                 </button>
               {/if}
             </div>
@@ -544,7 +544,7 @@
           class="flex items-center gap-1.5 rounded-full border-0 bg-(--solus-accent-light) px-4 py-2 text-[0.8125rem] font-medium text-(--solus-accent) cursor-pointer transition-[background-color,transform] duration-[120ms] active:scale-[0.96] active:bg-(--solus-accent-border-medium) [-webkit-tap-highlight-color:transparent]"
           onclick={newSession}
         >
-          <PlusIcon size={15} weight="bold" /> New session
+          <PlusIcon size={14} weight="bold" /> New session
         </button>
       </div>
     {/if}
@@ -558,7 +558,7 @@
         class="flex-1 min-w-0 flex flex-col items-center gap-1 rounded-lg border-0 bg-transparent px-1 py-2 text-[0.625rem] font-medium text-(--solus-text-tertiary) cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-hover) active:text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
         onclick={() => nav(action)}
       >
-        <Icon size={18} /><span>{label}</span>
+        <Icon size={14} /><span>{label}</span>
       </button>
     {/snippet}
     {@render footBtn("Workspace", BooksIcon, () => session.toggleWorkspacePage())}

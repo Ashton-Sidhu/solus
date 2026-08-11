@@ -124,7 +124,7 @@
                 onclick={onAction}
                 aria-label={actionAriaLabel}
               >
-                <ActionIcon size={13} />
+                <ActionIcon size={14} />
               </button>
                   {/snippet}
                 </TooltipUI.Trigger>
