@@ -5,6 +5,7 @@ import { solusToolbox } from '../tools/solus-toolbox'
 import { buildSystemPrompt } from '../system-hint'
 import { isWorkspacePath } from '../../workspace'
 import { isSubagentTranscriptEvent, parentSubagentEvent } from '../subagent-events'
+import { SPAN_SERVICES } from '../../observability/registries'
 
 // Keys deliberately line up with the renderer's parseSubagentInput
 // (description / prompt / model / reasoning_effort) so the card's row renders.
@@ -65,6 +66,7 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher): Agent
         reasoningEffort: args.reasoning_effort,
         permissionMode: args.read_only === true ? 'plan' : 'auto',
         persistence: 'ephemeral',
+        service: SPAN_SERVICES.subagents,
         systemPrompt: buildSystemPrompt({
           agent: 'codex',
           general: isWorkspacePath(context.cwd),

@@ -36,6 +36,31 @@ describe('normalizeCodexNotification', () => {
     ])
   })
 
+  test('passes through MCP and web-search input, provider timestamps, outcomes, and model reroutes', () => {
+    expect(normalizeCodexNotification('item/started', {
+      startedAtMs: 100,
+      item: { id: 'mcp-1', type: 'mcpToolCall', server: 'docs', tool: 'search', arguments: { query: 'spans' } },
+    })).toEqual([expect.objectContaining({
+      type: 'tool_call', toolId: 'mcp-1', toolInput: '{"query":"spans"}', startedAtMs: 100,
+    })])
+    expect(normalizeCodexNotification('item/started', {
+      startedAtMs: 110,
+      item: { id: 'web-1', type: 'webSearch', query: 'Solus observability', action: { type: 'search' } },
+    })).toEqual([expect.objectContaining({
+      type: 'tool_call', toolId: 'web-1', toolInput: '{"query":"Solus observability","action":{"type":"search"}}', startedAtMs: 110,
+    })])
+    expect(normalizeCodexNotification('item/completed', {
+      completedAtMs: 150,
+      item: { id: 'mcp-1', type: 'mcpToolCall', server: 'docs', tool: 'search', status: 'failed', error: { message: 'no connection' }, durationMs: 50 },
+    })).toContainEqual({
+      type: 'tool_call_complete', index: 0, toolId: 'mcp-1', completedAtMs: 150,
+      outcome: { status: 'failed', error: '{"message":"no connection"}', durationMs: 50 },
+    })
+    expect(normalizeCodexNotification('model/rerouted', {
+      fromModel: 'gpt-a', toModel: 'gpt-b', reason: 'capacity',
+    })).toEqual([{ type: 'model_rerouted', fromModel: 'gpt-a', toModel: 'gpt-b', reason: 'capacity' }])
+  })
+
   test('adds a Markdown paragraph boundary when a Codex agent message item completes', () => {
     expect(normalizeCodexNotification('item/completed', {
       item: { id: 'msg-1', type: 'agentMessage' },
@@ -238,7 +263,7 @@ describe('normalizeCodexNotification', () => {
         status: 'completed',
       },
     })).toEqual([
-      { type: 'tool_call_complete', index: 0, toolId: 'agent-1' },
+      { type: 'tool_call_complete', index: 0, toolId: 'agent-1', outcome: { status: 'completed' } },
       { type: 'tool_result', toolUseId: 'agent-1', content: 'No auth regressions found.', isError: false },
     ])
   })
@@ -253,7 +278,7 @@ describe('normalizeCodexNotification', () => {
         receiverThreadIds: [],
       },
     })).toEqual([
-      { type: 'tool_call_complete', index: 0, toolId: 'wait-1' },
+      { type: 'tool_call_complete', index: 0, toolId: 'wait-1', outcome: { status: 'completed' } },
       { type: 'tool_result', toolUseId: 'wait-1', content: 'completed', isError: false },
     ])
   })
@@ -269,7 +294,7 @@ describe('normalizeCodexNotification', () => {
         contentItems: [{ type: 'inputText', text: 'No auth regressions found.' }],
       },
     })).toEqual([
-      { type: 'tool_call_complete', index: 0, toolId: 'claude-agent-1' },
+      { type: 'tool_call_complete', index: 0, toolId: 'claude-agent-1', outcome: { status: 'completed' } },
       {
         type: 'tool_result',
         toolUseId: 'claude-agent-1',
@@ -383,7 +408,7 @@ describe('CodexTurnNormalizer', () => {
         toolId: 'cmd-1',
         content: '/Users/sidhu/solus\n',
       },
-      { type: 'tool_call_complete', index: 0, toolId: 'cmd-1' },
+      { type: 'tool_call_complete', index: 0, toolId: 'cmd-1', outcome: { status: 'completed' } },
       // `last` is the window as it stands; `total` is what the whole thread has
       // spent — the two must not be read as the same number.
       {

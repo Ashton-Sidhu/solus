@@ -4,6 +4,7 @@ import type { SettingsContext } from '../app/settings.context.svelte'
 import type { StatusBarContext } from '../app/status-bar.context.svelte'
 import type { WindowContext } from '../app/window.context.svelte'
 import type { StaticInfo } from './workspace-lifecycle.store.svelte'
+import { isDispatch } from './run-config'
 
 export interface IpcContextBuilderDeps {
   sessionFor(tabId: string): Session | undefined
@@ -90,6 +91,7 @@ export class IpcContextBuilder {
 
     return {
       sessionId: session?.id ?? '',
+      ...(run && isDispatch(run) ? { origin: 'dispatch' as const } : {}),
       provider: run ? run.provider ?? null : null,
       agentSessionId: session ? session.agentSessionId : null,
       handoffFrom: session?.handoffFrom,

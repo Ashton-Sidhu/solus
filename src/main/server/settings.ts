@@ -10,6 +10,7 @@ const SETTINGS_FILE = join(SOLUS_DIR, 'server-settings.json')
 
 export interface ServerSettings {
   remoteAccess: boolean
+  metricsRetentionDays: number
   /** Absent means analytics remain enabled for installations created before this setting. */
   analytics?: boolean
   name?: string
@@ -22,6 +23,7 @@ export interface ServerSettings {
 
 const DEFAULT_SETTINGS: ServerSettings = {
   remoteAccess: true,
+  metricsRetentionDays: 30,
 }
 
 let _settings: ServerSettings | null = null
@@ -35,6 +37,7 @@ export function getServerSettings(): ServerSettings {
       const parsed = JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8'))
       _settings = {
         remoteAccess: parsed?.remoteAccess === true,
+        metricsRetentionDays: normalizeMetricsRetentionDays(parsed?.metricsRetentionDays),
         analytics: typeof parsed?.analytics === 'boolean' ? parsed.analytics : undefined,
         name: normalizeServerName(parsed?.name),
         projectsBaseDirectory: normalizeProjectsBaseDirectory(parsed?.projectsBaseDirectory),
@@ -51,6 +54,12 @@ export function getServerSettings(): ServerSettings {
 
 export function setRemoteAccess(remoteAccess: boolean): ServerSettings {
   _settings = { ...getServerSettings(), remoteAccess }
+  persistSettings(_settings)
+  return _settings
+}
+
+export function setMetricsRetentionDays(metricsRetentionDays: number): ServerSettings {
+  _settings = { ...getServerSettings(), metricsRetentionDays: normalizeMetricsRetentionDays(metricsRetentionDays) }
   persistSettings(_settings)
   return _settings
 }
@@ -92,4 +101,9 @@ function normalizeProjectsBaseDirectory(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
   const trimmed = value.trim()
   return trimmed ? trimmed.slice(0, 1024) : undefined
+}
+
+function normalizeMetricsRetentionDays(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) return DEFAULT_SETTINGS.metricsRetentionDays
+  return value
 }

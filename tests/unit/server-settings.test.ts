@@ -30,4 +30,12 @@ describe.serial('server settings defaults', () => {
     const settings = await loadSettings('remote-access-disabled', { remoteAccess: false })
     expect(settings.getServerSettings().remoteAccess).toBe(false)
   })
+
+  test('defaults retention to 30 days and persists a replacement value', async () => {
+    const settings = await loadSettings('metrics-retention')
+    expect(settings.getServerSettings().metricsRetentionDays).toBe(30)
+
+    settings.setMetricsRetentionDays(14)
+    expect(settings.getServerSettings().metricsRetentionDays).toBe(14)
+  })
 })

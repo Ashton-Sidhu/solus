@@ -7,6 +7,11 @@ import type {
   PromptOptions,
   ReasoningEffort,
 } from '../../shared/types'
+import { createLogger } from '../logger'
+import { endSpan, startSpan } from '../observability/facade'
+import { SPAN_KINDS, type SpanService } from '../observability/registries'
+
+const log = createLogger('AgentRunner', 'agent-runner.ts')
 
 export interface AgentRunRequest {
   provider: AgentId
@@ -17,6 +22,7 @@ export interface AgentRunRequest {
   reasoningEffort?: ReasoningEffort
   permissionMode: 'ask' | 'auto' | 'plan'
   persistence: 'session' | 'ephemeral'
+  service: SpanService
   /** Background utility runs must never park on an interaction no surface can answer. */
   unattended?: boolean
   sessionId?: string | null
@@ -66,6 +72,46 @@ export class AgentRunner {
     const backend = this.backends.get(request.provider)
     if (!backend) throw new Error(`Unknown agent provider: ${request.provider}`)
 
+    let agentSpanId: string | undefined
+    let agentSpanEnded = false
+    if (request.persistence === 'ephemeral') {
+      try {
+        agentSpanId = startSpan({
+          kind: SPAN_KINDS.agentRun,
+          name: 'agent_run',
+          service: request.service,
+          provider: request.provider,
+          model: request.model ?? undefined,
+          projectRoot: request.cwd,
+          startedAt: Date.now(),
+          attrs: {
+            promptChars: request.prompt.length,
+            ...(request.reasoningEffort ? { reasoningEffort: request.reasoningEffort } : {}),
+          },
+        })
+      } catch (error) {
+        log.warn('span_write_failed', {
+          provider: request.provider,
+          service: request.service,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+    const finishAgentSpan = (status: 'ok' | 'error' | 'interrupted', attrs: Record<string, string | number | boolean> = {}) => {
+      if (!agentSpanId || agentSpanEnded) return
+      agentSpanEnded = true
+      try {
+        endSpan(agentSpanId, { status, attrs })
+      } catch (error) {
+        log.warn('span_write_failed', {
+          provider: request.provider,
+          service: request.service,
+          spanId: agentSpanId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
     let handle!: RunHandle
     let exitCode: number | null = null
     let signal: string | null = null
@@ -109,6 +155,7 @@ export class AgentRunner {
     } catch (error) {
       backend.off('normalized', onNormalized)
       backend.off('exit', onExit)
+      finishAgentSpan('error', { error: error instanceof Error ? error.message : String(error) })
       throw error
     }
 
@@ -149,7 +196,31 @@ export class AgentRunner {
       permissionDenials: handle.permissionDenials,
       exitCode,
       signal,
-    })).finally(() => {
+    })).then(
+      (result) => {
+        finishAgentSpan(
+          result.signal === 'SIGINT' || handle.abortController.signal.aborted
+            ? 'interrupted'
+            : typeof result.exitCode === 'number' && result.exitCode !== 0
+              ? 'error'
+              : 'ok',
+          {
+            toolCallCount: result.toolCallCount,
+            permissionDenialCount: result.permissionDenials.length,
+            ...(result.exitCode === null ? {} : { exitCode: result.exitCode }),
+          },
+        )
+        return result
+      },
+      (error) => {
+        const isTimeout = error instanceof Error && error.message.includes('timed out after')
+        finishAgentSpan(isTimeout || !handle.abortController.signal.aborted ? 'error' : 'interrupted', {
+          error: error instanceof Error ? error.message : String(error),
+          timedOut: isTimeout,
+        })
+        throw error
+      },
+    ).finally(() => {
       settled = true
       if (timeout) clearTimeout(timeout)
       backend.off('normalized', onNormalized)

@@ -61,6 +61,16 @@ function normalizeCodexNotification(method: string, params: any, opts?: { planMo
       }]
     }
 
+    case 'model/rerouted': {
+      if (typeof params?.fromModel !== 'string' || typeof params?.toModel !== 'string') return []
+      return [{
+        type: 'model_rerouted',
+        fromModel: params.fromModel,
+        toModel: params.toModel,
+        ...(params.reason === undefined ? {} : { reason: String(params.reason) }),
+      }]
+    }
+
     case 'thread/goal/updated': {
       const goal = normalizeThreadGoal(params?.goal)
       return goal ? [{ type: 'goal_updated', goal }] : []
@@ -482,6 +492,7 @@ function normalizeItemStarted(params: any): NormalizedEvent[] {
         parentToolUseId: codexParentToolUseId(params),
         isSubagent: true,
         subagentType: 'codex',
+        ...(finiteOptionalNumber(params?.startedAtMs) !== undefined ? { startedAtMs: params.startedAtMs } : {}),
       }]
     }
     if (item.kind === 'interrupted') {
@@ -512,6 +523,7 @@ function normalizeItemStarted(params: any): NormalizedEvent[] {
     parentToolUseId: codexParentToolUseId(params),
     isSubagent,
     subagentType: isClaudeSubagent ? 'claude' : isCodexSubagent ? 'codex' : undefined,
+    ...(finiteOptionalNumber(params?.startedAtMs) !== undefined ? { startedAtMs: params.startedAtMs } : {}),
   }]
 }
 
@@ -615,7 +627,14 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
       })
     }
   }
-  updates.push({ type: 'tool_call_complete', index: 0, toolId: item.id })
+  const outcome = codexToolOutcome(item)
+  updates.push({
+    type: 'tool_call_complete',
+    index: 0,
+    toolId: item.id,
+    ...(finiteOptionalNumber(params?.completedAtMs) !== undefined ? { completedAtMs: params.completedAtMs } : {}),
+    ...(outcome ? { outcome } : {}),
+  })
   if (item.type === 'collabAgentToolCall' || isClaudeSubagent) {
     updates.push({
       type: 'tool_result',
@@ -670,6 +689,18 @@ function codexStartedToolInput(item: any): string | undefined {
   if (item.type === 'dynamicToolCall' && item.arguments !== undefined) {
     return typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments)
   }
+  if (item.type === 'mcpToolCall' && item.arguments !== undefined) {
+    return typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments)
+  }
+  if (item.type === 'webSearch' && typeof item.query === 'string') {
+    return JSON.stringify({ query: item.query, ...(item.action ? { action: item.action } : {}) })
+  }
+  if (item.type === 'fileChange' && Array.isArray(item.changes)) return JSON.stringify({ changes: item.changes })
+  if (item.type === 'imageView' && typeof item.path === 'string') return JSON.stringify({ path: item.path })
+  if (item.type === 'sleep' && typeof item.durationMs === 'number') return JSON.stringify({ durationMs: item.durationMs })
+  if (item.type === 'imageGeneration' && typeof item.revisedPrompt === 'string') {
+    return JSON.stringify({ prompt: item.revisedPrompt })
+  }
   if (item.type !== 'collabAgentToolCall') return undefined
 
   const args = item.arguments && typeof item.arguments === 'object'
@@ -694,6 +725,26 @@ function codexStartedToolInput(item: any): string | undefined {
     ...(model ? { model } : {}),
     ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
   })
+}
+
+function codexToolOutcome(item: any): Extract<NormalizedEvent, { type: 'tool_call_complete' }>['outcome'] {
+  const status = typeof item.status === 'string' ? item.status : undefined
+  const exitCode = typeof item.exitCode === 'number' && Number.isFinite(item.exitCode) ? item.exitCode : undefined
+  const error = typeof item.error === 'string'
+    ? item.error
+    : item.error && typeof item.error === 'object'
+      ? JSON.stringify(item.error)
+      : undefined
+  const declined = item.declined === true || status === 'declined'
+  const durationMs = typeof item.durationMs === 'number' && Number.isFinite(item.durationMs) ? item.durationMs : undefined
+  if (status === undefined && exitCode === undefined && error === undefined && !declined && item.success === undefined && durationMs === undefined) return undefined
+  return {
+    ...(status ? { status } : item.success === true ? { status: 'completed' } : item.success === false ? { status: 'failed' } : {}),
+    ...(exitCode === undefined ? {} : { exitCode }),
+    ...(error ? { error } : {}),
+    ...(declined ? { declined: true } : {}),
+    ...(durationMs === undefined ? {} : { durationMs }),
+  }
 }
 
 function stringField(value: unknown): string {

@@ -59,6 +59,7 @@ import { recordSessionDelegation } from '../sessions/session-delegations'
 import { registerAttachmentHandlers } from './handlers/attachment-handlers'
 import { registerAssetHandlers } from './handlers/asset-handlers'
 import { registerCapabilityHandlers } from './handlers/capability-handlers'
+import { startMetricsRollover, stopMetricsRollover } from '../observability/rollover'
 
 const log = createLogger('main', 'server-boot')
 
@@ -255,6 +256,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Local, in-process automation scheduler. Fires time-based triggers while the
   // app is open and catches up missed fires on launch (local-only by design).
   startAutomationScheduler()
+  startMetricsRollover(() => getServerSettings().metricsRetentionDays)
   registerProjectConfigHandlers(server)
   registerTasksHandlers(server)
   registerOutboxHandlers(server)
@@ -527,6 +529,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       if (shutdownPromise) return shutdownPromise
       shutdownPromise = (async () => {
         stopAutomationScheduler()
+        stopMetricsRollover()
         for (const unsubscribe of domainEventUnsubscribes) unsubscribe()
         if (sessionIndexPollTimer) clearTimeout(sessionIndexPollTimer)
         sessionIndexPollTimer = null
