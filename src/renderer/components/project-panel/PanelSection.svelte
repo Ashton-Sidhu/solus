@@ -13,12 +13,22 @@
     collapsed: boolean;
     onToggle: () => void;
     headerDetail?: string;
+    /** A chip riding beside the heading — a fact the section would otherwise
+     *  spend a body row stating. */
+    headerBadge?: Snippet;
     headerExtra?: Snippet;
     children: Snippet;
   }
 
-  let { title, collapsed, onToggle, headerDetail, headerExtra, children }: Props =
-    $props();
+  let {
+    title,
+    collapsed,
+    onToggle,
+    headerDetail,
+    headerBadge,
+    headerExtra,
+    children,
+  }: Props = $props();
 
   function toggle() {
     onToggle();
@@ -42,8 +52,11 @@
       aria-expanded={!collapsed}
       onclick={toggle}
     >
-      <span class="inline-flex min-w-0 items-baseline gap-1.5 truncate">
+      <span class="inline-flex min-w-0 items-center gap-1.5 truncate">
         <span class="shrink-0">{title}</span>
+        {#if headerBadge}
+          {@render headerBadge()}
+        {/if}
         {#if headerDetail}
           <span
             class="min-w-0 truncate text-[0.6875rem] font-normal text-(--solus-text-tertiary) normal-case"

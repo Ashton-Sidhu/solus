@@ -6,6 +6,7 @@
     getSettingsContext,
     type ProjectPanelSectionId,
     getSessionEnvironmentStore,
+    serversStore,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import {
@@ -21,6 +22,7 @@
     ArrowsClockwiseIcon,
     CheckIcon,
     ClockIcon,
+    LaptopIcon,
     PlusIcon,
     SidebarSimpleIcon,
     WarningCircleIcon,
@@ -113,6 +115,15 @@
       : serverConnections.connectionFor()?.serverId ?? null,
   );
   const panelEnvironment = $derived(environmentStore.environmentFor(panelRun));
+
+  // Where this environment lives. A remote session states its host — and its
+  // reachability — on a row inside the section, so only the local case is left
+  // unanswered; the header chip answers it without spending a row on it.
+  const localHost = $derived(
+    serversStore.affinityFor(panelRun?.serverId)
+      ? null
+      : (serversStore.servers.find((server) => server.local) ?? null),
+  );
   const cwd = $derived(
     panelRun?.workingDirectory ?? session.globalDefaults.workingDirectory,
   );
@@ -268,6 +279,20 @@
   }
 </script>
 
+{#snippet environmentHeaderBadge()}
+  {#if localHost}
+    <!-- Read-only: the host is chosen before the session starts and locked
+         after, so the chip states a fact rather than offering a picker. -->
+    <span
+      class="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--solus-text-primary)_6%,transparent)] px-1.5 py-0.5 text-[0.6875rem] font-medium tracking-normal text-(--solus-text-secondary) normal-case dark:bg-[color-mix(in_srgb,var(--solus-text-primary)_10%,transparent)]"
+      title="Runs on {localHost.label}"
+    >
+      <LaptopIcon size={11} />
+      <span class="truncate">{localHost.label}</span>
+    </span>
+  {/if}
+{/snippet}
+
 {#snippet environmentHeaderExtra()}
   <span class="header-extra">
     <button
@@ -399,6 +424,7 @@
       title="Environment"
       collapsed={collapsedSections.environment}
       onToggle={() => toggleSection("environment")}
+      headerBadge={environmentHeaderBadge}
       headerExtra={environmentHeaderExtra}
     >
       <EnvironmentSection
