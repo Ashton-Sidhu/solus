@@ -10,6 +10,7 @@
 		{ id: 'panes',           label: 'Workspace Panes' },
 		{ id: 'diff',            label: 'Diff Panel' },
 		{ id: 'files',           label: 'Opening Changed Files' },
+		{ id: 'search',          label: 'Searching Your Project' },
 		{ id: 'review',          label: 'Review Companion' },
 		{ id: 'pull-request-merge', label: 'Merging Pull Requests' },
 		{ id: 'works',           label: 'Works' },
@@ -17,7 +18,7 @@
 		{ id: 'design-mode',     label: 'Design Mode' },
 		{ id: 'voice',           label: 'Voice Input' },
 		{ id: 'automations',     label: 'Automations' },
-		{ id: 'tasks',           label: 'Tasks · soon' },
+		{ id: 'tasks',           label: 'Tasks' },
 		{ id: 'rate-limits',     label: 'Rate Limit Queueing' },
 		{ id: 'connections',     label: 'Hosts & Connections' },
 		{ id: 'settings',        label: 'Settings' },
@@ -224,7 +225,7 @@
 				shape its plan, review every change, ship the PR, and hand the recurring stuff to
 				automations. The full keybinding reference is at the end.
 			</p>
-			<p class="text-[12px] text-[#B0A499] mt-3">Updated August 1, 2026</p>
+			<p class="text-[12px] text-[#B0A499] mt-3">Updated August 5, 2026</p>
 		</div>
 
 		<div class="flex flex-col text-base/7 sm:text-[15px] sm:leading-[1.8] max-[1440px]:sm:text-[14px] text-[#6B6158]">
@@ -255,7 +256,8 @@
 						['Design Mode', 'Take a screenshot, draw rectangles, arrows, pins, and text annotations on it, then send the annotated image directly to your agent — no screenshots app needed.'],
 						['Voice input', 'Dictate prompts hands-free with local Whisper transcription — audio never leaves your machine.'],
 						['Automations', 'Save a prompt and run it on a schedule — daily, weekly, on an interval, or a raw cron expression — or trigger it on demand. Agents can create automations for you too.'],
-						['Tasks (coming soon)', 'A project-scoped task board — local tickets and GitHub Issues — with sessions started straight from a task.'],
+						['Tasks', 'A project-scoped board of local tickets and synced GitHub Issues. Every session belongs to a task, so the ticket, the branch, the PR, and every attempt at the work sit in one place.'],
+						['Project search', 'Search file contents across the project, or jump straight to a file by name, without leaving the panel.'],
 						['File & screenshot attachments', 'Attach files or screenshots directly in the input bar.'],
 						['Session history', 'Resume past sessions or pick up where you left off.'],
 						['Hosts & connections', 'Pair your phone or another browser with your desktop, add other machines as hosts, and choose which host each session runs on.'],
@@ -323,9 +325,17 @@
 					its own project, agent, model, and permission mode — so a refactor, a bug fix, and a
 					code question can all run at once without stepping on each other.
 				</p>
+				<p class="mt-3">
+					Sessions also belong to something. Starting one creates or joins a
+					<a href="#tasks" class="text-[#C4973A] no-underline hover:underline">task</a>, so a second
+					attempt at the same piece of work lands beside the first instead of becoming an
+					unrelated tab. {@render kbd('⌘T')} opens a session in the task you're already in,
+					{@render kbd('⌘N')} starts a fresh task, and {@render kbd('⌘⇧N')} opens a session with
+					no task at all when you just want to ask something.
+				</p>
 				<ul class="mt-5 flex flex-col gap-3 list-none p-0">
 					{#each [
-						['Open and close tabs', `${kbdHtml('⌘T')} opens a new tab, ${kbdHtml('⌥⇧W')} closes the current one, and ${kbdHtml('⌥⇧N')} / ${kbdHtml('⌥⇧P')} move between them.`],
+						['Open and close tabs', `${kbdHtml('⌘T')} opens a new session, ${kbdHtml('⌥⇧W')} closes the current one, and ${kbdHtml('⌥⇧N')} / ${kbdHtml('⌥⇧P')} move between them.`],
 						['Fork a session', `Press ${kbdHtml('⌥F')} to branch the current conversation into a new tab. The fork keeps all context up to that point — useful when you want to explore two approaches from the same starting state.`],
 						['Resume past work', `Press ${kbdHtml('⌥⇧R')} to open the session history picker and jump back into any previous session with its full conversation intact.`],
 						['Queue while busy', 'Sending a message while the agent is working queues it for the next turn — you never have to wait for a stopping point to say the next thing.'],
@@ -466,6 +476,15 @@
 						</li>
 					{/each}
 				</ul>
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">The summary card</h3>
+				<p class="text-base/7 sm:text-[14px]">
+					A finished turn ends with a card saying how many files changed. Expand it and it becomes
+					a directory tree rather than a flat list, so a sweep across three hundred files is still
+					a handful of rows — a folder with one child folds into its parent, and every folder
+					starts closed. Clicking a file opens that file's diff beside the conversation; clicking
+					the count opens the whole change.
+				</p>
+
 				<p class="mt-5 text-[14px] text-[#A09488]">See the <a href="#keybindings" class="text-[#C4973A] no-underline hover:underline">Keybindings → Diff panel</a> section for the full list of shortcuts.</p>
 			</section>
 
@@ -488,6 +507,33 @@
 					<span class="font-medium text-[#1A1714]">helix</span>.
 					Set your preferred editor in Settings.
 				</p>
+			</section>
+
+			<section id="search" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
+				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Searching Your Project</h2>
+				<p>
+					Half of reviewing an agent's work is checking the code it didn't touch — the caller it
+					forgot, the other place that string appears. Two overlays answer that without a detour
+					through your editor, and both search the session's own checkout: its worktree when the
+					session runs in one, the project root otherwise.
+				</p>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">How to use it</h3>
+				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
+					{#each [
+						['Search contents', `Press ${kbdHtml('⌘⇧F')} to search across every file in the project. Results stream in as you type, grouped by file with the matching line in context.`],
+						['Narrow the match', `Toggle ${kbdHtml('⌥C')} for case-sensitive, ${kbdHtml('⌥W')} for whole-word, and ${kbdHtml('⌥R')} to treat the query as a regular expression.`],
+						['Go to file', `Press ${kbdHtml('⌘E')} and type part of a path — the picker matches fuzzily, so <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">rndctx</code> finds <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">renderer/contexts</code>.`],
+						['Open a result', `${kbdHtml('Enter')} opens the file in the preview pane, scrolled to the matching line.`],
+						['Find within a file', `With a file open, ${kbdHtml('⌘F')} finds inside it and steps through the hits.`],
+					] as [title, desc]}
+						<li class="flex gap-3">
+							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
+							<span><strong class="text-[#1A1714] font-medium">{title}.</strong> {@html desc}</span>
+						</li>
+					{/each}
+				</ul>
+				<p class="mt-5 text-[14px] text-[#A09488]">A content search answers with what it has found so far rather than walking the whole tree while you're still typing, so results keep up with the query.</p>
 			</section>
 
 			<section id="review" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
@@ -579,11 +625,17 @@
 				</ul>
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Works gallery</h3>
-				<p class="text-base/7 sm:text-[14px]">These shortcuts are active while the Works gallery is open ({@render kbd('⌥⇧;')}).</p>
+				<p class="text-base/7 sm:text-[14px]">
+					Hovering a row shows a peek card — the first sentences of the document plus its outline —
+					so you can tell two similar drafts apart without opening either. {@render kbd('Space')}
+					does the same on the focused row, so the keyboard never needs a hover to get there.
+				</p>
+				<p class="text-base/7 sm:text-[14px] mt-3">These shortcuts are active while the Works gallery is open ({@render kbd('⌥⇧;')}).</p>
 				{@render kbTable([
 					['⌥⇧;', 'Open / close gallery'],
 					['/ (slash)', 'Focus search'],
 					['↑ / ↓', 'Navigate Works'],
+					['Space', 'Peek at the selected Work'],
 					['Enter', 'Open selected Work'],
 					['⌥Backspace', 'Delete selected Work'],
 					['Esc', 'Close'],
@@ -758,14 +810,84 @@
 
 			<section id="tasks" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
 				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Tasks</h2>
-				<div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-[rgba(212,175,106,0.3)] bg-[rgba(212,175,106,0.06)] mb-4">
-					<span class="text-[10.5px] font-semibold tracking-[0.07em] uppercase text-[#C4973A]">Coming soon</span>
-				</div>
 				<p>
-					A project-scoped task board is on the way: track work as local tickets or GitHub Issues,
-					group tasks into epics, and start an agent session straight from a task so the ticket
-					context travels with the work — and the branch and PR that come out of it link back to
-					the ticket.
+					An agent session is an attempt at something, and attempts pile up: you try a fix, it
+					isn't right, you try again tomorrow with a fresh conversation. A task is the thing
+					those attempts are attempts <em>at</em> — the ticket, the branch, the PR, and every
+					session that worked on it, in one place. Open the board with {@render kbd('⌥⇧T')} or the
+					<strong class="text-[#1A1714] font-medium">Tasks</strong> entry in the sidebar.
+				</p>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Sessions live inside tasks</h3>
+				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
+					{#each [
+						['Start a task', `${kbdHtml('⌘N')} opens a session in a brand-new task. You don't have to name it first — the task takes its title from your prompt, and you can rename it later.`],
+						['Add an attempt', `${kbdHtml('⌘T')} starts another session inside the task you're already working in. Both attempts hang off the same ticket in the sidebar, so the second one knows what the first one tried.`],
+						['Skip the ticket', `${kbdHtml('⌘⇧N')} opens a session with no task attached — right for a question you're not going to come back to.`],
+						['The agent knows the ticket', 'A session started on a task gets the task packet — title, status, description, labels, comments, subtasks, and a summary of prior attempts — so you never re-explain the ticket in your first message.'],
+						['Branch and PR come back', "The branch a session works on and the pull request it opens are captured onto the task automatically, so the ticket ends up pointing at the work rather than the other way round."],
+					] as [title, desc]}
+						<li class="flex gap-3">
+							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
+							<span><strong class="text-[#1A1714] font-medium">{title}.</strong> {@html desc}</span>
+						</li>
+					{/each}
+				</ul>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">The board</h3>
+				<p class="text-base/7 sm:text-[14px]">
+					The Tasks page is scoped to one project at a time — it follows the project you're working
+					in, or pin another from the header switcher. It has two layouts and two views.
+				</p>
+				<div class="mt-4 grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+					<div class="p-4 rounded-xl border border-[rgba(0,0,0,0.07)] bg-[rgba(0,0,0,0.015)]">
+						<p class="text-[12px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-2">List · grouped</p>
+						<p class="text-base/7 sm:text-[14px]">Tasks grouped by lifecycle state, sorted by last update, priority, or due date. Opens on live work — Done and Closed stay folded away until you ask for them.</p>
+					</div>
+					<div class="p-4 rounded-xl border border-[rgba(0,0,0,0.07)] bg-[rgba(0,0,0,0.015)]">
+						<p class="text-[12px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-2">Board · kanban</p>
+						<p class="text-base/7 sm:text-[14px]">The same tasks as columns you drag between — dropping a card writes its status. Reorder within a column to say what you're doing next; placed cards lead the column from then on.</p>
+					</div>
+				</div>
+				<ul class="mt-5 flex flex-col gap-3 list-none p-0">
+					{#each [
+						['Statuses', 'Six states, shared by local tasks and synced tickets alike: <strong class="text-[#1A1714] font-medium">Inbox</strong> (untriaged), <strong class="text-[#1A1714] font-medium">To do</strong>, <strong class="text-[#1A1714] font-medium">In progress</strong>, <strong class="text-[#1A1714] font-medium">In review</strong>, <strong class="text-[#1A1714] font-medium">Done</strong>, and <strong class="text-[#1A1714] font-medium">Dropped</strong>. Each one has its own glyph, so status never rides on colour alone.'],
+						['Priority and due dates', 'Urgent through Low, plus a target date. Sorting by either answers "what\'s next"; an overdue task is called out in place.'],
+						['Epics', 'Group related tasks under a parent epic. Subtasks roll up under it in the list and in the sidebar, and a session working a subtask is told about its siblings.'],
+						['Filters', 'Narrow to tasks with an agent currently running, overdue tasks, or assigned ones. Search is focused the moment the page opens, so you can start typing a title straight away.'],
+						['Inbox', 'A personal queue beside the project list: what came in and what is waiting on you, rather than the whole board.'],
+					] as [title, desc]}
+						<li class="flex gap-3">
+							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
+							<span><strong class="text-[#1A1714] font-medium">{title}.</strong> {@html desc}</span>
+						</li>
+					{/each}
+				</ul>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">The task page</h3>
+				<p class="text-base/7 sm:text-[14px]">
+					Opening a task gives it a full page: a title and Markdown description you edit in place,
+					a sidebar where you set status, priority, labels, and a target date — alongside the
+					assignee, project, and branch the work is on — and an activity feed that interleaves
+					comments with what actually happened: status changes, sessions started, a PR opened.
+					Comment on the task yourself (pasted screenshots come along), or filter the feed down to
+					comments only. Every session that has worked the task is listed, and a running one can
+					be opened, split beside the page, or stopped from its row.
+				</p>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Local tickets or GitHub Issues</h3>
+				<p class="text-base/7 sm:text-[14px]">
+					Tasks are local and file-backed by default — no account, no sync, nothing leaves your
+					machine. Point a project at GitHub instead and the board becomes that repository's
+					issues: they read as tasks, edits are written back upstream, comments post as issue
+					comments, and issues on a Projects v2 board carry their status, priority, and target
+					date both ways. The choice is per project, so one repo can track issues upstream while
+					another keeps a private list.
+				</p>
+				<p class="mt-5 text-[14px] text-[#A09488]">
+					Agents have task tools too — they can read the board, create a task, move it through
+					statuses, comment on it, and link it to a session, which is what keeps the board honest
+					without you updating it by hand.
 				</p>
 			</section>
 
@@ -1064,7 +1186,9 @@ solus claim                           # claim the server from this machine</div>
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Tabs</h3>
 				{@render kbTable([
-					['⌘T', 'New tab'],
+					['⌘T', 'New session in the current task'],
+					['⌘N', 'New task'],
+					['⌘⇧N', 'New session without a task'],
 					['⌥F', 'Fork session'],
 					['⌥⇧W', 'Close current tab'],
 					['⌥⇧N', 'Next tab'],
@@ -1105,6 +1229,27 @@ solus claim                           # claim the server from this machine</div>
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Navigation</h3>
 				{@render kbTable([
 					['⌥⇧R / ⌥⇧J', 'Toggle session history picker'],
+					['⌘⇧F', 'Search in project'],
+					['⌘E', 'Go to file'],
+				])}
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Tasks</h3>
+				{@render kbTable([
+					['⌥⇧T', 'Open / close tasks'],
+					['⌘N', 'New task'],
+					['⌘T', 'New session in the current task'],
+					['⌘⇧N', 'New session without a task'],
+					['Esc', 'Clear selection / clear search / close'],
+				])}
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Project search</h3>
+				<p class="text-base/7 sm:text-[14px]">These shortcuts are active while a search overlay is open.</p>
+				{@render kbTable([
+					['⌥C', 'Match case'],
+					['⌥W', 'Match whole word'],
+					['⌥R', 'Use a regular expression'],
+					['⌘F', 'Find within the open file'],
+					['Esc', 'Close'],
 				])}
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Voice</h3>
