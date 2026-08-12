@@ -37,6 +37,7 @@ interface SpanRow {
   span_id: string
   parent_span_id: string | null
   trace_id: string
+  session_id: string | null
   kind: string
   name: string
   model: string | null
@@ -62,6 +63,7 @@ interface SpanAttrs {
   providerDurationMs?: number
   reasoningEffort?: string
   taskId?: string
+  timeToFirstTokenMs?: number
   toolCallCount?: number
 }
 
@@ -73,23 +75,8 @@ function attrs(row: SpanRow): SpanAttrs {
   return JSON.parse(row.attrs) as SpanAttrs
 }
 
-function expectGaplessTurn(spans: SpanRow[]): void {
-  const turn = spans.find((span) => span.kind === 'turn')!
-  const intervals = spans
-    .filter((span) => span.kind !== 'turn' && span.kind !== 'background_task' && span.kind !== 'queue_wait')
-    .map((span) => [Math.max(turn.started_at, span.started_at), Math.min(turn.ended_at, span.ended_at)] as const)
-    .filter(([start, end]) => end >= start)
-    .sort(([a], [b]) => a - b)
-  let coveredUntil = turn.started_at
-  for (const [start, end] of intervals) {
-    expect(start).toBeLessThanOrEqual(coveredUntil)
-    coveredUntil = Math.max(coveredUntil, end)
-  }
-  expect(coveredUntil).toBe(turn.ended_at)
-}
-
 describe.serial('session emitter', () => {
-  test('records a complete, gapless Claude turn with prompt, usage, and tool input', () => {
+  test('records a Claude turn with natural-duration child spans', () => {
     const emitter = new emitterModule.SessionEmitter()
     emitter.beginTurn({ sessionId: 'claude-1', prompt: 'fix it', promptSource: 'typed', startedAt: 1_000 })
     emitter.completeSetup('claude-1', {
@@ -107,15 +94,15 @@ describe.serial('session emitter', () => {
     expect(emitter.finishTurn('claude-1', 'completed', 1_051)).toBe('completed')
 
     const spans = rows()
-    expect(spans.map((span) => span.kind)).toEqual(['setup', 'turn', 'model_work', 'tool_call', 'model_work'])
+    expect(spans.map((span) => span.kind)).toEqual(['setup', 'turn', 'tool_call'])
     const turn = spans.find((span) => span.kind === 'turn')!
     expect(turn.model).toBe('claude-sonnet-5')
     expect(attrs(turn)).toMatchObject({
       prompt: 'fix it', promptChars: 6, promptSource: 'typed', reasoningEffort: 'high', taskId: 'task-1',
-      costUsd: 0.25, inputTokens: 100, outputTokens: 20, cacheReadTokens: 30, toolCallCount: 1,
+      costUsd: 0.25, inputTokens: 100, outputTokens: 20, cacheReadTokens: 30,
+      timeToFirstTokenMs: 20, toolCallCount: 1,
     })
     expect(attrs(spans.find((span) => span.kind === 'tool_call')!)).toMatchObject({ input: '{"command":"bun test"}' })
-    expectGaplessTurn(spans)
   })
 
   test('uses Codex timestamps, outcomes, cumulative usage deltas, and rerouted model', () => {
@@ -147,7 +134,6 @@ describe.serial('session emitter', () => {
     expect(tool.started_at).toBe(2_010)
     expect(tool.ended_at).toBe(2_030)
     expect(attrs(tool)).toMatchObject({ outcomeStatus: 'completed', providerDurationMs: 20 })
-    expectGaplessTurn(spans)
 
     metricsDb.closeMetricsDb()
     for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `metrics.db${suffix}`), { force: true })
@@ -181,7 +167,6 @@ describe.serial('session emitter', () => {
     expect(tools.every((span) => span.ended_at === 4_030 && span.status === 'interrupted')).toBe(true)
     const parent = tools.find((span) => span.name === 'parent')!
     expect(tools.find((span) => span.name === 'child')!.parent_span_id).toBe(parent.span_id)
-    expectGaplessTurn(spans)
   })
 
   test('finalizes an open tool as error on provider failure', () => {
@@ -196,7 +181,6 @@ describe.serial('session emitter', () => {
     const spans = rows()
     expect(spans.find((span) => span.kind === 'turn')?.status).toBe('error')
     expect(spans.find((span) => span.kind === 'tool_call')?.status).toBe('error')
-    expectGaplessTurn(spans)
   })
 
   test('records queue wait and granted and denied permission waits', () => {
@@ -226,7 +210,6 @@ describe.serial('session emitter', () => {
     const permissions = spans.filter((span) => span.kind === 'permission_wait')
     expect(permissions.map((span) => attrs(span).decision)).toEqual(['granted', 'denied'])
     expect(attrs(spans.find((span) => span.kind === 'turn')!)).toMatchObject({ permissionDenialCount: 1 })
-    expectGaplessTurn(spans)
   })
 
   test('omits a missing Codex resume baseline, handles a counter reset, and records failed status', () => {
@@ -271,6 +254,22 @@ describe.serial('session emitter', () => {
     expect(spans.find((span) => span.kind === 'rate_limit_wait')).toMatchObject({ started_at: 8_010, ended_at: 8_020 })
     const background = spans.find((span) => span.kind === 'background_task')!
     expect(attrs(background)).toMatchObject({ blocking: false, outcomeStatus: 'completed' })
-    expectGaplessTurn(spans)
+  })
+
+  test('groups bounded turn traces by session and orders them by start time', () => {
+    const emitter = new emitterModule.SessionEmitter()
+    for (const startedAt of [9_000, 10_000]) {
+      emitter.beginTurn({ sessionId: 'ordered', prompt: 'continue', promptSource: 'typed', startedAt })
+      emitter.completeSetup('ordered', {
+        provider: 'claude-code', model: 'claude', projectRoot: '/repo', origin: 'typed', isResume: startedAt > 9_000,
+      }, startedAt + 5)
+      emitter.recordTerminal('ordered', 'ok', startedAt + 20)
+      emitter.finishTurn('ordered', 'completed', startedAt + 20)
+    }
+
+    const turns = rows().filter((span) => span.kind === 'turn')
+    expect(turns.map((turn) => turn.started_at)).toEqual([9_000, 10_000])
+    expect(turns.every((turn) => turn.session_id === 'ordered')).toBe(true)
+    expect(new Set(turns.map((turn) => turn.trace_id)).size).toBe(2)
   })
 })

@@ -5,18 +5,16 @@ import { writeSpan, type SpanAttributes, type SpanStatus } from './facade'
 import { SPAN_KINDS, SPAN_SERVICES, type SpanKind } from './registries'
 import {
   applyTaskCompleteAttrs,
-  backgroundKey,
   capped,
   copyUsage,
-  permissionKey,
   setUsageAttrs,
   spanStatusForToolOutcome,
   terminalOutcome,
-  toolKey,
   usageDelta,
   type TurnOutcome,
 } from './session-emitter-support'
 export type { TurnOutcome } from './session-emitter-support'
+
 const PROMPT_LIMIT = 4 * 1024
 const TOOL_INPUT_LIMIT = 8 * 1024
 
@@ -52,17 +50,11 @@ interface TurnState {
   dimensions?: TurnDimensions
   observedModel?: string
   rootAttrs: SpanAttributes
-  spans: BufferedSpan[]
-  blockingOpen: number
-  blockingWaveEndAt: number
-  modelWork?: BufferedSpan
-  firstModelWork?: BufferedSpan
-  thinkingDepth: number
-  thinkingWithoutModel: boolean
+  completedSpans: BufferedSpan[]
+  openSpans: Map<string, BufferedSpan>
+  toolSpans: Map<string, BufferedSpan>
   toolKeyByIndex: Map<number, string>
-  toolKeys: Set<string>
-  permissionKeys: Set<string>
-  backgroundKeys: Set<string>
+  permissionOptions: Map<string, Set<string>>
   rateLimitKey?: string
   terminalStatus?: SpanStatus
   terminalAt?: number
@@ -71,17 +63,11 @@ interface TurnState {
   taskComplete?: Extract<NormalizedEvent, { type: 'task_complete' }>
 }
 
-/** Owns the in-memory state for complete, per-session turn traces. */
+/** Records one bounded trace per turn. `sessionId` groups a session's turn traces. */
 export class SessionEmitter {
   private turns = new Map<string, TurnState>()
   private settlingTurns = new Map<string, TurnState>()
   private lastSettledAt = new Map<string, number>()
-  /** Composite keys are `${sessionId}\0${providerToolId}`. */
-  private openTools = new Map<string, BufferedSpan>()
-  private toolSpans = new Map<string, BufferedSpan>()
-  private openPermissions = new Map<string, BufferedSpan & { grantedOptions: Set<string> }>()
-  private openBackgroundTasks = new Map<string, BufferedSpan>()
-  private openRateLimits = new Map<string, BufferedSpan>()
   private codexUsageBaselines = new Map<string, UsageData>()
 
   beginTurn(input: {
@@ -114,15 +100,11 @@ export class SessionEmitter {
               ? {}
               : { interTurnIdleMs: Math.max(0, dispatchedAt - previousSettledAt) }),
         },
-        spans: [],
-        blockingOpen: 0,
-        blockingWaveEndAt: input.startedAt,
-        thinkingDepth: 0,
-        thinkingWithoutModel: false,
+        completedSpans: [],
+        openSpans: new Map(),
+        toolSpans: new Map(),
         toolKeyByIndex: new Map(),
-        toolKeys: new Set(),
-        permissionKeys: new Set(),
-        backgroundKeys: new Set(),
+        permissionOptions: new Map(),
       })
     })
     return traceId
@@ -142,7 +124,7 @@ export class SessionEmitter {
           ?? (dimensions.isResume ? undefined : {})
       }
       if (state.taskComplete) applyTaskCompleteAttrs(state.rootAttrs, dimensions.provider, state.taskComplete)
-      state.spans.push({
+      this.completeChild(state, {
         spanId: randomUUID(),
         parentSpanId: state.traceId,
         kind: SPAN_KINDS.setup,
@@ -151,8 +133,7 @@ export class SessionEmitter {
         endedAt: state.setupEndedAt,
         status: 'ok',
         attrs: {},
-      })
-      this.startModelWork(state, state.setupEndedAt)
+      }, state.setupEndedAt, 'ok')
     })
   }
 
@@ -160,16 +141,14 @@ export class SessionEmitter {
     this.safe(sessionId, () => {
       const state = this.turns.get(sessionId)
       if (!state) return
-      state.spans.push({
+      this.completeChild(state, {
         spanId: randomUUID(),
         parentSpanId: state.traceId,
         kind: SPAN_KINDS.queueWait,
         name: 'queue_wait',
         startedAt: Math.min(enqueuedAt, runStartedAt),
-        endedAt: runStartedAt,
-        status: 'ok',
         attrs: {},
-      })
+      }, runStartedAt, 'ok')
     })
   }
 
@@ -188,17 +167,11 @@ export class SessionEmitter {
         return
       }
       if (event.type === 'text_chunk' && !event.parentToolUseId) {
-        this.recordFirstToken(state, arrivedAt)
+        state.rootAttrs.timeToFirstTokenMs ??= Math.max(0, arrivedAt - state.startedAt)
         return
       }
       if (event.type === 'thinking' && !event.parentToolUseId) {
-        if (event.state === 'start') {
-          state.thinkingDepth++
-          if (state.modelWork) state.modelWork.attrs.hasThinking = true
-          else state.thinkingWithoutModel = true
-        } else {
-          state.thinkingDepth = Math.max(0, state.thinkingDepth - 1)
-        }
+        if (event.state === 'start') state.rootAttrs.hasThinking = true
         return
       }
       if (event.type === 'tool_call') {
@@ -206,17 +179,14 @@ export class SessionEmitter {
         return
       }
       if (event.type === 'tool_call_update') {
-        const key = toolKey(sessionId, event.toolId)
-        const span = this.toolSpans.get(key)
+        const span = state.toolSpans.get(this.toolKey(event.toolId))
         if (span && event.toolInput) this.setToolInput(span, event.toolInput)
         return
       }
       if (event.type === 'tool_call_complete') {
-        const key = event.toolId
-          ? toolKey(sessionId, event.toolId)
-          : state.toolKeyByIndex.get(event.index)
+        const key = event.toolId ? this.toolKey(event.toolId) : state.toolKeyByIndex.get(event.index)
         if (!key) return
-        const span = this.openTools.get(key)
+        const span = state.openSpans.get(key)
         if (!span) return
         if (event.toolInput) this.setToolInput(span, event.toolInput)
         if (event.outcome) {
@@ -226,17 +196,13 @@ export class SessionEmitter {
           if (event.outcome.declined !== undefined) span.attrs.declined = event.outcome.declined
           if (event.outcome.durationMs !== undefined) span.attrs.providerDurationMs = event.outcome.durationMs
         }
-        this.endBlockingSpan(
-          state,
-          span,
-          event.completedAtMs ?? arrivedAt,
-          spanStatusForToolOutcome(event.outcome),
-        )
-        this.openTools.delete(key)
+        span.endedAt = Math.max(span.startedAt, event.completedAtMs ?? arrivedAt)
+        span.status = spanStatusForToolOutcome(event.outcome)
+        state.openSpans.delete(key)
         return
       }
       if (event.type === 'tool_result') {
-        const span = this.toolSpans.get(toolKey(sessionId, event.toolUseId))
+        const span = state.toolSpans.get(this.toolKey(event.toolUseId))
         if (span && event.isError) {
           span.status = 'error'
           span.attrs.outcomeStatus = 'error'
@@ -252,14 +218,17 @@ export class SessionEmitter {
         return
       }
       if (event.type === 'background_task_settled') {
-        const key = backgroundKey(sessionId, event.taskId)
-        const span = this.openBackgroundTasks.get(key)
+        const key = this.backgroundKey(event.taskId)
+        const span = state.openSpans.get(key)
         if (!span) return
-        span.endedAt = Math.max(span.startedAt, arrivedAt)
-        span.status = event.status === 'completed' ? 'ok' : event.status === 'stopped' || event.status === 'killed' ? 'interrupted' : 'error'
+        const status = event.status === 'completed'
+          ? 'ok'
+          : event.status === 'stopped' || event.status === 'killed'
+            ? 'interrupted'
+            : 'error'
         span.attrs.outcomeStatus = event.status
-        this.openBackgroundTasks.delete(key)
-        state.backgroundKeys.delete(key)
+        state.openSpans.delete(key)
+        this.completeChild(state, span, arrivedAt, status)
         return
       }
       if (event.type === 'usage' && event.run) {
@@ -277,10 +246,9 @@ export class SessionEmitter {
     this.safe(sessionId, () => {
       const state = this.turns.get(sessionId)
       if (!state || state.rateLimitKey) return
-      const key = `${sessionId}\0rate_limit`
-      const span = this.startBlockingSpan(state, SPAN_KINDS.rateLimitWait, name, startedAt, {})
+      const key = 'rate_limit'
       state.rateLimitKey = key
-      this.openRateLimits.set(key, span)
+      state.openSpans.set(key, this.newChild(state, SPAN_KINDS.rateLimitWait, name, startedAt, {}))
     })
   }
 
@@ -288,9 +256,9 @@ export class SessionEmitter {
     this.safe(sessionId, () => {
       const state = this.turns.get(sessionId)
       if (!state?.rateLimitKey) return
-      const span = this.openRateLimits.get(state.rateLimitKey)
-      if (span) this.endBlockingSpan(state, span, endedAt, 'ok')
-      this.openRateLimits.delete(state.rateLimitKey)
+      const span = state.openSpans.get(state.rateLimitKey)
+      if (span) this.completeChild(state, span, endedAt, 'ok')
+      state.openSpans.delete(state.rateLimitKey)
       state.rateLimitKey = undefined
     })
   }
@@ -299,17 +267,17 @@ export class SessionEmitter {
     this.safe(sessionId, () => {
       const state = this.turns.get(sessionId)
       if (!state) return
-      const key = permissionKey(sessionId, questionId)
-      const span = this.openPermissions.get(key)
+      const key = this.permissionKey(questionId)
+      const span = state.openSpans.get(key)
       if (!span) return
-      const granted = span.grantedOptions.has(optionId)
+      const granted = state.permissionOptions.get(key)?.has(optionId) === true
       span.attrs.decision = granted ? 'granted' : 'denied'
       if (!granted) {
         state.rootAttrs.permissionDenialCount = Number(state.rootAttrs.permissionDenialCount ?? 0) + 1
       }
-      this.endBlockingSpan(state, span, endedAt, granted ? 'ok' : 'error')
-      this.openPermissions.delete(key)
-      state.permissionKeys.delete(key)
+      state.openSpans.delete(key)
+      state.permissionOptions.delete(key)
+      this.completeChild(state, span, endedAt, granted ? 'ok' : 'error')
     })
   }
 
@@ -319,7 +287,6 @@ export class SessionEmitter {
       if (!state) return
       state.terminalStatus = status
       state.terminalAt = at
-      this.finalizeOpenChildren(state, status, at)
     })
   }
 
@@ -327,9 +294,7 @@ export class SessionEmitter {
     let outcome = fallback
     this.safe(sessionId, () => {
       const active = this.turns.get(sessionId)
-      const state = traceId && active?.traceId !== traceId
-        ? this.settlingTurns.get(traceId)
-        : active
+      const state = traceId && active?.traceId !== traceId ? this.settlingTurns.get(traceId) : active
       if (!state) return
       const status = state.terminalStatus
         ?? (fallback === 'completed' ? 'ok' : fallback === 'interrupted' ? 'interrupted' : 'error')
@@ -343,23 +308,27 @@ export class SessionEmitter {
   private finish(state: TurnState, status: SpanStatus, endedAt: number): void {
     if (!state.setupEndedAt) {
       state.setupEndedAt = endedAt
-      state.spans.push({
+      this.completeChild(state, {
         spanId: randomUUID(),
         parentSpanId: state.traceId,
         kind: SPAN_KINDS.setup,
         name: 'setup',
         startedAt: state.startedAt,
-        endedAt,
-        status,
         attrs: {},
-      })
+      }, endedAt, status)
     }
 
-    this.finalizeOpenChildren(state, status, endedAt)
-    state.blockingOpen = 0
-    this.closeModelWork(state, endedAt, status === 'ok' ? 'ok' : status)
+    for (const [key, span] of state.openSpans) {
+      if (span.kind === SPAN_KINDS.toolCall) {
+        span.endedAt = Math.max(span.startedAt, endedAt)
+        span.status = status
+      } else {
+        this.completeChild(state, span, endedAt, status)
+      }
+      state.openSpans.delete(key)
+    }
 
-    state.rootAttrs.toolCallCount = state.toolKeys.size
+    state.rootAttrs.toolCallCount = state.toolSpans.size
     if (state.rootAttrs.permissionDenialCount === undefined) state.rootAttrs.permissionDenialCount = 0
 
     if (state.dimensions?.provider === 'codex' && state.latestCodexUsage) {
@@ -386,56 +355,36 @@ export class SessionEmitter {
       origin: dimensions?.origin,
       attrs: state.rootAttrs,
     }, state.sessionId)
-    for (const span of state.spans) {
-      const spanEndedAt = Math.max(span.startedAt, span.endedAt ?? endedAt)
-      this.write({
-        spanId: span.spanId,
-        parentSpanId: span.parentSpanId,
-        traceId: state.traceId,
-        kind: span.kind,
-        name: span.name,
-        service: SPAN_SERVICES.sessions,
-        startedAt: span.startedAt,
-        endedAt: spanEndedAt,
-        status: span.status ?? status,
-        sessionId: state.sessionId,
-        provider: dimensions?.provider,
-        model: dimensions?.model,
-        projectRoot: dimensions?.projectRoot,
-        origin: dimensions?.origin,
-        attrs: span.attrs,
-      }, state.sessionId)
+
+    for (const span of state.completedSpans) this.writeChild(state, span)
+    for (const span of state.toolSpans.values()) {
+      this.writeChild(state, span)
     }
 
-    for (const key of state.toolKeys) this.toolSpans.delete(key)
     if (this.turns.get(state.sessionId) === state) this.turns.delete(state.sessionId)
     this.settlingTurns.delete(state.traceId)
     this.lastSettledAt.set(state.sessionId, endedAt)
   }
 
   private startTool(state: TurnState, event: Extract<NormalizedEvent, { type: 'tool_call' }>, startedAt: number): void {
-    const key = toolKey(state.sessionId, event.toolId)
-    if (this.openTools.has(key)) return
-    const parent = event.parentToolUseId
-      ? this.toolSpans.get(toolKey(state.sessionId, event.parentToolUseId))
-      : undefined
-    const attrs: SpanAttributes = {
-      ...(event.parentToolUseId ? { parentToolUseId: event.parentToolUseId } : {}),
-      isSubagent: event.isSubagent === true,
-    }
-    const span = this.startBlockingSpan(
+    const key = this.toolKey(event.toolId)
+    if (state.toolSpans.has(key)) return
+    const parent = event.parentToolUseId ? state.toolSpans.get(this.toolKey(event.parentToolUseId)) : undefined
+    const span = this.newChild(
       state,
       SPAN_KINDS.toolCall,
       event.toolName,
       startedAt,
-      attrs,
+      {
+        ...(event.parentToolUseId ? { parentToolUseId: event.parentToolUseId } : {}),
+        isSubagent: event.isSubagent === true,
+      },
       parent?.spanId,
     )
     if (event.toolInput) this.setToolInput(span, event.toolInput)
     state.toolKeyByIndex.set(event.index, key)
-    state.toolKeys.add(key)
-    this.openTools.set(key, span)
-    this.toolSpans.set(key, span)
+    state.toolSpans.set(key, span)
+    state.openSpans.set(key, span)
   }
 
   private startPermission(
@@ -443,12 +392,15 @@ export class SessionEmitter {
     event: Extract<NormalizedEvent, { type: 'permission_request' }>,
     startedAt: number,
   ): void {
-    const key = permissionKey(state.sessionId, event.questionId)
-    if (this.openPermissions.has(key)) return
-    const span = this.startBlockingSpan(state, SPAN_KINDS.permissionWait, event.toolName, startedAt, {}) as BufferedSpan & { grantedOptions: Set<string> }
-    span.grantedOptions = new Set(event.options.filter((option) => option.kind === 'allow' || option.id === 'allow' || option.id === 'accept').map((option) => option.id))
-    state.permissionKeys.add(key)
-    this.openPermissions.set(key, span)
+    const key = this.permissionKey(event.questionId)
+    if (state.openSpans.has(key)) return
+    state.openSpans.set(key, this.newChild(state, SPAN_KINDS.permissionWait, event.toolName, startedAt, {}))
+    state.permissionOptions.set(
+      key,
+      new Set(event.options
+        .filter((option) => option.kind === 'allow' || option.id === 'allow' || option.id === 'accept')
+        .map((option) => option.id)),
+    )
   }
 
   private startBackgroundTask(
@@ -456,122 +408,80 @@ export class SessionEmitter {
     event: Extract<NormalizedEvent, { type: 'background_task_started' }>,
     startedAt: number,
   ): void {
-    const key = backgroundKey(state.sessionId, event.taskId)
-    if (this.openBackgroundTasks.has(key)) return
-    const parent = event.toolUseId
-      ? this.toolSpans.get(toolKey(state.sessionId, event.toolUseId))
-      : undefined
-    const span: BufferedSpan = {
-      spanId: randomUUID(),
-      parentSpanId: parent?.spanId ?? state.traceId,
-      kind: SPAN_KINDS.backgroundTask,
-      name: event.taskId,
-      startedAt: Math.max(state.startedAt, startedAt),
-      attrs: { blocking: false, ...(event.toolUseId ? { toolUseId: event.toolUseId } : {}) },
-    }
-    state.spans.push(span)
-    state.backgroundKeys.add(key)
-    this.openBackgroundTasks.set(key, span)
+    const key = this.backgroundKey(event.taskId)
+    if (state.openSpans.has(key)) return
+    const parent = event.toolUseId ? state.toolSpans.get(this.toolKey(event.toolUseId)) : undefined
+    state.openSpans.set(key, this.newChild(
+      state,
+      SPAN_KINDS.backgroundTask,
+      event.taskId,
+      startedAt,
+      { blocking: false, ...(event.toolUseId ? { toolUseId: event.toolUseId } : {}) },
+      parent?.spanId,
+    ))
   }
 
-  private startBlockingSpan(
+  private newChild(
     state: TurnState,
     kind: SpanKind,
     name: string,
     startedAt: number,
     attrs: SpanAttributes,
-    parentSpanId?: string,
+    parentSpanId = state.traceId,
   ): BufferedSpan {
-    const start = Math.max(state.setupEndedAt ?? state.startedAt, startedAt)
-    if (state.blockingOpen === 0) {
-      this.closeModelWork(state, start, 'ok')
-      state.blockingWaveEndAt = start
-    }
-    state.blockingOpen++
-    const span: BufferedSpan = {
+    return {
       spanId: randomUUID(),
-      parentSpanId: parentSpanId ?? state.traceId,
+      parentSpanId,
       kind,
       name,
-      startedAt: start,
+      startedAt: Math.max(state.setupEndedAt ?? state.startedAt, startedAt),
       attrs,
     }
-    state.spans.push(span)
-    return span
   }
 
-  private endBlockingSpan(state: TurnState, span: BufferedSpan, endedAt: number, status: SpanStatus): void {
+  private completeChild(state: TurnState, span: BufferedSpan, endedAt: number, status: SpanStatus): void {
     span.endedAt = Math.max(span.startedAt, endedAt)
     span.status = status
-    state.blockingWaveEndAt = Math.max(state.blockingWaveEndAt, span.endedAt)
-    state.blockingOpen = Math.max(0, state.blockingOpen - 1)
-    if (state.blockingOpen === 0) this.startModelWork(state, state.blockingWaveEndAt)
+    state.completedSpans.push(span)
   }
 
-  private finalizeOpenBlockingSpan(state: TurnState, span: BufferedSpan, endedAt: number, status: SpanStatus): void {
-    span.endedAt = Math.max(span.startedAt, endedAt)
-    span.status = status
-    state.blockingWaveEndAt = Math.max(state.blockingWaveEndAt, span.endedAt)
-  }
-
-  private finalizeOpenChildren(state: TurnState, status: SpanStatus, endedAt: number): void {
-    for (const key of state.toolKeys) {
-      const span = this.openTools.get(key)
-      if (span) this.finalizeOpenBlockingSpan(state, span, endedAt, status)
-      this.openTools.delete(key)
-    }
-    for (const key of state.permissionKeys) {
-      const span = this.openPermissions.get(key)
-      if (span) this.finalizeOpenBlockingSpan(state, span, endedAt, status)
-      this.openPermissions.delete(key)
-    }
-    for (const key of state.backgroundKeys) {
-      const span = this.openBackgroundTasks.get(key)
-      if (span) Object.assign(span, { endedAt: Math.max(span.startedAt, endedAt), status })
-      this.openBackgroundTasks.delete(key)
-    }
-    if (!state.rateLimitKey) return
-    const span = this.openRateLimits.get(state.rateLimitKey)
-    if (span) this.finalizeOpenBlockingSpan(state, span, endedAt, status)
-    this.openRateLimits.delete(state.rateLimitKey)
-  }
-
-  private startModelWork(state: TurnState, startedAt: number): void {
-    if (state.modelWork || state.blockingOpen > 0) return
-    const span: BufferedSpan = {
-      spanId: randomUUID(),
-      parentSpanId: state.traceId,
-      kind: SPAN_KINDS.modelWork,
-      name: 'model_work',
-      startedAt: Math.max(state.setupEndedAt ?? state.startedAt, startedAt),
-      attrs: {
-        hasThinking: state.thinkingDepth > 0 || state.thinkingWithoutModel,
-      },
-    }
-    state.thinkingWithoutModel = false
-    state.modelWork = span
-    state.firstModelWork ??= span
-    state.spans.push(span)
-  }
-
-  private closeModelWork(state: TurnState, endedAt: number, status: SpanStatus): void {
-    const span = state.modelWork
-    if (!span) return
-    span.endedAt = Math.max(span.startedAt, endedAt)
-    span.status = status
-    state.modelWork = undefined
-  }
-
-  private recordFirstToken(state: TurnState, at: number): void {
-    const first = state.firstModelWork
-    if (!first || first.attrs.timeToFirstTokenMs !== undefined) return
-    first.attrs.timeToFirstTokenMs = Math.max(0, at - state.startedAt)
+  private writeChild(state: TurnState, span: BufferedSpan): void {
+    const dimensions = state.dimensions
+    this.write({
+      spanId: span.spanId,
+      parentSpanId: span.parentSpanId,
+      traceId: state.traceId,
+      kind: span.kind,
+      name: span.name,
+      service: SPAN_SERVICES.sessions,
+      startedAt: span.startedAt,
+      endedAt: span.endedAt ?? span.startedAt,
+      status: span.status ?? 'unknown',
+      sessionId: state.sessionId,
+      provider: dimensions?.provider,
+      model: dimensions?.model,
+      projectRoot: dimensions?.projectRoot,
+      origin: dimensions?.origin,
+      attrs: span.attrs,
+    }, state.sessionId)
   }
 
   private setToolInput(span: BufferedSpan, input: string): void {
     const value = capped(input, TOOL_INPUT_LIMIT)
     span.attrs.input = value.value
     if (value.truncated) span.attrs.inputTruncated = true
+  }
+
+  private toolKey(toolId: string): string {
+    return `tool:${toolId}`
+  }
+
+  private permissionKey(questionId: string): string {
+    return `permission:${questionId}`
+  }
+
+  private backgroundKey(taskId: string): string {
+    return `background:${taskId}`
   }
 
   private write(input: Parameters<typeof writeSpan>[0], sessionId: string): void {

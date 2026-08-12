@@ -59,18 +59,6 @@ export function copyUsage(usage: UsageData): UsageData {
   }
 }
 
-export function toolKey(sessionId: string, toolId: string): string {
-  return `${sessionId}\0${toolId}`
-}
-
-export function permissionKey(sessionId: string, questionId: string): string {
-  return `${sessionId}\0permission:${questionId}`
-}
-
-export function backgroundKey(sessionId: string, taskId: string): string {
-  return `${sessionId}\0background:${taskId}`
-}
-
 export function setUsageAttrs(attrs: SpanAttributes, usage: UsageData): void {
   if (usage.inputTokens !== undefined) attrs.inputTokens = usage.inputTokens
   if (usage.outputTokens !== undefined) attrs.outputTokens = usage.outputTokens

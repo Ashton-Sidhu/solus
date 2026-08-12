@@ -2,7 +2,6 @@ export const SPAN_KINDS = {
   turn: 'turn',
   setup: 'setup',
   toolCall: 'tool_call',
-  modelWork: 'model_work',
   permissionWait: 'permission_wait',
   queueWait: 'queue_wait',
   rateLimitWait: 'rate_limit_wait',

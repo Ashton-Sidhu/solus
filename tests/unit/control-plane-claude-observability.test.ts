@@ -143,7 +143,7 @@ function spans(sessionId: string): SpanRow[] {
 }
 
 describe.serial('Claude turn capture end to end', () => {
-  test('a full Claude turn writes a complete, tiled span tree to metrics.db', async () => {
+  test('a full Claude turn writes natural-duration child spans to metrics.db', async () => {
     const backend = new ClaudeShapedBackend()
     const plane = new controlPlaneModule.ControlPlane(new Map([['claude-code', backend]]))
     plane.on('error', () => {})
@@ -187,7 +187,7 @@ describe.serial('Claude turn capture end to end', () => {
     const children = rows.filter((row) => row.kind !== 'turn')
     expect(children.every((row) => row.trace_id === turn.trace_id)).toBe(true)
     expect(children.every((row) => row.ended_at >= row.started_at)).toBe(true)
-    expect(rows.map((row) => row.kind).sort()).toEqual(['model_work', 'model_work', 'setup', 'tool_call', 'turn'])
+    expect(rows.map((row) => row.kind).sort()).toEqual(['setup', 'tool_call', 'turn'])
 
     const tool = rows.find((row) => row.kind === 'tool_call')!
     expect(tool.name).toBe('Bash')
@@ -195,20 +195,7 @@ describe.serial('Claude turn capture end to end', () => {
     expect(tool.status).toBe('ok')
     expect(JSON.parse(tool.attrs)).toMatchObject({ input: '{"command":"bun run build"}' })
 
-    const modelWork = rows.filter((row) => row.kind === 'model_work')
-    expect(modelWork.some((row) => JSON.parse(row.attrs).hasThinking === true)).toBe(true)
-
-    // Blocking children tile the turn: interval union covers it with no gap.
-    const intervals = children
-      .filter((row) => row.kind !== 'background_task' && row.kind !== 'queue_wait')
-      .map((row) => [row.started_at, row.ended_at] as const)
-      .sort(([a], [b]) => a - b)
-    let coveredUntil = turn.started_at
-    for (const [start, end] of intervals) {
-      expect(start).toBeLessThanOrEqual(coveredUntil)
-      coveredUntil = Math.max(coveredUntil, end)
-    }
-    expect(coveredUntil).toBe(turn.ended_at)
+    expect(JSON.parse(turn.attrs)).toMatchObject({ hasThinking: true })
 
     plane.shutdown()
   })

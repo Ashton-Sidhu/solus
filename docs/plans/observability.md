@@ -19,7 +19,7 @@ both-providers exit-ordering hazard — folded throughout).
   `name`, `service`, `startedAt`, `endedAt`, `durationMs`, `status`
   (`ok | error | interrupted | unknown`), `attrs` (flat JSON of strings, numbers,
   booleans). The only fact the module stores. Matches the OTel span deliberately.
-- **Kind** — the span's type: `turn`, `setup`, `tool_call`, `model_work`,
+- **Kind** — the span's type: `turn`, `setup`, `tool_call`,
   `permission_wait`, `queue_wait`, `rate_limit_wait`, `background_task`, `agent_run`, and the
   `internal.*` namespace (`internal.rpc`, `internal.indexer_sweep`,
   `internal.worktree_op`, …). Registered constants, never free strings.
@@ -28,10 +28,9 @@ both-providers exit-ordering hazard — folded throughout).
   `solus.automations`, `solus.indexer`, `solus.rpc`, `solus.git`. Registered
   constants. Every span has exactly one.
 - **Trace** — one turn (or one internal operation) and all its child spans, sharing a
-  `traceId`. A turn's children **tile** its duration: tiling means the *interval
-  union* of blocking children covers the turn with no unexplained gap. Children may
-  overlap (parallel and nested tools), so summed child durations can exceed the turn
-  — share/rollup presets must use exclusive-time accounting, never naive sums.
+  `traceId`. Each turn is bounded and carries `sessionId`; session views group root
+  turns by `sessionId` and order them by `(startedAt, spanId)`. Child spans record
+  only observed intervals. Children may overlap, so rollups use interval unions.
 - **Facade** — the single write API (`src/main/observability/`). Everything records
   through it; it dual-writes to the metrics store and, when configured, OTLP. Nothing
   outside the facade knows about tables or exporters.
@@ -66,8 +65,9 @@ spans. Do not call the Insights surface "analytics", "dashboard", or "stats".
 3. Saved queries and shipped common queries.
 4. Works for dispatched sessions.
 5. Cost and token capture.
-6. Full-span turns: not just tool calls — model work, permission waits, queue waits,
-   rate-limit waits, background tasks. Children tile the turn.
+6. Full-span turns: not just tool calls — setup, permission waits, queue waits,
+   rate-limit waits, and background tasks. Uninstrumented time is derived from the
+   root turn minus the union of its observed child intervals.
 7. The prompt between turns, plus inter-turn idle time.
 8. Solus's own metrics and logs through the same pipeline, with named services for
    internal agent-powered subsystems (text generation, review guides, subagents).
@@ -259,8 +259,6 @@ is the user's collector's job.
 turn (trace root; service solus.sessions)
 ├─ queue_wait          prompt_queued.enqueuedAt → runStartedAt (see threading note below)
 ├─ setup               inside _launchRun: git state, worktree create, task prep
-├─ model_work          derived: the turn is running and nothing else owns the clock
-│                      attrs: hasThinking; timeToFirstTokenMs on the first segment
 ├─ tool_call           name: tool name; children nested via parentToolUseId
 ├─ permission_wait     name: tool name; attrs.decision: granted | denied
 ├─ rate_limit_wait
@@ -271,7 +269,12 @@ Turn attrs: `prompt` (capped ~4 KB, `promptTruncated` flag), `promptChars`,
 `promptSource` (`typed | queued | automation | agent | dispatch`), `interTurnIdleMs`
 (previous settlement → this dispatch, same session), `reasoningEffort`, `taskId`,
 `automationId`, `costUsd`, `inputTokens`, `outputTokens`, `cacheReadTokens`,
-`toolCallCount`, `permissionDenialCount`.
+`toolCallCount`, `permissionDenialCount`, `hasThinking`, `timeToFirstTokenMs`.
+
+Model/uninstrumented time is not stored as a synthetic span. Query and waterfall
+surfaces derive it from the turn interval minus the union of observed child intervals.
+This keeps capture factual and removes a second state machine that tried to manufacture
+a gapless timeline from provider events.
 
 Tool-call attrs: size-capped input fields (~8 KB, truncation-flagged),
 `parentToolUseId`, `isSubagent`, provider outcome (exit code / error) where available.
@@ -380,6 +383,10 @@ clients bind automatically via `ws-transport.ts` / the preload):
 - `metricsSessionSummary(sessionId)` — rollup for session surfaces.
 - `metricsTurnTrace(traceId)` — one turn's full span tree (waterfall).
 
+Session summaries order root turns by `(started_at, span_id)`. A displayed turn number
+is a query-time `ROW_NUMBER()` over that order; it is not persisted because retention,
+restarts, and concurrent dispatches make a stored ordinal unreliable.
+
 ### Insights UI
 
 Feature folder `src/renderer/components/insights/` with logic in `lib/` and an
@@ -442,8 +449,8 @@ the natural cross-host aggregation point for dispatch.
 - Turn duration includes setup: the turn span starts at `runStartedAt`
   (`control-plane.ts:1692`) and a `setup` child owns worktree/git/task-prep time
   inside `_launchRun` — user-visible latency is never excluded from the turn.
-- Tiling is interval-union coverage of blocking children; overlap is legal
-  (parallel/nested tools); rollup presets use exclusive-time accounting.
+- Child intervals may overlap (parallel or nested tools). Rollups use interval unions,
+  and derive uninstrumented time from the root turn rather than synthetic child spans.
 - Ephemeral services get one coarse `agent_run` span, not a child tree.
 - Automation runs sit in the **user** namespace (users care how long their nightly
   automation takes); only scheduler plumbing is `internal.*`.
@@ -461,9 +468,9 @@ Each WP lands green (`bun run build`, focused unit tests) before the next starts
   `metrics.db` connection + migration ladder + `spans` schema, rollover job,
   `metricsRetentionDays` setting. Tests: span write/finalize, rollover boundary,
   registry rejection of unregistered kinds/services.
-- **WP2 — Session emitter + provider passthrough.** ControlPlane hooks; the turn
-  state machine (interval-union tiling incl. the `setup` child; finalize on every
-  terminal path); dimension snapshot from `_launchRun`'s returned run; terminal
+- **WP2 — Session emitter + provider passthrough.** ControlPlane hooks; one bounded
+  trace per turn grouped by `sessionId`; natural-duration children finalized on every
+  terminal path; dimension snapshot from `_launchRun`'s returned run; terminal
   status recorded in the exit/error listeners (the settlement continuation cannot
   see exit codes); `enqueuedAt` threaded through queue drain for `queue_wait`;
   permission close hook in `ControlPlane.respondToPermission` + terminal cleanup;
@@ -473,11 +480,12 @@ Each WP lands green (`bun run build`, focused unit tests) before the next starts
   ephemeral `agent_run` spans closing on throw/reject/timeout too; the optional
   outcome field on `tool_call_complete` (optional because Claude lacks a provider
   outcome at `content_block_stop`); all eight [codex-audit] corrections. Tests:
-  synthetic event streams for both providers asserting complete, gapless trees —
+  synthetic event streams for both providers asserting complete span trees —
   including interrupt, failure, parallel tools, queue drain, and Codex
   usage-delta cases.
 - **WP3 — Query engine + RPC + saved queries.** QuerySpec compiler (with percentile
-  pass and exclusive-time rollups), `observability-handlers.ts`, RPC registration
+  pass, interval-union rollups, and derived uninstrumented time),
+  `observability-handlers.ts`, RPC registration
   **plus the hand-maintained typed `SolusAPI` surface in `src/preload/index.ts`**,
   `saved_queries` in `solus.db`. Tests: compiler golden cases incl. attrs paths and
   time buckets.
@@ -500,7 +508,5 @@ Each WP lands green (`bun run build`, focused unit tests) before the next starts
   second platform exception (the first is Insights query composing).
 - Exact attrs shape of the `tool_call_complete` outcome field — resolve at WP2 start
   against both providers' available outcome data.
-- Whether `model_work` should be split further (thinking vs generation) or stay one
-  kind with `hasThinking` — decide from real waterfalls during WP2.
 - Chart rendering in Insights: existing in-repo primitives vs a small chart lib —
   decide at WP4 with the dataviz guidance.
