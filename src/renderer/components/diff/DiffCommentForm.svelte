@@ -68,7 +68,7 @@
 >
   {#if rangeLabel}
     <span
-      class="inline-block text-[0.625rem] text-(--solus-text-tertiary) tabular-nums"
+      class="inline-block text-xs text-(--solus-text-tertiary) tabular-nums"
       style="font-family:{MONO_FONT}"
     >
       {rangeLabel}
@@ -88,7 +88,7 @@
   />
   <div class="flex items-center justify-end gap-1.5">
     <span
-      class="mr-auto text-[0.625rem] text-(--solus-text-tertiary)"
+      class="mr-auto text-xs text-(--solus-text-tertiary)"
       style="font-family:{MONO_FONT}"
     >
       ⌘↵ to save

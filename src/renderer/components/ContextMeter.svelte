@@ -101,7 +101,7 @@
               ? `${usedPct}% of context used`
               : "Context usage not reported yet"}
             data-testid="context-meter-trigger"
-            class="flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.6875rem] text-(--solus-text-tertiary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light)"
+            class="flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-(--solus-text-tertiary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light)"
           >
       {@render meter("h-[0.1875rem] w-[2.625rem] shrink-0")}
       <span
@@ -126,8 +126,8 @@
            leading the head. The `shadow:` type hint is what evicts
            Popover.Content's stock `shadow-md` — without it tailwind-merge reads
            the arbitrary value as a shadow *colour* and both survive.
-           `lg:text-[0.75rem]` restates the size for the primitive's
-           `lg:text-[0.9375rem]`, which is its own merge group. -->
+           `lg:text-xs` restates the size for the primitive's
+           `lg:text-sm`, which is its own merge group. -->
       <Popover.Content
         side="bottom"
         align="start"
@@ -136,10 +136,10 @@
         role="dialog"
         aria-label="Context usage details"
         data-testid="context-meter-popover"
-        class="z-[10002] w-[17rem] gap-0 overflow-hidden rounded-2xl border-[0.0313rem] border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 text-[0.75rem] lg:text-[0.75rem] text-(--solus-text-secondary) shadow-[shadow:var(--solus-popover-shadow)] ring-0"
+        class="z-[10002] w-[17rem] gap-0 overflow-hidden rounded-2xl border-[0.0313rem] border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 text-xs lg:text-xs text-(--solus-text-secondary) shadow-[shadow:var(--solus-popover-shadow)] ring-0"
       >
         <Popover.Header
-          class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3.5 border-b border-[color-mix(in_srgb,var(--solus-container-border)_32%,transparent)] px-4 py-3.5 text-[0.75rem] lg:text-[0.75rem]"
+          class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3.5 border-b border-[color-mix(in_srgb,var(--solus-container-border)_32%,transparent)] px-4 py-3.5 text-xs lg:text-xs"
         >
           <span
             class="inline-flex size-8 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--solus-text-tertiary)_8%,transparent)] text-(--solus-text-secondary)"
@@ -183,7 +183,7 @@
           </div>
           {@render meter("mt-2 h-[0.25rem] w-full")}
           <Popover.Description
-            class="mt-2 block text-[0.6875rem] leading-[1.35] text-(--solus-text-tertiary) tabular-nums"
+            class="mt-2 block text-xs leading-[1.35] text-(--solus-text-tertiary) tabular-nums"
           >
             {#if !context}
               Fills in after the first response

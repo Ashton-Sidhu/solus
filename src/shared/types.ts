@@ -7,6 +7,8 @@ import type { PrReviewTarget, PullRequestDetail } from './providers'
 
 export type AgentId = 'claude-code' | 'codex' | 'opencode'
 
+export type AgentTaskLifecyclePolicy = 'none' | 'moderate' | 'autonomous'
+
 export const AGENT_BIN: Record<AgentId, string> = {
   'claude-code': 'claude',
   'codex': 'codex',
@@ -33,6 +35,8 @@ export interface ServerCapabilities {
   serverName?: string
   /** Where this host's folder picker starts when opening a new project. */
   projectsBaseDirectory?: string
+  /** How much control agents have over task lifecycle status. */
+  agentTaskLifecyclePolicy?: AgentTaskLifecyclePolicy
   /** This host's general-purpose workspace — the app's default working directory. */
   workspacePath?: string
 }

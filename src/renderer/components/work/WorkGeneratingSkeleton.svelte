@@ -46,7 +46,7 @@
   }
 
   .work-skeleton__kicker {
-    font-size: 0.59375rem;
+    font-size: 0.75rem;
     font-weight: 500;
 
     text-transform: uppercase;
@@ -55,7 +55,7 @@
   }
 
   .work-skeleton__status {
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     animation: work-sk-breathe 2.6s ease-in-out infinite;
   }

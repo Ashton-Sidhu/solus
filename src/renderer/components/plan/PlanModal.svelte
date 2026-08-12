@@ -168,7 +168,7 @@
             <button
               {...props}
               type="button"
-              class="group inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border-0 px-2 text-[0.78125rem] font-normal transition-[background-color,color,scale] duration-(--duration-quick) ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none {revisionDropdownOpen
+              class="group inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border-0 px-2 text-[0.8125rem] font-normal transition-[background-color,color,scale] duration-(--duration-quick) ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none {revisionDropdownOpen
  ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
  : 'bg-transparent text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
             >

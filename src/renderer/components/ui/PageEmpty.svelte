@@ -57,7 +57,7 @@
     {/if}
     {#if title}
       <EmptyTitle
-        class="text-[0.9375rem] font-medium text-(--solus-text-primary)"
+        class="text-sm font-medium text-(--solus-text-primary)"
       >
         {title}
       </EmptyTitle>

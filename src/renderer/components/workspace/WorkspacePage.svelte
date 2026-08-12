@@ -349,7 +349,7 @@
    *  colour carries the `color:` hint so tailwind-merge classifies it and drops
    *  the trigger's own default rather than leaving both in the sheet. */
   const FILTER_CHIP =
-    "h-7 shrink-0 gap-1.5 rounded-lg bg-transparent px-2.5 py-0 text-[13px] font-normal text-[color:var(--muted-foreground)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:bg-[var(--wash-2)] hover:text-foreground";
+    "h-7 shrink-0 gap-1.5 rounded-lg bg-transparent px-2.5 py-0 text-[0.8125rem] font-normal text-[color:var(--muted-foreground)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:bg-[var(--wash-2)] hover:text-foreground";
 
   // ── Selection bookkeeping ──
   $effect(() => {
@@ -611,7 +611,7 @@
 )}
   <button
     type="button"
-    class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 text-[13px] transition-colors duration-150 {active
+    class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 text-[0.8125rem] transition-colors duration-150 {active
  ? 'bg-[color-mix(in_oklch,var(--primary)_13%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
  : 'bg-transparent text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:bg-[var(--wash-2)] hover:text-foreground'}"
     {onclick}
@@ -620,7 +620,7 @@
     <Icon size={11} class="shrink-0 opacity-75" />
     {label}
     {#if !active}
-      <span class="font-mono text-[11px] tabular-nums opacity-60">{count}</span>
+      <span class="font-mono text-xs tabular-nums opacity-60">{count}</span>
     {/if}
   </button>
 {/snippet}
@@ -648,12 +648,12 @@
      named, even 300 rows down. -->
 {#snippet groupHeader(label: string, count: number)}
   <span
-    class="text-[10px] font-normal text-muted-foreground uppercase"
+    class="text-xs font-normal text-muted-foreground uppercase"
   >
     {label}
   </span>
   <span
-    class="font-mono text-[11px] tabular-nums text-muted-foreground opacity-70"
+    class="font-mono text-xs tabular-nums text-muted-foreground opacity-70"
     >{count}</span
   >
   <span class="h-px flex-1 bg-[var(--hairline)]"></span>
@@ -661,7 +661,7 @@
 
 {#if open}
   <div
-    class="workspace-root relative flex min-h-0 flex-1 flex-col bg-background text-[13px] text-foreground"
+    class="workspace-root relative flex min-h-0 flex-1 flex-col bg-background text-[0.8125rem] text-foreground"
     style={isEditorMode ? "" : "max-height:var(--pill-body-max)"}
     role="dialog"
     aria-label="Workspace"
@@ -669,14 +669,13 @@
   >
     <div class="flex min-h-0 flex-1">
       <div class="flex min-w-0 flex-1 flex-col">
-        <!-- ── Head: title block + the two actions. The rail used to be the
-             leftmost surface and absorbed the traffic-light inset; with it gone
-             the title does, on the windows that publish one. ── -->
+        <!-- ── Head: title block + the two actions. It keeps one fixed top
+             measure when the session sidebar opens or closes. ── -->
         <div
-          class="flex shrink-0 items-end justify-between gap-6 pt-[calc(var(--solus-page-top-inset,0px)+42px)] pb-3.5 mx-auto w-full max-w-[72rem] @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] px-8 @max-[44rem]:px-5 @max-[34rem]:px-4"
+          class="flex shrink-0 items-end justify-between gap-6 pt-[42px] pb-3.5 mx-auto w-full max-w-[72rem] @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] px-8 @max-[44rem]:px-5 @max-[34rem]:px-4"
         >
           <div class="flex min-w-0 flex-col gap-[7px]">
-            <h1 class="m-0 text-[27px] font-medium ">
+            <h1 class="m-0 text-[1.5rem] font-medium ">
               Workspace
             </h1>
             <!-- While the ledger is still empty the stats are all zero, which
@@ -685,7 +684,7 @@
                  Once rows are on screen the note joins the stats instead, and
                  the numbers keep climbing beside it. -->
             <div
-              class="flex items-center gap-2 text-[12px] text-muted-foreground"
+              class="flex items-center gap-2 text-xs text-muted-foreground"
             >
               {#if loading}
                 {@render loadingNote()}
@@ -725,7 +724,7 @@
                   <button
                     {...props}
                     type="button"
-                    class="flex h-[30px] cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] text-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]"
+                    class="flex h-[30px] cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] text-[0.8125rem] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]"
                     data-testid="workspace-new"
                   >
                     <PlusIcon size={12} weight="bold" class="shrink-0" />
@@ -894,7 +893,7 @@
                 {#if pinnedOverflow > 0 || pinnedExpanded}
                   <button
                     type="button"
-                    class="shrink-0 cursor-pointer border-0 bg-transparent p-0 text-[12px] text-muted-foreground opacity-80 hover:text-foreground"
+                    class="shrink-0 cursor-pointer border-0 bg-transparent p-0 text-xs text-muted-foreground opacity-80 hover:text-foreground"
                     onclick={() => (pinnedExpanded = !pinnedExpanded)}
                   >
                     {pinnedExpanded ? "Show less" : "Show all"}
@@ -907,7 +906,7 @@
               {#if pinnedOverflow > 0}
                 <button
                   type="button"
-                  class="flex h-[30px] w-full cursor-pointer items-center gap-[9px] rounded-lg border-0 bg-transparent pr-3 pl-2.5 text-[12px] text-muted-foreground transition-shadow duration-150 hover:shadow-[inset_0_0_0_999px_var(--wash-1)]"
+                  class="flex h-[30px] w-full cursor-pointer items-center gap-[9px] rounded-lg border-0 bg-transparent pr-3 pl-2.5 text-xs text-muted-foreground transition-shadow duration-150 hover:shadow-[inset_0_0_0_999px_var(--wash-1)]"
                   onclick={() => (pinnedExpanded = true)}
                 >
                   <span class="flex w-4 shrink-0 justify-center opacity-60">

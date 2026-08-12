@@ -1,4 +1,5 @@
 import type { TaskDetails, TaskLink, TaskSessionLink } from '../../shared/task-types'
+import type { AgentTaskLifecyclePolicy } from '../../shared/types'
 
 /** Render the local task packet appended to the system prompt of every run on a
  *  task-backed session. Attempts are passed in rather than read off `details`:
@@ -8,6 +9,7 @@ export function formatTaskContext(
   details: TaskDetails,
   parentDetails: TaskDetails | null = null,
   attempts: readonly TaskSessionLink[] = [],
+  lifecyclePolicy: AgentTaskLifecyclePolicy = 'moderate',
 ): string {
   const { task, comments } = details
   const lines = [
@@ -62,15 +64,31 @@ export function formatTaskContext(
     }
   }
 
-  lines.push(
-    '',
-    'Work contract:',
-    '- Keep this task in progress while you work.',
-    '- Leave a task comment when blocked or when durable handoff context matters.',
-    '- Move the task to in_review when a pull request is ready for a human, or done when the work is complete without review.',
-    '',
-    `Call read_task with task_id "${task.id}" to refresh this packet; use comment_task and update_task_status for durable write-back.`,
-  )
+  lines.push('', 'Work contract:')
+  if (lifecyclePolicy === 'none') {
+    lines.push(
+      '- Do not change this task\'s status. The user controls its lifecycle.',
+      '- Leave a task comment when blocked or when durable handoff context matters.',
+      '',
+      `Call read_task with task_id "${task.id}" to refresh this packet; use comment_task for durable write-back.`,
+    )
+  } else if (lifecyclePolicy === 'moderate') {
+    lines.push(
+      '- Keep this task in progress while you work.',
+      '- Leave a task comment when blocked or when durable handoff context matters.',
+      '- Move the task to in_review when a pull request is ready for a human. Do not move it to done; the user closes completed work.',
+      '',
+      `Call read_task with task_id "${task.id}" to refresh this packet; use comment_task and update_task_status for permitted durable write-back.`,
+    )
+  } else {
+    lines.push(
+      '- Keep this task in progress while you work.',
+      '- Leave a task comment when blocked or when durable handoff context matters.',
+      '- Move the task to in_review when a pull request is ready for a human, or done when the work is complete without review.',
+      '',
+      `Call read_task with task_id "${task.id}" to refresh this packet; use comment_task and update_task_status for durable write-back.`,
+    )
+  }
 
   return lines.join('\n')
 }

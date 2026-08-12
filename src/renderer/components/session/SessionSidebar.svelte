@@ -14,7 +14,6 @@
     ListChecksIcon,
     GitPullRequestIcon,
     PlusIcon,
-    XIcon,
   } from "phosphor-svelte";
   import type { PinnedSession } from "../../../shared/types";
   import type { Task } from "../../../shared/task-types";
@@ -30,7 +29,6 @@
   import * as Sidebar from "../ui/sidebar";
   import TaskListSkeleton from "./TaskListSkeleton.svelte";
   import SessionContextMenu from "./SessionContextMenu.svelte";
-  import ProjectMark from "./ProjectMark.svelte";
   import TaskContextMenu from "./TaskContextMenu.svelte";
   import TaskListHeader from "./TaskListHeader.svelte";
   import TaskRow from "./TaskRow.svelte";
@@ -44,7 +42,6 @@
     hasDisclosure,
     type PrChip,
     type SidebarTask,
-    type TaskGroup,
   } from "./lib/task-list";
   import { treeKeyIntent } from "./lib/task-tree-keys";
 
@@ -90,7 +87,6 @@
     | null
   >(null);
   const expandedTaskIds = new SvelteSet<string>();
-  const collapsedProjectKeys = new SvelteSet<string>();
   /** The row being renamed in place. One at a time: the edit replaces the label
    *  where it sits, so two open editors would be two claims on the same name.
    *  A durable row is named by its task, which outlives any session it has open
@@ -142,16 +138,13 @@
     else expandedTaskIds.add(taskId);
   }
 
-  function toggleProject(projectKey: string) {
-    if (collapsedProjectKeys.has(projectKey)) {
-      collapsedProjectKeys.delete(projectKey);
-    } else {
-      collapsedProjectKeys.add(projectKey);
-    }
-  }
-
-  function projectGroupId(projectKey: string) {
-    return `sidebar-project-${encodeURIComponent(projectKey)}`;
+  /** Scoping the column produces a different list, so an offset into the old
+   *  one lands nowhere. Selection is deliberately left alone: the filter is a
+   *  lens on the list, not a navigation. */
+  function filterToProject(projectKey: string | null) {
+    sidebarStore.setProjectFilter(projectKey);
+    if (scrollEl) scrollEl.scrollTop = 0;
+    requestInputFocus();
   }
 
   function togglePrs() {
@@ -352,14 +345,15 @@
       task.taskId ? [task.taskId] : [],
     );
     selectedTaskIds.clear();
-    if (!session.tasksStore.softRemove(ids)) return;
+    const pending = session.tasksStore.softRemove(ids);
+    if (!pending.length) return;
     toasts.undo(
       `${ids.length} task${ids.length === 1 ? "" : "s"} deleted`,
-      () => session.tasksStore.restorePending(),
+      () => session.tasksStore.restorePending(pending),
       {
         onDismiss: () =>
           void session.tasksStore
-            .commitPending()
+            .commitPending(pending)
             .catch((error) =>
               toasts.error(
                 `Couldn't delete task: ${error instanceof Error ? error.message : String(error)}`,
@@ -558,32 +552,6 @@
     }
   }
 
-  function removeProject(group: TaskGroup) {
-    for (const task of group.tasks) expandedTaskIds.delete(task.id);
-    collapsedProjectKeys.delete(group.projectKey);
-    sidebarStore.closeProject(group.projectKey);
-    requestInputFocus();
-  }
-
-  /** A project heading closes everything under it at once, which is the only
-   *  place in this column where one click unloads several conversations. Work
-   *  in flight is the one thing that cannot be reopened as it was, so a project
-   *  with a live run asks before it takes them. */
-  function closeProject(group: TaskGroup) {
-    const running = sidebarStore.runningTaskCountIn(group.projectKey);
-    if (running === 0) {
-      removeProject(group);
-      return;
-    }
-    toasts.show({
-      message: `Stop ${running === 1 ? "the run" : `${running} runs`} in “${group.projectLabel}” and remove its tasks from the sidebar?`,
-      actions: [
-        { label: "Stop and remove", onAction: () => removeProject(group) },
-        { label: "Keep open", onAction: requestInputFocus },
-      ],
-    });
-  }
-
   /** The tree drives itself off the DOM rather than a mirrored index: the rows
    *  it can move between are exactly the ones currently rendered, so a
    *  collapsed task or a filtered project needs no bookkeeping here. */
@@ -626,7 +594,6 @@
     event.preventDefault();
 
     const taskKey = focused!.dataset.taskKey;
-    const projectKey = focused!.dataset.projectKey;
     const task = taskKey
       ? sidebarStore.visibleTasks.find((item) => item.key === taskKey)
       : undefined;
@@ -637,8 +604,7 @@
         break;
       case "expand":
       case "collapse":
-        if (projectKey) toggleProject(projectKey);
-        else if (task) toggleExpand(task.id);
+        if (task) toggleExpand(task.id);
         break;
       case "enterPane":
         requestInputFocus();
@@ -647,12 +613,7 @@
         // Sidebar dismissal never stops the run, so keyboard and pointer paths
         // have the same presentation-only behavior.
         if (task) closeTask(task);
-        else if (projectKey) {
-          const group = sidebarStore.taskGroups.find(
-            (item) => item.projectKey === projectKey,
-          );
-          if (group) closeProject(group);
-        } else if (focused!.dataset.tabId) closeSession(focused!.dataset.tabId);
+        else if (focused!.dataset.tabId) closeSession(focused!.dataset.tabId);
         break;
     }
   }
@@ -754,7 +715,7 @@
     onPath={task.tabIds.includes(session.onScreenTabId)}
     bulkSelected={selectedTaskIds.has(task.id)}
     expanded={expandedTaskIds.has(task.id)}
-    showProjectLine={sidebarStore.showsProjectLine}
+    onFilterProject={() => filterToProject(task.projectKey)}
     sessions={sidebarStore.sessionsFor(task)}
     selectedTabId={task.tabIds.includes(session.onScreenTabId)
       ? session.onScreenTabId
@@ -766,6 +727,11 @@
     onRenameCancel={cancelRename}
     onMore={(event) => openTaskOrSessionContextMenu(event, task)}
     onSnooze={(anchor) => openSnooze(task.taskId, task.attention, anchor)}
+    onWake={() => {
+      if (!task.taskId) return;
+      const record = session.tasksStore.taskForId(task.taskId);
+      if (record) void wakeTask(record);
+    }}
     onComplete={() => completeTask(task)}
     onClose={() => closeTask(task)}
     onOpenPr={() => {
@@ -802,21 +768,19 @@
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
             class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
- 'folio',
- )
- ? 'text-foreground'
- : ''}"
+              'folio',
+            )
+              ? 'text-foreground'
+              : ''}"
             isActive={session.router.at("folio")}
             onclick={() => session.toggleFolio()}
           >
             <span class="flex shrink-0 items-center"
               ><BooksIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.84375rem] "
-              >Workspace</span
-            >
+            <span class="flex-1 text-left text-sm">Workspace</span>
             <span
-              class="shrink-0 font-mono text-[0.65625rem] opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
+              class="shrink-0 font-mono text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
               >{comboHint("global.toggle-workspace")}</span
             >
           </Sidebar.MenuButton>
@@ -824,21 +788,19 @@
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
             class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
- 'automations',
- )
- ? 'text-foreground'
- : ''}"
+              'automations',
+            )
+              ? 'text-foreground'
+              : ''}"
             isActive={session.router.at("automations")}
             onclick={() => session.toggleAutomations()}
           >
             <span class="flex shrink-0 items-center"
               ><ArrowsClockwiseIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.84375rem] "
-              >Automations</span
-            >
+            <span class="flex-1 text-left text-sm">Automations</span>
             <span
-              class="shrink-0 font-mono text-[0.65625rem] opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
+              class="shrink-0 font-mono text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
               >{comboHint("global.toggle-automations")}</span
             >
           </Sidebar.MenuButton>
@@ -846,25 +808,20 @@
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
             class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
- 'prs',
- )
- ? 'text-foreground'
- : ''}"
+              'prs',
+            )
+              ? 'text-foreground'
+              : ''}"
             isActive={session.router.at("prs")}
             onclick={togglePrs}
           >
             <span class="flex shrink-0 items-center"
               ><GitPullRequestIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.84375rem] "
-              >Pull requests<span
-                class="ml-1.5 inline-flex items-center rounded-[0.3125rem] px-[0.3125rem] py-0.5 align-middle font-mono text-[0.5625rem] leading-none font-medium text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))] uppercase bg-[color-mix(in_oklch,var(--primary)_13%,transparent)]"
-                >Beta</span
-              ></span
-            >
+            <span class="flex-1 text-left text-sm">Pull requests</span>
             {#if needsReviewCount > 0}
               <span
-                class="shrink-0 font-mono text-[0.6875rem] text-muted-foreground opacity-60 tabular-nums"
+                class="shrink-0 font-mono text-xs text-muted-foreground opacity-60 tabular-nums"
                 title={`${needsReviewCount} pull ${needsReviewCount === 1 ? "request needs" : "requests need"} your review`}
                 aria-label={`${needsReviewCount} need your review`}
                 >{needsReviewCount > 99 ? "99+" : needsReviewCount}</span
@@ -875,24 +832,19 @@
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
             class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
- 'tasks',
- )
- ? 'text-foreground'
- : ''}"
+              'tasks',
+            )
+              ? 'text-foreground'
+              : ''}"
             isActive={session.router.at("tasks")}
             onclick={() => session.toggleTasks()}
           >
             <span class="flex shrink-0 items-center"
               ><ListChecksIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.84375rem] "
-              >Tasks<span
-                class="ml-1.5 inline-flex items-center rounded-[0.3125rem] px-[0.3125rem] py-0.5 align-middle font-mono text-[0.5625rem] leading-none font-medium text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))] uppercase bg-[color-mix(in_oklch,var(--primary)_13%,transparent)]"
-                >Beta</span
-              ></span
-            >
+            <span class="flex-1 text-left text-sm">Tasks</span>
             <span
-              class="shrink-0 font-mono text-[0.65625rem] opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
+              class="shrink-0 font-mono text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
               >{comboHint("global.toggle-tasks")}</span
             >
           </Sidebar.MenuButton>
@@ -908,11 +860,9 @@
             <span class="flex shrink-0 items-center"
               ><ClockIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.84375rem] "
-              >History</span
-            >
+            <span class="flex-1 text-left text-sm">History</span>
             <span
-              class="shrink-0 font-mono text-[0.65625rem] opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
+              class="shrink-0 font-mono text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
               >{comboHint("global.session-picker")}</span
             >
           </Sidebar.MenuButton>
@@ -946,7 +896,6 @@
           {#each sidebarStore.draftRows as row (row.draftId)}
             <DraftRow
               {row}
-              showProjectLine={sidebarStore.showsProjectLine}
               onSelect={() => openDraft(row)}
               onDiscard={() => discardDraft(row)}
             />
@@ -960,8 +909,10 @@
     <TaskListHeader
       label="Tasks"
       count={sidebarStore.headerCount}
-      mode={sidebarStore.viewMode}
-      onModeChange={(mode) => sidebarStore.setViewMode(mode)}
+      scopedProject={sidebarStore.scopedProject}
+      projectChoices={sidebarStore.projectFilterChoices}
+      onFilter={filterToProject}
+      showLabel={false}
     />
   </div>
 
@@ -1035,98 +986,26 @@
       {#if !session.tasksStore.loaded}
         <TaskListSkeleton />
       {:else if sidebarStore.visibleTasks.length === 0}
-        <p class="px-[0.625rem] py-1 text-[0.8125rem] text-muted-foreground">
-          No open tasks
+        <!-- A scoped list that comes back empty says which project it looked
+             in, and stays scoped: clearing the filter for the user hides the
+             fact that the project has nothing open. -->
+        <p class="py-1 pl-[0.125rem] text-[0.8125rem] text-muted-foreground">
+          {sidebarStore.scopedProject
+            ? `No open tasks in ${sidebarStore.scopedProject.label}`
+            : "No open tasks"}
         </p>
-      {:else if sidebarStore.viewMode === "flat"}
+      {:else}
         <div class="flex flex-col gap-[0.1875rem]">
           {#each sidebarStore.visibleTasks as task (task.id)}
             {@render taskRow(task)}
           {/each}
         </div>
-      {:else}
-        {#each sidebarStore.taskGroups as group (group.projectKey)}
-          <div class="mb-4">
-            <!-- A project is the level above, so it is a section header rather
-               than another row: mark, small uppercase name, a hairline running
-               to the count. The whole divider is its disclosure target. -->
-            <div
-              role="treeitem"
-              tabindex="0"
-              aria-selected="false"
-              data-project-key={group.projectKey}
-              class="group/project mb-0.5 flex h-8 w-full cursor-pointer items-center gap-[0.625rem] rounded-lg px-[0.625rem] text-left transition-[color,background] duration-150 hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
-              aria-expanded={!collapsedProjectKeys.has(group.projectKey)}
-              aria-controls={projectGroupId(group.projectKey)}
-              onclick={() => toggleProject(group.projectKey)}
-              onkeydown={(event) => {
-                if (event.key !== "Enter" && event.key !== " ") return;
-                event.preventDefault();
-                toggleProject(group.projectKey);
-              }}
-            >
-              <ProjectMark
-                projectKey={group.projectKey}
-                initial={group.initial}
-                active={group.projectKey === sidebarStore.activeProjectKey}
-                class="size-4"
-                letterClass="text-[0.53125rem]"
-              />
-              <span
-                class="shrink-0 text-[0.59375rem] font-medium text-[color-mix(in_oklch,var(--foreground)_68%,transparent)] uppercase"
-                >{group.projectLabel}</span
-              >
-              <span
-                class="h-[0.03125rem] flex-1 bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)]"
-              ></span>
-              <span
-                class="shrink-0 font-mono text-[0.625rem] text-muted-foreground opacity-45 tabular-nums group-hover/project:hidden group-focus-within/project:hidden"
-                >{group.tasks.length}</span
-              >
-              <!-- The count is what you read while scanning, so the close action
-                 takes its place only once the pointer is on the heading. It is
-                 the group-level twin of a task row's remove: the section and
-                 every row under it leave the column, and nothing about the
-                 tasks themselves changes. -->
-              <button
-                type="button"
-                class="hidden size-5 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] group-hover/project:flex group-focus-within/project:flex hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
-                title="Close project"
-                aria-label="Close {group.projectLabel} and remove its tasks from the sidebar"
-                onclick={(event) => {
-                  event.stopPropagation();
-                  closeProject(group);
-                }}
-              >
-                <XIcon size={14} weight="bold" />
-              </button>
-              <CaretRightIcon
-                size={14}
-                class="shrink-0 text-muted-foreground transition-transform duration-150 {collapsedProjectKeys.has(
- group.projectKey,
- )
- ? ''
- : 'rotate-90'}"
-              />
-            </div>
-            {#if !collapsedProjectKeys.has(group.projectKey)}
-              <div
-                id={projectGroupId(group.projectKey)}
-                class="flex flex-col gap-[0.1875rem]"
-              >
-                {#each group.tasks as task (task.id)}
-                  {@render taskRow(task)}
-                {/each}
-              </div>
-            {/if}
-          </div>
-        {/each}
       {/if}
       {#if sidebarStore.snoozedTasks.length > 0}
         <div class="mt-3">
           <button
             type="button"
-            class="-mr-1 flex h-7 w-[calc(100%+0.25rem)] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.125rem] text-[0.6875rem] font-medium text-(--solus-status-unread) transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:text-[color-mix(in_oklch,var(--solus-status-unread)_78%,var(--foreground))]"
+            class="-mr-1 flex h-7 w-[calc(100%+0.25rem)] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.125rem] text-xs font-medium text-(--solus-status-unread) transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:text-[color-mix(in_oklch,var(--solus-status-unread)_78%,var(--foreground))]"
             aria-expanded={snoozedShelfOpen}
             onclick={() => (snoozedShelfOpen = !snoozedShelfOpen)}
           >
@@ -1138,8 +1017,8 @@
               <CaretRightIcon
                 size={14}
                 class="transition-transform duration-150 {snoozedShelfOpen
- ? 'rotate-90'
- : ''}"
+                  ? 'rotate-90'
+                  : ''}"
               />
             </span>
           </button>
@@ -1156,7 +1035,7 @@
         <div class="mt-2">
           <button
             type="button"
-            class="-mr-1 flex h-7 w-[calc(100%+0.25rem)] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.125rem] text-[0.6875rem] font-medium text-muted-foreground transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:text-foreground"
+            class="-mr-1 flex h-7 w-[calc(100%+0.25rem)] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.125rem] text-xs font-medium text-muted-foreground transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:text-foreground"
             aria-expanded={completedShelfOpen}
             onclick={() => (completedShelfOpen = !completedShelfOpen)}
           >
@@ -1168,8 +1047,8 @@
               <CaretRightIcon
                 size={14}
                 class="transition-transform duration-150 {completedShelfOpen
- ? 'rotate-90'
- : ''}"
+                  ? 'rotate-90'
+                  : ''}"
               />
             </span>
           </button>
@@ -1199,18 +1078,16 @@
             <span class="flex shrink-0 items-center"
               ><PushPinIcon size={14} weight="fill" /></span
             >
-            <span class="flex-1 text-left text-[0.84375rem] "
-              >Saved sessions</span
-            >
+            <span class="flex-1 text-left text-sm">Saved sessions</span>
             <span
-              class="shrink-0 font-mono text-[0.6875rem] text-muted-foreground opacity-60 tabular-nums"
+              class="shrink-0 font-mono text-xs text-muted-foreground opacity-60 tabular-nums"
               >{sidebarStore.pinnedSessions.length}</span
             >
             <CaretRightIcon
               size={14}
               class="shrink-0 transition-transform duration-150 {savedSessionsOpen
- ? 'rotate-90'
- : ''}"
+                ? 'rotate-90'
+                : ''}"
             />
           </Sidebar.MenuButton>
         </Sidebar.MenuItem>
@@ -1240,9 +1117,9 @@
                   openSessionContextMenu(event, { kind: "pinned", pin })}
               >
                 <span
-                  class="min-w-0 flex-1 overflow-hidden text-[0.78125rem] text-ellipsis whitespace-nowrap {isActive
- ? 'font-medium text-foreground'
- : 'text-[color-mix(in_oklch,var(--foreground)_88%,transparent)]'}"
+                  class="min-w-0 flex-1 overflow-hidden text-[0.8125rem] text-ellipsis whitespace-nowrap {isActive
+                    ? 'font-medium text-foreground'
+                    : 'text-[color-mix(in_oklch,var(--foreground)_88%,transparent)]'}"
                   >{pin.title}</span
                 >
                 <button
@@ -1265,10 +1142,10 @@
       <Sidebar.MenuItem>
         <Sidebar.MenuButton
           class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
- 'settings',
- )
- ? 'text-foreground'
- : ''}"
+            'settings',
+          )
+            ? 'text-foreground'
+            : ''}"
           isActive={session.router.at("settings")}
           onclick={() => session.showSettings()}
         >
@@ -1276,11 +1153,9 @@
             class="flex shrink-0 items-center motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:rotate-90"
             ><GearIcon size={14} /></span
           >
-          <span class="flex-1 text-left text-[0.84375rem] "
-            >Settings</span
-          >
+          <span class="flex-1 text-left text-sm">Settings</span>
           <span
-            class="shrink-0 font-mono text-[0.65625rem] opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
+            class="shrink-0 font-mono text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
             >{comboHint("global.settings")}</span
           >
         </Sidebar.MenuButton>

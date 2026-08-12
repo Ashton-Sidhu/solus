@@ -410,7 +410,10 @@ export class GitHubTaskProvider {
   private readonly projectFieldsCache = new Map<string, ProjectFields>()
 
   constructor(
-    private readonly repo: RepoRef,
+    /** The repository this binding reads and writes. Public because callers
+     *  need to name the same `owner/repo` scope that task links are filed
+     *  under. */
+    readonly repo: RepoRef,
     private readonly auth: GitHubAuth = new GitHubAuth(),
   ) {}
 
@@ -707,8 +710,13 @@ export class GitHubTaskProvider {
       issue_number: toIssueNumber(id),
       body,
     })
+    // The node id, not the REST database id: issue comments are read back
+    // through GraphQL, whose `id` is the node id. Stamping the local row with
+    // the REST id would make the next pull treat our own comment as a new one
+    // and insert a second copy of it.
+    if (!res.data.node_id) throw new Error('GitHub created a comment without a node ID.')
     return {
-      id: String(res.data.id),
+      id: res.data.node_id,
       author: res.data.user ? { login: res.data.user.login } : null,
       body: res.data.body ?? body,
       createdAt: res.data.created_at,

@@ -102,6 +102,21 @@ export function listExternalLinks(
   return (rows as unknown as ExternalLinkRow[]).map(linkFromRow)
 }
 
+/** Which tickets in one repository a native task already mirrors. The upstream
+ *  list reads this to leave those tickets out: a published or imported issue is
+ *  the same work as the task that owns it, not a second item beside it. */
+export function linkedExternalIds(
+  provider: string,
+  externalKey: string,
+  db: DatabaseSync = getDb(),
+): Set<string> {
+  const rows = db.prepare(`
+    SELECT external_id FROM task_external_links
+    WHERE provider = ? AND external_key = ?
+  `).all(provider, externalKey) as unknown as Array<{ external_id: string }>
+  return new Set(rows.map((row) => row.external_id))
+}
+
 export function writeExternalLink(
   db: DatabaseSync,
   taskId: string,
@@ -246,6 +261,32 @@ export function dirtyCommentsForTask(
   `).all(taskId) as unknown as DirtyCommentRow[]
 }
 
+/**
+ * Queue comments that were held back at the time they were written.
+ *
+ * Only local comments that have never been posted are eligible: one already
+ * carrying an external id is upstream's copy, and re-queueing it would post a
+ * duplicate. Returns how many were newly queued, so a no-op does not announce
+ * itself as a push.
+ */
+export function markCommentsDirty(
+  db: DatabaseSync,
+  taskId: string,
+  commentIds: string[],
+): number {
+  if (!commentIds.length) return 0
+  const placeholders = commentIds.map(() => '?').join(', ')
+  const result = db.prepare(`
+    UPDATE task_comments SET dirty = 1
+    WHERE task_id = ?
+      AND source = 'local'
+      AND external_id IS NULL
+      AND dirty = 0
+      AND id IN (${placeholders})
+  `).run(taskId, ...commentIds)
+  return Number(result.changes ?? 0)
+}
+
 export function markCommentSynced(
   db: DatabaseSync,
   commentId: string,
@@ -260,15 +301,35 @@ export function insertExternalComments(
   db: DatabaseSync,
   taskId: string,
   comments: NormalizedTaskComment[],
-): void {
+): number {
   const insert = db.prepare(`
     INSERT OR IGNORE INTO task_comments(
       id, task_id, author, source, external_id, origin_session_id, body,
       created_at, dirty
     ) VALUES (?, ?, ?, 'external', ?, NULL, ?, ?, 0)
   `)
+  // Comments posted before the adapter stamped node ids carry GitHub's REST
+  // database id, which the GraphQL read never matches — so the pull used to
+  // insert a second copy of our own comment. Adopt the node id onto that row
+  // instead; the unique index then makes the insert below a no-op.
+  const adopt = db.prepare(`
+    UPDATE task_comments SET external_id = ?
+    WHERE id = (
+      SELECT id FROM task_comments
+      WHERE task_id = ?
+        AND source = 'local'
+        AND external_id IS NOT NULL
+        AND external_id NOT GLOB '*[^0-9]*'
+        AND body = ?
+      ORDER BY created_at, id
+      LIMIT 1
+    )
+  `)
+
+  let changedCommentCount = 0
   for (const comment of comments) {
-    insert.run(
+    const adopted = adopt.run(comment.externalId, taskId, comment.body)
+    const inserted = insert.run(
       `external:${comment.externalId}`,
       taskId,
       comment.author ?? null,
@@ -276,7 +337,9 @@ export function insertExternalComments(
       comment.body,
       comment.createdAt,
     )
+    changedCommentCount += Number(adopted.changes ?? 0) + Number(inserted.changes ?? 0)
   }
+  return changedCommentCount
 }
 
 export function hasPendingSync(taskId: string, db: DatabaseSync = getDb()): boolean {

@@ -312,7 +312,7 @@
             {...props}
             variant="outline"
             size="sm"
-            class="h-7 shrink-0 gap-1.5 text-[0.6875rem] font-normal text-muted-foreground shadow-xs"
+            class="h-7 shrink-0 gap-1.5 text-xs font-normal text-muted-foreground shadow-xs"
             aria-label="Settings host"
           >
             On {selectedSettingsHost.label}
@@ -344,7 +344,7 @@
       class="shrink-0 flex items-center justify-between px-4 pb-2.5 pt-[max(0.75rem,env(safe-area-inset-top,0px))] border-b border-(--solus-container-border)"
     >
       <span
-        class="text-[1.125rem] font-medium text-(--solus-text-primary)"
+        class="text-sm font-medium text-(--solus-text-primary)"
         >Settings</span
       >
       <Button
@@ -418,7 +418,7 @@
             bind:ref={searchInputEl}
             bind:value={searchQuery}
             placeholder="Search settings"
-            class="w-full basis-auto rounded border-border bg-card px-2 py-1.5 shadow-xs [&_input]:text-[0.75rem]"
+            class="w-full basis-auto rounded border-border bg-card px-2 py-1.5 shadow-xs [&_input]:text-xs"
           />
         </Sidebar.Header>
         <Sidebar.Content
@@ -429,7 +429,7 @@
               <!-- A group name is the level above the rows, so it starts on the
                    icons' column rather than on the labels'. -->
               <Sidebar.GroupLabel
-                class="h-[2.125rem] pr-2.5 pl-[1.375rem] text-[0.59375rem] font-medium uppercase text-muted-foreground"
+                class="h-[2.125rem] pr-2.5 pl-[1.375rem] text-xs font-medium uppercase text-muted-foreground"
                 >{section.group}</Sidebar.GroupLabel
               >
               <Sidebar.GroupContent>
@@ -457,7 +457,7 @@
         </Sidebar.Content>
         {#if session.staticInfo?.version}
           <Sidebar.Footer
-            class="shrink-0 flex-row items-center gap-1.5 border-t border-t-sidebar-border px-[1.1875rem] pt-2 pb-2.5 text-[0.625rem] text-muted-foreground"
+            class="shrink-0 flex-row items-center gap-1.5 border-t border-t-sidebar-border px-[1.1875rem] pt-2 pb-2.5 text-xs text-muted-foreground"
           >
             <span>v{session.staticInfo.version}</span>
             {#if session.staticInfo.email}
@@ -512,7 +512,7 @@
               class="h-2.5 w-px shrink-0 self-center bg-border"
               aria-hidden="true"
             ></span>
-            <p class="min-w-0 truncate text-[0.75rem] text-muted-foreground">
+            <p class="min-w-0 truncate text-xs text-muted-foreground">
               {activeTabMeta.description}
             </p>
           </div>

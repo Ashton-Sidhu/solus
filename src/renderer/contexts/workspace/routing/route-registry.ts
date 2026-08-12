@@ -214,6 +214,9 @@ export const ROUTES = defineRoutes({
     serialize: () => '',
     placement: 'any',
     exclusiveGroup: 'page',
+    // Workspace list pages keep one fixed header position when the session
+    // sidebar changes; their own top measure clears the page controls.
+    ownsTitlebarChrome: true,
     component: () => import('../../../components/tasks/TasksPage.svelte'),
   },
   // One task, deep-linkable. It replaces the list in place rather than sitting
@@ -233,9 +236,8 @@ export const ROUTES = defineRoutes({
     placement: 'any',
     exclusiveGroup: 'page',
     // The review panel beside the list paints its chrome band to the window's
-    // top edge, so an outlet-level pad would read as an empty strip above that
-    // band rather than as breathing room. The list head reserves the
-    // window-control space inside itself instead.
+    // top edge, so an outlet-level pad would read as an empty strip above it.
+    // The list keeps the same fixed top measure in either sidebar state.
     ownsTitlebarChrome: true,
     component: () => import('../../../components/prs/PrsPage.svelte'),
   },
@@ -273,9 +275,8 @@ export const ROUTES = defineRoutes({
     serialize: () => '',
     placement: 'any',
     exclusiveGroup: 'page',
-    // The facet rail is its own surface colour and paints to the window's top
-    // edge, so an outlet-level pad would read as the rail failing to reach it.
-    // The rail and the head clear the window controls inside themselves.
+    // The workspace paints to the window's top edge and keeps one fixed header
+    // position when the session sidebar changes.
     ownsTitlebarChrome: true,
     component: () => import('../../../components/workspace/WorkspacePage.svelte'),
   },
@@ -284,6 +285,9 @@ export const ROUTES = defineRoutes({
     serialize: (p) => p.automationId ?? '',
     placement: 'any',
     exclusiveGroup: 'page',
+    // Keep the list aligned with Tasks, Pull Requests, and Workspace instead of
+    // applying a second top inset when the session sidebar collapses.
+    ownsTitlebarChrome: true,
     component: () => import('../../../components/automations/AutomationsPage.svelte'),
   },
   plan: {

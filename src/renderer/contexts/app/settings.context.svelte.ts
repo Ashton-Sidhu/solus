@@ -30,11 +30,6 @@ const DEFAULT_PROJECT_PANEL_COLLAPSED: Record<ProjectPanelSectionId, boolean> = 
 export const TAB_GROUP_MODES = ['flat', 'status', 'unread'] as const
 export type TabGroupMode = (typeof TAB_GROUP_MODES)[number]
 
-/** Two views over the same task list: `flat` sorts across every project on
- *  state, `grouped` sorts inside project headings. */
-export const SIDEBAR_VIEW_MODES = ['flat', 'grouped'] as const
-export type SidebarViewMode = (typeof SIDEBAR_VIEW_MODES)[number]
-
 export type SettingsFields = {
   themeMode: ThemeMode
   soundEnabled: boolean
@@ -69,7 +64,10 @@ export type SettingsFields = {
   projectPanelCollapsed: Record<ProjectPanelSectionId, boolean>
   splitProjectPanelCollapsed: Record<ProjectPanelSectionId, boolean>
   tabGroupMode: TabGroupMode
-  sidebarViewMode: SidebarViewMode
+  /** The project the task list is scoped to, by `projectKey`. Null is the whole
+   *  list — the sidebar is flat across every open project either way, so this
+   *  narrows what is in it rather than changing its shape. */
+  sidebarProjectFilter: string | null
   /**
    * First-run onboarding has already been through, or skipped. A client that
    * has never persisted settings is a fresh install, so the absence of the whole
@@ -267,7 +265,7 @@ function loadSettings(): SettingsFields {
         projectPanelCollapsed: loadProjectPanelCollapsed(parsed.projectPanelCollapsed),
         splitProjectPanelCollapsed: loadProjectPanelCollapsed(parsed.splitProjectPanelCollapsed),
         tabGroupMode: ((TAB_GROUP_MODES as readonly string[]).includes(parsed.tabGroupMode) ? parsed.tabGroupMode : 'flat') as TabGroupMode,
-        sidebarViewMode: ((SIDEBAR_VIEW_MODES as readonly string[]).includes(parsed.sidebarViewMode) ? parsed.sidebarViewMode : 'flat') as SidebarViewMode,
+        sidebarProjectFilter: typeof parsed.sidebarProjectFilter === 'string' ? parsed.sidebarProjectFilter : null,
         onboardingCompleted: typeof parsed.onboardingCompleted === 'boolean' ? parsed.onboardingCompleted : true,
       }
     }
@@ -306,7 +304,7 @@ function loadSettings(): SettingsFields {
     projectPanelCollapsed: { ...DEFAULT_PROJECT_PANEL_COLLAPSED },
     splitProjectPanelCollapsed: { ...DEFAULT_PROJECT_PANEL_COLLAPSED },
     tabGroupMode: 'flat',
-    sidebarViewMode: 'flat',
+    sidebarProjectFilter: null,
     onboardingCompleted: false,
   }
 }
@@ -345,7 +343,7 @@ export class SettingsContext {
   projectPanelCollapsed = $state<Record<ProjectPanelSectionId, boolean>>({ ...DEFAULT_PROJECT_PANEL_COLLAPSED })
   splitProjectPanelCollapsed = $state<Record<ProjectPanelSectionId, boolean>>({ ...DEFAULT_PROJECT_PANEL_COLLAPSED })
   tabGroupMode = $state<TabGroupMode>('flat')
-  sidebarViewMode = $state<SidebarViewMode>('flat')
+  sidebarProjectFilter = $state<string | null>(null)
   onboardingCompleted = $state(true)
   // Seeded from the media query so 'system' paints correctly before the main
   // process answers; `setSystemTheme` takes over from there.
@@ -386,7 +384,7 @@ export class SettingsContext {
     this.projectPanelCollapsed = saved.projectPanelCollapsed
     this.splitProjectPanelCollapsed = saved.splitProjectPanelCollapsed
     this.tabGroupMode = saved.tabGroupMode
-    this.sidebarViewMode = saved.sidebarViewMode
+    this.sidebarProjectFilter = saved.sidebarProjectFilter
     this.onboardingCompleted = saved.onboardingCompleted
 
     // Must run before first paint so CSS variables resolve to the saved palette.
@@ -523,7 +521,8 @@ export class SettingsContext {
     if (patch.splitProjectPanelCollapsed !== undefined)
       this.splitProjectPanelCollapsed = patch.splitProjectPanelCollapsed
     if (patch.tabGroupMode !== undefined) this.tabGroupMode = patch.tabGroupMode
-    if (patch.sidebarViewMode !== undefined) this.sidebarViewMode = patch.sidebarViewMode
+    if (patch.sidebarProjectFilter !== undefined)
+      this.sidebarProjectFilter = patch.sidebarProjectFilter
     if (patch.onboardingCompleted !== undefined) this.onboardingCompleted = patch.onboardingCompleted
     this.saveSettings()
   }
@@ -590,7 +589,7 @@ export class SettingsContext {
         projectPanelCollapsed: this.projectPanelCollapsed,
         splitProjectPanelCollapsed: this.splitProjectPanelCollapsed,
         tabGroupMode: this.tabGroupMode,
-        sidebarViewMode: this.sidebarViewMode,
+        sidebarProjectFilter: this.sidebarProjectFilter,
         onboardingCompleted: this.onboardingCompleted,
       }))
     } catch {}

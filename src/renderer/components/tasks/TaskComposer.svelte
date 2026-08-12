@@ -332,20 +332,20 @@
   }
 
   const segBtn = (active: boolean) =>
-    "inline-flex items-center gap-1.5 cursor-pointer rounded-md border-0 px-2.5 py-1 text-[12px] font-medium transition-colors duration-100 " +
+    "inline-flex items-center gap-1.5 cursor-pointer rounded-md border-0 px-2.5 py-1 text-xs font-medium transition-colors duration-100 " +
     (active
       ? "bg-(--solus-accent-light) text-(--solus-accent)"
       : "bg-transparent text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)");
 
   // Shared property-pill trigger styling (neutral chip, accent on hover/focus).
   const PILL =
-    "inline-flex items-center gap-1.5 min-h-[1.75rem] cursor-pointer rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 text-[12px] font-secondary text-(--solus-text-secondary) outline-none transition-colors duration-100 hover:border-[color-mix(in_srgb,var(--solus-accent)_35%,transparent)] hover:text-(--solus-text-primary) focus-visible:border-(--solus-accent) disabled:opacity-50";
+    "inline-flex items-center gap-1.5 min-h-[1.75rem] cursor-pointer rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 text-xs font-secondary text-(--solus-text-secondary) outline-none transition-colors duration-100 hover:border-[color-mix(in_srgb,var(--solus-accent)_35%,transparent)] hover:text-(--solus-text-primary) focus-visible:border-(--solus-accent) disabled:opacity-50";
   // Square ghost icon button in the header (expand / close).
   const ICON_BTN =
     "inline-flex items-center justify-center size-6 flex-shrink-0 border-none rounded-md bg-transparent text-(--solus-text-tertiary) cursor-pointer transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) disabled:opacity-50";
   // Shared option-row styling inside a picker popover.
   const OPT =
-    "flex w-full items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[13px] font-secondary text-(--solus-text-secondary) cursor-pointer outline-none transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) data-[selected=true]:font-medium data-[selected=true]:text-(--solus-text-primary)";
+    "flex w-full items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[0.8125rem] font-secondary text-(--solus-text-secondary) cursor-pointer outline-none transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) data-[selected=true]:font-medium data-[selected=true]:text-(--solus-text-primary)";
   // Layout-only prompt wrapper: the editor reads like AutomationBuilder's unboxed
   // prompt area — the plain-text editor ships no border/background of its own, so the
   // wrapper only needs a transparent base plus flex sizing.
@@ -398,13 +398,13 @@
         />
       {/if}
       <span
-        class="text-[13px] font-medium text-(--solus-text-primary)"
+        class="text-[0.8125rem] font-medium text-(--solus-text-primary)"
         >{heading}</span
       >
       {#if initialParentId && parentEpic}
         <span class="text-(--solus-text-tertiary)">›</span>
         <span
-          class="min-w-0 truncate text-[13px] font-secondary text-(--solus-text-secondary)"
+          class="min-w-0 truncate text-[0.8125rem] font-secondary text-(--solus-text-secondary)"
           >{parentEpic.title}</span
         >
       {/if}
@@ -457,7 +457,7 @@
         placeholder="Task title"
         aria-label="Task title"
         disabled={saving}
-        class="w-full border-0 border-none outline-none shadow-none appearance-none bg-transparent text-[16px] font-medium text-(--solus-text-primary) placeholder:text-(--solus-text-tertiary) disabled:opacity-60"
+        class="w-full border-0 border-none outline-none shadow-none appearance-none bg-transparent text-sm font-medium text-(--solus-text-primary) placeholder:text-(--solus-text-tertiary) disabled:opacity-60"
         onkeydown={(e) => {
           if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
             e.preventDefault();
@@ -669,7 +669,7 @@
               type="date"
               bind:value={dueDate}
               aria-label="Custom due date"
-              class="w-full cursor-pointer rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 py-1 text-[13px] font-secondary text-(--solus-text-secondary) outline-none focus:border-(--solus-accent) [color-scheme:light] [.dark_&]:[color-scheme:dark]"
+              class="w-full cursor-pointer rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 py-1 text-[0.8125rem] font-secondary text-(--solus-text-secondary) outline-none focus:border-(--solus-accent) [color-scheme:light] [.dark_&]:[color-scheme:dark]"
             />
           </div>
           {#if dueDate}
@@ -715,7 +715,7 @@
             <div class="flex flex-wrap gap-1">
               {#each labels as label (label)}
                 <span
-                  class="inline-flex items-center gap-1 rounded bg-(--solus-surface-hover) px-1.5 py-0.5 text-[12px] font-medium text-(--solus-text-secondary)"
+                  class="inline-flex items-center gap-1 rounded bg-(--solus-surface-hover) px-1.5 py-0.5 text-xs font-medium text-(--solus-text-secondary)"
                 >
                   {label}
                   <button
@@ -736,7 +736,7 @@
             type="text"
             placeholder="Add a label…"
             aria-label="Add a label"
-            class="w-full rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 py-1 text-[13px] font-secondary text-(--solus-text-secondary) outline-none focus:border-(--solus-accent)"
+            class="w-full rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 py-1 text-[0.8125rem] font-secondary text-(--solus-text-secondary) outline-none focus:border-(--solus-accent)"
             onkeydown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
@@ -868,7 +868,7 @@
     >
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 text-[12px] text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-secondary) disabled:opacity-50"
+        class="inline-flex items-center gap-1.5 cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 text-xs text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-secondary) disabled:opacity-50"
         onclick={toggleCreateAnother}
         aria-pressed={createAnother}
         disabled={saving}
@@ -892,7 +892,7 @@
       <div class="flex items-center gap-1.5">
         <button
           type="button"
-          class="cursor-pointer rounded-md border-0 bg-transparent px-2.5 py-[0.3125rem] text-[12px] font-medium text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-secondary) disabled:opacity-50"
+          class="cursor-pointer rounded-md border-0 bg-transparent px-2.5 py-[0.3125rem] text-xs font-medium text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-secondary) disabled:opacity-50"
           onclick={onCancel}
           disabled={saving}
         >
@@ -900,7 +900,7 @@
         </button>
         <button
           type="button"
-          class="inline-flex items-center gap-1.5 cursor-pointer rounded-md border-0 bg-(--solus-accent) px-3 py-[0.3125rem] text-[12px] font-medium text-white transition-[opacity,scale] duration-100 hover:opacity-90 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
+          class="inline-flex items-center gap-1.5 cursor-pointer rounded-md border-0 bg-(--solus-accent) px-3 py-[0.3125rem] text-xs font-medium text-white transition-[opacity,scale] duration-100 hover:opacity-90 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
           disabled={!canSubmit}
           onclick={submit}
         >
@@ -919,7 +919,7 @@
           {/if}
         </button>
         <span
-          class="mr-1 inline-flex items-center gap-1.5 text-[12px] text-(--solus-text-tertiary)"
+          class="mr-1 inline-flex items-center gap-1.5 text-xs text-(--solus-text-tertiary)"
         >
           <Kbd variant="hint">⌘</Kbd>
           <Kbd variant="hint">↵</Kbd>

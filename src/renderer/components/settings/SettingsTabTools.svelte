@@ -93,7 +93,7 @@
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" aria-label="Code editor" class="min-w-28 justify-between text-[0.75rem] shadow-xs">
+            <Button {...props} variant="outline" size="sm" aria-label="Code editor" class="min-w-28 justify-between text-xs shadow-xs">
               <span class="max-w-28 truncate">{detected.editors.find((e) => e.id === theme.defaultEditor)?.name ?? "None"}</span>
               <CaretDownIcon size={11} style="opacity:0.6" />
             </Button>
@@ -119,7 +119,7 @@
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" aria-label="Terminal" class="min-w-28 justify-between text-[0.75rem] shadow-xs">
+            <Button {...props} variant="outline" size="sm" aria-label="Terminal" class="min-w-28 justify-between text-xs shadow-xs">
               <span class="max-w-28 truncate">{detected.terminals.find((t) => t.id === (theme.defaultTerminal ?? "default-terminal"))?.name ?? "Default"}</span>
               <CaretDownIcon size={11} style="opacity:0.6" />
             </Button>

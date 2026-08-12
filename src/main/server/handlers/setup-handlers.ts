@@ -111,6 +111,7 @@ export async function probeServerCapabilities(opts: CapabilityProbeOptions): Pro
     },
     serverName: getServerSettings().name,
     projectsBaseDirectory: getServerSettings().projectsBaseDirectory,
+    agentTaskLifecyclePolicy: getServerSettings().agentTaskLifecyclePolicy,
     workspacePath: WORKSPACE_DIR,
   }
 }
@@ -543,7 +544,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     if (credential) {
       const checkoutPath = delegatedCheckoutPath(projectsRoot(), credential.login, parsed.cloneUrl)
       if (runProbe('git', ['-C', checkoutPath, 'rev-parse', '--show-toplevel'])) {
-        const result = await server.handle('setupSyncProject', [{ path: checkoutPath, cloneUrl: parsed.cloneUrl }], ctx) as SetupAdoptProjectResult
+        const result = await server.handle('setupAdoptProject', [{ path: checkoutPath, cloneUrl: parsed.cloneUrl }], ctx) as SetupAdoptProjectResult
         configureDelegatedCheckout(checkoutPath, ctx.deviceId!, credential)
         return { ...result, action: 'updated' }
       }
@@ -555,7 +556,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
 
     const checkoutPath = await findProjectCheckout(repoKey)
     if (checkoutPath) {
-      const result = await server.handle('setupSyncProject', [{ path: checkoutPath, cloneUrl: parsed.cloneUrl }], ctx) as SetupAdoptProjectResult
+      const result = await server.handle('setupAdoptProject', [{ path: checkoutPath, cloneUrl: parsed.cloneUrl }], ctx) as SetupAdoptProjectResult
       return { ...result, action: 'updated' }
     }
 

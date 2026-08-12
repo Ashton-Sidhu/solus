@@ -333,7 +333,7 @@
   .icon-picker__status {
     padding: 0.75rem 0.25rem;
     text-align: center;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
   }
 

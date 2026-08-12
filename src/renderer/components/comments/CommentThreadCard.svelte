@@ -353,16 +353,16 @@
   .ctc__avatar {
     width: 1.1875rem;
     height: 1.1875rem;
-    font-size: 0.5rem;
+    font-size: 0.75rem;
   }
   .ctc__reply-avatar {
     width: 1.0625rem;
     height: 1.0625rem;
-    font-size: 0.46875rem;
+    font-size: 0.75rem;
   }
   .ctc__spark {
     flex-shrink: 0;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     line-height: 1.1875rem;
     color: var(--solus-accent);
   }
@@ -371,7 +371,7 @@
   .ctc__spark--reply {
     width: 1.0625rem;
     text-align: center;
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     line-height: 1.0625rem;
   }
   /* The only bold text in the card. */
@@ -384,7 +384,7 @@
     color: var(--solus-accent);
   }
   .ctc__time {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
     font-variant-numeric: tabular-nums;
   }
@@ -406,7 +406,7 @@
     border: none;
     background: transparent;
     font-family: inherit;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
     cursor: pointer;
     transition: color var(--duration-quick) var(--ease-premium);
@@ -437,7 +437,7 @@
     line-height: 1;
   }
   .ctc__anchor {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     line-height: 1.5;
     color: var(--solus-text-tertiary);
     border-left: 0.125rem solid color-mix(in srgb, var(--solus-art-2) 55%, transparent);
@@ -492,7 +492,7 @@
     border: none;
     background: transparent;
     font-family: inherit;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
     cursor: pointer;
   }
@@ -502,7 +502,7 @@
   .ctc__hint {
     margin-left: auto;
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     color: color-mix(in srgb, var(--solus-text-tertiary) 70%, transparent);
     opacity: 0;
     transition: opacity var(--duration-quick) var(--ease-premium);
@@ -518,7 +518,7 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.375rem 0.125rem;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
   }
   .ctc-resolved-row__dot {

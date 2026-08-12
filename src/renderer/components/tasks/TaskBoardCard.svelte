@@ -123,13 +123,13 @@
       <SourceLogo source={card.source.id} title={card.source.title} />
     {/if}
     <span
-      class="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground opacity-60"
+      class="shrink-0 font-mono text-xs tabular-nums text-muted-foreground opacity-60"
     >
       {card.ident}
     </span>
     <span class="flex-1"></span>
     <span
-      class="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground opacity-[.55]"
+      class="shrink-0 font-mono text-xs tabular-nums text-muted-foreground opacity-[.55]"
       title={card.timeTitle}
     >
       {card.time}
@@ -139,7 +139,7 @@
   <!-- The only full-strength text on the card. It wraps rather than truncates —
        a column is tall, and a half-read title is worth less than a second line. -->
   <span
-    class="text-[13px] leading-[1.42] font-normal text-pretty {card.dimmed
+    class="text-[0.8125rem] leading-[1.42] font-normal text-pretty {card.dimmed
  ? 'text-[color-mix(in_oklch,var(--foreground)_62%,transparent)]'
  : 'text-foreground'}"
   >
@@ -148,7 +148,7 @@
 
   {#if card.status}
     <span
-      class="flex min-w-0 items-center gap-[5px] text-[11px] {card.live
+      class="flex min-w-0 items-center gap-[5px] text-xs {card.live
  ? 'text-[color-mix(in_oklch,var(--running)_66%,var(--foreground))]'
  : card.attention
  ? 'text-[color-mix(in_oklch,var(--primary)_76%,var(--foreground))]'
@@ -167,7 +167,7 @@
     <span class="mt-px flex min-w-0 items-center gap-[5px]">
       {#each chips as chip (chip.label)}
         <span
-          class="inline-flex h-[18px] shrink-0 items-center gap-[5px] rounded-full py-0 pr-[7px] pl-1.5 text-[11px] font-normal shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)]"
+          class="inline-flex h-[18px] shrink-0 items-center gap-[5px] rounded-full py-0 pr-[7px] pl-1.5 text-xs font-normal shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)]"
           style:color={chip.color}
         >
           <span class="size-[5px] shrink-0 rounded-full" style:background={chip.dot}></span>

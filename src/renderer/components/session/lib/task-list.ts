@@ -12,6 +12,15 @@ import type { AttentionState } from '../../../lib/sessionUtils'
  *  this", which nothing else in the app knows. */
 export type TaskStatus = 'question' | 'error' | 'plan' | 'limit' | 'running' | 'idle' | 'done'
 
+/** A sidebar belongs to one selected host. Unknown ownership stays visible
+ * while a new task or session is still being linked. */
+export function belongsToSelectedHost(
+  ownerServerId: string | null | undefined,
+  selectedServerId: string | null | undefined,
+): boolean {
+  return !ownerServerId || !selectedServerId || ownerServerId === selectedServerId
+}
+
 /** One fixed order everywhere. The list is a queue of decisions, so anything
  *  that stopped and asked sorts above anything still working. */
 export const STATUS_RANK: Record<TaskStatus, number> = {
@@ -393,15 +402,50 @@ export function buildProjectSummaries(allTasks: SidebarTask[]): ProjectSummary[]
   })
 }
 
-export type ViewMode = 'flat' | 'grouped'
+/**
+ * The scope actually in force. A saved filter outlives the project it names, so
+ * a project that has left the column entirely must not keep scoping it — the
+ * list would be empty and the only way out would be a project the user can no
+ * longer pick. A project still holding snoozed or completed work has not left:
+ * its list is legitimately empty, and saying so is the whole point of the
+ * empty line.
+ */
+export function resolveProjectFilter(
+  savedFilter: string | null,
+  allTasks: readonly SidebarTask[],
+): string | null {
+  if (!savedFilter) return null
+  return allTasks.some((task) => task.projectKey === savedFilter) ? savedFilter : null
+}
 
-/** A grouped list states the project in its heading, so repeating it on every
- *  row under that heading is noise. A flat list has no heading to lean on:
- *  which project a task belongs to is part of reading the row, even when only
- *  one project happens to be open right now — a column whose rows change shape
- *  the moment a second project appears is harder to read than one that doesn't. */
-export function showsProjectLine(mode: ViewMode): boolean {
-  return mode === 'flat'
+export interface ProjectFilterChoice {
+  projectKey: string
+  label: string
+  initial: string
+  /** Active tasks only, so the figure beside a project agrees with the list the
+   *  filter produces. Snoozed and completed live on their own shelves. */
+  count: number
+}
+
+/** The filter menu's projects, in the order their tasks already sit in the
+ *  column, so picking one never reorders what you were reading. Every project
+ *  the column knows about is offered, including one whose work has all been
+ *  snoozed or completed — it is still a scope, and it still reads 0. */
+export function projectFilterChoices(allTasks: readonly SidebarTask[]): ProjectFilterChoice[] {
+  const choices = new Map<string, ProjectFilterChoice>()
+  for (const task of allTasks) {
+    const active = task.lifecycle === 'active' ? 1 : 0
+    const existing = choices.get(task.projectKey)
+    if (existing) existing.count += active
+    else
+      choices.set(task.projectKey, {
+        projectKey: task.projectKey,
+        label: task.projectLabel,
+        initial: projectInitial(task.projectLabel),
+        count: active,
+      })
+  }
+  return [...choices.values()]
 }
 
 export type PrChipState = 'draft' | 'open' | 'approvalRequested' | 'merged'

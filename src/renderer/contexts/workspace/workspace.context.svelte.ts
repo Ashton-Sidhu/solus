@@ -2861,7 +2861,7 @@ export class WorkspaceContext {
 
   toggleAutomations(via: Via = 'click'): void {
     if (this.togglePage({ name: 'automations', params: {} }, via, 'automations')) {
-      void this.automationsStore.loadAll()
+      void this.automationsStore.loadAll(serverConnections.connectionFor()?.serverId)
     }
   }
 
@@ -2871,7 +2871,7 @@ export class WorkspaceContext {
   openAutomations(focusId?: string | null, via: Via = 'click'): void {
     if (focusId && this.window.viewMode === 'editor') this.openAutomationBuilder(focusId)
     else this.showPage({ name: 'automations', params: { automationId: focusId ?? undefined } }, via, 'automations')
-    void this.automationsStore.loadAll()
+    void this.automationsStore.loadAll(serverConnections.connectionFor()?.serverId)
   }
 
   /** Open one automation as the single artifact. `aside` puts it beside the
@@ -2889,7 +2889,7 @@ export class WorkspaceContext {
     )
     if (target === 'aside') this.geometry.open(pane.id)
     this.isExpanded = true
-    void this.automationsStore.loadAll()
+    void this.automationsStore.loadAll(serverId ?? serverConnections.connectionFor()?.serverId)
   }
 
   // ─── Diff comments (on Tab — UI-only) ───

@@ -55,18 +55,18 @@
       />
     {/if}
     <span
-      class="text-[10px] font-normal uppercase {accent
+      class="text-xs font-normal uppercase {accent
  ? 'text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
  : 'text-muted-foreground'}"
     >
       {label}
     </span>
-    <span class="font-mono text-[11px] tabular-nums text-muted-foreground opacity-70">
+    <span class="font-mono text-xs tabular-nums text-muted-foreground opacity-70">
       {count}
     </span>
     <span class="h-px flex-1 bg-[var(--hairline)]"></span>
     {#if note}
-      <span class="text-[12px] text-muted-foreground opacity-80">{note}</span>
+      <span class="text-xs text-muted-foreground opacity-80">{note}</span>
     {/if}
   </svelte:element>
 

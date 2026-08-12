@@ -23,12 +23,12 @@ export function prStatusBadge(
     return { label: 'Merge conflicts', Icon: WarningCircleIcon, tone: 'var(--solus-art-negative)' }
   }
   if (detail.state === 'merged') {
-    return { label: 'Merged', Icon: GitMergeIcon, tone: 'var(--solus-accent)' }
+    return { label: 'Merged', Icon: GitMergeIcon, tone: 'var(--success)' }
   }
   if (detail.state === 'closed') {
-    return { label: 'Closed', Icon: GitPullRequestIcon, tone: 'var(--solus-art-negative)' }
+    return { label: 'Closed', Icon: GitPullRequestIcon, tone: 'var(--idle)' }
   }
-  return { label: 'Open', Icon: GitPullRequestIcon, tone: 'var(--solus-art-positive)' }
+  return { label: 'Open', Icon: GitPullRequestIcon, tone: 'var(--running)' }
 }
 
 export function filterPrs(

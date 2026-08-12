@@ -184,14 +184,12 @@
   const secondaryCollapsesSidebar = $derived(
     secondaryVisible && companionRef?.name !== "automation",
   );
-  // The review surfaces read edge-to-edge and none of them wants a session
-  // column beside it: the standalone guide pane, the PR review route, and the
-  // pull requests page, which carries its own review in a panel beside the list
-  // and needs the width for both.
+  // Dedicated review surfaces read edge-to-edge and do not want a session
+  // column beside them. The pull requests page is a workspace list, so it keeps
+  // the user's sidebar state like Automations and Workspace do.
   const primaryReviewOpen = $derived(
     leadingRef?.name === "review" ||
-      leadingRef?.name === "prReview" ||
-      leadingRef?.name === "prs",
+      leadingRef?.name === "prReview",
   );
   const maximizedPaneId = $derived(geometry.maximizedPaneId);
   const sidebarOpenForChrome = $derived(

@@ -350,14 +350,14 @@
 
 <section class="flex h-full min-h-0 flex-col bg-(--solus-container-bg) antialiased" aria-label="Review mode">
   <header class="flex h-(--solus-chrome-row-h) shrink-0 items-center gap-3 border-b border-(--solus-container-border) pr-3 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]">
-    <span class="rounded-md bg-(--solus-accent-light) px-2 py-1 text-[0.625rem] font-medium text-(--solus-accent) uppercase ring-1 ring-inset ring-(--solus-accent-border)">
+    <span class="rounded-md bg-(--solus-accent-light) px-2 py-1 text-xs font-medium text-(--solus-accent) uppercase ring-1 ring-inset ring-(--solus-accent-border)">
       Review mode
     </span>
     <span class="text-xs font-secondary text-(--solus-text-secondary) tabular-nums">
       {settledCount + (state?.pending.length ?? 0)} of {state?.entries.length ?? items.length} reviewed
       {#if currentEntry} · viewing <strong class="font-medium text-(--solus-text-primary)">{store.position}</strong>{/if}
     </span>
-    <span class="ml-auto hidden text-[0.6875rem] text-(--solus-text-tertiary) xl:inline">Single-key controls are active outside text fields</span>
+    <span class="ml-auto hidden text-xs text-(--solus-text-tertiary) xl:inline">Single-key controls are active outside text fields</span>
     <Button
       variant="ghost"
       size="icon-sm"
@@ -389,12 +389,12 @@
           <div class="flex min-h-14 shrink-0 items-center gap-3 border-b border-(--solus-container-border) px-4">
             <div class="min-w-0 flex-1">
               <h1 class="truncate text-sm font-medium text-(--solus-text-primary)">{currentItem.title}</h1>
-              <div class="mt-1 flex items-center gap-2 text-[0.6875rem] text-(--solus-text-tertiary)">
+              <div class="mt-1 flex items-center gap-2 text-xs text-(--solus-text-tertiary)">
                 <span class="tabular-nums">#{currentItem.number}</span>
                 <span aria-hidden="true">·</span>
                 <span>{currentItem.author}</span>
                 {#if currentItem.effort?.band}
-                  <span class="rounded px-1.5 py-px text-[0.625rem] font-medium ring-1 ring-inset {currentItem.effort.band === 'quick'
+                  <span class="rounded px-1.5 py-px text-xs font-medium ring-1 ring-inset {currentItem.effort.band === 'quick'
  ? 'text-(--solus-art-positive) ring-[color:color-mix(in_srgb,var(--solus-art-positive)_28%,transparent)]'
  : currentItem.effort.band === 'involved'
  ? 'text-(--solus-art-negative) ring-[color:color-mix(in_srgb,var(--solus-art-negative)_24%,transparent)]'
@@ -431,7 +431,7 @@
  : 'text-(--solus-text-tertiary) hover:text-(--solus-text-primary)'}"
                   onclick={() => selectView(tab[0] as ReviewModeView)}
                 >
-                  {tab[1]} <span class="ml-1 font-mono text-[0.5625rem] opacity-60">{tab[2]}</span>
+                  {tab[1]} <span class="ml-1 font-mono text-xs opacity-60">{tab[2]}</span>
                 </button>
               {/each}
             </div>
@@ -477,7 +477,7 @@
         {#if composerOutcome}
           <div class="flex shrink-0 items-end gap-2 border-t border-(--solus-accent-border) bg-(--solus-accent-light) px-3 py-2">
             <div class="min-w-0 flex-1">
-              <label for="review-mode-summary" class="mb-1 block text-[0.6875rem] font-medium text-(--solus-text-secondary)">
+              <label for="review-mode-summary" class="mb-1 block text-xs font-medium text-(--solus-text-secondary)">
                 {composerOutcome === "changes_requested" ? "Why are you requesting changes?" : "Leave a review comment"}
               </label>
               <textarea
@@ -502,18 +502,18 @@
               onclick={() => disposeCurrent("approved")}
               class="bg-(--solus-status-complete) text-white hover:bg-(--solus-status-complete)/85"
             >
-              <CheckCircleIcon data-icon="inline-start" weight="fill" /> Approve <kbd class="ml-1 font-mono text-[0.5625rem] opacity-70">a</kbd>
+              <CheckCircleIcon data-icon="inline-start" weight="fill" /> Approve <kbd class="ml-1 font-mono text-xs opacity-70">a</kbd>
             </Button>
             <Button variant="outline" size="sm" disabled={!canDisposition()} onclick={() => openComposer("changes_requested")} class="text-(--solus-status-error) hover:text-(--solus-status-error)">
-              <WarningCircleIcon data-icon="inline-start" /> Request changes <kbd class="ml-1 font-mono text-[0.5625rem] opacity-70">r</kbd>
+              <WarningCircleIcon data-icon="inline-start" /> Request changes <kbd class="ml-1 font-mono text-xs opacity-70">r</kbd>
             </Button>
             <Button variant="outline" size="sm" disabled={!canDisposition()} onclick={() => openComposer("commented")}>
-              <ChatTextIcon data-icon="inline-start" /> Comment <kbd class="ml-1 font-mono text-[0.5625rem] opacity-70">c</kbd>
+              <ChatTextIcon data-icon="inline-start" /> Comment <kbd class="ml-1 font-mono text-xs opacity-70">c</kbd>
             </Button>
             <Button variant="ghost" size="sm" disabled={!canDisposition()} onclick={() => disposeCurrent("deferred")} class="text-(--solus-text-tertiary)">
-              <ClockIcon data-icon="inline-start" /> Defer <kbd class="ml-1 font-mono text-[0.5625rem] opacity-70">d</kbd>
+              <ClockIcon data-icon="inline-start" /> Defer <kbd class="ml-1 font-mono text-xs opacity-70">d</kbd>
             </Button>
-            <span class="ml-auto hidden items-center gap-2 text-[0.625rem] text-(--solus-text-tertiary) 2xl:flex">
+            <span class="ml-auto hidden items-center gap-2 text-xs text-(--solus-text-tertiary) 2xl:flex">
               <span><kbd class="font-mono">j</kbd>/<kbd class="font-mono">k</kbd> next / prev</span>
               <span><kbd class="font-mono">u</kbd> undo</span>
             </span>

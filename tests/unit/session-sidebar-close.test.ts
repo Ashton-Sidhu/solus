@@ -11,7 +11,7 @@ type SidebarStoreHarness = Pick<SessionSidebarStore, 'closeTask' | 'closeChild' 
   closedTabIds: string[]
   unloadedCompletedTaskIds: Set<string>
   closeTabs: (tabIds: string[]) => void
-  allTasks: SidebarTask[]
+  hostTasks: SidebarTask[]
   session: unknown
   tabIdBySessionId: Map<string, string>
   renameSession: (tabId: string) => Promise<void>
@@ -99,7 +99,7 @@ describe('session sidebar project dismissal', () => {
     // exactly the rows under it — a project close that reached a neighbouring
     // project would unload conversations the user never pointed at.
     const store = sidebarStoreForDismissal()
-    store.allTasks = [taskIn('/repo', 'one'), taskIn('/other', 'two'), taskIn('/repo', 'three')]
+    store.hostTasks = [taskIn('/repo', 'one'), taskIn('/other', 'two'), taskIn('/repo', 'three')]
 
     store.closeProject('/repo')
 
@@ -111,7 +111,7 @@ describe('session sidebar project dismissal', () => {
     // WHY: it is what decides whether the close asks first, so counting another
     // project's run would make a quiet project prompt for nothing.
     const store = sidebarStoreForDismissal()
-    store.allTasks = [
+    store.hostTasks = [
       taskIn('/repo', 'one', 'running'),
       taskIn('/repo', 'two'),
       taskIn('/other', 'three', 'running'),

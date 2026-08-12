@@ -278,11 +278,11 @@
           disabled={!projectRoot}
           aria-label="Saved prompts"
           aria-expanded={open}
-          class="flex h-full items-center gap-1.5 rounded-r-lg px-2.5 text-[0.78125rem] text-(--solus-text-tertiary) transition-[background-color,color,scale] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:bg-(--solus-accent-light) focus-visible:outline-none disabled:opacity-50"
+          class="flex h-full items-center gap-1.5 rounded-r-lg px-2.5 text-[0.8125rem] text-(--solus-text-tertiary) transition-[background-color,color,scale] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:bg-(--solus-accent-light) focus-visible:outline-none disabled:opacity-50"
           style="cursor:{projectRoot ? 'pointer' : 'not-allowed'}"
         >
           <span>Saved</span>
-          <span class="font-mono text-[0.6875rem] tabular-nums opacity-60"
+          <span class="font-mono text-xs tabular-nums opacity-60"
             >{count}</span
           >
           <!-- The caret points at where the sheet appears, and flips while it
@@ -313,7 +313,7 @@
        Popover.Content's stock rounded-lg + bg-popover + shadow-md are emitted
        after the utility layer and would otherwise win the cascade, and
        lg:text-menu is a separate merge group from the bare text-menu so the
-       primitive's lg:text-[0.9375rem] needs answering at its own breakpoint. -->
+       primitive's lg:text-sm needs answering at its own breakpoint. -->
   <Popover.Content
     data-solus-ui
     customAnchor={anchorEl}
@@ -338,7 +338,7 @@
       </MenuSearch>
       <Command.List class="max-h-[17.5rem] p-1.5">
         <Command.Empty
-          class="px-2.5 py-3 text-center text-[0.75rem] text-(--solus-text-tertiary)"
+          class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)"
         >
           {emptyMessage}
           {#if !query.trim()}
@@ -377,7 +377,7 @@
                   {/if}
                   {#if thumbnail && thumbnail.extra > 0}
                     <span
-                      class="absolute -bottom-1 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full border border-(--solus-container-border) bg-(--solus-container-bg) px-1 text-[0.59375rem] font-medium tabular-nums text-(--solus-text-tertiary)"
+                      class="absolute -bottom-1 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full border border-(--solus-container-border) bg-(--solus-container-bg) px-1 text-xs font-medium tabular-nums text-(--solus-text-tertiary)"
                       >+{thumbnail.extra}</span
                     >
                   {/if}

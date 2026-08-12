@@ -51,7 +51,7 @@
           <span>{label}{@render labelExtra?.()}</span>
           {#if comingSoon}
             <span
-              class="rounded-full border border-border px-1.5 py-px text-[0.5625rem] font-medium uppercase text-muted-foreground"
+              class="rounded-full border border-border px-1.5 py-px text-xs font-medium uppercase text-muted-foreground"
             >
               Coming soon
             </span>
@@ -59,7 +59,7 @@
         </div>
         {#if description}
           <div
-            class="mt-0.5 text-pretty text-[0.75rem] text-muted-foreground"
+            class="mt-0.5 text-pretty text-xs text-muted-foreground"
           >
             {description}
           </div>

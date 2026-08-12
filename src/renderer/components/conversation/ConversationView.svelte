@@ -953,7 +953,7 @@
         <DesktopTowerIcon size={13} />
       {/snippet}
       {remoteStatus === "connecting" ? "Reconnecting to" : "Can’t reach"}
-      <span class="font-mono text-[0.75rem]"
+      <span class="font-mono text-xs"
         >{remoteServer?.label ?? "remote host"}</span
       >
       {#snippet actions()}
@@ -1042,7 +1042,7 @@
           {/if}
           {#if expandingHistory}
             <div
-              class="flex justify-center py-2 text-[0.6875rem] text-(--solus-text-tertiary)"
+              class="flex justify-center py-2 text-xs text-(--solus-text-tertiary)"
             >
               Loading earlier messages…
             </div>
@@ -1434,7 +1434,7 @@
         >
           <div
             bind:clientWidth={activityReservedWidth}
-            class="flex items-center gap-1.5 text-[0.6875rem] pointer-events-auto"
+            class="flex items-center gap-1.5 text-xs pointer-events-auto"
             class:pl-4={isEditorMode}
             class:pr-2={isEditorMode}
           >

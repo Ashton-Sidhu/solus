@@ -73,7 +73,7 @@
 <div class="flex min-h-[18rem] gap-4 p-3">
   <nav class="flex flex-col gap-0.5 w-60 shrink-0 border-r border-r-border pr-3" aria-label="Projects">
     {#if loaded && projects.length === 0}
-      <p class="text-[0.75rem] text-(--solus-text-tertiary) py-2">No projects yet. Open a folder to get started.</p>
+      <p class="text-xs text-(--solus-text-tertiary) py-2">No projects yet. Open a folder to get started.</p>
     {/if}
     {#each projects as project (project.path)}
       {@const active = selected === project.path}
@@ -90,7 +90,7 @@
           <FolderIcon size={15} weight={active ? "fill" : "regular"} class="shrink-0 {active ? 'text-(--solus-accent)' : 'text-(--solus-text-tertiary)'}" />
           <span class="flex flex-col min-w-0 gap-px">
             <span class="text-[0.8125rem] {active ? 'font-medium' : 'font-normal'} whitespace-nowrap overflow-hidden text-ellipsis">{project.folderName || folderName(project.path)}</span>
-            <span class="text-[0.625rem] text-(--solus-text-tertiary) whitespace-nowrap overflow-hidden text-ellipsis">{project.path}</span>
+            <span class="text-xs text-(--solus-text-tertiary) whitespace-nowrap overflow-hidden text-ellipsis">{project.path}</span>
           </span>
         </button>
 

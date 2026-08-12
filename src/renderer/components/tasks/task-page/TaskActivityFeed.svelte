@@ -2,6 +2,8 @@
   import SvelteMarkdown, {
     type SanitizeUrlFn,
   } from "@humanspeak/svelte-markdown";
+  import { SvelteSet } from "svelte/reactivity";
+  import { ArrowUpIcon, CheckIcon, CircleNotchIcon } from "phosphor-svelte";
   import type { TaskComment, TaskEvent } from "../../../../shared/task-types";
   import { githubMarkdownExtensions } from "../../../lib/githubMarkdown";
   import { markdownSanitizeUrl } from "../../../lib/markdownSanitize";
@@ -10,13 +12,34 @@
   import { authorInitials, relativeTime } from "../lib/tasks-api";
   import { isInlineTaskImageUrl } from "./lib/task-image";
   import { activityFeed, eventLine } from "./lib/task-page";
+  import { commentSyncState } from "./lib/task-upstream";
 
   interface Props {
     comments: TaskComment[];
     events: TaskEvent[];
+    /** The system a comment can be published to, when this task has one. Null
+     *  leaves every entry with no publish affordance at all. */
+    provider: string | null;
+    /** Queue this comment for the ticket. Resolves once the host has taken it;
+     *  the engine posts it on its next pass. */
+    onPublish: (commentId: string) => Promise<void>;
   }
 
-  let { comments, events }: Props = $props();
+  let { comments, events, provider, onPublish }: Props = $props();
+
+  /** Comments the user has just pressed Publish on, so the row stops offering
+   *  the action before the host's answer arrives. */
+  let publishing = $state(new SvelteSet<string>());
+
+  async function publish(commentId: string) {
+    if (publishing.has(commentId)) return;
+    publishing.add(commentId);
+    try {
+      await onPublish(commentId);
+    } finally {
+      publishing.delete(commentId);
+    }
+  }
 
   const taskMarkdownRenderers = {
     ...githubMarkdownRenderers,
@@ -38,7 +61,7 @@
   );
 
   const SEGMENT =
-    "h-[22px] cursor-pointer rounded-full px-2.5 text-[12px] transition-colors duration-150";
+    "h-[22px] cursor-pointer rounded-full px-2.5 text-xs transition-colors duration-150";
   const SEGMENT_ON =
     "bg-card text-foreground font-medium shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)]";
   const SEGMENT_OFF = "text-muted-foreground";
@@ -59,7 +82,7 @@
 <div class="pt-7">
   <div class="flex items-center gap-2.5 pb-1">
     <span
-      class="text-[10px] font-normal text-muted-foreground uppercase"
+      class="text-xs font-normal text-muted-foreground uppercase"
     >
       Activity
     </span>
@@ -117,11 +140,11 @@
           <span
             class="flex min-h-[25px] min-w-0 flex-1 flex-wrap items-center gap-2"
           >
-            <span class="text-[12px] leading-[1.55] text-muted-foreground"
+            <span class="text-xs leading-[1.55] text-muted-foreground"
               >{line.text}</span
             >
             <span
-              class="font-mono text-[11px] text-muted-foreground opacity-60"
+              class="font-mono text-xs text-muted-foreground opacity-60"
             >
               {relativeTime(entry.at)}
             </span>
@@ -132,7 +155,7 @@
         {@const agent = isAgent(comment)}
         <div class="relative flex gap-3 py-3">
           <span
-            class="flex size-[25px] shrink-0 items-center justify-center rounded-full text-[10px] font-medium shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
+            class="flex size-[25px] shrink-0 items-center justify-center rounded-full text-xs font-medium shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
             style={agent
               ? "background:color-mix(in oklch, var(--primary) 15%, transparent);color:color-mix(in oklch, var(--primary) 78%, var(--foreground))"
               : "background:color-mix(in oklch, var(--chart-1) 22%, transparent);color:color-mix(in oklch, var(--chart-1) 72%, var(--foreground))"}
@@ -165,22 +188,59 @@
           </span>
           <span class="flex min-w-0 flex-1 flex-col gap-1.5">
             <span class="flex min-h-[25px] flex-wrap items-center gap-2">
-              <span class="text-[13px] font-medium ">
+              <span class="text-[0.8125rem] font-medium ">
                 {authorName(comment)}
               </span>
               {#if comment.originSessionId}
                 <span
-                  class="rounded-full px-1.5 py-px font-mono text-[11px] "
+                  class="rounded-full px-1.5 py-px font-mono text-xs "
                   style="background:color-mix(in oklch, var(--primary) 13%, transparent);color:color-mix(in oklch, var(--primary) 82%, var(--foreground))"
                 >
                   {comment.originSessionId.slice(0, 8)}
                 </span>
               {/if}
               <span
-                class="font-mono text-[11px] text-muted-foreground opacity-60"
+                class="font-mono text-xs text-muted-foreground opacity-60"
               >
                 {relativeTime(comment.createdAt)}
               </span>
+              {#if provider}
+                {@const sync = commentSyncState(comment, true)}
+                <span class="flex-1"></span>
+                <!-- Publishing is per comment: a note meant for the team here is
+                     not automatically a note for the ticket's audience. -->
+                {#if sync === "published"}
+                  <span
+                    class="flex items-center gap-1 text-xs text-muted-foreground opacity-65"
+                    title="Published to {provider}"
+                  >
+                    <CheckIcon size={10} weight="bold" aria-hidden="true" />
+                    {provider}
+                  </span>
+                {:else if sync === "queued" || publishing.has(comment.id)}
+                  <span
+                    class="flex items-center gap-1 text-xs text-muted-foreground opacity-65"
+                    title="Queued for {provider} — it posts on the next sync"
+                  >
+                    <CircleNotchIcon
+                      size={10}
+                      class="animate-spin motion-reduce:animate-none"
+                      aria-hidden="true"
+                    />
+                    Queued
+                  </span>
+                {:else if sync === "held"}
+                  <button
+                    type="button"
+                    class="flex h-[22px] cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] transition-colors hover:text-primary hover:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
+                    onclick={() => void publish(comment.id)}
+                    title="Publish this comment to {provider}"
+                  >
+                    <ArrowUpIcon size={10} weight="bold" aria-hidden="true" />
+                    Publish
+                  </button>
+                {/if}
+              {/if}
             </span>
             <div class="github-markdown prose-cloud prose-pr w-full">
               <SvelteMarkdown
@@ -194,7 +254,7 @@
         </div>
       {/if}
     {:else}
-      <div class="py-3 pl-9 text-[12px] text-muted-foreground">
+      <div class="py-3 pl-9 text-xs text-muted-foreground">
         {filter === "comments" ? "No comments yet." : "No activity yet."}
       </div>
     {/each}

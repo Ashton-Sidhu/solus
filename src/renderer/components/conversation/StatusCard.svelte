@@ -76,10 +76,10 @@
     <div class="flex items-center gap-3 px-[1.0625rem] pt-[0.9375rem] pb-3">
       <div class="min-w-0 flex-1">
         <div class="setup-kicker">Setup</div>
-        <div class="truncate text-[0.875rem] leading-tight font-medium ">
+        <div class="truncate text-sm leading-tight font-medium ">
           {card.title}
         </div>
-        <div class="mt-0.5 truncate text-[0.71875rem] text-(--muted-foreground)">{meta}</div>
+        <div class="mt-0.5 truncate text-xs text-(--muted-foreground)">{meta}</div>
       </div>
       <TranscriptChip state={chip.state}>{chip.label}</TranscriptChip>
       {#if isDone}
@@ -123,7 +123,7 @@
             {/if}
 
             <span
-              class="min-w-0 flex-1 truncate text-[0.78125rem]"
+              class="min-w-0 flex-1 truncate text-[0.8125rem]"
               class:setup-label--done={step.status === "done"}
               class:setup-label--active={step.status === "active"}
               class:setup-label--pending={step.status === "pending"}
@@ -162,7 +162,7 @@
 
   .setup-kicker {
     margin-bottom: 0.3125rem;
-    font-size: 0.59375rem;
+    font-size: 0.75rem;
     font-weight: 500;
 
     text-transform: uppercase;
@@ -255,13 +255,13 @@
   }
 
   .setup-elapsed {
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     opacity: 0.7;
   }
 
   .setup-detail {
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     line-height: 1.5;
     color: var(--muted-foreground);
     text-wrap: pretty;

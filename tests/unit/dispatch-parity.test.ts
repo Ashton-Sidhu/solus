@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -21,6 +21,7 @@ let automationTools: typeof import('../../src/main/automations/automation-tools'
 let linkedContent: typeof import('../../src/main/tasks/linked-content')
 let workApplier: typeof import('../../src/main/folio/work-applier')
 let closeDb: typeof import('../../src/main/db')['closeDb']
+let serverSettings: typeof import('../../src/main/server/settings')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir = ''
@@ -41,6 +42,7 @@ beforeAll(async () => {
   automationTools = await import('../../src/main/automations/automation-tools')
   linkedContent = await import('../../src/main/tasks/linked-content')
   workApplier = await import('../../src/main/folio/work-applier')
+  serverSettings = await import('../../src/main/server/settings')
   taskApplier.registerTaskOutboxApplier()
   workApplier.registerWorkOutboxApplier()
 })
@@ -99,6 +101,56 @@ function toolContext(solusSessionId: string) {
     emit: () => {},
   } as never
 }
+
+describe('agent task lifecycle policy', () => {
+  afterEach(() => {
+    serverSettings.setAgentTaskLifecyclePolicy('moderate')
+  })
+
+  test('none prevents every agent status change', async () => {
+    serverSettings.setAgentTaskLifecyclePolicy('none')
+    const task = await createTask({ title: 'User controlled', projectKey: '/p', body: '' })
+
+    const result = await taskTools.updateTaskStatusAgentTool.execute(
+      { task_id: task.id, status: 'in_progress' },
+      toolContext('none-policy'),
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.text).toContain('user controls')
+    expect((await TaskModule.Task.byId(task.id)).status).toBe('todo')
+  })
+
+  test('moderate permits progress but prevents Done', async () => {
+    const task = await createTask({ title: 'User closes this', projectKey: '/p', body: '' })
+    const reviewed = await taskTools.updateTaskStatusAgentTool.execute(
+      { task_id: task.id, status: 'in_review' },
+      toolContext('moderate-policy'),
+    )
+    const done = await taskTools.updateTaskStatusAgentTool.execute(
+      { task_id: task.id, status: 'done' },
+      toolContext('moderate-policy'),
+    )
+
+    expect(reviewed.ok).toBe(true)
+    expect(done.ok).toBe(false)
+    expect(done.text).toContain('Moderate mode')
+    expect((await TaskModule.Task.byId(task.id)).status).toBe('in_review')
+  })
+
+  test('autonomous permits Done', async () => {
+    serverSettings.setAgentTaskLifecyclePolicy('autonomous')
+    const task = await createTask({ title: 'Agent controlled', projectKey: '/p', body: '' })
+
+    const result = await taskTools.updateTaskStatusAgentTool.execute(
+      { task_id: task.id, status: 'done' },
+      toolContext('autonomous-policy'),
+    )
+
+    expect(result.ok).toBe(true)
+    expect((await TaskModule.Task.byId(task.id)).status).toBe('done')
+  })
+})
 
 describe('the host outbox (ADR-0007)', () => {
   test('record → list → apply → ack is the whole lifecycle, and redelivery is a no-op', async () => {

@@ -275,7 +275,7 @@
       enterInsertsNewline
       {menuPlacement}
       maxHeight={260}
-      class="[--plain-editor-font-size:0.84375rem] [--plain-editor-padding:1.25rem_0_1.25rem_0]"
+      class="[--plain-editor-font-size:0.875rem] [--plain-editor-padding:1.25rem_0_1.25rem_0]"
     />
   </div>
   <!-- Same geometry as the input bar's toolbar row (InputBar.svelte): the
@@ -308,7 +308,7 @@
     {@render afterPicker?.()}
     {#if showWorktree}
       <label
-        class="flex h-[1.875rem] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-1 text-[0.78125rem] font-medium transition-colors {useWorktree ? 'text-(--solus-accent)' : 'font-secondary text-(--solus-text-secondary)'}"
+        class="flex h-[1.875rem] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-1 text-[0.8125rem] font-medium transition-colors {useWorktree ? 'text-(--solus-accent)' : 'font-secondary text-(--solus-text-secondary)'}"
         title={useWorktree ? "Worktree enabled — run in an isolated branch (⌥W)" : "Enable worktree — run in an isolated branch (⌥W)"}
       >
         <GitForkIcon size={14} />

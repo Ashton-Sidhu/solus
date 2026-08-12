@@ -3,11 +3,10 @@ import { appendFile, mkdir, stat } from 'fs/promises'
 import { dirname, join } from 'path'
 import { createLogger } from './logger'
 import { captureServerEvent } from './analytics'
-import { createWorktree, buildBranchNamePrompt } from './git/worktree-manager'
+import { createWorktree } from './git/worktree-manager'
 import { computeGitState } from './git/git-helpers'
 import { GitWatcher } from './git/git-watcher'
 import { warmFinder } from './server/file-finder'
-import { TextGenerator } from './agents/text-generator'
 import {
   AgentRunner,
   type AgentRun,
@@ -28,6 +27,7 @@ import type { AttentionKind } from '../shared/attention-types'
 import { prepareSessionTask, tasksForSession } from './tasks/task-sessions'
 import { Task, taskSnapshot } from './tasks/task'
 import { formatTaskContext } from './tasks/task-context'
+import { getServerSettings } from './server/settings'
 import { clearForeignTaskSnapshot, foreignTaskFor, setForeignTaskSnapshot } from './tasks/foreign-tasks'
 import type { TaskSnapshot } from '../shared/task-types'
 import { getIndexedSession, persistIndexedSessionStart } from './db/session-indexer'
@@ -215,7 +215,6 @@ export class ControlPlane extends EventEmitter {
   private agentConversationWatches = new Map<string, Map<string, AgentConversationWatch[]>>()
   private backends: Map<AgentId, AgentBackend>
   private agentRunner: AgentRunner
-  private textGenerator: TextGenerator
   private activeAgentRuns = new Set<AgentRun>()
   private activeUnattendedAgentRuns = new Set<AgentRun>()
   private readonly claudeGoals = new ClaudeGoalStore()
@@ -264,7 +263,6 @@ export class ControlPlane extends EventEmitter {
     super()
     this.backends = backends
     this.agentRunner = new AgentRunner(backends)
-    this.textGenerator = new TextGenerator(this)
     this.handoffBuilder = opts.buildHandoff ?? buildHandoff
     for (const backend of this.backends.values()) {
       this._wireBackend(backend)
@@ -2039,20 +2037,7 @@ export class ControlPlane extends EventEmitter {
       worktreeCardActive = true
       this._emit(sessionId, { type: 'status_card', card: buildWorktreeCard(0) })
       try {
-        const branchModel = provider === 'codex'
-          ? 'gpt-5.4-mini'
-          : 'claude-haiku-4-5-20251001'
         const gitContext: GitCheckout = await createWorktree(resolvedProjectPath, options.prompt, worktreeBaseBranch, {
-          generateName: (prompt) => this.textGenerator.generate({
-            provider,
-            cwd: resolvedProjectPath,
-            prompt: buildBranchNamePrompt(prompt),
-            model: branchModel,
-            reasoningEffort: 'none',
-            maxTurns: 1,
-            timeoutMs: 30_000,
-            abortSignal: setupController.signal,
-          }),
           signal: setupController.signal,
         })
         if (existingSession) existingSession.gitContext = gitContext
@@ -2300,15 +2285,16 @@ export class ControlPlane extends EventEmitter {
     shipped: TaskSnapshot | null,
     sessionId: string,
   ): Promise<string | null> {
+    const lifecyclePolicy = getServerSettings().agentTaskLifecyclePolicy
     if (shipped && shipped.details.task.id === taskId) {
       setForeignTaskSnapshot(sessionId, shipped)
       const overlaid = foreignTaskFor(sessionId, taskId) ?? shipped
-      return formatTaskContext(overlaid.details, overlaid.parent, overlaid.sessions)
+      return formatTaskContext(overlaid.details, overlaid.parent, overlaid.sessions, lifecyclePolicy)
     }
     setForeignTaskSnapshot(sessionId, null)
     try {
       const snapshot = await taskSnapshot(taskId)
-      return formatTaskContext(snapshot.details, snapshot.parent, snapshot.sessions)
+      return formatTaskContext(snapshot.details, snapshot.parent, snapshot.sessions, lifecyclePolicy)
     } catch (err) {
       // On a dispatch this once failed silently — the task's row lives on
       // another host. A taskId this host cannot read now always names a defect:

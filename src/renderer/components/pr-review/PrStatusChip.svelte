@@ -17,7 +17,7 @@
 </script>
 
 <span
-  class="inline-flex h-[22px] shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[11.5px] font-medium whitespace-nowrap"
+  class="inline-flex h-[22px] shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium whitespace-nowrap"
   style="background:{tone.background};color:{tone.color}"
 >
   {#if status === "merged"}

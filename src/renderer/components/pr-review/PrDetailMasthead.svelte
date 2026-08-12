@@ -42,7 +42,7 @@
 <div class="flex items-center gap-2.5">
   {#if headRef && baseRef}
     <!-- head → base, reading in merge direction. -->
-    <span class="flex min-w-0 items-center gap-1.5 font-mono text-[10.5px] text-muted-foreground">
+    <span class="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground">
       <span class="truncate">{headRef}</span>
       <ArrowRightIcon size={10} class="shrink-0 opacity-50" aria-hidden="true" />
       <span class="truncate">{baseRef}</span>

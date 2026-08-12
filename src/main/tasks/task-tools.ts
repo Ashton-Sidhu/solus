@@ -7,6 +7,7 @@ import { Task } from './task'
 import { applyOpToForeignTask, foreignTaskFor } from './foreign-tasks'
 import { formatTaskLink } from './task-context'
 import { recordOutboxOp } from '../outbox/outbox-store'
+import { getServerSettings } from '../server/settings'
 import type { TaskCommentOpPayload, TaskSetStatusOpPayload } from '../../shared/outbox-types'
 import type {
   Task as TaskRecord,
@@ -210,6 +211,19 @@ async function executeTaskTool(
       const status = String(args.status ?? '')
       if (!(STATUS_VALUES as readonly string[]).includes(status)) {
         return { ok: false, text: `update_task_status: status must be one of ${STATUS_VALUES.join(', ')}.` }
+      }
+      const lifecyclePolicy = getServerSettings().agentTaskLifecyclePolicy
+      if (lifecyclePolicy === 'none') {
+        return {
+          ok: false,
+          text: 'Agent task status changes are disabled. The user controls this task\'s lifecycle.',
+        }
+      }
+      if (lifecyclePolicy === 'moderate' && status === 'done') {
+        return {
+          ok: false,
+          text: 'Agents cannot move tasks to done in Moderate mode. Move the task to in_review or ask the user to close it.',
+        }
       }
       if (foreignTaskFor(deps.ctx.solusSessionId, id)) {
         const payload: TaskSetStatusOpPayload = { status, actorLabel: deps.ctx.sessionId }

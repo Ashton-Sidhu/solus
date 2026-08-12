@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { serverConnections } from "@client-core/server-connections";
   import { tick } from "svelte";
   import { StarIcon } from "phosphor-svelte";
   import type { Automation } from "../../../shared/types";
@@ -39,6 +40,10 @@
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
   const store = session.automationsStore;
+  const selectedServerId = $derived(
+    serverConnections.resolveId(serversStore.activeServerId),
+  );
+  const hostItems = $derived(store.itemsForHost(selectedServerId));
 
   const open = $derived(session.router.at("automations"));
   // Editor mode opens the builder in the side panel; pill mode has no pane, so it
@@ -57,7 +62,7 @@
   let selectedProjectKey = $state<string | null>(null);
   const projects = $derived(
     automationProjects(
-      store.items,
+      hostItems,
       session.openProjects,
       session.staticInfo?.workspacePath,
       (automation) => store.hostFor(automation.id),
@@ -107,15 +112,17 @@
     return () => clearInterval(interval);
   });
 
-  // The visible universe is all automations until a project facet is selected.
+  // The visible universe belongs to the selected host. Paths and automation
+  // ids are host-local data, so another connected machine must not leak into
+  // this page when the user switches hosts.
   const scoped = $derived(
     selectedProject
-      ? store.items.filter(
+      ? hostItems.filter(
           (a) =>
             automationProject(a, store.hostFor(a.id), projects)?.key ===
             selectedProject.key,
         )
-      : store.items,
+      : hostItems,
   );
 
   const counts = $derived.by(() => {
@@ -141,10 +148,12 @@
     },
   ]);
 
-  const isInitialLoading = $derived(!store.loaded && store.loading);
+  const isInitialLoading = $derived(
+    !store.hasLoadedHost(selectedServerId) && store.isLoadingHost(selectedServerId),
+  );
   // The zero-state owns the page, so the header hides its New button and the
   // command bar (search/filter noise with nothing to filter) while it shows.
-  const showEmpty = $derived(!isInitialLoading && store.items.length === 0);
+  const showEmpty = $derived(!isInitialLoading && hostItems.length === 0);
 
   // The lead statistic is what the page is for — how much is running unattended
   // — and it is the only coloured text in the header.
@@ -243,15 +252,17 @@
       // badge); the bare route lands on the list.
       const focusId = session.router.params("automations")?.automationId;
       if (focusId) {
-        void store.loadAll().then(() => {
-          const target = store.get(focusId);
+        void store.loadAll(selectedServerId).then(() => {
+          const target = store
+            .itemsForHost(selectedServerId)
+            .find((automation) => automation.id === focusId);
           view = target
             ? { kind: "edit", automation: target }
             : { kind: "list" };
         });
       } else {
         view = { kind: "list" };
-        void store.loadAll();
+        void store.loadAll(selectedServerId);
         if (!runtime.shouldSuppressFocus) {
           void tick().then(() => searchEl?.focus());
         }
@@ -393,12 +404,12 @@
         bind:value={sortMode}
         options={SORT_OPTIONS}
         ariaLabel="Sort automations"
-        class="h-7 gap-1.5 rounded-lg px-2.5 text-[13px] font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
+        class="h-7 gap-1.5 rounded-lg px-2.5 text-[0.8125rem] font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
       />
       <AutomationProjectFilter
         {projects}
         value={selectedProject?.key ?? null}
-        allCount={store.items.length}
+        allCount={hostItems.length}
         onSelect={selectProject}
       />
     {/snippet}
@@ -436,16 +447,16 @@
               class="mt-3.5 flex max-w-[600px] flex-col gap-2.5 rounded-2xl bg-[var(--wash-1)] px-6 py-[26px]"
             >
               <span
-                class="text-[10px] font-normal text-muted-foreground uppercase"
+                class="text-xs font-normal text-muted-foreground uppercase"
                 >Nothing running yet</span
               >
               <h2
-                class="text-[19.5px] leading-[1.35] font-medium text-pretty"
+                class="text-[1.5rem] leading-[1.35] font-medium text-pretty"
               >
                 What would you rather not do again next week?
               </h2>
               <p
-                class="max-w-[56ch] text-[13px] leading-[1.65] text-pretty text-muted-foreground"
+                class="max-w-[56ch] text-[0.8125rem] leading-[1.65] text-pretty text-muted-foreground"
               >
                 Say it once. An agent runs it against your repo on the cadence
                 you pick, and leaves a run you can review.
@@ -457,7 +468,7 @@
               {#snippet actions()}
                 <Button
                   type="button"
-                  class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-[0.8125rem] font-medium text-muted-foreground transition-colors hover:text-foreground"
                   onclick={clearFilters}
                 >
                   Clear filters
@@ -466,7 +477,7 @@
             </ListEmpty>
           {:else}
             <div
-              class="grid h-7 grid-cols-[20px_minmax(140px,330px)_minmax(148px,1fr)_156px_64px] items-center gap-x-[11px] pr-2 pl-2.5 text-[10px] font-normal text-muted-foreground uppercase @max-[44rem]:grid-cols-[20px_minmax(100px,1fr)_128px_64px]"
+              class="grid h-7 grid-cols-[20px_minmax(140px,330px)_minmax(148px,1fr)_156px_64px] items-center gap-x-[11px] pr-2 pl-2.5 text-xs font-normal text-muted-foreground uppercase @max-[44rem]:grid-cols-[20px_minmax(100px,1fr)_128px_64px]"
               aria-hidden="true"
             >
               <span></span>

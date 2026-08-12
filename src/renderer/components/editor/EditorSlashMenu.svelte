@@ -62,7 +62,7 @@
           </span>
           <div class="min-w-0 flex-1">
             <div class="slash-block-menu__label">{cmd.label}</div>
-            <div class="text-[0.625rem] truncate leading-tight text-(--solus-text-tertiary)">
+            <div class="text-xs truncate leading-tight text-(--solus-text-tertiary)">
               {cmd.description}
             </div>
           </div>
@@ -107,7 +107,7 @@
     color: var(--solus-text-secondary);
   }
   .slash-block-menu__label {
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     font-weight: 500;
     line-height: 1.25;
     color: var(--solus-text-primary);

@@ -154,7 +154,7 @@
       <p class="text-[0.8125rem] text-(--solus-text-tertiary)">
         No devices connected
       </p>
-      <p class="text-[0.6875rem] text-(--solus-text-tertiary) opacity-70">
+      <p class="text-xs text-(--solus-text-tertiary) opacity-70">
         Pair a device to get started
       </p>
     </div>
@@ -172,7 +172,7 @@
           <p class="truncate text-[0.8125rem] font-medium text-(--solus-text-primary)">
             {session.deviceLabel}
           </p>
-          <p class="text-[0.6875rem] text-(--solus-text-tertiary)">
+          <p class="text-xs text-(--solus-text-tertiary)">
             {relativeTime(session.connectedAt)}
             {#if session.connectionCount > 1}
               &middot; {session.connectionCount} connections

@@ -32,7 +32,7 @@
 </script>
 
 <span
-  class="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-[0.125rem] text-[0.65625rem] leading-[1.35] font-medium {extraClass}"
+  class="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-[0.125rem] text-xs leading-[1.35] font-medium {extraClass}"
   style={TINT[state]}
 >
   {@render children()}

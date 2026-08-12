@@ -72,11 +72,6 @@
      *  line, because the column is now a place to navigate from rather than the
      *  page you are reading. */
     split?: boolean;
-    /** The page owns its titlebar chrome, so the route outlet does not pad it
-     *  down and this head reserves the window-control safe area itself. Pages
-     *  that let the outlet do it (Tasks) leave this off, or the inset lands
-     *  twice. */
-    reserveTitlebar?: boolean;
   }
   let {
     projects,
@@ -101,17 +96,9 @@
     contentOwnsScroll = false,
     contentHeight = $bindable(0),
     split = false,
-    reserveTitlebar = false,
   }: Props = $props();
 
-  // The head's own top space, plus the window-control band when this page is
-  // the one reserving it. Written as a calc so the two never compound.
-  const headTop = $derived.by(() => {
-    const own = split ? "26px" : "42px";
-    return reserveTitlebar
-      ? `calc(var(--solus-page-top-inset, 0px) + ${own})`
-      : own;
-  });
+  const headTop = $derived(split ? "26px" : "42px");
 
   const isInbox = $derived(view === "inbox");
   // A segment is either the raised card chip or plain muted text; there is no
@@ -123,7 +110,7 @@
 </script>
 
 <div
-  class="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-[13px] text-foreground"
+  class="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-[0.8125rem] text-foreground"
 >
   <div
     class="mx-auto flex min-h-0 w-full flex-1 flex-col {split
@@ -137,18 +124,14 @@
  : 'pb-[22px]'}"
       style="padding-top: {headTop}"
     >
-      <div class="flex min-w-0 flex-col gap-[9px]">
-        <h1
-          class="font-medium whitespace-nowrap {split
- ? 'text-[21px]'
- : 'text-[27px]'}"
-        >
-          {title}
-        </h1>
+      {#if !split}
+        <div class="flex min-w-0 flex-col gap-[9px]">
+          <h1 class="text-[1.5rem] font-medium whitespace-nowrap">
+            {title}
+          </h1>
 
-        {#if !split}
           <div
-            class="flex items-center gap-2 text-[12px] text-muted-foreground"
+            class="flex items-center gap-2 text-xs text-muted-foreground"
           >
             {#each summary as stat, i (stat.label)}
               {#if i > 0}<span class="opacity-35" aria-hidden="true">·</span
@@ -163,8 +146,8 @@
               </span>
             {/each}
           </div>
-        {/if}
-      </div>
+        </div>
+      {/if}
 
       <div class="flex shrink-0 items-center gap-2">
         {#if !split && projects}
@@ -184,7 +167,7 @@
           >
             <button
               type="button"
-              class="flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full border-0 px-[13px] text-[13px] transition-colors duration-150 {segment(
+              class="flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full border-0 px-[13px] text-[0.8125rem] transition-colors duration-150 {segment(
  !isInbox,
  )}"
               onclick={() => onViewChange?.("global")}
@@ -195,7 +178,7 @@
             </button>
             <button
               type="button"
-              class="flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full border-0 px-[13px] text-[13px] transition-colors duration-150 {segment(
+              class="flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full border-0 px-[13px] text-[0.8125rem] transition-colors duration-150 {segment(
  isInbox,
  )}"
               onclick={() => onViewChange?.("inbox")}
@@ -204,7 +187,7 @@
               <TrayIcon size={12} class="shrink-0" />
               {inboxLabel}
               <span
-                class="rounded-full px-[5px] py-px font-mono text-[11px] tabular-nums {isInbox
+                class="rounded-full px-[5px] py-px font-mono text-xs tabular-nums {isInbox
  ? 'bg-[color-mix(in_oklch,var(--primary)_15%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
  : 'bg-[var(--wash-3)] text-muted-foreground'}"
               >
@@ -235,13 +218,13 @@
         {#if primaryAction}
           <button
             type="button"
-            class="flex h-[30px] cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] text-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]"
+            class="flex h-[30px] cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] text-[0.8125rem] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]"
             onclick={primaryAction.run}
           >
             <PlusIcon size={12} weight="bold" class="shrink-0" />
             {primaryAction.label}
             {#if primaryAction.shortcut}
-              <span class="font-mono text-[11px] opacity-80"
+              <span class="font-mono text-xs opacity-80"
                 >{primaryAction.shortcut}</span
               >
             {/if}

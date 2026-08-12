@@ -37,10 +37,10 @@
     >
       <div class="mb-5 flex items-center justify-center gap-2 text-[var(--solus-text-primary)]">
         <span class="grid size-7 place-items-center rounded-lg bg-[var(--solus-accent)] text-sm font-semibold text-white">S</span>
-        <span class="text-base font-semibold tracking-[-0.025em]">Solus</span>
+        <span class="text-sm font-semibold tracking-[-0.025em]">Solus</span>
       </div>
 
-      <h2 id="demo-cta-title" class="text-xl font-semibold tracking-[-0.025em] text-[var(--solus-text-primary)]">
+      <h2 id="demo-cta-title" class="text-[1.5rem] font-semibold tracking-[-0.025em] text-[var(--solus-text-primary)]">
         You’ve found the edge of the demo.
       </h2>
       <p class="mx-auto mt-2 max-w-[20rem] text-sm leading-6 text-[var(--solus-text-secondary)]">

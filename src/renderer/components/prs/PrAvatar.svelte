@@ -3,7 +3,7 @@
 
   // PR-surface avatar: the author's image when GitHub gave us one, otherwise
   // an initials disc. `size` carries both the box and text size classes
-  // (e.g. "size-5 text-[10px]").
+  // (e.g. "size-5 text-xs").
   let { name, url = "", size }: { name: string; url?: string; size: string } = $props();
 </script>
 

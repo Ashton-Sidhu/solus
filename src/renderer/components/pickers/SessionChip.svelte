@@ -253,7 +253,7 @@
                  and model are two decisions, so they are two hit targets. The
                  brand mark is the model's category glyph and carries the only
                  accent on the control. -->
-            <button {...tooltipProps} {...props} type="button" class="flex h-[1.875rem] min-w-0 items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-[0.78125rem] text-(--solus-text-secondary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) {open ? 'bg-(--solus-surface-hover)' : ''}" style="cursor:{isBusy || handoffInProgress ? 'not-allowed' : 'pointer'}">
+            <button {...tooltipProps} {...props} type="button" class="flex h-[1.875rem] min-w-0 items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-[0.8125rem] text-(--solus-text-secondary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) {open ? 'bg-(--solus-surface-hover)' : ''}" style="cursor:{isBusy || handoffInProgress ? 'not-allowed' : 'pointer'}">
         <!-- Codex's mark is solid black, so it keeps a white plate to stay
              legible in dark mode; the others take the accent directly. -->
         <span
@@ -365,7 +365,7 @@
         <!-- Always rendered, one line tall: appearing on hover would grow the
              column and shift everything under it. -->
         <p
-          class="h-[1.375rem] truncate px-2.5 pt-1.5 text-[0.6875rem] leading-4 text-(--solus-text-tertiary)"
+          class="h-[1.375rem] truncate px-2.5 pt-1.5 text-xs leading-4 text-(--solus-text-tertiary)"
           class:invisible={!(previewModelLabel && previewReasoning)}
         >
           Default for {previewModelLabel ?? ""}
@@ -388,7 +388,7 @@
                 <DropdownMenu.RadioItem value={agent.id} disabled={!agent.enabled} closeOnSelect={false} onSelect={() => selectAgent(agent.id)}>
                   <span class="min-w-0 flex-1 truncate">{agent.label}</span>
                   {#if !agent.enabled}
-                    <span class="shrink-0 text-[0.6875rem] text-(--solus-text-tertiary)">Not installed</span>
+                    <span class="shrink-0 text-xs text-(--solus-text-tertiary)">Not installed</span>
                   {/if}
                 </DropdownMenu.RadioItem>
               {/each}

@@ -333,7 +333,7 @@
     border-radius: 0.4375rem;
     background: transparent;
     font-family: inherit;
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     font-weight: 400;
     font-variant-numeric: tabular-nums;
     color: var(--solus-text-tertiary);
@@ -375,7 +375,7 @@
     border-top: 0.0625rem solid color-mix(in srgb, var(--solus-art-border) 55%, transparent);
   }
   .dm-send-bar__hint {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
     font-variant-numeric: tabular-nums;
   }

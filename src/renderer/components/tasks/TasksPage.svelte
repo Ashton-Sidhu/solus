@@ -531,12 +531,13 @@
 
   function deleteTasks(ids: string[], label: string) {
     const localIds = ids.filter((id) => taskById(id)?.providerId === "local");
-    if (!store.softRemove(localIds)) return;
-    toasts.undo(label, () => store.restorePending(), {
+    const pending = store.softRemove(localIds);
+    if (!pending.length) return;
+    toasts.undo(label, () => store.restorePending(pending), {
       // commitPending restores any rows whose delete failed; surface why.
       onDismiss: () =>
         store
-          .commitPending()
+          .commitPending(pending)
           .catch((err) => toastTaskError("delete task", err)),
     });
   }
@@ -730,7 +731,7 @@
           bind:value={sort}
           options={SORT_OPTIONS}
           ariaLabel="Sort tasks"
-          class="h-7 gap-1.5 rounded-lg px-2.5 text-[13px] font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
+          class="h-7 gap-1.5 rounded-lg px-2.5 text-[0.8125rem] font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
         />
       {/if}
     {/snippet}
@@ -742,7 +743,7 @@
   {#if task}
     <button
       type="button"
-      class="mr-2 grid size-4 shrink-0 cursor-pointer place-items-center rounded border-0 text-[11px] transition-opacity {selection.has(
+      class="mr-2 grid size-4 shrink-0 cursor-pointer place-items-center rounded border-0 text-xs transition-opacity {selection.has(
         taskId,
       )
         ? 'bg-primary text-primary-foreground opacity-100'
@@ -994,7 +995,7 @@
           role="toolbar"
           aria-label="Bulk actions"
         >
-          <span class="px-1.5 text-[13px] font-medium tabular-nums">
+          <span class="px-1.5 text-[0.8125rem] font-medium tabular-nums">
             {selection.size} selected
           </span>
           <span
@@ -1003,12 +1004,12 @@
           ></span>
           <button
             type="button"
-            class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-[12px] font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
             onclick={() => void bulkComplete()}
           ><CheckIcon size={14} />Complete</button>
           <button
             type="button"
-            class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-[12px] font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
             onclick={(event) => {
               bulkSnoozeAnchor = event.currentTarget;
               bulkSnoozeTargets = [...selection.ids]
@@ -1018,14 +1019,14 @@
           ><MoonIcon size={14} />Snooze</button>
           <button
             type="button"
-            class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-[12px] font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
             onclick={() => void bulkMarkUnread()}
           ><DotOutlineIcon size={14} weight="fill" />Unread</button>
           <span class="h-4 w-px bg-(--solus-container-border)" aria-hidden="true"></span>
           {#each BOARD_COLUMNS as col (col.status)}
             <button
               type="button"
-              class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-[12px] font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
+              class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
               onclick={() => bulkSetStatus(col.status)}
               title={`Set ${col.label}`}
             >
@@ -1042,7 +1043,7 @@
           ></span>
           <button
             type="button"
-            class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-[12px] font-medium text-[#cf222e] transition-colors duration-100 hover:bg-[#cf222e]/10 [.dark_&]:text-[#f85149] [.dark_&]:hover:bg-[#f85149]/10"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium text-[#cf222e] transition-colors duration-100 hover:bg-[#cf222e]/10 [.dark_&]:text-[#f85149] [.dark_&]:hover:bg-[#f85149]/10"
             onclick={bulkDelete}
             title="Delete selected"
           >
@@ -1055,7 +1056,7 @@
           ></span>
           <button
             type="button"
-            class="cursor-pointer rounded-full border-0 bg-transparent px-2 py-1 text-[12px] font-medium text-(--solus-text-tertiary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
+            class="cursor-pointer rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
             onclick={() => selection.clear()}
             title="Clear selection (Esc)"
           >

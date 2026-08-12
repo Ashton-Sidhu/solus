@@ -15,7 +15,7 @@
 </script>
 
 <div
-  class="flex min-h-10 shrink-0 items-center gap-2 border-b border-(--solus-accent-border) bg-secondary px-3 text-[12px] text-foreground"
+  class="flex min-h-10 shrink-0 items-center gap-2 border-b border-(--solus-accent-border) bg-secondary px-3 text-xs text-foreground"
   role="status"
 >
   {#if showingFull}
@@ -26,7 +26,7 @@
     <Button
       type="button"
       variant="link"
-      class="h-auto min-h-10 p-0 text-[12px] font-medium text-primary underline decoration-(--solus-accent-border) underline-offset-2 hover:text-foreground focus-visible:rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
+      class="h-auto min-h-10 p-0 text-xs font-medium text-primary underline decoration-(--solus-accent-border) underline-offset-2 hover:text-foreground focus-visible:rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
       onclick={onToggle}
     >
       Back to own changes
@@ -43,7 +43,7 @@
     <Button
       type="button"
       variant="link"
-      class="h-auto min-h-10 p-0 text-[12px] font-medium text-primary underline decoration-(--solus-accent-border) underline-offset-2 hover:text-foreground focus-visible:rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
+      class="h-auto min-h-10 p-0 text-xs font-medium text-primary underline decoration-(--solus-accent-border) underline-offset-2 hover:text-foreground focus-visible:rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
       onclick={onToggle}
     >
       View full diff vs main

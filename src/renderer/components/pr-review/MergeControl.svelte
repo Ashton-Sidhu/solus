@@ -103,7 +103,7 @@
 
 {#if merged}
   <div
-    class="flex h-[34px] items-center gap-1.5 text-[13px] font-medium text-(--solus-art-positive)"
+    class="flex h-[34px] items-center gap-1.5 text-[0.8125rem] font-medium text-(--solus-art-positive)"
   >
     <CheckCircleIcon size={14} weight="fill" class="shrink-0" />
     Merged
@@ -114,7 +114,7 @@
   >
     <Button
       type="button"
-      class="inline-flex h-full min-w-0 flex-1 cursor-pointer items-center justify-center gap-2 border-0 bg-transparent px-3.5 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary-foreground/10 disabled:cursor-not-allowed disabled:opacity-60"
+      class="inline-flex h-full min-w-0 flex-1 cursor-pointer items-center justify-center gap-2 border-0 bg-transparent px-3.5 text-[0.8125rem] font-medium text-primary-foreground transition-colors hover:bg-primary-foreground/10 disabled:cursor-not-allowed disabled:opacity-60"
       disabled={merging}
       onclick={merge}
     >

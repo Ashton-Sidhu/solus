@@ -25,28 +25,61 @@ const HOUR = 3_600_000
 const DAY = 86_400_000
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
-const CLAUDE_LABEL = /^([A-Za-z]{3})\w* (\d{1,2}) at (\d{1,2})(?::(\d{2}))?\s*(am|pm)/i
+const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+const CLAUDE_DATE_LABEL = /^([A-Za-z]{3})\w* (\d{1,2}),? (?:at )?(\d{1,2})(?::(\d{2}))?\s*(am|pm)(?:\s+\(([^)]+)\))?/i
+const CLAUDE_WEEKDAY_LABEL = /^([A-Za-z]{3})\w* at (\d{1,2})(?::(\d{2}))?\s*(am|pm)(?:\s+\(([^)]+)\))?$/i
 
 /**
- * Claude prints its reset as localized text with no year ("Jul 31 at 1am
- * (America/Toronto)") — in the user's own zone, so the parts can be read
- * against the local clock. The year is whichever puts the reset ahead of now,
- * which is the only reading a quota window can have.
+ * Claude prints localized reset text with no year. A local process commonly
+ * gives a date ("Jul 31 at 1am"), while a remote process can include a comma
+ * and its own zone ("Aug 12, 9:40am (UTC)").
  */
 export function parseResetLabel(label: string, now: number): number | null {
-  const match = label.match(CLAUDE_LABEL)
-  if (!match) return null
-  const month = MONTHS.indexOf(match[1].toLowerCase())
+  const dateMatch = label.match(CLAUDE_DATE_LABEL)
+  if (dateMatch) return parseDateReset(dateMatch, now)
+
+  const weekdayMatch = label.match(CLAUDE_WEEKDAY_LABEL)
+  if (!weekdayMatch) return null
+  const weekday = WEEKDAYS.indexOf(weekdayMatch[1].slice(0, 3).toLowerCase())
+  if (weekday < 0) return null
+  const hours = clockHours(weekdayMatch[2], weekdayMatch[4])
+  const minutes = Number(weekdayMatch[3] ?? 0)
+  const timezone = weekdayMatch[5]?.toLowerCase()
+  if (timezone && timezone !== 'utc') return null
+
+  const current = new Date(now)
+  const currentWeekday = timezone === 'utc' ? current.getUTCDay() : current.getDay()
+  const daysAhead = (weekday - currentWeekday + 7) % 7
+  let reset = timezone === 'utc'
+    ? Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), current.getUTCDate() + daysAhead, hours, minutes)
+    : new Date(current.getFullYear(), current.getMonth(), current.getDate() + daysAhead, hours, minutes, 0, 0).getTime()
+  if (reset < now) reset += 7 * DAY
+  return reset
+}
+
+function parseDateReset(match: RegExpMatchArray, now: number): number | null {
+  const month = MONTHS.indexOf(match[1].slice(0, 3).toLowerCase())
   if (month < 0) return null
   const day = Number(match[2])
   const minutes = Number(match[4] ?? 0)
-  let hours = Number(match[3]) % 12
-  if (match[5].toLowerCase() === 'pm') hours += 12
+  const hours = clockHours(match[3], match[5])
+  const timezone = match[6]?.toLowerCase()
   const current = new Date(now)
-  const reset = new Date(current.getFullYear(), month, day, hours, minutes, 0, 0)
+  const reset = timezone === 'utc'
+    ? new Date(Date.UTC(current.getUTCFullYear(), month, day, hours, minutes, 0, 0))
+    : new Date(current.getFullYear(), month, day, hours, minutes, 0, 0)
   // A December reset read in January lands a year behind; roll it forward.
-  if (reset.getTime() < now - 180 * DAY) reset.setFullYear(current.getFullYear() + 1)
+  if (reset.getTime() < now - 180 * DAY) {
+    if (timezone === 'utc') reset.setUTCFullYear(current.getUTCFullYear() + 1)
+    else reset.setFullYear(current.getFullYear() + 1)
+  }
   return reset.getTime()
+}
+
+function clockHours(hour: string, meridiem: string): number {
+  let hours = Number(hour) % 12
+  if (meridiem.toLowerCase() === 'pm') hours += 12
+  return hours
 }
 
 /** Compact countdown — one unit of precision more than the reader needs to act. */

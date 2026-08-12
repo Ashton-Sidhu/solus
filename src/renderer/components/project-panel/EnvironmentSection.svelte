@@ -54,9 +54,9 @@
       worktreeProjectRoot(env.cwd),
   );
 
-  // The host this session was dispatched to, or a draft will dispatch to. Local
-  // is the unmarked case — the affinity glyph is null for it, so the row only
-  // exists for remote sessions.
+  // The host this session was dispatched to, or a draft will dispatch to. The
+  // section header names it; here it only governs which actions can run — local
+  // is the unmarked case, so the affinity glyph is null for it.
   const host = $derived(serversStore.hostFor(sectionRun?.serverId));
   const hostAffinity = $derived(serversStore.affinityFor(sectionRun?.serverId));
 
@@ -140,18 +140,6 @@
 </script>
 
 <div class="env">
-  {#if hostAffinity && host}
-    {@const HostIcon = hostAffinity.icon}
-    <!-- Read-only: the host is chosen before the session starts and locked
-         after, so this row states a fact rather than offering a picker. -->
-    <div class="host-row" title={hostAffinity.tooltip}>
-      <span class="host-row-icon"
-        ><HostIcon size={13} class={hostAffinity.className} /></span
-      >
-      <span class="host-row-name">{host.label}</span>
-      <span class="menu-trail">{hostAffinity.statusLabel}</span>
-    </div>
-  {/if}
   <!-- Git availability governs only the branch switcher. Files and Terminal
        belong to the environment itself and remain useful outside a repository. -->
   {#if env.branch && status}
@@ -219,7 +207,7 @@
     margin: 0;
     padding: 0.125rem 0;
     color: var(--solus-text-tertiary);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
   }
 
   .env {
@@ -229,33 +217,10 @@
     margin-bottom: 0.5rem;
   }
 
-  /* Machine → checkout: the host reads in the same voice as the branch row
-     beneath it, minus the interactivity. */
-  .host-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    min-height: 2rem;
-    padding: 0.3125rem 0.5rem;
-    color: var(--solus-text-secondary);
-    font-size: 0.8125rem;
-  }
-  .host-row-icon {
-    flex-shrink: 0;
-    display: inline-flex;
-  }
-  .host-row-name {
-    min-width: 0;
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-weight: 500;
-  }
   .menu-trail {
     flex-shrink: 0;
     color: var(--solus-text-tertiary);
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     font-weight: 400;
     font-variant-numeric: tabular-nums;
   }
@@ -333,7 +298,7 @@
   }
   .stat-add,
   .stat-del {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 400;
   }
   .stat-add {

@@ -37,18 +37,18 @@
 >
   <div class="flex items-center gap-2">
     <span
-      class="shrink-0 text-[0.625rem] text-(--solus-text-tertiary) tabular-nums"
+      class="shrink-0 text-xs text-(--solus-text-tertiary) tabular-nums"
       style="font-family:var(--solus-code-font-family)"
     >
       {anchor}
     </span>
     <span
-      class="inline-flex shrink-0 items-center gap-1 rounded-full bg-(--solus-accent-light) px-1.5 py-px text-[0.5625rem] font-medium text-(--solus-accent)"
+      class="inline-flex shrink-0 items-center gap-1 rounded-full bg-(--solus-accent-light) px-1.5 py-px text-xs font-medium text-(--solus-accent)"
     >
       <span class="size-1 rounded-full bg-current"></span>pending
     </span>
     {#if age}
-      <span class="shrink-0 text-[0.625rem] text-(--solus-text-tertiary)">{age}</span>
+      <span class="shrink-0 text-xs text-(--solus-text-tertiary)">{age}</span>
     {/if}
     <!-- Revealed on focus-within too, so keyboard and touch users (no :hover)
          can reach edit/delete. -->
@@ -58,7 +58,7 @@
       {#if onEdit}
         <button
           type="button"
-          class="rounded-md px-1.5 py-0.5 text-[0.625rem] text-(--solus-text-tertiary) transition-colors hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
+          class="rounded-md px-1.5 py-0.5 text-xs text-(--solus-text-tertiary) transition-colors hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
           onclick={(e) => {
             e.stopPropagation();
             onEdit?.(comment);
@@ -70,7 +70,7 @@
       {#if onDelete}
         <button
           type="button"
-          class="rounded-md px-1.5 py-0.5 text-[0.625rem] text-(--solus-text-tertiary) transition-colors hover:text-(--solus-status-error) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
+          class="rounded-md px-1.5 py-0.5 text-xs text-(--solus-text-tertiary) transition-colors hover:text-(--solus-status-error) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
           onclick={(e) => {
             e.stopPropagation();
             onDelete?.(comment.id);
@@ -82,7 +82,7 @@
     </div>
   </div>
   <p
-    class="m-0 mt-1 text-[0.75rem] leading-[1.55] text-pretty whitespace-pre-wrap text-(--solus-text-primary)"
+    class="m-0 mt-1 text-xs leading-[1.55] text-pretty whitespace-pre-wrap text-(--solus-text-primary)"
   >
     {comment.comment}
   </p>

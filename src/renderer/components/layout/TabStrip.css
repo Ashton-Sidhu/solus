@@ -124,7 +124,7 @@
     min-height: 1.75rem;
     padding: 0.1875rem 0.3125rem 0.1875rem 0.5625rem;
     border-radius: 0.5rem;
-    font-size: 0.7188rem;
+    font-size: 0.75rem;
     /* Single weight across all states — active/attention differentiate via color +
        background only, avoiding the layout reflow a weight change causes. */
     font-weight: 400;

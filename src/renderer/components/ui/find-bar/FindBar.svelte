@@ -288,7 +288,7 @@
     padding-inline: 0.25rem;
     text-align: right;
     color: var(--solus-text-tertiary);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
   }
   .find-bar__btn {
@@ -353,7 +353,7 @@
     background: var(--solus-surface-hover);
     padding: 0 0.5rem;
     color: var(--solus-text-secondary);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 500;
     cursor: pointer;
     transition:

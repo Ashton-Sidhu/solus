@@ -1,9 +1,14 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { CheckCircleIcon } from "phosphor-svelte";
   import ListAvatar from "./ListAvatar.svelte";
   import ListChip from "./ListChip.svelte";
   import SourceLogo from "./SourceLogo.svelte";
-  import { participantsAfterLead, type ListRowSpec } from "./list-page";
+  import {
+    compactCount,
+    participantsAfterLead,
+    type ListRowSpec,
+  } from "./list-page";
 
   /** One line of the global list. Seven slots in a fixed order — who · what
    *  number · what it is · what kind · how big · who else · when — with both
@@ -78,15 +83,16 @@
 
     <!-- Slot 2 -->
     <span
-      class="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground opacity-80"
+      class="shrink-0 font-mono text-xs tabular-nums text-muted-foreground opacity-80"
       style="width: {identWidth}px"
     >
       {row.ident}
     </span>
 
-    <!-- Slot 3 — the only full-strength text in the row. -->
+    <!-- Slot 3 — the only full-strength text in the row. `min-w-0` is what lets
+         it lend width to the reveal instead of pushing the row wide. -->
     <span
-      class="max-w-[520px] truncate text-[13px] font-normal "
+      class="max-w-[520px] min-w-0 truncate text-[0.8125rem] font-normal "
       title={row.title}
     >
       {row.title}
@@ -97,13 +103,69 @@
       <ListChip {chip} />
     {/each}
 
-    <!-- Slot 5 — everything after this is right-anchored. -->
+    <!-- Everything after this is right-anchored. -->
     <span class="flex-1"></span>
 
-    <!-- Slot 6 -->
-    {#if row.meta}
+    <!-- Slot 4, reveal form — the branch on a PR row. Zero *width* at rest, not zero opacity, so the rows
+         you are not on stay full width; it opens under the pointer, under
+         keyboard focus, and for as long as the row stays selected. Below 720px
+         the title has no slack to lend, so it is suppressed; a coarse pointer
+         has no hover to give, so it is simply always open and shorter. -->
+    {#if row.reveal}
       <span
-        class="shrink-0 font-mono text-[11px] whitespace-nowrap text-muted-foreground opacity-80"
+        class="flex shrink-0 items-center gap-1.5 overflow-hidden font-mono text-xs whitespace-nowrap text-muted-foreground transition-[max-width,opacity] duration-150 ease-out group-hover:max-w-[340px] group-hover:opacity-60 group-focus-within:max-w-[340px] group-focus-within:opacity-60 max-[720px]:hidden motion-reduce:transition-none pointer-coarse:max-w-[150px] pointer-coarse:opacity-60 {selected
+          ? 'max-w-[340px] opacity-60'
+          : 'max-w-0 opacity-0'}"
+        title={row.reveal.title ?? row.reveal.label}
+      >
+        {#if row.reveal.lead}
+          <span>{row.reveal.lead}</span>
+          {#if row.reveal.label}
+            <span class="opacity-40" aria-hidden="true">·</span>
+          {/if}
+        {/if}
+        {row.reveal.label}
+      </span>
+    {/if}
+
+    <!-- Slot 5 — passing is the expected case and gets a glyph; failing is the
+         exception and gets words. Anything else holds the width in silence. -->
+    {#if row.checks}
+      {#if row.checks.state === "failing"}
+        <ListChip chip={{ label: row.checks.label, tint: "failure" }} />
+      {:else}
+        <span
+          class="flex w-4 shrink-0 items-center justify-center"
+          title={row.checks.state === "passing" ? row.checks.label : undefined}
+        >
+          {#if row.checks.state === "passing"}
+            <CheckCircleIcon
+              size={12}
+              class="text-[color:color-mix(in_oklch,var(--success)_72%,var(--foreground))]"
+              aria-label={row.checks.label}
+            />
+          {/if}
+        </span>
+      {/if}
+    {/if}
+
+    <!-- Slot 6 -->
+    {#if row.churn}
+      <span
+        class="flex w-[66px] shrink-0 justify-end gap-[5px] font-mono text-xs tabular-nums"
+      >
+        <span
+          class="text-[color:color-mix(in_oklch,var(--success)_64%,var(--foreground))]"
+          >+{compactCount(row.churn.additions)}</span
+        >
+        <span
+          class="text-[color:color-mix(in_oklch,var(--failure)_66%,var(--foreground))]"
+          >−{compactCount(row.churn.deletions)}</span
+        >
+      </span>
+    {:else if row.meta}
+      <span
+        class="shrink-0 font-mono text-xs whitespace-nowrap text-muted-foreground opacity-80"
       >
         {row.meta}
       </span>
@@ -115,7 +177,7 @@
     {/each}
     {#if participants.overflow > 0}
       <span
-        class="flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--wash-3)] font-mono text-[11px] font-normal text-muted-foreground"
+        class="flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--wash-3)] font-mono text-xs font-normal text-muted-foreground"
         title="{participants.overflow} more"
       >
         +{participants.overflow}
@@ -124,7 +186,7 @@
 
     <!-- Slot 8 — relative always; the timestamp lives in the tooltip. -->
     <span
-      class="w-8 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground opacity-75"
+      class="w-8 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground opacity-75"
       title={row.timeTitle}
     >
       {row.time}

@@ -434,7 +434,7 @@
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 500;
 
     text-transform: uppercase;
@@ -484,7 +484,7 @@
   }
 
   .shortcuts-row-label {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-secondary);
   }
 

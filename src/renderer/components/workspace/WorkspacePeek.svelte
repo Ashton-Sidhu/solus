@@ -115,8 +115,8 @@
 >
   <!-- Kind · origin · age, then the plan's status word in its own colour. The
        title is not repeated — it is two pixels above, in the row. -->
-  <div class="flex items-center gap-2 text-[11px] text-muted-foreground">
-    <span class="text-[10px] font-normal uppercase">
+  <div class="flex items-center gap-2 text-xs text-muted-foreground">
+    <span class="text-xs font-normal uppercase">
       {KIND_LABELS[item.type]}
     </span>
     <span class="opacity-35" aria-hidden="true">·</span>
@@ -155,7 +155,7 @@
       {/if}
     </div>
   {:else if body}
-    <div class="peek-body text-[12px] leading-[1.6] text-muted-foreground text-pretty">
+    <div class="peek-body text-xs leading-[1.6] text-muted-foreground text-pretty">
       {#each bodyRuns as run, i (i)}{#if run.hit}<mark
             class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
             >{run.text}</mark
@@ -168,9 +168,9 @@
   <div class="flex gap-[22px]">
     <div class="flex flex-1 flex-col gap-[5px]">
       {#each outline.lines as line (line.n)}
-        <span class="flex items-baseline gap-2 text-[11px] leading-[1.4]">
+        <span class="flex items-baseline gap-2 text-xs leading-[1.4]">
           <span
-            class="font-mono text-[10px] tabular-nums text-muted-foreground opacity-70"
+            class="font-mono text-xs tabular-nums text-muted-foreground opacity-70"
             >{line.n}</span
           >
           <span
@@ -180,7 +180,7 @@
         </span>
       {/each}
       {#if outline.more > 0}
-        <span class="pl-[26px] text-[11px] leading-[1.4] text-muted-foreground">
+        <span class="pl-[26px] text-xs leading-[1.4] text-muted-foreground">
           +{outline.more} more
         </span>
       {/if}
@@ -188,7 +188,7 @@
     <!-- Text, not keycaps: keycaps at this size in a transient card read as
          clickable, and nothing in here is. -->
     <span
-      class="shrink-0 self-end text-[10.5px] text-muted-foreground opacity-75"
+      class="shrink-0 self-end text-xs text-muted-foreground opacity-75"
     >
       ⏎ open · ⇧ hold to pin open
     </span>

@@ -36,6 +36,7 @@ class FakeAdapter implements TaskSyncAdapter {
     this.fetches = 0
     this.fetchError = null
     this.beforePushReturn = null
+    this.postedExternalId = (index) => `posted-${index}`
   }
 
   async fetchTicket(): Promise<NormalizedTicket> {
@@ -59,10 +60,14 @@ class FakeAdapter implements TaskSyncAdapter {
     return structuredClone(this.remote)
   }
 
+  /** Overridden by the id-space test, which reproduces a provider that named a
+   *  comment one way on write and another way on read. */
+  postedExternalId: (index: number) => string = (index) => `posted-${index}`
+
   async postComment(_ref: ExternalTicketRef, body: string): Promise<NormalizedTaskComment> {
     this.posted.push(body)
     return {
-      externalId: `posted-${this.posted.length}`,
+      externalId: this.postedExternalId(this.posted.length),
       author: 'you',
       body,
       createdAt: 1_800_000_000_000 + this.posted.length,
@@ -154,6 +159,29 @@ function engine(): InstanceType<SyncEngineModule['TaskSyncEngine']> {
 }
 
 describe('task sync engine', () => {
+  test('does not invalidate a no-change pull but invalidates a newly imported comment', async () => {
+    // WHY: task detail reloads schedule a pull. A no-change pull must not emit
+    // another invalidation and create a reload-pull loop. New comments still
+    // need to refresh every mounted task surface.
+    const task = await linkedTask()
+    const sync = engine()
+    let changeCount = 0
+    const unsubscribe = taskStore.onTasksChanged(() => changeCount++)
+
+    try {
+      await sync.syncTask(task.id)
+      expect(changeCount).toBe(0)
+
+      adapter.remote = ticket({
+        comments: [{ externalId: 'remote-comment', author: 'octo', body: 'Remote note', createdAt: 2 }],
+      })
+      await sync.syncTask(task.id)
+      expect(changeCount).toBe(1)
+    } finally {
+      unsubscribe()
+    }
+  })
+
   test('coalesces dirty fields into one provider patch and clears them after success', async () => {
     // WHY: SQLite is the durable queue. Rapid inline edits must not become one
     // remote request per keystroke or leave a stale dirty flag after success.
@@ -238,6 +266,87 @@ describe('task sync engine', () => {
     expect(adapter.posted).toEqual(['Publish this note'])
     expect((await task.details()).comments.find((comment) => comment.body === 'Publish this note'))
       .toMatchObject({ externalId: 'posted-1' })
+  })
+
+  test('names the ticket on every task read, not only on the detail page', async () => {
+    // WHY: the Tasks list has no detail read to consult. Without the ticket on
+    // the row itself, a task the user just published keeps reading as local.
+    const task = await linkedTask()
+
+    const listed = taskStore.listTasks().tasks.find((row) => row.id === task.id)
+
+    expect(listed?.mirroredTicket).toEqual({
+      provider: 'github',
+      externalId: adapter.remote.externalId,
+      url: adapter.remote.url,
+    })
+    // Ownership does not move: reads and writes still take the native path.
+    expect(listed?.providerId).toBe('local')
+  })
+
+  test('publishes a comment that was held back, and never re-posts a published one', async () => {
+    // WHY: Publish is the whole point of holding a comment back — and pressing
+    // it on an already-posted comment must not put a second copy on the ticket.
+    const task = await linkedTask()
+    await task.comment('Held back')
+    await engine().syncTask(task.id)
+    expect(adapter.posted).toEqual([])
+
+    const held = (await task.details()).comments.find((comment) => comment.body === 'Held back')!
+    await task.publishComments([held.id])
+    await engine().syncTask(task.id)
+    expect(adapter.posted).toEqual(['Held back'])
+
+    await task.publishComments([held.id])
+    await engine().syncTask(task.id)
+    expect(adapter.posted).toEqual(['Held back'])
+  })
+
+  test('does not duplicate a pushed comment that the provider names differently on read', async () => {
+    // WHY: GitHub answers a REST write with a database id and a GraphQL read
+    // with a node id. Stamping the row with the write id made the very next
+    // pull treat our own comment as a new one and insert a second copy — the
+    // duplicate a user saw whenever they ticked "also post to GitHub".
+    const task = await linkedTask()
+    adapter.postedExternalId = () => '2384927'
+    await task.comment('Same note', { pushToExternal: true })
+    await engine().syncTask(task.id)
+    expect(adapter.posted).toEqual(['Same note'])
+
+    adapter.remote = ticket({
+      externalUpdatedAt: 'remote-new',
+      comments: [{ externalId: 'IC_kwDO1', author: 'you', body: 'Same note', createdAt: 3 }],
+    })
+    await engine().syncTask(task.id)
+
+    const bodies = (await task.details()).comments.filter((comment) => comment.body === 'Same note')
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]).toMatchObject({ externalId: 'IC_kwDO1' })
+  })
+
+  test('names the provider on every read of a linked task, not just the detail read', async () => {
+    // WHY: the Tasks list has no detail read to consult, so without this a task
+    // published to GitHub keeps showing as local everywhere but its own page.
+    const task = await linkedTask()
+
+    const listed = taskStore.listTasks().tasks.find((row) => row.id === task.id)
+
+    expect(listed?.mirroredTicket).toEqual({
+      provider: 'github',
+      externalId: adapter.remote.externalId,
+      url: adapter.remote.url,
+    })
+    // Ownership does not move: reads and writes still take the native path.
+    expect(listed?.providerId).toBe('local')
+  })
+
+  test('refuses to publish comments for a task with no linked ticket', async () => {
+    // WHY: marking rows nothing will ever read would leave the page claiming a
+    // push is queued when there is nowhere to push to.
+    const task = await tasks.Task.byId((await taskStore.createTask({ title: 'Local only' })).id)
+    await task.comment('Note')
+    const comment = (await task.details()).comments[0]
+    expect(task.publishComments([comment.id])).rejects.toThrow(/not linked/i)
   })
 
   test('marks authentication failures and skips background retries until an explicit sync', async () => {

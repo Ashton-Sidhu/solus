@@ -103,6 +103,18 @@ export interface TaskSidebarPrLink {
   url?: string
 }
 
+/**
+ * The upstream ticket a native task mirrors, once it has been published or
+ * imported. Ownership stays local — every read and write still goes through the
+ * native path — but surfaces name the provider, because that is where other
+ * people see this work. Absent on a task that lives only in Solus.
+ */
+export interface TaskMirroredTicket {
+  provider: Exclude<TaskProviderId, 'local'>
+  externalId: string
+  url: string
+}
+
 export interface Task {
   /** Globally unique local id (a ULID for local tasks, the issue number for
    * upstream ones). */
@@ -123,6 +135,8 @@ export interface Task {
   status: TaskStatus
   /** Deep link back to the source (null for local tasks). */
   url: string | null
+  /** The upstream ticket this native task is linked to, when there is one. */
+  mirroredTicket?: TaskMirroredTicket
   assignee?: string
   /** Provider-hosted avatar for the assignee, when the provider exposes one. */
   assigneeAvatarUrl?: string

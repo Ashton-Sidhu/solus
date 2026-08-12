@@ -59,7 +59,7 @@
     "flex items-center gap-3.5 w-full min-h-12 px-3.5 py-3 border-0 bg-transparent text-left cursor-pointer transition-colors duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:bg-(--solus-accent-light) disabled:opacity-40 disabled:cursor-default disabled:active:bg-transparent [-webkit-tap-highlight-color:transparent]";
   const listIcon = "w-5 flex items-center justify-center shrink-0 font-secondary text-(--solus-text-secondary)";
   const rowDivider = "h-px bg-(--solus-container-border) opacity-60 ml-12";
-  const sectionLabel = "block px-1 mb-1 mt-3 text-[0.6875rem] font-semibold tracking-[0.03em] uppercase text-(--solus-text-tertiary)";
+  const sectionLabel = "block px-1 mb-1 mt-3 text-xs font-semibold tracking-[0.03em] uppercase text-(--solus-text-tertiary)";
 </script>
 
 {#snippet statusDot(status: "online" | "connecting" | "offline" | "saved" | "different-server")}
@@ -90,8 +90,8 @@
           {/if}
         </span>
         <span class="flex-1 min-w-0 flex flex-col gap-px">
-          <span class="truncate text-[0.9375rem] font-medium text-(--solus-text-primary)">{server.label}</span>
-          <span class="truncate text-[0.6875rem] text-(--solus-text-tertiary)" style="font-family: 'Geist Mono', ui-monospace, monospace">
+          <span class="truncate text-sm font-medium text-(--solus-text-primary)">{server.label}</span>
+          <span class="truncate text-xs text-(--solus-text-tertiary)" style="font-family: 'Geist Mono', ui-monospace, monospace">
             {urlHost(server.url)} · {hostStatusLabel(server.status)}
           </span>
         </span>
@@ -114,8 +114,8 @@
         <button class={listRow} onclick={() => pairNearby(host.server.installationId)}>
           <span class={listIcon}><WifiHighIcon size={14} /></span>
           <span class="flex-1 min-w-0 flex flex-col gap-px">
-            <span class="truncate text-[0.9375rem] font-medium text-(--solus-text-primary)">{host.server.name}</span>
-            <span class="truncate text-[0.6875rem] text-(--solus-text-tertiary)" style="font-family: 'Geist Mono', ui-monospace, monospace">
+            <span class="truncate text-sm font-medium text-(--solus-text-primary)">{host.server.name}</span>
+            <span class="truncate text-xs text-(--solus-text-tertiary)" style="font-family: 'Geist Mono', ui-monospace, monospace">
               {urlHost(discoveredServerUrl(host.server))}
             </span>
           </span>
@@ -128,12 +128,12 @@
   <div class="mt-3 {groupCard}">
     <button class={listRow} onclick={addServer}>
       <span class={listIcon}><PlusIcon size={14} /></span>
-      <span class="flex-1 min-w-0 truncate text-[0.9375rem] font-medium text-(--solus-text-primary)">Add server</span>
+      <span class="flex-1 min-w-0 truncate text-sm font-medium text-(--solus-text-primary)">Add server</span>
     </button>
     <div class={rowDivider}></div>
     <button class={listRow} onclick={manageServers}>
       <span class={listIcon}><GearIcon size={14} /></span>
-      <span class="flex-1 min-w-0 truncate text-[0.9375rem] font-medium text-(--solus-text-primary)">Manage servers</span>
+      <span class="flex-1 min-w-0 truncate text-sm font-medium text-(--solus-text-primary)">Manage servers</span>
     </button>
   </div>
 </MobileSheet>

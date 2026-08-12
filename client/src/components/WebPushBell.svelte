@@ -51,7 +51,7 @@
           <BellSlashIcon size={14} />
         {/if}
       </span>
-      <span class="min-w-0 flex-1 truncate text-[0.9375rem] font-medium text-(--solus-text-primary)">
+      <span class="min-w-0 flex-1 truncate text-sm font-medium text-(--solus-text-primary)">
         Notifications
       </span>
       <span class="shrink-0 text-[0.8125rem] text-(--solus-text-tertiary)">

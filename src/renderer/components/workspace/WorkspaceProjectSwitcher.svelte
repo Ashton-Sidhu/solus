@@ -43,7 +43,7 @@
   {:else}
     <SquaresFourIcon size={14} class="shrink-0 text-muted-foreground" />
   {/if}
-  <span class="min-w-0 flex-1 truncate text-[13px] font-normal ">
+  <span class="min-w-0 flex-1 truncate text-[0.8125rem] font-normal ">
     {active ? active.label : "All projects"}
   </span>
   <CaretDownIcon
@@ -77,7 +77,7 @@
         <DropdownMenu.RadioItem value={option.key} title={abbreviateHome(option.key)}>
           <ProjectFavicon projectRoot={option.key} class="size-3.5" />
           <span class="min-w-0 flex-1 truncate">{option.label}</span>
-          <span class="font-mono text-[11px] tabular-nums text-muted-foreground opacity-60">
+          <span class="font-mono text-xs tabular-nums text-muted-foreground opacity-60">
             {option.count}
           </span>
         </DropdownMenu.RadioItem>
@@ -87,7 +87,7 @@
         <DropdownMenu.RadioItem value="all">
           <SquaresFourIcon size={14} class="shrink-0" />
           <span class="min-w-0 flex-1 truncate">All projects</span>
-          <span class="font-mono text-[11px] tabular-nums text-muted-foreground opacity-60">
+          <span class="font-mono text-xs tabular-nums text-muted-foreground opacity-60">
             {allCount}
           </span>
         </DropdownMenu.RadioItem>
@@ -95,7 +95,7 @@
     </DropdownMenu.RadioGroup>
 
     <div
-      class="mt-0.5 flex items-center border-t border-[var(--hairline)] px-[9px] pt-[7px] pb-1 text-[12px] text-muted-foreground"
+      class="mt-0.5 flex items-center border-t border-[var(--hairline)] px-[9px] pt-[7px] pb-1 text-xs text-muted-foreground"
     >
       Switching keeps facets, clears search
     </div>

@@ -29,7 +29,7 @@
     gap: 0.375rem;
     height: 1.75rem;
     padding: 0 0.625rem;
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     font-weight: 400;
     border-radius: 0.5rem;
     background: transparent;
@@ -140,7 +140,7 @@
     /* Text fields read at the mobile minimum (16px) so they line up with the
        document body and iOS doesn't zoom the viewport when they're focused. */
     .plan-action-bar-sleeve .inp {
-      font-size: 1rem;
+      font-size: 0.875rem;
     }
   }
 

@@ -317,7 +317,7 @@
   }
 
   .cf-title {
-    font-size: 1.125rem;
+    font-size: 0.875rem;
     font-weight: 600;
     letter-spacing: -0.02em;
     color: var(--solus-text-primary);
@@ -419,7 +419,7 @@
   }
 
   .cf-server-url {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
     font-family: "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
     overflow: hidden;
@@ -435,7 +435,7 @@
   }
 
   .cf-server-time {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
     white-space: nowrap;
   }
@@ -569,7 +569,7 @@
   .cf-input--code {
     font-family: "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
     letter-spacing: 0.2em;
-    font-size: 1rem;
+    font-size: 0.875rem;
   }
 
   /* ── Actions ── */
@@ -699,11 +699,11 @@
 
     .cf-input {
       padding: 0.75rem;
-      font-size: 1rem;
+      font-size: 0.875rem;
     }
 
     .cf-input--code {
-      font-size: 1.125rem;
+      font-size: 0.875rem;
     }
   }
 </style>

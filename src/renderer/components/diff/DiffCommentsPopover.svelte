@@ -127,11 +127,11 @@
     >
       <div class="flex items-center gap-1.5">
         <ChatCircleTextIcon size={11} class="text-(--solus-accent)" weight="fill" />
-        <span class="text-[0.6875rem] font-medium text-(--solus-text-primary)">
+        <span class="text-xs font-medium text-(--solus-text-primary)">
           Comments
         </span>
         <span
-          class="text-[0.625rem] text-(--solus-text-tertiary)"
+          class="text-xs text-(--solus-text-tertiary)"
           style="font-variant-numeric:tabular-nums"
         >
           · {totalCount}
@@ -150,7 +150,7 @@
 
     {#if totalCount === 0}
       <div class="flex-1 flex items-center justify-center px-4 py-6">
-        <span class="text-[0.6875rem] text-(--solus-text-tertiary)">
+        <span class="text-xs text-(--solus-text-tertiary)">
           No comments yet
         </span>
       </div>
@@ -163,14 +163,14 @@
               style="background:var(--solus-popover-bg);z-index:1"
             >
               <span
-                class="text-[0.6563rem] font-medium text-(--solus-text-secondary) truncate"
+                class="text-xs font-medium text-(--solus-text-secondary) truncate"
                 style="font-family:{MONO_FONT}"
               >
                 {fileName(group.path)}
               </span>
               {#if fileDir(group.path)}
                 <span
-                  class="text-[0.625rem] text-(--solus-text-tertiary) truncate min-w-0"
+                  class="text-xs text-(--solus-text-tertiary) truncate min-w-0"
                   style="font-family:{MONO_FONT}"
                 >
                   {fileDir(group.path)}
@@ -178,7 +178,7 @@
               {/if}
               <span class="flex-1"></span>
               <span
-                class="text-[0.625rem] text-(--solus-text-tertiary)"
+                class="text-xs text-(--solus-text-tertiary)"
                 style="font-variant-numeric:tabular-nums"
               >
                 {group.entries.length}
@@ -192,13 +192,13 @@
                   class="flex w-full cursor-pointer flex-col gap-0.5 border-t border-(--solus-popover-border) px-3 py-2 text-left transition-colors first:border-t-0 hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-accent-light) focus-visible:outline-none"
                 >
                   <span
-                    class="text-[0.625rem] font-medium text-(--solus-accent)"
+                    class="text-xs font-medium text-(--solus-accent)"
                     style="font-family:{MONO_FONT};font-variant-numeric:tabular-nums"
                   >
                     {rangeLabel(entry.comment)}
                   </span>
                   <p
-                    class="text-[0.6563rem] text-(--solus-text-primary) leading-snug line-clamp-2"
+                    class="text-xs text-(--solus-text-primary) leading-snug line-clamp-2"
                   >
                     {entry.comment.comment}
                   </p>
@@ -211,23 +211,23 @@
                 >
                   <span class="flex items-center gap-1.5">
                     <span
-                      class="text-[0.625rem] font-medium text-(--solus-accent)"
+                      class="text-xs font-medium text-(--solus-accent)"
                       style="font-family:{MONO_FONT};font-variant-numeric:tabular-nums"
                     >
                       L{entry.thread.line}
                     </span>
                     {#if entry.thread.isResolved}
-                      <span class="inline-flex items-center gap-0.5 text-[0.5625rem] font-medium text-(--solus-art-positive)">
+                      <span class="inline-flex items-center gap-0.5 text-xs font-medium text-(--solus-art-positive)">
                         <CheckCircleIcon size={9} weight="fill" /> Resolved
                       </span>
                     {/if}
                     <span class="flex-1"></span>
-                    <span class="text-[0.5625rem] text-(--solus-text-tertiary)" style="font-variant-numeric:tabular-nums">
+                    <span class="text-xs text-(--solus-text-tertiary)" style="font-variant-numeric:tabular-nums">
                       {entry.thread.comments.length} comment{entry.thread.comments.length === 1 ? '' : 's'}
                     </span>
                   </span>
                   <p
-                    class="text-[0.6563rem] text-(--solus-text-primary) leading-snug line-clamp-2"
+                    class="text-xs text-(--solus-text-primary) leading-snug line-clamp-2"
                   >
                     {entry.thread.comments[0]?.body ?? ''}
                   </p>

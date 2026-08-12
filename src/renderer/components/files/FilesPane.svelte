@@ -354,7 +354,7 @@
         <Icon {icon} width="14" height="14" class="shrink-0" />
       {:else}
         <span
-          class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 font-mono text-[0.625rem] font-medium text-(--solus-text-tertiary)"
+          class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 font-mono text-xs font-medium text-(--solus-text-tertiary)"
         >
           {ext(selectedPath)}
         </span>
@@ -370,7 +370,7 @@
       </div>
     {/if}
     {#if statusLabel}
-      <div class="flex shrink-0 items-center gap-1 text-[0.625rem] font-medium {statusClass}" role="status">
+      <div class="flex shrink-0 items-center gap-1 text-xs font-medium {statusClass}" role="status">
         <FloppyDiskIcon size={11} class="shrink-0" />
         <span class="tabular-nums">{statusLabel}</span>
       </div>
@@ -378,7 +378,7 @@
     {#if saveState === "conflict" && selectedPath}
       <button
         type="button"
-        class="shrink-0 rounded-md px-2 py-1 text-[0.6875rem] font-medium text-(--solus-text-primary) ring-1 ring-(--solus-container-border) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
+        class="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-primary) ring-1 ring-(--solus-container-border) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
         onclick={() => selectedPath && openFile(selectedPath)}
       >
         Reload
@@ -431,12 +431,12 @@
           {#if loading && files.length === 0}
             <FilesPaneSkeleton variant="tree" />
           {:else if error}
-            <div class="flex gap-2 p-3 text-[0.75rem] text-(--solus-status-error)">
+            <div class="flex gap-2 p-3 text-xs text-(--solus-status-error)">
               <WarningCircleIcon size={14} weight="fill" class="mt-0.5 shrink-0" />
               <span class="min-w-0">{error}</span>
             </div>
           {:else if files.length === 0}
-            <div class="p-3 text-[0.75rem] text-(--solus-text-tertiary)">No files found.</div>
+            <div class="p-3 text-xs text-(--solus-text-tertiary)">No files found.</div>
           {:else}
             <div
               bind:this={treeHost}
@@ -460,7 +460,7 @@
         {#if fileLoading || (loading && files.length === 0)}
           <FilesPaneSkeleton variant="editor" />
         {:else if fileError}
-          <div class="flex flex-1 items-center justify-center p-6 text-center text-[0.75rem] text-(--solus-status-error)">
+          <div class="flex flex-1 items-center justify-center p-6 text-center text-xs text-(--solus-status-error)">
             {fileError}
           </div>
         {:else if selectedPath && selectedContents !== null}
@@ -478,7 +478,7 @@
             }}
           />
         {:else}
-          <div class="flex flex-1 items-center justify-center text-[0.75rem] text-(--solus-text-tertiary)">
+          <div class="flex flex-1 items-center justify-center text-xs text-(--solus-text-tertiary)">
             Select a file to edit.
           </div>
         {/if}

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { Task } from '../../src/shared/task-types'
-import { buildBoard } from '../../src/renderer/components/tasks/lib/tasks-api'
+import { buildBoard, STATUS_META } from '../../src/renderer/components/tasks/lib/tasks-api'
 
 function task(id: string, status: Task['status'], providerId: Task['providerId']): Task {
   return {
@@ -33,5 +33,16 @@ describe('buildBoard', () => {
       .toEqual(['untriaged', 'ready', 'github-issue'])
     expect(columns.find((column) => column.status === 'done')?.tasks.map((row) => row.id))
       .toEqual(['abandoned', 'shipped'])
+  })
+})
+
+describe('task status colours', () => {
+  test('uses lifecycle semantics instead of the brown brand accent', () => {
+    // WHY: status colour is information. Active, review, complete, and dropped
+    // work must remain visually distinct from the product brand and each other.
+    expect(STATUS_META.in_progress.token).toBe('--running')
+    expect(STATUS_META.in_review.token).toBe('--review')
+    expect(STATUS_META.done.token).toBe('--success')
+    expect(STATUS_META.dropped.token).toBe('--idle')
   })
 })

@@ -96,11 +96,15 @@
   >
     {#if active}
       {#key active.projectKey}
-        <ProjectFavicon projectRoot={active.projectKey} class="size-3.5" />
+        <ProjectFavicon
+          projectRoot={active.projectKey}
+          class="size-3.5"
+          coloredFallback
+        />
       {/key}
     {/if}
     <span
-      class="max-w-[180px] truncate text-[13px] font-normal "
+      class="max-w-[180px] truncate text-[0.8125rem] font-normal "
     >
       {active?.label ?? emptyLabel}
     </span>
@@ -129,14 +133,14 @@
           <input
             bind:this={queryEl}
             bind:value={query}
-            class="w-full border-0 bg-transparent text-[13px] outline-none"
+            class="w-full border-0 bg-transparent text-[0.8125rem] outline-none"
             placeholder="Find a project…"
           />
         </div>
       {/if}
 
       <div
-        class="px-[9px] pt-[5px] pb-1 text-[10px] font-normal text-muted-foreground uppercase"
+        class="px-[9px] pt-[5px] pb-1 text-xs font-normal text-muted-foreground uppercase"
       >
         Projects
       </div>
@@ -151,9 +155,13 @@
           title={abbreviateHome(project.projectKey)}
           onclick={() => pick(project.projectKey)}
         >
-          <ProjectFavicon projectRoot={project.projectKey} class="size-3.5" />
+          <ProjectFavicon
+            projectRoot={project.projectKey}
+            class="size-3.5"
+            coloredFallback
+          />
           <span
-            class="min-w-0 flex-1 truncate text-[13px] {isActive
+            class="min-w-0 flex-1 truncate text-[0.8125rem] {isActive
  ? 'font-medium'
  : ''}"
           >
@@ -168,13 +176,13 @@
       {/each}
 
       {#if matches.length === 0}
-        <div class="px-[9px] pt-3 pb-3.5 text-[13px] text-muted-foreground">
+        <div class="px-[9px] pt-3 pb-3.5 text-[0.8125rem] text-muted-foreground">
           No project matches.
         </div>
       {/if}
 
       <div
-        class="mt-0.5 flex items-center border-t border-[var(--hairline)] px-[9px] pt-[7px] pb-1 text-[12px] text-muted-foreground"
+        class="mt-0.5 flex items-center border-t border-[var(--hairline)] px-[9px] pt-[7px] pb-1 text-xs text-muted-foreground"
       >
         Switching clears search and filters
       </div>

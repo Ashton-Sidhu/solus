@@ -12,7 +12,7 @@
   <p class="text-[0.8125rem] font-medium text-(--solus-text-secondary)">
     {feature} are not supported on {hostLabel}.
   </p>
-  <p class="max-w-sm text-[0.75rem] text-(--solus-text-tertiary)">
+  <p class="max-w-sm text-xs text-(--solus-text-tertiary)">
     Choose another connected host to use this settings surface.
   </p>
 </div>

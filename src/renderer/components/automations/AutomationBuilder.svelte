@@ -93,11 +93,11 @@
   const RAIL_BLOCK =
     "flex min-w-0 flex-col gap-3 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]";
   const STAT_LABEL =
-    "text-[11px] font-normal  text-muted-foreground uppercase";
-  const STAT_VALUE = "text-[14px] font-medium ";
+    "text-xs font-normal  text-muted-foreground uppercase";
+  const STAT_VALUE = "text-sm font-medium ";
   // Pill actions in the title row. Both sit at 2.0625rem so they read as one
   // pair; only "Run now" carries fill.
-  const PILL = "h-[2.0625rem] shrink-0 rounded-full text-[13px]";
+  const PILL = "h-[2.0625rem] shrink-0 rounded-full text-[0.8125rem]";
   // Sidebar background — also used by the inline pane container. Kept a hair
   // warmer than the page so the pane reads as its own surface.
   const SIDEBAR_PANEL_BG =
@@ -110,7 +110,7 @@
   // The title, editable in place: same 2.125rem type as the h1 it replaces, so
   // entering edit mode doesn't reflow the page.
   const TITLE_INPUT =
-    "h-auto w-full -ml-1.5 rounded-lg border-0 bg-transparent px-1.5 py-0 text-[2.125rem] max-md:text-[2.125rem] font-medium leading-[1.1]  " +
+    "h-auto w-full -ml-1.5 rounded-lg border-0 bg-transparent px-1.5 py-0 text-[1.5rem] max-md:text-[1.5rem] font-medium leading-[1.1]  " +
     "text-foreground shadow-none [outline:0.0625rem_solid_transparent] transition-[outline-color,background-color] duration-120 " +
     "placeholder:text-muted-foreground hover:bg-muted focus-visible:bg-transparent focus-visible:ring-0 " +
     "focus-visible:[outline-color:color-mix(in_srgb,var(--solus-accent)_55%,transparent)]";
@@ -120,7 +120,7 @@
     "-ml-2 flex w-full min-h-[16rem] flex-col rounded-lg bg-transparent px-2 [outline:0.0625rem_solid_transparent] transition-[outline-color,background-color] duration-120 " +
     "[&_[data-testid=message-input]]:flex [&_[data-testid=message-input]]:flex-1 [&_[data-testid=message-input]]:min-h-0 " +
     "[&_.cm-editor]:flex-1 [&_.cm-editor]:min-h-0 [&_.cm-scroller]:max-h-none! [&_.cm-content]:min-h-full [&_.cm-content]:![font-weight:400] " +
-    "[&_.cm-content]:![font-size:0.9375rem] [&_.cm-content]:![line-height:1.75]";
+    "[&_.cm-content]:![font-size:0.875rem] [&_.cm-content]:![line-height:1.75]";
 
   const session = getWorkspaceContext();
   const store = session.automationsStore;
@@ -584,7 +584,7 @@
 
 {#snippet saveStatus()}
   <span
-    class="inline-flex shrink-0 items-center gap-[0.3125rem] text-[12px] whitespace-nowrap text-muted-foreground select-none"
+    class="inline-flex shrink-0 items-center gap-[0.3125rem] text-xs whitespace-nowrap text-muted-foreground select-none"
     aria-live="polite"
     role="status"
   >
@@ -609,7 +609,7 @@
     class="flex h-(--solus-chrome-row-h) shrink-0 items-center justify-between gap-3 border-b border-border/45 pr-[max(0.875rem,var(--solus-pane-chrome-inset,0px))] pl-[max(1.25rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <Breadcrumb.Root class="min-w-0">
-      <Breadcrumb.List class="min-w-0 flex-nowrap gap-[0.4375rem] text-[13px]">
+      <Breadcrumb.List class="min-w-0 flex-nowrap gap-[0.4375rem] text-[0.8125rem]">
         <Breadcrumb.Item>
           <Breadcrumb.Link class={CRUMB_LINK}>
             {#snippet child({ props })}
@@ -648,12 +648,12 @@
           aria-hidden="true"
         ></span>
         <span
-          class="text-[12px] font-normal uppercase {enabled
+          class="text-xs font-normal uppercase {enabled
  ? 'text-[color:color-mix(in_oklab,var(--chart-3)_72%,var(--foreground))]'
  : 'text-muted-foreground'}">{enabled ? "Active" : "Paused"}</span
         >
         {#if scheduleNote}
-          <span class="truncate text-[12px] text-muted-foreground"
+          <span class="truncate text-xs text-muted-foreground"
             >· {scheduleNote}</span
           >
         {/if}
@@ -671,7 +671,7 @@
         />
       {:else}
         <h1
-          class="m-0 text-[2.125rem] font-medium leading-[1.1] text-foreground"
+          class="m-0 text-[1.5rem] font-medium leading-[1.1] text-foreground"
         >
           {name || "Untitled automation"}
         </h1>
@@ -760,7 +760,7 @@
               ></span>
             {/each}
           </div>
-          <span class="text-[13px] whitespace-nowrap text-muted-foreground">
+          <span class="text-[0.8125rem] whitespace-nowrap text-muted-foreground">
             {health.clean} of {health.total} clean
           </span>
         </div>
@@ -774,7 +774,7 @@
   <div class="mt-8.5 flex flex-col gap-4.5">
     <div class="flex items-baseline gap-2.5">
       <span class={EYEBROW}>Instructions</span>
-      <span class="text-[12px] text-muted-foreground/80"
+      <span class="text-xs text-muted-foreground/80"
         >given to the agent on every run</span
       >
     </div>
@@ -806,13 +806,13 @@
     {:else}
       <button
         type="button"
-        class="-ml-1.5 cursor-pointer self-start rounded-lg border-0 bg-transparent px-1.5 py-1 text-[16px] text-muted-foreground transition-colors duration-100 hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
+        class="-ml-1.5 cursor-pointer self-start rounded-lg border-0 bg-transparent px-1.5 py-1 text-sm text-muted-foreground transition-colors duration-100 hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
         onclick={beginEdit}>Write what the agent should do each run…</button
       >
     {/if}
 
     <div
-      class="mt-1.5 flex flex-wrap items-center gap-3 text-[12px] text-muted-foreground/88"
+      class="mt-1.5 flex flex-wrap items-center gap-3 text-xs text-muted-foreground/88"
     >
       {#each metaBits as bit, i (i)}
         {#if i > 0}<span class="opacity-40" aria-hidden="true">·</span>{/if}

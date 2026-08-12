@@ -186,7 +186,7 @@
       <TooltipUI.Trigger>
         {#snippet child({ props: tooltipProps })}
           <span {...tooltipProps}
-      class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-(--solus-surface-hover) px-2 text-[0.75rem] tabular-nums text-(--solus-text-tertiary)"
+      class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-(--solus-surface-hover) px-2 text-xs tabular-nums text-(--solus-text-tertiary)"
     >
       <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-(--solus-status-complete)"></span>
       <span>Syncing...</span>
@@ -272,7 +272,7 @@
             size={9}
             class={`flex-shrink-0 text-(--solus-accent) ${creatingWorktree ? "animate-spin" : ""}`}
           />
-          <span class="flex-shrink-0 text-[0.625rem] text-(--solus-accent)">Creating…</span>
+          <span class="flex-shrink-0 text-xs text-(--solus-accent)">Creating…</span>
         {/if}
       </button>
           {/snippet}

@@ -1,4 +1,4 @@
-import { SvelteMap } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import type { Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger } from '../../../shared/types'
 import { serverConnections } from '@client-core/server-connections'
 import type { HostApi } from '@client-core/host-api'
@@ -15,18 +15,43 @@ export class AutomationsStore {
   loaded = $state(false)
   /** Which host stores, schedules, and runs each known automation. */
   private hostByAutomationId = new SvelteMap<string, string>()
-  private listLoad: Promise<void> | null = null
+  private loadedServerIds = new SvelteSet<string>()
+  private loadingServerIds = new SvelteSet<string>()
+  private loadingCountByServerId = new Map<string, number>()
+  private listLoads = new Map<string, Promise<void>>()
 
   /** A soft-deleted row awaiting its undo window. Hidden from `items` but not yet
    *  deleted on disk; filtered out of `loadAll` so a refresh can't resurrect it. */
   private pendingDelete: { automation: Automation; index: number } | null = null
 
-  loadAll(): Promise<void> {
-    if (this.listLoad) return this.listLoad
-    this.loading = true
-    this.listLoad = (async () => {
+  itemsForHost(serverId: string): Automation[] {
+    const resolvedServerId = serverConnections.resolveId(serverId)
+    return this.items.filter((automation) => this.hostByAutomationId.get(automation.id) === resolvedServerId)
+  }
+
+  hasLoadedHost(serverId: string): boolean {
+    return this.loadedServerIds.has(serverConnections.resolveId(serverId))
+  }
+
+  isLoadingHost(serverId: string): boolean {
+    return this.loadingServerIds.has(serverConnections.resolveId(serverId))
+  }
+
+  loadAll(serverId?: string): Promise<void> {
+    const serverIds = serverId
+      ? [serverConnections.resolveId(serverId)]
+      : serverConnections.connectedServerIds()
+    const loadKey = serverId ? serverIds[0] : '*'
+    const existingLoad = this.listLoads.get(loadKey)
+    if (existingLoad) return existingLoad
+    for (const targetServerId of serverIds) {
+      this.loadingCountByServerId.set(targetServerId, (this.loadingCountByServerId.get(targetServerId) ?? 0) + 1)
+      this.loadingServerIds.add(targetServerId)
+    }
+    this.loading = this.loadingServerIds.size > 0
+    const listLoad = (async () => {
       try {
-        const results = await Promise.all(serverConnections.connectedServerIds().map(async (serverId) => {
+        const results = await Promise.all(serverIds.map(async (serverId) => {
           try {
             const capabilities = await serverConnections.capabilitiesFor(serverId)
             if (capabilities.automations !== true) return { serverId }
@@ -60,11 +85,22 @@ export class AutomationsStore {
       } catch (err) {
         console.error('automation list load failed', err)
       } finally {
-        this.loading = false
-        this.listLoad = null
+        for (const targetServerId of serverIds) {
+          const remainingLoads = (this.loadingCountByServerId.get(targetServerId) ?? 1) - 1
+          if (remainingLoads === 0) {
+            this.loadingCountByServerId.delete(targetServerId)
+            this.loadingServerIds.delete(targetServerId)
+          } else {
+            this.loadingCountByServerId.set(targetServerId, remainingLoads)
+          }
+          this.loadedServerIds.add(targetServerId)
+        }
+        this.loading = this.loadingServerIds.size > 0
+        this.listLoads.delete(loadKey)
       }
     })()
-    return this.listLoad
+    this.listLoads.set(loadKey, listLoad)
+    return listLoad
   }
 
   get(id: string): Automation | undefined {

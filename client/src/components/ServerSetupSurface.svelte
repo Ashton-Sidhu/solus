@@ -153,7 +153,7 @@
 
 {#snippet sectionLabel(text: string)}
   <span
-    class="mb-1 block px-1 text-[0.6875rem] font-semibold uppercase tracking-[0.03em] text-(--solus-text-tertiary)"
+    class="mb-1 block px-1 text-xs font-semibold uppercase tracking-[0.03em] text-(--solus-text-tertiary)"
     >{text}</span
   >
 {/snippet}
@@ -174,7 +174,7 @@
         >{host.label}</span
       >
       <span
-        class="truncate font-mono text-[0.6875rem] text-(--solus-text-tertiary)"
+        class="truncate font-mono text-xs text-(--solus-text-tertiary)"
       >
         {urlHost(host.url)} · {hostStatusLabel(host.status)}
       </span>
@@ -206,11 +206,11 @@
         >{host.server.name}</span
       >
       <span
-        class="truncate font-mono text-[0.6875rem] text-(--solus-text-tertiary)"
+        class="truncate font-mono text-xs text-(--solus-text-tertiary)"
         >{urlHost(discoveredServerUrl(host.server))}</span
       >
     </span>
-    <span class="shrink-0 text-[0.75rem] font-medium text-(--solus-accent)"
+    <span class="shrink-0 text-xs font-medium text-(--solus-accent)"
       >Connect</span
     >
   </button>
@@ -239,12 +239,12 @@
                 >{servingHost.name}</span
               >
               <span
-                class="truncate font-mono text-[0.6875rem] text-(--solus-text-tertiary)"
+                class="truncate font-mono text-xs text-(--solus-text-tertiary)"
                 >{urlHost(servingHost.url)}</span
               >
             </span>
             <span
-              class="shrink-0 text-[0.75rem] font-medium text-(--solus-accent)"
+              class="shrink-0 text-xs font-medium text-(--solus-accent)"
               >Connect</span
             >
           </button>
@@ -279,7 +279,7 @@
     {:else if !hasHost && savedHosts.length > 0}
       <!-- Discovery runs on the connected host's own network, so there is
            nothing to scan with until one of these answers. -->
-      <p class="px-1 text-[0.75rem] leading-snug text-(--solus-text-tertiary)">
+      <p class="px-1 text-xs leading-snug text-(--solus-text-tertiary)">
         Hosts on your network appear here once you're connected to one.
       </p>
     {/if}
@@ -291,7 +291,7 @@
       <form class="flex flex-col gap-2.5" onsubmit={submit}>
         {#if selectedHost}
           <p
-            class="rounded-lg bg-(--solus-surface-hover) px-3 py-2 text-[0.75rem] leading-relaxed text-(--solus-text-tertiary)"
+            class="rounded-lg bg-(--solus-surface-hover) px-3 py-2 text-xs leading-relaxed text-(--solus-text-tertiary)"
           >
             On {selectedHost.name}, open Solus and go to <strong
               class="font-medium text-(--solus-text-secondary)"
@@ -314,13 +314,13 @@
                 >{selectedHost.name}</span
               >
               <span
-                class="truncate font-mono text-[0.6875rem] text-(--solus-text-tertiary)"
+                class="truncate font-mono text-xs text-(--solus-text-tertiary)"
                 >{urlHost(selectedHost.url)}</span
               >
             </span>
             <button
               type="button"
-              class="shrink-0 rounded-md px-1.5 py-1 text-[0.75rem] font-medium text-(--solus-text-tertiary) transition-colors hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
+              class="shrink-0 rounded-md px-1.5 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
               onclick={clearSelectedHost}
             >
               Change
@@ -328,7 +328,7 @@
           </div>
         {:else}
           <p
-            class="rounded-lg bg-(--solus-surface-hover) px-3 py-2 text-[0.75rem] leading-relaxed text-(--solus-text-tertiary)"
+            class="rounded-lg bg-(--solus-surface-hover) px-3 py-2 text-xs leading-relaxed text-(--solus-text-tertiary)"
           >
             On your computer, open Solus and go to <strong
               class="font-medium text-(--solus-text-secondary)"
@@ -338,7 +338,7 @@
 
           <label class="block">
             <span
-              class="text-[0.75rem] font-medium text-(--solus-text-secondary)"
+              class="text-xs font-medium text-(--solus-text-secondary)"
               >Pairing link or address</span
             >
             <input
@@ -357,7 +357,7 @@
         {#if needsCode}
           <label class="block">
             <span
-              class="text-[0.75rem] font-medium text-(--solus-text-secondary)"
+              class="text-xs font-medium text-(--solus-text-secondary)"
               >Code</span
             >
             <input
@@ -374,7 +374,7 @@
         {/if}
 
         <label class="block">
-          <span class="text-[0.75rem] font-medium text-(--solus-text-secondary)">
+          <span class="text-xs font-medium text-(--solus-text-secondary)">
             Device name
             <span class="font-normal text-(--solus-text-tertiary)">optional</span
             >
@@ -426,11 +426,11 @@
         <div class="min-w-0">
           <h2
             id="server-setup-title"
-            class="truncate text-[0.9375rem] font-semibold text-(--solus-text-primary)"
+            class="truncate text-sm font-semibold text-(--solus-text-primary)"
           >
             Connect a host
           </h2>
-          <p class="mt-0.5 text-[0.75rem] text-(--solus-text-tertiary)">
+          <p class="mt-0.5 text-xs text-(--solus-text-tertiary)">
             Choose the machine your sessions run on.
           </p>
         </div>

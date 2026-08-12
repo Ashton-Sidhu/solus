@@ -161,7 +161,7 @@
      stay on one right edge whether or not a section is active. */
   .doc-outline__numeral {
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     line-height: 1;
     color: transparent;
     transition: color var(--duration-quick) var(--ease-premium);
@@ -272,7 +272,7 @@
      rail reads as part of the document's own furniture. */
   .doc-outline__label {
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.59375rem;
+    font-size: 0.75rem;
     font-weight: 500;
     text-transform: uppercase;
 
@@ -281,7 +281,7 @@
   .doc-outline__totals {
     margin-left: auto;
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.59375rem;
+    font-size: 0.75rem;
     color: color-mix(in srgb, var(--solus-text-tertiary) 75%, transparent);
     font-variant-numeric: tabular-nums;
   }
@@ -322,7 +322,7 @@
     flex: 0 0 auto;
     min-width: 1rem;
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
   }
   /* Thread count: amber, because amber is annotation everywhere in the page. */
@@ -332,13 +332,13 @@
     padding: 0.0625rem 0;
     border-radius: 9999px;
     text-align: center;
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
     background: color-mix(in srgb, var(--solus-art-2) 26%, transparent);
     color: color-mix(in srgb, var(--solus-text-primary) 85%, var(--solus-art-2));
   }
   .doc-outline__item--sub {
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     padding-left: 0.8125rem;
     color: color-mix(in srgb, var(--solus-text-tertiary) 85%, transparent);
   }
@@ -380,7 +380,7 @@
     padding-top: 0.625rem;
     border-top: 0.0625rem solid color-mix(in srgb, var(--solus-art-border) 55%, transparent);
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.59375rem;
+    font-size: 0.75rem;
 
     color: var(--solus-text-tertiary);
   }

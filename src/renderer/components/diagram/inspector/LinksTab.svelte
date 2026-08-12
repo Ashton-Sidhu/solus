@@ -211,7 +211,7 @@
   .link__node {
     flex: 1;
     min-width: 0;
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     color: var(--solus-text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -221,7 +221,7 @@
   .link__label {
     flex: 0 1 auto;
     min-width: 0;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -230,7 +230,7 @@
 
   .empty {
     margin: 0;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     line-height: 1.55;
     color: var(--solus-text-tertiary);
   }

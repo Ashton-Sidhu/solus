@@ -3,24 +3,26 @@ import { loadServers, LOCAL_SERVER_ID } from '../../../client-core/server-regist
 import { makePrompt, makeSession, makeTab } from './session.factories'
 import { taskTargetFrom } from './session-draft.svelte'
 import { loadRestoredSessionTranscript } from './session-transcript'
-import { applyRuntimeConfig, hasConversation, nextMsgId, progressFromMessages } from './session.utils'
+import { applyRuntimeConfig, nextMsgId, progressFromMessages } from './session.utils'
 import { initDraftState, loadDrafts, loadPersistedSessionDrafts, loadPersistedTabs, type PersistedTab, type PersistedTabs, type TabDrafts } from './tab-persistence'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { stampSessionMeta } from '@client-core/session-meta'
 import { serverConnections } from '@client-core/server-connections'
 
-interface DeferredHydrationState {
+interface RestoredHydrationState {
   pending: Map<string, PersistedTab>
-  running: Set<string>
+  running: Map<string, Promise<void>>
+  hasStartedMetadataReads: boolean
 }
 
-const deferredHydrations = new WeakMap<WorkspaceContext, DeferredHydrationState>()
+interface RestoredWorkspaceState {
+  snapshot: PersistedTabs | null
+  hydration: RestoredHydrationState | null
+}
 
-/** Snapshot captured by the synchronous materialize step, consumed by the async
- *  runtime-attach step. Presence also guards materialize against re-running. */
-const materializations = new WeakMap<WorkspaceContext, { snapshot: PersistedTabs | null }>()
-/** Guards the async attach step against a re-running boot effect. */
-const attached = new WeakSet<WorkspaceContext>()
+/** One restore record per workspace. The snapshot guards synchronous
+ * materialization; hydration owns all later startup, selection, and retry work. */
+const restorations = new WeakMap<WorkspaceContext, RestoredWorkspaceState>()
 
 /** History hydration replaces the provider transcript wholesale. Preserve a
  * configuration divider added while a restored tab was still loading: it is
@@ -35,33 +37,34 @@ export function replaceHydratedMessages(session: Pick<Session, 'messages'>, hydr
   session.messages.splice(0, session.messages.length, ...hydrated, ...pendingConfigurationChanges)
 }
 
-async function hydrateDeferredTab(
+async function hydrateRestoredTab(
   ctx: WorkspaceContext,
-  state: DeferredHydrationState,
+  state: RestoredHydrationState,
   tabId: string,
 ): Promise<void> {
   const snapTab = state.pending.get(tabId)
-  if (!snapTab || state.running.has(tabId)) return
-  state.running.add(tabId)
-  try {
-    await hydrateTab(ctx, snapTab)
-    // A successful hydration is complete. A failed one stays pending so the
-    // next selection can retry it instead of leaving a durable conversation
-    // looking like a fresh draft for the rest of this renderer lifetime.
-    state.pending.delete(tabId)
-  } catch {
-    // Keep the persisted tab pending. Connection startup and host recovery can
-    // fail before loadSession reaches the host; selecting the tab is the retry.
-  } finally {
-    state.running.delete(tabId)
-  }
+  if (!snapTab) return
+  const existing = state.running.get(tabId)
+  if (existing) return existing
+
+  const hydration = hydrateTab(ctx, snapTab)
+    .then(() => {
+      state.pending.delete(tabId)
+    })
+    .finally(() => {
+      state.running.delete(tabId)
+    })
+  state.running.set(tabId, hydration)
+  return hydration
 }
 
 /** Hydrate an inactive persisted tab when the user selects it (or it is live). */
 export function prioritizeTabHydration(ctx: WorkspaceContext, tabId: string): void {
-  const state = deferredHydrations.get(ctx)
+  const state = restorations.get(ctx)?.hydration
   if (!state?.pending.has(tabId)) return
-  void hydrateDeferredTab(ctx, state, tabId)
+  // A connection failure leaves the tab pending. Selection, startup retry, or
+  // reconnect will call the same operation again; no separate retry path exists.
+  void hydrateRestoredTab(ctx, state, tabId).catch(() => null)
 }
 
 /**
@@ -77,10 +80,10 @@ export function prioritizeTabHydration(ctx: WorkspaceContext, tabId: string): vo
  * transcript/bind. Call once during App setup; re-entry is guarded.
  */
 export function materializeTabs(ctx: WorkspaceContext): void {
-  if (materializations.has(ctx)) return
+  if (restorations.has(ctx)) return
   const snapshot = loadPersistedTabs()
   const drafts = loadDrafts()
-  materializations.set(ctx, { snapshot })
+  restorations.set(ctx, { snapshot, hydration: null })
   // Seed the live draft map so unvisited tabs retain their saved drafts even
   // though the new per-keystroke effect only patches the active tab.
   initDraftState(drafts)
@@ -148,22 +151,32 @@ export function reconcileReloadLocation(ctx: WorkspaceContext): void {
  * Async second step: register the materialized tabs with the server, hydrate the
  * active tab's transcript + bind its live session. Cold inactive tabs stay as
  * metadata until selected; busy tabs are promoted immediately. Assumes
- * materializeTabs already built the client-side tabs; falls back
- * to running it if the caller skipped it. Guarded so a re-running boot effect can't
- * double-register or double-hydrate.
+ * materializeTabs already built the client-side tabs and falls back to running
+ * it if the caller skipped it. Re-entry retries the active tab after a failed
+ * connection; the per-tab running promise deduplicates concurrent callers.
  */
 export async function bootstrapRuntimeTabs(ctx: WorkspaceContext): Promise<void> {
-  if (!materializations.has(ctx)) materializeTabs(ctx)
-  if (attached.has(ctx)) return
-  attached.add(ctx)
-  const snapshot = materializations.get(ctx)?.snapshot
-  if (!snapshot?.tabs?.length) return
-  try {
-    await _attachRuntimeTabs(ctx, snapshot.tabs)
-  } catch (error) {
-    attached.delete(ctx)
-    throw error
+  if (!restorations.has(ctx)) materializeTabs(ctx)
+  const restoration = restorations.get(ctx)
+  if (!restoration?.snapshot?.tabs?.length) return
+  const snapshot = restoration.snapshot
+
+  let state = restoration.hydration
+  if (!state) {
+    state = {
+      pending: new Map(snapshot.tabs.map((snapTab) => [snapTab.tabId, snapTab])),
+      running: new Map(),
+      hasStartedMetadataReads: false,
+    }
+    restoration.hydration = state
   }
+
+  startRestoredMetadataReads(ctx, snapshot.tabs, state)
+  if (!ctx.tabs[ctx.activeTabId]) {
+    ctx.activeTabId = ctx.tabOrder.find((tabId) => ctx.tabs[tabId]) ?? ''
+  }
+  ctx.pruneTabOrder()
+  if (ctx.activeTabId) await hydrateRestoredTab(ctx, state, ctx.activeTabId)
 }
 
 /**
@@ -190,6 +203,15 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
       const session = ctx.sessions[sessionId]
       const tabId = ctx.tabIdsForSession(sessionId)[0]
       if (!session || !tabId) return
+
+      // A reset can arrive while this restored tab still has no durable history.
+      // Use the same history -> watch -> bind operation as boot and selection;
+      // subscribing here first would recreate the startup race.
+      const restoredState = restorations.get(ctx)?.hydration
+      if (restoredState?.pending.has(tabId)) {
+        await hydrateRestoredTab(ctx, restoredState, tabId).catch(() => null)
+        return
+      }
 
       // Re-register with the server so event routing is alive again.
       const api = ctx.apiFor(tabId)
@@ -327,20 +349,15 @@ function _materializeTabs(
   if (ctx.tabs[activeTabId]) ctx.activeTabId = activeTabId
 }
 
-/** Async runtime attach: register tabs with the server, hydrate the active tab, and
- *  queue the rest for idle-time hydration. */
-async function _attachRuntimeTabs(
+/** Start side-effect-free status reads once. They can promote a busy inactive
+ * tab, but all transcript and runtime work still goes through hydrateRestoredTab. */
+function startRestoredMetadataReads(
   ctx: WorkspaceContext,
   persistedTabs: PersistedTab[],
-): Promise<void> {
-  // Start registrations independently, one per session rather than one per tab.
-  // A request queued on an offline host must not prevent healthy hosts from
-  // hydrating their sessions.
-  for (const sessionId of ctx.registry.tabIdsBySession.keys()) {
-    const tabId = ctx.tabIdsForSession(sessionId)[0]
-    if (!tabId) continue
-    void ctx.apiFor(tabId).watchSession({ sessionId }).catch(() => null)
-  }
+  state: RestoredHydrationState,
+): void {
+  if (state.hasStartedMetadataReads) return
+  state.hasStartedMetadataReads = true
 
   // Transcript hydration for inactive tabs is intentionally deferred, but their
   // tab-strip status must still reflect live work immediately after refresh.
@@ -365,136 +382,120 @@ async function _attachRuntimeTabs(
       })
       .catch(() => null)
   }
-
-  if (!ctx.tabs[ctx.activeTabId]) {
-    ctx.activeTabId = ctx.tabOrder.find((id) => ctx.tabs[id]) ?? ''
-  }
-  ctx.pruneTabOrder()
-
-  // Hydrate the tab the user is actually looking at first (its loadingHistory
-  // flag drives the conversation skeleton). Cold inactive tabs remain on disk;
-  // selecting one promotes it immediately.
-  // Register every persisted tab before starting the active one. The active
-  // read can fail during connection startup too; keeping it in the same pending
-  // state gives a later selection a real retry path.
-  const deferredState: DeferredHydrationState = {
-    pending: new Map(persistedTabs.map((snapTab) => [snapTab.tabId, snapTab])),
-    running: new Set(),
-  }
-  deferredHydrations.set(ctx, deferredState)
-  if (ctx.activeTabId) void hydrateDeferredTab(ctx, deferredState, ctx.activeTabId)
 }
 
 /**
  * Hydrate a single tab: load its (windowed) transcript, then bind any live
- * runtime session. Loads the transcript before binding because bindRuntimeSession
- * may replay in-flight events immediately; if those land first, the conversation
- * guard would treat the tab as populated and skip the persisted transcript.
- * The Git environment refresh is independent of both and runs alongside them.
+ * runtime session. The order is fixed: durable history, watch, then bind. Git
+ * and task state are independent and run alongside that sequence.
  */
 async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise<void> {
   const tab = ctx.tabs[snapTab.tabId]
   const session = tab ? ctx.sessions[tab.sessionId] : undefined
-  if (!tab || !session) return
+  if (!tab || !session || session.agentSessionId !== snapTab.agentSessionId) return
 
   // Git is what the sidebar, home, and Git panel all read, and it depends on
   // nothing below — so start it now rather than behind a transcript parse and a
-  // bind round-trip. Tabs are already registered with the server by this point
-  // (_attachRuntimeTabs), so environment registration is safe here.
+  // bind round-trip.
   const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: snapTab.tabId }).catch(() => null)
   const taskHydration = snapTab.agentSessionId
     ? ctx.tasksStore.ensureSessionBinding(snapTab.agentSessionId, snapTab.taskServerId).catch(() => null)
     : Promise.resolve(null)
 
   if (snapTab.agentSessionId || snapTab.handoffFrom) {
-    if (!hasConversation(session)) {
-      const sessionId = snapTab.agentSessionId
-      const provider = (snapTab.provider ?? ctx.settings.activeAgent) as AgentId
-      const displayCwd = snapTab.workingDirectory || ctx.staticInfo?.projectPath || ctx.staticInfo?.workspacePath || '~'
-      // Claude persists transcripts under the dir it actually ran in. Worktree
-      // sessions ran in the worktree, not the project root, so load from there
-      // or the .jsonl folder won't resolve and the transcript comes back empty.
-      // (Codex reads by session id and ignores the path entirely.)
-      const loadPath = snapTab.gitContext?.worktreePath || displayCwd
-      const tabId = snapTab.tabId
-      session.loadingHistory = true
-      try {
-        const shouldApply = () => {
-          const t = ctx.tabs[tabId]
-          if (!t) return false
-          const s = ctx.sessions[t.sessionId]
-          return !!s && !hasConversation(s)
-        }
-        const handoffFrom = snapTab.handoffFrom
-        const predecessorTranscript = handoffFrom
-          ? await loadRestoredSessionTranscript(ctx, {
-              sessionId: handoffFrom.sessionId,
-              loadPath,
-              displayCwd,
-              provider: handoffFrom.provider,
-              ctx: ctx.ctxFor(tabId),
-              shouldApply,
-            })
-          : null
-        const transcript = sessionId
-          ? await loadRestoredSessionTranscript(ctx, {
-              sessionId,
-              loadPath,
-              displayCwd,
-              provider,
-              ctx: ctx.ctxFor(tabId),
-              shouldApply,
-            })
-          : { messages: [], planIds: [], progress: null, truncated: false }
+    const sessionId = snapTab.agentSessionId
+    const provider = (snapTab.provider ?? ctx.settings.activeAgent) as AgentId
+    const displayCwd = snapTab.workingDirectory || ctx.staticInfo?.projectPath || ctx.staticInfo?.workspacePath || '~'
+    // Claude persists transcripts under the dir it actually ran in. Worktree
+    // sessions ran in the worktree, not the project root, so load from there
+    // or the .jsonl folder won't resolve and the transcript comes back empty.
+    // (Codex reads by session id and ignores the path entirely.)
+    const loadPath = snapTab.gitContext?.worktreePath || displayCwd
+    const tabId = snapTab.tabId
+    session.loadingHistory = true
+    try {
+      const shouldApply = () => {
         const t = ctx.tabs[tabId]
-        const s = t ? ctx.sessions[t.sessionId] : undefined
-        if (s && !hasConversation(s) && handoffFrom) {
-          const predecessorMessages = [...(predecessorTranscript?.messages ?? [])]
-          const currentMessages = [...transcript.messages]
-          // Provider boundaries are an implementation detail. Rehydrate one
-          // continuous transcript so switching agents never interrupts the thread.
-          const stitchedMessages = [...predecessorMessages, ...currentMessages]
-          replaceHydratedMessages(s, stitchedMessages)
-          ctx.eventReducer.rebuildAgentConversations(s)
-          s.progress = progressFromMessages(stitchedMessages)
-          s.historyTruncated = (predecessorTranscript?.truncated ?? false) || transcript.truncated
-          ctx.recomputeChangedFiles(tabId)
-          const planIds = [...(predecessorTranscript?.planIds ?? []), ...transcript.planIds]
-          for (const planId of planIds) void ctx.planStore.hydrateAnnotations(planId)
-        } else if (s && transcript.messages.length > 0) {
-          replaceHydratedMessages(s, transcript.messages)
-          ctx.eventReducer.rebuildAgentConversations(s)
-          s.progress = transcript.progress
-          s.historyTruncated = transcript.truncated
-          ctx.recomputeChangedFiles(tabId)
-          for (const planId of transcript.planIds) void ctx.planStore.hydrateAnnotations(planId)
-        }
-        if (
-          s &&
-          snapTab.terminalFailure &&
-          !s.messages.some(
-            (message) =>
-              message.role === 'system' &&
-              message.content === snapTab.terminalFailure?.content,
-          )
-        ) {
-          s.messages.push({
-            id: nextMsgId(),
-            role: 'system',
-            content: snapTab.terminalFailure.content,
-            timestamp: snapTab.terminalFailure.timestamp,
-          })
-        }
-      } finally {
-        const t = ctx.tabs[tabId]
-        const s = t ? ctx.sessions[t.sessionId] : undefined
-        if (s) s.loadingHistory = false
+        if (!t) return false
+        const s = ctx.sessions[t.sessionId]
+        // Runtime events cannot reach this fresh client until the watch below.
+        // Only a real tab/session replacement can make this history stale.
+        return s === session && s.agentSessionId === snapTab.agentSessionId
       }
+      const handoffFrom = snapTab.handoffFrom
+      const predecessorTranscript = handoffFrom
+        ? await loadRestoredSessionTranscript(ctx, {
+            sessionId: handoffFrom.sessionId,
+            loadPath,
+            displayCwd,
+            provider: handoffFrom.provider,
+            ctx: ctx.ctxFor(tabId),
+            shouldApply,
+          })
+        : null
+      const transcript = sessionId
+        ? await loadRestoredSessionTranscript(ctx, {
+            sessionId,
+            loadPath,
+            displayCwd,
+            provider,
+            ctx: ctx.ctxFor(tabId),
+            shouldApply,
+          })
+        : { messages: [], planIds: [], progress: null, truncated: false }
+      const t = ctx.tabs[tabId]
+      const s = t ? ctx.sessions[t.sessionId] : undefined
+      if (s && handoffFrom) {
+        const predecessorMessages = [...(predecessorTranscript?.messages ?? [])]
+        const currentMessages = [...transcript.messages]
+        // Provider boundaries are an implementation detail. Rehydrate one
+        // continuous transcript so switching agents never interrupts the thread.
+        const stitchedMessages = [...predecessorMessages, ...currentMessages]
+        replaceHydratedMessages(s, stitchedMessages)
+        ctx.eventReducer.rebuildAgentConversations(s)
+        s.progress = progressFromMessages(stitchedMessages)
+        s.historyTruncated = (predecessorTranscript?.truncated ?? false) || transcript.truncated
+        ctx.recomputeChangedFiles(tabId)
+        const planIds = [...(predecessorTranscript?.planIds ?? []), ...transcript.planIds]
+        for (const planId of planIds) void ctx.planStore.hydrateAnnotations(planId)
+      } else if (s && transcript.messages.length > 0) {
+        replaceHydratedMessages(s, transcript.messages)
+        ctx.eventReducer.rebuildAgentConversations(s)
+        s.progress = transcript.progress
+        s.historyTruncated = transcript.truncated
+        ctx.recomputeChangedFiles(tabId)
+        for (const planId of transcript.planIds) void ctx.planStore.hydrateAnnotations(planId)
+      }
+      if (
+        s &&
+        snapTab.terminalFailure &&
+        !s.messages.some(
+          (message) =>
+            message.role === 'system' &&
+            message.content === snapTab.terminalFailure?.content,
+        )
+      ) {
+        s.messages.push({
+          id: nextMsgId(),
+          role: 'system',
+          content: snapTab.terminalFailure.content,
+          timestamp: snapTab.terminalFailure.timestamp,
+        })
+      }
+    } finally {
+      const t = ctx.tabs[tabId]
+      const s = t ? ctx.sessions[t.sessionId] : undefined
+      if (s) s.loadingHistory = false
     }
   }
 
   if (snapTab.agentSessionId) {
-    const info = await ctx.apiFor(snapTab.tabId)
+    const api = ctx.apiFor(snapTab.tabId)
+    // Join the live event stream only after durable history is in memory.
+    // Otherwise an event that arrives during loadSession makes the successful
+    // history response look stale and the restored session can stay blank.
+    await api.watchSession({ sessionId: session.id })
+    const info = await api
       .bindRuntimeSession(ctx.ctxFor(snapTab.tabId))
       .catch(() => null)
     if (info && session) {

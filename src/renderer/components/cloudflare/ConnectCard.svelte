@@ -113,7 +113,7 @@
 
         <CloudflareConnectForm autofocus />
 
-        <p class="text-[0.6875rem] text-muted-foreground opacity-80">
+        <p class="text-xs text-muted-foreground opacity-80">
           Paste the token here, not into the chat.
         </p>
       {/if}

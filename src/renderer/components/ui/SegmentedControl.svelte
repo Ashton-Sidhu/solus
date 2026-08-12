@@ -27,10 +27,10 @@
   const bar = $derived(variant === "bar");
   const segBtnClass = $derived(
     bar && compact
-      ? "inline-flex h-full cursor-pointer items-center gap-1 whitespace-nowrap rounded-md border-0 px-1.5 text-[11.5px] transition-[background-color,color] duration-100 ease-in-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
+      ? "inline-flex h-full cursor-pointer items-center gap-1 whitespace-nowrap rounded-md border-0 px-1.5 text-xs transition-[background-color,color] duration-100 ease-in-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
       : bar
-      ? "inline-flex h-full cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border-0 px-2.5 text-[12.5px] transition-[background-color,color] duration-100 ease-in-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] @max-[16rem]:gap-1 @max-[16rem]:px-1.5 @max-[16rem]:text-[11.5px]"
-      : "inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border-0 px-2.5 py-1 text-[0.6875rem] font-medium transition-[background-color,color] duration-100 ease-in-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:px-3",
+      ? "inline-flex h-full cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border-0 px-2.5 text-[0.8125rem] transition-[background-color,color] duration-100 ease-in-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] @max-[16rem]:gap-1 @max-[16rem]:px-1.5 @max-[16rem]:text-xs"
+      : "inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border-0 px-2.5 py-1 text-xs font-medium transition-[background-color,color] duration-100 ease-in-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:px-3",
   );
   const segActiveClass = $derived(
     bar
@@ -75,7 +75,7 @@
           class="tabular-nums {bar && compact
             ? 'hidden'
             : bar
-            ? 'font-mono text-[10px] opacity-65 @max-[16rem]:hidden'
+            ? 'font-mono text-xs opacity-65 @max-[16rem]:hidden'
             : active
               ? 'text-(--solus-text-tertiary)'
               : 'opacity-60'}">{opt.count}</span

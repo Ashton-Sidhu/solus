@@ -64,6 +64,7 @@ describe('createPR GitHub authentication', () => {
     expect(output.calls.find((call) => call.bin === 'gh' && call.args[1] === 'create')?.env).toEqual({
       GH_TOKEN: 'delegated-token',
     })
+    expect(output.calls.find((call) => call.bin === 'gh' && call.args[1] === 'create')?.args).toContain('--fill')
     expect(output.calls.find((call) => call.bin === 'git' && call.args[0] === 'push')?.env).toBeUndefined()
   })
 })

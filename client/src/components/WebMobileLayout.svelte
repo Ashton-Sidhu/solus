@@ -419,7 +419,7 @@
     border: none;
     background: transparent;
     cursor: pointer;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
     -webkit-tap-highlight-color: transparent;
     transition:
@@ -638,7 +638,7 @@
   /* The composer is CodeMirror now; 16px keeps iOS Safari from zooming the
      viewport when the input gains focus. */
   .mobile-shell :global(.cm-editor) {
-    font-size: 1rem;
+    font-size: 0.875rem;
     line-height: 1.5;
   }
 

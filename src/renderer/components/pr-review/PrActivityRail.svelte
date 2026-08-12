@@ -161,7 +161,7 @@
 {#snippet sectionHead(label: string, trailing?: Snippet)}
   <div class="mb-2.5 flex items-center gap-2">
     <h3
-      class="text-[9.5px] font-medium st text-muted-foreground uppercase"
+      class="text-xs font-medium st text-muted-foreground uppercase"
     >
       {label}
     </h3>
@@ -178,7 +178,7 @@
 {#snippet mergeSectionTrailing()}
   <span class="flex items-center gap-2.5">
     {#if detail?.state === "merged" || (detail?.state === "open" && !detail.draft)}
-      <span class="font-mono text-[10.5px] text-muted-foreground opacity-75">
+      <span class="font-mono text-xs text-muted-foreground opacity-75">
         {detail.state === "merged" ? "squashed" : blocked ? "rebase" : "squash"}
       </span>
     {/if}
@@ -223,7 +223,7 @@
             <Skeleton class="h-3.5 w-28 rounded bg-muted" />
             <Skeleton class="mt-1 h-3 w-20 rounded bg-muted" />
           {:else}
-            <span class="text-[13.5px] font-medium ">
+            <span class="text-sm font-medium ">
               {detail.state === "merged"
                 ? "Merged into " + (detail.baseRef ?? "main")
                 : detail.state === "closed"
@@ -239,7 +239,7 @@
                           : "Review in progress"}
             </span>
             <span
-              class="text-[11.5px] leading-[1.55] text-pretty tabular-nums text-muted-foreground"
+              class="text-xs leading-[1.55] text-pretty tabular-nums text-muted-foreground"
             >
               {#if checks?.state === "passing"}
                 {passedChecks} {passedChecks === 1 ? "check" : "checks"} passed · no conflicts
@@ -273,7 +273,7 @@
             bind:ref={reviewerTrigger}
             type="button"
             variant="ghost"
-            class="h-auto cursor-pointer p-0 text-[11px] font-normal text-muted-foreground hover:bg-transparent hover:text-foreground"
+            class="h-auto cursor-pointer p-0 text-xs font-normal text-muted-foreground hover:bg-transparent hover:text-foreground"
             aria-label="Request a reviewer"
             aria-haspopup="menu"
             aria-expanded={reviewerMenuOpen}
@@ -287,7 +287,7 @@
         {/if}
       {/snippet}
       {#snippet reviewerCount()}
-        <span class="text-[11px] tabular-nums text-muted-foreground">
+        <span class="text-xs tabular-nums text-muted-foreground">
           {approvedReviewers} of {reviewers.length} approved
         </span>
       {/snippet}
@@ -305,7 +305,7 @@
           <Skeleton class="h-3 w-24 rounded bg-muted" />
         </div>
       {:else if reviewers.length === 0}
-        <p class="px-2 text-[11.5px] text-muted-foreground">
+        <p class="px-2 text-xs text-muted-foreground">
           No one requested yet
         </p>
       {:else}
@@ -314,12 +314,12 @@
             <li
               class="group/reviewer flex h-[30px] items-center gap-[9px] rounded-md px-2 transition-colors hover:bg-[var(--wash-1)]"
             >
-              <PrAvatar name={reviewer.login} size="size-5 text-[9.5px]" />
-              <span class="min-w-0 flex-1 truncate text-[12.5px]">
+              <PrAvatar name={reviewer.login} size="size-5 text-xs" />
+              <span class="min-w-0 flex-1 truncate text-[0.8125rem]">
                 {reviewer.login}
               </span>
               <span
-                class="shrink-0 text-[10.5px] whitespace-nowrap"
+                class="shrink-0 text-xs whitespace-nowrap"
                 style={`color:${reviewerStateColor(reviewer.state)}`}
               >
                 {reviewerStateLabel(reviewer.state)}
@@ -372,7 +372,7 @@
                   <PrAvatar
                     name={candidate.login}
                     url={candidate.avatarUrl ?? ""}
-                    size="size-[20px] text-[9px]"
+                    size="size-[20px] text-xs"
                   />
                   <span class="truncate">{candidate.login}</span>
                 </DropdownMenu.Item>
@@ -390,7 +390,7 @@
           <!-- All-green states earn the positive tint; anything short of that
                stays neutral so the colour keeps meaning something. -->
           <span
-            class="text-[11px] font-medium tabular-nums {checks?.state ===
+            class="text-xs font-medium tabular-nums {checks?.state ===
  'passing'
  ? 'text-(--solus-art-positive)'
  : 'text-muted-foreground'}"
@@ -432,7 +432,7 @@
  : 'bg-(--solus-art-negative)'}"
                     aria-hidden="true"
                   ></span>
-                  <span class="min-w-0 flex-1 truncate text-[12.5px]">
+                  <span class="min-w-0 flex-1 truncate text-[0.8125rem]">
                     {item.name}
                   </span>
                   {#if item.inFlight}
@@ -442,7 +442,7 @@
                     />
                   {:else if duration}
                     <span
-                      class="shrink-0 font-mono text-[10.5px] tabular-nums text-muted-foreground"
+                      class="shrink-0 font-mono text-xs tabular-nums text-muted-foreground"
                     >
                       {duration}
                     </span>
@@ -455,7 +455,7 @@
                 <Button
                   type="button"
                   variant="ghost"
-                  class="flex h-[26px] w-full cursor-pointer items-center justify-start gap-1.5 rounded-md border-0 bg-transparent px-2 text-[11.5px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  class="flex h-[26px] w-full cursor-pointer items-center justify-start gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   onclick={() => (checksExpanded = !checksExpanded)}
                 >
                   <CaretRightIcon
@@ -478,7 +478,7 @@
         {#if filesLoading}
           <Skeleton class="h-3 w-8 rounded bg-muted" />
         {:else}
-          <span class="font-mono text-[10.5px] tabular-nums text-muted-foreground">
+          <span class="font-mono text-xs tabular-nums text-muted-foreground">
             {changedFiles.length}
             {changedFiles.length === 1 ? "file" : "files"}
           </span>
@@ -497,7 +497,7 @@
             {/if}
           </span>
           <span
-            class="flex shrink-0 items-center gap-1.5 font-mono text-[10.5px] tabular-nums"
+            class="flex shrink-0 items-center gap-1.5 font-mono text-xs tabular-nums"
           >
             {#if totalAdds}<span class="text-(--solus-art-positive)">+{totalAdds}</span>{/if}
             {#if totalDels}<span class="text-(--solus-art-negative)">−{totalDels}</span>{/if}
@@ -537,11 +537,11 @@
               <span class="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span class="flex items-baseline gap-2">
                   <span
-                    class="min-w-0 truncate text-[12.5px] font-medium group-hover:text-primary"
+                    class="min-w-0 truncate text-[0.8125rem] font-medium group-hover:text-primary"
                     >{fileName(file.path)}</span
                   >
                   <span
-                    class="flex shrink-0 items-center gap-1.5 font-mono text-[10.5px] tabular-nums"
+                    class="flex shrink-0 items-center gap-1.5 font-mono text-xs tabular-nums"
                   >
                     {#if file.additions}<span
                         class="text-(--solus-art-positive)">+{file.additions}</span
@@ -553,7 +553,7 @@
                 </span>
                 {#if dirName(file.path)}
                   <span
-                    class="truncate font-mono text-[10px] text-muted-foreground"
+                    class="truncate font-mono text-xs text-muted-foreground"
                     >{dirName(file.path).replace(/\/$/, "")}</span
                   >
                 {/if}
@@ -566,7 +566,7 @@
             <Button
               type="button"
               variant="ghost"
-              class="flex h-[26px] w-full cursor-pointer items-center justify-start gap-1.5 rounded-md border-0 bg-transparent px-2 text-[11.5px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              class="flex h-[26px] w-full cursor-pointer items-center justify-start gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               onclick={() => (filesExpanded = !filesExpanded)}
             >
               <CaretRightIcon

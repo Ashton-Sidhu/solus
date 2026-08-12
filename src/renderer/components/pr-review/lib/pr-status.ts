@@ -9,18 +9,17 @@
 export type PrStatusKey = 'review' | 'open' | 'draft' | 'merged' | 'closed'
 
 /**
- * The same tones the session sidebar's PR chip uses, so one pull request reads
- * identically wherever it surfaces: a review the person owes leads in the brand
- * accent, a merged PR settles into plum, a live open PR shows the on-brand sage.
- * Draft has no state to report yet, so it stays neutral rather than taking a
- * tint that would read as a status.
+ * The same lifecycle tones Tasks use: active work is blue, review is purple,
+ * completed work is green, and inactive states are neutral. Draft has no state
+ * to report yet, so it stays neutral rather than taking a tint that would read
+ * as a status.
  */
 const TONES: Record<PrStatusKey, string | null> = {
-  review: 'var(--primary)',
-  open: 'var(--solus-art-positive)',
+  review: 'var(--review)',
+  open: 'var(--running)',
   draft: null,
-  merged: 'var(--solus-art-6)',
-  closed: 'var(--failure)',
+  merged: 'var(--success)',
+  closed: null,
 }
 
 export function statusDotColor(key: string): string {

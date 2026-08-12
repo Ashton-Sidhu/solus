@@ -106,7 +106,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#snippet loadingDiff()}
-  <div class="grid min-h-16 place-items-center text-[0.65625rem] text-(--muted-foreground)" role="status">
+  <div class="grid min-h-16 place-items-center text-xs text-(--muted-foreground)" role="status">
     Loading preview…
   </div>
 {/snippet}
@@ -127,7 +127,7 @@
     <span class="shrink-0">{permission.toolTitle}</span>
     {#if cwdParts}
       <span class="shrink-0 opacity-60">·</span>
-      <span class="min-w-0 truncate font-mono text-[0.71875rem]"
+      <span class="min-w-0 truncate font-mono text-xs"
         >{cwdParts.head}<span class="font-medium text-(--foreground)">{cwdParts.tail}</span></span
       >
     {/if}
@@ -155,7 +155,7 @@
           <div class="interrupt-payload-bar">
             <span class="interrupt-payload-label">{change.path}</span>
             <div class="flex-1"></div>
-            <span class="shrink-0 text-[0.65625rem] text-(--muted-foreground)">{change.kind}</span>
+            <span class="shrink-0 text-xs text-(--muted-foreground)">{change.kind}</span>
           </div>
           <div class="max-h-[11.25rem] overflow-auto">
             {#await import('../diff/Diff.svelte')}
@@ -258,11 +258,11 @@
         {option.label}
       </button>
     {/each}
-    <span class="shrink-0 text-[0.71875rem] text-(--muted-foreground)">
+    <span class="shrink-0 text-xs text-(--muted-foreground)">
       {#if responded}
         Answered
       {:else}
-        Holding · <span class="font-mono text-[0.6875rem]">{waiting}</span>
+        Holding · <span class="font-mono text-xs">{waiting}</span>
       {/if}
     </span>
     {#if actions.affirmative}

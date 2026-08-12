@@ -92,7 +92,7 @@
 >
   {#if noHost}
     <h1
-      class="max-w-[40rem] text-center text-pretty text-[clamp(1.375rem,1rem+1.6vw,1.875rem)] font-medium leading-[1.25] text-(--solus-text-primary)"
+      class="max-w-[40rem] text-center text-pretty text-[1.5rem] font-medium leading-[1.25] text-(--solus-text-primary)"
     >
       Connect a host to get started
     </h1>
@@ -106,7 +106,7 @@
     </button>
   {:else}
   <h1
-    class="max-w-[40rem] text-center text-pretty text-[clamp(1.375rem,1rem+1.6vw,1.875rem)] font-medium leading-[1.25] text-(--solus-text-primary)"
+    class="max-w-[40rem] text-center text-pretty text-[1.5rem] font-medium leading-[1.25] text-(--solus-text-primary)"
   >
     {#if hasProject}
       What should we build in

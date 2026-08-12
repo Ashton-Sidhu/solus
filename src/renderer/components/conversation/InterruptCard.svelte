@@ -50,7 +50,7 @@
     <div class="flex min-w-0 flex-1 flex-col gap-[0.125rem]">
       <span class="interrupt-eyebrow">{eyebrow}</span>
       <div class="flex min-w-0 items-center gap-2.5">
-        <h2 class="m-0 min-w-0 truncate text-[0.9375rem] leading-[1.3] font-medium ">
+        <h2 class="m-0 min-w-0 truncate text-sm leading-[1.3] font-medium ">
           {title}
         </h2>
         {@render chip?.()}
@@ -86,7 +86,7 @@
   }
 
   .interrupt-eyebrow {
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     font-weight: 500;
 
     text-transform: uppercase;
@@ -103,7 +103,7 @@
   .interrupt-danger {
     background: color-mix(in oklch, var(--destructive) 10%, transparent);
     color: color-mix(in oklch, var(--destructive) 72%, var(--foreground));
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
   }
 
   .interrupt-footer {
@@ -126,7 +126,7 @@
     background: transparent;
     padding: 0 0.5rem;
     color: var(--muted-foreground);
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     font-weight: 400;
     cursor: pointer;
     transition:
@@ -170,11 +170,11 @@
   /* A key hint lives inside the button it fires, never in a separate legend. */
   :global(.interrupt-key) {
     font-family: var(--solus-code-font-family);
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     opacity: 0.75;
   }
   :global(.interrupt-btn--primary .interrupt-key) {
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     opacity: 0.8;
   }
 
@@ -200,7 +200,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: var(--solus-code-font-family);
-    font-size: 0.59375rem;
+    font-size: 0.75rem;
     font-weight: 500;
 
     text-transform: uppercase;
@@ -228,7 +228,7 @@
     background: transparent;
     padding: 0.25rem 0;
     color: var(--muted-foreground);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     cursor: pointer;
     transition: color var(--duration-quick) var(--ease-premium);
   }
@@ -253,7 +253,7 @@
     padding: 0.625rem 0.75rem;
     background: color-mix(in oklch, var(--muted) 24%, var(--card));
     font-family: var(--solus-code-font-family);
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     overflow-wrap: anywhere;
   }
 </style>

@@ -616,7 +616,7 @@
         class="mx-auto w-full max-w-[min(1384px,100%)] px-[clamp(20px,2.6vw,56px)] pt-4"
       >
         <div
-          class="flex items-center gap-2.5 rounded-2xl border border-border bg-card px-3.5 py-3 text-[12.5px]"
+          class="flex items-center gap-2.5 rounded-2xl border border-border bg-card px-3.5 py-3 text-[0.8125rem]"
           role="alert"
         >
           {#if loadError?.kind === "github-auth"}
@@ -628,7 +628,7 @@
             <Button
               type="button"
               variant="ghost"
-              class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-3 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+              class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-3 text-[0.8125rem] font-medium text-muted-foreground transition-colors hover:text-foreground"
               onclick={refresh}
             >
               <ArrowsClockwiseIcon size={12} class="shrink-0" />
@@ -665,7 +665,7 @@
         <header>
           {#if !masthead}
             <p
-              class="flex items-center gap-2 font-mono text-[9.5px] st text-muted-foreground uppercase"
+              class="flex items-center gap-2 font-mono text-xs st text-muted-foreground uppercase"
             >
               <!-- Identity, not state — the subtitle chip below carries the
                    state, and a tinted mark up here read as a second one. -->
@@ -680,7 +680,7 @@
             <input
               bind:this={titleInput}
               bind:value={titleDraft}
-              class="{masthead ? '' : 'mt-3.5'} w-full rounded-lg border border-border bg-card px-3 py-2 text-[24px] leading-[1.28] font-medium outline-none transition-colors focus:border-ring"
+              class="{masthead ? '' : 'mt-3.5'} w-full rounded-lg border border-border bg-card px-3 py-2 text-[1.5rem] leading-[1.28] font-medium outline-none transition-colors focus:border-ring"
               aria-label="Pull request title"
               onkeydown={(event) => {
                 if (event.key === "Escape") cancelEditing();
@@ -692,7 +692,7 @@
             />
           {:else if prTitle}
             <h1
-              class="{masthead ? '' : 'mt-3.5'} text-[24px] leading-[1.28] font-medium text-pretty"
+              class="{masthead ? '' : 'mt-3.5'} text-[1.5rem] leading-[1.28] font-medium text-pretty"
             >
               {prTitle}
             </h1>
@@ -703,7 +703,7 @@
           {/if}
 
           <div
-            class="mt-[11px] flex flex-wrap items-center gap-x-[9px] gap-y-2 text-[11.5px] text-muted-foreground"
+            class="mt-[11px] flex flex-wrap items-center gap-x-[9px] gap-y-2 text-xs text-muted-foreground"
           >
             <!-- State leads the subtitle, the way a code host states it: the one
                  fact that changes how every other fact on this row reads. -->
@@ -712,7 +712,7 @@
               <PrAvatar
                 name={authorName}
                 url={authorAvatarUrl}
-                size="size-5 text-[9.5px]"
+                size="size-5 text-xs"
               />
               <span class="truncate font-medium text-foreground">{authorName}</span>
               {#if openedTime}
@@ -727,7 +727,7 @@
                    Only when the masthead is absent — it states the refs itself,
                    and one line above the title is enough. -->
               <span
-                class="flex min-w-0 items-center gap-1.5 rounded-md bg-muted px-2 py-1 font-mono text-[10.5px] text-muted-foreground"
+                class="flex min-w-0 items-center gap-1.5 rounded-md bg-muted px-2 py-1 font-mono text-xs text-muted-foreground"
               >
                 {#if headBranch}
                   <span class="truncate">{headBranch}</span>
@@ -772,7 +772,7 @@
               <Button
                 type="button"
                 variant="ghost"
-                class="h-7 cursor-pointer gap-1.5 rounded-lg px-2.5 text-[11.5px] text-muted-foreground hover:text-foreground"
+                class="h-7 cursor-pointer gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground hover:text-foreground"
                 title="Edit pull request title and description"
                 onclick={beginEditing}
               >
@@ -801,7 +801,7 @@
                 type="button"
                 variant="ghost"
                 disabled={saving}
-                class="h-8 cursor-pointer rounded-lg px-3 text-[12.5px] text-muted-foreground"
+                class="h-8 cursor-pointer rounded-lg px-3 text-[0.8125rem] text-muted-foreground"
                 onclick={cancelEditing}
               >
                 Cancel
@@ -809,7 +809,7 @@
               <Button
                 type="button"
                 disabled={saving || !titleDraft.trim()}
-                class="h-8 cursor-pointer rounded-lg px-3 text-[12.5px] font-medium disabled:cursor-not-allowed disabled:opacity-50"
+                class="h-8 cursor-pointer rounded-lg px-3 text-[0.8125rem] font-medium disabled:cursor-not-allowed disabled:opacity-50"
                 onclick={savePullRequest}
               >
                 {saving ? "Saving…" : "Save changes"}
@@ -851,7 +851,7 @@
              opened event always leads. -->
         <div class="mt-10 mb-4 flex items-center gap-2">
           <h2
-            class="text-[9.5px] font-medium st text-muted-foreground uppercase"
+            class="text-xs font-medium st text-muted-foreground uppercase"
           >
             Activity
           </h2>
@@ -875,7 +875,7 @@
                     type="button"
                     variant="ghost"
                     aria-pressed={!unresolvedOnly && filter === chip.value}
-                    class="h-full cursor-pointer rounded-md border-0 px-2.5 text-[12px] transition-colors {!unresolvedOnly &&
+                    class="h-full cursor-pointer rounded-md border-0 px-2.5 text-xs transition-colors {!unresolvedOnly &&
  filter === chip.value
  ? 'bg-card font-medium text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] dark:shadow-none dark:ring-1 dark:ring-white/10'
  : 'bg-transparent font-normal text-muted-foreground hover:text-foreground'}"
@@ -891,7 +891,7 @@
                 type="button"
                 variant="ghost"
                 aria-pressed={unresolvedOnly}
-                class="h-7 cursor-pointer rounded-lg border-0 px-2.5 text-[12px] font-medium tabular-nums transition-colors {unresolvedOnly
+                class="h-7 cursor-pointer rounded-lg border-0 px-2.5 text-xs font-medium tabular-nums transition-colors {unresolvedOnly
  ? 'bg-secondary text-secondary-foreground'
  : 'bg-muted text-muted-foreground hover:text-foreground'}"
                 onclick={toggleUnresolved}
@@ -936,7 +936,7 @@
           <PrAvatar
             name={viewerLogin || "?"}
             url={viewerAvatarUrl}
-            size="size-[25px] text-[10px]"
+            size="size-[25px] text-xs"
           />
           <CommentEditor
             value={composer}

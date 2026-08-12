@@ -114,18 +114,18 @@
 >
   <div class="flex items-center gap-1.5 border-b border-(--solus-container-border) px-2.5 py-1.5">
     <ChatCircleIcon size={12} weight="fill" class="shrink-0 text-(--solus-text-tertiary)" />
-    <span class="text-[0.625rem] font-medium text-(--solus-text-tertiary) uppercase">
+    <span class="text-xs font-medium text-(--solus-text-tertiary) uppercase">
       {thread.comments.length} comment{thread.comments.length === 1 ? "" : "s"}
     </span>
     <div class="ml-auto flex items-center gap-1">
       {#if thread.isOutdated}
-        <span class="rounded bg-(--solus-accent-light) px-1.5 py-0.5 text-[0.5625rem] font-medium text-(--solus-text-tertiary)">
+        <span class="rounded bg-(--solus-accent-light) px-1.5 py-0.5 text-xs font-medium text-(--solus-text-tertiary)">
           Outdated
         </span>
       {/if}
       {#if thread.isResolved}
         <span
-          class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[0.5625rem] font-medium text-(--solus-art-positive)"
+          class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-(--solus-art-positive)"
           style="background:color-mix(in srgb, var(--solus-art-positive) 16%, transparent)"
         >
           <CheckCircleIcon size={10} weight="fill" /> Resolved
@@ -142,10 +142,10 @@
       aria-expanded="false"
     >
       <CheckCircleIcon size={13} weight="fill" class="shrink-0 text-(--solus-art-positive)" />
-      <span class="text-[0.6875rem] font-medium text-(--solus-text-secondary)">
+      <span class="text-xs font-medium text-(--solus-text-secondary)">
         Marked as resolved
       </span>
-      <span class="ml-auto inline-flex items-center gap-1 text-[0.625rem] text-(--solus-text-tertiary)">
+      <span class="ml-auto inline-flex items-center gap-1 text-xs text-(--solus-text-tertiary)">
         Show thread
         <CaretDownIcon size={10} weight="bold" />
       </span>
@@ -155,14 +155,14 @@
     {#each thread.comments as comment (comment.id)}
       <div class="flex gap-2">
         <span
-          class="grid size-5 shrink-0 place-items-center rounded-full bg-(--solus-accent) text-[0.5rem] font-medium text-(--solus-on-accent,#fff)"
+          class="grid size-5 shrink-0 place-items-center rounded-full bg-(--solus-accent) text-xs font-medium text-(--solus-on-accent,#fff)"
         >
           {initials(comment.author)}
         </span>
         <div class="min-w-0 flex-1">
           <div class="flex items-baseline gap-1.5">
-            <span class="text-[0.6875rem] font-medium text-(--solus-text-primary)">{comment.author}</span>
-            <span class="text-[0.625rem] text-(--solus-text-tertiary)">
+            <span class="text-xs font-medium text-(--solus-text-primary)">{comment.author}</span>
+            <span class="text-xs text-(--solus-text-tertiary)">
               {formatTimeAgoFromTimestamp(new Date(comment.createdAt).getTime())}
             </span>
           </div>
@@ -213,7 +213,7 @@
           {#if onReply}
             <button
               type="button"
-              class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[0.6875rem] font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
+              class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
               onclick={startReply}
             >
               <ArrowBendUpLeftIcon size={12} /> Reply
@@ -223,7 +223,7 @@
             <button
               type="button"
               disabled={busy}
-              class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[0.6875rem] font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) disabled:opacity-50"
+              class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) disabled:opacity-50"
               onclick={toggleResolve}
             >
               {#if thread.isResolved}
@@ -236,7 +236,7 @@
           {#if thread.isResolved}
             <button
               type="button"
-              class="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-[0.6875rem] font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
+              class="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
               onclick={() => onSetCollapsed?.(thread.id, true)}
             >
               Hide

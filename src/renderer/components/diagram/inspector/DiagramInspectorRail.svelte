@@ -169,7 +169,7 @@
   .diagram-rail__kind {
     max-width: 100%;
     padding: 0 0.125rem;
-    font-size: 0.5rem;
+    font-size: 0.75rem;
     font-weight: 500;
 
     text-transform: uppercase;
@@ -239,7 +239,7 @@
   .diagram-rail__label {
     writing-mode: vertical-rl;
     max-height: 7rem;
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     font-weight: 500;
     color: var(--solus-text-tertiary);
     overflow: hidden;

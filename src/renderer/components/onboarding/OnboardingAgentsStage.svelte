@@ -51,7 +51,7 @@
   class="flex min-h-full flex-col items-center justify-center px-6 py-10 sm:px-10 sm:py-12"
 >
   <h1
-    class="onboarding-title m-0 shrink-0 text-center text-[1.5rem] font-medium leading-[1.12] sm:text-[1.8125rem]"
+    class="onboarding-title m-0 shrink-0 text-center text-[1.5rem] font-medium leading-[1.12] sm:text-[1.5rem]"
   >
     {title}
   </h1>
@@ -90,7 +90,7 @@
           {#snippet expansion()}
             {#if verification}
               <div class="flex flex-col gap-2.5">
-                <p class="text-[0.75rem] leading-relaxed text-muted-foreground">
+                <p class="text-xs leading-relaxed text-muted-foreground">
                   {row.label} opened your browser to finish signing in.
                 </p>
                 <div class="flex flex-wrap items-center gap-2">
@@ -140,7 +140,7 @@
               </div>
             {:else if failure}
               <p
-                class="cursor-text select-text text-pretty text-[0.75rem] leading-relaxed text-(--solus-status-error)"
+                class="cursor-text select-text text-pretty text-xs leading-relaxed text-(--solus-status-error)"
                 role="alert"
               >
                 {failure}

@@ -3,12 +3,20 @@
   import { getAgentContext, getWorkspaceContext } from "../../../contexts";
   import DocumentPromptEditor from "../../editor/DocumentPromptEditor.svelte";
   import { Button } from "../../ui/button";
+  import { Switch } from "../../ui/switch";
 
   interface Props {
-    onSubmit: (body: string) => Promise<void>;
+    /** `alsoPost` is the user's choice for this one comment; the host still
+     *  decides what to do with it when the task has no ticket. */
+    onSubmit: (body: string, alsoPost: boolean) => Promise<void>;
+    /** The system a comment can also be posted to, when this task has one. */
+    provider: string | null;
+    /** The project posts every comment upstream. The choice is then not this
+     *  comment's to make, so the toggle shows it on and says who set it. */
+    autoPost: boolean;
   }
 
-  let { onSubmit }: Props = $props();
+  let { onSubmit, provider, autoPost }: Props = $props();
 
   const session = getWorkspaceContext();
   const agentContext = getAgentContext();
@@ -21,6 +29,7 @@
   let draft = $state("");
   let hasContent = $state(false);
   let posting = $state(false);
+  let alsoPost = $state(false);
   const canSend = $derived(hasContent && !posting);
 
   async function send() {
@@ -29,7 +38,7 @@
     if (!body) return;
     posting = true;
     try {
-      await onSubmit(body);
+      await onSubmit(body, autoPost || alsoPost);
       draft = "";
       hasContent = false;
     } finally {
@@ -78,7 +87,7 @@
     />
     <Button
       type="button"
-      class="flex h-[28px] shrink-0 cursor-pointer items-center rounded-lg border-0 bg-[color:color-mix(in_oklab,var(--primary)_14%,transparent)] px-3 text-[12.5px] font-medium text-primary transition-colors hover:bg-[color:color-mix(in_oklab,var(--primary)_22%,transparent)] disabled:cursor-not-allowed disabled:opacity-40"
+      class="flex h-[28px] shrink-0 cursor-pointer items-center rounded-lg border-0 bg-[color:color-mix(in_oklab,var(--primary)_14%,transparent)] px-3 text-[0.8125rem] font-medium text-primary transition-colors hover:bg-[color:color-mix(in_oklab,var(--primary)_22%,transparent)] disabled:cursor-not-allowed disabled:opacity-40"
       disabled={!canSend}
       title="Comment · ⌘↵"
       onclick={send}
@@ -86,4 +95,23 @@
       Comment
     </Button>
   </div>
+
+  <!-- Where this comment goes is decided before it is sent, not after: the
+       toggle sits under the composer rather than appearing as a regret. -->
+  {#if provider}
+    <div class="flex items-center gap-2 px-1 pt-2">
+      <Switch
+        size="sm"
+        checked={autoPost || alsoPost}
+        disabled={autoPost}
+        onCheckedChange={(next) => (alsoPost = next)}
+        aria-label="Also post this comment to {provider}"
+      />
+      <span class="text-xs text-muted-foreground">
+        {autoPost
+          ? `Posting to ${provider} (auto-post is on for this project)`
+          : `Also post to ${provider}`}
+      </span>
+    </div>
+  {/if}
 </div>

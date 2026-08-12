@@ -91,20 +91,20 @@
         {#snippet cloneRow()}
           <DownloadSimpleIcon size={13} class="shrink-0 text-muted-foreground" />
           <span class="min-w-0 flex-1 truncate text-[0.8125rem]">Clone {row.repoName}</span>
-          <span class="shrink-0 text-[0.6875rem] text-muted-foreground">
+          <span class="shrink-0 text-xs text-muted-foreground">
             onto {store.hostLabel || "this machine"}
           </span>
         {/snippet}
         {@render shell(index, "h-10", cloneRow)}
       {:else if row.kind === "recent"}
         {#if index === 0 || rows[index - 1].kind !== "recent"}
-          <div class="px-2.5 pb-1 pt-2 text-[0.6875rem] font-medium text-muted-foreground">Recent</div>
+          <div class="px-2.5 pb-1 pt-2 text-xs font-medium text-muted-foreground">Recent</div>
         {/if}
         {#snippet recentRow()}
           <FolderIcon size={13} class="shrink-0 text-muted-foreground opacity-80" />
           <span class="min-w-0 flex-1 truncate text-[0.8125rem]">{row.project.folderName}</span>
           <span
-            class="max-w-[16.25rem] shrink-0 truncate font-mono text-[0.6875rem] text-muted-foreground"
+            class="max-w-[16.25rem] shrink-0 truncate font-mono text-xs text-muted-foreground"
             title={row.project.path}
           >
             {abbreviateHome(row.project.path)}
@@ -114,7 +114,7 @@
       {:else}
         {#if index === firstActionIndex}
           {#if store.recentsLoading && recentRows.length === 0}
-            <div class="flex items-center gap-2 px-2.5 pb-5 pt-6 text-[0.75rem] text-muted-foreground">
+            <div class="flex items-center gap-2 px-2.5 pb-5 pt-6 text-xs text-muted-foreground">
               <CircleNotchIcon size={13} class="animate-spin" />
               Looking for projects on {store.hostLabel || "this machine"}…
             </div>
@@ -122,12 +122,12 @@
             <div class="flex flex-col items-center gap-1 px-6 pb-[1.375rem] pt-[1.625rem] text-center">
               {#if store.homeQuery.trim()}
                 <div class="text-[0.8125rem] font-medium">Nothing matches “{store.homeQuery.trim()}”</div>
-                <div class="text-[0.75rem] text-muted-foreground">
+                <div class="text-xs text-muted-foreground">
                   Browse the filesystem or clone the repository instead.
                 </div>
               {:else}
                 <div class="text-[0.8125rem] font-medium">No projects on {store.hostLabel || "this machine"} yet</div>
-                <div class="text-[0.75rem] text-muted-foreground">Start with a folder or a repository.</div>
+                <div class="text-xs text-muted-foreground">Start with a folder or a repository.</div>
               {/if}
             </div>
           {/if}
@@ -138,9 +138,9 @@
           <Icon size={13} weight={row.action === "github" ? "fill" : "regular"} class="shrink-0 text-muted-foreground" />
           <span class="min-w-0 flex-1 truncate text-[0.8125rem]">{ACTION_LABELS[row.action]}</span>
           {#if row.action === "browse"}
-            <span class="shrink-0 font-mono text-[0.6875rem] text-muted-foreground">⌘O</span>
+            <span class="shrink-0 font-mono text-xs text-muted-foreground">⌘O</span>
           {:else if row.action === "github" && store.readiness?.github?.solusLogin}
-            <span class="shrink-0 truncate text-[0.6875rem] text-muted-foreground">
+            <span class="shrink-0 truncate text-xs text-muted-foreground">
               {store.readiness?.github?.solusLogin}
             </span>
           {/if}

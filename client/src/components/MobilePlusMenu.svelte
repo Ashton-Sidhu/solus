@@ -203,7 +203,7 @@
   const listRow =
     "flex items-center gap-3.5 w-full min-h-12 px-3.5 py-3 border-0 bg-transparent text-left cursor-pointer transition-colors duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:bg-(--solus-accent-light) disabled:opacity-40 disabled:cursor-default disabled:active:bg-transparent [-webkit-tap-highlight-color:transparent]";
   const listIcon = "w-5 flex items-center justify-center shrink-0 font-secondary text-(--solus-text-secondary)";
-  const listLabel = "flex-1 min-w-0 truncate text-[0.9375rem] font-medium text-(--solus-text-primary)";
+  const listLabel = "flex-1 min-w-0 truncate text-sm font-medium text-(--solus-text-primary)";
   const listValue = "shrink-0 max-w-[8rem] truncate text-[0.8125rem] text-(--solus-text-tertiary)";
   const rowDivider = "h-px bg-(--solus-container-border) opacity-60 ml-12";
   const chevronClass = "shrink-0 text-(--solus-text-tertiary)";
@@ -248,7 +248,7 @@
       >
         <XIcon size={14} weight="bold" />
       </button>
-      <h2 class="text-[0.9375rem] font-semibold text-(--solus-text-primary)">Add to Chat</h2>
+      <h2 class="text-sm font-semibold text-(--solus-text-primary)">Add to Chat</h2>
     </div>
 
     <div class="flex flex-col gap-3">
@@ -263,7 +263,7 @@
           <span class={heroIcon}><PaperclipIcon size={20} /></span>
           <span class={heroLabel}>{canAttachFiles ? "Attach file" : "Files unavailable"}</span>
           {#if attachmentCapabilities !== undefined && !canAttachFiles}
-            <span class="text-[0.625rem] leading-tight text-muted-foreground">
+            <span class="text-xs leading-tight text-muted-foreground">
               Not supported on {attachmentHostLabel}
             </span>
           {/if}
@@ -308,7 +308,7 @@
           <span class={listIcon}><GitDiffIcon size={14} /></span>
           <span class={listLabel}>Changes</span>
           {#if changedFilesCount > 0}
-            <span class="shrink-0 min-w-[1.125rem] h-[1.125rem] px-1.5 rounded-[0.5625rem] bg-(--solus-accent) text-(--solus-text-on-accent) text-[0.6875rem] font-semibold flex items-center justify-center leading-none tabular-nums">{changedFilesCount}</span>
+            <span class="shrink-0 min-w-[1.125rem] h-[1.125rem] px-1.5 rounded-[0.5625rem] bg-(--solus-accent) text-(--solus-text-on-accent) text-xs font-semibold flex items-center justify-center leading-none tabular-nums">{changedFilesCount}</span>
           {/if}
           <CaretRightIcon size={14} class={chevronClass} />
         </button>
@@ -413,7 +413,7 @@
     </div>
 
     <div class="mt-3 flex flex-col gap-1">
-      <span class="block px-1 mb-0.5 text-[0.6875rem] font-semibold tracking-[0.03em] uppercase text-(--solus-text-tertiary)">Session</span>
+      <span class="block px-1 mb-0.5 text-xs font-semibold tracking-[0.03em] uppercase text-(--solus-text-tertiary)">Session</span>
       <div class={controlRow}>
         <span class={controlLabel}>Reasoning</span>
         <div class={segmented}>

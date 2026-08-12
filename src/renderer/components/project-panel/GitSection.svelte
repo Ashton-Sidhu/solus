@@ -108,9 +108,13 @@
         label: actions.creatingPR ? "Opening pull request…" : "Pull requests",
         icon: GitPullRequestIcon,
         phase: prPhase,
-        disclosure: "pull-requests",
+        disclosure: prUrl ? undefined : "pull-requests",
         disabled: !canViewDiff,
-        run: () => {},
+        run: () => {
+          if (!prUrl) return;
+          localApi.openExternal(prUrl);
+          requestInputFocus();
+        },
       },
       {
         key: "review",
@@ -469,7 +473,7 @@
     <span class="min-w-0 flex-1 truncate">{label}</span>
     {#if opts.trail}
       <span
-        class="shrink-0 text-[0.71875rem] tabular-nums text-(--solus-text-tertiary)"
+        class="shrink-0 text-xs tabular-nums text-(--solus-text-tertiary)"
         >{opts.trail}</span
       >
     {/if}
@@ -568,7 +572,7 @@
         <!-- Armed state: the menu becomes the confirmation, so the
              irreversible action still needs a second, deliberate click. -->
         <p
-          class="m-0 px-2 pt-[0.3125rem] pb-[0.4375rem] text-[0.71875rem] leading-[1.5] text-(--solus-text-tertiary)"
+          class="m-0 px-2 pt-[0.3125rem] pb-[0.4375rem] text-xs leading-[1.5] text-(--solus-text-tertiary)"
         >
           Discards {uncommittedFileCount} uncommitted change{uncommittedFileCount ===
           1
@@ -665,7 +669,7 @@
             ></span>
             <span class="min-w-0 flex-1 truncate">{pr.title}</span>
             <span
-              class="shrink-0 text-[0.71875rem] tabular-nums text-(--solus-text-tertiary)"
+              class="shrink-0 text-xs tabular-nums text-(--solus-text-tertiary)"
               >#{pr.number}</span
             >
           </button>
@@ -747,7 +751,7 @@
     flex-shrink: 0;
     color: var(--solus-text-tertiary);
     font-family: var(--solus-code-font-family);
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     opacity: 0.7;
   }
 </style>

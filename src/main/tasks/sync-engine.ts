@@ -202,7 +202,7 @@ export class TaskSyncEngine {
 
       // Comments can arrive without a meaningful issue-field change. Import
       // them on every successful fetch; the external-id index makes this safe.
-      withTx(() => insertExternalComments(getDb(), taskId, external.comments))
+      const changedCommentCount = withTx(() => insertExternalComments(getDb(), taskId, external.comments))
 
       let lastTicket = external
       const currentLink = externalLinkForTask(taskId)!
@@ -213,7 +213,8 @@ export class TaskSyncEngine {
         lastTicket = await adapter.pushFields(refFor(currentLink), pushedPatch)
       }
 
-      for (const comment of dirtyCommentsForTask(taskId)) {
+      const dirtyComments = dirtyCommentsForTask(taskId)
+      for (const comment of dirtyComments) {
         const posted = await adapter.postComment(refFor(currentLink), comment.body)
         withTx(() => markCommentSynced(getDb(), comment.id, posted.externalId))
       }
@@ -225,7 +226,11 @@ export class TaskSyncEngine {
         acknowledgedFields(currentTask, pushedPatch),
         now,
       ))
-      emitChanged()
+      const hasClientVisibleChange = changedCommentCount > 0
+        || currentLink.dirtyFields.length > 0
+        || dirtyComments.length > 0
+        || currentLink.syncState !== 'ok'
+      if (hasClientVisibleChange) emitChanged()
       return externalLinkForTask(taskId)
     } catch (error) {
       const classified = providerError(error)

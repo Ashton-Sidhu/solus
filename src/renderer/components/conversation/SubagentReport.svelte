@@ -81,7 +81,7 @@
         </span>
         <span class="min-w-0 flex-1">
           <span
-            class="mb-1 block text-[0.59375rem] font-medium text-(--muted-foreground) uppercase opacity-70"
+            class="mb-1 block text-xs font-medium text-(--muted-foreground) uppercase opacity-70"
             >Dispatch brief · from you</span
           >
           <!-- The title is the brief's own first line, so it is a stand-in for
@@ -92,7 +92,7 @@
           {/if}
           {#if meta.length > 0}
             <span
-              class="mt-[0.1875rem] flex items-center gap-[0.4375rem] text-[0.71875rem] text-(--muted-foreground)"
+              class="mt-[0.1875rem] flex items-center gap-[0.4375rem] text-xs text-(--muted-foreground)"
             >
               {#each meta as clause, i (clause)}
                 {#if i > 0}<span class="opacity-35" aria-hidden="true">·</span>{/if}
@@ -102,7 +102,7 @@
           {/if}
         </span>
         <span
-          class="flex shrink-0 items-center gap-1.5 rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] py-0.5 pr-2 pl-1.5 text-[0.65625rem] font-medium text-(--muted-foreground) {briefOpen
+          class="flex shrink-0 items-center gap-1.5 rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] py-0.5 pr-2 pl-1.5 text-xs font-medium text-(--muted-foreground) {briefOpen
  ? ''
  : 'mt-[0.875rem]'}"
         >
@@ -167,7 +167,7 @@
         <!-- The numeral clears the rule by matching the body cell's own offset,
              plus enough to sit on the kicker's baseline rather than above it. -->
         <div
-          class="font-mono text-[0.65625rem] tabular-nums text-(--muted-foreground) opacity-50 {section.n ===
+          class="font-mono text-xs tabular-nums text-(--muted-foreground) opacity-50 {section.n ===
  1
  ? 'pt-5'
  : 'pt-7'}"
@@ -184,7 +184,7 @@
                the tertiary one: at this size a label the reader scans for can't
                also be the faintest thing on the tab. -->
           <div
-            class="mb-1.5 text-[0.59375rem] font-medium text-(--solus-text-secondary) uppercase"
+            class="mb-1.5 text-xs font-medium text-(--solus-text-secondary) uppercase"
           >
             {section.heading}
           </div>

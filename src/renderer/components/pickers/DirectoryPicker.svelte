@@ -510,11 +510,11 @@
       transition:fly={{ y: 10, duration: 220, easing: expoOut }}
     >
       <header class="flex h-14 shrink-0 items-center gap-3 px-5 max-md:h-auto max-md:px-4 max-md:pb-2 max-md:pt-3">
-        <span id="directory-picker-title" class="min-w-0 flex-1 truncate text-[0.9375rem] font-medium ">
+        <span id="directory-picker-title" class="min-w-0 flex-1 truncate text-sm font-medium ">
           {title}
         </span>
         {#if hostLabel}
-          <span class="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-[0.71875rem] text-muted-foreground">
+          <span class="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground">
             <DesktopTowerIcon size={14} />
             {hostLabel}
           </span>
@@ -535,7 +535,7 @@
           {#snippet place(label: string, target: string, icon: PlaceIcon)}
             <button
               type="button"
-              class="flex h-[1.875rem] w-full shrink-0 items-center gap-2.5 rounded-md px-2.5 text-left text-[0.78125rem] outline-none
+              class="flex h-[1.875rem] w-full shrink-0 items-center gap-2.5 rounded-md px-2.5 text-left text-[0.8125rem] outline-none
                 [transition:background-color_var(--duration-quick)_var(--ease-premium),color_var(--duration-quick)_var(--ease-premium)] motion-reduce:transition-none
                 focus-visible:ring-2 focus-visible:ring-(--solus-accent)
                 max-md:h-9 max-md:w-auto max-md:whitespace-nowrap max-md:rounded-full max-md:px-3.5 max-md:text-xs
@@ -589,7 +589,7 @@
                 <button
                   type="button"
                   tabindex={-1}
-                  class="min-h-5 shrink-0 whitespace-nowrap rounded-[0.3125rem] px-1 font-mono text-[0.6875rem] outline-none
+                  class="min-h-5 shrink-0 whitespace-nowrap rounded-[0.3125rem] px-1 font-mono text-xs outline-none
                     hover:bg-muted max-md:min-h-8 max-md:px-2 max-md:text-[0.8125rem]
                     {i === crumbs.length - 1 ? 'font-medium' : 'text-muted-foreground'}"
                   onmousedown={(e) => e.preventDefault()}
@@ -613,7 +613,7 @@
                 bind:ref={pathInputEl}
                 value={leaf}
                 type="text"
-                class="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-[0.78125rem] text-foreground shadow-none focus-visible:ring-0 dark:bg-transparent"
+                class="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-[0.8125rem] text-foreground shadow-none focus-visible:ring-0 dark:bg-transparent"
                 placeholder="Filter folders"
                 spellcheck={false}
                 autocomplete="off"
@@ -726,14 +726,14 @@
       <footer class="flex h-14 shrink-0 items-center gap-3 border-t border-border px-4
         max-md:h-auto max-md:flex-wrap max-md:gap-2 max-md:py-2.5 max-md:pb-[max(0.625rem,env(safe-area-inset-bottom,0))]">
         {#if fileManagerError}
-          <span class="min-w-0 flex-1 truncate text-[0.6875rem] text-muted-foreground max-md:hidden">{fileManagerError}</span>
+          <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground max-md:hidden">{fileManagerError}</span>
         {:else}
           <!-- What Enter commits, spelled out — the typed path can be a prefix,
                a "~", or a folder about to be created. -->
-          <span class="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-muted-foreground max-md:hidden" title={resolvedPath}>
+          <span class="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground max-md:hidden" title={resolvedPath}>
             {displayPath}
           </span>
-          <div class="flex shrink-0 items-center gap-3 text-[0.6875rem] text-muted-foreground max-md:hidden">
+          <div class="flex shrink-0 items-center gap-3 text-xs text-muted-foreground max-md:hidden">
             <span class="flex items-center gap-1.5 whitespace-nowrap max-[1100px]:hidden">
               <Kbd variant="hint">↑↓</Kbd>navigate
             </span>

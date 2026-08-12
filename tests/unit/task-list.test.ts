@@ -3,6 +3,7 @@ import type { PullRequestSummary } from '../../src/shared/providers'
 import type { Task } from '../../src/shared/task-types'
 import {
   aggregateReviewGuideStatus,
+  belongsToSelectedHost,
   buildProjectSummaries,
   formatCompletedAge,
   formatElapsed,
@@ -18,12 +19,24 @@ import {
   shouldCompleteTaskForPr,
   shouldShowDurableSidebarTask,
   showsUnreadIndicator,
-  showsProjectLine,
+  projectFilterChoices,
+  resolveProjectFilter,
   sortTasks,
   taskStatusFor,
   type SidebarTask,
   type TaskStatus,
 } from '../../src/renderer/components/session/lib/task-list'
+
+describe('sidebar host scope', () => {
+  it('shows only work owned by the selected host', () => {
+    expect(belongsToSelectedHost('remote', 'remote')).toBe(true)
+    expect(belongsToSelectedHost('local', 'remote')).toBe(false)
+  })
+
+  it('keeps provisional work visible until its host ownership is known', () => {
+    expect(belongsToSelectedHost(null, 'remote')).toBe(true)
+  })
+})
 
 describe('completed task age', () => {
   const now = Date.parse('2026-08-11T12:00:00Z')
@@ -101,6 +114,7 @@ function task(
     createdAt: 0,
     activityAt: 0,
     runStartedAt: 0,
+    lifecycle: 'active',
     tabIds: [key],
     ...overrides,
   }
@@ -280,14 +294,52 @@ describe('projectInitial', () => {
   })
 })
 
-describe('showsProjectLine', () => {
-  it('drops the project line only where the container already states it', () => {
-    // Never repeat the container: grouped under a project heading, the line is
-    // noise. A flat list has no heading, so the row has to say it itself —
-    // including while only one project happens to be open, so the column does
-    // not silently change shape the moment a second one appears.
-    expect(showsProjectLine('flat')).toBe(true)
-    expect(showsProjectLine('grouped')).toBe(false)
+describe('resolveProjectFilter', () => {
+  it('drops a scope whose project has left the column', () => {
+    // A saved filter outlives the project it names. Holding it would leave the
+    // column empty and scoped to something no longer in the menu.
+    expect(resolveProjectFilter('/repos/gone', [task('a', 'idle')])).toBeNull()
+  })
+
+  it('holds a scope whose project has only snoozed or completed work', () => {
+    // That list is legitimately empty, and saying so is what the empty line is
+    // for. Clearing the scope here would hide the answer the user asked for.
+    const shelved = task('a', 'idle', { lifecycle: 'completed' })
+    expect(resolveProjectFilter('/repos/solus', [shelved])).toBe('/repos/solus')
+  })
+})
+
+describe('projectFilterChoices', () => {
+  it('offers every open project in the order the column already lists them', () => {
+    // Picking a scope must never reorder what you were reading, so the menu
+    // follows the list rather than sorting itself.
+    const choices = projectFilterChoices([
+      task('a', 'idle', {
+        projectKey: '/repos/model-routing',
+        projectLabel: 'model-routing',
+        lifecycle: 'active',
+      }),
+      task('b', 'idle', { lifecycle: 'active' }),
+      task('c', 'idle', {
+        projectKey: '/repos/model-routing',
+        projectLabel: 'model-routing',
+        lifecycle: 'active',
+      }),
+    ])
+    expect(choices.map((choice) => choice.label)).toEqual(['model-routing', 'solus'])
+    expect(choices.map((choice) => choice.count)).toEqual([2, 1])
+  })
+
+  it('counts only what the list will show, so the figure and the list agree', () => {
+    // Snoozed and completed work lives on its own shelf below the list, so
+    // counting it here would promise rows the filter does not produce.
+    const choices = projectFilterChoices([
+      task('a', 'idle', { lifecycle: 'active' }),
+      task('b', 'idle', { lifecycle: 'snoozed' }),
+      task('c', 'idle', { lifecycle: 'completed' }),
+    ])
+    expect(choices).toHaveLength(1)
+    expect(choices[0].count).toBe(1)
   })
 })
 

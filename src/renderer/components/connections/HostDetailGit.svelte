@@ -45,7 +45,7 @@
   >
     {#snippet control()}
       {#if readiness?.git?.credentialHelper}
-        <span class="text-[0.75rem] text-(--solus-text-tertiary)"
+        <span class="text-xs text-(--solus-text-tertiary)"
           >Configured</span
         >
       {:else}
@@ -66,7 +66,7 @@
     {#snippet control()}
       {#if hasGhCli}
         {#if readiness?.github?.ghAuthenticated}
-          <span class="text-[0.75rem] text-(--solus-text-tertiary)"
+          <span class="text-xs text-(--solus-text-tertiary)"
             >Configured</span
           >
         {:else}
@@ -96,7 +96,7 @@
   {#if setup.stepError?.step === "credential-helper" || setup.stepError?.step === "gh-cli" || setup.stepError?.step === "gh-auth"}
     <div class="border-t border-border px-4 py-3">
       <p
-        class="cursor-text select-text text-pretty text-[0.75rem] text-(--solus-status-error)"
+        class="cursor-text select-text text-pretty text-xs text-(--solus-status-error)"
       >
         {setup.stepError.message}
       </p>
@@ -148,7 +148,7 @@
       </div>
       {#if setup.stepError?.step === "identity"}
         <p
-          class="mt-2 cursor-text select-text text-pretty text-[0.75rem] text-(--solus-status-error)"
+          class="mt-2 cursor-text select-text text-pretty text-xs text-(--solus-status-error)"
         >
           {setup.stepError.message}
         </p>

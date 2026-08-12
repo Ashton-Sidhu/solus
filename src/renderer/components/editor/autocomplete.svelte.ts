@@ -46,6 +46,7 @@ import {
 } from "./unified-autocomplete/trigger";
 import { ReferenceIndex } from "./unified-autocomplete/reference-index.svelte";
 import { autocompleteSessionChangedFiles } from "./autocomplete-scope";
+import { serverConnections } from "@client-core/server-connections";
 
 export { filterPlanAutocompleteDescriptors } from "./unified-autocomplete/reference-index.svelte";
 
@@ -55,6 +56,8 @@ export interface AutocompleteDeps {
   readOnly: () => boolean;
   /** Tab whose server owns autocomplete RPCs. */
   tabId: () => string;
+  /** Host selected by a run before it has a tab. */
+  serverId?: () => string | undefined;
   /** Session whose changed files belong in "Open in this session". A draft or
    *  detached editor has no session and therefore no session-file group. */
   sessionId?: () => string | undefined;
@@ -407,14 +410,16 @@ export class UnifiedAutocompleteController {
     if (this.#fileSearchTimer) clearTimeout(this.#fileSearchTimer);
     this.#fileSearchTimer = setTimeout(
       async () => {
-        const result = await this.deps.session
-          .apiFor(this.deps.tabId())
-          .searchFiles(
-            query,
-            // searchFiles' main-process handler tolerates an absent cwd; the
-            // type says string, so pass through the possibly-undefined value.
-            this.deps.workingDirectory() as string,
-          );
+        const serverId = this.deps.serverId?.();
+        const api = serverId
+          ? serverConnections.apiFor(serverId)
+          : this.deps.session.apiFor(this.deps.tabId());
+        const result = await api.searchFiles(
+          query,
+          // searchFiles' main-process handler tolerates an absent cwd; the
+          // type says string, so pass through the possibly-undefined value.
+          this.deps.workingDirectory() as string,
+        );
         if (searchId !== this.#fileSearchId) return;
         this.#fileResults = result.files;
         this.#fileTotal = result.files.length;

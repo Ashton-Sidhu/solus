@@ -22,7 +22,6 @@
     ArrowsClockwiseIcon,
     CheckIcon,
     ClockIcon,
-    LaptopIcon,
     PlusIcon,
     SidebarSimpleIcon,
     WarningCircleIcon,
@@ -116,14 +115,14 @@
   );
   const panelEnvironment = $derived(environmentStore.environmentFor(panelRun));
 
-  // Where this environment lives. A remote session states its host — and its
-  // reachability — on a row inside the section, so only the local case is left
-  // unanswered; the header chip answers it without spending a row on it.
-  const localHost = $derived(
-    serversStore.affinityFor(panelRun?.serverId)
-      ? null
-      : (serversStore.servers.find((server) => server.local) ?? null),
+  // Where this session runs. Local is the unmarked case — the machine under the
+  // user's hands never needs stating — so the chip appears only for a remote
+  // host, and states its reachability in the same breath.
+  const remoteHost = $derived(serversStore.hostFor(panelRun?.serverId));
+  const remoteHostAffinity = $derived(
+    serversStore.affinityFor(panelRun?.serverId),
   );
+
   const cwd = $derived(
     panelRun?.workingDirectory ?? session.globalDefaults.workingDirectory,
   );
@@ -181,7 +180,7 @@
   $effect(() => {
     if (!shouldLoadProject || !gitCwd) return;
     loadedProjectCwd = gitCwd;
-    void automationsStore.loadAll();
+    void automationsStore.loadAll(panelServerId ?? undefined);
   });
 
   // A split chat mounts a second rail, so both instances register these ids and
@@ -280,15 +279,16 @@
 </script>
 
 {#snippet environmentHeaderBadge()}
-  {#if localHost}
+  {#if remoteHostAffinity && remoteHost}
+    {@const HostIcon = remoteHostAffinity.icon}
     <!-- Read-only: the host is chosen before the session starts and locked
          after, so the chip states a fact rather than offering a picker. -->
     <span
-      class="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--solus-text-primary)_6%,transparent)] px-1.5 py-0.5 text-[0.6875rem] font-medium tracking-normal text-(--solus-text-secondary) normal-case dark:bg-[color-mix(in_srgb,var(--solus-text-primary)_10%,transparent)]"
-      title="Runs on {localHost.label}"
+      class="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--solus-text-primary)_6%,transparent)] px-1.5 py-0.5 text-xs font-medium tracking-normal text-(--solus-text-secondary) normal-case dark:bg-[color-mix(in_srgb,var(--solus-text-primary)_10%,transparent)]"
+      title={remoteHostAffinity.tooltip}
     >
-      <LaptopIcon size={11} />
-      <span class="truncate">{localHost.label}</span>
+      <HostIcon size={11} class={remoteHostAffinity.className} />
+      <span class="max-w-24 truncate">{remoteHost.label}</span>
     </span>
   {/if}
 {/snippet}
@@ -349,7 +349,7 @@
        Snooze follow it as glyphs, then the section's own disclosure caret. -->
   <span class="header-extra">
     <button
-      class="cursor-pointer font-mono text-[0.65625rem] underline decoration-[color-mix(in_oklch,var(--foreground)_22%,transparent)] underline-offset-[3px] opacity-85 transition-colors hover:text-(--solus-text-primary) hover:opacity-100"
+      class="cursor-pointer font-mono text-xs underline decoration-[color-mix(in_oklch,var(--foreground)_22%,transparent)] underline-offset-[3px] opacity-85 transition-colors hover:text-(--solus-text-primary) hover:opacity-100"
       type="button"
       title={panelTask ? taskRefTooltip(panelTask) : "Open task page"}
       onclick={(e) => {

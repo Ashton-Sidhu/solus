@@ -656,7 +656,7 @@
   }
 
   .artifact-skeleton__kicker {
-    font-size: 0.59375rem;
+    font-size: 0.75rem;
     font-weight: 500;
 
     text-transform: uppercase;
@@ -666,7 +666,7 @@
 
   .artifact-skeleton__status {
     margin-left: auto;
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     animation: artifact-sk-breathe 2.6s ease-in-out infinite;
   }

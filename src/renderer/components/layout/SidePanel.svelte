@@ -107,7 +107,7 @@
         >
           {#if title}
             <span
-              class="side-panel-title text-[0.625rem] font-medium text-(--solus-text-tertiary) uppercase"
+              class="side-panel-title text-xs font-medium text-(--solus-text-tertiary) uppercase"
               >{title}</span
             >
           {/if}

@@ -78,7 +78,7 @@
     background: transparent;
     padding: 0.1875rem 0.5rem;
     color: var(--muted-foreground);
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     cursor: pointer;
     transition: background var(--duration-quick) var(--ease-premium);
   }
@@ -103,7 +103,7 @@
   }
 
   .status-row-text {
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     color: var(--solus-text-primary);
     white-space: nowrap;
   }
@@ -131,7 +131,7 @@
   }
 
   .status-row-clears {
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     opacity: 0.55;
   }

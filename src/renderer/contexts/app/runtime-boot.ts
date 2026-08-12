@@ -18,18 +18,21 @@ export function refreshTheme(setSystemTheme: (isDark: boolean) => void): void {
     .catch((error) => logConnectionReadError('getTheme', error))
 }
 
-/** Attach persisted runtime state, then refresh the session sidebar. */
+/** Refresh host metadata and persisted conversations independently. Transcript
+ * restore must not wait for the broader start() payload: a slow or failed host
+ * metadata read must not leave a materialized session looking empty. */
 export function initializeRuntime(
   session: WorkspaceContext,
   sidebarStore: SessionSidebarStore,
 ): void {
-  session
-    .initStaticInfo()
-    .then(async () => {
-      await bootstrapRuntimeTabs(session)
+  void session.initStaticInfo()
+    .catch((error) => logConnectionReadError('static info initialization', error))
+
+  void bootstrapRuntimeTabs(session)
+    .then(() => {
       void sidebarStore.loadPinnedSessions()
     })
-    .catch((error) => logConnectionReadError('runtime initialization', error))
+    .catch((error) => logConnectionReadError('session runtime initialization', error))
 }
 
 /** Detect reconnect edges after the first connected state has been observed. */

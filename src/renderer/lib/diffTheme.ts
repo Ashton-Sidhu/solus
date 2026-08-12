@@ -219,7 +219,7 @@ export const DIFFS_THEME_CSS = `
     height: 32px;
     padding-inline: 11px;
     background-color: transparent;
-    font-size: 11.5px;
+    font-size: 0.75rem;
     transition: background-color 160ms ease;
   }
   /* Pinned is the one place an opaque fill is required — otherwise the code
@@ -258,7 +258,7 @@ export const DIFFS_THEME_CSS = `
   [data-diffs-header='default'] [data-metadata] {
     gap: 5px;
     font-family: ${MONO_FONT};
-    font-size: 9.5px;
+    font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
   }
   [data-additions-count],
@@ -317,10 +317,10 @@ export const DIFFS_THEME_CSS = `
       min-height: 30px;
       height: 30px;
       padding-inline: 10px;
-      font-size: 11px;
+      font-size: 0.75rem;
     }
     [data-diffs-header='default'] [data-metadata] {
-      font-size: 9px;
+      font-size: 0.75rem;
     }
   }
   /* Phones / narrow windows: tightest tier so the filename + stats still fit on
@@ -331,10 +331,10 @@ export const DIFFS_THEME_CSS = `
       min-height: 28px;
       height: 28px;
       padding-inline: 9px;
-      font-size: 10.5px;
+      font-size: 0.75rem;
     }
     [data-diffs-header='default'] [data-metadata] {
-      font-size: 9px;
+      font-size: 0.75rem;
     }
   }
 `

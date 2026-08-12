@@ -148,7 +148,7 @@
           <span class="flex-shrink-0 text-(--solus-text-tertiary)">
             <IconComponent size={13} />
           </span>
-          <span class="text-[0.6875rem] font-medium truncate text-(--solus-text-secondary)" style="min-width:0">
+          <span class="text-xs font-medium truncate text-(--solus-text-secondary)" style="min-width:0">
             {a.name}
           </span>
         </button>
@@ -163,7 +163,7 @@
     <div class="flex w-full items-center justify-end gap-2">
       {#if ordinal !== undefined}
         <!-- Ordinals carry the order, so nothing inside the bubble has to. -->
-        <span class="shrink-0 font-mono text-[0.59375rem] text-(--muted-foreground) opacity-45">
+        <span class="shrink-0 font-mono text-xs text-(--muted-foreground) opacity-45">
           {ordinal}
         </span>
       {/if}
@@ -193,7 +193,7 @@
               ? `Open automation: ${message.automationName}`
               : "Open automation"}
             onclick={() => session.openAutomations(message?.automationId)}
-            class="mb-[0.1875rem] flex items-center gap-1 text-[0.5625rem] font-medium text-(--solus-text-tertiary) uppercase transition-colors duration-100 hover:text-(--solus-text-secondary) focus-visible:text-(--solus-text-secondary) focus-visible:outline-none"
+            class="mb-[0.1875rem] flex items-center gap-1 text-xs font-medium text-(--solus-text-tertiary) uppercase transition-colors duration-100 hover:text-(--solus-text-secondary) focus-visible:text-(--solus-text-secondary) focus-visible:outline-none"
           >
             <LightningIcon size={9} weight="fill" />
             <span>{message?.automationName || "Automation"}</span>
@@ -229,7 +229,7 @@
               type="button"
               aria-expanded={isExpanded}
               onclick={() => (isExpanded = !isExpanded)}
-              class="mt-0.5 flex min-h-10 w-full cursor-pointer items-center justify-end text-[0.6875rem] font-medium text-(--solus-text-tertiary) transition-[color,transform] duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none active:scale-[0.96]"
+              class="mt-0.5 flex min-h-10 w-full cursor-pointer items-center justify-end text-xs font-medium text-(--solus-text-tertiary) transition-[color,transform] duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none active:scale-[0.96]"
             >
               {isExpanded ? "Show less" : "Read more"}
             </button>
@@ -252,7 +252,7 @@
                   <button
                     type="button"
                     onclick={startEdit}
-                    class="cursor-pointer text-[0.65625rem] text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none"
+                    class="cursor-pointer text-xs text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none"
                   >
                     Edit
                   </button>
@@ -262,7 +262,7 @@
                   <button
                     type="button"
                     onclick={onRemove}
-                    class="cursor-pointer text-[0.6875rem] text-(--solus-text-tertiary) opacity-60 transition-all duration-100 hover:text-(--destructive) hover:opacity-100 focus-visible:text-(--destructive) focus-visible:opacity-100 focus-visible:outline-none"
+                    class="cursor-pointer text-xs text-(--solus-text-tertiary) opacity-60 transition-all duration-100 hover:text-(--destructive) hover:opacity-100 focus-visible:text-(--destructive) focus-visible:opacity-100 focus-visible:outline-none"
                   >
                     Remove
                   </button>
@@ -275,7 +275,7 @@
     </div>
     {#if waitedLabel}
       <!-- The wait is over, so the caption is a fact, not a countdown. -->
-      <div class="mt-1.5 flex justify-end font-mono text-[0.625rem] text-(--muted-foreground)">
+      <div class="mt-1.5 flex justify-end font-mono text-xs text-(--muted-foreground)">
         {waitedLabel}
       </div>
     {/if}

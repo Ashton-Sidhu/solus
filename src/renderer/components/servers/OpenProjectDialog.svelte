@@ -342,7 +342,7 @@
         {/if}
         <h2
           id="open-project-title"
-          class="min-w-0 flex-1 truncate text-[0.9375rem] font-medium "
+          class="min-w-0 flex-1 truncate text-sm font-medium "
         >
           {title}
         </h2>
@@ -357,7 +357,7 @@
                 <button
                   {...props}
                   type="button"
-                  class="flex h-6 max-w-44 shrink-0 items-center gap-1.5 rounded-md px-2 text-[0.71875rem] text-muted-foreground
+                  class="flex h-6 max-w-44 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground
                     [transition:background-color_var(--duration-quick)_var(--ease-premium)] motion-reduce:transition-none
                     hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent)"
                   aria-label="Run on {store.hostLabel || 'this machine'}"
@@ -437,7 +437,7 @@
               <div class="flex items-baseline gap-2">
                 <span class="shrink-0 text-[0.8125rem] font-medium">{store.projectName ?? "Repository"}</span>
                 <span
-                  class="min-w-0 truncate font-mono text-[0.6875rem] text-muted-foreground"
+                  class="min-w-0 truncate font-mono text-xs text-muted-foreground"
                   title={destination ?? undefined}
                 >
                   {destination ? abbreviateHome(destination) : rootLabel}
@@ -448,8 +448,8 @@
               <div class="relative h-[0.1875rem] overflow-hidden rounded-full bg-muted">
                 <div class="clone-bar absolute inset-y-0 left-0 w-[32%] rounded-full bg-primary"></div>
               </div>
-              <p class="h-4 truncate font-mono text-[0.6875rem] text-muted-foreground">{tailLogLine}</p>
-              <p class="text-pretty text-[0.71875rem] leading-relaxed text-muted-foreground">
+              <p class="h-4 truncate font-mono text-xs text-muted-foreground">{tailLogLine}</p>
+              <p class="text-pretty text-xs leading-relaxed text-muted-foreground">
                 Keep working — the project opens as soon as the checkout finishes.
               </p>
             </div>
@@ -477,7 +477,7 @@
           aria-live="polite"
         >
           {#each store.logLines as line, index (index)}
-            <p class="truncate font-mono text-[0.6875rem] leading-relaxed text-muted-foreground">{line}</p>
+            <p class="truncate font-mono text-xs leading-relaxed text-muted-foreground">{line}</p>
           {/each}
         </div>
       {/if}
@@ -490,10 +490,10 @@
           {#if store.cloneFailure}
             {@const failure = store.cloneFailure}
             <span class="min-w-0 flex-1">
-              <span class="block text-pretty text-[0.71875rem] font-medium leading-relaxed text-(--solus-status-error)">
+              <span class="block text-pretty text-xs font-medium leading-relaxed text-(--solus-status-error)">
                 {failure.title}
               </span>
-              <span class="mt-0.5 block text-pretty text-[0.6875rem] leading-relaxed text-muted-foreground">
+              <span class="mt-0.5 block text-pretty text-xs leading-relaxed text-muted-foreground">
                 {failure.detail}
               </span>
             </span>
@@ -527,7 +527,7 @@
             {/if}
           {:else}
             <span
-              class="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-muted-foreground"
+              class="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground"
               title={destination ?? undefined}
             >
               {destination ? abbreviateHome(destination) : `${rootLabel}/…`}

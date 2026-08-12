@@ -47,7 +47,7 @@
   bind:value={draft}
   aria-label={placeholder}
   {placeholder}
-  class="flex-1 min-w-0 text-[12.5px] outline-none placeholder:text-muted-foreground {emphasis
+  class="flex-1 min-w-0 text-[0.8125rem] outline-none placeholder:text-muted-foreground {emphasis
     ? 'bg-(--solus-tx-card-bg) rounded-md px-2.5 py-1.5 shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)]'
     : 'bg-transparent'}"
   onkeydown={(e) => {
@@ -59,12 +59,12 @@
 />
 
 {#if notice}
-  <span class="shrink-0 font-mono text-[11px] text-muted-foreground/60">{notice}</span>
+  <span class="shrink-0 font-mono text-xs text-muted-foreground/60">{notice}</span>
 {/if}
 
 {#if broadcastLabel}
   <button
-    class="shrink-0 rounded-md px-2 py-1 text-[12px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground disabled:opacity-40"
+    class="shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground disabled:opacity-40"
     disabled={!draft.trim() || sending}
     onclick={() => send("all")}
   >

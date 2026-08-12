@@ -471,7 +471,7 @@
       placeholder={historyLoading
         ? "Loading sessions…"
         : `Search ${allEntries.length} sessions in ${historyScopeLabel}…`}
-      class="h-auto flex-1 rounded-none border-0 bg-transparent p-0 text-[0.8438rem] shadow-none focus-visible:ring-0 dark:bg-transparent"
+      class="h-auto flex-1 rounded-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 dark:bg-transparent"
       onkeydown={(e) => {
         if (e.key === "Enter" && runtime.isMobileViewport) {
           e.stopPropagation();
@@ -522,7 +522,7 @@
               >No sessions match "{query}"</span
             >
             <button
-              class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--solus-accent-border)] bg-[var(--solus-accent-light)] px-[0.6875rem] py-[0.3125rem] text-[0.7188rem] text-[var(--solus-accent)] transition-[background-color,border-color] duration-150 hover:border-[var(--solus-accent-border-medium)] hover:bg-[var(--solus-accent-soft)]"
+              class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--solus-accent-border)] bg-[var(--solus-accent-light)] px-[0.6875rem] py-[0.3125rem] text-xs text-[var(--solus-accent)] transition-[background-color,border-color] duration-150 hover:border-[var(--solus-accent-border-medium)] hover:bg-[var(--solus-accent-soft)]"
               onclick={handleNewSession}
             >
               <SparkleIcon size={12} />
@@ -535,7 +535,7 @@
               >No sessions yet</span
             >
             <button
-              class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--solus-accent-border)] bg-[var(--solus-accent-light)] px-[0.6875rem] py-[0.3125rem] text-[0.7188rem] text-[var(--solus-accent)] transition-[background-color,border-color] duration-150 hover:border-[var(--solus-accent-border-medium)] hover:bg-[var(--solus-accent-soft)]"
+              class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--solus-accent-border)] bg-[var(--solus-accent-light)] px-[0.6875rem] py-[0.3125rem] text-xs text-[var(--solus-accent)] transition-[background-color,border-color] duration-150 hover:border-[var(--solus-accent-border-medium)] hover:bg-[var(--solus-accent-soft)]"
               onclick={handleNewSession}
             >
               <PlusIcon size={12} />

@@ -11,6 +11,7 @@
     GlobeIcon,
     LaptopIcon,
     MoonIcon,
+    SunIcon,
     SpinnerGapIcon,
     XIcon,
   } from "phosphor-svelte";
@@ -43,8 +44,8 @@
     onPath: boolean;
     bulkSelected?: boolean;
     expanded: boolean;
-    /** The project name under the title — only when the list spans projects. */
-    showProjectLine: boolean;
+    /** Scope the whole column to this row's project. */
+    onFilterProject: () => void;
     sessions: SidebarSessionChild[];
     /** Active session only when it belongs to this task. Keeping unrelated rows
      *  at null prevents one click from updating every session list. */
@@ -60,6 +61,8 @@
     onMore: (event: MouseEvent | PointerEvent) => void;
     /** The snooze menu drops from the button that opened it. */
     onSnooze: (anchor: HTMLElement) => void;
+    /** Return a snoozed task to the active session list immediately. */
+    onWake: () => void;
     onComplete: () => void;
     onClose: () => void;
     onOpenPr: () => void;
@@ -75,7 +78,7 @@
     onPath,
     bulkSelected = false,
     expanded,
-    showProjectLine,
+    onFilterProject,
     sessions,
     selectedTabId,
     renamingTabId,
@@ -85,6 +88,7 @@
     onRenameCancel,
     onMore,
     onSnooze,
+    onWake,
     onComplete,
     onClose,
     onOpenPr,
@@ -201,9 +205,10 @@
           task.woke ||
           !!snoozeReturn,
   );
-  const showsBottomRow = $derived(
-    !isCompleted && (showProjectLine || !!prChip),
-  );
+  // A completed row drops its second line; every other row keeps the project
+  // it belongs to, filtered or not. The column must not change shape under a
+  // scope — a row you learned the size of has to still be that size.
+  const showsBottomRow = $derived(!isCompleted);
 
   // Where the accent spine stops. The path is "task → … → the session you are
   //  reading", so every row down to and including the selected one carries it —
@@ -308,7 +313,7 @@
           <CaretDownIcon size={14} weight="bold" />
         {:else}
           <span
-            class="font-mono text-[0.625rem] tabular-nums group-hover/row:hidden"
+            class="font-mono text-xs tabular-nums group-hover/row:hidden"
             >{sessions.length}</span
           >
           <CaretRightIcon
@@ -335,7 +340,7 @@
         {#if renamingLead}
           <SessionNameInput
             value={task.title}
-            class="text-[0.84375rem] {titleIsEmphasized
+            class="text-sm {titleIsEmphasized
  ? 'font-medium'
  : ''}"
             onCommit={(next) => onRename(null, next)}
@@ -343,7 +348,7 @@
           />
         {:else}
           <span
-            class="min-w-0 flex-1 overflow-hidden text-[0.84375rem] leading-[1.1875rem] text-ellipsis whitespace-nowrap transition-colors duration-150 {titleIsEmphasized
+            class="min-w-0 flex-1 overflow-hidden text-sm leading-[1.1875rem] text-ellipsis whitespace-nowrap transition-colors duration-150 {titleIsEmphasized
  ? 'font-medium'
  : ''} {titleLeads
  ? 'text-foreground'
@@ -356,7 +361,7 @@
           <span class="flex shrink-0 items-center gap-[0.5625rem]">
             {#if completedAge}
               <span
-                class="shrink-0 font-mono text-[0.65625rem] text-muted-foreground tabular-nums"
+                class="shrink-0 font-mono text-xs text-muted-foreground tabular-nums"
                 title={`Completed ${new Date(task.completedAt).toLocaleString()}`}
                 >{completedAge}</span
               >
@@ -394,7 +399,7 @@
               </span>
             {/if}
             {#if snoozeReturn}
-              <span class="shrink-0 font-mono text-[0.625rem] tabular-nums text-muted-foreground">{snoozeReturn}</span>
+              <span class="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{snoozeReturn}</span>
             {/if}
             <!-- State marks vary slightly in silhouette and optical size, but
                  their centres share one column down the tree. -->
@@ -426,7 +431,7 @@
                      clock joins the selected elbow in terracotta — the same rule
                      one level down. -->
                 <span
-                  class="shrink-0 font-mono text-[0.65625rem] tabular-nums {isCurrentSession
+                  class="shrink-0 font-mono text-xs tabular-nums {isCurrentSession
  ? 'text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))]'
  : 'text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]'}">{elapsed}</span
                 >
@@ -444,21 +449,33 @@
             class="-mr-1 hidden shrink-0 items-center gap-px group-hover/row:flex group-focus-within/row:flex"
           >
             <!-- Reversible first, destructive last, so the pointer never lands
-                 on remove while aiming for snooze. Snooze has no behaviour
-                 behind it yet — the row keeps its place in the cluster so the
-                 three-button geometry is not re-tuned the day it does. -->
+                 on remove while aiming for the lifecycle action. -->
             {#if task.status !== "done" && task.status !== "dropped"}
-              <button
-                class={iconButton}
-                title="Snooze"
-                aria-label="Snooze task"
-                onclick={(event) => {
-                  event.stopPropagation();
-                  onSnooze(event.currentTarget);
-                }}
-              >
-                <MoonIcon size={14} />
-              </button>
+              {#if task.lifecycle === "snoozed"}
+                <button
+                  class={iconButton}
+                  title="Wake now"
+                  aria-label="Wake task now"
+                  onclick={(event) => {
+                    event.stopPropagation();
+                    onWake();
+                  }}
+                >
+                  <SunIcon size={14} />
+                </button>
+              {:else}
+                <button
+                  class={iconButton}
+                  title="Snooze"
+                  aria-label="Snooze task"
+                  onclick={(event) => {
+                    event.stopPropagation();
+                    onSnooze(event.currentTarget);
+                  }}
+                >
+                  <MoonIcon size={14} />
+                </button>
+              {/if}
             {/if}
             <button
               class={iconButton}
@@ -493,14 +510,25 @@
       </span>
       {#if showsBottomRow}
         <span
-          class="mt-1 flex min-w-0 max-w-full items-center gap-[0.375rem] text-[0.6875rem] text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]"
+          class="mt-1 flex min-w-0 max-w-full items-center gap-[0.375rem] text-xs text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]"
         >
-          {#if showProjectLine}
-            <!-- The project's own mark identifies it faster than its name does.
-                 A group header already names the project. Project and host stay
-                 as one compact cluster on the left; PR navigation owns the
-                 opposite edge. -->
-            <span class="flex min-w-0 items-center gap-[0.375rem]">
+          <!-- The project's own mark identifies it faster than its name does.
+               The band above already names the project while the list is
+               scoped. Project and host stay as one compact cluster on the
+               left; PR navigation owns the opposite edge. -->
+          <span class="flex min-w-0 items-center gap-[0.375rem]">
+            <!-- The project line is also the way into that project: it names
+                 the scope you would be picking, so it is the shortest path to
+                 picking it. The band above is the only way back out. -->
+            <button
+              type="button"
+              class="-mx-[0.1875rem] flex min-w-0 cursor-pointer items-center gap-[0.375rem] rounded-[0.3125rem] px-[0.1875rem] text-inherit transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
+              title="Show only {task.projectLabel}"
+              onclick={(event) => {
+                event.stopPropagation();
+                onFilterProject();
+              }}
+            >
               {#if hasRoot}
                 <ProjectFavicon
                   projectRoot={task.projectKey}
@@ -513,19 +541,20 @@
                   class="shrink-0 text-(--solus-text-tertiary)"
                 />
               {/if}
-              <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+              <span
+                class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
                 >{task.projectLabel}</span
               >
-              {#if showsHost}
-                <span class="shrink-0">·</span>
-                {#if isRemote}
-                  <GlobeIcon size={14} class="shrink-0" aria-label={host?.label} />
-                {:else}
-                  <LaptopIcon size={14} class="shrink-0" aria-label="This machine" />
-                {/if}
+            </button>
+            {#if showsHost}
+              <span class="shrink-0">·</span>
+              {#if isRemote}
+                <GlobeIcon size={14} class="shrink-0" aria-label={host?.label} />
+              {:else}
+                <LaptopIcon size={14} class="shrink-0" aria-label="This machine" />
               {/if}
-            </span>
-          {/if}
+            {/if}
+          </span>
           {#if prChip}
             <span class="ml-auto flex shrink-0 items-center">
               <PrChip chip={prChip} onOpen={onOpenPr} />

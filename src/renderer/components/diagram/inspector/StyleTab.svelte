@@ -177,7 +177,7 @@
   }
 
   .node-shape__name {
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     font-weight: 500;
     line-height: 1;
   }

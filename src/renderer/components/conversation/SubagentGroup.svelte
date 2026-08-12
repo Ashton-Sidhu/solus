@@ -186,7 +186,7 @@
 
   .subagent-group__kicker {
     margin-bottom: 0.3125rem;
-    font-size: 0.59375rem;
+    font-size: 0.75rem;
     font-weight: 500;
 
     text-transform: uppercase;
@@ -211,7 +211,7 @@
     gap: 0.375rem;
     border-radius: 9999px;
     padding: 0.125rem 0.5rem;
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     font-weight: 500;
     color: var(--muted-foreground);
     background: color-mix(in oklch, var(--foreground) 6%, transparent);
@@ -237,7 +237,7 @@
     align-items: center;
     gap: 0.5rem;
     margin-top: 0.125rem;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
   }
 
@@ -258,7 +258,7 @@
     background: transparent;
     padding: 0.375rem;
     text-align: left;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     cursor: pointer;
     transition: background var(--duration-quick) var(--ease-premium);
@@ -299,7 +299,7 @@
   }
 
   .subagent-fold__label {
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     color: var(--muted-foreground);
   }
 
@@ -309,7 +309,7 @@
 
   .subagent-fold__rail {
     flex-shrink: 0;
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     opacity: 0.55;
     font-variant-numeric: tabular-nums;

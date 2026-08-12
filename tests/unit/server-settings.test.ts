@@ -24,10 +24,27 @@ describe.serial('server settings defaults', () => {
   test('allows remote connections for a new installation', async () => {
     const settings = await loadSettings('new-installation')
     expect(settings.getServerSettings().remoteAccess).toBe(true)
+    expect(settings.getServerSettings().agentTaskLifecyclePolicy).toBe('moderate')
   })
 
   test('preserves an explicit remote access opt-out', async () => {
     const settings = await loadSettings('remote-access-disabled', { remoteAccess: false })
     expect(settings.getServerSettings().remoteAccess).toBe(false)
+  })
+
+  test('loads a persisted autonomous task lifecycle policy', async () => {
+    const settings = await loadSettings('autonomous-task-lifecycle', {
+      remoteAccess: true,
+      agentTaskLifecyclePolicy: 'autonomous',
+    })
+    expect(settings.getServerSettings().agentTaskLifecyclePolicy).toBe('autonomous')
+  })
+
+  test('uses moderate for missing or invalid task lifecycle policies', async () => {
+    const settings = await loadSettings('invalid-task-lifecycle', {
+      remoteAccess: true,
+      agentTaskLifecyclePolicy: 'unrestricted',
+    })
+    expect(settings.getServerSettings().agentTaskLifecyclePolicy).toBe('moderate')
   })
 })

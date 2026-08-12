@@ -28,6 +28,7 @@
   import SegmentedControl from "../ui/SegmentedControl.svelte";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
+  import type { AgentTaskLifecyclePolicy } from "../../../shared/types";
 
   interface Props {
     searchQuery?: string;
@@ -50,6 +51,12 @@
     ["queue", "Queue"],
     ["stop", "Stop"],
     ["continue", "Continue"],
+  ];
+
+  const taskLifecyclePolicies: Array<{ value: AgentTaskLifecyclePolicy; label: string }> = [
+    { value: "none", label: "None" },
+    { value: "moderate", label: "Moderate" },
+    { value: "autonomous", label: "Autonomous" },
   ];
 
   // Unavailable agents stay on the list, disabled — see SessionChip.
@@ -89,6 +96,10 @@
   const rateLimitLabel = $derived(
     theme.rateLimitBehavior.at(0)?.toUpperCase() + theme.rateLimitBehavior.slice(1),
   );
+  const taskLifecyclePolicy = $derived(connectionsStore.capabilities?.agentTaskLifecyclePolicy);
+  const taskLifecyclePolicyLabel = $derived(
+    taskLifecyclePolicies.find((option) => option.value === taskLifecyclePolicy)?.label ?? "Moderate",
+  );
 
   function selectAgent(agentId: string) {
     session.setDefaultAgent(agentId);
@@ -117,6 +128,11 @@
     requestInputFocus();
   }
 
+  async function selectTaskLifecyclePolicy(value: AgentTaskLifecyclePolicy) {
+    await connectionsStore.setAgentTaskLifecyclePolicy(value);
+    requestInputFocus();
+  }
+
   interface SettingItem {
     id: string;
     keywords: string[];
@@ -132,6 +148,7 @@
     { id: "code-font-family", keywords: ["code", "font", "mono", "monospace", "diff", "typeface", "sf mono", "geist", "fira", "jetbrains", "cascadia"] },
     { id: "code-font-size", keywords: ["code", "font", "size", "mono", "diff"] },
     { id: "ratelimit", keywords: ["rate", "limit", "behavior", "queue", "throttle"] },
+    { id: "task-lifecycle", keywords: ["agent", "task", "ticket", "lifecycle", "status", "done", "autonomous", "moderate"] },
     { id: "projects-base", keywords: ["project", "projects", "folder", "directory", "base", "start", "open", "picker", "path"] },
     { id: "worktree", keywords: ["git", "worktree", "branch", "isolate", "session"] },
     { id: "auto-rename", keywords: ["rename", "name", "title", "session", "tab", "auto", "summarize"] },
@@ -178,7 +195,7 @@
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" aria-label="Interface font" class="min-w-28 justify-between text-[0.75rem] shadow-xs">
+            <Button {...props} variant="outline" size="sm" aria-label="Interface font" class="min-w-28 justify-between text-xs shadow-xs">
               <span class="truncate">{appFontLabel}</span>
               <CaretDownIcon size={11} style="opacity:0.6" />
             </Button>
@@ -208,7 +225,7 @@
           type="button"
           onclick={() => theme.update({ fontSize: Math.max(8, theme.fontSize - 1) })}
           aria-label="Decrease interface size"
-          class="h-full px-2.5 text-[0.8rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          class="h-full px-2.5 text-[0.8125rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >&minus;</button>
         <Input
           type="number"
@@ -221,14 +238,14 @@
             theme.update({ fontSize: v });
             (e.target as HTMLInputElement).value = String(v);
           }}
-          class="h-auto w-9 rounded-none border-0 bg-transparent p-0 text-center text-[0.75rem] font-medium tabular-nums shadow-none focus-visible:ring-0 dark:bg-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          class="h-auto w-9 rounded-none border-0 bg-transparent p-0 text-center text-xs font-medium tabular-nums shadow-none focus-visible:ring-0 dark:bg-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         />
-        <span class="mr-1 text-[0.6875rem] text-(--solus-text-tertiary)">px</span>
+        <span class="mr-1 text-xs text-(--solus-text-tertiary)">px</span>
         <button
           type="button"
           onclick={() => theme.update({ fontSize: theme.fontSize + 1 })}
           aria-label="Increase interface size"
-          class="h-full px-2.5 text-[0.8rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          class="h-full px-2.5 text-[0.8125rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >+</button>
       </div>
     {/snippet}
@@ -243,7 +260,7 @@
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" aria-label="Code font" class="min-w-28 justify-between text-[0.75rem] shadow-xs">
+            <Button {...props} variant="outline" size="sm" aria-label="Code font" class="min-w-28 justify-between text-xs shadow-xs">
               <span class="truncate">{codeFontLabel}</span>
               <CaretDownIcon size={11} style="opacity:0.6" />
             </Button>
@@ -273,7 +290,7 @@
           type="button"
           onclick={() => theme.update({ codeFontSize: Math.max(8, theme.codeFontSize - 1) })}
           aria-label="Decrease code font size"
-          class="h-full px-2.5 text-[0.8rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          class="h-full px-2.5 text-[0.8125rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >&minus;</button>
         <Input
           type="number"
@@ -286,14 +303,14 @@
             theme.update({ codeFontSize: v });
             (e.target as HTMLInputElement).value = String(v);
           }}
-          class="h-auto w-9 rounded-none border-0 bg-transparent p-0 text-center text-[0.75rem] font-medium tabular-nums shadow-none focus-visible:ring-0 dark:bg-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          class="h-auto w-9 rounded-none border-0 bg-transparent p-0 text-center text-xs font-medium tabular-nums shadow-none focus-visible:ring-0 dark:bg-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         />
-        <span class="mr-1 text-[0.6875rem] text-(--solus-text-tertiary)">px</span>
+        <span class="mr-1 text-xs text-(--solus-text-tertiary)">px</span>
         <button
           type="button"
           onclick={() => theme.update({ codeFontSize: theme.codeFontSize + 1 })}
           aria-label="Increase code font size"
-          class="h-full px-2.5 text-[0.8rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          class="h-full px-2.5 text-[0.8125rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >+</button>
       </div>
     {/snippet}
@@ -302,7 +319,7 @@
 
 <SettingsSection
   label="Agents & sessions"
-  visible={["agent", "model", "ratelimit", "notification"].some(isVisible)}
+  visible={["agent", "model", "ratelimit", "task-lifecycle", "notification"].some(isVisible)}
 >
   <SettingsRow
     label="Default agent"
@@ -313,7 +330,7 @@
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" aria-label="Default agent" class="min-w-28 justify-between text-[0.75rem] shadow-xs">
+            <Button {...props} variant="outline" size="sm" aria-label="Default agent" class="min-w-28 justify-between text-xs shadow-xs">
               <span class="max-w-28 truncate">{activeAgentLabel}</span>
               <CaretDownIcon size={11} style="opacity:0.6" />
             </Button>
@@ -328,11 +345,49 @@
             >
               <span class="min-w-0 flex-1 truncate">{agent.label}</span>
               {#if !agent.enabled}
-                <span class="shrink-0 text-[0.6875rem] font-normal text-(--solus-text-tertiary)">Not installed</span>
+                <span class="shrink-0 text-xs font-normal text-(--solus-text-tertiary)">Not installed</span>
               {/if}
               {#if agent.id === theme.activeAgent}<CheckIcon size={14} class="text-(--solus-accent)" />{/if}
             </DropdownMenu.Item>
           {/each}
+        </DropdownMenu.Content>
+      </DropdownMenu.Root>
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    label="Task lifecycle control"
+    description="None blocks status changes. Moderate reserves Done for you. Autonomous gives agents full control."
+    visible={isVisible("task-lifecycle") && taskLifecyclePolicy !== undefined}
+  >
+    {#snippet control()}
+      <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
+        <DropdownMenu.Trigger>
+          {#snippet child({ props })}
+            <Button
+              {...props}
+              variant="outline"
+              size="sm"
+              aria-label="Task lifecycle control"
+              class="min-w-28 justify-between text-xs shadow-xs"
+              disabled={connectionsStore.agentTaskLifecyclePolicyUpdating}
+            >
+              <span>{taskLifecyclePolicyLabel}</span>
+              <CaretDownIcon size={11} style="opacity:0.6" />
+            </Button>
+          {/snippet}
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[160px]">
+          <DropdownMenu.RadioGroup value={taskLifecyclePolicy}>
+            {#each taskLifecyclePolicies as option (option.value)}
+              <DropdownMenu.RadioItem
+                value={option.value}
+                onSelect={() => selectTaskLifecyclePolicy(option.value)}
+              >
+                {option.label}
+              </DropdownMenu.RadioItem>
+            {/each}
+          </DropdownMenu.RadioGroup>
         </DropdownMenu.Content>
       </DropdownMenu.Root>
     {/snippet}
@@ -347,7 +402,7 @@
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" aria-label="Default model" class="min-w-28 justify-between text-[0.75rem] shadow-xs">
+            <Button {...props} variant="outline" size="sm" aria-label="Default model" class="min-w-28 justify-between text-xs shadow-xs">
               <span class="max-w-28 truncate">{defaultModelLabel}</span>
               <CaretDownIcon size={11} style="opacity:0.6" />
             </Button>
@@ -377,7 +432,7 @@
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" aria-label="Rate limit behavior" class="min-w-24 justify-between text-[0.75rem] shadow-xs">
+            <Button {...props} variant="outline" size="sm" aria-label="Rate limit behavior" class="min-w-24 justify-between text-xs shadow-xs">
               <span>{rateLimitLabel}</span>
               <CaretDownIcon size={11} style="opacity:0.6" />
             </Button>
@@ -443,7 +498,7 @@
           variant="outline"
           size="sm"
           aria-label="Projects start in"
-          class="w-56 justify-between font-mono text-[0.6875rem] shadow-xs {projectsBaseDirectory ? '' : 'text-muted-foreground'}"
+          class="w-56 justify-between font-mono text-xs shadow-xs {projectsBaseDirectory ? '' : 'text-muted-foreground'}"
           onclick={() => (projectsBasePickerOpen = true)}
         >
           <FolderIcon size={13} weight="fill" class="shrink-0 text-muted-foreground" />

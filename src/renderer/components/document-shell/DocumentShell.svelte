@@ -630,7 +630,7 @@
 {/snippet}
 
 {#snippet saveStatusChip()}
-  <div class="doc-shell-save-status ml-1 inline-flex min-w-0 shrink-0 items-center gap-1.5 whitespace-nowrap text-[0.71875rem] text-(--solus-text-tertiary) transition-opacity duration-(--duration-base)">
+  <div class="doc-shell-save-status ml-1 inline-flex min-w-0 shrink-0 items-center gap-1.5 whitespace-nowrap text-xs text-(--solus-text-tertiary) transition-opacity duration-(--duration-base)">
     {#if showSaving}
       <span class="size-[0.3125rem] shrink-0 rounded-full bg-(--solus-accent)" aria-hidden="true"></span>
       <span>Saving…</span>
@@ -948,7 +948,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
 
     color: var(--solus-text-tertiary);
   }
@@ -957,7 +957,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     font-weight: 500;
     color: var(--solus-text-primary);
     background: transparent;
@@ -983,7 +983,7 @@
     height: 1.75rem;
     padding: 0 0.625rem;
     border-radius: 0.4375rem;
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     font-weight: 400;
     color: var(--solus-text-tertiary);
     background: transparent;
@@ -1085,7 +1085,7 @@
     font-weight: 500;
   }
   .doc-shell-toolbar-text sub {
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     vertical-align: baseline;
     position: relative;
     top: 0.0625rem;
@@ -1161,7 +1161,7 @@
       height: 1.1875rem;
     }
     .doc-shell-toolbar-text {
-      font-size: 1rem;
+      font-size: 0.875rem;
     }
     .doc-shell-toolbar-sep {
       height: 1.375rem;

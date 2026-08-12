@@ -374,7 +374,7 @@
 <Button
   type="button"
   variant="ghost"
-  class="flex min-h-10 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left font-mono text-[0.6875rem] text-(--solus-accent) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96] {autoCollapse &&
+  class="flex min-h-10 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left font-mono text-xs text-(--solus-accent) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96] {autoCollapse &&
   !expanded
     ? ''
     : 'hidden'}"
@@ -389,7 +389,7 @@
 <Button
   type="button"
   variant="ghost"
-  class="flex min-h-10 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left font-mono text-[0.6875rem] text-(--solus-accent) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96] {formatOnlyCollapsed &&
+  class="flex min-h-10 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left font-mono text-xs text-(--solus-accent) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96] {formatOnlyCollapsed &&
   (!autoCollapse || expanded)
     ? ''
     : 'hidden'}"

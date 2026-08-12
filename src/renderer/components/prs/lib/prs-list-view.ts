@@ -12,11 +12,14 @@ import type { PullRequestSummary } from '../../../../shared/providers'
 import type { PrChecksSummary } from '../../../../shared/checks-types'
 import {
   absoluteTime,
+  compactCount,
   compactRelativeTime,
   personFrom,
   type InboxGroupSpec,
+  type ListChecksSpec,
   type ListChipSpec,
   type ListGroupSpec,
+  type ListRevealSpec,
   type ListRowSpec,
 } from '../../ui/list-page/list-page'
 
@@ -87,39 +90,79 @@ export function prFetchScope(statuses: readonly string[]): 'open' | 'closed' | '
 }
 
 /** `+248 −96`, compacted past a thousand so the column can't be pushed wide by
- *  one enormous PR. */
+ *  one enormous PR. The list row draws the same two numbers itself, coloured;
+ *  this is the form the inbox's one-line context needs. */
 export function diffSize(pr: PullRequestSummary): string {
-  const compact = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k` : `${n}`)
-  return `+${compact(pr.additions)} −${compact(pr.deletions)}`
+  return `+${compactCount(pr.additions)} −${compactCount(pr.deletions)}`
+}
+
+const BRANCH_PRINTS_WHOLE = 26
+const BRANCH_HEAD = 12
+const BRANCH_TAIL = 9
+
+/**
+ * Agent-authored branches are long and near-identical, so the middle is what
+ * they share and the tail is what tells them apart — the ellipsis goes in the
+ * middle rather than at the end. Short refs print whole; this slot is not a
+ * column, so there is nothing to pad to.
+ */
+export function shortBranch(ref: string): string {
+  if (ref.length <= BRANCH_PRINTS_WHOLE) return ref
+  return `${ref.slice(0, BRANCH_HEAD)}…${ref.slice(-BRANCH_TAIL)}`
 }
 
 /**
- * Slot 4 — the branch, then a check state but only when it has something to
- * say. A passing build is worth a quiet green chip; a *pending* one is not
- * worth a row's width, because it resolves on its own.
+ * Slot 4 — the branch, and the parent it is stacked on. Held back until the row
+ * is hovered, focused or selected: it is a fact you need once you have chosen a
+ * row, not to choose one, and at rest it would spend the same width on every
+ * row while the title is what you are scanning.
  */
-function chipsFor(pr: PullRequestSummary, checks: PrChecksSummary | undefined): ListChipSpec[] {
-  const chips: ListChipSpec[] = []
-  if (pr.headRef) chips.push({ label: pr.headRef, mono: true })
-
-  if (!checks || checks.headSha !== pr.headSha) return chips
-  if (checks.state === 'failing') {
-    const failing = checks.required.filter((check) => check.conclusion === 'failure').length
-    chips.push({ label: failing > 0 ? `${failing} check${failing === 1 ? '' : 's'} failing` : 'checks failing', tint: 'failure' })
-  } else if (checks.state === 'passing') {
-    chips.push({ label: 'checks passing', tint: 'success' })
+function revealFor(pr: PullRequestSummary, stackParent: number | null): ListRevealSpec | undefined {
+  if (!pr.headRef && stackParent === null) return undefined
+  return {
+    label: pr.headRef ? shortBranch(pr.headRef) : '',
+    title: pr.headRef,
+    lead: stackParent === null ? undefined : `stacked on #${stackParent}`,
   }
-  return chips
 }
 
-export function prRow(pr: PullRequestSummary, ctx: PrRowContext, now: number): ListRowSpec {
+/**
+ * Slot 5 — a check state, but only when it has something to say. Passing gets a
+ * glyph and no words; failing gets words. Pending resolves on its own and stale
+ * results are not the PR's, so both hold the slot in silence rather than
+ * asserting anything.
+ */
+function checksFor(pr: PullRequestSummary, checks: PrChecksSummary | undefined): ListChecksSpec {
+  if (!checks || checks.headSha !== pr.headSha) return { state: 'none', label: '' }
+  if (checks.state === 'failing') {
+    const failing = checks.required.filter((check) => check.conclusion === 'failure').length
+    return {
+      state: 'failing',
+      label: failing > 0 ? `${failing} check${failing === 1 ? '' : 's'} failing` : 'checks failing',
+    }
+  }
+  if (checks.state === 'passing') return { state: 'passing', label: 'Checks passing' }
+  return { state: 'none', label: '' }
+}
+
+export function prRow(
+  pr: PullRequestSummary,
+  ctx: PrRowContext,
+  now: number,
+  stackParent: number | null = null,
+): ListRowSpec {
   const reviewers = (pr.requestedReviewers ?? []).map((login) => personFrom(login))
   return {
     key: String(pr.number),
     ident: `#${pr.number}`,
     title: pr.title,
-    chips: chipsFor(pr, ctx.checks(pr.number)),
-    meta: diffSize(pr),
+    // Nothing sits between the number and the trailing metrics at rest, so the
+    // title is the only thing competing for the middle of the row.
+    chips: [] as ListChipSpec[],
+    reveal: revealFor(pr, stackParent),
+    checks: checksFor(pr, ctx.checks(pr.number)),
+    meta: '',
+    churn: { additions: pr.additions, deletions: pr.deletions },
     // Slot 1 is the author; slots 7 are whoever else is on the hook for it.
     people: [personFrom(pr.author, undefined, pr.authorAvatarUrl), ...reviewers],
     time: compactRelativeTime(pr.updatedAt, now),
@@ -132,11 +175,17 @@ export function prGroups(
   prs: PullRequestSummary[],
   ctx: PrRowContext,
   now: number,
+  /** Which PR each row is stacked on, when stacks are enabled. Passed in rather
+   *  than read off `ctx` because the page resolves the stack from the same
+   *  filtered list these groups are built from. */
+  stackParents?: ReadonlyMap<number, number>,
 ): ListGroupSpec[] {
   return GROUP_ORDER.map((key) => ({
     key,
     label: GROUP_LABELS[key],
-    rows: prs.filter((pr) => groupOf(pr, ctx) === key).map((pr) => prRow(pr, ctx, now)),
+    rows: prs
+      .filter((pr) => groupOf(pr, ctx) === key)
+      .map((pr) => prRow(pr, ctx, now, stackParents?.get(pr.number) ?? null)),
   })).filter((group) => group.rows.length > 0)
 }
 

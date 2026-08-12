@@ -18,6 +18,7 @@ import { wakeTaskForActivity } from './task-lifecycle'
 import { loadProjectConfig } from '../project-config/project-config'
 import {
   externalLinkForTask,
+  markCommentsDirty,
   markTaskFieldsDirty,
   notifyTaskSyncDirty,
 } from './task-sync-store'
@@ -322,6 +323,30 @@ export class Task implements TaskRecord {
     emitChanged()
     if (shouldPush) notifyTaskSyncDirty(this.id)
     this.refresh()
+    return this.details()
+  }
+
+  /**
+   * Send comments upstream that were written while auto-posting was off.
+   *
+   * Queueing is the whole action: the sync engine owns the exchange itself, so
+   * this marks the rows and wakes it rather than posting inline. A task with no
+   * linked ticket has nowhere to send them and says so instead of silently
+   * marking rows that nothing will ever read.
+   */
+  async publishComments(commentIds: string[]): Promise<TaskDetails> {
+    requireTask(this.id)
+    if (!externalLinkForTask(this.id)) {
+      throw new Error('This task is not linked to an upstream ticket.')
+    }
+    let queued = 0
+    withTx(() => {
+      queued = markCommentsDirty(database(), this.id, commentIds)
+    })
+    if (queued) {
+      emitChanged()
+      notifyTaskSyncDirty(this.id)
+    }
     return this.details()
   }
 

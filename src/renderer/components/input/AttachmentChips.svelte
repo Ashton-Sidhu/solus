@@ -75,7 +75,7 @@
               <IconComponent size={14} />
             </span>
           {/if}
-          <span class="text-[0.6875rem] font-medium truncate min-w-0 flex-1 text-(--solus-text-primary)">
+          <span class="text-xs font-medium truncate min-w-0 flex-1 text-(--solus-text-primary)">
             {a.name}
           </span>
         </button>

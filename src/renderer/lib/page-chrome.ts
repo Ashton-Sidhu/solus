@@ -16,4 +16,4 @@ export const PAGE_SECONDARY_BTN =
 
 /** Borderless text/icon toggle for command bars (Starred, Mine, Bookmarked). */
 export const PAGE_GHOST_BTN =
-  'inline-flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg border-0 bg-transparent text-[0.6875rem] font-medium text-(--solus-text-tertiary) transition-[background-color,color] duration-100 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:outline-none'
+  'inline-flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg border-0 bg-transparent text-xs font-medium text-(--solus-text-tertiary) transition-[background-color,color] duration-100 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:outline-none'

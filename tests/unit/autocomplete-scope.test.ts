@@ -32,10 +32,12 @@ describe('autocomplete scope', () => {
       }),
       '/projects/solus',
       'remote-tab',
+      'remote-server',
     )
 
     expect(scope).toEqual({
       tabId: 'remote-tab',
+      serverId: 'remote-server',
       workingDirectory: '/projects/solus/.solus-worktrees/feature',
     })
   })
@@ -52,6 +54,7 @@ describe('autocomplete scope', () => {
     )
 
     expect(scope.tabId).toBe('remote-tab')
+    expect(scope.serverId).toBeUndefined()
     expect(scope.workingDirectory).toBe('/projects/solus')
   })
 
@@ -78,7 +81,25 @@ describe('autocomplete scope', () => {
 
     expect(scope).toEqual({
       tabId: 'local-tab',
+      serverId: undefined,
       workingDirectory: '/projects/tasks',
+    })
+  })
+
+  test('a remote draft routes file search to its selected host before it has a tab', () => {
+    // WHY: selecting a remote host happens before dispatch. The remote
+    // worktree path does not exist on the client or on the active tab's host.
+    const scope = resolveAutocompleteScope(
+      workspace({}),
+      '/remote/solus/.solus-worktrees/feature',
+      undefined,
+      'remote-server',
+    )
+
+    expect(scope).toEqual({
+      tabId: 'local-tab',
+      serverId: 'remote-server',
+      workingDirectory: '/remote/solus/.solus-worktrees/feature',
     })
   })
 
@@ -97,6 +118,7 @@ describe('autocomplete scope', () => {
 
     expect(scope).toEqual({
       tabId: 'local-tab',
+      serverId: undefined,
       workingDirectory: '/projects/new-draft',
     })
     expect(

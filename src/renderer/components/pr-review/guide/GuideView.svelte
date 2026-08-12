@@ -90,7 +90,7 @@
              deep top pad on top of them read as a hole rather than as air. The
              weight stays below the header, where the guide starts. -->
         <header class="guide-intro border-b border-(--solus-art-border) pt-6 pr-8 pb-10 pl-14">
-          <h1 class="text-[2rem] leading-[1.15] font-medium text-balance text-(--solus-text-primary)">
+          <h1 class="text-[1.5rem] leading-[1.15] font-medium text-balance text-(--solus-text-primary)">
             {guide.title}
           </h1>
 
@@ -103,7 +103,7 @@
                 <span class="opacity-50">·</span>
               {/if}
               {#if meta}
-                <span class="inline-flex items-center gap-1.5 font-mono text-[0.75rem]">
+                <span class="inline-flex items-center gap-1.5 font-mono text-xs">
                   <span>{meta.baseRef}</span>
                   <span aria-hidden="true">←</span>
                   <span class="font-secondary text-(--solus-text-secondary)">{meta.branch}</span>

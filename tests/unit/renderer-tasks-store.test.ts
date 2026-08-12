@@ -2,30 +2,41 @@ import { afterEach, describe, expect, mock, test } from 'bun:test'
 import type { Task } from '../../src/shared/task-types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
+const taskServerConnections = singleHostServerConnections()
+let connectionCreatedListener: ((connection: { serverId: string }) => void) | undefined
+
 // One connected host, whose RPC surface is the same `window.solus` each test
 // installs. Tasks are host-scoped now, so the store reaches them through the
 // connection registry rather than the global — the single-host case has to keep
 // behaving exactly as it did.
 mock.module('@client-core/server-connections', () => ({
   serverConnections: {
-    ...singleHostServerConnections(),
-    eventsFor: () => ({ subscribe: () => () => {} }),
-    onConnectionCreated: () => () => {},
-    connectedServerIds: () => ['local'],
+    ...taskServerConnections,
+    onConnectionCreated: (listener: (connection: { serverId: string }) => void) => {
+      connectionCreatedListener = listener
+      return () => {
+        if (connectionCreatedListener === listener) connectionCreatedListener = undefined
+      }
+    },
   },
 }))
 
 const previousWindow = globalThis.window
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 const previousDerived = (globalThis as unknown as { $derived?: unknown }).$derived
+const previousEffect = (globalThis as unknown as { $effect?: unknown }).$effect
 
 afterEach(() => {
+  taskServerConnections.reset()
+  connectionCreatedListener = undefined
   if (previousWindow === undefined) delete (globalThis as unknown as { window?: Window }).window
   else Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: previousWindow })
   if (previousState === undefined) delete (globalThis as unknown as { $state?: unknown }).$state
   else (globalThis as unknown as { $state: unknown }).$state = previousState
   if (previousDerived === undefined) delete (globalThis as unknown as { $derived?: unknown }).$derived
   else (globalThis as unknown as { $derived: unknown }).$derived = previousDerived
+  if (previousEffect === undefined) delete (globalThis as unknown as { $effect?: unknown }).$effect
+  else (globalThis as unknown as { $effect: unknown }).$effect = previousEffect
 })
 
 function installStateRune(): void {
@@ -37,6 +48,7 @@ function installStateRune(): void {
     <T>(value: T) => value,
     { by: <T>(derive: () => T) => derive() },
   )
+  ;(globalThis as unknown as { $effect: unknown }).$effect = (effect: () => void) => effect()
 }
 
 function task(): Task {
@@ -54,6 +66,72 @@ function task(): Task {
 }
 
 describe('renderer task hydration', () => {
+  test('reloads after a host is restored during the cold snapshot', async () => {
+    // WHY: restored tabs can create their host connection while the first task
+    // read is in flight. The completed lifecycle on that host must reach the
+    // first stable sidebar instead of waiting for later typing or task activity.
+    installStateRune()
+    let resolveLocalSnapshot!: (result: {
+      tasks: Task[]
+      sessionsByTask: Record<string, Array<{ taskId: string; sessionId: string; linkedAt: number }>>
+    }) => void
+    const localSnapshot = new Promise<{
+      tasks: Task[]
+      sessionsByTask: Record<string, Array<{ taskId: string; sessionId: string; linkedAt: number }>>
+    }>((resolve) => {
+      resolveLocalSnapshot = resolve
+    })
+    const localApi = { tasksSidebarSnapshot: () => localSnapshot }
+    let resolveRemoteSnapshot!: (result: {
+      tasks: Task[]
+      sessionsByTask: Record<string, Array<{ taskId: string; sessionId: string; linkedAt: number }>>
+    }) => void
+    const remoteSnapshot = new Promise<{
+      tasks: Task[]
+      sessionsByTask: Record<string, Array<{ taskId: string; sessionId: string; linkedAt: number }>>
+    }>((resolve) => {
+      resolveRemoteSnapshot = resolve
+    })
+    const remoteTask = { ...task(), id: 'remote-completed', status: 'done' as const }
+    const remoteApi = {
+      tasksSidebarSnapshot: () => remoteSnapshot,
+    }
+    taskServerConnections.registerPrimary('local', localApi)
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: { solus: localApi },
+    })
+
+    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    const firstLoad = store.ensureLoaded()
+    await Promise.resolve()
+
+    const remoteConnection = taskServerConnections.registerHost('remote', remoteApi)
+    connectionCreatedListener?.(remoteConnection)
+    resolveLocalSnapshot({ tasks: [], sessionsByTask: {} })
+    await Promise.resolve()
+
+    expect(store.loaded).toBe(false)
+    expect(store.tasks).toEqual([])
+
+    resolveRemoteSnapshot({
+      tasks: [remoteTask],
+      sessionsByTask: {
+        'remote-completed': [{
+          taskId: 'remote-completed',
+          sessionId: 'restored-session',
+          linkedAt: 1,
+        }],
+      },
+    })
+    await firstLoad
+
+    expect(store.taskForSession('restored-session')?.status).toBe('done')
+    expect(store.hostFor('remote-completed')).toBe('remote')
+  })
+
   test('publishes task rows and session ownership as one sidebar snapshot', async () => {
     // WHY: restored sessions must never render between independently timed task
     // and link reads. The host response is the renderer's atomic boundary.
@@ -402,6 +480,43 @@ describe('renderer task hydration', () => {
 
     expect(store.tasks).toHaveLength(1)
     expect(store.taskForSession('session-1')?.id).toBe('task-1')
+  })
+
+  test('keeps a task hidden when a refresh lands during its undo window', async () => {
+    // WHY: deletion is deferred so the user can undo it. Until that window
+    // closes, the durable row still exists and an unrelated invalidation can
+    // refresh it from the host. That refresh must not resurrect the task.
+    installStateRune()
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        solus: {
+          tasksSidebarSnapshot: async () => ({ tasks: [task()], sessionsByTask: {} }),
+          tasksGet: async () => ({
+            task: task(),
+            comments: [],
+            events: [],
+            links: [],
+            subtasks: [],
+          }),
+        },
+      },
+    })
+
+    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+
+    const pending = store.softRemove(['task-1'])
+    expect(pending).toHaveLength(1)
+    await store.load()
+    await store.loadDetails('task-1')
+
+    expect(store.tasks).toEqual([])
+
+    store.restorePending(pending)
+    expect(store.tasks.map(({ id }) => id)).toEqual(['task-1'])
   })
 
   test('publishes a newly posted GitHub comment into open task details', async () => {

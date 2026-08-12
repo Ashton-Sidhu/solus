@@ -18,6 +18,8 @@ const details = {
   },
   comments: [{ author: 'ashton', body: 'still broken on reload' }],
   subtasks: [],
+  links: [],
+  events: [],
 } as unknown as TaskDetails
 
 describe('stripInjectedContext', () => {
@@ -55,5 +57,23 @@ describe('stripInjectedContext', () => {
     ].join('\n')
 
     expect(stripInjectedContext(prompt)).toBe('fix the scroll bug')
+  })
+})
+
+describe('task lifecycle work contracts', () => {
+  test('moderate keeps Done under user control by default', () => {
+    const packet = formatTaskContext(details)
+    expect(packet).toContain('Do not move it to done; the user closes completed work.')
+  })
+
+  test('none tells the agent not to change task status', () => {
+    const packet = formatTaskContext(details, null, [], 'none')
+    expect(packet).toContain("Do not change this task's status")
+    expect(packet).not.toContain('use comment_task and update_task_status')
+  })
+
+  test('autonomous permits the agent to finish the task', () => {
+    const packet = formatTaskContext(details, null, [], 'autonomous')
+    expect(packet).toContain('or done when the work is complete without review')
   })
 })

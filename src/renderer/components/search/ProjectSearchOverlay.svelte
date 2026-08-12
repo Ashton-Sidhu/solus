@@ -228,7 +228,7 @@
     aria-pressed={active}
     title={`${label} (${comboHint(binding)})`}
     class={cn(
-      "flex size-6 shrink-0 items-center justify-center rounded-md font-mono text-[0.6875rem] font-medium transition-colors duration-100",
+      "flex size-6 shrink-0 items-center justify-center rounded-md font-mono text-xs font-medium transition-colors duration-100",
       active
         ? "bg-(--solus-accent-light) text-(--solus-text-primary)"
         : "text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)",
@@ -270,7 +270,7 @@
         name="project-search"
         aria-label={`Search file contents in ${scopeName}`}
         placeholder={`Search in ${scopeName}…`}
-        class="h-auto min-w-0 flex-1 border-none bg-transparent text-[length:calc(0.96875rem*var(--solus-font-scale,1))] text-(--solus-text-primary) caret-(--solus-accent) outline-none placeholder:text-(--solus-text-tertiary) [&::-webkit-search-cancel-button]:hidden"
+        class="h-auto min-w-0 flex-1 border-none bg-transparent text-[length:calc(.875rem*var(--solus-font-scale,1))] text-(--solus-text-primary) caret-(--solus-accent) outline-none placeholder:text-(--solus-text-tertiary) [&::-webkit-search-cancel-button]:hidden"
         autocomplete="off"
         spellcheck="false"
       />
@@ -285,7 +285,7 @@
     {#if statusText}
       <div
         class={cn(
-          "flex h-8 shrink-0 items-center gap-1.5 border-b border-(--solus-menu-hairline) px-5 text-[length:calc(0.71875rem*var(--solus-font-scale,1))] tabular-nums",
+          "flex h-8 shrink-0 items-center gap-1.5 border-b border-(--solus-menu-hairline) px-5 text-[length:calc(.75rem*var(--solus-font-scale,1))] tabular-nums",
           statusIsError ? "text-(--solus-status-error)" : "text-(--solus-text-tertiary)",
         )}
         role="status"
@@ -300,7 +300,7 @@
     <!-- Results -->
     {#if matches.length === 0}
       <div
-        class="flex flex-1 flex-col items-center justify-center gap-2.5 px-6 text-center text-[length:calc(0.8125rem*var(--solus-font-scale,1))] text-(--solus-text-tertiary)"
+        class="flex flex-1 flex-col items-center justify-center gap-2.5 px-6 text-center text-[length:calc(.8125rem*var(--solus-font-scale,1))] text-(--solus-text-tertiary)"
         role="status"
       >
         <MagnifyingGlassIcon size={18} weight="light" />
@@ -324,7 +324,7 @@
           {@const language = languageForPath(group.path)}
           <section class="pb-1">
             <div
-              class="sticky top-0 z-10 flex h-7 items-center gap-2 bg-(--solus-popover-bg) px-5 text-[length:calc(0.71875rem*var(--solus-font-scale,1))]"
+              class="sticky top-0 z-10 flex h-7 items-center gap-2 bg-(--solus-popover-bg) px-5 text-[length:calc(.75rem*var(--solus-font-scale,1))]"
             >
               {#if icon}
                 <Icon {icon} width="12" height="12" class="shrink-0" />
@@ -334,7 +334,7 @@
                 <span class="min-w-0 truncate text-(--solus-text-tertiary)">{group.directory}</span>
               {/if}
               <span
-                class="ml-auto shrink-0 rounded-full bg-(--solus-surface-hover) px-1.5 py-0.5 text-[0.625rem] tabular-nums text-(--solus-text-tertiary)"
+                class="ml-auto shrink-0 rounded-full bg-(--solus-surface-hover) px-1.5 py-0.5 text-xs tabular-nums text-(--solus-text-tertiary)"
               >
                 {group.matches.length}
               </span>
@@ -347,7 +347,7 @@
                 aria-selected={match.index === selectedIndex}
                 data-result-index={match.index}
                 class={cn(
-                  "flex h-6 w-full min-w-0 cursor-pointer items-center gap-3 border-none bg-transparent px-5 text-left font-mono text-[0.75rem] transition-colors duration-75",
+                  "flex h-6 w-full min-w-0 cursor-pointer items-center gap-3 border-none bg-transparent px-5 text-left font-mono text-xs transition-colors duration-75",
                   match.index === selectedIndex
                     ? "text-(--solus-text-primary) shadow-[shadow:inset_0_0_0_62rem_var(--solus-accent-light)]"
                     : "text-(--solus-text-secondary) hover:bg-(--solus-surface-hover)",
@@ -379,7 +379,7 @@
 
     <!-- Footer -->
     <div
-      class="flex h-10 shrink-0 items-center gap-5 border-t border-(--solus-menu-hairline) bg-(--solus-menu-footer-bg) px-4 text-[length:calc(0.71875rem*var(--solus-font-scale,1))] text-(--solus-text-tertiary)"
+      class="flex h-10 shrink-0 items-center gap-5 border-t border-(--solus-menu-hairline) bg-(--solus-menu-footer-bg) px-4 text-[length:calc(.75rem*var(--solus-font-scale,1))] text-(--solus-text-tertiary)"
     >
       <span class="inline-flex items-center gap-1.5">
         <Kbd variant="keycap">↑</Kbd>

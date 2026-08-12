@@ -76,7 +76,7 @@
 >
   {#if !message.pending}
     <div
-      class="text-[12px] mb-[7px] {message.from === 'you'
+      class="text-xs mb-[7px] {message.from === 'you'
         ? 'font-medium text-muted-foreground'
         : 'font-medium text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]'}"
     >
@@ -91,20 +91,20 @@
            is speaking, and the switchboard's tabs make that ambiguous. -->
       <span class="flex items-center gap-2">
         <span
-          class="text-[12px] font-medium text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]"
+          class="text-xs font-medium text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]"
         >
           {agentName} is responding
         </span>
         <AgentTypingDots variant="chip" />
       </span>
     {:else}
-      <p class="m-0 text-[13px] text-muted-foreground/70">
+      <p class="m-0 text-[0.8125rem] text-muted-foreground/70">
         no reply recorded — open the session to catch up
       </p>
     {/if}
   {:else if artefact}
     {#if artefact.framing}
-      <p class="m-0 mb-2.5 max-w-[600px] text-[14.5px] leading-[1.62] text-pretty {restTone}">
+      <p class="m-0 mb-2.5 max-w-[600px] text-sm leading-[1.62] text-pretty {restTone}">
         {artefact.framing}
       </p>
     {/if}
@@ -112,11 +112,11 @@
       class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
     >
       <FileTextIcon size={13} class="shrink-0 text-muted-foreground/60" />
-      <span class="text-[12.5px] font-medium">{artefact.label}</span>
+      <span class="text-[0.8125rem] font-medium">{artefact.label}</span>
       <span class="flex-1"></span>
       {#if onOpen}
         <button
-          class="shrink-0 rounded-md px-2 py-0.5 text-[12px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
+          class="shrink-0 rounded-md px-2 py-0.5 text-xs text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
           onclick={onOpen}
         >
           Open session
@@ -128,7 +128,7 @@
       {#if message.from === "you"}
         <p
           bind:clientHeight={bodyHeight}
-          class="m-0 max-w-[580px] text-[14px] leading-[1.6] text-muted-foreground whitespace-pre-wrap text-pretty"
+          class="m-0 max-w-[580px] text-sm leading-[1.6] text-muted-foreground whitespace-pre-wrap text-pretty"
         >
           {message.text}
         </p>
@@ -157,7 +157,7 @@
     </div>
     {#if overflows}
       <button
-        class="flex items-center gap-[7px] mt-2.5 text-[12.5px] text-muted-foreground cursor-pointer hover:text-foreground"
+        class="flex items-center gap-[7px] mt-2.5 text-[0.8125rem] text-muted-foreground cursor-pointer hover:text-foreground"
         onclick={() => (expanded = !expanded)}
       >
         <svg

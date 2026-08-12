@@ -1,4 +1,4 @@
-import { SvelteMap } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serverConnections } from '@client-core/server-connections'
 import type {
   PrepareSessionTaskResult,
@@ -91,6 +91,11 @@ export class TasksStore {
   private upstreamLoadsByProject = new Map<string, Promise<void>>()
   private invalidationTimer: ReturnType<typeof setTimeout> | null = null
   private subscribedServerIds = new Set<string>()
+  /** Changes whenever the set of hosts included in a sidebar snapshot changes. */
+  private hostGeneration = 0
+  /** Tasks hidden during their Undo window. The host row still exists until
+   * the toast commits, so refreshes must not put it back into the list. */
+  private pendingDeleteIds = new SvelteSet<string>()
 
   constructor() {
     $effect(() => {
@@ -114,6 +119,10 @@ export class TasksStore {
     serverConnections.onConnectionCreated((connection) => {
       if (this.subscribedServerIds.has(connection.serverId)) return
       this.watchHost(connection.serverId)
+      this.hostGeneration++
+      // `load` shares its in-flight promise, but checks this generation before
+      // publishing. A host restored during the cold read therefore makes that
+      // same operation retry instead of exposing an incomplete sidebar frame.
       void this.load()
     })
     queueMicrotask(() => void this.ensureLoaded())
@@ -286,45 +295,55 @@ export class TasksStore {
     this.error = null
     const load = (async () => {
       try {
-        // One snapshot per connected host, merged. A host that fails is reported
-        // rather than emptying the list: losing one machine's tasks must not read
-        // as "the sidebar lost my tasks" for every other machine.
-        const serverIds = serverConnections.connectedServerIds()
-        const snapshots = await Promise.all(
-          serverIds.map(async (serverId) => {
-            try {
-              return { serverId, snapshot: await serverConnections.apiFor(serverId).tasksSidebarSnapshot() }
-            } catch (err) {
-              console.error('tasks sidebar snapshot load failed', serverId, err)
-              return { serverId, error: err }
+        while (true) {
+          const hostGeneration = this.hostGeneration
+          // One snapshot per connected host, merged. A host that fails is reported
+          // rather than emptying the list: losing one machine's tasks must not read
+          // as "the sidebar lost my tasks" for every other machine.
+          const serverIds = serverConnections.connectedServerIds()
+          const snapshots = await Promise.all(
+            serverIds.map(async (serverId) => {
+              try {
+                return { serverId, snapshot: await serverConnections.apiFor(serverId).tasksSidebarSnapshot() }
+              } catch (err) {
+                console.error('tasks sidebar snapshot load failed', serverId, err)
+                return { serverId, error: err }
+              }
+            }),
+          )
+          // Materializing restored tabs can add their remote hosts while this
+          // read is pending. Discard the partial result before it reaches any
+          // reactive state; the sidebar keeps its skeleton until the host set
+          // and its task lifecycles are complete.
+          if (hostGeneration !== this.hostGeneration) continue
+
+          const failed = snapshots.filter((entry) => 'error' in entry)
+          const ok = snapshots.filter((entry) => 'snapshot' in entry)
+          this.hostByTaskId.clear()
+          this.prLinkByTask.clear()
+          const merged: Task[] = []
+          const links: Record<string, TaskSessionLink[]> = {}
+          for (const { serverId, snapshot } of ok as Array<{ serverId: string; snapshot: TaskSidebarSnapshot }>) {
+            for (const task of snapshot.tasks) {
+              this.hostByTaskId.set(task.id, serverId)
+              if (!this.pendingDeleteIds.has(task.id)) merged.push(task)
             }
-          }),
-        )
-        const failed = snapshots.filter((entry) => 'error' in entry)
-        const ok = snapshots.filter((entry) => 'snapshot' in entry)
-        this.hostByTaskId.clear()
-        this.prLinkByTask.clear()
-        const merged: Task[] = []
-        const links: Record<string, TaskSessionLink[]> = {}
-        for (const { serverId, snapshot } of ok as Array<{ serverId: string; snapshot: TaskSidebarSnapshot }>) {
-          for (const task of snapshot.tasks) {
-            this.hostByTaskId.set(task.id, serverId)
-            merged.push(task)
+            for (const [taskId, list] of Object.entries(snapshot.sessionsByTask)) {
+              links[taskId] = list as TaskSessionLink[]
+            }
+            for (const [taskId, pr] of Object.entries(snapshot.prLinksByTask ?? {})) {
+              this.prLinkByTask.set(taskId, pr)
+            }
           }
-          for (const [taskId, list] of Object.entries(snapshot.sessionsByTask)) {
-            links[taskId] = list as TaskSessionLink[]
-          }
-          for (const [taskId, pr] of Object.entries(snapshot.prLinksByTask ?? {})) {
-            this.prLinkByTask.set(taskId, pr)
-          }
+          this.tasks.splice(0, this.tasks.length, ...merged)
+          this.replaceLinks(links)
+          this.loaded = true
+          this.refreshedAt = Date.now()
+          this.error = failed.length
+            ? `Couldn't read tasks from ${failed.length} host${failed.length === 1 ? '' : 's'}.`
+            : null
+          break
         }
-        this.tasks.splice(0, this.tasks.length, ...merged)
-        this.replaceLinks(links)
-        this.loaded = true
-        this.refreshedAt = Date.now()
-        this.error = failed.length
-          ? `Couldn't read tasks from ${failed.length} host${failed.length === 1 ? '' : 's'}.`
-          : null
       } catch (err) {
         // Every task surface reads this one snapshot, so a silent failure
         // presents as "the sidebar lost my tasks" or "the card vanished"
@@ -559,7 +578,12 @@ export class TasksStore {
     return serverConnections.apiFor(serverId).tasksSnapshot(taskId)
   }
 
-  async comment(id: string, body: string): Promise<Task> {
+  /**
+   * `pushToExternal` decides whether this comment goes to the linked ticket as
+   * well as into the task. Omitted, the project's auto-post setting decides —
+   * the host reads it, so a client never has to be right about it.
+   */
+  async comment(id: string, body: string, opts?: { pushToExternal?: boolean }): Promise<Task> {
     const task = this.taskById(id)
     if (task && task.providerId !== 'local') {
       const cwd = this.upstreamCwd(task)
@@ -568,9 +592,45 @@ export class TasksStore {
       this.detailsByTask.set(id, upstreamTaskDetails(updated, this.tasksForProject(cwd)))
       return updated
     }
-    const details = await this.apiForTask(id).tasksComment(id, body)
+    const details = await this.apiForTask(id).tasksComment(id, body, opts)
     this.reconcileDetails(details)
     return details.task
+  }
+
+  /** Send comments upstream that were written while auto-posting was off. The
+   *  host queues them and the sync engine posts them on its own next pass. */
+  async publishComments(id: string, commentIds: string[]): Promise<void> {
+    if (!commentIds.length) return
+    const details = await this.apiForTask(id).tasksPublishComments(id, commentIds)
+    this.reconcileDetails(details)
+  }
+
+  /** Create the upstream ticket this task does not have yet, in the provider
+   *  the project is configured for, and link the two from then on. */
+  async publishUpstream(id: string, cwd: string): Promise<void> {
+    const details = await this.apiForTask(id).tasksPublish(id, cwd)
+    this.reconcileDetails(details)
+    // The ticket we just created belongs to this task now. The host leaves
+    // mirrored tickets out of its upstream list, but this client is holding one
+    // from before the link existed — drop it here rather than showing the same
+    // work twice until the next provider read.
+    const externalId = details.externalLink?.externalId
+    const upstream = externalId ? this.upstreamTasksByProject.get(cwd) : undefined
+    const index = upstream?.findIndex((task) => task.id === externalId) ?? -1
+    if (upstream && index >= 0) upstream.splice(index, 1)
+  }
+
+  /**
+   * Exchange this task with the ticket it is linked to, now: push the fields
+   * and comments the host is holding, then take whatever moved upstream.
+   *
+   * The engine already does this on its own debounce, so this is the user
+   * saying "don't wait" — after an auth repair, or before trusting the page.
+   * The detail re-read is what refreshes the sync state the page renders.
+   */
+  async syncNow(id: string): Promise<void> {
+    await this.apiForTask(id).tasksSyncNow(id)
+    await this.loadDetails(id)
   }
 
   /**
@@ -669,6 +729,7 @@ export class TasksStore {
   }
 
   private replace(id: string, updated: Task): void {
+    if (this.pendingDeleteIds.has(id)) return
     if (updated.providerId !== 'local' && updated.projectKey) {
       const upstream = this.upstreamTasksByProject.get(updated.projectKey)
       const index = upstream?.findIndex((task) => task.id === id) ?? -1
@@ -689,34 +750,30 @@ export class TasksStore {
     return Array.from(this.upstreamTasksByProject.values()).flat().find((task) => task.id === id)
   }
 
-  private pendingDelete: Task[] = []
-
-  softRemove(ids: string[]): boolean {
+  softRemove(ids: string[]): Task[] {
     const taskIds = new Set(ids)
     const removed = this.tasks.filter((task) => taskIds.has(task.id))
-    if (!removed.length) return false
-    this.pendingDelete = removed
+    if (!removed.length) return []
+    for (const task of removed) this.pendingDeleteIds.add(task.id)
     for (let index = this.tasks.length - 1; index >= 0; index--) {
       if (taskIds.has(this.tasks[index].id)) this.tasks.splice(index, 1)
     }
-    return true
+    return removed
   }
 
-  restorePending(): void {
-    if (!this.pendingDelete.length) return
-    this.tasks.push(...this.pendingDelete)
+  restorePending(pending: Task[]): void {
+    if (!pending.length) return
+    for (const task of pending) this.pendingDeleteIds.delete(task.id)
+    this.tasks.push(...pending.filter((task) => !this.tasks.some((current) => current.id === task.id)))
     this.tasks.sort((a, b) => b.updatedAt - a.updatedAt)
-    this.pendingDelete = []
   }
 
-  async commitPending(): Promise<void> {
-    const pending = this.pendingDelete
-    this.pendingDelete = []
+  async commitPending(pending: Task[]): Promise<void> {
     const results = await Promise.allSettled(pending.map((task) => this.apiForTask(task.id).tasksDelete(task.id)))
+    for (const task of pending) this.pendingDeleteIds.delete(task.id)
     const failed = pending.filter((_, index) => results[index].status === 'rejected')
     if (failed.length) {
-      this.tasks.push(...failed)
-      this.tasks.sort((a, b) => b.updatedAt - a.updatedAt)
+      this.restorePending(failed)
       const first = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
       throw first?.reason ?? new Error('Delete failed')
     }

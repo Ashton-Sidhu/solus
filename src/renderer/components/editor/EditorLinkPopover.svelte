@@ -82,7 +82,7 @@
         bind:ref={inputEl}
         bind:value={href}
         onkeydown={handleKeydown}
-        class="h-7 min-w-0 flex-1 rounded-md border-0 bg-transparent px-2 text-[0.75rem] leading-none text-(--solus-text-primary) shadow-none placeholder:text-(--solus-text-tertiary) focus:bg-(--solus-surface-hover) focus-visible:ring-0 dark:bg-transparent"
+        class="h-7 min-w-0 flex-1 rounded-md border-0 bg-transparent px-2 text-xs leading-none text-(--solus-text-primary) shadow-none placeholder:text-(--solus-text-tertiary) focus:bg-(--solus-surface-hover) focus-visible:ring-0 dark:bg-transparent"
         type="text"
         placeholder="Paste or type a link…"
         aria-label="Link URL"

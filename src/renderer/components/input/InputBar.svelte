@@ -1222,7 +1222,7 @@
   {#if boundWork}
     <div class="flex pt-1.5">
       <div
-        class="inline-flex items-center gap-1.5 rounded-lg bg-(--solus-accent-light) px-2 py-1 text-[0.6875rem] font-medium text-(--solus-accent) max-w-full"
+        class="inline-flex items-center gap-1.5 rounded-lg bg-(--solus-accent-light) px-2 py-1 text-xs font-medium text-(--solus-accent) max-w-full"
         data-testid="bound-work-chip"
       >
         <span class="opacity-70 shrink-0">Working on:</span>
@@ -1323,7 +1323,7 @@
   <div
     class="[--solus-font-weight-body:var(--solus-font-weight-user-content)] {mode ===
     'editor'
-      ? '[--plain-editor-font-size:0.84375rem] [--plain-editor-padding:1.25rem_0_1.25rem_0]'
+      ? '[--plain-editor-font-size:0.875rem] [--plain-editor-padding:1.25rem_0_1.25rem_0]'
       : ''}"
   >
     {#if hasMountedWaveform}
@@ -1349,6 +1349,7 @@
         {pluginCommands}
         provider={activeProvider}
         tabId={targetTabId}
+        serverId={run?.serverId}
         sessionId={sessionId ?? undefined}
         workingDirectory={composerCwd}
         onRefsChange={handleRefsChange}

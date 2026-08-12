@@ -141,6 +141,11 @@ export function registerTasksHandlers(server: SolusServer): void {
     return (await Task.byId(id)).comment(body, options)
   })
 
+  server.register('tasksPublishComments', async (args) => {
+    const [id, commentIds] = args as [string, string[]]
+    return (await Task.byId(id)).publishComments(commentIds)
+  })
+
   server.register('tasksLinkSession', async (args) => {
     const [taskId, sessionId, role, execution, branch] = args as [
       string,

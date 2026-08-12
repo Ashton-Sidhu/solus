@@ -212,10 +212,10 @@
         <PaperPlaneTiltIcon size={17} weight="fill" />
       </span>
       <div class="flex min-w-0 flex-col">
-        <h2 class="text-[15px] font-medium ">
+        <h2 class="text-sm font-medium ">
           Submit review
         </h2>
-        <span class="font-mono text-[11px] text-muted-foreground">#{pr.number}</span>
+        <span class="font-mono text-xs text-muted-foreground">#{pr.number}</span>
       </div>
       <Button
         type="button"
@@ -235,7 +235,7 @@
 
     <div class="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 py-5">
       <fieldset class="flex flex-col gap-2">
-        <legend class="mb-2 text-[11px] font-medium r text-muted-foreground uppercase">Event</legend>
+        <legend class="mb-2 text-xs font-medium r text-muted-foreground uppercase">Event</legend>
         {#each availableEvents as e (e.id)}
           {@const selected = event === e.id}
           {@const Icon = e.icon}
@@ -254,8 +254,8 @@
               <Icon size={17} weight={selected ? "fill" : "regular"} />
             </span>
             <span class="flex min-w-0 flex-col">
-              <span class="text-[12.5px] font-medium text-foreground">{e.label}</span>
-              <span class="text-[11.5px] text-muted-foreground">{e.hint}</span>
+              <span class="text-[0.8125rem] font-medium text-foreground">{e.label}</span>
+              <span class="text-xs text-muted-foreground">{e.hint}</span>
             </span>
             <span
               class="ml-auto flex size-5 shrink-0 items-center justify-center text-(--ev) {selected ? '' : 'opacity-0'}"
@@ -268,7 +268,7 @@
       </fieldset>
 
       <div class="flex flex-col gap-2">
-        <span class="text-[11px] font-medium r text-muted-foreground uppercase">Summary</span>
+        <span class="text-xs font-medium r text-muted-foreground uppercase">Summary</span>
         <CommentEditor
           bind:this={bodyEditor}
           value={body}
@@ -285,26 +285,26 @@
 
       <div class="flex flex-col gap-2">
         <div class="flex items-center gap-2">
-          <span class="text-[11px] font-medium r text-muted-foreground uppercase">Queued comments</span>
-          <span class="flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10.5px] font-medium text-foreground tabular-nums">
+          <span class="text-xs font-medium r text-muted-foreground uppercase">Queued comments</span>
+          <span class="flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-xs font-medium text-foreground tabular-nums">
             {drafts.length}
           </span>
         </div>
         {#if drafts.length === 0}
-          <p class="rounded-2xl border border-dashed border-border px-3 py-3 text-[12.5px] text-muted-foreground">
+          <p class="rounded-2xl border border-dashed border-border px-3 py-3 text-[0.8125rem] text-muted-foreground">
             No inline comments — {event === "APPROVE" ? "this submits the summary only." : "a summary is required to submit."}
           </p>
         {:else}
           <ul class="flex flex-col gap-1.5">
             {#each drafts as d (d.id)}
               <li class="rounded-2xl border border-border bg-card px-3 py-2.5">
-                <div class="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
+                <div class="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
                   <span class="truncate">{d.path}:{d.line}</span>
-                  <span class="shrink-0 rounded bg-muted px-1 py-px text-[10.5px] font-medium text-foreground">
+                  <span class="shrink-0 rounded bg-muted px-1 py-px text-xs font-medium text-foreground">
                     {d.side === "old" ? "LEFT" : "RIGHT"}
                   </span>
                 </div>
-                <p class="mt-1 text-[12.5px] leading-relaxed whitespace-pre-wrap text-foreground">{d.body}</p>
+                <p class="mt-1 text-[0.8125rem] leading-relaxed whitespace-pre-wrap text-foreground">{d.body}</p>
               </li>
             {/each}
           </ul>

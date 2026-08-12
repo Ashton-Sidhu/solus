@@ -1,8 +1,17 @@
 import { describe, expect, test } from 'bun:test'
 import type { Session } from '../../src/shared/types'
 import { LOCAL_SERVER_ID } from '../../src/client-core/server-registry'
-import { isRunOnHostLocked, projectHostId, repoKeyForPath, returnsToProjectHome, shouldShowRunOnPicker } from '../../src/renderer/components/servers/run-on'
+import {
+  isRunOnHostLocked,
+  projectHostId,
+  repoKeyForPath,
+  returnsToProjectHome,
+  shouldShowRunOnPicker,
+  withLocalStart,
+  withRemoteDispatch,
+} from '../../src/renderer/components/servers/run-on'
 import type { RunConfig } from '../../src/shared/types'
+import { runTarget } from '../../src/renderer/components/servers/lib/run-target'
 
 type VisibilityInput = Parameters<typeof shouldShowRunOnPicker>[0]
 
@@ -115,6 +124,95 @@ describe('returning a dispatched run to its project home', () => {
     // remote project never cloned from here — the picker must fall back to the
     // normal chooser rather than re-home onto nothing.
     expect(returnsToProjectHome(run({ projectGroupPath: null }), 'local')).toBe(false)
+  })
+})
+
+describe('choosing a local checkout', () => {
+  test('returning from another host applies Local on the first selection', () => {
+    // WHY: moving hosts and disabling worktree mode are one picker action. If the
+    // host move returns early, the retained preference selects New worktree and
+    // makes the user choose Local a second time.
+    const next = withLocalStart(
+      {
+        serverId: 'studio',
+        taskServerId: 'studio',
+        projectGroupPath: '/home/dev/solus',
+        workingDirectory: '/srv/projects/solus',
+        gitContext: null,
+        worktree: { baseBranch: null },
+        pendingHostDispatch: null,
+      } as RunConfig,
+      'local',
+      '/home/dev/fallback',
+      false,
+    )
+
+    expect(next.serverId).toBe('local')
+    expect(next.taskServerId).toBe('local')
+    expect(next.workingDirectory).toBe('/home/dev/solus')
+    expect(next.worktree).toBeNull()
+    expect(next.projectGroupPath).toBeNull()
+  })
+
+  test('staying local clears a queued host and applies the checkout shape together', () => {
+    // WHY: two onRun calls built from the stale prop can restore either half of
+    // the old selection. The picker must emit one complete next run instead.
+    const next = withLocalStart(
+      {
+        serverId: 'local',
+        taskServerId: 'local',
+        projectGroupPath: null,
+        workingDirectory: '/home/dev/solus',
+        gitContext: { repoRoot: '/home/dev/solus', branch: 'main', targetBranch: 'main' },
+        worktree: { baseBranch: 'main' },
+        pendingHostDispatch: { serverId: 'studio', intent: 'dispatch', repoKey: 'github.com/openai/solus' },
+      } as RunConfig,
+      'local',
+      '/home/dev/fallback',
+      false,
+    )
+
+    expect(next.pendingHostDispatch).toBeNull()
+    expect(next.worktree).toBeNull()
+  })
+})
+
+describe('choosing a remote host', () => {
+  test('selects a fresh worktree with the pending dispatch', () => {
+    // WHY: a remote dispatch runs in an unattended clone. The host choice must
+    // select isolation at the same time instead of leaving the local checkout
+    // selected until Send changes hosts.
+    const next = withRemoteDispatch(
+      {
+        serverId: 'local',
+        taskServerId: 'local',
+        workingDirectory: '/home/dev/solus',
+        gitContext: { repoRoot: '/home/dev/solus', branch: 'main', targetBranch: 'main' },
+        worktree: null,
+        pendingHostDispatch: null,
+      } as RunConfig,
+      { serverId: 'studio', intent: 'dispatch', repoKey: 'github.com/openai/solus' },
+    )
+
+    expect(next.pendingHostDispatch).toEqual({
+      serverId: 'studio',
+      intent: 'dispatch',
+      repoKey: 'github.com/openai/solus',
+    })
+    expect(next.worktree).toEqual({ baseBranch: 'main' })
+
+    const target = runTarget({
+      run: next,
+      hostLabel: 'Studio',
+      taskHostLabel: 'Local',
+      stayLabel: 'Local',
+      hostIsLocal: false,
+      isolated: false,
+      canBranchWorktree: true,
+    })
+    expect(target.kind).toBe('dispatched')
+    expect(target.startsWorktree).toBeTrue()
+    expect(target.worktreeForced).toBeTrue()
   })
 })
 

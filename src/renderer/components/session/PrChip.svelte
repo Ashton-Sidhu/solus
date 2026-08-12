@@ -8,26 +8,25 @@
   }
   let { chip, onOpen }: Props = $props();
 
-  // Each state carries its own tone so a PR reads at a glance: a review the
-  // person owes leads in the brand accent, a merged PR settles into plum, and a
-  // live open PR shows the on-brand sage. Draft alone stays neutral — an open
-  // PR the agent has not committed to yet is not news.
+  // These are the same lifecycle tones as Tasks: blue active work, purple
+  // review, green complete, and neutral inactive work. Draft alone stays
+  // neutral — an open PR the agent has not committed to yet is not news.
   const tone = $derived.by(() => {
     switch (chip.state) {
       case "approvalRequested":
         return {
-          color: "color-mix(in oklch, var(--primary) 58%, var(--foreground))",
-          background: "color-mix(in oklch, var(--primary) 14%, transparent)",
+          color: "color-mix(in oklch, var(--review) 58%, var(--foreground))",
+          background: "color-mix(in oklch, var(--review) 14%, transparent)",
         };
       case "merged":
         return {
-          color: "var(--solus-art-6)",
-          background: "color-mix(in oklch, var(--solus-art-6) 12%, transparent)",
+          color: "var(--success)",
+          background: "color-mix(in oklch, var(--success) 12%, transparent)",
         };
       case "open":
         return {
-          color: "var(--solus-art-positive)",
-          background: "color-mix(in oklch, var(--solus-art-positive) 12%, transparent)",
+          color: "var(--running)",
+          background: "color-mix(in oklch, var(--running) 12%, transparent)",
         };
       default:
         return { color: "var(--muted-foreground)", background: "transparent" };
@@ -67,7 +66,7 @@
       class="shrink-0 {chip.state === 'draft' ? 'opacity-70' : ''}"
     />
   {/if}
-  <span class="font-mono text-[0.6875rem] tabular-nums"
+  <span class="font-mono text-xs tabular-nums"
     >#{chip.number}</span
   >
   <CaretRightIcon

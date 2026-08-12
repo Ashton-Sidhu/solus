@@ -148,7 +148,7 @@
 
         <div class="mx-1 my-1.5 h-px bg-(--solus-menu-hairline)"></div>
 
-        <Command.Empty class="px-2.5 py-3 text-center text-[0.75rem] text-(--solus-text-tertiary)">
+        <Command.Empty class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)">
           No tasks match
         </Command.Empty>
         <Command.Group heading="Open tasks">

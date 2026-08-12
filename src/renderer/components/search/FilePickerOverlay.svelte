@@ -162,7 +162,7 @@
         name="go-to-file"
         aria-label={`Go to a file in ${scopeName}`}
         placeholder={`Go to file in ${scopeName}…`}
-        class="h-auto min-w-0 flex-1 border-none bg-transparent text-[length:calc(0.96875rem*var(--solus-font-scale,1))] text-(--solus-text-primary) caret-(--solus-accent) outline-none placeholder:text-(--solus-text-tertiary) [&::-webkit-search-cancel-button]:hidden"
+        class="h-auto min-w-0 flex-1 border-none bg-transparent text-[length:calc(.875rem*var(--solus-font-scale,1))] text-(--solus-text-primary) caret-(--solus-accent) outline-none placeholder:text-(--solus-text-tertiary) [&::-webkit-search-cancel-button]:hidden"
         autocomplete="off"
         spellcheck="false"
       />
@@ -170,7 +170,7 @@
 
     {#if files.length === 0}
       <div
-        class="flex flex-1 flex-col items-center justify-center gap-2.5 px-6 py-11 text-center text-[length:calc(0.8125rem*var(--solus-font-scale,1))] text-(--solus-text-tertiary)"
+        class="flex flex-1 flex-col items-center justify-center gap-2.5 px-6 py-11 text-center text-[length:calc(.8125rem*var(--solus-font-scale,1))] text-(--solus-text-tertiary)"
         role="status"
       >
         {#if loadError}
@@ -209,7 +209,7 @@
             {#if icon}
               <Icon {icon} width="14" height="14" class="shrink-0" />
             {/if}
-            <span class="shrink-0 text-[length:calc(0.8125rem*var(--solus-font-scale,1))]">
+            <span class="shrink-0 text-[length:calc(.8125rem*var(--solus-font-scale,1))]">
               {@render highlighted(
                 parts.name,
                 fuzzyIndices(parts.name, query),
@@ -217,7 +217,7 @@
               )}
             </span>
             <span
-              class="min-w-0 truncate text-[length:calc(0.71875rem*var(--solus-font-scale,1))] text-(--solus-text-tertiary)"
+              class="min-w-0 truncate text-[length:calc(.75rem*var(--solus-font-scale,1))] text-(--solus-text-tertiary)"
               title={file.display}
             >
               {@render highlighted(
@@ -232,7 +232,7 @@
     {/if}
 
     <div
-      class="flex h-10 shrink-0 items-center gap-5 border-t border-(--solus-menu-hairline) bg-(--solus-menu-footer-bg) px-4 text-[length:calc(0.71875rem*var(--solus-font-scale,1))] text-(--solus-text-tertiary)"
+      class="flex h-10 shrink-0 items-center gap-5 border-t border-(--solus-menu-hairline) bg-(--solus-menu-footer-bg) px-4 text-[length:calc(.75rem*var(--solus-font-scale,1))] text-(--solus-text-tertiary)"
     >
       <span class="inline-flex items-center gap-1.5">
         <Kbd variant="keycap">↑</Kbd>

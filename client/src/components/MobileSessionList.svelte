@@ -16,6 +16,7 @@
     CircleNotchIcon,
     NotePencilIcon,
     PaperclipIcon,
+    SunIcon,
   } from "phosphor-svelte";
   import { getWorkspaceContext, getSessionSidebarStore, serversStore } from "@renderer/contexts";
   import { aggregateReviewGuideStatus } from "@renderer/components/session/lib/task-list";
@@ -42,7 +43,7 @@
   // task tree as desktop. Sessions become peer-sized tap targets rather than a
   // nested disclosure, and unopened attempts remain lazy until selected.
   const groups = $derived(store.taskGroups);
-  const hasSessions = $derived(groups.length > 0);
+  const hasSessions = $derived(groups.length > 0 || store.snoozedTasks.length > 0);
   const collapsedProjectKeys = new SvelteSet<string>();
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -50,7 +51,7 @@
   const rowBase =
     "group relative flex items-center gap-2.5 w-full min-h-[3.25rem] py-2 pr-1.5 pl-3.5 rounded-lg text-left cursor-pointer [-webkit-tap-highlight-color:transparent] transition-colors duration-100";
   const sectionLabel =
-    "first:pt-2 px-3.5 pt-[1.125rem] pb-1 text-[0.75rem] font-normal text-(--solus-text-tertiary) truncate";
+    "first:pt-2 px-3.5 pt-[1.125rem] pb-1 text-xs font-normal text-(--solus-text-tertiary) truncate";
 
   function toggleProject(projectKey: string) {
     if (collapsedProjectKeys.has(projectKey)) {
@@ -129,6 +130,19 @@
     } catch (error) {
       toasts.error(
         `Couldn't complete task: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  async function wakeTask(task: (typeof store.snoozedTasks)[number], e: Event) {
+    e.stopPropagation();
+    if (!task.taskId) return;
+    try {
+      await session.tasksStore.snooze(task.taskId, { until: null });
+      requestInputFocus();
+    } catch (error) {
+      toasts.error(
+        `Couldn't wake task: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -285,7 +299,7 @@
     class="shrink-0 flex flex-col px-4 pb-2 pt-[max(0.875rem,env(safe-area-inset-top,0px))]"
   >
     <div class="flex items-center justify-between">
-      <span class="text-[1.125rem] font-medium tracking-[-0.01em] text-(--solus-text-primary)">Sessions</span>
+      <span class="text-sm font-medium tracking-[-0.01em] text-(--solus-text-primary)">Sessions</span>
       <button
         class="flex items-center gap-1 rounded-full border-0 bg-(--solus-accent-light) py-1.5 pl-2.5 pr-3 text-[0.8125rem] font-medium text-(--solus-accent) cursor-pointer transition-[background-color,transform] duration-[120ms] active:scale-[0.96] active:bg-(--solus-accent-border-medium) [-webkit-tap-highlight-color:transparent]"
         onclick={newSession}
@@ -302,7 +316,7 @@
         aria-label="Servers"
       >
         <HardDrivesIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
-        <span class="flex-1 min-w-0 truncate text-[0.75rem] font-medium text-(--solus-text-secondary)">{activeServer.label}</span>
+        <span class="flex-1 min-w-0 truncate text-xs font-medium text-(--solus-text-secondary)">{activeServer.label}</span>
         <span
           class="shrink-0 w-1.5 h-1.5 rounded-full {serverOnline ? 'bg-(--solus-status-complete)' : 'bg-(--solus-text-quaternary) opacity-60'}"
           aria-hidden="true"
@@ -335,7 +349,7 @@
           <span class="shrink-0 flex items-center text-(--solus-text-tertiary)"><NotePencilIcon size={14} /></span>
           <span class="flex-1 min-w-0 flex flex-col gap-px">
             <span class="truncate text-[0.8125rem] leading-tight font-normal text-(--solus-text-primary)">{row.title}</span>
-            <span class="truncate text-[0.6875rem] leading-tight text-(--solus-text-tertiary)">{row.projectLabel}</span>
+            <span class="truncate text-xs leading-tight text-(--solus-text-tertiary)">{row.projectLabel}</span>
           </span>
           {#if row.hasAttachments}
             <span class="shrink-0 flex items-center text-(--solus-text-tertiary)" aria-label="Has attachments"><PaperclipIcon size={14} /></span>
@@ -410,7 +424,7 @@
           }}
         >
           <span class="min-w-0 flex-1 truncate">{group.projectLabel}</span>
-          <span class="font-mono text-[0.6875rem] opacity-60 tabular-nums">{group.tasks.length}</span>
+          <span class="font-mono text-xs opacity-60 tabular-nums">{group.tasks.length}</span>
           <button
             class="shrink-0 w-9 h-9 flex items-center justify-center rounded-full border-0 bg-transparent text-(--solus-text-muted) cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-tertiary) active:text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
             aria-label="Close {group.projectLabel} and remove its tasks from the sidebar"
@@ -460,7 +474,7 @@
             <span class="flex-1 min-w-0 flex flex-col gap-px">
               <span class="truncate text-[0.8125rem] leading-tight font-normal {isActive ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{task.title}</span>
               {#if taskSessions.length > 0}
-                <span class="truncate text-[0.6875rem] leading-tight text-(--solus-text-tertiary)">{taskSessions.length} session{taskSessions.length === 1 ? '' : 's'}</span>
+                <span class="truncate text-xs leading-tight text-(--solus-text-tertiary)">{taskSessions.length} session{taskSessions.length === 1 ? '' : 's'}</span>
               {/if}
             </span>
             {#if task.attention}
@@ -505,7 +519,7 @@
               {#if childActive}{@render activeBar()}{/if}
               <span class="flex-1 min-w-0 flex flex-col gap-px">
                 <span class="truncate text-[0.8125rem] leading-tight font-normal {childActive ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{child.label}</span>
-                <span class="truncate text-[0.6875rem] leading-tight text-(--solus-text-tertiary)">{task.title}</span>
+                <span class="truncate text-xs leading-tight text-(--solus-text-tertiary)">{task.title}</span>
               </span>
               {#if child.attention}
                 {@render attentionMark(child.attention)}
@@ -537,6 +551,35 @@
           </div>
         {/if}
       {/each}
+      {#if store.snoozedTasks.length > 0}
+        <div class={sectionLabel}>Snoozed</div>
+        {#each store.snoozedTasks as task (task.id)}
+          <div
+            class="{rowBase} bg-transparent active:bg-(--solus-surface-hover)"
+            role="button"
+            tabindex="0"
+            onclick={() => selectTask(task)}
+            onkeydown={(e) => {
+              if (e.key !== "Enter" && e.key !== " ") return;
+              e.preventDefault();
+              selectTask(task);
+            }}
+          >
+            <span class="flex-1 min-w-0 flex flex-col gap-px">
+              <span class="truncate text-[0.8125rem] leading-tight font-normal text-(--solus-text-primary)">{task.title}</span>
+              <span class="truncate text-xs leading-tight text-(--solus-text-tertiary)">Snoozed</span>
+            </span>
+            <button
+              class="shrink-0 min-h-9 flex items-center gap-1.5 rounded-full border-0 bg-(--solus-accent-light) px-3 text-xs font-medium text-(--solus-accent) cursor-pointer transition-[background-color,transform] duration-[120ms] active:scale-[0.96] active:bg-(--solus-accent-border-medium) [-webkit-tap-highlight-color:transparent]"
+              aria-label="Wake {task.title} now"
+              onclick={(e) => void wakeTask(task, e)}
+            >
+              <SunIcon size={14} />
+              <span>Wake</span>
+            </button>
+          </div>
+        {/each}
+      {/if}
     {:else}
       <div class="flex flex-col items-center gap-3 px-4 py-12 text-[0.8125rem] text-(--solus-text-tertiary)">
         <span>No open sessions</span>
@@ -555,7 +598,7 @@
   >
     {#snippet footBtn(label: string, Icon: typeof GearIcon, action: () => void)}
       <button
-        class="flex-1 min-w-0 flex flex-col items-center gap-1 rounded-lg border-0 bg-transparent px-1 py-2 text-[0.625rem] font-medium text-(--solus-text-tertiary) cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-hover) active:text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
+        class="flex-1 min-w-0 flex flex-col items-center gap-1 rounded-lg border-0 bg-transparent px-1 py-2 text-xs font-medium text-(--solus-text-tertiary) cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-hover) active:text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
         onclick={() => nav(action)}
       >
         <Icon size={14} /><span>{label}</span>

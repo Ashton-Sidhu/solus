@@ -41,7 +41,7 @@
     : 'bg-[color-mix(in_oklch,var(--foreground)_2.5%,transparent)]'}"
 >
   {#if needsYou && answerInSessionOnly}
-    <span class="text-[12.5px] text-muted-foreground">
+    <span class="text-[0.8125rem] text-muted-foreground">
       {agentName} needs an answer in its own session
     </span>
     <span class="flex-1"></span>
@@ -58,7 +58,7 @@
 
   {#if onStop}
     <button
-      class="flex items-center gap-1.5 shrink-0 rounded-lg px-2.5 py-1 text-[12px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--destructive)_12%,transparent)] hover:text-(--destructive)"
+      class="flex items-center gap-1.5 shrink-0 rounded-lg px-2.5 py-1 text-xs text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--destructive)_12%,transparent)] hover:text-(--destructive)"
       onclick={onStop}
     >
       <svg
@@ -77,7 +77,7 @@
   {/if}
 
   <button
-    class="flex items-center gap-1.5 shrink-0 rounded-lg px-2.5 py-1 text-[12px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+    class="flex items-center gap-1.5 shrink-0 rounded-lg px-2.5 py-1 text-xs text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
     title="Open in a new tab"
     onclick={(e) =>
       onOpen({ split: e.metaKey || e.ctrlKey, background: e.shiftKey })}

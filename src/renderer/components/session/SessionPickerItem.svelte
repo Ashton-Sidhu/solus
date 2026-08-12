@@ -155,7 +155,7 @@
         {/if}
         {#if remoteHost}
           <span
-            class="flex min-w-0 max-w-[7rem] flex-shrink-0 items-center gap-1 text-[0.6875rem] text-[var(--solus-text-tertiary)]"
+            class="flex min-w-0 max-w-[7rem] flex-shrink-0 items-center gap-1 text-xs text-[var(--solus-text-tertiary)]"
             title="Runs on {remoteHost.label}"
           >
             <GlobeIcon size={11} class="shrink-0" />
@@ -168,7 +168,7 @@
 
       <div class="flex min-w-0 items-center gap-3">
         <span
-          class="min-w-0 flex-shrink overflow-hidden text-ellipsis whitespace-nowrap text-[0.6875rem] text-[var(--solus-text-tertiary)]"
+          class="min-w-0 flex-shrink overflow-hidden text-ellipsis whitespace-nowrap text-xs text-[var(--solus-text-tertiary)]"
           >{#each bylineRuns as run, i (i)}{#if run.hit}<mark
                 class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
                 >{run.text}</mark
@@ -176,7 +176,7 @@
         >
         {#if timeAgo}
           <span
-            class="flex-shrink-0 text-[0.6875rem] text-[var(--solus-text-tertiary)] opacity-70 [font-variant-numeric:tabular-nums]"
+            class="flex-shrink-0 text-xs text-[var(--solus-text-tertiary)] opacity-70 [font-variant-numeric:tabular-nums]"
             >{timeAgo}</span
           >
         {/if}

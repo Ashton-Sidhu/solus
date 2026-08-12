@@ -104,7 +104,7 @@
     background: color-mix(in oklch, var(--foreground) 4%, transparent);
     padding: 0.1875rem 0.625rem;
     color: var(--solus-text-tertiary);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     line-height: 1rem;
     text-align: center;
     text-wrap: pretty;
@@ -180,7 +180,7 @@
     background: transparent;
     padding: 0.125rem 0.5625rem;
     color: var(--solus-text-primary);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 500;
     cursor: pointer;
     transition: background var(--duration-quick) var(--ease-premium);

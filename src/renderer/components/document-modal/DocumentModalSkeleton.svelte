@@ -51,7 +51,7 @@
       {/if}
       {#if title}
         <span
-          class="min-w-0 truncate text-[0.78125rem] font-medium text-(--solus-text-primary)"
+          class="min-w-0 truncate text-[0.8125rem] font-medium text-(--solus-text-primary)"
         >
           {title}
         </span>
@@ -144,7 +144,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
 
     color: var(--solus-text-tertiary);
   }
@@ -154,7 +154,7 @@
      container, which is what makes a split pane narrow the column instead of
      the window doing it. */
   .doc-skeleton-column {
-    --solus-doc-size: calc(0.96875rem * var(--solus-font-scale, 1));
+    --solus-doc-size: calc(0.875rem * var(--solus-font-scale, 1));
     --solus-doc-measure: clamp(66ch, 68cqi, 112ch);
   }
   .doc-skeleton-page {
@@ -197,7 +197,7 @@
   }
   @container (max-width: 45rem) {
     .doc-skeleton-column {
-      --solus-doc-size: calc(0.9375rem * var(--solus-font-scale, 1));
+      --solus-doc-size: calc(0.875rem * var(--solus-font-scale, 1));
     }
     .doc-skeleton-prose {
       --doc-pad-x: 1.375rem;
@@ -205,7 +205,7 @@
   }
   @media (max-width: 767px) {
     .doc-skeleton-column {
-      --solus-doc-size: calc(1.0625rem * var(--solus-font-scale, 1));
+      --solus-doc-size: calc(0.875rem * var(--solus-font-scale, 1));
     }
     .doc-skeleton-prose {
       padding-top: 1.25rem;

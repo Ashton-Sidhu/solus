@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import ListAvatar from "./ListAvatar.svelte";
-  import { chipSkin, type ListRowSpec } from "./list-page";
+  import { chipSkin, compactCount, type ListRowSpec } from "./list-page";
 
   /** The list docked beside an open detail panel.
    *
@@ -38,9 +38,23 @@
         ? { id: "solus", initials: "S", name: "Solus", fallback: "solus" as const }
         : null),
   );
-  const note = $derived(row.chips.find((chip) => !!chip.tint) ?? null);
+  // A failing build is the one thing the wide row says in colour, so it is also
+  // what survives the fold — as words, not as the glyph the wide row can afford.
+  const note = $derived(
+    row.checks?.state === "failing"
+      ? { label: row.checks.label, tint: "failure" as const }
+      : (row.chips.find((chip) => !!chip.tint) ?? null),
+  );
   const noteColor = $derived(
     note ? chipSkin(note.tint).color : "var(--muted-foreground)",
+  );
+  // At rail width churn is one more machine fact on the meta line, so it reads
+  // as text rather than as the wide row's two coloured columns.
+  const meta = $derived(
+    row.meta ||
+      (row.churn
+        ? `+${compactCount(row.churn.additions)} −${compactCount(row.churn.deletions)}`
+        : ""),
   );
 </script>
 
@@ -67,22 +81,22 @@
 
     <span class="flex min-w-0 flex-1 flex-col gap-[3px]">
       <span
-        class="truncate text-[12.5px] leading-[17px] font-medium "
+        class="truncate text-[0.8125rem] leading-[17px] font-medium "
         title={row.title}
       >
         {row.title}
       </span>
       <span
-        class="flex min-w-0 items-center gap-[7px] text-[10.5px] leading-[15px]"
+        class="flex min-w-0 items-center gap-[7px] text-xs leading-[15px]"
       >
         <span class="shrink-0 font-mono tabular-nums text-muted-foreground opacity-80">
           {row.ident}
         </span>
-        {#if row.meta}
+        {#if meta}
           <span
             class="shrink-0 font-mono tabular-nums text-muted-foreground opacity-70"
           >
-            {row.meta}
+            {meta}
           </span>
         {/if}
         {#if note}
@@ -94,7 +108,7 @@
     <!-- Aligned to the title's line, not to the row's middle: the time belongs
          to the thing it is naming. -->
     <span
-      class="mt-px shrink-0 self-start font-mono text-[10.5px] tabular-nums text-muted-foreground opacity-75"
+      class="mt-px shrink-0 self-start font-mono text-xs tabular-nums text-muted-foreground opacity-75"
       title={row.timeTitle}
     >
       {row.time}

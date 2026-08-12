@@ -48,7 +48,7 @@
     {#snippet control()}
       {#if cloudflareStore.isEnvManaged}
         <!-- The environment owns this credential; the app has nothing to revoke. -->
-        <span class="text-[0.75rem] text-muted-foreground">Read-only</span>
+        <span class="text-xs text-muted-foreground">Read-only</span>
       {:else if cloudflareStore.connected}
         <Button variant="outline" size="sm" onclick={() => void disconnect()}>
           <SignOutIcon size={13} />

@@ -6,6 +6,7 @@ import type { PullRequestSummary } from '../../../shared/providers'
 import { existingTaskId, parentTaskId } from './session-draft.svelte'
 import {
   buildProjectSummaries,
+  belongsToSelectedHost,
   compareTaskCreationOrder,
   groupTasks,
   prChipForBranches as resolvePrChip,
@@ -16,12 +17,14 @@ import {
   sidebarChildLabel,
   shouldShowDurableSidebarTask,
   shouldShowSidebarChild,
-  showsProjectLine as projectLineVisible,
+  projectFilterChoices,
+  resolveProjectFilter,
   sortTasksByCreation,
   sortSidebarRowsBySessionOrder,
   sortTasks,
   taskStatusFor,
   type PrChip,
+  type ProjectFilterChoice,
   type ProjectSummary,
   type SidebarTask,
   type TaskGroup,
@@ -38,7 +41,7 @@ import {
 } from '../../lib/sessionUtils'
 import { environmentBranchKey, environmentProjectKey } from '../git/session-environment.store.svelte'
 import type { PlanStore } from '../plans/plan.store.svelte'
-import type { SettingsContext, SidebarViewMode } from '../app/settings.context.svelte'
+import type { SettingsContext } from '../app/settings.context.svelte'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { taskTabTarget } from './session-sidebar-selection'
 import {
@@ -372,31 +375,69 @@ export class SessionSidebarStore {
     )
   })
 
+  /** The sidebar is a view of the selected host, not the federation cache.
+   * A dispatched run stays with the host that owns its task record even when
+   * the agent itself runs on another connected machine. */
+  hostTasks: SidebarTask[] = $derived.by(() => {
+    const selectedServerId = serverConnections.connectionFor()?.serverId
+    return this.allTasks.filter((task) => {
+      const ownerServerId = task.taskId
+        ? this.session.tasksStore.hostFor(task.taskId)
+        : task.serverId
+      return belongsToSelectedHost(
+        ownerServerId ? serverConnections.resolveId(ownerServerId) : null,
+        selectedServerId,
+      )
+    })
+  })
+
   /** Every open project, with the counts and the lead task the breadcrumb's
    *  picker lands on. */
-  projectSummaries: ProjectSummary[] = $derived(buildProjectSummaries(this.allTasks))
+  projectSummaries: ProjectSummary[] = $derived(buildProjectSummaries(this.hostTasks))
 
-  get viewMode(): SidebarViewMode {
-    return this.settings.sidebarViewMode
-  }
+  /** The project the list is scoped to, or null for all of them. Resolved
+   *  against the column's own contents so a project that has left it never
+   *  keeps scoping the list to something no longer there. */
+  private openProjectFilter: string | null = $derived.by(() =>
+    resolveProjectFilter(this.settings.sidebarProjectFilter, this.hostTasks),
+  )
 
-  showsProjectLine: boolean = $derived(projectLineVisible(this.viewMode))
+  /** The project the trigger and the empty line name, or null while unfiltered. */
+  scopedProject: ProjectFilterChoice | null = $derived.by(() => {
+    const filter = this.openProjectFilter
+    if (!filter) return null
+    return this.projectFilterChoices.find((choice) => choice.projectKey === filter) ?? null
+  })
 
-  /** The order tasks arrived in, held. Lifecycle changes update a row in place;
-   *  only an explicit sidebar dismissal removes it. */
-  visibleTasks: SidebarTask[] = $derived(this.allTasks.filter((task) => task.lifecycle === 'active'))
+  /** Every open task, before the filter. The order tasks arrived in, held:
+   *  lifecycle changes update a row in place; only an explicit sidebar
+   *  dismissal removes it. */
+  activeTasks: SidebarTask[] = $derived(this.hostTasks.filter((task) => task.lifecycle === 'active'))
+
+  /** What the column actually lists. Filtering is a subset of the same order,
+   *  never a re-sort. */
+  visibleTasks: SidebarTask[] = $derived(this.inFilter(this.activeTasks))
   snoozedTasks: SidebarTask[] = $derived(
-    this.allTasks
-      .filter((task) => task.lifecycle === 'snoozed')
+    this.inFilter(this.hostTasks.filter((task) => task.lifecycle === 'snoozed'))
       .toSorted((a, b) => a.snoozedUntil - b.snoozedUntil || a.id.localeCompare(b.id)),
   )
   completedTasks: SidebarTask[] = $derived(
-    this.allTasks
-      .filter((task) => task.lifecycle === 'completed')
+    this.inFilter(this.hostTasks.filter((task) => task.lifecycle === 'completed'))
       .toSorted((a, b) => b.completedAt - a.completedAt || a.id.localeCompare(b.id)),
   )
 
-  taskGroups: TaskGroup[] = $derived(groupTasks(this.visibleTasks))
+  /** The filter's own choices, over every project the column knows about. */
+  projectFilterChoices: ProjectFilterChoice[] = $derived(projectFilterChoices(this.hostTasks))
+
+  /** Grouped by project, unfiltered — the phone lists projects as collapsible
+   *  sections rather than filtering to one, and must not inherit a scope set on
+   *  a surface that has no control to clear it. */
+  taskGroups: TaskGroup[] = $derived(groupTasks(this.activeTasks))
+
+  private inFilter(tasks: SidebarTask[]): SidebarTask[] {
+    const filter = this.openProjectFilter
+    return filter ? tasks.filter((task) => task.projectKey === filter) : tasks
+  }
 
   headerCount: number = $derived(this.visibleTasks.length)
 
@@ -408,6 +449,7 @@ export class SessionSidebarStore {
    *  here. */
   draftRows: DraftRow[] = $derived.by(() => {
     const composing = this.session.composingDraftIds
+    const filter = this.openProjectFilter
     const rows: DraftRow[] = []
     for (const draft of this.session.sessionDrafts.values()) {
       if (draft.isEmpty || composing.has(draft.id)) continue
@@ -415,6 +457,9 @@ export class SessionSidebarStore {
         this.session.environment.environmentFor(draft.run),
         draft.run.projectGroupPath,
       )
+      // A draft with no repo behind it belongs to nothing yet, so no project
+      // scope can exclude it.
+      if (filter && projectKey !== filter && projectKey !== '~') continue
       rows.push({
         draftId: draft.id,
         title: draftTitle(draft.prompt),
@@ -431,7 +476,7 @@ export class SessionSidebarStore {
    *  one, as its own loose row when it does not — so a composer that has yet to
    *  dispatch needs no row of its own synthesized here. */
   taskForTab(tabId: string): SidebarTask | null {
-    return this.allTasks.find((task) => task.tabIds.includes(tabId)) ?? null
+    return this.hostTasks.find((task) => task.tabIds.includes(tabId)) ?? null
   }
 
   /** The task the leading breadcrumb names. */
@@ -445,7 +490,7 @@ export class SessionSidebarStore {
   /** The task choices for a breadcrumb scoped to either conversation pane. */
   tasksForProject(projectKey: string | null | undefined): SidebarTask[] {
     if (!projectKey) return []
-    return sortTasks(this.allTasks.filter((task) => task.projectKey === projectKey))
+    return sortTasks(this.hostTasks.filter((task) => task.projectKey === projectKey))
   }
 
   /** The sessions inside the active task: what the session crumb drops down. */
@@ -459,8 +504,8 @@ export class SessionSidebarStore {
     return task ? this.sessionsFor(task) : []
   }
 
-  setViewMode(mode: SidebarViewMode): void {
-    this.settings.update({ sidebarViewMode: mode })
+  setProjectFilter(projectKey: string | null): void {
+    this.settings.update({ sidebarProjectFilter: projectKey })
   }
 
   prChipFor(task: SidebarTask): PrChip | null {
@@ -514,7 +559,7 @@ export class SessionSidebarStore {
       projectKey: string
       tasks: Array<{ task: SidebarTask; branches: (string | null)[]; originSessionId?: string }>
     }>()
-    for (const task of this.allTasks) {
+    for (const task of this.hostTasks) {
       if (!task.taskId) continue
       const attempts = this.sessionsFor(task)
       const branches = [...attempts.map((attempt) => attempt.branchName).reverse(), task.branchName]
@@ -678,7 +723,7 @@ export class SessionSidebarStore {
    *  array identity each time. One derived pass keeps both costs at one. */
   private sessionsByTaskId: Map<string, SidebarSessionChild[]> = $derived.by(() => {
     const byTaskId = new Map<string, SidebarSessionChild[]>()
-    for (const task of this.allTasks) byTaskId.set(task.id, this.buildSessionsFor(task))
+    for (const task of this.hostTasks) byTaskId.set(task.id, this.buildSessionsFor(task))
     return byTaskId
   })
 
@@ -899,14 +944,14 @@ export class SessionSidebarStore {
    *  task is dismissed the same way closing its own row does, so nothing about
    *  their lifecycle changes and reopening any session brings its task back. */
   closeProject(projectKey: string): void {
-    for (const task of this.allTasks.filter((item) => item.projectKey === projectKey)) {
+    for (const task of this.hostTasks.filter((item) => item.projectKey === projectKey)) {
       this.closeTask(task)
     }
   }
 
   /** How many runs this project would stop, for surfaces that ask first. */
   runningTaskCountIn(projectKey: string): number {
-    return this.allTasks.filter(
+    return this.hostTasks.filter(
       (task) => task.projectKey === projectKey && task.status === 'running',
     ).length
   }
@@ -923,7 +968,7 @@ export class SessionSidebarStore {
   /** Keyboard dismissal targets a mounted row by tab id. Durable children hide
    *  independently; a loose session owns its whole temporary task row. */
   closeSidebarTab(tabId: string): void {
-    for (const task of this.allTasks) {
+    for (const task of this.hostTasks) {
       const child = this.sessionsFor(task).find((candidate) => candidate.tabId === tabId)
       if (task.taskId && child) {
         this.closeChild(child)

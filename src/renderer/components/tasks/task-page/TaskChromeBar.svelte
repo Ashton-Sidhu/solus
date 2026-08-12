@@ -1,19 +1,27 @@
 <script lang="ts">
-  import { ArrowsClockwiseIcon, CircleNotchIcon } from "phosphor-svelte";
+  import { ArrowSquareOutIcon, CircleNotchIcon } from "phosphor-svelte";
   import type { Task } from "../../../../shared/task-types";
   import { taskProviderLabel, taskRef } from "./lib/task-page";
+  import { syncToneColor, type TaskUpstreamState } from "./lib/task-upstream";
   import CopyButton from "../../ui/CopyButton.svelte";
+  import ProjectFavicon from "../../ui/ProjectFavicon.svelte";
 
   interface Props {
     task: Task;
     projectLabel: string;
+    projectRoot?: string;
+    /** How this task stands with the system that owns its ticket. Null for a
+     *  local task, which shows that it is local instead. */
+    upstream: TaskUpstreamState | null;
+    syncing: boolean;
+    /** Exchange with the provider now — a push and pull for a linked ticket, a
+     *  re-read for a provider-owned one. Null when there is nothing to ask. */
+    onSync?: (() => void) | null;
     /** Neighbours in the Tasks page's own order, so "next" agrees with what the
      *  user saw in the list. Null when the task isn't in the current view. */
     onPrevious?: (() => void) | null;
     onNext?: (() => void) | null;
     onOpenSource?: (() => void) | null;
-    onRefresh?: (() => void) | null;
-    refreshing?: boolean;
     onOpenList: () => void;
     onClose: () => void;
   }
@@ -21,11 +29,13 @@
   let {
     task,
     projectLabel,
+    projectRoot,
+    upstream,
+    syncing,
+    onSync,
     onPrevious,
     onNext,
     onOpenSource,
-    onRefresh,
-    refreshing = false,
     onOpenList,
     onClose,
   }: Props = $props();
@@ -34,82 +44,85 @@
 
   const ICON_BTN =
     "flex size-[26px] cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35";
+  const PILL =
+    "mr-2 flex h-[26px] items-center gap-[7px] rounded-full px-2.5 text-xs text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)]";
 </script>
+
+{#snippet pillBody(state: TaskUpstreamState, tone: string)}
+  {#if syncing}
+    <CircleNotchIcon size={11} class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+  {:else}
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 14 14"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.4"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      class="opacity-70"
+      aria-hidden="true"><path d={state.glyph} /></svg
+    >
+  {/if}
+  <span style="color:{tone}">{syncing ? "Syncing" : state.label}</span>
+  <span class="font-mono text-xs opacity-70">{state.ref}</span>
+{/snippet}
 
 <div
   class="flex h-(--solus-chrome-row-h,2.75rem) shrink-0 items-center gap-1 pr-3.5 pl-[max(1.125rem,var(--solus-chrome-lead-inset,0px))]"
 >
   <button
     type="button"
-    class="flex h-7 cursor-pointer items-center gap-[7px] rounded px-[7px] text-[13px] text-muted-foreground hover:bg-[var(--wash-1)]"
+    class="flex h-7 cursor-pointer items-center gap-[7px] rounded px-[7px] text-[0.8125rem] text-muted-foreground hover:bg-[var(--wash-1)]"
     onclick={onOpenList}
   >
-    <span class="size-4 shrink-0 rounded bg-[color-mix(in_oklch,var(--chart-4)_55%,transparent)]"
-    ></span>
+    {#if projectRoot}
+      <ProjectFavicon projectRoot={projectRoot} class="size-4" coloredFallback />
+    {:else}
+      <span class="size-4 shrink-0 rounded bg-(--chart-4)" aria-hidden="true"></span>
+    {/if}
     {projectLabel}
   </button>
-  <span class="px-[3px] text-[13px] opacity-30" aria-hidden="true">/</span>
+  <span class="px-[3px] text-[0.8125rem] opacity-30" aria-hidden="true">/</span>
   <button
     type="button"
-    class="flex h-7 cursor-pointer items-center rounded px-[7px] text-[13px] text-muted-foreground hover:bg-[var(--wash-1)]"
+    class="flex h-7 cursor-pointer items-center rounded px-[7px] text-[0.8125rem] text-muted-foreground hover:bg-[var(--wash-1)]"
     onclick={onOpenList}
   >
     Tasks
   </button>
-  <span class="px-[3px] text-[13px] opacity-30" aria-hidden="true">/</span>
-  <span class="flex h-7 items-center rounded px-[7px] font-mono text-[13px] ">
+  <span class="px-[3px] text-[0.8125rem] opacity-30" aria-hidden="true">/</span>
+  <span class="flex h-7 items-center rounded px-[7px] font-mono text-[0.8125rem] ">
     {taskRef(task)}
   </span>
   <CopyButton text={task.id} title="Copy task ID" iconOnly />
 
   <span class="flex-1"></span>
 
-  {#if onRefresh}
-    <button
-      type="button"
-      class={ICON_BTN}
-      onclick={onRefresh}
-      disabled={refreshing}
-      title="Refresh from GitHub"
-      aria-label="Refresh issue from GitHub"
-    >
-      {#if refreshing}
-        <CircleNotchIcon size={13} class="animate-spin motion-reduce:animate-none" />
-      {:else}
-        <ArrowsClockwiseIcon size={13} />
-      {/if}
-    </button>
-  {/if}
-
-  {#if onOpenSource}
-    <button
-      type="button"
-      class="mr-2 flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full px-2.5 text-[12px] text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)] transition-colors hover:bg-[var(--wash-1)] hover:text-foreground"
-      onclick={onOpenSource}
-      title={`Open in ${providerLabel}`}
-      aria-label={`Open task in ${providerLabel}`}
-    >
-      {providerLabel}
-      <svg
-        width="10"
-        height="10"
-        viewBox="0 0 14 14"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.4"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        class="opacity-70"
-        aria-hidden="true"
+  <!-- One pill for the whole upstream story: which system owns the ticket, the
+       reference it is filed under, and whether we are level with it. Pressing
+       it exchanges now instead of waiting for the engine's own debounce. -->
+  {#if upstream}
+    {@const tone = syncToneColor(upstream.tone)}
+    {#if onSync}
+      <button
+        type="button"
+        class="{PILL} cursor-pointer transition-colors hover:bg-[var(--wash-1)] hover:text-foreground disabled:pointer-events-none"
+        onclick={onSync}
+        disabled={syncing}
+        title="{upstream.title} · click to sync now"
+        aria-label="Sync with {upstream.provider} now"
       >
-        <path d="M8 2h4v4M6 8l6-6M11 8.2v2.4a1.4 1.4 0 01-1.4 1.4H3.4A1.4 1.4 0 012 10.6V4.4A1.4 1.4 0 013.4 3H6" />
-      </svg>
-    </button>
+        {@render pillBody(upstream, tone)}
+      </button>
+    {:else}
+      <span class={PILL} title={upstream.title}>
+        {@render pillBody(upstream, tone)}
+      </span>
+    {/if}
   {:else}
-    <span
-      class="mr-2 flex h-[26px] items-center gap-[7px] rounded-full px-2.5 text-[12px] text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)]"
-      title="This task lives only in Solus"
-    >
+    <span class={PILL} title="This task lives only in Solus">
       <svg
         width="11"
         height="11"
@@ -126,6 +139,18 @@
       </svg>
       {providerLabel}
     </span>
+  {/if}
+
+  {#if onOpenSource}
+    <button
+      type="button"
+      class={ICON_BTN}
+      onclick={onOpenSource}
+      title={`Open in ${providerLabel}`}
+      aria-label={`Open task in ${providerLabel}`}
+    >
+      <ArrowSquareOutIcon size={13} />
+    </button>
   {/if}
 
   <span class="mx-1.5 h-4 w-px bg-[var(--hairline-strong)]" aria-hidden="true"></span>

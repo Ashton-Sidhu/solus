@@ -106,7 +106,7 @@
 
 {#if mode === "reconnecting"}
   <div
-    class="pointer-events-auto fixed left-1/2 top-3 z-[10018] flex -translate-x-1/2 items-center gap-2 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) py-1.5 pl-3 pr-2 text-[0.75rem] font-secondary text-(--solus-text-secondary) shadow-(--solus-popover-shadow) backdrop-blur-xl"
+    class="pointer-events-auto fixed left-1/2 top-3 z-[10018] flex -translate-x-1/2 items-center gap-2 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) py-1.5 pl-3 pr-2 text-xs font-secondary text-(--solus-text-secondary) shadow-(--solus-popover-shadow) backdrop-blur-xl"
     role="status"
     transition:fly={{ y: -8, duration: 260 }}
   >
@@ -119,7 +119,7 @@
     <span class="h-3 w-px bg-(--solus-menu-hairline)"></span>
     <button
       type="button"
-      class="flex items-center gap-1 rounded-full bg-(--solus-accent-soft) px-2 py-0.5 text-[0.6875rem] text-(--solus-accent) transition-colors hover:bg-(--solus-accent-light) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
+      class="flex items-center gap-1 rounded-full bg-(--solus-accent-soft) px-2 py-0.5 text-xs text-(--solus-accent) transition-colors hover:bg-(--solus-accent-light) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
       onclick={() => serversStore.retryActive()}
     >
       <ArrowClockwiseIcon size={11} />
@@ -133,20 +133,20 @@
     transition:fly={{ y: -8, duration: 300 }}
   >
     <div class="text-[0.8125rem] text-(--solus-text-primary)">{cardCopy.title}</div>
-    <p class="mt-1 text-[0.6875rem] leading-relaxed text-(--solus-text-tertiary)">
+    <p class="mt-1 text-xs leading-relaxed text-(--solus-text-tertiary)">
       {cardCopy.body}
     </p>
     <div class="mt-3 flex gap-2">
       <button
         type="button"
-        class="rounded-md bg-(--solus-accent) px-2.5 py-1 text-[0.71875rem] text-white transition-[filter] hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
+        class="rounded-md bg-(--solus-accent) px-2.5 py-1 text-xs text-white transition-[filter] hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
         onclick={runPrimary}
       >
         {cardCopy.primary}
       </button>
       <button
         type="button"
-        class="rounded-md border border-(--solus-input-border) px-2.5 py-1 text-[0.71875rem] text-(--solus-text-secondary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
+        class="rounded-md border border-(--solus-input-border) px-2.5 py-1 text-xs text-(--solus-text-secondary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
         onclick={() => serversStore.useLocalHost()}
       >
         Use this Mac
@@ -155,7 +155,7 @@
   </div>
 {:else if confirmingReconnect}
   <div
-    class="pointer-events-none fixed left-1/2 top-3 z-[10018] flex -translate-x-1/2 items-center gap-2 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) px-3 py-1.5 text-[0.75rem] font-secondary text-(--solus-text-secondary) shadow-(--solus-popover-shadow) backdrop-blur-xl"
+    class="pointer-events-none fixed left-1/2 top-3 z-[10018] flex -translate-x-1/2 items-center gap-2 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) px-3 py-1.5 text-xs font-secondary text-(--solus-text-secondary) shadow-(--solus-popover-shadow) backdrop-blur-xl"
     role="status"
     transition:fly={{ y: -8, duration: 260 }}
   >

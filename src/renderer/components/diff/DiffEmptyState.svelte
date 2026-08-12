@@ -42,7 +42,7 @@
           : "No changes yet")}
     </span>
     <span
-      class="text-[0.6875rem] text-(--solus-text-tertiary) leading-snug max-w-[15rem]"
+      class="text-xs text-(--solus-text-tertiary) leading-snug max-w-[15rem]"
     >
       {description ?? (selectedTurnIndex !== null
         ? "The agent didn't write or edit any files during this step."
@@ -54,7 +54,7 @@
       <Button
         variant="link"
         onclick={onClose}
-        class="mt-1 h-10 text-[0.6875rem] text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)"
+        class="mt-1 h-10 text-xs text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)"
         title="Close diff panel (Esc)"
       >
         Close panel

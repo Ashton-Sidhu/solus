@@ -80,7 +80,7 @@
 
 <Popover.Root bind:open={stepsOpen}>
   <Popover.Content
-    class="progress-popover flex w-[min(calc(34rem*var(--orb-scale)),calc(100vw-1.5rem))] max-h-[calc(100vh-8rem)] flex-col gap-0 p-0 [--pop-body-size:calc(0.875rem*var(--orb-scale))] [--pop-title-size:calc(0.9375rem*var(--orb-scale))]"
+    class="progress-popover flex w-[min(calc(34rem*var(--orb-scale)),calc(100vw-1.5rem))] max-h-[calc(100vh-8rem)] flex-col gap-0 p-0 [--pop-body-size:calc(0.875rem * var(--orb-scale))] [--pop-title-size:calc(0.875rem * var(--orb-scale))]"
     side="top"
     sideOffset={8}
     style={`--orb-scale: calc(var(--solus-font-scale, 1) * ${orbScreenScale})`}
@@ -338,7 +338,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: calc(0.5469rem * var(--orb-scale));
+    font-size: calc(0.75rem * var(--orb-scale));
     font-weight: 500;
     line-height: 1;
     color: var(--solus-text-secondary);
@@ -363,7 +363,7 @@
   }
   .pt-count-text {
     flex-shrink: 0;
-    font-size: calc(0.6563rem * var(--orb-scale));
+    font-size: calc(0.75rem * var(--orb-scale));
     font-weight: 500;
     line-height: 1;
     color: var(--solus-text-secondary);

@@ -46,7 +46,7 @@
           <option.Icon size={14} />
         </span>
         <span class="flex min-w-0 flex-1 flex-col gap-[0.03125rem]">
-          <span class="truncate text-[0.75rem] leading-[1.25] font-medium text-(--solus-text-primary)">{option.label}</span>
+          <span class="truncate text-xs leading-[1.25] font-medium text-(--solus-text-primary)">{option.label}</span>
           {#if option.id === 'resume'}
             <span class="truncate text-menu-meta leading-[1.25] text-(--solus-text-tertiary)">
               {#if originalSessionMeta}

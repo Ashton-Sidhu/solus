@@ -74,7 +74,7 @@
          offset — a card's own padding, prose's cap height, a row's wash — so the
          numeral is nudged to sit on the first line of text rather than above it. -->
     <div
-      class="font-mono text-[0.6875rem] tabular-nums text-(--muted-foreground) opacity-75 {i === 0
+      class="font-mono text-xs tabular-nums text-(--muted-foreground) opacity-75 {i === 0
         ? 'pt-px'
         : entry.kind === 'tools'
           ? 'pt-[1.0625rem]'
@@ -93,9 +93,9 @@
         <div
           class="flex flex-col gap-2 border-l border-[color-mix(in_oklch,var(--foreground)_12%,transparent)] pl-3"
         >
-          <div class="flex items-baseline justify-between gap-3 text-[0.78125rem]">
+          <div class="flex items-baseline justify-between gap-3 text-[0.8125rem]">
             <span class="min-w-0 truncate font-medium">Dispatched by the main agent</span>
-            <span class="shrink-0 font-mono text-[0.6875rem] text-(--muted-foreground)"
+            <span class="shrink-0 font-mono text-xs text-(--muted-foreground)"
               >{entry.call}</span
             >
           </div>
@@ -130,10 +130,10 @@
           class="mt-2.5 border-t border-[color-mix(in_oklch,var(--foreground)_12%,transparent)] pt-[1.125rem]"
         >
           <div class="mb-2 flex items-baseline gap-2">
-            <span class="text-[0.78125rem] font-medium">Final answer</span>
+            <span class="text-[0.8125rem] font-medium">Final answer</span>
             <span class="flex-1"></span>
             {#if outline}
-              <span class="shrink-0 font-mono text-[0.6875rem] text-(--muted-foreground)"
+              <span class="shrink-0 font-mono text-xs text-(--muted-foreground)"
                 >{outline.sections.length} heading{outline.sections.length === 1
                   ? ""
                   : "s"}</span
@@ -152,9 +152,9 @@
           {#if outline}
             <div class="mt-2.5 flex flex-col gap-[0.1875rem]">
               {#each outline.sections as section (section.n)}
-                <div class="flex items-baseline gap-2.5 text-[0.78125rem]">
+                <div class="flex items-baseline gap-2.5 text-[0.8125rem]">
                   <span
-                    class="shrink-0 font-mono text-[0.6875rem] tabular-nums text-(--muted-foreground)"
+                    class="shrink-0 font-mono text-xs tabular-nums text-(--muted-foreground)"
                     >{section.n}</span
                   >
                   <span class="truncate">{section.heading}</span>
@@ -185,7 +185,7 @@
       class="flex items-baseline gap-2.5 border-t border-[color-mix(in_oklch,var(--foreground)_12%,transparent)] pt-2.5"
     >
       <span
-        class="text-[0.78125rem] {state === 'failed'
+        class="text-[0.8125rem] {state === 'failed'
           ? 'text-[color-mix(in_oklch,var(--destructive)_70%,var(--foreground))]'
           : state === 'running'
             ? 'activity-shimmer'
@@ -194,7 +194,7 @@
       <span class="flex-1"></span>
       {#if tail.facts}
         <span
-          class="shrink-0 font-mono text-[0.6875rem] tabular-nums text-(--muted-foreground)"
+          class="shrink-0 font-mono text-xs tabular-nums text-(--muted-foreground)"
           >{tail.facts}</span
         >
       {/if}
@@ -204,7 +204,7 @@
            thing in the transcript is the way through to the full text. -->
       <button
         type="button"
-        class="mt-2.5 cursor-pointer border-none bg-transparent p-0 text-left text-[0.78125rem] text-(--muted-foreground) underline decoration-dotted underline-offset-[3px] transition-colors hover:text-(--foreground)"
+        class="mt-2.5 cursor-pointer border-none bg-transparent p-0 text-left text-[0.8125rem] text-(--muted-foreground) underline decoration-dotted underline-offset-[3px] transition-colors hover:text-(--foreground)"
         onclick={onOpenReport}>Read the full answer in Report</button
       >
     {/if}

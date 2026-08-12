@@ -30,7 +30,7 @@
 
 <SettingsSection label="Devices with access">
   {#if connections.sessions.length === 0}
-    <p class="px-4 py-6 text-center text-[0.75rem] text-(--solus-text-tertiary)">
+    <p class="px-4 py-6 text-center text-xs text-(--solus-text-tertiary)">
       No devices are connected to this host.
     </p>
   {:else}
@@ -47,7 +47,7 @@
           <p class="truncate text-[0.8125rem] font-medium text-(--solus-text-primary)">
             {session.deviceLabel}
           </p>
-          <p class="text-[0.6875rem] text-(--solus-text-tertiary)">
+          <p class="text-xs text-(--solus-text-tertiary)">
             {relativeTime(session.connectedAt)}
             {#if session.connectionCount > 1}
               &middot; {session.connectionCount} connections

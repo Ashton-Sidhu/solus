@@ -6,6 +6,7 @@ import {
   prInboxGroups,
   prRow,
   prStatusOf,
+  shortBranch,
   type PrRowContext,
 } from '../../src/renderer/components/prs/lib/prs-list-view'
 
@@ -67,6 +68,65 @@ describe('PR status filter', () => {
     expect(prStatusOf(draft)).toBe('draft')
     expect(prStatusOf(pullRequest)).toBe('open')
     expect(prStatusOf(merged)).toBe('merged')
+  })
+})
+
+describe('PR row slots', () => {
+  const checksContext = (state: 'passing' | 'failing' | 'pending', headSha = 'abc123'): PrRowContext => ({
+    checks: () => ({ state, headSha, required: [], optional: [], inFlight: state === 'pending' }),
+    isMine: () => true,
+  })
+
+  test('the branch is a hover reveal, not a chip that costs every row width', () => {
+    // WHY: agent-authored branches are long and near-identical. Spending that
+    // width on every row at rest is width taken from the title, which is the
+    // thing being scanned — so slot 4 must carry it and the chips must not.
+    const row = prRow({ ...pullRequest, headRef: 'solus/look-at-git-commits-f-7jgnb' }, context, NOW)
+    expect(row.chips).toHaveLength(0)
+    expect(row.reveal?.title).toBe('solus/look-at-git-commits-f-7jgnb')
+  })
+
+  test('a long branch keeps its tail, because that is what tells two apart', () => {
+    // WHY: generated refs share a prefix and differ in the suffix. Ellipsising
+    // the end would make every row read the same.
+    expect(shortBranch('solus/short-fix')).toBe('solus/short-fix')
+    const short = shortBranch('solus/look-at-git-commits-in-userssidhusolus-f-7jgnb')
+    expect(short.startsWith('solus/look-')).toBe(true)
+    expect(short.endsWith('-f-7jgnb')).toBe(true)
+  })
+
+  test('nothing to say about checks still holds the slot', () => {
+    // WHY: pending resolves on its own and a stale summary is not this PR's
+    // result — but the slot has to keep its width, or the row shifts under the
+    // pointer the moment the result lands.
+    expect(prRow(pullRequest, checksContext('pending'), NOW).checks).toEqual({ state: 'none', label: '' })
+    expect(prRow(pullRequest, checksContext('passing', 'stale-sha'), NOW).checks).toEqual({
+      state: 'none',
+      label: '',
+    })
+  })
+
+  test('passing gets a glyph and failing gets words', () => {
+    // WHY: a "checks passing" pill on every row is the expected case spending
+    // the width of the exception. Only failure is worth reading as text.
+    expect(prRow(pullRequest, checksContext('passing'), NOW).checks).toMatchObject({ state: 'passing' })
+    expect(prRow(pullRequest, checksContext('failing'), NOW).checks).toMatchObject({
+      state: 'failing',
+      label: 'checks failing',
+    })
+  })
+
+  test('churn stays numbers, so the row can colour the sign', () => {
+    // WHY: colour carries the sign in slot 6; a pre-joined "+5 −1" string would
+    // force the row back to one muted colour for both directions.
+    expect(prRow(pullRequest, context, NOW).churn).toEqual({ additions: 5, deletions: 1 })
+  })
+
+  test('a stacked PR names its parent inside the same reveal', () => {
+    // WHY: the relationship is worth one line of the row it belongs to, not an
+    // indent that reorders the list you are scanning.
+    expect(prRow(pullRequest, context, NOW, 41).reveal?.lead).toBe('stacked on #41')
+    expect(prRow({ ...pullRequest, headRef: undefined }, context, NOW).reveal).toBeUndefined()
   })
 })
 

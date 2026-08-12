@@ -141,7 +141,7 @@
        right edge and opened a dead band across the middle of every row; sharing
        the growth closes that band and spends it on the one other column with
        prose in it. Ellipsis, never wraps. -->
-  <span class="min-w-0 flex-[3] truncate text-[13px] font-normal ">
+  <span class="min-w-0 flex-[3] truncate text-[0.8125rem] font-normal ">
     {#each titleRuns as run, i (i)}{#if run.hit}<mark
           class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
           >{run.text}</mark
@@ -158,7 +158,7 @@
   <span class="flex min-w-0 max-w-[26rem] flex-[2] items-center gap-[5px]">
     {#if item.sessionId}
       <ChatCircleIcon size={14} class="shrink-0 opacity-70" />
-      <span class="min-w-0 flex-1 truncate text-[12px]" title={sessionLabel ?? undefined}>
+      <span class="min-w-0 flex-1 truncate text-xs" title={sessionLabel ?? undefined}>
         {sessionLabel ?? "Session"}
       </span>
       <!-- The two ways back in. The slot is reserved at rest, so the name has
@@ -201,7 +201,7 @@
   <!-- Generated on: absolute, so it never reads as a second copy of the
        relative activity time at the row's end. -->
   <span
-    class="w-[4.5rem] shrink-0 text-right text-[12px]"
+    class="w-[4.5rem] shrink-0 text-right text-xs"
     title={generated ? `Generated ${formatGeneratedFull(item.createdAt)}` : ""}
   >
     {generated}
@@ -231,7 +231,7 @@
   </span>
 
   {#if showProject}
-    <span class="w-[4rem] shrink-0 truncate text-right text-[12px]" title={item.cwd}>
+    <span class="w-[4rem] shrink-0 truncate text-right text-xs" title={item.cwd}>
       {item.projectLabel}
     </span>
   {/if}
@@ -244,7 +244,7 @@
        these are the facts a person scans the ledger for, and the title leads on
        weight instead. Pending is the one coloured word — the one live state. -->
   <span
-    class="w-[3.75rem] shrink-0 text-right text-[12px] {item.status ===
+    class="w-[3.75rem] shrink-0 text-right text-xs {item.status ===
  'pending'
  ? 'font-medium text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]'
  : ''}"
@@ -252,7 +252,7 @@
     {statusLabel}
   </span>
   <span
-    class="w-[2.75rem] shrink-0 text-right font-mono text-[12px] tabular-nums"
+    class="w-[2.75rem] shrink-0 text-right font-mono text-xs tabular-nums"
     title="Last activity {formatGeneratedFull(item.timestamp)}"
   >
     {formatLedgerTime(item.timestamp)}

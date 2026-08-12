@@ -195,7 +195,7 @@
     background: var(--solus-accent-light);
     border: 0.0625rem solid var(--solus-accent-border);
     color: var(--solus-accent);
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     font-weight: 500;
     white-space: nowrap;
     overflow: hidden;

@@ -4,7 +4,6 @@ import path from 'path'
 import { SOLUS_WORKTREE_DIR, isSolusWorktreePath, worktreeProjectRoot, type GitCheckout, type GitCommitPushResult, type GitCommitResult, type GitDiscardResult, type GitSyncResult, type WorktreeEntry, type WorktreePRResult } from '../../shared/types'
 import { createLogger } from '../logger'
 import { git, runAsync } from './exec'
-import { generatePullRequestDraft } from './pr-draft'
 
 const log = createLogger('WorktreeManager', 'worktree-manager.ts')
 
@@ -21,19 +20,6 @@ export const COMMIT_MESSAGE_SYSTEM_PROMPT = [
   'Keep it under 72 characters.',
   'Do not wrap the response in quotes or markdown.',
 ].join('\n')
-
-export function buildBranchNamePrompt(taskText: string): string {
-  return [
-    'Summarize the input into a worktree name.',
-    'Return exactly one line: 2-4 words in kebab-case describing the core change.',
-    'Do not explain, reason, acknowledge, mention the task, or include any other text.',
-    'Focus on the distinctive part of the task, not generic words like "implement", "plan", or "fix".',
-    'Lowercase only. No prefixes, no quotes, no markdown.',
-    'Examples: dark-mode-toggle, auth-redirect-loop, rename-worktrees',
-    'Folow these instructions exactly, no exceptions.',
-    taskText
-  ].join('\n')
-}
 
 export function getHeadCommit(cwd: string): string | null {
   try {
@@ -142,26 +128,12 @@ function slugifyBranch(text: string): string {
     .replace(/-+$/, '')
 }
 
-/** Pull a branch slug out of a model response, ignoring quotes/markdown/extra lines. */
-function sanitizeBranchSlug(raw: string): string {
-  const candidates = raw
-    .split('\n')
-    .map((value) => value.trim())
-    .filter((value) => value && !value.startsWith('```'))
-    .map((value) => slugifyBranch(value.replace(/^["'`]+|["'`]+$/g, '')))
-    .filter(Boolean)
-
-  return candidates.find((value) => /^[a-z0-9]+(?:-[a-z0-9]+){1,3}$/.test(value)) ?? candidates[0] ?? ''
-}
-
 function branchFromSlug(slug: string): string {
   const short = Math.random().toString(36).slice(2, 7)
   return `solus/${slug || 'task'}-${short}`
 }
 
 export interface CreateWorktreeOptions {
-  /** Optional model-backed namer; falls back to a prompt slug when absent or on failure. */
-  generateName?: (prompt: string) => Promise<string>
   /** Cancels branch discovery and worktree creation with the owning setup. */
   signal?: AbortSignal
 }
@@ -169,21 +141,6 @@ export interface CreateWorktreeOptions {
 function throwIfAborted(signal?: AbortSignal): void {
   if (!signal?.aborted) return
   throw signal.reason instanceof Error ? signal.reason : new Error('Interrupted')
-}
-
-async function resolveBranchName(prompt: string, options: CreateWorktreeOptions): Promise<string> {
-  throwIfAborted(options.signal)
-  if (options.generateName) {
-    try {
-      const slug = sanitizeBranchSlug(await options.generateName(prompt))
-      throwIfAborted(options.signal)
-      if (slug) return branchFromSlug(slug)
-    } catch (e) {
-      throwIfAborted(options.signal)
-      log.warn('branch_name_generation_failed', { error: e instanceof Error ? e.message : String(e) })
-    }
-  }
-  return branchFromSlug(slugifyBranch(prompt))
 }
 
 async function resolveWorktreeStartPoint(
@@ -209,21 +166,40 @@ export async function createWorktree(
   baseBranch?: string,
   options: CreateWorktreeOptions = {},
 ): Promise<GitCheckout> {
+  const startedAt = Date.now()
   throwIfAborted(options.signal)
+  const targetBranchStartedAt = Date.now()
   const targetBranch = baseBranch || await getDefaultBranch(projectPath)
+  const targetBranchMs = Date.now() - targetBranchStartedAt
   throwIfAborted(options.signal)
+  const startPointStartedAt = Date.now()
   const startPoint = await resolveWorktreeStartPoint(projectPath, targetBranch, options.signal)
-  const branch = await resolveBranchName(prompt, options)
+  const startPointMs = Date.now() - startPointStartedAt
+  const branch = branchFromSlug(slugifyBranch(prompt))
   const worktreePath = path.join(projectPath, SOLUS_WORKTREE_DIR, branch.replace(/\//g, '-'))
 
   log.info('worktree_creating', { branch, worktreePath, startPoint })
+  const checkoutStartedAt = Date.now()
   await runAsync(
     'git',
     ['worktree', 'add', '-b', branch, worktreePath, startPoint],
     projectPath,
     { signal: options.signal },
   )
+  const checkoutMs = Date.now() - checkoutStartedAt
+  const copyStartedAt = Date.now()
   await copyIncludedWorktreeFiles(projectPath, worktreePath, options.signal)
+  const copyMs = Date.now() - copyStartedAt
+
+  log.info('worktree_create_completed', {
+    branch,
+    worktreePath,
+    targetBranchMs,
+    startPointMs,
+    checkoutMs,
+    copyMs,
+    totalMs: Date.now() - startedAt,
+  })
 
   return { branch, targetBranch, worktreePath, repoRoot: projectPath }
 }
@@ -296,8 +272,7 @@ export interface CommitMessageOptions {
   generateCommitMessage?: (cwd: string) => Promise<string>
 }
 
-export interface CreatePROptions extends CommitMessageOptions {
-  generatePRText?: (prompt: string) => Promise<string>
+export interface CreatePROptions {
   /** Token supplied only to `gh pr create`; git push uses its credential helper. */
   githubToken?: string | null
 }
@@ -356,34 +331,17 @@ export async function createPR(
     const existingUrl = await queryExistingPR(branch, cwd, options.githubToken)
     if (existingUrl) return { success: true, url: existingUrl }
 
-    await commitPendingChanges(cwd, 'chore: apply agent changes', options)
+    await commitPendingChanges(cwd, 'chore: apply agent changes')
 
     await runAsync('git', ['push', '-u', 'origin', branch], cwd)
 
-    const draft = options?.generatePRText
-      ? await generatePullRequestDraft({
-          cwd,
-          baseBranch: gitContext.targetBranch,
-          headBranch: branch,
-          generateText: options.generatePRText,
-        })
-      : null
-
     const ghOptions = { env: options.githubToken ? { GH_TOKEN: options.githubToken } : undefined }
-    const result = draft
-      ? await runAsync('gh', [
-          'pr', 'create',
-          '--base', gitContext.targetBranch,
-          '--head', branch,
-          '--title', draft.title,
-          '--body', draft.body,
-        ], cwd, ghOptions)
-      : await runAsync('gh', [
-          'pr', 'create',
-          '--base', gitContext.targetBranch,
-          '--head', branch,
-          '--fill',
-        ], cwd, ghOptions)
+    const result = await runAsync('gh', [
+      'pr', 'create',
+      '--base', gitContext.targetBranch,
+      '--head', branch,
+      '--fill',
+    ], cwd, ghOptions)
 
     const urlMatch = result.match(/https:\/\/github\.com\/\S+/)
     return { success: true, url: urlMatch?.[0] || result }

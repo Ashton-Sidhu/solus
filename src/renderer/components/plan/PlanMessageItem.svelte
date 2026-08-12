@@ -207,7 +207,7 @@
   .work-ref-preview {
     max-height: 6.75rem;
     overflow: hidden;
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     line-height: 1.6;
   }
 
@@ -271,7 +271,7 @@
     background: transparent;
     padding: 0.3125rem 0.5rem;
     color: var(--muted-foreground);
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     cursor: pointer;
     transition: background var(--duration-quick) var(--ease-premium);
   }
@@ -284,7 +284,7 @@
     padding-right: 0.25rem;
     color: var(--muted-foreground);
     font-family: var(--solus-code-font-family);
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     opacity: 0.6;
   }
 
@@ -310,7 +310,7 @@
   }
 
   .diagram-loading__status {
-    font-size: 0.625rem;
+    font-size: 0.75rem;
 
     text-transform: uppercase;
     color: var(--solus-text-tertiary);

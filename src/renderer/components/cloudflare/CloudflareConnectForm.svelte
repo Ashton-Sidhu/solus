@@ -94,7 +94,7 @@
 
   {#if failure?.kind === "choose-account"}
     <div class="flex flex-col gap-1.5">
-      <span class="text-[0.75rem] text-muted-foreground">{failure.message}</span>
+      <span class="text-xs text-muted-foreground">{failure.message}</span>
       <div class="flex flex-wrap gap-1.5" bind:this={accountPickerEl}>
         {#each failure.accounts as account (account.id)}
           <Button
@@ -110,7 +110,7 @@
     </div>
   {:else if failure?.kind === "accounts-forbidden"}
     <div class="flex flex-col gap-1.5">
-      <span class="text-[0.75rem] text-muted-foreground">{failure.message}</span>
+      <span class="text-xs text-muted-foreground">{failure.message}</span>
       <div class="flex flex-col gap-2 sm:flex-row">
         <Input
           bind:ref={accountIdRef}
@@ -134,7 +134,7 @@
     </div>
   {:else if failure}
     <p
-      class="cursor-text select-text text-pretty text-[0.75rem] text-(--solus-status-error)"
+      class="cursor-text select-text text-pretty text-xs text-(--solus-status-error)"
       role="alert"
     >
       {failure.message}
@@ -142,7 +142,7 @@
   {/if}
 
   <div
-    class="rounded-lg bg-muted px-3 py-2.5 text-pretty text-[0.71875rem] leading-[1.55] text-muted-foreground"
+    class="rounded-lg bg-muted px-3 py-2.5 text-pretty text-xs leading-[1.55] text-muted-foreground"
   >
     <div class="flex items-start justify-between gap-3">
       <div>

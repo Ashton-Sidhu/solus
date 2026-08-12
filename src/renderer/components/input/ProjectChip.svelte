@@ -141,7 +141,7 @@
   </Popover.Trigger>
   <!-- The composer is bottom-anchored, so the list opens over the transcript.
        `lg:text-menu` restates the size for the `lg:` breakpoint: Popover.Content
-       ships `lg:text-[0.9375rem]`, and a breakpoint-prefixed class is a separate
+       ships `lg:text-sm`, and a breakpoint-prefixed class is a separate
        merge group, so the bare `text-menu` leaves it standing and the 15px wins
        above 1024px. -->
   <Popover.Content
@@ -157,7 +157,7 @@
       <MenuSearch bind:value={query} placeholder="Search projects" />
       <Command.List class="max-h-[256px] overflow-y-auto p-1.5">
         <Command.Empty
-          class="px-2.5 py-3 text-center text-[0.75rem] text-(--solus-text-tertiary)"
+          class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)"
         >
           No projects match
         </Command.Empty>

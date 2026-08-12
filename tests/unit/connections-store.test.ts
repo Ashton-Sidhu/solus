@@ -65,3 +65,38 @@ describe('remote access settings', () => {
     expect(store.serverInfo.allowLan).toBe(false)
   })
 })
+
+describe('agent task lifecycle settings', () => {
+  test('updates the host capability from the saved policy', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: { solus: {
+        setAgentTaskLifecyclePolicy: async () => ({ agentTaskLifecyclePolicy: 'autonomous' }),
+      } },
+    })
+    const { ConnectionsStore } = await import('../../src/renderer/contexts/connections/connections.store.svelte')
+    const store = new ConnectionsStore()
+    store.capabilities = {
+      headless: false,
+      desktopHandlers: true,
+      agents: { claude: true, codex: true },
+      dictation: false,
+      platform: 'darwin',
+      version: 'test',
+      projectCount: 1,
+      agentAuth: { claude: true },
+      gitAuth: { github: true },
+      agentTaskLifecyclePolicy: 'moderate',
+    }
+
+    await store.setAgentTaskLifecyclePolicy('autonomous')
+
+    expect(store.capabilities.agentTaskLifecyclePolicy).toBe('autonomous')
+    expect(store.agentTaskLifecyclePolicyUpdating).toBe(false)
+  })
+})

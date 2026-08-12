@@ -251,7 +251,7 @@
                    so the row you are reading states its own state in one
                    colour. -->
               <span
-                class="shrink-0 font-mono text-[0.65625rem] tabular-nums {selected
+                class="shrink-0 font-mono text-xs tabular-nums {selected
                   ? 'text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))]'
                   : 'text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]'}">{elapsed}</span
               >
@@ -316,7 +316,7 @@
          machine, because a subtask can be running somewhere its siblings are
          not. -->
     <span
-      class="mt-1 flex max-w-full items-center gap-[0.375rem] text-[0.6875rem] text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]"
+      class="mt-1 flex max-w-full items-center gap-[0.375rem] text-xs text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]"
     >
       {#if session.branchName}
         <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"

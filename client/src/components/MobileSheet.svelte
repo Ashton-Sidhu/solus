@@ -90,7 +90,7 @@
       >
         <XIcon size={14} weight="bold" />
       </button>
-      <h2 class="text-[0.9375rem] font-semibold text-(--solus-text-primary)">{title}</h2>
+      <h2 class="text-sm font-semibold text-(--solus-text-primary)">{title}</h2>
     </div>
 
     {@render children()}

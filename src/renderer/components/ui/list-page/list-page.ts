@@ -46,6 +46,38 @@ export interface ListChipSpec {
   mono?: boolean
 }
 
+/**
+ * Slot 4 — a fact the row holds back until it is the row you are on. Zero width
+ * at rest, so every other row keeps its full title; it opens on hover, focus or
+ * selection and takes its width from the title, which clips if it has to.
+ */
+export interface ListRevealSpec {
+  /** What is drawn — already shortened by the page if it needed to be. */
+  label: string
+  /** The untruncated value, as the span's native title. */
+  title?: string
+  /** A fact that reads before it, middot-separated ("stacked on #41"). */
+  lead?: string
+}
+
+/**
+ * Slot 5 — a check outcome, but only the states worth a row's width. Passing is
+ * the expected case and gets a glyph; failing is the exception and gets words.
+ * `none` reserves the slot without drawing in it, so a result landing later does
+ * not shift the row. Pages with no notion of checks omit the field and the slot.
+ */
+export interface ListChecksSpec {
+  state: 'passing' | 'failing' | 'none'
+  /** The failing state's words; the passing glyph's tooltip. */
+  label: string
+}
+
+/** Slot 6 — churn. Colour carries the sign, so size and direction read in one pass. */
+export interface ListChurnSpec {
+  additions: number
+  deletions: number
+}
+
 /** Where a row's record lives — the provider it syncs with, or `local` for a
  *  native Solus record. Drives the provider-logo mark before the id. Mirrors
  *  `TaskProviderId` without importing the task model, so PRs (always GitHub)
@@ -72,8 +104,15 @@ export interface ListRowSpec {
   title: string
   /** Slot 4 — 0–2 chips: the domain first, then a state that needs colour. */
   chips: ListChipSpec[]
+  /** Slot 4 — the hover-revealed fact, in place of a chip that would spend the
+   *  same width on every row of the list. */
+  reveal?: ListRevealSpec
+  /** Slot 5 — the check outcome. Omit on pages that have no checks. */
+  checks?: ListChecksSpec
   /** Slot 6 — the page's one sentence of machine state (agent activity / diff size). */
   meta: string
+  /** Slot 6 — churn, drawn as two coloured numbers in place of `meta`. */
+  churn?: ListChurnSpec
   /** Slots 1 and 7 — the lead is the assignee (Tasks) or author (PRs); the rest
    *  are the remaining participants, capped at 3 with a `+n` tile. */
   people: ListPerson[]
@@ -191,6 +230,15 @@ export function compactRelativeTime(at: number | string | undefined, now: number
   const weeks = Math.round(days / 7)
   if (weeks < 52) return `${weeks}w`
   return '1y+'
+}
+
+/**
+ * A count in the width of a slot: `806`, `1.2k`. Past a thousand the exact
+ * figure is not what the number is being read for, and one enormous PR must not
+ * be able to push the churn column wide for every row under it.
+ */
+export function compactCount(value: number): string {
+  return value >= 1000 ? `${(value / 1000).toFixed(1).replace(/\.0$/, '')}k` : `${value}`
 }
 
 /** The timestamp the time slot's tooltip carries. */

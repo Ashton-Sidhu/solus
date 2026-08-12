@@ -50,7 +50,7 @@
         <DropdownMenu.RadioItem value={opt.value}>
           <span class="min-w-0 flex-1 truncate">{opt.label}</span>
           {#if opt.count !== undefined}
-            <span class="font-mono text-[11px] tabular-nums text-muted-foreground opacity-60">
+            <span class="font-mono text-xs tabular-nums text-muted-foreground opacity-60">
               {opt.count}
             </span>
           {/if}

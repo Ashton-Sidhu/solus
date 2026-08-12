@@ -193,21 +193,6 @@
      and Git. That 8px is the card's text measure, so the group labels and every
      row label set on the same left edge. -->
 <div class="mb-2 flex flex-col {task.status === 'done' ? 'opacity-[.62]' : ''}">
-  <!-- Sessions leads the card, so this first group label carries no rule of its
-       own — the section header above is already the line it would be drawn
-       under. Only the Linked label below needs a hairline to separate it. It
-       sets a step below that header's 10px so the two never compete. -->
-  <div class="flex items-center gap-2 px-2">
-    <span
-      class="text-[0.59375rem] font-medium text-(--solus-text-tertiary) uppercase"
-    >
-      Sessions
-    </span>
-    <span class="text-[0.6875rem] tabular-nums text-(--solus-text-tertiary) opacity-70">
-      {sessionRows.length}
-    </span>
-  </div>
-
   <div class="mt-0.5 flex flex-col gap-px">
     {#each sessionRows as row (row.sessionId)}
       {@const StatusIcon = row.icon}
@@ -250,7 +235,7 @@
              action, which trades places with it on hover so the row keeps a
              single value column and never changes width. -->
         <span
-          class="shrink-0 truncate text-[0.71875rem] text-(--solus-text-tertiary) group-hover:hidden {row.valueMono
+          class="shrink-0 truncate text-xs text-(--solus-text-tertiary) group-hover:hidden {row.valueMono
  ? 'tabular-nums'
  : ''}"
         >
@@ -300,11 +285,11 @@
     ></div>
     <div class="flex items-center gap-2 px-2">
       <span
-        class="text-[0.59375rem] font-medium text-(--solus-text-tertiary) uppercase"
+        class="text-xs font-medium text-(--solus-text-tertiary) uppercase"
       >
         Linked
       </span>
-      <span class="text-[0.6875rem] tabular-nums text-(--solus-text-tertiary) opacity-70">
+      <span class="text-xs tabular-nums text-(--solus-text-tertiary) opacity-70">
         {linkList.total}
       </span>
     </div>
@@ -331,7 +316,7 @@
           </span>
           {#if row.ref}
             <span
-              class="shrink-0 font-mono text-[0.65625rem] text-(--solus-text-tertiary)"
+              class="shrink-0 font-mono text-xs text-(--solus-text-tertiary)"
             >
               {row.ref}
             </span>
@@ -339,7 +324,7 @@
           <span class="min-w-0 flex-1 truncate text-left">{row.label}</span>
           {#if row.value}
             <span
-              class="shrink-0 text-[0.71875rem] text-(--solus-text-tertiary) {row.valueMono
+              class="shrink-0 text-xs text-(--solus-text-tertiary) {row.valueMono
  ? 'tabular-nums'
  : ''}"
             >
@@ -352,7 +337,7 @@
       {#if linkList.moreLabel}
         <button
           type="button"
-          class="flex w-full cursor-pointer items-center gap-1 rounded-[0.4375rem] px-2 py-1.5 text-[0.6875rem] text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
+          class="flex w-full cursor-pointer items-center gap-1 rounded-[0.4375rem] px-2 py-1.5 text-xs text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
           onclick={() => (expanded = true)}
         >
           <span class="flex-1 text-left">{linkList.moreLabel}</span>

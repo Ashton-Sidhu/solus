@@ -123,7 +123,7 @@
       padding-inline: 0.25rem;
       color: var(--solus-text-tertiary);
       text-align: right;
-      font-size: 0.6875rem;
+      font-size: 0.75rem;
       font-weight: 400;
       font-variant-numeric: tabular-nums;
       line-height: 1.5rem;
@@ -766,7 +766,7 @@
 <div class="relative flex h-full min-h-0 min-w-0 flex-1 flex-col">
   <div
     bind:this={rootEl}
-    class="pierre-file-host relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain text-[length:var(--solus-code-font-size,0.7813rem)] leading-[1.6]"
+    class="pierre-file-host relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain text-[length:var(--solus-code-font-size,0.8125rem)] leading-[1.6]"
   ></div>
 
   <div bind:this={draftFormWrapper} class="solus-inline-draft-portal">

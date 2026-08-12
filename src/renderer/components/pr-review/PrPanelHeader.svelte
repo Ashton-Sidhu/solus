@@ -71,14 +71,14 @@
     ? "padding-left: max(0.875rem, var(--solus-chrome-lead-inset, 0px))"
     : "padding-left: 0.875rem"}
 >
-  <span class="shrink-0 font-mono text-[11.5px] tabular-nums text-muted-foreground">
+  <span class="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
     #{number}
   </span>
 
   {#if headRef && baseRef}
     <!-- head → base, reading in merge direction. -->
     <span
-      class="flex min-w-0 items-center gap-1.5 font-mono text-[10.5px] text-muted-foreground opacity-70"
+      class="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground opacity-70"
     >
       <span class="truncate">{headRef}</span>
       <ArrowRightIcon size={10} class="shrink-0 opacity-50" aria-hidden="true" />
@@ -107,7 +107,7 @@
       <CaretLeftIcon size={11} />
     </button>
     <span
-      class="min-w-[44px] text-center font-mono text-[10.5px] tabular-nums text-muted-foreground opacity-75"
+      class="min-w-[44px] text-center font-mono text-xs tabular-nums text-muted-foreground opacity-75"
     >
       {positionLabel}
     </span>

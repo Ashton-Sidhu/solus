@@ -127,7 +127,7 @@
     <Icon {icon} width="14" height="14" class="shrink-0" />
   {:else}
     <span
-      class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 font-mono text-[0.625rem] font-medium text-(--solus-text-tertiary)"
+      class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 font-mono text-xs font-medium text-(--solus-text-tertiary)"
     >
       {ext(path)}
     </span>
@@ -149,7 +149,7 @@
     {/if}
 
     <h2
-      class="text-[1.125rem] leading-snug font-medium text-balance text-(--solus-text-primary)"
+      class="text-sm leading-snug font-medium text-balance text-(--solus-text-primary)"
     >
       {section.title}
     </h2>
@@ -167,7 +167,7 @@
             >
               {@render typeBadge(file.path)}
               <span
-                class="min-w-0 flex-1 truncate font-mono text-[0.75rem] font-secondary text-(--solus-text-secondary)"
+                class="min-w-0 flex-1 truncate font-mono text-xs font-secondary text-(--solus-text-secondary)"
               >
                 <span class="text-(--solus-text-primary)"
                   >{fileName(file.path)}</span
@@ -178,13 +178,13 @@
               </span>
               {#if file.additions}
                 <span
-                  class="tabular-nums shrink-0 text-[0.75rem] text-(--solus-art-positive)"
+                  class="tabular-nums shrink-0 text-xs text-(--solus-art-positive)"
                   >+{file.additions}</span
                 >
               {/if}
               {#if file.deletions}
                 <span
-                  class="tabular-nums shrink-0 text-[0.75rem] text-(--solus-art-negative)"
+                  class="tabular-nums shrink-0 text-xs text-(--solus-art-negative)"
                   >−{file.deletions}</span
                 >
               {/if}
@@ -267,7 +267,7 @@
               </div>
             {:else if fileVisible}
               <p
-                class="guide-diff-in px-3 py-3 text-[0.75rem] text-(--solus-text-tertiary)"
+                class="guide-diff-in px-3 py-3 text-xs text-(--solus-text-tertiary)"
               >
                 Diff unavailable for this file (binary, or not in the current
                 change).

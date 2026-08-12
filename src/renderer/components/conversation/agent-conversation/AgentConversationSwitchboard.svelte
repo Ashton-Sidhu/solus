@@ -187,7 +187,7 @@
      Same pair, same menu as the single-agent card. -->
 {#snippet openControls(ref: AgentConversationRef, name: string)}
   <button
-    class="shrink-0 rounded-lg px-2 py-1 text-[12px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+    class="shrink-0 rounded-lg px-2 py-1 text-xs text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
     onclick={(e) => open(ref, { split: e.metaKey || e.ctrlKey, background: e.shiftKey })}
   >
     Open session
@@ -234,16 +234,16 @@
         weight="bold"
         class="shrink-0 w-3 text-[color-mix(in_oklch,var(--chart-3)_64%,var(--foreground))]"
       />
-      <span class="text-[13px] font-medium">
+      <span class="text-[0.8125rem] font-medium">
         Round complete · {refs.length} agents replied
       </span>
       <span class="flex-1"></span>
-      <span class="font-mono text-[11px] text-muted-foreground/55 tabular-nums">
+      <span class="font-mono text-xs text-muted-foreground/55 tabular-nums">
         {totalMessages}
         {totalMessages === 1 ? "message" : "messages"} · {totalElapsed}
       </span>
       <button
-        class="rounded-lg px-2 py-1 text-[12px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+        class="rounded-lg px-2 py-1 text-xs text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
         onclick={() => (reopened = true)}
       >
         Read
@@ -274,12 +274,12 @@
                row's subject and never truncates; the worktree beside it is the
                disambiguator and gives way, in mono because it is a path. -->
           <span class="flex items-baseline gap-1.5 shrink-0 w-[120px]">
-            <span class="shrink-0 text-[12.5px] font-medium">{nameOf(ref)}</span>
-            <span class="min-w-0 truncate text-[12px] text-muted-foreground">
+            <span class="shrink-0 text-[0.8125rem] font-medium">{nameOf(ref)}</span>
+            <span class="min-w-0 truncate text-xs text-muted-foreground">
               {worktreeLabel(ref, meta)}
             </span>
           </span>
-          <span class="flex-1 min-w-0 truncate text-[13px] text-muted-foreground">
+          <span class="flex-1 min-w-0 truncate text-[0.8125rem] text-muted-foreground">
             {agentLatestLine(ref, states[index])}
           </span>
         </button>
@@ -329,24 +329,24 @@
             </span>
           {:else}
             <span
-              class="text-[12.5px] font-medium {isLive
+              class="text-[0.8125rem] font-medium {isLive
                 ? 'text-[color-mix(in_oklch,var(--agent-accent)_76%,var(--foreground))]'
                 : 'text-muted-foreground'}"
             >
               {nameOf(ref)}
             </span>
           {/if}
-          <span class="text-[12px] text-muted-foreground {isLive ? '' : 'opacity-80'}">
+          <span class="text-xs text-muted-foreground {isLive ? '' : 'opacity-80'}">
             {worktreeLabel(ref, meta)}
           </span>
           {#if state === "waiting"}
             <span
-              class="rounded-full px-1.5 py-px text-[11.5px] font-medium bg-[color-mix(in_oklch,var(--chart-2)_18%,transparent)] text-[color-mix(in_oklch,var(--chart-2)_74%,var(--foreground))]"
+              class="rounded-full px-1.5 py-px text-xs font-medium bg-[color-mix(in_oklch,var(--chart-2)_18%,transparent)] text-[color-mix(in_oklch,var(--chart-2)_74%,var(--foreground))]"
             >
               needs you
             </span>
           {:else if state === "failed"}
-            <span class="text-[11.5px] font-medium text-(--destructive)">failed</span>
+            <span class="text-xs font-medium text-(--destructive)">failed</span>
           {:else if isLive}
             <AgentTypingDots variant="chip" />
           {:else}
@@ -360,7 +360,7 @@
       {/each}
       <span class="flex-1"></span>
       {#if selectedLive}
-        <span class="shrink-0 font-mono text-[11px] text-muted-foreground/55 tabular-nums">
+        <span class="shrink-0 font-mono text-xs text-muted-foreground/55 tabular-nums">
           {formatAgentConversationDuration(agentConversationElapsedMs(selected, now))}
         </span>
       {:else if !isPendingAgent(selected)}

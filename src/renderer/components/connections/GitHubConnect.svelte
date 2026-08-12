@@ -164,17 +164,17 @@
             class="text-(--solus-text-primary)"
           />
         </div>
-        <p class="text-[0.9375rem] font-medium text-(--solus-text-primary)">
+        <p class="text-sm font-medium text-(--solus-text-primary)">
           Authorize Solus on GitHub
         </p>
-        <p class="text-[0.75rem] text-(--solus-text-tertiary)">
+        <p class="text-xs text-(--solus-text-tertiary)">
           Enter this code at github.com/login/device
         </p>
       </div>
 
       <div class="flex items-center justify-center gap-2">
         <code
-          class="text-[1.625rem] font-medium text-(--solus-text-primary) tabular-nums"
+          class="text-[1.5rem] font-medium text-(--solus-text-primary) tabular-nums"
           style="font-family: 'Geist Mono', ui-monospace, monospace"
           >{connections.providerPrompt.userCode}</code
         >

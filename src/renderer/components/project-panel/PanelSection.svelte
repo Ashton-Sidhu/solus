@@ -47,7 +47,7 @@
     class="group/header h-auto min-h-6 justify-between gap-1 px-1.5 py-0"
   >
     <button
-      class="flex min-h-6 min-w-0 flex-1 cursor-pointer items-center border-none bg-transparent text-[0.625rem] font-medium text-(--solus-text-tertiary) uppercase transition-[color,transform] duration-150 hover:text-(--solus-text-primary) active:scale-[0.996] focus-visible:rounded-md focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
+      class="flex min-h-6 min-w-0 flex-1 cursor-pointer items-center border-none bg-transparent text-xs font-medium text-(--solus-text-tertiary) uppercase transition-[color,transform] duration-150 hover:text-(--solus-text-primary) active:scale-[0.996] focus-visible:rounded-md focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
       type="button"
       aria-expanded={!collapsed}
       onclick={toggle}
@@ -59,7 +59,7 @@
         {/if}
         {#if headerDetail}
           <span
-            class="min-w-0 truncate text-[0.6875rem] font-normal text-(--solus-text-tertiary) normal-case"
+            class="min-w-0 truncate text-xs font-normal text-(--solus-text-tertiary) normal-case"
             aria-live="polite"
           >
             {headerDetail}

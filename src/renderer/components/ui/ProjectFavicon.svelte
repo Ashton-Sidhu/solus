@@ -5,6 +5,7 @@
   import { isWorkspaceDir } from "../../lib/paths";
   import {
     faviconCandidates,
+    projectFallbackColor,
     rememberFavicon,
     resolvedFavicon,
   } from "../../lib/project-favicon";
@@ -14,12 +15,15 @@
     projectRoot,
     class: className = "size-3.5",
     fallback,
+    coloredFallback = false,
   }: {
     projectRoot: string;
     class?: string;
     /** Stands in when the project has no favicon of its own. Folder glyph by
      *  default; the sidebar hands it a lettered mark instead. */
     fallback?: Snippet;
+    /** Use the project's stable colour when it does not provide a favicon. */
+    coloredFallback?: boolean;
   } = $props();
 
   const session = getWorkspaceContext();
@@ -73,6 +77,12 @@
     {#if state.settled && !state.url}
       {#if fallback}
         {@render fallback()}
+      {:else if coloredFallback}
+        <span
+          class="size-full rounded-[0.1875rem]"
+          style:background={projectFallbackColor(projectRoot)}
+          aria-hidden="true"
+        ></span>
       {:else}
         <FolderIcon
           size="100%"

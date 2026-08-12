@@ -7,6 +7,9 @@ interface AutocompleteWorkspace {
 
 export interface AutocompleteScope {
   tabId: string
+  /** Explicit host for tab-less drafts. A started session can also supply it so
+   *  file search does not depend on whichever tab is active. */
+  serverId: string | undefined
   workingDirectory: string | undefined
 }
 
@@ -28,11 +31,13 @@ export function resolveAutocompleteScope(
   workspace: AutocompleteWorkspace,
   workingDirectory: string | undefined,
   ownerTabId: string | undefined,
+  ownerServerId?: string,
 ): AutocompleteScope {
   const tabId = ownerTabId ?? workspace.activeTabId
   const session = ownerTabId ? workspace.sessionFor(ownerTabId) : undefined
   return {
     tabId,
+    serverId: ownerServerId ?? session?.run.serverId,
     workingDirectory:
       session?.run.gitContext?.worktreePath ??
       workingDirectory ??

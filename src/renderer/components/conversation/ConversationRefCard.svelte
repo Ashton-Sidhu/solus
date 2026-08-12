@@ -235,7 +235,7 @@
 
   .conversation-ref-card__kicker {
     margin-bottom: 0.3125rem;
-    font-size: 0.59375rem;
+    font-size: 0.75rem;
     font-weight: 500;
 
     text-transform: uppercase;
@@ -251,7 +251,7 @@
 
   .conversation-ref-card__subtitle {
     margin-top: 0.125rem;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     text-wrap: pretty;
   }
@@ -309,7 +309,7 @@
     position: relative;
     padding: 0.875rem 1rem 0;
     border-top: 0.0625rem solid var(--solus-tx-rule);
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     line-height: 1.6;
     color: var(--muted-foreground);
     text-wrap: pretty;

@@ -94,7 +94,7 @@
     padding: 0.0625rem 0.3125rem;
     border-radius: 0.25rem;
     font-family: var(--solus-code-font-family);
-    font-size: 0.59375rem;
+    font-size: 0.75rem;
     color: var(--solus-accent);
     background: color-mix(in srgb, var(--solus-accent) 10%, transparent);
     white-space: nowrap;
@@ -112,7 +112,7 @@
     align-items: center;
     gap: 0.3125rem;
     min-width: 0;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
     white-space: nowrap;
     flex-shrink: 0;
@@ -161,7 +161,7 @@
   }
 
   .diagram-btn {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     padding: 0.25rem 0.625rem;
     border-radius: 0.375rem;
     border: 0.0625rem solid var(--solus-accent-border);
@@ -249,7 +249,7 @@
     background: var(--solus-container-bg);
     box-shadow: var(--solus-container-shadow);
     color: var(--solus-text-tertiary);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 500;
     white-space: nowrap;
   }
@@ -267,7 +267,7 @@
     background: var(--solus-container-bg);
     box-shadow: var(--solus-container-shadow);
     color: var(--solus-text-primary);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 500;
     white-space: nowrap;
     cursor: pointer;
@@ -296,7 +296,7 @@
 
   .threads-pill__unread {
     font-family: var(--solus-code-font-family);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
   }
 
@@ -310,7 +310,7 @@
     border: 0.0625rem solid var(--solus-container-border);
     background: var(--solus-container-bg);
     color: var(--solus-text-secondary);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 500;
     cursor: pointer;
     box-shadow: var(--solus-container-shadow);
@@ -339,7 +339,7 @@
     border: 0.0625rem solid var(--solus-container-border);
     background: var(--solus-container-bg);
     color: var(--solus-text-secondary);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 500;
     cursor: pointer;
     box-shadow: var(--solus-container-shadow);
@@ -400,7 +400,7 @@
 
   .diagram-empty__hint {
     margin: 0;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
   }
 
@@ -481,7 +481,7 @@
 
   .diagram-shell__board .svelte-flow__edge-text {
     fill: var(--solus-text-secondary);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 500;
   }
 
@@ -668,7 +668,7 @@
 
   .diagram-shell__board .svelte-flow__attribution {
     background: transparent;
-    font-size: 0.5625rem;
+    font-size: 0.75rem;
   }
 
   .diagram-shell__board .svelte-flow__attribution a {
@@ -702,7 +702,7 @@
   }
 
   .diagram-inspector .inspector-label {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
   }
 
@@ -724,7 +724,7 @@
   }
 
   .diagram-inspector .inspector-textarea {
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     line-height: 1.55;
     resize: vertical;
     min-height: 4.5rem;
@@ -752,7 +752,7 @@
     border-radius: 0.5rem;
     background: transparent;
     color: var(--solus-text-tertiary);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 500;
     cursor: pointer;
     transition:
@@ -807,7 +807,7 @@
     border-radius: 0.375rem;
     background: transparent;
     color: var(--solus-text-tertiary);
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     cursor: pointer;
     transition:
       color var(--duration-quick) var(--ease-premium),
@@ -913,12 +913,12 @@
   }
 
   .diagram-inspector .inspector-setting__title {
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     color: var(--solus-text-primary);
   }
 
   .diagram-inspector .inspector-setting__hint {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
   }
 
@@ -982,7 +982,7 @@
     width: 2.25rem;
     height: 2.25rem;
     border-radius: 0.625rem;
-    font-size: 1rem;
+    font-size: 0.875rem;
     line-height: 1;
     color: var(--tile-tint);
     background: linear-gradient(
@@ -1016,7 +1016,7 @@
   }
 
   .diagram-inspector__title {
-    font-size: 0.96875rem;
+    font-size: 0.875rem;
     font-weight: 500;
     line-height: 1.25;
     color: var(--solus-text-primary);
@@ -1086,7 +1086,7 @@
     padding: 0.1875rem 0.5rem;
     border-radius: 0.375rem;
     font-family: var(--solus-code-font-family);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
     background: var(--solus-surface-hover);
     white-space: nowrap;
@@ -1114,7 +1114,7 @@
     border: none;
     border-bottom: 0.125rem solid transparent;
     background: transparent;
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     color: var(--solus-text-tertiary);
     cursor: pointer;
     transition:
@@ -1139,7 +1139,7 @@
   .diagram-inspector__tab-count {
     margin-left: 0.3125rem;
     font-family: var(--solus-code-font-family);
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     color: var(--solus-art-2);
   }
 
@@ -1185,6 +1185,6 @@
 
   .diagram-inspector__save {
     font-family: var(--solus-code-font-family);
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
   }

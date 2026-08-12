@@ -115,7 +115,7 @@
          shadow-md, which are emitted after the utility and would otherwise win
          the cascade — bg-popover is what made this panel a different colour from
          the DropdownMenu-based ones. `lg:text-menu` is the same move for the
-         primitive's `lg:text-[0.9375rem]`: a different breakpoint is a different
+         primitive's `lg:text-sm`: a different breakpoint is a different
          merge group, so the bare `text-menu` never touches it and the 15px won
          at every window wider than 1024px. -->
     <Popover.Content
@@ -132,7 +132,7 @@
         <Command.Root>
           <MenuSearch bind:value={query} placeholder="Search worktrees" />
           <Command.List class="max-h-[224px] p-1.5">
-            <Command.Empty class="px-2.5 py-3 text-center text-[0.75rem] text-(--solus-text-tertiary)">No worktrees found</Command.Empty>
+            <Command.Empty class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)">No worktrees found</Command.Empty>
             <Command.Group heading="Worktrees">
               {#each worktrees as worktree (worktree.branch)}
                 <Command.Item
@@ -153,7 +153,7 @@
         <Command.Root>
           <MenuSearch bind:value={query} placeholder="Search branches" />
           <Command.List class="max-h-[288px] overflow-y-auto p-1.5">
-            <Command.Empty class="px-2.5 py-3 text-center text-[0.75rem] text-(--solus-text-tertiary)">No branches found</Command.Empty>
+            <Command.Empty class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)">No branches found</Command.Empty>
 
             <!--
               Where you already are leads the list: selecting it starts from the

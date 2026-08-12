@@ -230,7 +230,7 @@
 
   .tool-stderr {
     padding: 0.125rem 0 0.3125rem;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     line-height: 1.65;
     color: var(--muted-foreground);
     white-space: pre-wrap;
@@ -273,7 +273,7 @@
     white-space: nowrap;
     text-align: left;
     text-overflow: ellipsis;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     opacity: 0.8;
     cursor: pointer;
   }
@@ -290,7 +290,7 @@
   }
 
   .tool-step-duration {
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     opacity: 0.55;
   }

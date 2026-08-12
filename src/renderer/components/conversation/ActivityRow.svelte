@@ -189,13 +189,13 @@
   }
 
   .activity-label {
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     color: var(--muted-foreground);
   }
 
   .activity-target {
     min-width: 0;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     opacity: 0.7;
   }
@@ -205,7 +205,7 @@
     align-items: center;
     gap: 0.5rem;
     padding-top: 0.0625rem;
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     opacity: 0.55;
   }

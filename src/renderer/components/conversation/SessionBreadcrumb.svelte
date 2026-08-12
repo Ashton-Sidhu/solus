@@ -261,13 +261,13 @@
   const menuLabel =
     "min-w-0 flex-1 overflow-hidden text-[0.8125rem] text-ellipsis whitespace-nowrap";
   const menuHeading =
-    "px-[0.5625rem] pt-1.5 pb-1.5 text-[0.5625rem] font-medium  text-muted-foreground uppercase";
+    "px-[0.5625rem] pt-1.5 pb-1.5 text-xs font-medium  text-muted-foreground uppercase";
   // Rows you can close reserve the slot the X lands in, so nothing reflows the
   // moment a pointer crosses the row.
   // The wash follows the row, not the pointer's exact target: reaching for the X
   // must not read as leaving the row.
   const menuRowClosable = `${menuRow} pr-7 group-hover/row:bg-accent`;
-  const rowStatus = "shrink-0 text-[0.65625rem] font-medium whitespace-nowrap";
+  const rowStatus = "shrink-0 text-xs font-medium whitespace-nowrap";
   const rowClose =
     "absolute top-1/2 right-[0.4375rem] flex size-[1.125rem] -translate-y-1/2 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-[opacity,background,color] duration-150 hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100";
   const bandAction =
@@ -291,7 +291,7 @@
        a centreline. The crumb has no container of its own — it is plain text on
        the band, and the only affordance is the hover wash under each part. -->
   <div
-    class="crumb-band @container z-[3] flex items-center gap-px text-[0.84375rem] {variant ===
+    class="crumb-band @container z-[3] flex items-center gap-px text-sm {variant ===
  'inline'
  ? 'crumb-band--inline relative h-full min-w-0 flex-1 px-1'
  : 'absolute inset-x-0 top-1 h-[2.875rem] pr-3.5'}"
@@ -306,7 +306,7 @@
       <!-- The band, not the list, owns the type scale and the neutral colour:
            each crumb states its own, and the leaf stays full-contrast. -->
       <Breadcrumb.List
-        class="min-w-0 flex-nowrap gap-px text-[0.84375rem] text-foreground"
+        class="min-w-0 flex-nowrap gap-px text-sm text-foreground"
       >
         <Breadcrumb.Item
           class="relative shrink-0"
@@ -326,7 +326,7 @@
                   initial={projectInitial(projectLabel)}
                   active
                   class="size-4"
-                  letterClass="text-[0.53125rem]"
+                  letterClass="text-xs"
                 />
                 <span class="whitespace-nowrap text-muted-foreground"
                   >{projectLabel}</span
@@ -351,7 +351,7 @@
                       initial={project.initial}
                       active={project.projectKey === projectKey}
                       class="size-[1.125rem]"
-                      letterClass="text-[0.5625rem]"
+                      letterClass="text-xs"
                     />
                     <span
                       class="{menuLabel} {project.projectKey === projectKey
@@ -360,14 +360,14 @@
                     >
                     {#if note}
                       <span
-                        class="shrink-0 text-[0.65625rem] font-medium"
+                        class="shrink-0 text-xs font-medium"
                         style:color={note.tone === "primary"
                           ? "var(--solus-status-permission)"
                           : "var(--solus-status-error)"}>{note.text}</span
                       >
                     {/if}
                     <span
-                      class="shrink-0 font-mono text-[0.625rem] text-muted-foreground opacity-50 tabular-nums"
+                      class="shrink-0 font-mono text-xs text-muted-foreground opacity-50 tabular-nums"
                       >{project.count}</span
                     >
                   </button>
@@ -502,7 +502,7 @@
                   >
                     <PlusIcon size={14} class="shrink-0" />
                     <span class="flex-1 text-[0.8125rem]">New task</span>
-                    <span class="font-mono text-[0.65625rem] opacity-60"
+                    <span class="font-mono text-xs opacity-60"
                       >{comboHint("global.new-task")}</span
                     >
                   </button>
@@ -536,7 +536,7 @@
               <SessionNameInput
                 value={current?.label ?? leafLabels.session}
                 variant="band"
-                class="text-[0.84375rem] font-medium "
+                class="text-sm font-medium "
                 onCommit={(next) => {
                   void session.renameTab(tabId, next);
                   renamingTabId = null;
@@ -646,7 +646,7 @@
                   <span class="flex-1 text-[0.8125rem]"
                     >New session in this task</span
                   >
-                  <span class="font-mono text-[0.65625rem] opacity-60"
+                  <span class="font-mono text-xs opacity-60"
                     >{comboHint("global.new-session")}</span
                   >
                 </button>
@@ -678,7 +678,7 @@
           <CheckIcon size={14} weight="bold" class="shrink-0 text-chart-3" />
         {/if}
         <span
-          class="font-mono text-[0.65625rem] whitespace-nowrap {taskDone
+          class="font-mono text-xs whitespace-nowrap {taskDone
  ? 'text-chart-3'
  : 'opacity-75'}">{taskRef(record)}</span
         >

@@ -25,7 +25,7 @@
       <button
         {...props}
         type="button"
-        class="flex h-7 max-w-[12rem] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 text-[13px] transition-colors duration-150 {active
+        class="flex h-7 max-w-[12rem] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 text-[0.8125rem] transition-colors duration-150 {active
           ? 'bg-[color-mix(in_oklch,var(--primary)_13%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
           : 'bg-transparent text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)]'}"
         aria-label="Filter by project"
@@ -48,7 +48,7 @@
       <DropdownMenu.RadioItem value="all">
         <FolderIcon size={14} class="shrink-0" />
         <span class="min-w-0 flex-1 truncate">All projects</span>
-        <span class="font-mono text-[11px] tabular-nums text-muted-foreground opacity-60">
+        <span class="font-mono text-xs tabular-nums text-muted-foreground opacity-60">
           {allCount}
         </span>
       </DropdownMenu.RadioItem>
@@ -60,7 +60,7 @@
         >
           <ProjectFavicon projectRoot={project.projectPath} class="size-3.5" />
           <span class="min-w-0 flex-1 truncate">{project.label}</span>
-          <span class="font-mono text-[11px] tabular-nums text-muted-foreground opacity-60">
+          <span class="font-mono text-xs tabular-nums text-muted-foreground opacity-60">
             {project.count}
           </span>
         </DropdownMenu.RadioItem>

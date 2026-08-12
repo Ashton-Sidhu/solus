@@ -26,6 +26,8 @@
     workingDirectory: string | undefined;
     /** Session tab whose checkout and host own autocomplete requests. */
     tabId?: string;
+    /** Host selected for a run that may not have a tab yet. */
+    serverId?: string;
     /** Session whose changed files appear under "Open in this session". */
     sessionId?: string;
     /** Notified whenever the editor's plan/work/session references change. */
@@ -80,6 +82,7 @@
     provider,
     workingDirectory,
     tabId,
+    serverId,
     sessionId,
     onRefsChange,
     onEmptyChange,
@@ -106,7 +109,7 @@
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
   const autocompleteScope = $derived(
-    resolveAutocompleteScope(session, workingDirectory, tabId),
+    resolveAutocompleteScope(session, workingDirectory, tabId, serverId),
   );
 
   let plainTextEditorEl: ReturnType<typeof PlainTextEditor> | null =
@@ -136,6 +139,7 @@
   const ac = new UnifiedAutocompleteController({
     readOnly: () => readOnly,
     tabId: () => autocompleteScope.tabId,
+    serverId: () => autocompleteScope.serverId,
     sessionId: () => sessionId,
     workingDirectory: () => autocompleteScope.workingDirectory,
     useRelativeFilePaths: () => useRelativeFilePaths,

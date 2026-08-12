@@ -932,7 +932,7 @@
     background: var(--solus-accent-light);
     color: var(--solus-text-tertiary);
     font-family: var(--solus-code-font-family);
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     font-weight: 500;
     line-height: 1.4;
   }
@@ -974,7 +974,7 @@
   }
 
   :global(.diff-placeholder-label) {
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     font-style: italic;
     color: var(--solus-text-tertiary);
     white-space: nowrap;
@@ -988,7 +988,7 @@
     padding: 0;
     margin-right: 0.375rem;
     color: var(--solus-text-tertiary);
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     font-style: italic;
     white-space: nowrap;
   }
@@ -1056,7 +1056,7 @@
     gap: 0.375rem;
     padding-inline: 0.5rem;
     border-radius: 0.5rem;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     white-space: nowrap;
     opacity: 1;
   }

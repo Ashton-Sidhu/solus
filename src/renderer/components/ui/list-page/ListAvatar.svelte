@@ -17,7 +17,7 @@
 </script>
 
 <span
-  class="relative flex shrink-0 items-center justify-center text-[10px] font-medium {person.fallback ===
+  class="relative flex shrink-0 items-center justify-center text-xs font-medium {person.fallback ===
  'solus'
  ? ''
  : 'rounded-full shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)_inset]'}"

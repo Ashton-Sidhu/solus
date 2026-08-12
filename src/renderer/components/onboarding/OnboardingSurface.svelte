@@ -97,7 +97,7 @@
     <span class="flex-1"></span>
     <button
       type="button"
-      class="flex h-6.5 items-center gap-1.5 rounded-full px-2.5 text-[0.6875rem] text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)]"
+      class="flex h-6.5 items-center gap-1.5 rounded-full px-2.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)]"
       title="Toggle appearance"
       onclick={() =>
         settings.update({ themeMode: settings.isDark ? "light" : "dark" })}
@@ -112,7 +112,7 @@
     </button>
     <button
       type="button"
-      class="h-6.5 rounded-full px-2.5 text-[0.6875rem] text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground"
+      class="h-6.5 rounded-full px-2.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground"
       onclick={() => finish("chat")}
     >
       Skip setup
@@ -135,7 +135,7 @@
       {:else}
         <span class="flex items-center justify-center">
           <span
-            class="text-[1.75rem] font-medium sm:text-[2.125rem]"
+            class="text-[1.5rem] font-medium sm:text-[1.5rem]"
             >{store.introTyped}</span
           >
           <span

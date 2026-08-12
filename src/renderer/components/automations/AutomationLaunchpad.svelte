@@ -171,7 +171,7 @@
        the next section of the page rather than a panel bolted underneath it. -->
   <div class="flex h-[30px] items-center gap-2.5 px-1.5">
     <span
-      class="text-[10px] font-normal text-muted-foreground uppercase"
+      class="text-xs font-normal text-muted-foreground uppercase"
       >Describe it, or start from a template</span
     >
     <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
@@ -199,26 +199,26 @@
         </span>
         <span class="flex min-w-0 flex-1 flex-col gap-[5px] pt-px">
           <span class="flex flex-wrap items-center gap-2.5">
-            <span class="text-[14px] font-medium ">
+            <span class="text-sm font-medium ">
               {savedDraft
                 ? "Automation drafted in a session"
                 : "Creating this automation in a session…"}
             </span>
             {#if draftingSessionId}
-              <span class="font-mono text-[11px] text-muted-foreground opacity-80"
+              <span class="font-mono text-xs text-muted-foreground opacity-80"
                 >{draftingSessionId.slice(0, 8)}</span
               >
             {/if}
           </span>
           <span
-            class="block max-w-[70ch] text-[13px] leading-[1.6] text-pretty text-muted-foreground"
+            class="block max-w-[70ch] text-[0.8125rem] leading-[1.6] text-pretty text-muted-foreground"
             >“{draftPrompt}”</span
           >
         </span>
         <span class="flex shrink-0 items-center gap-1.5">
           <button
             type="button"
-            class="flex h-7 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-3 text-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] disabled:pointer-events-none disabled:opacity-45"
+            class="flex h-7 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-3 text-[0.8125rem] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] disabled:pointer-events-none disabled:opacity-45"
             onclick={() => void openDraftingSession()}
             disabled={!draftingSessionId}
           >
@@ -242,7 +242,7 @@
         {#each draftSteps as step (step.label)}
           {#if step.state === "done"}
             <span
-              class="flex items-center gap-[9px] text-[13px] text-[color-mix(in_oklch,var(--foreground)_78%,var(--muted-foreground))]"
+              class="flex items-center gap-[9px] text-[0.8125rem] text-[color-mix(in_oklch,var(--foreground)_78%,var(--muted-foreground))]"
             >
               <span
                 class="grid size-3.5 shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--success)_20%,transparent)] text-[var(--success)]"
@@ -253,7 +253,7 @@
               {step.label}
             </span>
           {:else if step.state === "active"}
-            <span class="flex items-center gap-[9px] text-[13px] font-medium">
+            <span class="flex items-center gap-[9px] text-[0.8125rem] font-medium">
               <span
                 class="grid size-3.5 shrink-0 place-items-center text-[var(--running)]"
                 aria-hidden="true"
@@ -267,7 +267,7 @@
             </span>
           {:else}
             <span
-              class="flex items-center gap-[9px] text-[13px] text-[color-mix(in_oklch,var(--muted-foreground)_62%,transparent)]"
+              class="flex items-center gap-[9px] text-[0.8125rem] text-[color-mix(in_oklch,var(--muted-foreground)_62%,transparent)]"
             >
               <span class="grid size-[13px] shrink-0 place-items-center" aria-hidden="true">
                 <span class="size-[5px] rounded-full bg-[var(--idle)]"></span>
@@ -277,7 +277,7 @@
           {/if}
         {/each}
         {#if savedDraft}
-          <span class="mt-0.5 text-[13px] leading-[1.6] text-pretty text-muted-foreground">
+          <span class="mt-0.5 text-[0.8125rem] leading-[1.6] text-pretty text-muted-foreground">
             Saved as <span class="font-medium text-foreground">{savedDraft.name}</span>
             · {triggerSummary(savedDraft.trigger)}. Open the session to review
             the instructions before it runs.
@@ -301,15 +301,15 @@
         }}
         placeholder="Describe the automation…"
         aria-label="Describe the automation"
-        class="min-w-0 flex-1 border-0 bg-transparent text-[13px] caret-[var(--primary)] outline-none placeholder:text-muted-foreground"
+        class="min-w-0 flex-1 border-0 bg-transparent text-[0.8125rem] caret-[var(--primary)] outline-none placeholder:text-muted-foreground"
       />
       <button
         type="button"
-        class="flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] text-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] disabled:pointer-events-none disabled:opacity-45"
+        class="flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] text-[0.8125rem] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] disabled:pointer-events-none disabled:opacity-45"
         onclick={submitDescription}
         disabled={!description.trim()}
       >
-        Create<span class="font-mono text-[11px] opacity-80">↵</span>
+        Create<span class="font-mono text-xs opacity-80">↵</span>
       </button>
     </div>
   {/if}
@@ -323,15 +323,15 @@
         disabled={seedingId !== null}
       >
         <span
-          class="w-5 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground opacity-55"
+          class="w-5 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground opacity-55"
           >{String(i + 1).padStart(2, "0")}</span
         >
         <span
-          class="w-[236px] shrink-0 text-[13px] font-normal text-pretty @max-[56rem]:w-auto"
+          class="w-[236px] shrink-0 text-[0.8125rem] font-normal text-pretty @max-[56rem]:w-auto"
           >{template.name}</span
         >
         <span
-          class="min-w-0 flex-1 text-[12px] leading-[1.55] text-pretty text-muted-foreground @max-[56rem]:hidden"
+          class="min-w-0 flex-1 text-xs leading-[1.55] text-pretty text-muted-foreground @max-[56rem]:hidden"
           >{template.description}</span
         >
         <!-- The trigger sits at the right edge, and the Use affordance takes its
@@ -340,7 +340,7 @@
           class="relative flex h-6 w-[150px] shrink-0 items-center justify-end @max-[56rem]:hidden"
         >
           <span
-            class="flex items-center gap-1.5 font-mono text-[11px] whitespace-nowrap text-muted-foreground opacity-80 transition-opacity duration-150 group-hover:opacity-0"
+            class="flex items-center gap-1.5 font-mono text-xs whitespace-nowrap text-muted-foreground opacity-80 transition-opacity duration-150 group-hover:opacity-0"
           >
             {#if template.trigger.type === "manual"}
               <PlayIcon size={14} weight="fill" class="shrink-0" />
@@ -350,7 +350,7 @@
             {triggerSummary(template.trigger)}
           </span>
           <span
-            class="absolute inset-y-0 right-0 flex items-center gap-1.5 rounded-lg px-2.5 text-[12px] text-muted-foreground opacity-0 shadow-[0_0_0_.5px_var(--hairline-strong)] transition-opacity duration-150 group-hover:opacity-100"
+            class="absolute inset-y-0 right-0 flex items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground opacity-0 shadow-[0_0_0_.5px_var(--hairline-strong)] transition-opacity duration-150 group-hover:opacity-100"
             aria-hidden="true"
           >
             Use
@@ -363,16 +363,16 @@
 
   <div class="flex items-center gap-3 px-2.5 pt-3.5">
     <span class="flex min-w-0 flex-1 flex-col gap-[3px]">
-      <span class="text-[13px] font-normal "
+      <span class="text-[0.8125rem] font-normal "
         >Start from scratch</span
       >
-      <span class="text-[12px] text-muted-foreground"
+      <span class="text-xs text-muted-foreground"
         >Write your own instructions and pick when they run.</span
       >
     </span>
     <button
       type="button"
-      class="flex h-7 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-transparent px-3 text-[13px] text-muted-foreground shadow-[0_0_0_.5px_var(--hairline-strong)] transition-colors duration-150 hover:bg-[var(--wash-1)] hover:text-foreground"
+      class="flex h-7 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-transparent px-3 text-[0.8125rem] text-muted-foreground shadow-[0_0_0_.5px_var(--hairline-strong)] transition-colors duration-150 hover:bg-[var(--wash-1)] hover:text-foreground"
       onclick={onCreateBlank}
     >
       New automation

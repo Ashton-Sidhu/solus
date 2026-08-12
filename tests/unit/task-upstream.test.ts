@@ -7,6 +7,8 @@ let listCalls = 0
 let getCalls = 0
 let updatedPatch: Partial<Task> | null = null
 let listError: Error | null = null
+/** Tickets a native task already owns, as `task_external_links` would report. */
+let mirroredExternalIds = new Set<string>()
 
 interface CacheRow {
   fetched_at: number
@@ -23,6 +25,11 @@ const db = {
       get(projectKey: string, provider: string, scope: string) {
         if (!sql.includes('SELECT fetched_at')) throw new Error(`Unexpected get: ${sql}`)
         return cacheRows.get(cacheKey(projectKey, provider, scope))
+      },
+      all(provider: string, externalKey: string) {
+        if (!sql.includes('FROM task_external_links')) throw new Error(`Unexpected all: ${sql}`)
+        expect([provider, externalKey]).toEqual(['github', 'example/repo'])
+        return [...mirroredExternalIds].map((external_id) => ({ external_id }))
       },
       run(
         projectKey: string,
@@ -73,6 +80,7 @@ mock.module('../../src/main/providers/github/octokit', () => ({
 mock.module('../../src/main/tasks/providers/github', () => ({
   makeGitHubTaskProvider: async () => ({
     id: 'github',
+    repo: { host: 'github.com', owner: 'example', repo: 'repo' },
     async listTasks() {
       listCalls++
       if (listError) throw listError
@@ -103,6 +111,7 @@ beforeEach(() => {
   listError = null
   updatedPatch = null
   cacheRows.clear()
+  mirroredExternalIds = new Set<string>()
   service.invalidateTaskProvider('/workspace/solus')
 })
 
@@ -118,6 +127,31 @@ describe('upstream task reads', () => {
     expect(result.fromCache).toBeUndefined()
     expect(result.fetchedAt).toEqual(expect.any(Number))
     expect(listCalls).toBe(1)
+  })
+
+  test('leaves out a ticket a native task already owns', async () => {
+    // WHY: publishing a task creates the issue and links it. Listing that issue
+    // beside the task that owns it shows one piece of work twice — the duplicate
+    // a user sees right after pressing Publish.
+    mirroredExternalIds = new Set(['42'])
+
+    const result = await service.listUpstreamTasks('/workspace/solus')
+
+    expect(result.tasks).toEqual([])
+    expect(listCalls).toBe(1)
+  })
+
+  test('still serves an unlinked ticket from the offline cache without its owner', async () => {
+    // WHY: the filter must apply to the cached answer too, or a provider outage
+    // resurrects the duplicate it was meant to remove.
+    await service.listUpstreamTasks('/workspace/solus', { refresh: true })
+    mirroredExternalIds = new Set(['42'])
+    listError = new Error('offline')
+
+    const cached = await service.listUpstreamTasks('/workspace/solus', { refresh: true })
+
+    expect(cached.fromCache).toBe(true)
+    expect(cached.tasks).toEqual([])
   })
 
   test('keeps local-only projects from making an upstream request', async () => {

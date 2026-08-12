@@ -104,7 +104,7 @@
   }
 
   .hover-rail-time {
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     line-height: 1;
     color: var(--muted-foreground);
     opacity: 0.55;

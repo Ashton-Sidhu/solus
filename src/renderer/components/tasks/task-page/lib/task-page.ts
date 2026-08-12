@@ -168,7 +168,13 @@ const LINK_KIND_LABELS: Record<TaskLinkKind, { one: string; many: string }> = {
   automation: { one: 'Automation', many: 'Automations' },
 }
 
-const LINK_KIND_ORDER: TaskLinkKind[] = ['work', 'plan', 'automation', 'pr']
+/** Pull requests are not rows in the Linked table: they get their own section,
+ *  which can carry live PR state a generic row has nowhere to put. */
+const LINK_KIND_ORDER: TaskLinkKind[] = ['work', 'plan', 'automation']
+
+export function linkedTableLinks(links: TaskLink[]): TaskLink[] {
+  return links.filter((link) => link.kind !== 'pr')
+}
 
 interface LinkRow {
   key: string
@@ -182,14 +188,27 @@ interface LinkRow {
   meta: string
 }
 
+/** The PR ref has its own rail column. Some discovery paths also capture it at
+ * the start of the title, so remove only that exact leading duplicate. */
+function labelWithoutPrRef(title: string, ref: string): string {
+  if (!title.startsWith(ref)) return title
+  const remainder = title.slice(ref.length)
+  if (!remainder || /^[-\s:–—]/.test(remainder)) {
+    return remainder.replace(/^[-\s:–—]+/, '')
+  }
+  return title
+}
+
 export function linkRow(link: TaskLink): LinkRow {
+  const label = link.liveTitle || link.title
+  const ref = link.kind === 'pr' ? `#${link.targetKey}` : ''
   return {
     key: `${link.kind}:${link.targetScope}:${link.targetKey}`,
     link,
     icon: LINK_ICONS[link.kind],
-    label: link.liveTitle || link.title,
+    label: link.kind === 'pr' ? labelWithoutPrRef(label, ref) : label,
     kindLabel: LINK_KIND_LABELS[link.kind].one,
-    ref: link.kind === 'pr' ? `#${link.targetKey}` : '',
+    ref,
     meta: link.liveStatus ?? '',
   }
 }
@@ -288,10 +307,6 @@ export function eventLine(event: TaskEvent): { icon: string; text: string } {
       }
     case 'woke':
       return { icon: EVENT_GLYPHS.clock, text: `${who} woke this task` }
-    case 'pr_merged':
-      return { icon: EVENT_GLYPHS.link, text: 'Pull request merged' }
-    case 'pr_closed':
-      return { icon: EVENT_GLYPHS.link, text: 'Pull request closed' }
   }
 }
 

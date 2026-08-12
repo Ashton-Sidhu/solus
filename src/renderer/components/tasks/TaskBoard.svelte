@@ -180,8 +180,8 @@
            as a shouted state. -->
       <div class="flex h-8 shrink-0 items-center gap-[7px] pr-1 pl-[3px]">
         <TaskStatusGlyph status={col.status} />
-        <span class="text-[12px] font-normal ">{col.label}</span>
-        <span class="font-mono text-[11px] tabular-nums text-muted-foreground opacity-[.65]">
+        <span class="text-xs font-normal ">{col.label}</span>
+        <span class="font-mono text-xs tabular-nums text-muted-foreground opacity-[.65]">
           {col.ordered.length}
         </span>
         <span class="flex-1"></span>
@@ -251,7 +251,7 @@
 
         {#if cards.length === 0 && !isTarget}
           <div
-            class="flex h-14 shrink-0 items-center justify-center rounded-2xl border border-dashed border-[var(--hairline-strong)] text-[12px] text-muted-foreground opacity-60"
+            class="flex h-14 shrink-0 items-center justify-center rounded-2xl border border-dashed border-[var(--hairline-strong)] text-xs text-muted-foreground opacity-60"
           >
             Empty
           </div>
@@ -263,11 +263,11 @@
         {#if col.hidden > 0}
           <button
             type="button"
-            class="flex h-7 w-full shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-transparent text-[11.5px] text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:bg-[var(--wash-2)] focus-visible:text-foreground focus-visible:outline-none"
+            class="flex h-7 w-full shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-transparent text-xs text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:bg-[var(--wash-2)] focus-visible:text-foreground focus-visible:outline-none"
             onclick={() => revealed.set(col.status, col.cards.length + PAGE)}
           >
             Show more
-            <span class="font-mono text-[10px] tabular-nums opacity-70">{col.hidden}</span>
+            <span class="font-mono text-xs tabular-nums opacity-70">{col.hidden}</span>
           </button>
         {/if}
       </div>

@@ -225,7 +225,7 @@
     border-radius: 9999px;
     background: var(--solus-accent);
     color: var(--solus-text-on-accent);
-    font-size: 0.53125rem;
+    font-size: 0.75rem;
     font-weight: 500;
   }
 
@@ -236,7 +236,7 @@
   }
 
   .ct-meta {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
     white-space: nowrap;
   }
@@ -256,7 +256,7 @@
 
   .ct-spark {
     flex: none;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-accent);
   }
 
@@ -270,7 +270,7 @@
   .ct-agent-note {
     flex: 1;
     min-width: 0;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -283,7 +283,7 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.375rem 0.125rem;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
   }
 
@@ -342,7 +342,7 @@
     gap: 0.5rem;
     padding-top: 0.75rem;
     border-top: 0.0625rem solid var(--solus-container-border);
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
   }
 
