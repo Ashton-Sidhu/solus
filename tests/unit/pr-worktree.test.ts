@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { spawnSync } from 'child_process'
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { fetchAndCheckoutPr } from '../../src/main/git/worktree-manager'
@@ -47,5 +47,11 @@ describe('fetchAndCheckoutPr', () => {
     expect(result.branch).toBe('solus/pr-40')
     expect(result.headSha).toBe(git(project, ['rev-parse', 'HEAD']))
     expect(existsSync(worktreePath)).toBe(true)
+
+    // WHY: lazy checkout can run after an agent edited this deterministic PR
+    // worktree. A refresh must fail without discarding or misreporting that work.
+    writeFileSync(join(worktreePath, 'base.txt'), 'local agent work\n')
+    await expect(fetchAndCheckoutPr(project, 40, 'main')).rejects.toThrow('local changes')
+    expect(readFileSync(join(worktreePath, 'base.txt'), 'utf8')).toBe('local agent work\n')
   })
 })

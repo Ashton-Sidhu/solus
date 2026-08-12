@@ -280,7 +280,7 @@
   // tick→rAF→scrollIntoView→setTimeout chain.
   let lastActiveId = "";
   $effect(() => {
-    const activeId = session.activeTabId;
+    const activeId = session.onScreenTabId;
     // Re-run on active-tab change or a real reorder/group-move — not on every
     // background status tick (see layoutKey).
     void layoutKey;
@@ -306,7 +306,7 @@
     // measures the tab at its old width, which can leave its trailing edge just
     // outside the viewport when the rightmost active tab is closed.
     const t = setTimeout(() => {
-      if (activeChanged && session.activeTabId === activeId) {
+      if (activeChanged && session.onScreenTabId === activeId) {
         const settledActiveEl = sc.querySelector(
           '[aria-selected="true"]',
         ) as HTMLElement | null;
@@ -344,7 +344,7 @@
               <span {...tooltipProps}
           class="flex size-3 shrink-0 items-center justify-center {hostAffinity.className}"
         >
-          <HostIcon size={10} />
+          <HostIcon size={14} />
         </span>
             {/snippet}
           </TooltipUI.Trigger>
@@ -356,7 +356,7 @@
       {:else if statusIcon}
         {@const Icon = statusIcon.component}
         <Icon
-          size={10}
+          size={14}
           data-testid="tab-status-icon"
           data-status={sess?.status}
           style="color:{statusIcon.color};flex-shrink:0"
@@ -370,7 +370,7 @@
               <span {...tooltipProps}
           class="tab-split-icon flex shrink-0 items-center"
         >
-          <ChatsIcon size={10} />
+          <ChatsIcon size={14} />
         </span>
             {/snippet}
           </TooltipUI.Trigger>
@@ -391,14 +391,14 @@
         aria-label="Close tab"
         title="Close tab"
       >
-        <XIcon size={11} />
+        <XIcon size={14} />
       </button>
     </div>
   {/if}
 {/snippet}
 
 <Tabs.Root
-  value={session.activeTabId}
+  value={session.onScreenTabId}
   onValueChange={(value) => {
     session.selectTab(value);
     requestInputFocus();
@@ -417,7 +417,7 @@
           onclick={() => tabScroll.page(-1)}
           aria-label="Scroll tabs left"
         >
-          <CaretLeftIcon size={9} />
+          <CaretLeftIcon size={14} />
         </button>
       {/if}
       <Tabs.List class="contents">
@@ -444,7 +444,7 @@
               style="--gc:{gv.color}"
             >
               <GIcon
-                size={13}
+                size={14}
                 weight={gv.weight ?? "regular"}
                 style="color:{gv.color}"
                 class={gv.spin ? "tab-status-spin" : ""}
@@ -457,7 +457,7 @@
             {#each group.tabIds as tabId (tabId)}
               {@const tab = session.tabs[tabId]}
               {@const sess = session.sessionFor(tabId)}
-              {@const isActive = tabId === session.activeTabId}
+              {@const isActive = tabId === session.onScreenTabId}
               {@const attention =
                 tab && sess
                   ? getAttentionState(sess, tab, planStore.plans)
@@ -498,7 +498,7 @@
           {#each renderedTabIds as tabId (tabId)}
             {@const tab = session.tabs[tabId]}
             {@const sess = session.sessionFor(tabId)}
-            {@const isActive = tabId === session.activeTabId}
+            {@const isActive = tabId === session.onScreenTabId}
             {@const attention =
               tab && sess
                 ? getAttentionState(sess, tab, planStore.plans)
@@ -559,7 +559,7 @@
           onclick={() => tabScroll.page(1)}
           aria-label="Scroll tabs right"
         >
-          <CaretRightIcon size={9} />
+          <CaretRightIcon size={14} />
         </button>
       {/if}
     </div>
@@ -598,7 +598,7 @@
           ? 'text-(--solus-accent)'
           : 'text-(--solus-text-tertiary) hover:text-(--solus-text-primary)'}"
       >
-        <FunnelSimpleIcon size={13} weight={isGrouped ? "fill" : "regular"} />
+        <FunnelSimpleIcon size={14} weight={isGrouped ? "fill" : "regular"} />
       </button>
           {/snippet}
         </TooltipUI.Trigger>
@@ -615,7 +615,7 @@
             )}
           class="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
         >
-          <ClockIcon size={13} />
+          <ClockIcon size={14} />
         </button>
             {/snippet}
           </TooltipUI.Trigger>

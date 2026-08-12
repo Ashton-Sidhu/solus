@@ -43,14 +43,14 @@
 
 <div
   transition:fly={{ y: 8, duration: 200 }}
-  class="mx-auto my-2 w-full max-w-[47.5rem] overflow-hidden rounded-xl border border-border bg-card text-[0.8125rem] shadow-[shadow:var(--solus-tx-raised-shadow)]"
+  class="mx-auto my-2 w-full max-w-[47.5rem] overflow-hidden rounded-2xl border border-border bg-card text-[0.8125rem] shadow-[shadow:var(--solus-tx-raised-shadow)]"
   data-testid={testId}
 >
   <div class="interrupt-head flex items-start gap-3 px-[1.125rem] pt-[0.875rem] pb-[0.8125rem]">
     <div class="flex min-w-0 flex-1 flex-col gap-[0.125rem]">
       <span class="interrupt-eyebrow">{eyebrow}</span>
       <div class="flex min-w-0 items-center gap-2.5">
-        <h2 class="m-0 min-w-0 truncate text-[0.9375rem] leading-[1.3] font-semibold tracking-tight">
+        <h2 class="m-0 min-w-0 truncate text-sm leading-[1.3] font-medium ">
           {title}
         </h2>
         {@render chip?.()}
@@ -66,7 +66,7 @@
        claiming an effect. -->
   {#if tone === 'destructive'}
     <div class="interrupt-danger flex items-center gap-2 px-[1.125rem] py-[0.4375rem]">
-      <WarningIcon size={12} weight="fill" class="shrink-0" />
+      <WarningIcon size={14} weight="fill" class="shrink-0" />
       <span>Matches a destructive command pattern — its effects can reach outside the worktree.</span>
     </div>
   {/if}
@@ -86,9 +86,9 @@
   }
 
   .interrupt-eyebrow {
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     font-weight: 500;
-    letter-spacing: 0.09em;
+
     text-transform: uppercase;
     color: var(--muted-foreground);
   }
@@ -103,7 +103,7 @@
   .interrupt-danger {
     background: color-mix(in oklch, var(--destructive) 10%, transparent);
     color: color-mix(in oklch, var(--destructive) 72%, var(--foreground));
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
   }
 
   .interrupt-footer {
@@ -126,7 +126,7 @@
     background: transparent;
     padding: 0 0.5rem;
     color: var(--muted-foreground);
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     font-weight: 400;
     cursor: pointer;
     transition:
@@ -170,11 +170,11 @@
   /* A key hint lives inside the button it fires, never in a separate legend. */
   :global(.interrupt-key) {
     font-family: var(--solus-code-font-family);
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     opacity: 0.75;
   }
   :global(.interrupt-btn--primary .interrupt-key) {
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     opacity: 0.8;
   }
 
@@ -200,9 +200,9 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: var(--solus-code-font-family);
-    font-size: 0.59375rem;
+    font-size: 0.75rem;
     font-weight: 500;
-    letter-spacing: 0.07em;
+
     text-transform: uppercase;
     color: var(--muted-foreground);
   }
@@ -228,7 +228,7 @@
     background: transparent;
     padding: 0.25rem 0;
     color: var(--muted-foreground);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     cursor: pointer;
     transition: color var(--duration-quick) var(--ease-premium);
   }
@@ -253,7 +253,7 @@
     padding: 0.625rem 0.75rem;
     background: color-mix(in oklch, var(--muted) 24%, var(--card));
     font-family: var(--solus-code-font-family);
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     overflow-wrap: anywhere;
   }
 </style>

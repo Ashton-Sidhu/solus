@@ -130,7 +130,7 @@
     background: var(--solus-container-bg);
     border: 0.0625rem solid var(--solus-container-border);
     color: var(--solus-text-tertiary);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
   }
 
   .diagram-thread-card__anchor-label {
@@ -144,7 +144,7 @@
     padding-left: 0.375rem;
     border-left: 0.0625rem solid var(--solus-container-border);
     font-family: var(--solus-code-font-family);
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     opacity: 0.8;
   }
 </style>

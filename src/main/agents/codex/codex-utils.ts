@@ -334,13 +334,12 @@ export function extractCodexChangedFilePaths(source: unknown): string[] {
     }
     if (typeof value !== 'object') return
 
-    const record = value as Record<string, unknown>
     for (const key of CODEX_CHANGE_PATH_KEYS) {
-      addPath(record[key])
+      addPath(Reflect.get(value, key))
     }
-    visit(record.changes)
-    visit(record.diff)
-    visit(record.patch)
+    visit(Reflect.get(value, 'changes'))
+    visit(Reflect.get(value, 'diff'))
+    visit(Reflect.get(value, 'patch'))
   }
 
   visit(source)
@@ -593,14 +592,14 @@ function codexReasoningText(item: CodexHistoryItem): string {
 function codexToolResultText(result: unknown): string {
   if (typeof result === 'string') return result
   if (!result || typeof result !== 'object') return ''
-  const record = result as Record<string, unknown>
+  const record = result as { contentItems?: unknown; content?: unknown }
   const content = record.contentItems ?? record.content
   if (Array.isArray(content)) {
     return content
       .map((item) => {
         if (typeof item === 'string') return item
         if (!item || typeof item !== 'object') return ''
-        const part = item as Record<string, unknown>
+        const part = item as { text?: unknown }
         return typeof part.text === 'string' ? part.text : ''
       })
       .filter(Boolean)
@@ -681,16 +680,15 @@ export function codexImageArtifactPath(value: unknown, seen = new WeakSet<object
   if (seen.has(value)) return null
   seen.add(value)
 
-  const record = value as Record<string, unknown>
   for (const key of [...IMAGE_PATH_KEYS, ...IMAGE_DATA_KEYS]) {
-    const candidate = record[key]
+    const candidate = Reflect.get(value, key)
     if (typeof candidate === 'string') {
       const found = imagePathFromString(candidate)
       if (found) return found
     }
   }
   for (const nestedKey of ['result', 'output', 'outputs', 'image', 'images', 'content', 'contentItems']) {
-    const found = codexImageArtifactPath(record[nestedKey], seen)
+    const found = codexImageArtifactPath(Reflect.get(value, nestedKey), seen)
     if (found) return found
   }
   return null

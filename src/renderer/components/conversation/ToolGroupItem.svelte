@@ -14,6 +14,7 @@
     getToolDescriptionFromParsed,
     liveActivityLabel,
     participleFor,
+    type ParsedToolInput,
   } from "./lib/activity-summary";
   import { waitingOnLabel } from "./agent-conversation/lib/agent-conversation";
   import type { Message, TurnStartKind } from "../../../shared/types";
@@ -51,10 +52,10 @@
   const failedTool = $derived.by(() => {
     const last = tools[tools.length - 1];
     if (!last) return undefined;
-    return last.toolStatus === "error" || last.toolResultIsError ? last : undefined;
+    return last.toolStatus === "error" ? last : undefined;
   });
 
-  const parseCache = new WeakMap<Message, Record<string, unknown> | null>();
+  const parseCache = new WeakMap<Message, ParsedToolInput | null>();
 
   // A running tool's toolInput is empty/absent — the full input lands only at
   // completion. Parsing (and caching) it while running would pin a stale null, so
@@ -64,9 +65,10 @@
       if (!tool.toolInput || tool.toolStatus === "running") return null;
       const cached = parseCache.get(tool);
       if (cached !== undefined) return cached;
-      let parsed: Record<string, unknown> | null = null;
+      let parsed: ParsedToolInput | null = null;
       try {
-        parsed = JSON.parse(tool.toolInput) as Record<string, unknown>;
+        const value: unknown = JSON.parse(tool.toolInput);
+        parsed = value !== null && typeof value === "object" ? value as ParsedToolInput : null;
       } catch {}
       parseCache.set(tool, parsed);
       return parsed;
@@ -95,12 +97,12 @@
 
   const failureLine = $derived.by(() => {
     if (!failedTool) return "";
-    const text = (failedTool.toolResult || failedTool.content || "").trim();
+    const text = (failedTool.errorHead || "").trim();
     const first = text.split("\n").map((line) => line.trim()).find(Boolean);
     return first ? (first.length > 240 ? `${first.slice(0, 237)}…` : first) : "";
   });
 
-  function describe(tool: Message, parsed: Record<string, unknown> | null): string {
+  function describe(tool: Message, parsed: ParsedToolInput | null): string {
     const toolName = tool.toolName || "Tool";
     if (tool.toolStatus === "running") return prettyToolName(toolName);
     return parsed
@@ -189,7 +191,7 @@
       {#each tools as tool, i (tool.id)}
         {@const parsed = parsedInputs[i]}
         {@const Glyph = KIND_ICONS[activityKind(tool.toolName)]}
-        {@const failed = tool.toolStatus === "error" || tool.toolResultIsError}
+        {@const failed = tool.toolStatus === "error"}
         <div class:tool-step--expanded={expandedToolId === tool.id} class="tool-step">
           <span class:tool-step-glyph--failed={failed} class="tool-step-glyph">
             {#if failed}
@@ -228,7 +230,7 @@
 
   .tool-stderr {
     padding: 0.125rem 0 0.3125rem;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     line-height: 1.65;
     color: var(--muted-foreground);
     white-space: pre-wrap;
@@ -271,7 +273,7 @@
     white-space: nowrap;
     text-align: left;
     text-overflow: ellipsis;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     opacity: 0.8;
     cursor: pointer;
   }
@@ -288,7 +290,7 @@
   }
 
   .tool-step-duration {
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     opacity: 0.55;
   }

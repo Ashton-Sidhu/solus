@@ -119,7 +119,7 @@
  */
 
 :root {
-  --solus-font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+  --solus-font-family: 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
   --solus-code-font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
   --solus-code-font-scale: 1;
   /* 0.75rem = 12px at the 16px design-reference root (DEFAULT_CODE_FONT_SIZE).
@@ -133,13 +133,11 @@
      also adapts when the sidebar/diff panel resize the pane, and is a no-op in
      the narrow pill window (pane already below the min). */
   --solus-reading-max: clamp(40rem, 92%, 80rem);
-  /* First-paint default for the Inter UI font: named 500 (Medium) instance, not
-     an interpolated 475 — named instances are hinted, so glyphs render a touch
-     crisper. applyFontFamily() overrides both at runtime with the per-font crisp
-     weight (see APP_FONT_FAMILIES in settings.context). */
-  --solus-font-weight-body: 500;
-  --solus-font-weight-secondary: 500;
-  --solus-font-weight-user-content: 500;
+  /* SF Pro Text first-paint defaults. Runtime font preferences replace these
+     with the selected face's named Regular or Medium instance. */
+  --solus-font-weight-body: 400;
+  --solus-font-weight-secondary: 400;
+  --solus-font-weight-user-content: 400;
   /* macOS traffic-light safe area — single source of truth.
      `titleBarStyle: 'hiddenInset'` floats the real window controls over the
      top-left of our content, so every piece of chrome that can land in that
@@ -435,7 +433,7 @@
   --solus-tap-target: 2rem;
   --solus-tap-target-lg: 2.5rem;
   --solus-font-ui: 0.75rem;
-  --solus-font-ui-sm: 0.625rem;
+  --solus-font-ui-sm: 0.75rem;
   --solus-font-ui-lg: 0.8125rem;
   /* ─── HTML artifact palette ───
      Warm, brand-coherent colours injected into rendered HTML artifacts (see
@@ -473,7 +471,7 @@
     --solus-tap-target: 2.5rem;
     --solus-tap-target-lg: 3rem;
     --solus-font-ui: 0.8125rem;
-    --solus-font-ui-sm: 0.6875rem;
+    --solus-font-ui-sm: 0.75rem;
     --solus-font-ui-lg: 0.875rem;
   }
 }
@@ -771,8 +769,6 @@
     var(--solus-agent-card-lift);
   /* Every rule inside an exchange card — header, message block, footer. */
   --solus-agent-card-rule: color-mix(in oklch, var(--foreground) 9%, transparent);
-  /* Arrow-out-of-box, masked so it takes the link's own colour. */
-  --solus-external-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.4 2.4h5.2v5.2M9.6 2.4L4 8'/%3E%3Cpath d='M8 9.6H2.4V4'/%3E%3C/svg%3E");
 }
 
 /* List-page surface (the "List pages — Tasks & Pull requests" spec, Part A).
@@ -799,7 +795,8 @@
   --hairline-strongest: color-mix(in oklch, var(--foreground) 14%, transparent);
   /* Status semantics. Aliases, so a chart-palette change cannot silently
      repaint lifecycle state — a row's colour means one specific thing. */
-  --running: var(--primary);
+  --running: var(--chart-5);
+  --review: var(--solus-art-6);
   --warning: var(--chart-2);
   --success: var(--chart-3);
   --failure: var(--destructive);
@@ -862,9 +859,9 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
   --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xl: 1rem;
 }
 
 /* Shiki dual-theme support */
@@ -882,6 +879,7 @@ html, body, #root {
   overflow: hidden;
   user-select: none;
   font-family: var(--solus-font-family);
+  letter-spacing: -0.0115em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'cv02' 1, 'cv03' 1, 'cv04' 1, 'cv11' 1, 'ss01' 1;
@@ -893,15 +891,26 @@ html, body, #root {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Uppercase eyebrow labels need positive tracking to remain legible. Code and
+   monospace text keep their own metrics instead of inheriting UI tracking. */
+:where(.uppercase) {
+  letter-spacing: 0.09em;
+}
+:where(code, pre, .font-mono) {
+  letter-spacing: normal;
+}
+:where(.uppercase .normal-case) {
+  letter-spacing: -0.0115em;
+}
+
 html.solus-web,
 html.solus-web body,
 html.solus-web #root {
   background: var(--solus-edge-bg) !important;
 }
 
-/* Secondary UI labels carry the typeface's crisp weight (see APP_FONT_FAMILIES
-   in settings.context — 500 for Inter/DM Sans, 400 for System/Geist/Lora, 300
-   for SF Pro Text). `inline` so the utility resolves the live runtime variable
+/* Secondary UI labels carry the typeface's crisp Regular or Medium weight (see
+   APP_FONT_FAMILIES in settings.context). `inline` resolves the live runtime variable
    applyFontFamily() writes onto <html>, not a build-time snapshot. */
 @theme inline {
   --font-weight-secondary: var(--solus-font-weight-secondary);
@@ -942,7 +951,7 @@ html.solus-web #root {
   background: transparent;
   background-clip: padding-box;
   border: 0.15625rem solid transparent;
-  border-radius: 999px;
+  border-radius: 9999px;
   min-height: 2rem;
 }
 [data-scrolling]::-webkit-scrollbar-thumb {
@@ -1033,7 +1042,7 @@ input::placeholder {
   /* Toned toward the text colour — full-saturation accent on every inline span
      reads as static rather than emphasis. (pre code keeps `inherit` below.) */
   color: color-mix(in srgb, var(--solus-accent) 72%, var(--solus-text-primary));
-  font-size: 0.875em;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
   font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
   font-feature-settings: 'calt' 1, 'liga' 0;
   font-weight: 400;
@@ -1080,7 +1089,7 @@ input::placeholder {
 .prose-cloud th,
 .solus-doc-editor .ProseMirror th {
   background: var(--solus-surface-primary);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 /* Shared decorations — identical across every prose context. */
@@ -1162,7 +1171,7 @@ button.solus-token {
 }
 .solus-ghost__key {
   font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
-  font-size: 0.59375rem;
+  font-size: 0.75rem;
   letter-spacing: 0.04em;
   padding: 0.0625rem 0.25rem;
   border-radius: 0.1875rem;
@@ -1216,7 +1225,7 @@ button.solus-token {
   margin-inline: 0.0625rem;
   padding: 0.0625rem;
   border: 0;
-  font-size: calc(0.85rem * var(--solus-font-scale, 1));
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
   line-height: 1;
   vertical-align: middle;
 }
@@ -1227,7 +1236,7 @@ button.solus-token {
 /* Rendered into a transcript rather than composed: the base shape already
    matches, so this only drops the 1px optical lift the composer needs. */
 .solus-token--output-link {
-  font-size: calc(0.78125rem * var(--solus-font-scale, 1));
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
 }
 .solus-token--output-file-link {
   font-size: calc(0.75rem * var(--solus-font-scale, 1));
@@ -1307,7 +1316,7 @@ button.solus-token {
   /* Body at 400 (Regular) — at the 16px reading size, the app-wide 500 body
      weight reads heavy, and 400 gives the 600 headings room to anchor. */
   font-weight: 400;
-  font-size: calc(1rem * var(--solus-font-scale, 1));
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
   line-height: 1.7;
   color: var(--solus-text-primary);
   padding: 0.75rem var(--doc-pad-x) 3rem;
@@ -1348,10 +1357,10 @@ button.solus-token {
 }
 .doc-prompt-editor .solus-doc-editor .ProseMirror p { margin: 0.35em 0; }
 .doc-prompt-editor .solus-doc-editor .ProseMirror h1 {
-  font-size: calc(1.25rem * var(--solus-font-scale, 1)); margin: 1.2em 0 0.35em; line-height: 1.3;
+  font-size: calc(1.5rem * var(--solus-font-scale, 1)); margin: 1.2em 0 0.35em; line-height: 1.3;
 }
 .doc-prompt-editor .solus-doc-editor .ProseMirror h2 {
-  font-size: calc(1.0625rem * var(--solus-font-scale, 1)); margin: 1em 0 0.3em; line-height: 1.35;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1)); margin: 1em 0 0.3em; line-height: 1.35;
   border-bottom: none; padding-bottom: 0;
 }
 .solus-doc-editor .ProseMirror > * + * {
@@ -1364,7 +1373,7 @@ button.solus-token {
   margin: 0.75em 0;
   text-wrap: pretty;
 }
-.solus-doc-editor .ProseMirror strong { font-weight: 600; }
+.solus-doc-editor .ProseMirror strong { font-weight: 500; }
 .solus-doc-editor .ProseMirror em { font-style: italic; }
 .solus-doc-editor .ProseMirror h1,
 .solus-doc-editor .ProseMirror h2,
@@ -1374,18 +1383,18 @@ button.solus-token {
 /* ×1.25 scale off the 16px body: h1 31px, h2 25px, h3 20px. Big gap above a
    heading separates the prior section, tight gap below bonds it to its content. */
 .solus-doc-editor .ProseMirror h1 {
-  font-size: calc(1.9375rem * var(--solus-font-scale, 1)); font-weight: 600; letter-spacing: -0.02em;
+  font-size: calc(1.5rem * var(--solus-font-scale, 1)); font-weight: 500;
   margin: 1.8em 0 0.45em; line-height: 1.25;
 }
 .solus-doc-editor .ProseMirror h1:first-child { margin-top: 0; }
 .solus-doc-editor .ProseMirror h2 {
-  font-size: calc(1.5625rem * var(--solus-font-scale, 1)); font-weight: 600; letter-spacing: -0.015em;
+  font-size: calc(1.5rem * var(--solus-font-scale, 1)); font-weight: 500;
   margin: 1.8em 0 0.4em; line-height: 1.3;
   border-bottom: 0.0625rem solid var(--solus-art-border);
   padding-bottom: 0.25em;
 }
 .solus-doc-editor .ProseMirror h3 {
-  font-size: calc(1.25rem * var(--solus-font-scale, 1)); font-weight: 600; letter-spacing: -0.01em;
+  font-size: calc(1.5rem * var(--solus-font-scale, 1)); font-weight: 500;
   margin: 1.45em 0 0.3em; line-height: 1.35;
 }
 .solus-doc-editor .ProseMirror h2 + h3,
@@ -1411,7 +1420,7 @@ button.solus-token {
    mix above; only the long-form column tones down this far. */
 .solus-doc-editor .ProseMirror code {
   color: color-mix(in srgb, var(--solus-accent) 50%, var(--solus-text-primary));
-  font-size: 0.88em;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
 }
 /* Block code is the one thing in the column that gets a fill — the parchment
    raised tone, which is the only step of the palette that reads as filled in
@@ -1465,7 +1474,7 @@ button.solus-token {
      ("SURFACE" wrapping to "SURFAC / E") to feed a long one. */
   table-layout: fixed;
   width: 100%;
-  font-size: 0.9em;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
   margin: 0.9em 0;
 }
 /* Horizontal rules only — a full grid boxes every cell and fights the prose. */
@@ -1534,7 +1543,7 @@ button.solus-token {
 .solus-doc-editor .hljs-doctag { color: color-mix(in srgb, var(--solus-syntax-string) 70%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-title,
 .solus-doc-editor .hljs-section,
-.solus-doc-editor .hljs-selector-id { color: color-mix(in srgb, var(--solus-syntax-function) 70%, var(--solus-text-secondary)); font-weight: 600; }
+.solus-doc-editor .hljs-selector-id { color: color-mix(in srgb, var(--solus-syntax-function) 70%, var(--solus-text-secondary)); font-weight: 500; }
 .solus-doc-editor .hljs-type,
 .solus-doc-editor .hljs-class .hljs-title { color: color-mix(in srgb, var(--solus-syntax-type) 70%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-attribute,
@@ -1549,7 +1558,7 @@ button.solus-token {
 .solus-doc-editor .hljs-deletion { color: color-mix(in srgb, var(--solus-syntax-deletion) 70%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-addition { color: color-mix(in srgb, var(--solus-syntax-addition) 70%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-emphasis { font-style: italic; }
-.solus-doc-editor .hljs-strong { font-weight: bold; }
+.solus-doc-editor .hljs-strong { font-weight: 500; }
 
 /* ─── Document editor: compact / mobile ─── */
 @media (max-width: 1100px) {
@@ -1572,10 +1581,10 @@ button.solus-token {
     font-size: calc(1.5rem * var(--solus-font-scale, 1));
   }
   .solus-doc-editor .ProseMirror h2 {
-    font-size: calc(1.25rem * var(--solus-font-scale, 1));
+    font-size: calc(1.5rem * var(--solus-font-scale, 1));
   }
   .solus-doc-editor .ProseMirror h3 {
-    font-size: calc(1.0625rem * var(--solus-font-scale, 1));
+    font-size: calc(0.875rem * var(--solus-font-scale, 1));
   }
   .solus-doc-raw {
     padding-inline: 0.75rem;
@@ -1612,14 +1621,14 @@ button.solus-token {
    can click; amber is only ever human annotation; sage is only ever saved or
    resolved. */
 .doc-shell-root .doc-shell-column {
-  --solus-doc-size: calc(0.96875rem * var(--solus-font-scale, 1));
+  --solus-doc-size: calc(0.875rem * var(--solus-font-scale, 1));
   /* Measure grows with the pane rather than sitting at a fixed 68ch. The root
-     font-size is driven by *screen* resolution, not window width (uiScale.ts),
-     so a fixed ch measure stays the same physical width however wide the window
-     gets — which reads as a narrow ribbon on a large monitor. `cqi` is the doc
-     shell's own inline size, so this tracks the pane: a split pane still gets a
-     narrow column on the same screen. The bounds keep it a reading measure at
-     both ends instead of a full-bleed line. */
+     font-size is a fixed 16px, so a fixed ch measure stays the same physical
+     width however wide the window gets — which reads as a narrow ribbon on a
+     large monitor. `cqi` is the doc shell's own inline size, so this tracks
+     the pane: a split pane still gets a narrow column on the same screen. The
+     bounds keep it a reading measure at both ends instead of a full-bleed
+     line. */
   --solus-doc-measure: clamp(66ch, 68cqi, 112ch);
   --solus-doc-serif: 'Lora', Georgia, serif;
   --solus-doc-mono: 'Geist Mono', var(--solus-code-font-family);
@@ -1651,10 +1660,9 @@ button.solus-token {
    inside the prose, so it stays Inter and separates by weight instead. */
 .doc-shell-root .solus-doc-editor .ProseMirror h1 {
   font-family: var(--solus-doc-serif);
-  font-size: 2.2em;
+  font-size: calc(1.5rem * var(--solus-font-scale, 1));
   font-weight: 500;
   line-height: 1.12;
-  letter-spacing: -0.03em;
   margin: 2.6em 0 0.7em;
 }
 /* Byline: the document's own meta line, sitting under the title where the
@@ -1671,10 +1679,9 @@ button.solus-token {
   margin-bottom: 1.9em;
   /* Inter, not the H1's Lora — the serif is reserved for structure. */
   font-family: var(--solus-font-family);
-  font-size: 0.78125rem;
+  font-size: 0.8125rem;
   font-weight: 400;
   line-height: 1.55;
-  letter-spacing: normal;
   color: var(--solus-text-tertiary);
   /* Decoration, not prose — never a caret target or a selection. */
   user-select: none;
@@ -1683,10 +1690,9 @@ button.solus-token {
 .doc-shell-root .solus-doc-editor .ProseMirror h2 {
   position: relative;
   font-family: var(--solus-doc-serif);
-  font-size: 1.36em;
+  font-size: calc(1.5rem * var(--solus-font-scale, 1));
   font-weight: 500;
   line-height: 1.3;
-  letter-spacing: -0.018em;
   margin: 1.9em 0 0.55em;
   counter-increment: doc-section;
   /* The design separates sections by whitespace alone. */
@@ -1703,7 +1709,7 @@ button.solus-token {
   left: calc(-1 * var(--solus-doc-gutter));
   top: 0.34em;
   font-family: var(--solus-doc-mono);
-  font-size: 0.58em;
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
   font-weight: 400;
   letter-spacing: 0;
   color: var(--solus-text-tertiary);
@@ -1714,19 +1720,17 @@ button.solus-token {
   opacity: 0;
 }
 .doc-shell-root .solus-doc-editor .ProseMirror h3 {
-  font-size: 1.065em;
-  font-weight: 600;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-weight: 500;
   line-height: 1.4;
-  letter-spacing: -0.008em;
   margin: 2em 0 0.6em;
   color: var(--solus-doc-ink-strong);
 }
 /* Lead: the paragraph that opens the document reads a step larger and a step
    lighter, so the eye enters the column before it starts scanning sections. */
 .doc-shell-root .solus-doc-editor .ProseMirror h1 + p {
-  font-size: 1.13em;
+  font-size: calc(1.5rem * var(--solus-font-scale, 1));
   line-height: 1.62;
-  letter-spacing: -0.004em;
   color: var(--solus-doc-ink-lead);
   margin-bottom: 1.4em;
 }
@@ -1765,7 +1769,7 @@ button.solus-token {
   border-top: 0.0625rem solid color-mix(in srgb, var(--solus-accent) 35%, transparent);
   border-bottom: 0.0625rem solid var(--solus-doc-rule);
   background: none;
-  font-size: 0.935em;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
   line-height: 1.66;
   color: var(--solus-doc-ink-strong);
 }
@@ -1776,8 +1780,8 @@ button.solus-token {
   top: calc(0.9em + 0.1875rem);
   width: 3.875rem;
   font-family: var(--solus-doc-mono);
-  font-size: 0.65625rem;
-  font-weight: 600;
+  font-size: 0.75rem;
+  font-weight: 500;
   line-height: 1.2;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1798,7 +1802,7 @@ button.solus-token {
   background: var(--solus-art-raised);
   padding: 0.1em 0.34em;
   border-radius: 0.3125rem;
-  font-size: 0.87em;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
 }
 .doc-shell-root .solus-doc-editor .ProseMirror pre code {
   color: inherit;
@@ -1818,7 +1822,7 @@ button.solus-token {
   border-radius: 0;
   background: none;
   font-family: var(--solus-doc-mono);
-  font-size: 0.84em;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
   line-height: 1.8;
   color: var(--solus-doc-ink-strong);
   transition: border-color var(--duration-quick) var(--ease-premium);
@@ -1844,7 +1848,7 @@ button.solus-token {
   gap: 0.5rem;
   margin-bottom: 0.5rem;
   font-family: var(--solus-doc-mono);
-  font-size: 0.65625rem;
+  font-size: 0.75rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--solus-text-tertiary);
@@ -1871,8 +1875,8 @@ button.solus-token {
   border-radius: 0.3125rem;
   background: transparent;
   font-family: inherit;
-  font-size: 0.625rem;
-  letter-spacing: 0.04em;
+  font-size: 0.75rem;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--solus-text-tertiary);
   cursor: pointer;
@@ -1913,7 +1917,7 @@ button.solus-token {
 }
 .doc-shell-root .solus-doc-editor .ProseMirror table {
   margin: 0;
-  font-size: 0.9em;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
 }
 .doc-shell-root .solus-doc-editor .ProseMirror th,
 .doc-shell-root .solus-doc-editor .ProseMirror td {
@@ -1926,7 +1930,7 @@ button.solus-token {
   padding: 0.72em 0.72em 0.72em 0;
   font-family: var(--solus-doc-mono);
   font-size: 1em;
-  font-weight: 600;
+  font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: var(--solus-text-tertiary);
@@ -1971,7 +1975,7 @@ button.solus-token {
 }
 @container doc-shell (max-width: 45rem) {
   .doc-shell-root .doc-shell-column {
-    --solus-doc-size: calc(0.9375rem * var(--solus-font-scale, 1));
+    --solus-doc-size: calc(0.875rem * var(--solus-font-scale, 1));
   }
   .doc-shell-root .solus-doc-editor .ProseMirror {
     --doc-pad-x: 1.375rem;
@@ -1986,7 +1990,7 @@ button.solus-token {
    is em-relative, so this one variable rescales the whole column. */
 @media (max-width: 767px) {
   .doc-shell-root .doc-shell-column {
-    --solus-doc-size: calc(1.0625rem * var(--solus-font-scale, 1));
+    --solus-doc-size: calc(0.875rem * var(--solus-font-scale, 1));
   }
   .doc-shell-root .solus-doc-editor .ProseMirror {
     line-height: 1.7;
@@ -2004,7 +2008,7 @@ button.solus-token {
    Placed after the responsive ladder and qualified on the root so neither the
    `@container doc-shell` steps nor the phone `@media` rule can outrank it. */
 .doc-shell-root.doc-peek .doc-shell-column {
-  --solus-doc-size: calc(0.78125rem * var(--solus-font-scale, 1));
+  --solus-doc-size: calc(0.8125rem * var(--solus-font-scale, 1));
   /* A 19rem column *is* the measure — there is nothing to hold it in. */
   --solus-doc-measure: 100%;
   /* Just clear of the text, the way the narrow-pane step pulls them in. */
@@ -2068,7 +2072,7 @@ button.solus-token {
   top: 0.15em;
   bottom: 0.15em;
   width: 0.125rem;
-  border-radius: 999px;
+  border-radius: 9999px;
   background: var(--solus-art-2);
   pointer-events: none;
 }
@@ -2091,7 +2095,7 @@ button.solus-token {
 }
 .plan-comment-solus::after {
   content: "✦";
-  font-size: 0.62em;
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
   vertical-align: super;
   padding-left: 0.1875rem;
   color: var(--solus-accent);
@@ -2157,9 +2161,8 @@ button.solus-token {
 .prose-cloud {
   color: var(--solus-text-primary);
   font-weight: var(--solus-font-weight-body);
-  font-size: calc(0.8438rem * var(--solus-font-scale, 1));
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
   line-height: 1.7;
-  letter-spacing: -0.006em;
   overflow-wrap: break-word;
   word-break: break-word;
   font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'cv02' 1, 'cv03' 1, 'cv04' 1, 'cv11' 1;
@@ -2205,7 +2208,7 @@ button.solus-token {
 }
 .solus-code-lang {
   font-family: var(--solus-code-font-family);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   line-height: 1;
   letter-spacing: 0.02em;
   text-transform: lowercase;
@@ -2218,7 +2221,7 @@ button.solus-token {
   gap: 0.25rem;
   padding: 0.15rem 0.4rem;
   border-radius: 0.375rem;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   line-height: 1;
   color: var(--solus-text-tertiary);
   background: transparent;
@@ -2317,7 +2320,7 @@ button.solus-token {
 .solus-code-block .hljs-section,
 .solus-code-block .hljs-selector-id {
   color: var(--solus-syntax-function);
-  font-weight: 600;
+  font-weight: 500;
 }
 .solus-code-block .hljs-type,
 .solus-code-block .hljs-class .hljs-title {
@@ -2352,7 +2355,7 @@ button.solus-token {
   font-style: italic;
 }
 .solus-code-block .hljs-strong {
-  font-weight: bold;
+  font-weight: 500;
 }
 
 .prose-cloud ul {
@@ -2373,27 +2376,27 @@ button.solus-token {
 }
 .prose-cloud h1, .prose-cloud h2, .prose-cloud h3, .prose-cloud h4 {
   margin: 1.4em 0 0.4em;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--solus-text-primary);
   line-height: 1.3;
 }
 .prose-cloud h1:first-child,
 .prose-cloud h2:first-child,
 .prose-cloud h3:first-child { margin-top: 0; }
-.prose-cloud h1 { font-size: calc(1.1563rem * var(--solus-font-scale, 1)); letter-spacing: -0.02em; }
-.prose-cloud h2 { font-size: calc(1.0313rem * var(--solus-font-scale, 1)); letter-spacing: -0.015em; }
-.prose-cloud h3 { font-size: calc(0.9375rem * var(--solus-font-scale, 1)); letter-spacing: -0.01em; }
-.prose-cloud h4 { font-size: calc(0.875rem * var(--solus-font-scale, 1)); letter-spacing: -0.005em; color: var(--solus-text-secondary); }
+.prose-cloud h1 { font-size: calc(1.5rem * var(--solus-font-scale, 1)); }
+.prose-cloud h2 { font-size: calc(0.875rem * var(--solus-font-scale, 1)); }
+.prose-cloud h3 { font-size: calc(0.875rem * var(--solus-font-scale, 1)); }
+.prose-cloud h4 { font-size: calc(0.875rem * var(--solus-font-scale, 1)); color: var(--solus-text-secondary); }
 .github-markdown h5,
 .github-markdown h6 {
   margin: 1.4em 0 0.4em;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--solus-text-primary);
   line-height: 1.3;
 }
 .github-markdown h5:first-child,
 .github-markdown h6:first-child { margin-top: 0; }
-.github-markdown h5 { font-size: calc(0.8438rem * var(--solus-font-scale, 1)); letter-spacing: -0.003em; }
+.github-markdown h5 { font-size: calc(0.875rem * var(--solus-font-scale, 1)); }
 .github-markdown h6 { font-size: calc(0.8125rem * var(--solus-font-scale, 1)); color: var(--solus-text-secondary); }
 .github-markdown details {
   margin: 0.5em 0;
@@ -2402,7 +2405,7 @@ button.solus-token {
   min-height: 2.5rem;
   align-content: center;
   color: var(--solus-text-primary);
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
 }
 .github-markdown summary::marker {
@@ -2437,7 +2440,7 @@ button.solus-token {
   gap: 0.4em;
   margin-bottom: 0.3em;
   color: var(--markdown-alert-color);
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.5;
 }
 .github-markdown .markdown-alert-title svg {
@@ -2482,13 +2485,13 @@ button.solus-token {
   margin: 0.1em 0;
 }
 .prose-cloud table {
-  font-size: calc(0.7813rem * var(--solus-font-scale, 1));
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
 }
 .prose-cloud th {
   border-bottom-color: var(--solus-container-border);
 }
 .prose-cloud strong {
-  font-weight: 600;
+  font-weight: 500;
 }
 
 /* ─── Assistant reading prose — clean sans at a comfortable reading size ─── */
@@ -2498,7 +2501,7 @@ button.solus-token {
    reads cleanly and sits a touch above the dense tool rows / user bubbles.
    Code (`pre`/`code`) stays monospace via the `.prose-cloud` rules above. */
 .prose-reading {
-  font-size: calc(0.9375rem * var(--solus-font-scale, 1));
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
   line-height: 1.78;
   /* 400 (Regular) is a *named* master instance — hinted, so glyphs snap to the
      pixel grid and stay crisp at the ~12–13px sizes the reading text hits once
@@ -2518,7 +2521,7 @@ button.solus-token {
 /* Looser list rhythm so bullets breathe instead of reading as a packed block. */
 .prose-reading li { margin: 0.45em 0; }
 /* Nudge table text up from the dense .prose-cloud base — too small to read in narration. */
-.prose-reading table { font-size: calc(0.8438rem * var(--solus-font-scale, 1)); }
+.prose-reading table { font-size: calc(0.875rem * var(--solus-font-scale, 1)); }
 /* A comparison table is usually the point of the message, so make it the most
    scannable element, not the least: filled header row, roomier cells, and body
    cells dropped to the secondary tone so the header + first column lead. */
@@ -2537,10 +2540,10 @@ button.solus-token {
 }
 /* Wider size jump from body so headings anchor sections instead of just reading
    as slightly-larger text (h1 ~1.6× body, was ~1.33×). */
-.prose-reading h1 { font-size: calc(1.5rem * var(--solus-font-scale, 1)); letter-spacing: -0.02em; }
-.prose-reading h2 { font-size: calc(1.2rem * var(--solus-font-scale, 1)); letter-spacing: -0.015em; }
-.prose-reading h3 { font-size: calc(1.0313rem * var(--solus-font-scale, 1)); letter-spacing: -0.01em; }
-.prose-reading h4 { font-size: calc(0.9375rem * var(--solus-font-scale, 1)); letter-spacing: -0.005em; }
+.prose-reading h1 { font-size: calc(1.5rem * var(--solus-font-scale, 1)); }
+.prose-reading h2 { font-size: calc(1.5rem * var(--solus-font-scale, 1)); }
+.prose-reading h3 { font-size: calc(0.875rem * var(--solus-font-scale, 1)); }
+.prose-reading h4 { font-size: calc(0.875rem * var(--solus-font-scale, 1)); }
 
 /* Pill mode — assistant text 2px smaller than editor/default */
 .pill-shell .prose-reading {
@@ -2584,9 +2587,8 @@ button.solus-token {
 .prose-transcript h1,
 .prose-transcript h2 {
   margin: 1.375rem 0 0.4375rem;
-  font-size: calc(0.9375rem * var(--solus-font-scale, 1));
-  font-weight: 600;
-  letter-spacing: -0.012em;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-weight: 500;
   line-height: 1.35;
   color: var(--solus-text-primary);
 }
@@ -2595,9 +2597,8 @@ button.solus-token {
 .prose-transcript h5,
 .prose-transcript h6 {
   margin: 1rem 0 0.3125rem;
-  font-size: calc(0.84375rem * var(--solus-font-scale, 1));
-  font-weight: 600;
-  letter-spacing: 0;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-weight: 500;
   line-height: 1.35;
   color: var(--solus-text-primary);
 }
@@ -2624,7 +2625,7 @@ button.solus-token {
   top: 0.5625rem;
   width: 0.1875rem;
   height: 0.1875rem;
-  border-radius: 999px;
+  border-radius: 9999px;
   background: color-mix(in oklch, var(--foreground) 35%, transparent);
 }
 /* One level of nesting only — the marker becomes a ring and anything deeper
@@ -2677,7 +2678,7 @@ button.solus-token {
 }
 
 /* Emphasis is weight and a rule — never a hue. */
-.prose-transcript strong { font-weight: 600; color: inherit; }
+.prose-transcript strong { font-weight: 500; color: inherit; }
 .prose-transcript em { font-style: italic; }
 .prose-transcript del,
 .prose-transcript s {
@@ -2689,7 +2690,7 @@ button.solus-token {
   padding-left: 0.75rem;
   border-left: 0.09375rem solid
     color-mix(in oklch, var(--foreground) 12%, transparent);
-  font-size: calc(0.84375rem * var(--solus-font-scale, 1));
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
   font-style: normal;
   color: var(--solus-text-tertiary);
 }
@@ -2711,9 +2712,9 @@ button.solus-token {
   padding: 0 0.625rem 0.4375rem 0;
   border-bottom: none;
   background: none;
-  font-size: calc(0.65625rem * var(--solus-font-scale, 1));
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
   font-weight: 500;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--solus-text-tertiary);
 }
@@ -2765,7 +2766,7 @@ button.solus-token {
   background: var(--card);
   color: inherit;
   font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
-  font-size: calc(0.78125rem * var(--solus-font-scale, 1));
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
 }
 /* A code chip is a literal, not a control: no hover, no cursor change. It may
    wrap across lines, and both halves keep a full border. */
@@ -2784,18 +2785,6 @@ button.solus-token {
   white-space: nowrap;
   text-decoration: none;
   transition: border-color 120ms ease;
-}
-/* A code-formatted file-link label is still one reference, not a code chip
-   nested inside a file chip. Keep the markdown semantics but let the outer
-   reference own the complete visual shell. */
-.prose-transcript .solus-token--output-file-link code,
-.prose-transcript-user .solus-token--output-file-link code {
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
 }
 .prose-transcript .solus-token:hover,
 .prose-transcript-user .solus-token:hover,
@@ -2836,13 +2825,13 @@ button.solus-token {
   background: color-mix(in oklch, var(--foreground) 3.5%, transparent);
 }
 .prose-transcript .solus-code-lang {
-  font-size: calc(0.65625rem * var(--solus-font-scale, 1));
-  letter-spacing: 0.06em;
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+  letter-spacing: 0.09em;
   text-transform: uppercase;
 }
 .prose-transcript .solus-code-block pre {
   padding: 0.75rem 0.875rem;
-  font-size: calc(0.78125rem * var(--solus-font-scale, 1));
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
   line-height: 1.7;
 }
 
@@ -2888,24 +2877,6 @@ button.solus-token {
 .dark .prose-transcript-user .solus-link__favicon {
   outline-color: rgba(255, 255, 255, 0.1);
 }
-.prose-transcript .solus-link--external::after {
-  content: "";
-  display: inline-block;
-  width: 0.625rem;
-  height: 0.625rem;
-  margin-left: 0.1875rem;
-  vertical-align: -0.0625rem;
-  opacity: 0.5;
-  background: currentColor;
-  -webkit-mask: var(--solus-external-arrow) center / contain no-repeat;
-  mask: var(--solus-external-arrow) center / contain no-repeat;
-}
-/* The person typed the URL, so a bubble drops the glyph — they know where it
-   goes. */
-.prose-transcript-user .solus-link--external::after {
-  content: none;
-}
-
 /* ─── Interrupt-card prose (§11 — the model writes the question) ───
    Applied alongside `.prose-transcript` on a question body, so the model's own
    markdown renders at assistant scale inside the card — §14 minus headings and
@@ -2926,8 +2897,7 @@ button.solus-token {
 .prose-interrupt h6 {
   margin: 0 0 0.375rem;
   font-size: inherit;
-  font-weight: 600;
-  letter-spacing: 0;
+  font-weight: 500;
 }
 .prose-interrupt img {
   display: none;
@@ -2951,12 +2921,12 @@ button.solus-token {
    `text-[…]` or `max-w-none` at the call site could never beat it. */
 .prose-report-lead {
   max-width: none;
-  font-size: calc(0.90625rem * var(--solus-font-scale, 1));
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
   line-height: 1.6;
 }
 .prose-report {
   max-width: none;
-  font-size: calc(0.84375rem * var(--solus-font-scale, 1));
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
   line-height: 1.65;
 }
 
@@ -2974,7 +2944,7 @@ button.solus-token {
    beat its `max-width: 88%`. */
 .prose-agent-card {
   max-width: none;
-  font-size: calc(0.90625rem * var(--solus-font-scale, 1));
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
   line-height: 1.62;
 }
 .prose-agent-card h1,
@@ -2985,8 +2955,7 @@ button.solus-token {
 .prose-agent-card h6 {
   margin: 0.875rem 0 0;
   font-size: inherit;
-  font-weight: 600;
-  letter-spacing: 0;
+  font-weight: 500;
 }
 .prose-agent-card ul,
 .prose-agent-card ol {
@@ -3015,7 +2984,7 @@ button.solus-token {
   display: block;
   overflow-x: auto;
   margin: 0.625rem 0 0;
-  font-size: 0.78125rem;
+  font-size: 0.8125rem;
 }
 .prose-agent-card th,
 .prose-agent-card td {
@@ -3023,7 +2992,7 @@ button.solus-token {
   white-space: nowrap;
 }
 .prose-agent-card th {
-  font-weight: 600;
+  font-weight: 500;
 }
 /* A rule invents a section break the agent didn't write, and an image
    out-weighs everything else in a 150px card — it arrives as an attachment row
@@ -3065,7 +3034,7 @@ button.solus-token {
   color: inherit;
 }
 .prose-transcript-user {
-  font-size: calc(0.84375rem * var(--solus-font-scale, 1));
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
   /* Same 1.75 as the transcript, and for the same reason: a bubble can hold a
      chip, so the chip sets the leading. */
   line-height: 1.75;
@@ -3077,9 +3046,8 @@ button.solus-token {
 .prose-transcript-user h3,
 .prose-transcript-user h4 {
   margin: 0.35em 0 0.15em;
-  font-size: calc(0.84375rem * var(--solus-font-scale, 1));
-  font-weight: 600;
-  letter-spacing: 0;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-weight: 500;
 }
 .prose-transcript-user > * + * { margin-top: 0.35em; }
 .prose-transcript-user p { margin: 0.2em 0; }
@@ -3098,7 +3066,7 @@ button.solus-token {
    adds nothing: the spec's whole point is that the chip is identical on both
    surfaces, and the card fill is what separates it from the 2% wash. */
 .prose-transcript-user pre {
-  font-size: calc(0.71875rem * var(--solus-font-scale, 1));
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
   margin: 0.35em 0;
 }
 
@@ -3142,7 +3110,6 @@ button.solus-token {
 .task-description-prose .solus-doc-editor .ProseMirror {
   padding-left: 0;
   padding-right: 0;
-  letter-spacing: -0.006em;
   font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'cv02' 1, 'cv03' 1, 'cv04' 1, 'cv11' 1;
 }
 
@@ -3165,10 +3132,9 @@ button.solus-token {
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h1,
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h2 {
   margin: 2rem 0 0.625rem;
-  font-size: calc(var(--prose-pr-size) * 1.107);
-  font-weight: 600;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-weight: 500;
   line-height: 1.35;
-  letter-spacing: -0.015em;
   color: var(--solus-text-primary);
 }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h3,
@@ -3176,10 +3142,9 @@ button.solus-token {
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h5,
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h6 {
   margin: 1.25rem 0 0.375rem;
-  font-size: calc(var(--prose-pr-size) * 0.964);
-  font-weight: 600;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-weight: 500;
   line-height: 1.4;
-  letter-spacing: -0.01em;
   color: var(--solus-text-primary);
 }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h1:first-child,
@@ -3189,7 +3154,7 @@ button.solus-token {
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h5:first-child,
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h6:first-child { margin-top: 0; }
 
-:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) strong { font-weight: 600; color: var(--solus-text-primary); }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) strong { font-weight: 500; color: var(--solus-text-primary); }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) em { font-style: italic; color: var(--solus-text-primary); }
 
 /* Mono runs at 0.9× whatever surrounds them — never equal, or the chip reads
@@ -3199,7 +3164,7 @@ button.solus-token {
   border-radius: 0.25rem;
   background: var(--solus-surface-hover);
   color: var(--solus-text-primary);
-  font-size: 0.9em;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
 }
 /* A commit SHA is an address, not a literal you'd retype: accent, no chip. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) code.markdown-sha {
@@ -3223,7 +3188,7 @@ button.solus-token {
 }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) li {
   margin: 0;
-  font-size: calc(var(--prose-pr-size) * 0.964);
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
   line-height: 1.7;
 }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) li + li { margin-top: 0.75rem; }
@@ -3259,7 +3224,7 @@ button.solus-token {
    outside) so a two-digit item never shifts the text column. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) ol > li::marker {
   font-family: var(--solus-code-font-family);
-  font-size: 0.86em;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
   color: var(--solus-text-tertiary);
 }
 
@@ -3303,7 +3268,7 @@ button.solus-token {
   border-radius: 0.5rem;
   background: var(--solus-surface-hover);
   color: var(--solus-text-tertiary);
-  font-size: calc(var(--prose-pr-size) * 0.964);
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
   line-height: 1.7;
 }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) blockquote > :first-child { margin-top: 0; }
@@ -3318,7 +3283,7 @@ button.solus-token {
   border-radius: 0.5rem;
   background: color-mix(in srgb, var(--markdown-alert-color) 10%, transparent);
   color: var(--solus-text-tertiary);
-  font-size: calc(var(--prose-pr-size) * 0.964);
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
   line-height: 1.7;
 }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) .markdown-alert-title { margin-bottom: 0.25rem; }
@@ -3333,7 +3298,7 @@ button.solus-token {
   border-radius: 0.5rem;
   background: var(--solus-code-tint);
   color: var(--solus-text-primary);
-  font-size: calc(var(--prose-pr-size) * 0.857);
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
   line-height: 1.65;
   white-space: pre;
   word-break: normal;
@@ -3348,7 +3313,7 @@ button.solus-token {
 /* The "Generated with …" line under a closing rule sits below the document. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) hr + p:last-child {
   margin-bottom: 0;
-  font-size: calc(var(--prose-pr-size) * 0.893);
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
 }
 
 /* An image sits in the line it was written in — a logo beside heading text, a
@@ -3373,7 +3338,7 @@ button.solus-token {
 
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) table {
   margin: 1rem 0;
-  font-size: calc(var(--prose-pr-size) * 0.893);
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
 }
 /* Cells wrap — a row whose label runs three lines must still start level with
    its value, so alignment is top, never the UA's middle. */
@@ -3388,7 +3353,7 @@ button.solus-token {
   padding: 0 0.7em 0.5em 0;
   border-bottom: 0.0625rem solid var(--solus-container-border);
   background: none;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--solus-text-primary);
 }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) td {
@@ -3403,7 +3368,7 @@ button.solus-token {
    column beside a mostly-empty value. Auto layout then splits the width by how
    much content each column actually carries. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) table:not(:has(td:nth-child(3))) {
-  font-size: calc(var(--prose-pr-size) * 0.964);
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
 }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) table:not(:has(td:nth-child(3))) :is(th, td) {
   padding: 0.5em 1.25em 0.5em 0;
@@ -3616,10 +3581,10 @@ html.is-mac-editor {
     to   { opacity: 1; transform: none; }
   }
 
-  /* A menu is chrome, not content: plain rem, scaling only with the fluid root
-     font-size, never with --solus-font-scale (that preference belongs to the
-     transcript). 13px label in a 32px row is the pairing that reads as an app
-     menu rather than a web page's. */
+  /* A menu is chrome, not content: plain rem, never scaled by
+     --solus-font-scale (that preference belongs to the transcript). 13px label
+     in a 32px row is the pairing that reads as an app menu rather than a web
+     page's. */
   --text-menu: 0.8125rem;
   --text-menu-meta: 0.6875rem;
 }
@@ -3668,10 +3633,10 @@ html.is-mac-editor {
 
 @utility menu-heading {
   padding: 0.5rem 0.625rem 0.3125rem;
-  font-size: 0.59375rem;
+  font-size: 0.75rem;
   font-weight: 500;
   line-height: 1;
-  letter-spacing: 0.11em;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--solus-text-tertiary);
 }

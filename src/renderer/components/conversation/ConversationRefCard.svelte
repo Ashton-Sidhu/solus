@@ -95,7 +95,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <Card.Root
-    class="conversation-ref-card group mx-auto w-[88%] gap-0 rounded-xl py-0 shadow-none {extraClass}"
+    class="conversation-ref-card group mx-auto w-[88%] gap-0 rounded-2xl py-0 shadow-none {extraClass}"
     data-testid={dataTestId}
     onclick={handleClick}
     role="button"
@@ -139,7 +139,7 @@
             onOpenSecondary();
           }}
         >
-          <ArrowLineRightIcon size={13} />
+          <ArrowLineRightIcon size={14} />
         </button>
       {/if}
       {#if actions}
@@ -235,9 +235,9 @@
 
   .conversation-ref-card__kicker {
     margin-bottom: 0.3125rem;
-    font-size: 0.59375rem;
+    font-size: 0.75rem;
     font-weight: 500;
-    letter-spacing: 0.12em;
+
     text-transform: uppercase;
     color: var(--muted-foreground);
     opacity: 0.7;
@@ -245,14 +245,13 @@
 
   .conversation-ref-card__title {
     font-size: 0.875rem;
-    font-weight: 600;
-    letter-spacing: -0.012em;
+    font-weight: 500;
     color: var(--solus-text-primary);
   }
 
   .conversation-ref-card__subtitle {
     margin-top: 0.125rem;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     text-wrap: pretty;
   }
@@ -310,7 +309,7 @@
     position: relative;
     padding: 0.875rem 1rem 0;
     border-top: 0.0625rem solid var(--solus-tx-rule);
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     line-height: 1.6;
     color: var(--muted-foreground);
     text-wrap: pretty;

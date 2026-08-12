@@ -1,6 +1,12 @@
-import { pendingOutboxOpsFor } from '../outbox/outbox-store'
-import type { OutboxOp, TaskCommentOpPayload, TaskSetStatusOpPayload } from '../../shared/outbox-types'
-import type { TaskSnapshot, TaskStatus } from '../../shared/task-types'
+import { pendingOutboxOpsFor, pendingOutboxOpsForDomain } from '../outbox/outbox-store'
+import type {
+  OutboxOp,
+  TaskCommentOpPayload,
+  TaskSetStatusOpPayload,
+  WorkCreateOpPayload,
+  WorkUpdateOpPayload,
+} from '../../shared/outbox-types'
+import type { TaskLink, TaskLinkedItemSnapshot, TaskSnapshot, TaskStatus } from '../../shared/task-types'
 
 /**
  * Foreign tasks on the execution host: the per-session snapshot a dispatched
@@ -28,6 +34,13 @@ export function setForeignTaskSnapshot(sessionId: string, snapshot: TaskSnapshot
   for (const op of pendingOutboxOpsFor('tasks', snapshot.details.task.id)) {
     applyOpToSnapshot(overlaid, op)
   }
+  // Works ops are keyed by work id, so the task's are found through payload:
+  // a still-pending create/update must stay visible on the fresh snapshot the
+  // owner host rendered before the op drained.
+  for (const op of pendingOutboxOpsForDomain('works')) {
+    const payload = op.payload as { taskId?: string } | undefined
+    if (payload?.taskId === snapshot.details.task.id) applyWorkOpToSnapshot(overlaid, op)
+  }
   snapshotsBySession.set(sessionId, overlaid)
 }
 
@@ -38,6 +51,77 @@ export function foreignTaskFor(sessionId: string | undefined, taskId: string): T
   if (!sessionId) return null
   const snapshot = snapshotsBySession.get(sessionId)
   return snapshot && snapshot.details.task.id === taskId ? snapshot : null
+}
+
+/** The content-bearing linked items the session's snapshot shipped — the only
+ *  copies of those works and plans this host has. Read-only: the rows live on
+ *  the task's host. */
+export function foreignLinkedItemsFor(sessionId: string | undefined): TaskLinkedItemSnapshot[] {
+  if (!sessionId) return []
+  return snapshotsBySession.get(sessionId)?.linked ?? []
+}
+
+/** One shipped item by kind and key, when the session's snapshot carries it.
+ *  `scope` narrows plans to their owning session; works pass none. */
+export function foreignLinkedItemFor(
+  sessionId: string | undefined,
+  kind: TaskLinkedItemSnapshot['kind'],
+  key: string,
+  scope?: string,
+): TaskLinkedItemSnapshot | null {
+  return foreignLinkedItemsFor(sessionId).find(
+    (item) => item.kind === kind && item.key === key && (scope === undefined || item.scope === scope),
+  ) ?? null
+}
+
+/** Every link the session's foreign task carries (all kinds) — how PR and
+ *  automation tools answer for targets whose rows live on the task's host. */
+export function foreignTaskLinksFor(sessionId: string | undefined): TaskLink[] {
+  if (!sessionId) return []
+  return snapshotsBySession.get(sessionId)?.details.links ?? []
+}
+
+/** The session's foreign task id, when a dispatch shipped one — the marker
+ *  work tools use to route writes through the outbox instead of local stores. */
+export function foreignTaskIdFor(sessionId: string | undefined): string | null {
+  if (!sessionId) return null
+  return snapshotsBySession.get(sessionId)?.details.task.id ?? null
+}
+
+/** Fold a just-recorded works op into the held snapshot so the agent reads its
+ *  own create/update back before the courier delivers it. */
+export function applyWorkOpToForeignTask(sessionId: string | undefined, op: OutboxOp): void {
+  if (!sessionId) return
+  const snapshot = snapshotsBySession.get(sessionId)
+  if (!snapshot) return
+  applyWorkOpToSnapshot(snapshot, op)
+}
+
+function applyWorkOpToSnapshot(snapshot: TaskSnapshot, op: OutboxOp): void {
+  snapshot.linked ??= []
+  const existing = snapshot.linked.find((item) => item.kind === 'work' && item.key === op.resourceId)
+  if (op.name === 'create') {
+    const payload = op.payload as WorkCreateOpPayload
+    if (existing) {
+      existing.title = payload.title
+      existing.content = payload.content
+      return
+    }
+    snapshot.linked.push({
+      kind: 'work',
+      key: op.resourceId,
+      scope: '',
+      title: payload.title,
+      workType: payload.docType,
+      content: payload.content,
+    })
+    return
+  }
+  if (op.name === 'update' && existing) {
+    const payload = op.payload as WorkUpdateOpPayload
+    existing.content = payload.content
+    if (payload.title !== undefined) existing.title = payload.title
+  }
 }
 
 /** Forget a session's snapshot when the session itself is torn down. */

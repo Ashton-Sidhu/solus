@@ -28,7 +28,7 @@
     {#if row.kind === "user"}
       <div class="flex justify-end py-1">
         <Skeleton
-          class="h-8 rounded-xl opacity-70"
+          class="h-8 rounded-2xl opacity-70"
           style="width:{row.width}%; animation-delay:{i * 80}ms"
         />
       </div>

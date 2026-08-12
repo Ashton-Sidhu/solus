@@ -455,10 +455,10 @@
 {#snippet pickerHeader()}
   <div
     class="relative flex flex-shrink-0 items-center gap-2.5 px-[1.125rem] after:absolute after:bottom-0 after:left-[1.125rem] after:right-[1.125rem] after:h-px after:content-['']
-      {inline ? 'h-11' : 'h-12 max-md:h-[3.25rem]'}
-      {historyLoading
-      ? 'after:animate-[search-glow-pulse_1.6s_ease-in-out_infinite] after:bg-[var(--solus-accent)] after:opacity-100'
-      : 'after:bg-[var(--solus-popover-border)] after:opacity-35'}"
+ {inline ? 'h-11' : 'h-12 max-md:h-[3.25rem]'}
+ {historyLoading
+ ? 'after:animate-[search-glow-pulse_1.6s_ease-in-out_infinite] after:bg-[var(--solus-accent)] after:opacity-100'
+ : 'after:bg-[var(--solus-popover-border)] after:opacity-35'}"
   >
     <MagnifyingGlassIcon
       size={14}
@@ -471,7 +471,7 @@
       placeholder={historyLoading
         ? "Loading sessions…"
         : `Search ${allEntries.length} sessions in ${historyScopeLabel}…`}
-      class="h-auto flex-1 rounded-none border-0 bg-transparent p-0 text-[0.8438rem] shadow-none tracking-[-0.005em] focus-visible:ring-0 dark:bg-transparent"
+      class="h-auto flex-1 rounded-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 dark:bg-transparent"
       onkeydown={(e) => {
         if (e.key === "Enter" && runtime.isMobileViewport) {
           e.stopPropagation();
@@ -518,11 +518,11 @@
         >
           {#if query.trim()}
             <span
-              class="text-xs tracking-[0.005em] text-[var(--solus-text-tertiary)]"
+              class="text-xs text-[var(--solus-text-tertiary)]"
               >No sessions match "{query}"</span
             >
             <button
-              class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--solus-accent-border)] bg-[var(--solus-accent-light)] px-[0.6875rem] py-[0.3125rem] text-[0.7188rem] text-[var(--solus-accent)] transition-[background-color,border-color] duration-150 hover:border-[var(--solus-accent-border-medium)] hover:bg-[var(--solus-accent-soft)]"
+              class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--solus-accent-border)] bg-[var(--solus-accent-light)] px-[0.6875rem] py-[0.3125rem] text-xs text-[var(--solus-accent)] transition-[background-color,border-color] duration-150 hover:border-[var(--solus-accent-border-medium)] hover:bg-[var(--solus-accent-soft)]"
               onclick={handleNewSession}
             >
               <SparkleIcon size={12} />
@@ -531,11 +531,11 @@
             </button>
           {:else}
             <span
-              class="text-xs tracking-[0.005em] text-[var(--solus-text-tertiary)]"
+              class="text-xs text-[var(--solus-text-tertiary)]"
               >No sessions yet</span
             >
             <button
-              class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--solus-accent-border)] bg-[var(--solus-accent-light)] px-[0.6875rem] py-[0.3125rem] text-[0.7188rem] text-[var(--solus-accent)] transition-[background-color,border-color] duration-150 hover:border-[var(--solus-accent-border-medium)] hover:bg-[var(--solus-accent-soft)]"
+              class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--solus-accent-border)] bg-[var(--solus-accent-light)] px-[0.6875rem] py-[0.3125rem] text-xs text-[var(--solus-accent)] transition-[background-color,border-color] duration-150 hover:border-[var(--solus-accent-border-medium)] hover:bg-[var(--solus-accent-soft)]"
               onclick={handleNewSession}
             >
               <PlusIcon size={12} />
@@ -597,10 +597,10 @@
     class="relative flex h-8 flex-shrink-0 items-center justify-between bg-[linear-gradient(to_bottom,transparent_0%,color-mix(in_srgb,var(--solus-popover-bg)_60%,transparent)_100%)] px-[1.125rem] text-[var(--solus-text-tertiary)] max-md:h-9 max-md:pb-[max(0px,env(safe-area-inset-bottom,0px))]"
   >
     <span
-      class="text-xs tracking-[0.01em] opacity-75 [font-variant-numeric:tabular-nums] {historyLoading &&
-      countBump
-        ? 'animate-[count-scale-bump_250ms_ease-out]'
-        : ''}"
+      class="text-xs opacity-75 [font-variant-numeric:tabular-nums] {historyLoading &&
+ countBump
+ ? 'animate-[count-scale-bump_250ms_ease-out]'
+ : ''}"
     >
       {#if filteredItems.length === allEntries.length}
         {allEntries.length}
@@ -610,7 +610,7 @@
       {/if}
       {#if historyLoading}
         <span
-          class="inline-block w-[1em] overflow-hidden align-bottom tracking-[0.05em] animate-[scanning-ellipsis_1.4s_steps(4,end)_infinite]"
+          class="inline-block w-[1em] overflow-hidden align-bottom animate-[scanning-ellipsis_1.4s_steps(4,end)_infinite]"
           >…</span
         >
       {/if}
@@ -618,19 +618,19 @@
     <div class="flex items-center gap-3.5 max-md:hidden">
       <span class="inline-flex items-center gap-[0.3125rem] text-xs">
         <Kbd variant="hint">↑</Kbd><Kbd variant="hint">↓</Kbd>
-        <span class="tracking-[0.01em] opacity-75">navigate</span>
+        <span class=" opacity-75">navigate</span>
       </span>
       <span class="inline-flex items-center gap-[0.3125rem] text-xs">
         <Kbd variant="hint">↵</Kbd>
-        <span class="tracking-[0.01em] opacity-75">open</span>
+        <span class=" opacity-75">open</span>
       </span>
       <span class="inline-flex items-center gap-[0.3125rem] text-xs">
         <Kbd variant="hint">⌥</Kbd><Kbd variant="hint">↵</Kbd>
-        <span class="tracking-[0.01em] opacity-75">open &amp; stay</span>
+        <span class=" opacity-75">open &amp; stay</span>
       </span>
       <span class="inline-flex items-center gap-[0.3125rem] text-xs">
         <Kbd variant="hint">esc</Kbd>
-        <span class="tracking-[0.01em] opacity-75">close</span>
+        <span class=" opacity-75">close</span>
       </span>
     </div>
   </div>
@@ -658,7 +658,7 @@
   >
     <div
       bind:this={popoverEl}
-      class="flex h-3/4 max-h-[75%] w-3/4 origin-top flex-col overflow-hidden overscroll-contain rounded-[1.125rem] border border-[var(--solus-popover-border)] bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_both] dark:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-[var(--solus-container-bg)] max-md:shadow-none max-md:backdrop-filter-none"
+      class="flex h-3/4 max-h-[75%] w-3/4 origin-top flex-col overflow-hidden overscroll-contain rounded-2xl border border-[var(--solus-popover-border)] bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_both] dark:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-[var(--solus-container-bg)] max-md:shadow-none max-md:backdrop-filter-none"
       role="dialog"
       aria-label="Session picker"
       tabindex="-1"

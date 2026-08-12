@@ -76,12 +76,12 @@
 >
   <div
     class="side-panel-root no-drag flex h-full flex-col overflow-hidden bg-(--side-panel-bg,var(--solus-sidebar-bg)) [contain:layout_paint] {flush
-      ? ''
-      : 'rounded-2xl'} {flush
-      ? ''
-      : isElevated
-        ? 'border border-[color-mix(in_srgb,var(--solus-container-border)_85%,transparent)] shadow-[0_1px_2px_rgba(42,38,24,0.03),0_8px_24px_-12px_rgba(42,38,24,0.08)] dark:shadow-none'
-        : 'border border-[color-mix(in_srgb,var(--solus-text-primary)_8%,transparent)] shadow-[0_1px_2px_-1px_rgba(0,0,0,0.05)] dark:border-[color-mix(in_srgb,var(--solus-text-primary)_11%,transparent)] dark:shadow-none'}"
+ ? ''
+ : 'rounded-2xl'} {flush
+ ? ''
+ : isElevated
+ ? 'border border-[color-mix(in_srgb,var(--solus-container-border)_85%,transparent)] shadow-[0_1px_2px_rgba(42,38,24,0.03),0_8px_24px_-12px_rgba(42,38,24,0.08)] dark:shadow-none'
+ : 'border border-[color-mix(in_srgb,var(--solus-text-primary)_8%,transparent)] shadow-[0_1px_2px_-1px_rgba(0,0,0,0.05)] dark:border-[color-mix(in_srgb,var(--solus-text-primary)_11%,transparent)] dark:shadow-none'}"
     style:--side-panel-bg={panelBg}
   >
     <Sidebar.Provider {open}>
@@ -91,23 +91,23 @@
         {#if title || headerActions || onAction}
           <Sidebar.Header
           class="side-panel-header flex-row items-center gap-2 {title
-            ? 'justify-between'
-            : 'justify-end'} {flush
-            ? 'border-b border-[color-mix(in_srgb,var(--solus-container-border)_50%,transparent)] px-2 py-0'
-            : 'px-4 pt-3 pb-2'} {windowCtx.isMac &&
-          windowCtx.viewMode === 'editor' &&
-          side === 'left'
-            ? 'side-panel-header--mac-left'
-            : ''} {windowCtx.isMac &&
-          windowCtx.viewMode === 'editor' &&
-          side === 'left' &&
-          !title
-            ? 'side-panel-header--untitled'
-            : ''}"
+ ? 'justify-between'
+ : 'justify-end'} {flush
+ ? 'border-b border-[color-mix(in_srgb,var(--solus-container-border)_50%,transparent)] px-2 py-0'
+ : 'px-4 pt-3 pb-2'} {windowCtx.isMac &&
+ windowCtx.viewMode === 'editor' &&
+ side === 'left'
+ ? 'side-panel-header--mac-left'
+ : ''} {windowCtx.isMac &&
+ windowCtx.viewMode === 'editor' &&
+ side === 'left' &&
+ !title
+ ? 'side-panel-header--untitled'
+ : ''}"
         >
           {#if title}
             <span
-              class="side-panel-title text-[0.625rem] font-semibold tracking-[0.09em] text-(--solus-text-tertiary) uppercase"
+              class="side-panel-title text-xs font-medium text-(--solus-text-tertiary) uppercase"
               >{title}</span
             >
           {/if}
@@ -120,11 +120,11 @@
                 <TooltipUI.Trigger>
                   {#snippet child({ props: tooltipProps })}
                     <button {...tooltipProps}
-                class="flex size-[var(--solus-titlebar-control-size)] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-(--solus-text-tertiary) transition-[color,background-color,transform] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] active:bg-[color-mix(in_srgb,var(--solus-accent)_12%,transparent)]"
+                class="flex size-[var(--solus-titlebar-control-size)] cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-(--solus-text-tertiary) transition-[color,background-color,transform] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] active:bg-[color-mix(in_srgb,var(--solus-accent)_12%,transparent)]"
                 onclick={onAction}
                 aria-label={actionAriaLabel}
               >
-                <ActionIcon size={13} />
+                <ActionIcon size={14} />
               </button>
                   {/snippet}
                 </TooltipUI.Trigger>

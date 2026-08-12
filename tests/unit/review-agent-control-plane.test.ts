@@ -18,6 +18,7 @@ class ReviewDispatcher implements AgentDispatcher {
       provider: request.provider,
       cwd: request.cwd,
       sessionId: () => undefined,
+      solusSessionId: () => undefined,
       abortSignal: new AbortController().signal,
       parentToolUseId: () => undefined,
       emit: () => {},

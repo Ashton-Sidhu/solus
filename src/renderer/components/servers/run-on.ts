@@ -1,9 +1,15 @@
 import { serverConnections } from '@client-core/server-connections'
 import { LOCAL_SERVER_ID } from '@client-core/server-registry'
-import type { GithubDelegatedCredential, IpcContext, ProjectIdentity, RunConfig, Session } from '../../../shared/types'
+import type { GithubDelegatedCredential, IpcContext, PendingHostDispatch, ProjectIdentity, RunConfig, Session } from '../../../shared/types'
 import type { SolusAPI } from '../../../preload'
 import { hasSessionStarted } from '../../lib/sessionUtils'
-import { startsWorktree, withHost, withProjectHost } from '../../contexts/workspace/run-config'
+import {
+  startsWorktree,
+  withHost,
+  withPendingHost,
+  withProjectHost,
+  withWorktreeToggled,
+} from '../../contexts/workspace/run-config'
 
 /** Exactly what moving a tab to another host needs from the workspace context. */
 export interface RunOnWorkspace {
@@ -149,6 +155,44 @@ export function worktreeBlockedReason(canToggleWorktree: boolean): string | null
  */
 export function returnsToProjectHome(run: RunConfig, serverId: string): boolean {
   return run.serverId !== serverId && run.taskServerId === serverId && !!run.projectGroupPath
+}
+
+/**
+ * Apply one of the local checkout rows in the Run on picker.
+ *
+ * Returning from another host and choosing the checkout shape are one user
+ * action. Build both changes from the same run so the first click cannot stop
+ * after the host move and leave "New worktree" selected.
+ */
+export function withLocalStart(
+  run: RunConfig,
+  localServerId: string,
+  fallbackPath: string,
+  worktree: boolean,
+): RunConfig {
+  let next = withPendingHost(run, null)
+  if (run.serverId !== localServerId) {
+    next = withProjectHost(next, localServerId, {
+      path: run.projectGroupPath ?? fallbackPath,
+    })
+    next.projectGroupPath = null
+  }
+  if (startsWorktree(next) !== worktree) next = withWorktreeToggled(next)
+  return next
+}
+
+/**
+ * Queue a repository dispatch and select the fresh worktree it requires.
+ *
+ * The host and checkout shape are one picker choice here: a dispatched clone
+ * must not reuse the unattended base checkout on the target host.
+ */
+export function withRemoteDispatch(
+  run: RunConfig,
+  target: Extract<PendingHostDispatch, { intent: 'dispatch' }>,
+): RunConfig {
+  const next = withPendingHost(run, target)
+  return startsWorktree(next) ? next : withWorktreeToggled(next)
 }
 
 /**

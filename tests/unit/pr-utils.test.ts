@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { PullRequestSummary } from '../../src/shared/providers'
-import { filterPrs, reviewEffortSummary, sortPrs } from '../../src/renderer/components/prs/lib/pr-utils'
+import { filterPrs, prStatusBadge, reviewEffortSummary, sortPrs } from '../../src/renderer/components/prs/lib/pr-utils'
 import type { ReviewEffort } from '../../src/shared/effort-types'
 
 function pr(number: number, state: PullRequestSummary['state'], effort?: ReviewEffort): PullRequestSummary {
@@ -26,6 +26,16 @@ describe('filterPrs', () => {
     const items = [pr(1, 'open'), pr(2, 'closed'), pr(3, 'merged')]
 
     expect(filterPrs(items, '', 'closed').map((item) => item.number)).toEqual([2, 3])
+  })
+})
+
+describe('pull request status colours', () => {
+  test('matches the task lifecycle palette', () => {
+    // WHY: Tasks and Pull Requests describe the same lifecycle concepts, so
+    // users must not learn a second color meaning when they change pages.
+    expect(prStatusBadge({ state: 'open', draft: false })?.tone).toBe('var(--running)')
+    expect(prStatusBadge({ state: 'merged', draft: false })?.tone).toBe('var(--success)')
+    expect(prStatusBadge({ state: 'closed', draft: false })?.tone).toBe('var(--idle)')
   })
 })
 

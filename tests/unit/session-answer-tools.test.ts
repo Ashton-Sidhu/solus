@@ -88,7 +88,7 @@ const CHOICE_QUESTION: QuestionItem = {
   multiSelect: false,
 }
 
-function run(args: Record<string, unknown>, updates: AgentConversationUpdate[] = []) {
+function run(args: Parameters<typeof reviewTools.executeSessionReviewTool>[1], updates: AgentConversationUpdate[] = []) {
   return reviewTools.executeSessionReviewTool('answer_session', args, {
     ctx: { agentProvider: 'claude-code', cwd: CWD, sessionId: 'caller-1' },
     onAgentConversationUpdate: (update) => updates.push(update),

@@ -212,7 +212,7 @@
   const navRowActive = "text-foreground";
   const navIcon = "flex shrink-0 items-center";
   const navLabel =
-    "flex-1 min-w-0 overflow-hidden text-left text-[0.8125rem] tracking-[-0.004em] text-ellipsis whitespace-nowrap";
+    "flex-1 min-w-0 overflow-hidden text-left text-[0.8125rem]  text-ellipsis whitespace-nowrap";
 
   function close() {
     session.closeSettings();
@@ -312,7 +312,7 @@
             {...props}
             variant="outline"
             size="sm"
-            class="h-7 shrink-0 gap-1.5 text-[0.6875rem] font-normal text-muted-foreground shadow-xs"
+            class="h-7 shrink-0 gap-1.5 text-xs font-normal text-muted-foreground shadow-xs"
             aria-label="Settings host"
           >
             On {selectedSettingsHost.label}
@@ -344,7 +344,7 @@
       class="shrink-0 flex items-center justify-between px-4 pb-2.5 pt-[max(0.75rem,env(safe-area-inset-top,0px))] border-b border-(--solus-container-border)"
     >
       <span
-        class="text-[1.125rem] font-semibold tracking-[-0.01em] text-(--solus-text-primary)"
+        class="text-sm font-medium text-(--solus-text-primary)"
         >Settings</span
       >
       <Button
@@ -368,9 +368,9 @@
           onclick={() => selectTab(tab.id)}
           aria-current={session.settingsTab === tab.id ? "page" : undefined}
           class="shrink-0 inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[0.8125rem] font-medium [-webkit-tap-highlight-color:transparent] {session.settingsTab ===
-          tab.id
-            ? 'bg-(--solus-accent-light) text-(--solus-accent)'
-            : 'bg-(--solus-surface-hover) font-secondary text-(--solus-text-secondary) active:bg-(--solus-surface-tertiary)'}"
+ tab.id
+ ? 'bg-(--solus-accent-light) text-(--solus-accent)'
+ : 'bg-(--solus-surface-hover) font-secondary text-(--solus-text-secondary) active:bg-(--solus-surface-tertiary)'}"
         >
           <Icon size={15} /><span>{tab.label}</span>
         </button>
@@ -418,7 +418,7 @@
             bind:ref={searchInputEl}
             bind:value={searchQuery}
             placeholder="Search settings"
-            class="w-full basis-auto rounded border-border bg-card px-2 py-1.5 shadow-xs [&_input]:text-[0.75rem]"
+            class="w-full basis-auto rounded border-border bg-card px-2 py-1.5 shadow-xs [&_input]:text-xs"
           />
         </Sidebar.Header>
         <Sidebar.Content
@@ -429,7 +429,7 @@
               <!-- A group name is the level above the rows, so it starts on the
                    icons' column rather than on the labels'. -->
               <Sidebar.GroupLabel
-                class="h-[2.125rem] pr-2.5 pl-[1.375rem] text-[0.59375rem] font-semibold tracking-[0.1em] uppercase text-muted-foreground"
+                class="h-[2.125rem] pr-2.5 pl-[1.375rem] text-xs font-medium uppercase text-muted-foreground"
                 >{section.group}</Sidebar.GroupLabel
               >
               <Sidebar.GroupContent>
@@ -457,7 +457,7 @@
         </Sidebar.Content>
         {#if session.staticInfo?.version}
           <Sidebar.Footer
-            class="shrink-0 flex-row items-center gap-1.5 border-t border-t-sidebar-border px-[1.1875rem] pt-2 pb-2.5 text-[0.625rem] text-muted-foreground"
+            class="shrink-0 flex-row items-center gap-1.5 border-t border-t-sidebar-border px-[1.1875rem] pt-2 pb-2.5 text-xs text-muted-foreground"
           >
             <span>v{session.staticInfo.version}</span>
             {#if session.staticInfo.email}
@@ -495,7 +495,7 @@
               <Breadcrumb.Separator class="opacity-50">&#8260;</Breadcrumb.Separator>
               <Breadcrumb.Item class="min-w-0">
                 <Breadcrumb.Page
-                  class="font-semibold truncate text-foreground tracking-[-0.006em]"
+                  class="font-medium truncate text-foreground "
                   >{openHostLabel}</Breadcrumb.Page
                 >
               </Breadcrumb.Item>
@@ -504,7 +504,7 @@
         {:else}
           <div class="flex min-w-0 items-baseline gap-2.5">
             <h1
-              class="shrink-0 text-[0.8125rem] font-semibold tracking-[-0.006em] text-foreground"
+              class="shrink-0 text-[0.8125rem] font-medium text-foreground"
             >
               {activeTabMeta.label}
             </h1>
@@ -512,7 +512,7 @@
               class="h-2.5 w-px shrink-0 self-center bg-border"
               aria-hidden="true"
             ></span>
-            <p class="min-w-0 truncate text-[0.75rem] text-muted-foreground">
+            <p class="min-w-0 truncate text-xs text-muted-foreground">
               {activeTabMeta.description}
             </p>
           </div>

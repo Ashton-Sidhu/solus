@@ -1,3 +1,5 @@
+import type { PermissionToolInput } from '../../../../shared/types'
+
 export type FileChangePreview = {
   path: string
   kind: string
@@ -12,7 +14,7 @@ function formatChangeKind(kind: unknown): string {
   return movePath ? `move to ${movePath}` : 'update'
 }
 
-export function fileChangePreviews(input?: Record<string, unknown> | null): FileChangePreview[] {
+export function fileChangePreviews(input?: PermissionToolInput | null): FileChangePreview[] {
   const changes = input?.changes
   if (!Array.isArray(changes)) return []
 

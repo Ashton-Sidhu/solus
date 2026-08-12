@@ -92,7 +92,7 @@
 >
   {#if noHost}
     <h1
-      class="max-w-[40rem] text-center text-pretty text-[clamp(1.375rem,1rem+1.6vw,1.875rem)] font-semibold leading-[1.25] tracking-[-0.02em] text-(--solus-text-primary)"
+      class="max-w-[40rem] text-center text-pretty text-[1.5rem] font-medium leading-[1.25] text-(--solus-text-primary)"
     >
       Connect a host to get started
     </h1>
@@ -106,13 +106,13 @@
     </button>
   {:else}
   <h1
-    class="max-w-[40rem] text-center text-pretty text-[clamp(1.375rem,1rem+1.6vw,1.875rem)] font-semibold leading-[1.25] tracking-[-0.02em] text-(--solus-text-primary)"
+    class="max-w-[40rem] text-center text-pretty text-[1.5rem] font-medium leading-[1.25] text-(--solus-text-primary)"
   >
     {#if hasProject}
       What should we build in
       <button
         type="button"
-        class="group/dir max-w-full whitespace-nowrap rounded-sm border-none bg-transparent p-0 cursor-pointer [font:inherit] [letter-spacing:inherit] text-(--solus-text-primary) transition-colors duration-150 hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
+        class="group/dir max-w-full whitespace-nowrap rounded-sm border-none bg-transparent p-0 cursor-pointer [font:inherit] ["
         onclick={changeDirectory}
         title={`Change project (${comboHint("global.select-project")})`}
       >

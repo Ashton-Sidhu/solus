@@ -38,15 +38,16 @@ export function subagentInputText(input: SubagentInput): string {
 // at most once, cached on the message object, and never while it's running —
 // the cache would otherwise pin a stale parse. Module-scoped WeakMap so every
 // reader of a sub-transcript shares one parse per message.
-const subParseCache = new WeakMap<Message, Record<string, unknown> | null>()
+const subParseCache = new WeakMap<Message, object | null>()
 
-export function parseSubInput(m: Message): Record<string, unknown> | null {
+export function parseSubInput(m: Message): object | null {
   if (!m.toolInput || m.toolStatus === 'running') return null
   const cached = subParseCache.get(m)
   if (cached !== undefined) return cached
-  let parsed: Record<string, unknown> | null = null
+  let parsed: object | null = null
   try {
-    parsed = JSON.parse(m.toolInput) as Record<string, unknown>
+    const value: unknown = JSON.parse(m.toolInput)
+    parsed = value !== null && typeof value === 'object' ? value : null
   } catch {}
   subParseCache.set(m, parsed)
   return parsed
@@ -79,4 +80,3 @@ export function callsOnCurrentStep(message: Message): number {
   }
   return calls
 }
-

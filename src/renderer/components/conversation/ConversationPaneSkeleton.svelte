@@ -25,7 +25,7 @@
 
   <div class="shrink-0 px-4 pt-2.5 pb-2.5">
     <Skeleton
-      class="mx-auto h-20 w-full max-w-(--solus-reading-max) rounded-xl opacity-60"
+      class="mx-auto h-20 w-full max-w-(--solus-reading-max) rounded-2xl opacity-60"
     />
   </div>
 </div>

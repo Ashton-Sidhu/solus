@@ -29,11 +29,12 @@
     repoKeyForPath,
     returnsToProjectHome,
     shouldShowRunOnPicker,
+    withLocalStart,
+    withRemoteDispatch,
   } from "./run-on";
   import {
     withPendingHost,
     withProjectHost,
-    withWorktreeToggled,
   } from "../../contexts/workspace/run-config";
   import { runTarget } from "./lib/run-target";
   import { homeGitDetails } from "../../lib/git-context";
@@ -152,7 +153,6 @@
   );
   const startInLabel = $derived(target.label);
   const startsNewWorktree = $derived(target.startsWorktree);
-  const worktreeForced = $derived(target.worktreeForced);
   // A disabled row with no reason is the worst of both worlds, so say why the
   // choice is off the table.
   const worktreeBlockedNote = $derived(target.worktreeBlockedNote);
@@ -234,7 +234,7 @@
   function selectTarget(server: ServerItem) {
     if (locked || !sourceRepoKey) return;
     onRun(
-      withPendingHost(run, {
+      withRemoteDispatch(run, {
         serverId: server.id,
         intent: "dispatch",
         repoKey: sourceRepoKey,
@@ -325,26 +325,15 @@
   /** Both local checkout choices cancel a queued remote dispatch first. */
   function chooseLocalStart(worktree: boolean) {
     const local = serversStore.servers.find((server) => server.local);
-    if (local && run.serverId !== local.id) {
-      // Selecting Local switches straight back to this machine — it already holds
-      // the checkout, so there is nothing to clone and nothing to pick.
-      runLocally(local);
-      return;
-    }
-    // Staying put clears the queued move. `onPickHost` with the run's own host
-    // is exactly that, since a target matching the current host records nothing.
-    if (run.pendingHostDispatch && sourceRepoKey) {
-      onRun(
-        withPendingHost(run, {
-          serverId: run.serverId,
-          intent: "dispatch",
-          repoKey: sourceRepoKey,
-        }),
-      );
-    }
-    if (!worktreeForced && worktree !== startsNewWorktree) {
-      onRun(withWorktreeToggled(run));
-    }
+    if (!local) return;
+    onRun(
+      withLocalStart(
+        run,
+        local.id,
+        workspace.globalDefaults.workingDirectory,
+        worktree,
+      ),
+    );
     open = false;
   }
 
@@ -379,15 +368,15 @@
   >
     {#if affinity}
       {@const HostIcon = affinity.icon}
-      <HostIcon size={13} class="shrink-0 {affinity.className}" />
+      <HostIcon size={14} class="shrink-0 {affinity.className}" />
     {:else}
-      <DesktopTowerIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+      <DesktopTowerIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
     {/if}
     <span class="min-w-0 flex-1 truncate">{hostLabel(server)}</span>
     {#if isSelectedHost}
-      <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
+      <CheckIcon size={14} class="shrink-0 text-(--solus-accent)" />
     {:else if affinity && server.status !== "saved"}
-      <span class="shrink-0 text-[0.6875rem] text-(--solus-text-tertiary)">{affinity.statusLabel}</span>
+      <span class="shrink-0 text-xs text-(--solus-text-tertiary)">{affinity.statusLabel}</span>
     {/if}
   </DropdownMenu.Item>
 {/snippet}
@@ -399,7 +388,7 @@
       window.dispatchEvent(new CustomEvent("solus:open-server-connect"));
     }}
   >
-    <PlusIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+    <PlusIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
     <span class="min-w-0 flex-1 truncate">Connect a host…</span>
   </DropdownMenu.Item>
 {/snippet}
@@ -409,7 +398,7 @@
      quietly land on a machine the user never asked about. -->
 {#snippet targetNote()}
   {#if target.taskNote}
-    <p class="text-pretty px-2.5 pb-1 pt-1 text-[0.6875rem] leading-snug text-(--solus-text-tertiary)">
+    <p class="text-pretty px-2.5 pb-1 pt-1 text-xs leading-snug text-(--solus-text-tertiary)">
       {target.taskNote}
     </p>
   {/if}
@@ -428,7 +417,7 @@
       <span class="size-2 rounded-full border border-(--solus-text-quaternary)"></span>
     </span>
     <span class="min-w-0 flex-1 truncate">{host.server.name}</span>
-    <span class="shrink-0 text-[0.6875rem] font-medium text-(--solus-accent)">Connect</span>
+    <span class="shrink-0 text-xs font-medium text-(--solus-accent)">Connect</span>
   </DropdownMenu.Item>
 {/snippet}
 
@@ -476,24 +465,24 @@
                   <Button
                     {...mergeProps(tooltipProps, props)}
                     variant="ghost"
-                    class="group relative h-auto max-w-44 gap-1.5 rounded-lg px-2 py-1 text-[0.8125rem] font-normal tracking-[-0.006em] transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-0 after:absolute after:left-0 after:top-1/2 after:h-10 after:w-full after:-translate-y-1/2 after:content-[''] {open
-                      ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
-                      : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
+                    class="group relative h-auto max-w-44 gap-1.5 rounded-lg px-2 py-1 text-[0.8125rem] font-normal transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-0 after:absolute after:left-0 after:top-1/2 after:h-10 after:w-full after:-translate-y-1/2 after:content-[''] {open
+ ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
+ : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
                   >
                     {#if onRemoteHost && selectedAffinity}
                       {@const HostIcon = selectedAffinity.icon}
                       <HostIcon
                         size={14}
                         class="shrink-0 transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
-                          ? 'opacity-100'
-                          : 'opacity-70'} {selectedAffinity.className}"
+ ? 'opacity-100'
+ : 'opacity-70'} {selectedAffinity.className}"
                       />
                     {:else}
                       <DesktopTowerIcon
                         size={14}
                         class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
-                          ? 'opacity-100'
-                          : 'opacity-70'}"
+ ? 'opacity-100'
+ : 'opacity-70'}"
                       />
                     {/if}
                     <span class="truncate">{startInLabel}</span>
@@ -566,29 +555,29 @@
             >
               {#if inWorktree}
                 <GitForkIcon
-                  size={13}
+                  size={14}
                   class="shrink-0 text-(--solus-text-tertiary)"
                 />
               {:else}
                 <DesktopTowerIcon
-                  size={13}
+                  size={14}
                   class="shrink-0 text-(--solus-text-tertiary)"
                 />
               {/if}
               <span class="min-w-0 flex-1 truncate">{stayLabel}</span>
               {#if !onRemoteHost && !startsNewWorktree}<CheckIcon
-                  size={12}
+                  size={14}
                   class="shrink-0 text-(--solus-accent)"
                 />{/if}
             </DropdownMenu.Item>
             {#snippet newWorktreeItemContent()}
                 <PlusIcon
-                  size={13}
+                  size={14}
                   class="shrink-0 text-(--solus-text-tertiary)"
                 />
                 <span class="min-w-0 flex-1 truncate">New worktree</span>
                 {#if !onRemoteHost && startsNewWorktree}<CheckIcon
-                    size={12}
+                    size={14}
                     class="shrink-0 text-(--solus-accent)"
                   />{/if}
               {/snippet}
@@ -597,7 +586,7 @@
                   {@render newWorktreeItemContent()}
                 </DropdownMenu.Item>
                 <p
-                  class="text-pretty px-2.5 pb-1 text-[0.6875rem] leading-snug text-(--solus-text-tertiary)"
+                  class="text-pretty px-2.5 pb-1 text-xs leading-snug text-(--solus-text-tertiary)"
                 >
                   {worktreeBlockedNote}
                 </p>

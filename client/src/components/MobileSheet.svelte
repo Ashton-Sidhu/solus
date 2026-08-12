@@ -74,7 +74,7 @@
 
   <div
     bind:this={sheetEl}
-    class="fixed bottom-0 inset-x-0 z-[41] max-h-[85dvh] select-none overflow-y-auto overscroll-contain rounded-t-[1.25rem] border-t border-(--solus-popover-border) bg-(--solus-popover-bg) backdrop-blur-[1.25rem] backdrop-saturate-[1.1] shadow-(--solus-popover-shadow) px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] will-change-transform [-webkit-overflow-scrolling:touch] [-webkit-user-select:none]"
+    class="fixed bottom-0 inset-x-0 z-[41] max-h-[85dvh] select-none overflow-y-auto overscroll-contain rounded-t-2xl border-t border-(--solus-popover-border) bg-(--solus-popover-bg) backdrop-blur-[1.25rem] backdrop-saturate-[1.1] shadow-(--solus-popover-shadow) px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] will-change-transform [-webkit-overflow-scrolling:touch] [-webkit-user-select:none]"
     class:invisible={!visible}
     class:pointer-events-none={!visible}
     use:swipeDismiss={{ axis: "y", sign: 1, onDismiss: onClose, backdrop: () => backdropEl }}
@@ -88,9 +88,9 @@
         aria-label="Close"
         onclick={onClose}
       >
-        <XIcon size={18} weight="bold" />
+        <XIcon size={14} weight="bold" />
       </button>
-      <h2 class="text-[0.9375rem] font-semibold text-(--solus-text-primary)">{title}</h2>
+      <h2 class="text-sm font-semibold text-(--solus-text-primary)">{title}</h2>
     </div>
 
     {@render children()}

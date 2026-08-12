@@ -209,7 +209,7 @@
     flex: none;
     width: 0.375rem;
     height: 0.375rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--solus-art-2);
   }
 
@@ -222,21 +222,21 @@
     flex: none;
     width: 1.0625rem;
     height: 1.0625rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--solus-accent);
     color: var(--solus-text-on-accent);
-    font-size: 0.53125rem;
-    font-weight: 600;
+    font-size: 0.75rem;
+    font-weight: 500;
   }
 
   .ct-name {
     font-size: 0.75rem;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--solus-text-primary);
   }
 
   .ct-meta {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
     white-space: nowrap;
   }
@@ -256,21 +256,21 @@
 
   .ct-spark {
     flex: none;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-accent);
   }
 
   .ct-agent-name {
     flex: none;
     font-size: 0.75rem;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--solus-accent);
   }
 
   .ct-agent-note {
     flex: 1;
     min-width: 0;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -283,7 +283,7 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.375rem 0.125rem;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
   }
 
@@ -291,7 +291,7 @@
     flex: none;
     width: 0.375rem;
     height: 0.375rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: color-mix(in srgb, var(--solus-art-3) 70%, transparent);
   }
 
@@ -342,7 +342,7 @@
     gap: 0.5rem;
     padding-top: 0.75rem;
     border-top: 0.0625rem solid var(--solus-container-border);
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
   }
 

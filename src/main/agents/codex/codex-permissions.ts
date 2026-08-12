@@ -303,7 +303,7 @@ function labelForDecision(id: string): string {
   return 'Allow'
 }
 
-function grantedRequestedPermissions(permissions: any): Record<string, unknown> {
+function grantedRequestedPermissions(permissions: any): object {
   if (!permissions || typeof permissions !== 'object') return {}
   return { ...permissions }
 }
@@ -386,14 +386,11 @@ function mcpElicitationResponse(params: any, answers: Record<string, string>): u
   const schema = payload?.requestedSchema || payload?.schema || {}
   const properties = schema && typeof schema.properties === 'object' ? schema.properties : {}
   const required = new Set(Array.isArray(schema.required) ? schema.required.map(String) : [])
-  const content: Record<string, unknown> = {}
-
-  for (const [key, rawValue] of Object.entries(answers)) {
-    if (key === '__action') continue
-    if (rawValue === '' && !required.has(key)) continue
-    const prop = properties[key]
-    content[key] = coerceMcpValue(rawValue, prop)
-  }
+  const content = Object.fromEntries(Object.entries(answers).flatMap(([key, rawValue]) => {
+    if (key === '__action') return []
+    if (rawValue === '' && !required.has(key)) return []
+    return [[key, coerceMcpValue(rawValue, properties[key])]]
+  }))
 
   return { action: 'accept', content }
 }

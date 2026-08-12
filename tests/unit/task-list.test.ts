@@ -3,23 +3,83 @@ import type { PullRequestSummary } from '../../src/shared/providers'
 import type { Task } from '../../src/shared/task-types'
 import {
   aggregateReviewGuideStatus,
+  belongsToSelectedHost,
   buildProjectSummaries,
+  formatCompletedAge,
   formatElapsed,
   groupTasks,
   hasDisclosure,
   sidebarChildLabel,
   hasGlyph,
   prChipFor,
+  prChipForBranches,
   projectInitial,
   reconcileSidebarTasks,
+  resolveTaskSidebarLifecycle,
+  shouldCompleteTaskForPr,
   shouldShowDurableSidebarTask,
   showsUnreadIndicator,
-  showsProjectLine,
+  projectFilterChoices,
+  resolveProjectFilter,
   sortTasks,
   taskStatusFor,
   type SidebarTask,
   type TaskStatus,
 } from '../../src/renderer/components/session/lib/task-list'
+
+describe('sidebar host scope', () => {
+  it('shows only work owned by the selected host', () => {
+    expect(belongsToSelectedHost('remote', 'remote')).toBe(true)
+    expect(belongsToSelectedHost('local', 'remote')).toBe(false)
+  })
+
+  it('keeps provisional work visible until its host ownership is known', () => {
+    expect(belongsToSelectedHost(null, 'remote')).toBe(true)
+  })
+})
+
+describe('completed task age', () => {
+  const now = Date.parse('2026-08-11T12:00:00Z')
+
+  it('keeps the completed shelf age compact from minutes through days', () => {
+    // WHY: completed rows have one narrow trailing column and must not grow
+    // into prose or switch to an unrelated calendar-date representation.
+    expect(formatCompletedAge(now - 57 * 60_000, now)).toBe('57m')
+    expect(formatCompletedAge(now - 6 * 3_600_000, now)).toBe('6h')
+    expect(formatCompletedAge(now - 38 * 86_400_000, now)).toBe('38d')
+  })
+})
+
+describe('sidebar lifecycle resolution', () => {
+  const now = 10 * 24 * 60 * 60 * 1000
+  it('keeps inactive work active until its task status changes', () => {
+    expect(resolveTaskSidebarLifecycle({ task: { status: 'in_progress' }, now }).lifecycle).toBe('active')
+  })
+
+  it('puts done tasks in Completed ahead of stale snooze metadata', () => {
+    expect(resolveTaskSidebarLifecycle({
+      task: { status: 'done', doneAt: now - 1, snoozedUntil: now + 1 },
+      now,
+    })).toMatchObject({ lifecycle: 'completed', completedAt: now - 1 })
+  })
+
+  it('returns an expired snooze with a woke marker until it is read', () => {
+    expect(resolveTaskSidebarLifecycle({
+      task: { status: 'in_progress', snoozedUntil: now - 1, lastReadAt: 0 },
+      now,
+    })).toMatchObject({ lifecycle: 'active', woke: true })
+  })
+})
+
+describe('linked PR completion', () => {
+  it('completes a task when its linked PR closes or merges', () => {
+    // WHY: either terminal PR result is authoritative for the linked task.
+    expect(shouldCompleteTaskForPr('in_review', 'closed')).toBe(true)
+    expect(shouldCompleteTaskForPr('in_review', 'merged')).toBe(true)
+    expect(shouldCompleteTaskForPr('in_review', 'open')).toBe(false)
+    expect(shouldCompleteTaskForPr('done', 'merged')).toBe(false)
+  })
+})
 
 function durableTask(status: Task['status'], overrides: Partial<Task> = {}): Task {
   return {
@@ -54,6 +114,7 @@ function task(
     createdAt: 0,
     activityAt: 0,
     runStartedAt: 0,
+    lifecycle: 'active',
     tabIds: [key],
     ...overrides,
   }
@@ -233,14 +294,52 @@ describe('projectInitial', () => {
   })
 })
 
-describe('showsProjectLine', () => {
-  it('drops the project line only where the container already states it', () => {
-    // Never repeat the container: grouped under a project heading, the line is
-    // noise. A flat list has no heading, so the row has to say it itself —
-    // including while only one project happens to be open, so the column does
-    // not silently change shape the moment a second one appears.
-    expect(showsProjectLine('flat')).toBe(true)
-    expect(showsProjectLine('grouped')).toBe(false)
+describe('resolveProjectFilter', () => {
+  it('drops a scope whose project has left the column', () => {
+    // A saved filter outlives the project it names. Holding it would leave the
+    // column empty and scoped to something no longer in the menu.
+    expect(resolveProjectFilter('/repos/gone', [task('a', 'idle')])).toBeNull()
+  })
+
+  it('holds a scope whose project has only snoozed or completed work', () => {
+    // That list is legitimately empty, and saying so is what the empty line is
+    // for. Clearing the scope here would hide the answer the user asked for.
+    const shelved = task('a', 'idle', { lifecycle: 'completed' })
+    expect(resolveProjectFilter('/repos/solus', [shelved])).toBe('/repos/solus')
+  })
+})
+
+describe('projectFilterChoices', () => {
+  it('offers every open project in the order the column already lists them', () => {
+    // Picking a scope must never reorder what you were reading, so the menu
+    // follows the list rather than sorting itself.
+    const choices = projectFilterChoices([
+      task('a', 'idle', {
+        projectKey: '/repos/model-routing',
+        projectLabel: 'model-routing',
+        lifecycle: 'active',
+      }),
+      task('b', 'idle', { lifecycle: 'active' }),
+      task('c', 'idle', {
+        projectKey: '/repos/model-routing',
+        projectLabel: 'model-routing',
+        lifecycle: 'active',
+      }),
+    ])
+    expect(choices.map((choice) => choice.label)).toEqual(['model-routing', 'solus'])
+    expect(choices.map((choice) => choice.count)).toEqual([2, 1])
+  })
+
+  it('counts only what the list will show, so the figure and the list agree', () => {
+    // Snoozed and completed work lives on its own shelf below the list, so
+    // counting it here would promise rows the filter does not produce.
+    const choices = projectFilterChoices([
+      task('a', 'idle', { lifecycle: 'active' }),
+      task('b', 'idle', { lifecycle: 'snoozed' }),
+      task('c', 'idle', { lifecycle: 'completed' }),
+    ])
+    expect(choices).toHaveLength(1)
+    expect(choices[0].count).toBe(1)
   })
 })
 
@@ -256,17 +355,16 @@ describe('hasGlyph', () => {
 })
 
 describe('showsUnreadIndicator', () => {
-  it('shows unread from a completed session ahead of a sibling live run', () => {
-    // The authoritative turn boundary prevents one session from marking itself
-    // unread while it is still working. This overlap therefore means another
-    // session under the same task finished and still needs attention.
-    expect(showsUnreadIndicator('running', true)).toBe(true)
-    expect(showsUnreadIndicator('running', false)).toBe(false)
+  it('shows completed unread session output independently of task lifecycle', () => {
+    // WHY: a session can finish while its durable task remains in progress. The
+    // only visible row for a task with one session must still report that output.
     expect(showsUnreadIndicator('idle', true)).toBe(true)
+    expect(showsUnreadIndicator('running', true)).toBe(true)
+    expect(showsUnreadIndicator('done', true)).toBe(true)
     expect(showsUnreadIndicator('idle', false)).toBe(false)
   })
 
-  it('does not hide a state that is explicitly waiting on the user', () => {
+  it('does not hide an active state that is explicitly waiting on the user', () => {
     expect(showsUnreadIndicator('question', true)).toBe(false)
     expect(showsUnreadIndicator('error', true)).toBe(false)
   })
@@ -294,6 +392,45 @@ describe('prChipFor', () => {
     expect(prChipFor('run-host-selection', [pr({ needsMyReview: true })])?.state).toBe(
       'approvalRequested',
     )
+  })
+})
+
+describe('prChipForBranches', () => {
+  it('renders the task linked PR without branch or list discovery', () => {
+    // WHY: the durable task link is the source of truth. It can arrive from a
+    // remote attempt before this client has loaded that repository's PR list.
+    expect(prChipForBranches([null, 'main'], [], 43)).toEqual({
+      number: 43,
+      state: 'open',
+    })
+  })
+
+  it('settles a linked PR when the provider reports it merged', () => {
+    // WHY: a durable link starts as an open fallback, but provider state must
+    // replace that fallback after a merge without requiring the PR page.
+    expect(prChipForBranches(
+      [null, 'main'],
+      [pr({ number: 43, state: 'merged' })],
+      43,
+    )).toEqual({ number: 43, state: 'merged' })
+  })
+
+  it('keeps the linked PR when a branch matches a different list item', () => {
+    expect(prChipForBranches(
+      ['solus/other-work'],
+      [pr({ number: 44, headRef: 'solus/other-work' })],
+      43,
+    )).toEqual({ number: 43, state: 'open' })
+  })
+
+  it('matches a remote session worktree when the task still records its local branch', () => {
+    // WHY: a dispatched task is prepared on the task host before its execution
+    // host resolves the worktree branch. The mounted session is authoritative
+    // for that attempt and must still expose its GitHub PR in the sidebar.
+    expect(prChipForBranches(
+      ['solus/remote-worktree', 'main'],
+      [pr({ number: 43, headRef: 'solus/remote-worktree' })],
+    )).toEqual({ number: 43, state: 'open' })
   })
 })
 

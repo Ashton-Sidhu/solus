@@ -43,7 +43,7 @@
   <div class="flex flex-col gap-2 px-3 py-2.5">
     <div class="flex items-center gap-[0.4375rem]">
       <span class="plan-comment-popover__avatar" aria-hidden="true">You</span>
-      <span class="text-[0.75rem] font-semibold text-(--solus-text-primary)">You</span>
+      <span class="text-xs font-medium text-(--solus-text-primary)">You</span>
       <div class="ml-auto flex gap-1">
         <Button
           variant="ghost"
@@ -85,7 +85,7 @@
     /* The folded layout's stand-in for a margin thread, so it is the width of
        one: 268px, anchored to the run rather than parked at the pane edge. */
     width: 16.75rem;
-    border-radius: 0.625rem;
+    border-radius: 1rem;
     border: 0.0625rem solid var(--pc-edge);
     background: color-mix(in srgb, var(--solus-art-2) 9%, var(--solus-popover-bg));
     box-shadow: var(--solus-popover-shadow);
@@ -111,14 +111,14 @@
     justify-content: center;
     width: 1.1875rem;
     height: 1.1875rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--solus-accent);
     color: var(--solus-text-on-accent);
-    font-size: 0.5rem;
-    font-weight: 600;
+    font-size: 0.75rem;
+    font-weight: 500;
   }
   .plan-comment-popover__body {
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     line-height: 1.6;
     color: color-mix(in srgb, var(--solus-text-primary) 90%, var(--solus-text-tertiary));
   }
@@ -127,7 +127,7 @@
   .plan-comment-popover__anchor {
     padding-top: 0.4375rem;
     border-top: 0.0625rem solid color-mix(in srgb, var(--solus-art-border) 55%, transparent);
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     line-height: 1.5;
     color: var(--solus-text-tertiary);
     word-break: break-word;

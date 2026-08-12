@@ -2,6 +2,7 @@ import { createLogger } from '../logger'
 import { getDb } from '../db'
 import { loadProjectConfig, resolveProjectKey } from '../project-config/project-config'
 import { makeGitHubTaskProvider, type GitHubTaskProvider } from './providers/github'
+import { linkedExternalIds } from './task-sync-store'
 import { resolveRepoRef } from '../git/git-helpers'
 import { GitHubAuth } from '../providers/github/auth'
 import { GitHubReauthRequiredError } from '../providers/github/octokit'
@@ -97,6 +98,23 @@ function withProjectKey(task: Task, projectKey: string): Task {
   return { ...task, projectKey }
 }
 
+/**
+ * Drop the tickets a native task already mirrors.
+ *
+ * Publishing or importing an issue makes a Solus task its owner and records the
+ * link; the issue is then the same piece of work as that task, not a second one
+ * beside it. Without this, publishing a task made it appear twice — once as the
+ * task that owns the ticket and once as the ticket itself.
+ *
+ * Applied on the way out rather than before caching, so the cache stays a
+ * faithful snapshot of the provider and linking a ticket later hides it without
+ * needing another fetch.
+ */
+function withoutMirroredTickets(tasks: Task[], provider: GitHubTaskProvider): Task[] {
+  const mirrored = linkedExternalIds(provider.id, `${provider.repo.owner}/${provider.repo.repo}`)
+  return mirrored.size ? tasks.filter((task) => !mirrored.has(task.id)) : tasks
+}
+
 /** Read the configured upstream alongside native Solus tasks. Local remains the
  * durable source for Solus-owned work; these rows retain provider ownership. */
 export async function listUpstreamTasks(
@@ -117,7 +135,7 @@ export async function listUpstreamTasks(
     writeUpstreamCache(projectKey, provider.id, result, fetchedAt)
     return {
       ...result,
-      tasks: result.tasks.map((task) => withProjectKey(task, cwd)),
+      tasks: withoutMirroredTickets(result.tasks, provider).map((task) => withProjectKey(task, cwd)),
       fetchedAt,
     }
   } catch (error) {
@@ -130,7 +148,7 @@ export async function listUpstreamTasks(
       })
       return {
         ...cached,
-        tasks: cached.tasks.map((task) => withProjectKey(task, cwd)),
+        tasks: withoutMirroredTickets(cached.tasks, provider).map((task) => withProjectKey(task, cwd)),
         fromCache: true,
       }
     }

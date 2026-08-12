@@ -272,8 +272,8 @@
     color: var(--solus-text-primary);
   }
   .work-refresh-banner__btn {
-    font-size: 0.6875rem;
-    font-weight: 600;
+    font-size: 0.75rem;
+    font-weight: 500;
     padding: 0.25rem 0.75rem;
     border-radius: 0.375rem;
     border: 0.0625rem solid var(--solus-accent-border);
@@ -325,12 +325,11 @@
     align-items: center;
     gap: 0.375rem;
     padding: 0.25rem 0.625rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--solus-accent);
     color: var(--solus-on-accent, #fff);
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.01em;
+    font-size: 0.75rem;
+    font-weight: 500;
     pointer-events: none;
     box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.18);
     animation: work-live-badge 1900ms var(--ease-premium) forwards;
@@ -356,7 +355,7 @@
   .work-live-badge__dot {
     width: 0.375rem;
     height: 0.375rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: currentColor;
     animation: work-live-dot 1s ease-in-out infinite;
   }

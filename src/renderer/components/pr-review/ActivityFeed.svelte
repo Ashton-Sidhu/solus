@@ -16,12 +16,15 @@
     PullRequestDetail,
     PrCommit,
     PrConversationItem,
+    PrLifecycleAction,
     PrReviewer,
+    PrReviewerCandidate,
   } from "../../../shared/providers";
   import { getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { localApi } from "@client-core/local-api";
+  import { subscribeAllHosts } from "@client-core/host-events";
   import type { HostApi } from "@client-core/host-api";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
   import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
@@ -38,6 +41,8 @@
   import PrActivityRail from "./PrActivityRail.svelte";
   import ActivityTimeline from "./ActivityTimeline.svelte";
   import PrActions from "./PrActions.svelte";
+  import PrOverflowMenu from "./PrOverflowMenu.svelte";
+  import PrStatusChip from "./PrStatusChip.svelte";
   import GithubConnectionRequired from "../prs/GithubConnectionRequired.svelte";
   import { prSurfaceError, type PrSurfaceError } from "../prs/lib/pr-surface-error";
   import {
@@ -54,21 +59,28 @@
   // submit tray, not here.
   let {
     pr,
+    status,
     threads,
     threadsFailed = false,
     stackChain = [],
     showRemoteLink = false,
     addressCommentsReady = true,
     onAddressComments,
+    onGenerateGuide,
     onChat,
     onJump,
     onRefreshThreads,
+    onRefreshTarget,
+    onDetailChanged,
     getCtx,
     getApi,
     serverId,
     masthead,
   }: {
     pr: PrActivityTarget;
+    /** The list's own group key, so the subtitle chip agrees with the row the
+     *  review was opened from. */
+    status: string;
     /** Review threads, owned by the parent so the Diff tab and this timeline
      *  share one fetch (and one set of objects — reply/resolve mutate in place). */
     threads: ReviewThread[];
@@ -81,18 +93,23 @@
     /** The host has a checked-out PR worktree ready for the fix session. */
     addressCommentsReady?: boolean;
     onAddressComments?: () => Promise<void>;
+    onGenerateGuide?: () => void;
     onChat?: () => void;
     /** Jump to a thread's / file's location in the Diff tab. */
     onJump?: (path: string, line: number | null) => void;
     /** Refetch the shared threads (e.g. from this tab's Refresh button). */
     onRefreshThreads?: () => void;
+    /** Refresh the exact host revision owned by the route. */
+    onRefreshTarget?: () => Promise<void>;
+    /** Publish a canonical mutation result to review chrome outside Activity. */
+    onDetailChanged?: (detail: PullRequestDetail) => void;
     /** Context override for hosts reviewing a PR outside the active tab's
      *  project (the PRs page's project switcher, embedded review panes).
      *  Defaults to the active tab's context. */
     getCtx?: () => IpcContext;
     getApi: () => HostApi;
     serverId: string;
-    /** The shared detail masthead — status pill, refs and the content tabs.
+    /** The shared detail masthead — refs and the content tabs.
      *  Rendered by the host above this tab's title so the same row appears
      *  whichever tab is showing. */
     masthead?: import("svelte").Snippet;
@@ -102,9 +119,21 @@
   const feedCtx = (): IpcContext => getCtx?.() ?? session.ctx;
 
   let detail = $state<PullRequestDetail | null>(null);
+
+  $effect(() => {
+    const number = pr.number;
+    return subscribeAllHosts("pr.lifecycleChanged", (eventServerId, event) => {
+      if (eventServerId !== serverId || event.detail.number !== number) return;
+      const ctx = feedCtx().session;
+      if (event.projectRoot !== (ctx.projectPath || ctx.workingDirectory)) return;
+      detail = event.detail;
+      onDetailChanged?.(event.detail);
+    });
+  });
   let commits = $state<PrCommit[]>([]);
   let comments = $state<PrConversationItem[]>([]);
   let reviewers = $state<PrReviewer[]>([]);
+  let reviewerCandidates = $state<PrReviewerCandidate[]>([]);
   let changedFiles = $state<ChangedFileStat[]>([]);
   // Per-section loading so each region fills in as its own request resolves,
   // rather than the whole tab waiting on the slowest call. Threads come from the
@@ -113,6 +142,8 @@
   let commitsLoading = $state(true);
   let commentsLoading = $state(true);
   let reviewersLoading = $state(true);
+  let reviewerCandidatesLoading = $state(false);
+  let reviewerMutation = $state<string | null>(null);
   let filesLoading = $state(true);
   // Any provider load rejecting (expired token, network) flips this so the
   // tab shows an explicit error + retry instead of masquerading as an empty PR.
@@ -271,6 +302,14 @@
       .then((d) => {
         if (pr.number !== n) return;
         detail = d;
+        if (
+          d.capabilities.reviewerCandidates &&
+          d.viewerPermissions.requestReviewers
+        ) {
+          loadReviewerCandidates(n, force);
+        } else {
+          reviewerCandidates = [];
+        }
         markPrReviewProfile("detail-ready", { bodyCharacters: d.body.length });
       })
       .catch((error) => {
@@ -318,6 +357,55 @@
     loadChangedFiles(n, force);
   }
 
+  function loadReviewerCandidates(n: number, force = false) {
+    reviewerCandidatesLoading = true;
+    session.prsStore
+      .loadReviewerCandidates(getApi(), serverId, feedCtx(), n, { force })
+      .then((candidates) => {
+        if (pr.number === n) reviewerCandidates = candidates;
+      })
+      .catch((error) => markLoadFailed(n, error))
+      .finally(() => {
+        if (pr.number === n) reviewerCandidatesLoading = false;
+      });
+  }
+
+  async function requestReviewer(login: string): Promise<void> {
+    if (reviewerMutation) return;
+    reviewerMutation = login;
+    try {
+      reviewers = await session.prsStore.requestReviewers(
+        getApi(), serverId, feedCtx(), pr.number, [login],
+      );
+      toasts.success(`Requested a review from ${login}`);
+    } catch (error) {
+      toasts.error(
+        `Couldn't request the reviewer: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      reviewerMutation = null;
+      requestInputFocus();
+    }
+  }
+
+  async function removeReviewer(login: string): Promise<void> {
+    if (reviewerMutation) return;
+    reviewerMutation = login;
+    try {
+      reviewers = await session.prsStore.removeRequestedReviewer(
+        getApi(), serverId, feedCtx(), pr.number, login,
+      );
+      toasts.success(`Removed ${login} from requested reviewers`);
+    } catch (error) {
+      toasts.error(
+        `Couldn't remove the reviewer: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      reviewerMutation = null;
+      requestInputFocus();
+    }
+  }
+
   function loadChangedFiles(n: number, force = false) {
     session.prsStore
       .loadChangedFiles(getApi(), serverId, feedCtx(), n, { force })
@@ -337,9 +425,57 @@
 
   // The Refresh button reloads this tab's data and the parent-owned threads.
   // Exported so the host can force a reload after submitting a review.
-  export function refresh() {
+  export async function refresh(): Promise<void> {
     load(true);
     onRefreshThreads?.();
+    const targetRefresh = onRefreshTarget?.();
+    if (targetRefresh) {
+      await targetRefresh.catch((error) => markLoadFailed(pr.number, error));
+    }
+  }
+
+  async function updateLifecycle(
+    action: Exclude<PrLifecycleAction, "merge">,
+  ): Promise<void> {
+    if (!detail) return;
+    const previous = detail;
+    const optimistic: PullRequestDetail = {
+      ...previous,
+      ...(action === "close" ? { state: "closed" as const } : {}),
+      ...(action === "reopen" ? { state: "open" as const } : {}),
+      ...(action === "ready" ? { draft: false } : {}),
+      ...(action === "draft" ? { draft: true } : {}),
+    };
+    detail = optimistic;
+    session.prsStore.applyDetail(serverId, feedCtx(), pr.number, optimistic);
+    onDetailChanged?.(optimistic);
+    try {
+      const updated = await session.prsStore.updateLifecycle(
+        getApi(),
+        serverId,
+        feedCtx(),
+        pr.number,
+        action,
+        previous.headSha,
+      );
+      detail = updated;
+      onDetailChanged?.(updated);
+    } catch (error) {
+      // A newer provider event wins over this rollback. Reference equality is
+      // the mutation token for this one in-flight action.
+      if (detail === optimistic) {
+        detail = previous;
+        session.prsStore.applyDetail(serverId, feedCtx(), pr.number, previous);
+        onDetailChanged?.(previous);
+      }
+      throw error;
+    }
+  }
+
+  function applyMergedDetail(updated: PullRequestDetail): void {
+    detail = updated;
+    session.prsStore.applyDetail(serverId, feedCtx(), pr.number, updated);
+    onDetailChanged?.(updated);
   }
 
   $effect(() => {
@@ -442,31 +578,6 @@
     }
   }
 
-  /** Queue this PR's review guide in the background (guides are opt-in now);
-   *  progress lands back in the shared store's guide-status map. */
-  function generateGuide() {
-    void session.prsStore
-      .requestGuides(getApi(), serverId, feedCtx(), [pr.number], {
-        onSettled: ({ failed }) => {
-          if (failed > 0) {
-            toasts.error(
-              `Review guide generation failed for PR #${pr.number}. Try again from Activity or Guide.`,
-            );
-          } else {
-            toasts.success(
-              `Review guide for PR #${pr.number} is ready in the Guide tab.`,
-            );
-          }
-        },
-      })
-      .catch((err) => {
-        toasts.error(
-          `Couldn't queue the review guide: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      });
-    requestInputFocus();
-  }
-
   async function addressComments() {
     if (!onAddressComments || !addressCommentsReady || addressingComments) return;
     addressingComments = true;
@@ -505,7 +616,7 @@
         class="mx-auto w-full max-w-[min(1384px,100%)] px-[clamp(20px,2.6vw,56px)] pt-4"
       >
         <div
-          class="flex items-center gap-2.5 rounded-xl border border-border bg-card px-3.5 py-3 text-[12.5px]"
+          class="flex items-center gap-2.5 rounded-2xl border border-border bg-card px-3.5 py-3 text-[0.8125rem]"
           role="alert"
         >
           {#if loadError?.kind === "github-auth"}
@@ -517,7 +628,7 @@
             <Button
               type="button"
               variant="ghost"
-              class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-3 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+              class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-3 text-[0.8125rem] font-medium text-muted-foreground transition-colors hover:text-foreground"
               onclick={refresh}
             >
               <ArrowsClockwiseIcon size={12} class="shrink-0" />
@@ -554,9 +665,11 @@
         <header>
           {#if !masthead}
             <p
-              class="flex items-center gap-2 font-mono text-[9.5px] tracking-widest text-muted-foreground uppercase"
+              class="flex items-center gap-2 font-mono text-xs st text-muted-foreground uppercase"
             >
-              <GitPullRequestIcon size={10} class="shrink-0 text-primary" />
+              <!-- Identity, not state — the subtitle chip below carries the
+                   state, and a tinted mark up here read as a second one. -->
+              <GitPullRequestIcon size={10} class="shrink-0" />
               <span class="min-w-0 truncate"
                 >{pr.repo ? `${pr.repo} ` : ""}#{pr.number}</span
               >
@@ -567,7 +680,7 @@
             <input
               bind:this={titleInput}
               bind:value={titleDraft}
-              class="{masthead ? '' : 'mt-3.5'} w-full rounded-lg border border-border bg-card px-3 py-2 text-[24px] leading-[1.28] font-semibold tracking-[-0.018em] outline-none transition-colors focus:border-ring"
+              class="{masthead ? '' : 'mt-3.5'} w-full rounded-lg border border-border bg-card px-3 py-2 text-[1.5rem] leading-[1.28] font-medium outline-none transition-colors focus:border-ring"
               aria-label="Pull request title"
               onkeydown={(event) => {
                 if (event.key === "Escape") cancelEditing();
@@ -579,7 +692,7 @@
             />
           {:else if prTitle}
             <h1
-              class="{masthead ? '' : 'mt-3.5'} text-[24px] leading-[1.28] font-semibold tracking-[-0.018em] text-pretty"
+              class="{masthead ? '' : 'mt-3.5'} text-[1.5rem] leading-[1.28] font-medium text-pretty"
             >
               {prTitle}
             </h1>
@@ -590,13 +703,16 @@
           {/if}
 
           <div
-            class="mt-[11px] flex flex-wrap items-center gap-x-[9px] gap-y-2 text-[11.5px] text-muted-foreground"
+            class="mt-[11px] flex flex-wrap items-center gap-x-[9px] gap-y-2 text-xs text-muted-foreground"
           >
+            <!-- State leads the subtitle, the way a code host states it: the one
+                 fact that changes how every other fact on this row reads. -->
+            <PrStatusChip {status} />
             <span class="flex min-w-0 items-center gap-2">
               <PrAvatar
                 name={authorName}
                 url={authorAvatarUrl}
-                size="size-5 text-[9.5px]"
+                size="size-5 text-xs"
               />
               <span class="truncate font-medium text-foreground">{authorName}</span>
               {#if openedTime}
@@ -611,7 +727,7 @@
                    Only when the masthead is absent — it states the refs itself,
                    and one line above the title is enough. -->
               <span
-                class="flex min-w-0 items-center gap-1.5 rounded-md bg-muted px-2 py-1 font-mono text-[10.5px] text-muted-foreground"
+                class="flex min-w-0 items-center gap-1.5 rounded-md bg-muted px-2 py-1 font-mono text-xs text-muted-foreground"
               >
                 {#if headBranch}
                   <span class="truncate">{headBranch}</span>
@@ -656,7 +772,7 @@
               <Button
                 type="button"
                 variant="ghost"
-                class="h-7 cursor-pointer gap-1.5 rounded-lg px-2.5 text-[11.5px] text-muted-foreground hover:text-foreground"
+                class="h-7 cursor-pointer gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground hover:text-foreground"
                 title="Edit pull request title and description"
                 onclick={beginEditing}
               >
@@ -670,7 +786,7 @@
         <!-- PR description belongs to the PR header, not the activity stream. -->
         {#if editing}
           <div
-            class="mt-6 rounded-xl border border-border bg-card p-3 shadow-[0_1px_2px_rgba(0,0,0,0.03)]"
+            class="mt-6 rounded-2xl border border-border bg-card p-3 shadow-[0_1px_2px_rgba(0,0,0,0.03)]"
           >
             <CommentEditor
               value={bodyDraft}
@@ -685,7 +801,7 @@
                 type="button"
                 variant="ghost"
                 disabled={saving}
-                class="h-8 cursor-pointer rounded-lg px-3 text-[12.5px] text-muted-foreground"
+                class="h-8 cursor-pointer rounded-lg px-3 text-[0.8125rem] text-muted-foreground"
                 onclick={cancelEditing}
               >
                 Cancel
@@ -693,7 +809,7 @@
               <Button
                 type="button"
                 disabled={saving || !titleDraft.trim()}
-                class="h-8 cursor-pointer rounded-lg px-3 text-[12.5px] font-medium disabled:cursor-not-allowed disabled:opacity-50"
+                class="h-8 cursor-pointer rounded-lg px-3 text-[0.8125rem] font-medium disabled:cursor-not-allowed disabled:opacity-50"
                 onclick={savePullRequest}
               >
                 {saving ? "Saving…" : "Save changes"}
@@ -735,7 +851,7 @@
              opened event always leads. -->
         <div class="mt-10 mb-4 flex items-center gap-2">
           <h2
-            class="text-[9.5px] font-medium tracking-widest text-muted-foreground uppercase"
+            class="text-xs font-medium st text-muted-foreground uppercase"
           >
             Activity
           </h2>
@@ -759,10 +875,10 @@
                     type="button"
                     variant="ghost"
                     aria-pressed={!unresolvedOnly && filter === chip.value}
-                    class="h-full cursor-pointer rounded-md border-0 px-2.5 text-[12px] transition-colors {!unresolvedOnly &&
-                    filter === chip.value
-                      ? 'bg-card font-medium text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] dark:shadow-none dark:ring-1 dark:ring-white/10'
-                      : 'bg-transparent font-normal text-muted-foreground hover:text-foreground'}"
+                    class="h-full cursor-pointer rounded-md border-0 px-2.5 text-xs transition-colors {!unresolvedOnly &&
+ filter === chip.value
+ ? 'bg-card font-medium text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] dark:shadow-none dark:ring-1 dark:ring-white/10'
+ : 'bg-transparent font-normal text-muted-foreground hover:text-foreground'}"
                     onclick={() => setFilter(chip.value)}
                   >
                     {chip.label}
@@ -775,9 +891,9 @@
                 type="button"
                 variant="ghost"
                 aria-pressed={unresolvedOnly}
-                class="h-7 cursor-pointer rounded-lg border-0 px-2.5 text-[12px] font-medium tabular-nums transition-colors {unresolvedOnly
-                  ? 'bg-secondary text-secondary-foreground'
-                  : 'bg-muted text-muted-foreground hover:text-foreground'}"
+                class="h-7 cursor-pointer rounded-lg border-0 px-2.5 text-xs font-medium tabular-nums transition-colors {unresolvedOnly
+ ? 'bg-secondary text-secondary-foreground'
+ : 'bg-muted text-muted-foreground hover:text-foreground'}"
                 onclick={toggleUnresolved}
               >
                 {unresolvedCount} unresolved
@@ -815,12 +931,12 @@
           class="sticky bottom-0 z-10 mt-8 pt-2.5 pb-[22px] [background:linear-gradient(to_bottom,transparent,var(--background)_22px)]"
         >
         <div
-          class="flex items-center gap-3 rounded-[10px] bg-card px-3.5 py-2.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_1px_2px_rgba(24,20,16,.05)] transition-shadow focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_0_0_3px_color-mix(in_oklab,var(--ring)_14%,transparent)]"
+          class="flex items-center gap-3 rounded-2xl bg-card px-3.5 py-2.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_1px_2px_rgba(24,20,16,.05)] transition-shadow focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_0_0_3px_color-mix(in_oklab,var(--ring)_14%,transparent)]"
         >
           <PrAvatar
             name={viewerLogin || "?"}
             url={viewerAvatarUrl}
-            size="size-[25px] text-[10px]"
+            size="size-[25px] text-xs"
           />
           <CommentEditor
             value={composer}
@@ -851,6 +967,17 @@
         {detail}
         {reviewers}
         {reviewersLoading}
+        {reviewerCandidates}
+        {reviewerCandidatesLoading}
+        {reviewerMutation}
+        onRequestReviewer={detail?.capabilities.reviewerRequests &&
+        detail.viewerPermissions.requestReviewers
+          ? requestReviewer
+          : undefined}
+        onRemoveReviewer={detail?.capabilities.reviewerRequests &&
+        detail.viewerPermissions.requestReviewers
+          ? removeReviewer
+          : undefined}
         {changedFiles}
         {filesLoading}
         {openedTime}
@@ -858,26 +985,36 @@
         {unresolvedCount}
         onFileJump={(path) => jumpToFile(path)}
         actions={prActions}
+        menu={prOverflowMenu}
       />
     </div>
 </div>
 
 {#snippet prActions()}
   <PrActions
-    pr={{ number: pr.number, title: prTitle, host: pr.host }}
+    pr={{ number: pr.number, title: prTitle }}
     {detail}
-    {showRemoteLink}
-    {prUrl}
     {feedbackCount}
     {guideStatus}
-    onGenerateGuide={generateGuide}
+    {onGenerateGuide}
     {addressCommentsReady}
     {addressingComments}
     onAddressComments={onAddressComments ? addressComments : undefined}
-    {onChat}
     getCtx={feedCtx}
     {getApi}
+    onDetailChanged={applyMergedDetail}
+  />
+{/snippet}
+
+{#snippet prOverflowMenu()}
+  <PrOverflowMenu
+    pr={{ host: pr.host }}
+    {detail}
+    {showRemoteLink}
+    {prUrl}
+    {onChat}
     onOpenRemote={openPr}
     onRefresh={refresh}
+    onLifecycleAction={updateLifecycle}
   />
 {/snippet}

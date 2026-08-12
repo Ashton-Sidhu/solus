@@ -37,7 +37,7 @@
 -->
 {#snippet letterMark()}
   <span
-    class="flex size-full items-center justify-center rounded font-semibold tracking-[0.02em] {letterClass}"
+    class="flex size-full items-center justify-center rounded font-medium {letterClass}"
     style:background={active
       ? "var(--primary)"
       : "color-mix(in oklch, var(--foreground) 12%, transparent)"}

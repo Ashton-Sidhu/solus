@@ -3,13 +3,15 @@
 	import type { HTMLAttributes } from "svelte/elements";
 	import type { Snippet } from "svelte";
 
+	type ButtonGroupTextProps = WithElementRef<HTMLAttributes<HTMLDivElement>>;
+
 	let {
 		ref = $bindable(null),
 		class: className,
 		child,
 		...restProps
-	}: WithElementRef<HTMLAttributes<HTMLDivElement>> & {
-		child?: Snippet<[{ props: Record<string, unknown> }]>;
+	}: ButtonGroupTextProps & {
+		child?: Snippet<[{ props: ButtonGroupTextProps }]>;
 	} = $props();
 
 	const mergedProps = $derived({

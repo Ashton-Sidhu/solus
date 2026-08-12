@@ -161,7 +161,7 @@
      stay on one right edge whether or not a section is active. */
   .doc-outline__numeral {
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     line-height: 1;
     color: transparent;
     transition: color var(--duration-quick) var(--ease-premium);
@@ -169,7 +169,7 @@
   .doc-outline__bar {
     width: 1.25rem;
     height: 0.125rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: color-mix(in srgb, var(--solus-text-tertiary) 32%, transparent);
     transition: background var(--duration-quick) var(--ease-premium);
   }
@@ -212,7 +212,7 @@
     overflow-x: hidden;
     overscroll-behavior: contain;
     padding: 0.9375rem 0.875rem 0.875rem 1rem;
-    border-radius: 0.75rem;
+    border-radius: 1rem;
     /* This panel deliberately unfolds over the document. Use the shell's solid
        canvas rather than the slightly translucent popover token so text and
        table rules underneath can never show through it. */
@@ -272,16 +272,16 @@
      rail reads as part of the document's own furniture. */
   .doc-outline__label {
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.59375rem;
-    font-weight: 600;
+    font-size: 0.75rem;
+    font-weight: 500;
     text-transform: uppercase;
-    letter-spacing: 0.12em;
+
     color: var(--solus-text-tertiary);
   }
   .doc-outline__totals {
     margin-left: auto;
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.59375rem;
+    font-size: 0.75rem;
     color: color-mix(in srgb, var(--solus-text-tertiary) 75%, transparent);
     font-variant-numeric: tabular-nums;
   }
@@ -296,7 +296,6 @@
     text-align: left;
     font-size: 0.8125rem;
     line-height: 1.45;
-    letter-spacing: -0.005em;
     padding: 0.3125rem 0.375rem 0.3125rem 0;
     color: var(--solus-text-tertiary);
     background: transparent;
@@ -315,7 +314,7 @@
     flex: 0 0 auto;
     width: 0.125rem;
     height: 0.9375rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: transparent;
     transition: background var(--duration-quick) var(--ease-premium);
   }
@@ -323,7 +322,7 @@
     flex: 0 0 auto;
     min-width: 1rem;
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
   }
   /* Thread count: amber, because amber is annotation everywhere in the page. */
@@ -331,15 +330,15 @@
     flex: 0 0 auto;
     min-width: 1rem;
     padding: 0.0625rem 0;
-    border-radius: 999px;
+    border-radius: 9999px;
     text-align: center;
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
     background: color-mix(in srgb, var(--solus-art-2) 26%, transparent);
     color: color-mix(in srgb, var(--solus-text-primary) 85%, var(--solus-art-2));
   }
   .doc-outline__item--sub {
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     padding-left: 0.8125rem;
     color: color-mix(in srgb, var(--solus-text-tertiary) 85%, transparent);
   }
@@ -351,7 +350,7 @@
   }
   .doc-outline__item--active {
     color: var(--solus-accent);
-    font-weight: 550;
+    font-weight: 500;
   }
   .doc-outline__item--active .doc-outline__mark,
   .doc-outline__item--active .doc-outline__index {
@@ -381,8 +380,8 @@
     padding-top: 0.625rem;
     border-top: 0.0625rem solid color-mix(in srgb, var(--solus-art-border) 55%, transparent);
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.59375rem;
-    letter-spacing: 0.04em;
+    font-size: 0.75rem;
+
     color: var(--solus-text-tertiary);
   }
   .doc-outline__foot-key {

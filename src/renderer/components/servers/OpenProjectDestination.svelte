@@ -33,7 +33,7 @@
 
   const PROTOCOLS: CloneProtocol[] = ["https", "ssh"];
   const FIELD =
-    "h-[2.125rem] rounded-lg border-0 bg-muted px-2.5 font-mono text-[0.75rem] text-foreground shadow-none focus-visible:ring-0 dark:bg-muted";
+    "h-[2.125rem] rounded-lg border-0 bg-muted px-2.5 font-mono text-xs text-foreground shadow-none focus-visible:ring-0 dark:bg-muted";
 
   const isClone = $derived(store.source === "clone");
   const setup = $derived(store.setup);
@@ -53,7 +53,7 @@
 {#if isClone}
   <div class="flex flex-col gap-4 border-t border-border px-5 pb-5 pt-[1.125rem]">
     <label class="flex flex-col gap-1.5">
-      <span class="text-[0.71875rem] text-muted-foreground">Repository URL</span>
+      <span class="text-xs text-muted-foreground">Repository URL</span>
       <Input
         bind:ref={inputEl}
         bind:value={store.query}
@@ -68,12 +68,12 @@
     </label>
 
     <div class="flex flex-col gap-1.5">
-      <span class="text-[0.71875rem] text-muted-foreground">Destination</span>
+      <span class="text-xs text-muted-foreground">Destination</span>
       <div class="flex items-center gap-2">
         <!-- Read-only: the host resolves the final path itself, and picking one
              here is what "Choose…" does — it clones straight into that folder. -->
         <span
-          class="flex h-[2.125rem] min-w-0 flex-1 items-center truncate rounded-lg bg-muted px-2.5 font-mono text-[0.75rem]
+          class="flex h-[2.125rem] min-w-0 flex-1 items-center truncate rounded-lg bg-muted px-2.5 font-mono text-xs
             {destination ? 'text-foreground' : 'text-muted-foreground'}"
           title={destination ?? undefined}
         >
@@ -89,7 +89,7 @@
       </div>
     </div>
 
-    <p class="text-pretty text-[0.71875rem] leading-relaxed text-muted-foreground">
+    <p class="text-pretty text-xs leading-relaxed text-muted-foreground">
       {#if destination}
         Clones onto {store.hostLabel || "this machine"} as {abbreviateHome(destination)}
       {:else}
@@ -116,7 +116,7 @@
         aria-controls="open-project-list"
       />
       {#if store.readiness?.github?.solusLogin}
-        <span class="shrink-0 text-[0.6875rem] text-muted-foreground">{store.readiness?.github?.solusLogin}</span>
+        <span class="shrink-0 text-xs text-muted-foreground">{store.readiness?.github?.solusLogin}</span>
       {/if}
     </label>
 
@@ -126,7 +126,7 @@
         <div class="text-pretty text-[0.8125rem] font-medium">
           {store.hostLabel || "This machine"} isn’t signed in to GitHub
         </div>
-        <div class="text-pretty text-[0.75rem] leading-relaxed text-muted-foreground">
+        <div class="text-pretty text-xs leading-relaxed text-muted-foreground">
           {store.hostIsLocal
             ? "Sign in to browse and clone the repositories you can access."
             : "Each machine keeps its own credentials — nothing carries over from this one."}
@@ -158,13 +158,13 @@
         class="h-[16.625rem] overflow-y-auto pt-1"
       >
         {#if store.reposLoading && store.repos.length === 0}
-          <div class="flex h-full items-center justify-center gap-2 text-[0.75rem] text-muted-foreground">
+          <div class="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
             <CircleNotchIcon size={14} class="animate-spin" />
             Loading repositories…
           </div>
         {:else if store.reposError}
           <div class="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
-            <div class="text-pretty text-[0.75rem] leading-relaxed text-muted-foreground">
+            <div class="text-pretty text-xs leading-relaxed text-muted-foreground">
               Couldn’t load repositories: {store.reposError}
             </div>
             <Button variant="outline" class="text-[0.8125rem]" onclick={() => void store.loadRepos()}>
@@ -174,7 +174,7 @@
         {:else if store.filteredRepos.length === 0}
           <div class="flex h-full flex-col items-center justify-center gap-1 text-center">
             <div class="text-[0.8125rem] font-medium">Nothing matches “{store.query.trim()}”</div>
-            <div class="text-[0.75rem] text-muted-foreground">Try a different search, or clone from a URL.</div>
+            <div class="text-xs text-muted-foreground">Try a different search, or clone from a URL.</div>
           </div>
         {:else}
           <!-- One line per repo: the owner is context for the name, not a second
@@ -196,7 +196,7 @@
                 <span class="text-muted-foreground">{repo.fullName.split("/")[0]}/</span>{repo.name}
               </span>
               {#if repo.private}
-                <span class="shrink-0 text-[0.6875rem] text-muted-foreground">Private</span>
+                <span class="shrink-0 text-xs text-muted-foreground">Private</span>
               {/if}
             </button>
           {/each}
@@ -212,7 +212,7 @@
       {#each PROTOCOLS as option (option)}
         <button
           type="button"
-          class="h-6 rounded-md px-2.5 text-[0.6875rem] font-medium uppercase tracking-wide
+          class="h-6 rounded-md px-2.5 text-xs font-medium uppercase
             [transition:background-color_var(--duration-quick)_var(--ease-premium),color_var(--duration-quick)_var(--ease-premium)] motion-reduce:transition-none
             {store.protocol === option ? 'bg-secondary text-secondary-foreground' : 'text-muted-foreground'}"
           aria-pressed={store.protocol === option}
@@ -225,7 +225,7 @@
         </button>
       {/each}
     </div>
-    <p class="min-w-0 flex-1 text-pretty text-[0.71875rem] leading-relaxed text-muted-foreground">
+    <p class="min-w-0 flex-1 text-pretty text-xs leading-relaxed text-muted-foreground">
       {#if store.protocol === "https" && store.readiness?.github?.solusToken}
         Uses {store.hostLabel || "this machine"}’s own GitHub sign-in.
       {:else if store.protocol === "https"}

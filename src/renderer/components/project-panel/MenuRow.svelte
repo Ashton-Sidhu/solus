@@ -184,7 +184,7 @@
   .menu-trail {
     flex-shrink: 0;
     color: var(--solus-text-tertiary);
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     font-weight: 400;
     font-variant-numeric: tabular-nums;
   }
@@ -216,7 +216,7 @@
     flex-shrink: 0;
     color: var(--solus-text-tertiary);
     font-family: var(--solus-code-font-family);
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     opacity: 0.7;
   }
 

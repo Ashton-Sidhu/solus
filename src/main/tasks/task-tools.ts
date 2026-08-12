@@ -5,12 +5,15 @@ import { resolveRepoRoot } from '../git/git-helpers'
 import { createTask, listTasks } from './task-store'
 import { Task } from './task'
 import { applyOpToForeignTask, foreignTaskFor } from './foreign-tasks'
+import { formatTaskLink } from './task-context'
 import { recordOutboxOp } from '../outbox/outbox-store'
+import { getServerSettings } from '../server/settings'
 import type { TaskCommentOpPayload, TaskSetStatusOpPayload } from '../../shared/outbox-types'
 import type {
   Task as TaskRecord,
   TaskCreateInput,
   TaskKind,
+  TaskLink as TaskLinkRecord,
   TaskLinkKind,
   TaskPriority,
   TaskSessionRole,
@@ -101,7 +104,7 @@ const linkTaskShape = {
 // ─── Descriptions ───
 
 const READ_TASK_DESC =
-  "Read a local Solus task by id, including its description, comments, subtasks, and linked sessions."
+  "Read a local Solus task by id, including its description, comments, subtasks, and linked items (works, plans, PRs, automations) with the ids their read tools take."
 const UPDATE_DESC =
   "Move a local task to a lifecycle status. This does not write to an external tracker."
 const LIST_TASKS_DESC =
@@ -120,7 +123,11 @@ const LINK_TASK_DESC =
 interface TaskToolCtx {
   /** The calling session's working directory — stamps new tasks with a project. */
   cwd: string
+  /** Provider thread id — provenance on durable rows (comments, links). */
   sessionId?: string
+  /** Solus session id — the key the session's foreign task snapshot is held
+   *  under (see foreign-tasks.ts; the ControlPlane keys by Solus's id). */
+  solusSessionId?: string
 }
 
 interface TaskToolDeps {
@@ -133,9 +140,26 @@ interface TaskToolResult {
   text: string
 }
 
+interface TaskToolArgs {
+  body?: unknown
+  due_date?: unknown
+  inbox?: unknown
+  kind?: unknown
+  labels?: unknown
+  parent_id?: unknown
+  priority?: unknown
+  role?: unknown
+  scope?: unknown
+  session_id?: unknown
+  status?: unknown
+  target_id?: unknown
+  task_id?: unknown
+  title?: unknown
+}
+
 async function executeTaskTool(
   name: string,
-  args: Record<string, unknown>,
+  args: TaskToolArgs,
   deps: TaskToolDeps,
 ): Promise<TaskToolResult> {
   const cwd = deps.ctx.cwd
@@ -169,7 +193,7 @@ async function executeTaskTool(
       if (!id) return { ok: false, text: 'read_task requires a task_id.' }
       // A foreign task (dispatched session) answers from the shipped snapshot,
       // overlaid with this session's own not-yet-delivered writes.
-      const foreign = foreignTaskFor(deps.ctx.sessionId, id)
+      const foreign = foreignTaskFor(deps.ctx.solusSessionId, id)
       const details = foreign ? foreign.details : await (await Task.byId(id)).details()
       const task = details.task
       return {
@@ -177,7 +201,7 @@ async function executeTaskTool(
         text: formatTaskForAgent(task, details.comments.map((comment) => ({
           author: comment.author ?? 'unknown',
           body: comment.body,
-        })), details.subtasks),
+        })), details.subtasks, details.links),
       }
     }
 
@@ -188,10 +212,23 @@ async function executeTaskTool(
       if (!(STATUS_VALUES as readonly string[]).includes(status)) {
         return { ok: false, text: `update_task_status: status must be one of ${STATUS_VALUES.join(', ')}.` }
       }
-      if (foreignTaskFor(deps.ctx.sessionId, id)) {
+      const lifecyclePolicy = getServerSettings().agentTaskLifecyclePolicy
+      if (lifecyclePolicy === 'none') {
+        return {
+          ok: false,
+          text: 'Agent task status changes are disabled. The user controls this task\'s lifecycle.',
+        }
+      }
+      if (lifecyclePolicy === 'moderate' && status === 'done') {
+        return {
+          ok: false,
+          text: 'Agents cannot move tasks to done in Moderate mode. Move the task to in_review or ask the user to close it.',
+        }
+      }
+      if (foreignTaskFor(deps.ctx.solusSessionId, id)) {
         const payload: TaskSetStatusOpPayload = { status, actorLabel: deps.ctx.sessionId }
         const op = recordOutboxOp({ domain: 'tasks', resourceId: id, name: 'set-status', payload, sessionId: deps.ctx.sessionId })
-        applyOpToForeignTask(deps.ctx.sessionId, op)
+        applyOpToForeignTask(deps.ctx.solusSessionId, op)
         return { ok: true, text: `Task ${id} is now "${status}".` }
       }
       const updated = await (await Task.byId(id)).update(
@@ -205,7 +242,7 @@ async function executeTaskTool(
       const title = typeof args.title === 'string' ? args.title.trim() : ''
       if (!title) return { ok: false, text: 'create_task requires a non-empty title.' }
       const requestedParentId = typeof args.parent_id === 'string' ? args.parent_id.trim() : ''
-      if (requestedParentId && foreignTaskFor(deps.ctx.sessionId, requestedParentId)) {
+      if (requestedParentId && foreignTaskFor(deps.ctx.solusSessionId, requestedParentId)) {
         return { ok: false, text: foreignWriteUnsupported('create_task under a parent', requestedParentId) }
       }
       const labels = Array.isArray(args.labels)
@@ -240,10 +277,10 @@ async function executeTaskTool(
       if (!id) return { ok: false, text: 'comment_task requires a task_id.' }
       const body = typeof args.body === 'string' ? args.body.trim() : ''
       if (!body) return { ok: false, text: 'comment_task requires a non-empty body.' }
-      if (foreignTaskFor(deps.ctx.sessionId, id)) {
+      if (foreignTaskFor(deps.ctx.solusSessionId, id)) {
         const payload: TaskCommentOpPayload = { body, author: 'agent', originSessionId: deps.ctx.sessionId }
         const op = recordOutboxOp({ domain: 'tasks', resourceId: id, name: 'comment', payload, sessionId: deps.ctx.sessionId })
-        applyOpToForeignTask(deps.ctx.sessionId, op)
+        applyOpToForeignTask(deps.ctx.solusSessionId, op)
         return { ok: true, text: `Comment added to task ${id}.` }
       }
       await (await Task.byId(id)).comment(body, {
@@ -256,7 +293,7 @@ async function executeTaskTool(
     if (name === 'link_task_session') {
       const taskId = String(args.task_id ?? '').trim()
       if (!taskId) return { ok: false, text: 'link_task_session requires a task_id.' }
-      if (foreignTaskFor(deps.ctx.sessionId, taskId)) {
+      if (foreignTaskFor(deps.ctx.solusSessionId, taskId)) {
         return { ok: false, text: foreignWriteUnsupported('link_task_session', taskId) }
       }
       const sessionId = typeof args.session_id === 'string' && args.session_id.trim()
@@ -271,7 +308,7 @@ async function executeTaskTool(
     if (name === 'link_task') {
       const taskId = String(args.task_id ?? '').trim()
       if (!taskId) return { ok: false, text: 'link_task requires a task_id.' }
-      if (foreignTaskFor(deps.ctx.sessionId, taskId)) {
+      if (foreignTaskFor(deps.ctx.solusSessionId, taskId)) {
         return { ok: false, text: foreignWriteUnsupported('link_task', taskId) }
       }
       const kind = String(args.kind ?? '') as TaskLinkKind
@@ -321,6 +358,7 @@ function formatTaskForAgent(
   task: TaskRecord,
   comments: Array<{ author: string; body: string }> = [],
   subtasks: TaskRecord[] = [],
+  links: TaskLinkRecord[] = [],
 ): string {
   const lines = [
     `${task.kind === 'epic' ? 'Epic' : 'Task'} ${task.id} — "${task.title}"`,
@@ -329,6 +367,10 @@ function formatTaskForAgent(
   if (task.labels.length) lines.push(`labels: ${task.labels.join(', ')}`)
   if (task.assignee) lines.push(`assignee: ${task.assignee}`)
   if (task.parentId) lines.push(`parent: ${task.parentId}`)
+  if (links.length) {
+    lines.push('', 'Linked:')
+    for (const link of links) lines.push(`- ${formatTaskLink(link)}`)
+  }
   lines.push('', task.body.trim() || '(no description)')
   if (subtasks.length) {
     lines.push('', 'Subtasks:')
@@ -353,7 +395,7 @@ function taskAgentTool(
     inputShape,
     requiresApproval,
     execute: async (args, context) => executeTaskTool(name, args, {
-      ctx: { cwd: context.cwd, sessionId: context.sessionId() },
+      ctx: { cwd: context.cwd, sessionId: context.sessionId(), solusSessionId: context.solusSessionId() },
       onTaskCreated: (task) => context.emit({
         type: 'task_created',
         taskId: task.taskId,

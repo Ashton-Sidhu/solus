@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
+import type { AgentTaskLifecyclePolicy } from '../../shared/types'
 
 const log = createLogger('main', 'server-settings')
 
@@ -11,6 +12,7 @@ const SETTINGS_FILE = join(SOLUS_DIR, 'server-settings.json')
 export interface ServerSettings {
   remoteAccess: boolean
   metricsRetentionDays: number
+  agentTaskLifecyclePolicy: AgentTaskLifecyclePolicy
   /** Absent means analytics remain enabled for installations created before this setting. */
   analytics?: boolean
   name?: string
@@ -24,6 +26,7 @@ export interface ServerSettings {
 const DEFAULT_SETTINGS: ServerSettings = {
   remoteAccess: true,
   metricsRetentionDays: 30,
+  agentTaskLifecyclePolicy: 'moderate',
 }
 
 let _settings: ServerSettings | null = null
@@ -38,6 +41,7 @@ export function getServerSettings(): ServerSettings {
       _settings = {
         remoteAccess: parsed?.remoteAccess === true,
         metricsRetentionDays: normalizeMetricsRetentionDays(parsed?.metricsRetentionDays),
+        agentTaskLifecyclePolicy: normalizeAgentTaskLifecyclePolicy(parsed?.agentTaskLifecyclePolicy),
         analytics: typeof parsed?.analytics === 'boolean' ? parsed.analytics : undefined,
         name: normalizeServerName(parsed?.name),
         projectsBaseDirectory: normalizeProjectsBaseDirectory(parsed?.projectsBaseDirectory),
@@ -68,6 +72,15 @@ export function setAnalyticsConsent(analytics: boolean): ServerSettings {
   _settings = { ...getServerSettings(), analytics }
   persistSettings(_settings)
   log.info('analytics_consent_changed', { analytics })
+  return _settings
+}
+
+export function setAgentTaskLifecyclePolicy(
+  agentTaskLifecyclePolicy: AgentTaskLifecyclePolicy,
+): ServerSettings {
+  _settings = { ...getServerSettings(), agentTaskLifecyclePolicy }
+  persistSettings(_settings)
+  log.info('agent_task_lifecycle_policy_changed', { agentTaskLifecyclePolicy })
   return _settings
 }
 
@@ -106,4 +119,8 @@ function normalizeProjectsBaseDirectory(value: unknown): string | undefined {
 function normalizeMetricsRetentionDays(value: unknown): number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) return DEFAULT_SETTINGS.metricsRetentionDays
   return value
+}
+
+function normalizeAgentTaskLifecyclePolicy(value: unknown): AgentTaskLifecyclePolicy {
+  return value === 'none' || value === 'autonomous' ? value : 'moderate'
 }

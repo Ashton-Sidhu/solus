@@ -24,9 +24,6 @@
   interface Props {
     session: SidebarSessionChild;
     selected: boolean;
-    /** Grouped rows sit under a project header, so the whole cluster — spine,
-     *  task title, session titles — shifts right by the header's mark column. */
-    grouped: boolean;
     /** The parent task holds the session you are reading, so this cluster leads
      *  in full ink; sessions elsewhere rest at the secondary tone. */
     onPath: boolean;
@@ -39,14 +36,14 @@
     onSelect: () => void;
     onRename: (next: string) => void;
     onRenameCancel: () => void;
-    onMore: (event: MouseEvent) => void;
+    onMore: (event: MouseEvent | PointerEvent) => void;
+    onSnooze?: (anchor: HTMLElement) => void;
     onComplete?: () => void;
     onClose: () => void;
   }
   let {
     session,
     selected,
-    grouped,
     onPath,
     renaming,
     leadsToSelection,
@@ -54,6 +51,7 @@
     onRename,
     onRenameCancel,
     onMore,
+    onSnooze,
     onComplete,
     onClose,
   }: Props = $props();
@@ -96,23 +94,48 @@
   const isRemote = $derived(!!host && !host.local);
 
   const iconButton =
-    "flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[0.4375rem] text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground";
+    "flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground";
+  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  let suppressNextClick = false;
+  function startLongPress(event: PointerEvent) {
+    if (event.pointerType !== "touch") return;
+    longPressTimer = setTimeout(() => {
+      suppressNextClick = true;
+      onMore(event);
+    }, 500);
+  }
+  function cancelLongPress() {
+    if (longPressTimer) clearTimeout(longPressTimer);
+    longPressTimer = null;
+  }
 </script>
 
 <!-- One step in from the task title's spine, with no plate of its own: the
      connector carries the hierarchy, so nothing here needs a box. -->
 <div
-  class="group/session relative -mr-1 flex h-[2.875rem] cursor-pointer items-center gap-[0.5625rem] rounded-[0.6875rem] pr-2 transition-[background] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] {grouped
-    ? 'pl-10'
-    : 'pl-8'}"
+  class="group/session relative -mr-1 flex h-[2.875rem] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 transition-[background] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring pl-8 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)]"
   role="treeitem"
   tabindex="-1"
   data-tab-id={session.tabId}
   data-task-id={session.taskId}
   aria-selected={selected}
   aria-label={session.isSubtask ? `Subtask: ${session.label}` : session.label}
-  onclick={onSelect}
+  title={session.snoozeReminder
+    ? `Snooze reminder: ${session.snoozeReminder}`
+    : undefined}
+  onclick={(event) => {
+    if (suppressNextClick) {
+      suppressNextClick = false;
+      event.preventDefault();
+      return;
+    }
+    onSelect();
+  }}
   oncontextmenu={onMore}
+  onpointerdown={startLongPress}
+  onpointerup={cancelLongPress}
+  onpointercancel={cancelLongPress}
+  onpointermove={cancelLongPress}
   onkeydown={(event) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -141,16 +164,14 @@
          that stops the grey spine on the last child's elbow; an accent that
          ran past it would be the one line in the tree pointing at no row. -->
     <span
-      class="pointer-events-none absolute top-0 w-[0.09375rem] rounded-[0.0625rem] bg-primary {selected
+      class="pointer-events-none absolute top-0 left-2.5 w-[0.09375rem] rounded-[0.0625rem] bg-primary {selected
         ? 'h-[0.96875rem]'
-        : '-bottom-[0.1875rem]'} {grouped ? 'left-[1.125rem]' : 'left-2.5'}"
+        : '-bottom-[0.1875rem]'}"
       aria-hidden="true"
     ></span>
   {/if}
   <span
-    class="pointer-events-none absolute top-[0.875rem] w-[0.875rem] {grouped
-      ? 'left-[1.125rem]'
-      : 'left-2.5'} {selected
+    class="pointer-events-none absolute top-[0.875rem] left-2.5 w-[0.875rem] {selected
       ? 'h-[0.09375rem] rounded-[0.0625rem] bg-primary'
       : 'h-px bg-[color-mix(in_oklch,var(--foreground)_14%,transparent)]'}"
     aria-hidden="true"
@@ -171,16 +192,16 @@
         <SessionNameInput
           value={session.label}
           class="text-[0.8125rem] {titleIsEmphasized
-            ? 'font-semibold tracking-[-0.008em]'
-            : 'tracking-[-0.006em]'}"
+            ? 'font-medium '
+            : ''}"
           onCommit={onRename}
           onCancel={onRenameCancel}
         />
       {:else}
         <span
           class="min-w-0 flex-1 overflow-hidden text-[0.8125rem] leading-[1.125rem] text-ellipsis whitespace-nowrap transition-colors duration-150 {titleIsEmphasized
-            ? 'font-semibold tracking-[-0.008em]'
-            : 'tracking-[-0.006em]'} {titleLeads
+            ? 'font-medium '
+            : ''} {titleLeads
             ? 'text-foreground'
             : 'text-(--solus-text-secondary)'}">{session.label}</span
         >
@@ -230,7 +251,7 @@
                    so the row you are reading states its own state in one
                    colour. -->
               <span
-                class="shrink-0 font-mono text-[0.65625rem] tabular-nums {selected
+                class="shrink-0 font-mono text-xs tabular-nums {selected
                   ? 'text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))]'
                   : 'text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]'}">{elapsed}</span
               >
@@ -241,8 +262,8 @@
         </span>
       {/if}
 
-      <!-- Durable children remain removable after their tab closes: this action
-           row controls the task tree, not only the mounted session. -->
+      <!-- Durable children keep their workflow actions after their tab closes.
+           Closing is available only for a mounted session. -->
       {#if session.tabId || session.taskId}
         <span
           class="-mr-1 hidden shrink-0 items-center gap-px group-hover/session:flex"
@@ -252,7 +273,11 @@
             class={iconButton}
             title="Snooze"
             aria-label="Snooze subtask"
-            onclick={(event) => event.stopPropagation()}
+            disabled={!onSnooze}
+            onclick={(event) => {
+              event.stopPropagation();
+              onSnooze?.(event.currentTarget);
+            }}
           >
             <MoonIcon size={13} />
           </button>
@@ -272,8 +297,8 @@
           {#if session.tabId || session.dismissalKey}
             <button
               class={iconButton}
-              title="Remove from sidebar"
-              aria-label="Remove subtask from sidebar"
+              title={session.taskId ? "Remove from sidebar" : "Close session"}
+              aria-label={session.taskId ? "Remove task from sidebar" : "Close session"}
               onclick={(event) => {
                 event.stopPropagation();
                 onClose();
@@ -291,7 +316,7 @@
          machine, because a subtask can be running somewhere its siblings are
          not. -->
     <span
-      class="mt-1 flex max-w-full items-center gap-[0.375rem] text-[0.6875rem] text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]"
+      class="mt-1 flex max-w-full items-center gap-[0.375rem] text-xs text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]"
     >
       {#if session.branchName}
         <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"

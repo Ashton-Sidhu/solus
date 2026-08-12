@@ -147,8 +147,8 @@ export class WsTransport {
   }
 
   /** Builds a `window.solus`-compatible API surface backed by this transport. */
-  buildSolusApi(): Record<string, unknown> {
-    const api: Record<string, unknown> = {
+  buildSolusApi(): object {
+    const api = {
       getPlatform: () => 'web',
       getPathForFile: () => '',
       setQuoteContext: () => {},
@@ -157,26 +157,26 @@ export class WsTransport {
     }
 
     for (const method of RPC_INVOKE_METHODS) {
-      api[method] = (...args: unknown[]) => this.invoke(method, args)
+      Reflect.set(api, method, (...args: unknown[]) => this.invoke(method, args))
     }
 
     // Voice recordings are intentionally kept off the RPC socket. Serializing
     // Float32 PCM as JSON expands long recordings enough to exceed Socket.IO's
     // frame limit, then reconnect replays the same undeliverable request.
-    api.transcribeAudio = (audio: Float32Array | string, ...args: unknown[]) =>
+    Reflect.set(api, 'transcribeAudio', (audio: Float32Array | string, ...args: unknown[]) =>
       audio instanceof Float32Array
         ? this.transcribeAudio(audio)
-        : this.invoke('transcribeAudio', [audio, ...args])
+        : this.invoke('transcribeAudio', [audio, ...args]))
 
     // A link must open on the device the user is holding — the RPC would open
     // a browser on the host instead (e.g. provider sign-in verification URLs).
-    api.openExternal = (url: string): Promise<boolean> => {
+    Reflect.set(api, 'openExternal', (url: string): Promise<boolean> => {
       window.open(url, '_blank', 'noopener')
       return Promise.resolve(true)
-    }
+    })
 
     if (!this.opts.useHostFileDialog) {
-      api['attachFiles'] = (ctx?: IpcContext): Promise<unknown> => {
+      Reflect.set(api, 'attachFiles', (ctx?: IpcContext): Promise<unknown> => {
         if (!ctx) return Promise.resolve(null)
         return new Promise((resolve) => {
           const input = document.createElement('input')
@@ -190,9 +190,9 @@ export class WsTransport {
           input.addEventListener('cancel', () => resolve(null), { once: true })
           input.click()
         })
-      }
+      })
     }
-    api['uploadFiles'] = (files: File[], ctx: IpcContext): Promise<unknown> => this.uploadFiles(files, ctx)
+    Reflect.set(api, 'uploadFiles', (files: File[], ctx: IpcContext): Promise<unknown> => this.uploadFiles(files, ctx))
 
     return api
   }
@@ -445,7 +445,7 @@ export class WsTransport {
     }))
   }
 
-  private logConnection(message: string, data: Record<string, unknown>): void {
+  private logConnection(message: string, data: object): void {
     console.info(`[solus:ws] ${message}`, {
       clientInstanceId: this.clientInstanceId,
       status: this.status,

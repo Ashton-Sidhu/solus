@@ -61,8 +61,8 @@
             <div class="flex-1 min-w-0">
               {#if header}
                 <span
-                  class="text-[0.75rem] font-medium truncate"
-                  style="color:var(--solus-text-primary);letter-spacing:-0.01em;display:block;line-height:1.3"
+                  class="text-xs font-medium truncate"
+                  style="color:var(--solus-text-primary);display:block;line-height:1.3"
                   >{header}</span
                 >
               {/if}
@@ -137,11 +137,10 @@
   }
 
   .step-badge {
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     font-weight: 500;
-    letter-spacing: 0.04em;
     padding: 0.125rem 0.5rem;
-    border-radius: 0.625rem;
+    border-radius: 9999px;
     background: color-mix(in srgb, var(--solus-accent) 12%, transparent);
     color: var(--solus-accent);
     line-height: 1.4;

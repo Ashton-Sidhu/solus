@@ -13,6 +13,9 @@
     TreeStructureIcon,
     TrashIcon,
     XIcon,
+    MoonIcon,
+    SunIcon,
+    DotOutlineIcon,
   } from "phosphor-svelte";
   import type { Task } from "../../../shared/task-types";
   import { toasts } from "../../lib/toasts";
@@ -25,6 +28,7 @@
     task: Task;
     hasLinkedSession: boolean;
     isRunning: boolean;
+    lifecycleBlocked?: boolean;
     onStart: () => void;
     onResume?: () => void;
     onStop?: () => void;
@@ -32,6 +36,9 @@
     onOpenSource?: () => void;
     onStartRename?: () => void;
     onToggleDone: () => void;
+    onSnooze?: () => void;
+    onWake?: () => void;
+    onMarkUnread?: () => void;
     onRemove?: () => void;
     onDelete?: () => void;
     /** Session-level actions for a task with no nested subtasks: the row *is* a
@@ -53,6 +60,7 @@
     task,
     hasLinkedSession,
     isRunning,
+    lifecycleBlocked = false,
     onStart,
     onResume,
     onStop,
@@ -60,6 +68,9 @@
     onOpenSource,
     onStartRename,
     onToggleDone,
+    onSnooze,
+    onWake,
+    onMarkUnread,
     onRemove,
     onDelete,
     sessionId = null,
@@ -155,6 +166,23 @@
       <CheckIcon />
       {task.status === "done" ? "Reopen task" : "Mark done"}
     </ContextMenu.Item>
+    {#if onWake}
+      <ContextMenu.Item onSelect={() => select(onWake)}>
+        <SunIcon />
+        Wake now
+      </ContextMenu.Item>
+    {:else if onSnooze}
+      <ContextMenu.Item disabled={lifecycleBlocked} onSelect={() => select(onSnooze)}>
+        <MoonIcon />
+        Snooze…
+      </ContextMenu.Item>
+    {/if}
+    {#if onMarkUnread}
+      <ContextMenu.Item onSelect={() => select(onMarkUnread)}>
+        <DotOutlineIcon weight="fill" />
+        Mark unread
+      </ContextMenu.Item>
+    {/if}
 
     {#if onFork || onContinueWorktree}
       <ContextMenu.Separator />

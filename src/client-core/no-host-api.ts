@@ -3,7 +3,7 @@ import type { LocalApi } from './host-api'
 type ApiMethod = (...args: unknown[]) => unknown
 
 export function createNoHostSolusApi(): LocalApi {
-  const overrides: Record<string, unknown> = {
+  const overrides: Partial<LocalApi> = {
     getPlatform: () => 'web',
     getPathForFile: () => '',
     setQuoteContext: () => {},
@@ -19,7 +19,7 @@ export function createNoHostSolusApi(): LocalApi {
   return new Proxy(overrides, {
     get(target, property) {
       if (typeof property !== 'string') return Reflect.get(target, property)
-      const override = target[property]
+      const override = Reflect.get(target, property)
       if (typeof override === 'function') return override
 
       const cached = generated.get(property)

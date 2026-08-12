@@ -46,7 +46,7 @@ export interface ArtifactToolResult {
 }
 
 export async function executeArtifactTool(
-  args: Record<string, unknown>,
+  args: { html?: unknown },
   deps: ArtifactToolDeps = {},
 ): Promise<ArtifactToolResult> {
   try {

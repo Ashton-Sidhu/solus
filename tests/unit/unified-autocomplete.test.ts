@@ -145,6 +145,21 @@ describe('keyboard selection', () => {
 })
 
 describe('ranking', () => {
+  test('menu title parts replace embedded line breaks without shifting highlights', () => {
+    // WHY: provider titles can contain newlines. A fixed-height menu row must
+    // remain one line, and the highlighted query must still mark the same text.
+    const [match] = rank(
+      [reference('plan', 'Implement the plan:\nread docs/plans/host.md')],
+      'docs',
+    )
+    expect(match.parts.map((part) => part.text).join('')).toBe(
+      'Implement the plan: read docs/plans/host.md',
+    )
+    expect(match.parts.filter((part) => part.hit).map((part) => part.text)).toEqual([
+      'docs',
+    ])
+  })
+
   test('the score ladder prefers a prefix over a boundary over a substring', () => {
     // WHY: this ordering is what makes three typed letters land on the thing you
     // meant without a category picker in front of it.

@@ -104,7 +104,7 @@
   <div class="absolute inset-0 bg-black/20" aria-hidden="true"></div>
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div
-    class="relative flex max-h-[60vh] w-[460px] flex-col overflow-hidden rounded-xl bg-popover shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_14%,transparent),0_28px_50px_-18px_rgba(0,0,0,.24)]"
+    class="relative flex max-h-[60vh] w-[460px] flex-col overflow-hidden rounded-2xl bg-popover shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_14%,transparent),0_28px_50px_-18px_rgba(0,0,0,.24)]"
     onclick={(e) => e.stopPropagation()}
     role="dialog"
     aria-label="Link something to this task"
@@ -112,20 +112,20 @@
     <input
       bind:this={inputEl}
       bind:value={query}
-      class="h-11 shrink-0 border-b border-[var(--hairline)] bg-transparent px-3.5 text-[13px] outline-none placeholder:text-muted-foreground"
+      class="h-11 shrink-0 border-b border-[var(--hairline)] bg-transparent px-3.5 text-[0.8125rem] outline-none placeholder:text-muted-foreground"
       placeholder="Link a doc, plan, automation or PR…"
     />
     <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
       {#each results as group (group.menuKind)}
         <div
-          class="px-2 pt-2 pb-1 text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase"
+          class="px-2 pt-2 pb-1 text-xs font-normal text-muted-foreground uppercase"
         >
           {group.label}
         </div>
         {#each group.items as item (item.id)}
           <button
             type="button"
-            class="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-md px-2 text-[13px] hover:bg-[var(--wash-2)]"
+            class="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-md px-2 text-[0.8125rem] hover:bg-[var(--wash-2)]"
             onclick={() => pick(item)}
           >
             <svg
@@ -141,17 +141,17 @@
               aria-hidden="true"><path d={item.icon} /></svg
             >
             <span class="min-w-0 flex-1 truncate text-left">{item.title}</span>
-            <span class="shrink-0 text-[12px] text-muted-foreground opacity-70">{item.meta}</span>
+            <span class="shrink-0 text-xs text-muted-foreground opacity-70">{item.meta}</span>
           </button>
         {/each}
       {:else}
-        <div class="px-2 py-6 text-center text-[12px] text-muted-foreground">
+        <div class="px-2 py-6 text-center text-xs text-muted-foreground">
           {query ? "Nothing matches." : "Nothing to link yet."}
         </div>
       {/each}
     </div>
     <div
-      class="flex shrink-0 items-center gap-2 border-t border-[var(--hairline)] px-3.5 py-2 text-[11px] text-muted-foreground"
+      class="flex shrink-0 items-center gap-2 border-t border-[var(--hairline)] px-3.5 py-2 text-xs text-muted-foreground"
     >
       {Object.values(KIND_LABEL).join(" · ")}
       <span class="flex-1"></span>

@@ -110,7 +110,7 @@
 
     {#snippet meta()}
       <span class="shrink-0">Resets at</span>
-      <span class="font-mono text-[0.71875rem] font-medium text-(--foreground)"
+      <span class="font-mono text-xs font-medium text-(--foreground)"
         >{releaseClock}</span
       >
     {/snippet}
@@ -123,9 +123,9 @@
     {/snippet}
 
     <div
-      class="flex items-center gap-2 px-[1.125rem] py-[0.875rem] text-[0.71875rem] text-(--muted-foreground)"
+      class="flex items-center gap-2 px-[1.125rem] py-[0.875rem] text-xs text-(--muted-foreground)"
     >
-      <ClockIcon size={12} class="shrink-0 opacity-50" />
+      <ClockIcon size={14} class="shrink-0 opacity-50" />
       <span
         >Nothing runs until you choose. Queuing sends it the moment the window
         opens.</span
@@ -134,7 +134,7 @@
 
     {#snippet footer()}
       <button type="button" class="interrupt-btn" onclick={handleStop}>
-        <StopIcon size={11} weight="bold" />
+        <StopIcon size={14} weight="bold" />
         Stop &amp; discard
       </button>
       <div class="flex-1"></div>
@@ -150,7 +150,7 @@
         class="interrupt-btn interrupt-btn--primary"
         onclick={handleSendNow}
       >
-        <ArrowUpIcon size={12} weight="bold" />
+        <ArrowUpIcon size={14} weight="bold" />
         Send now
       </button>
     {/snippet}
@@ -160,16 +160,15 @@
 <style>
   /* Set in type, not drawn. */
   .limit-clock {
-    font-size: 1.1875rem;
+    font-size: 1.5rem;
     line-height: 1.05;
-    letter-spacing: -0.03em;
     font-variant-numeric: tabular-nums;
   }
   .limit-clock-caption {
     margin-top: 0.1875rem;
-    font-size: 0.53125rem;
+    font-size: 0.75rem;
     font-weight: 500;
-    letter-spacing: 0.13em;
+
     text-transform: uppercase;
     color: var(--muted-foreground);
     opacity: 0.65;

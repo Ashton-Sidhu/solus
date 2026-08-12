@@ -107,24 +107,24 @@
     {#if caption}
       <div class="mt-px flex items-center justify-end gap-1.5">
         <span
-          class="text-[0.5625rem] font-medium tracking-[0.12em] text-(--muted-foreground) uppercase opacity-70"
+          class="text-xs font-medium text-(--muted-foreground) uppercase opacity-70"
         >
           {caption.label}
         </span>
         {#if caption.detail}
-          <span class="text-[0.65625rem] text-(--muted-foreground) opacity-45">·</span>
-          <span class="font-mono text-[0.625rem] text-(--muted-foreground)">
+          <span class="text-xs text-(--muted-foreground) opacity-45">·</span>
+          <span class="font-mono text-xs text-(--muted-foreground)">
             {caption.detail}{#if caption.clock}<span class="text-(--foreground) tabular-nums"
               > · {caption.clock}</span
             >{/if}
           </span>
         {/if}
         {#if caption.canSendNow}
-          <span class="text-[0.65625rem] text-(--muted-foreground) opacity-45">·</span>
+          <span class="text-xs text-(--muted-foreground) opacity-45">·</span>
           <button
             type="button"
             onclick={handleSendNow}
-            class="cursor-pointer text-[0.65625rem] underline decoration-[color-mix(in_oklch,var(--foreground)_28%,transparent)] underline-offset-[0.15625rem] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium)"
+            class="cursor-pointer text-xs underline decoration-[color-mix(in_oklch,var(--foreground)_28%,transparent)] underline-offset-[0.15625rem] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium)"
           >
             Send now
           </button>

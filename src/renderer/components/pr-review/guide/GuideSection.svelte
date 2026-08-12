@@ -127,7 +127,7 @@
     <Icon {icon} width="14" height="14" class="shrink-0" />
   {:else}
     <span
-      class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 font-mono text-[0.625rem] font-semibold text-(--solus-text-tertiary)"
+      class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 font-mono text-xs font-medium text-(--solus-text-tertiary)"
     >
       {ext(path)}
     </span>
@@ -142,14 +142,14 @@
   <div class="guide-why flex flex-col gap-5 lg:sticky lg:top-12 lg:self-start">
     {#if index && total}
       <span
-        class="tabular-nums text-[0.8125rem] font-semibold tracking-wide text-(--solus-text-tertiary)"
+        class="tabular-nums text-[0.8125rem] font-medium text-(--solus-text-tertiary)"
       >
         {String(index).padStart(2, "0")} / {String(total).padStart(2, "0")}
       </span>
     {/if}
 
     <h2
-      class="text-[1.125rem] leading-snug font-semibold tracking-tight text-balance text-(--solus-text-primary)"
+      class="text-sm leading-snug font-medium text-balance text-(--solus-text-primary)"
     >
       {section.title}
     </h2>
@@ -167,7 +167,7 @@
             >
               {@render typeBadge(file.path)}
               <span
-                class="min-w-0 flex-1 truncate font-mono text-[0.75rem] font-secondary text-(--solus-text-secondary)"
+                class="min-w-0 flex-1 truncate font-mono text-xs font-secondary text-(--solus-text-secondary)"
               >
                 <span class="text-(--solus-text-primary)"
                   >{fileName(file.path)}</span
@@ -178,13 +178,13 @@
               </span>
               {#if file.additions}
                 <span
-                  class="tabular-nums shrink-0 text-[0.75rem] text-(--solus-art-positive)"
+                  class="tabular-nums shrink-0 text-xs text-(--solus-art-positive)"
                   >+{file.additions}</span
                 >
               {/if}
               {#if file.deletions}
                 <span
-                  class="tabular-nums shrink-0 text-[0.75rem] text-(--solus-art-negative)"
+                  class="tabular-nums shrink-0 text-xs text-(--solus-art-negative)"
                   >−{file.deletions}</span
                 >
               {/if}
@@ -206,7 +206,7 @@
       <div
         bind:this={cards[file.path]}
         use:lazyDiffCard={file.path}
-        class="scroll-mt-6 overflow-hidden rounded-xl border border-(--solus-art-border) bg-(--solus-art-surface) [contain-intrinsic-size:auto_12rem] [content-visibility:auto]"
+        class="scroll-mt-6 overflow-hidden rounded-2xl border border-(--solus-art-border) bg-(--solus-art-surface) [contain-intrinsic-size:auto_12rem] [content-visibility:auto]"
       >
         <div
           class="flex items-center gap-2 border-(--solus-art-border) px-3 py-2.5"
@@ -224,8 +224,8 @@
           >
             <span
               class="inline-block size-1.5 shrink-0 border-r-[1.5px] border-b-[1.5px] border-current text-(--solus-text-tertiary) transition-transform duration-150 {open
-                ? 'rotate-[225deg]'
-                : 'rotate-45'}"
+ ? 'rotate-[225deg]'
+ : 'rotate-45'}"
             ></span>
             {@render typeBadge(file.path)}
             <span class="min-w-0 flex-1 truncate font-mono text-[0.8125rem]">
@@ -267,7 +267,7 @@
               </div>
             {:else if fileVisible}
               <p
-                class="guide-diff-in px-3 py-3 text-[0.75rem] text-(--solus-text-tertiary)"
+                class="guide-diff-in px-3 py-3 text-xs text-(--solus-text-tertiary)"
               >
                 Diff unavailable for this file (binary, or not in the current
                 change).

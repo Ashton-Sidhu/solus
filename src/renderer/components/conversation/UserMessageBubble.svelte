@@ -148,7 +148,7 @@
           <span class="flex-shrink-0 text-(--solus-text-tertiary)">
             <IconComponent size={13} />
           </span>
-          <span class="text-[0.6875rem] font-medium truncate text-(--solus-text-secondary)" style="min-width:0">
+          <span class="text-xs font-medium truncate text-(--solus-text-secondary)" style="min-width:0">
             {a.name}
           </span>
         </button>
@@ -163,7 +163,7 @@
     <div class="flex w-full items-center justify-end gap-2">
       {#if ordinal !== undefined}
         <!-- Ordinals carry the order, so nothing inside the bubble has to. -->
-        <span class="shrink-0 font-mono text-[0.59375rem] text-(--muted-foreground) opacity-45">
+        <span class="shrink-0 font-mono text-xs text-(--muted-foreground) opacity-45">
           {ordinal}
         </span>
       {/if}
@@ -176,13 +176,13 @@
         role={hasControls ? "group" : undefined}
         aria-label={hasControls ? "Queued prompt" : undefined}
         tabindex={hasControls ? 0 : undefined}
-        class="group/bubble relative max-w-[41.25rem] overflow-hidden rounded-xl px-3 pt-2.5 pb-2.5 outline-none {hasControls
-          ? 'min-w-[9.5rem]'
-          : 'min-w-0'} {isPending
-          ? 'queued-bubble'
-          : isAutomation
-            ? 'bg-card shadow-[shadow:var(--solus-tx-hairline)]'
-            : 'bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)]'}"
+        class="group/bubble relative max-w-[41.25rem] overflow-hidden rounded-2xl px-3 pt-2.5 pb-2.5 outline-none {hasControls
+ ? 'min-w-[9.5rem]'
+ : 'min-w-0'} {isPending
+ ? 'queued-bubble'
+ : isAutomation
+ ? 'bg-card shadow-[shadow:var(--solus-tx-hairline)]'
+ : 'bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)]'}"
       >
         {#if isAutomation}
           <!-- Required origin label: the only thing separating an agent-sent
@@ -193,7 +193,7 @@
               ? `Open automation: ${message.automationName}`
               : "Open automation"}
             onclick={() => session.openAutomations(message?.automationId)}
-            class="mb-[0.1875rem] flex items-center gap-1 text-[0.5625rem] font-medium tracking-[0.05em] text-(--solus-text-tertiary) uppercase transition-colors duration-100 hover:text-(--solus-text-secondary) focus-visible:text-(--solus-text-secondary) focus-visible:outline-none"
+            class="mb-[0.1875rem] flex items-center gap-1 text-xs font-medium text-(--solus-text-tertiary) uppercase transition-colors duration-100 hover:text-(--solus-text-secondary) focus-visible:text-(--solus-text-secondary) focus-visible:outline-none"
           >
             <LightningIcon size={9} weight="fill" />
             <span>{message?.automationName || "Automation"}</span>
@@ -229,7 +229,7 @@
               type="button"
               aria-expanded={isExpanded}
               onclick={() => (isExpanded = !isExpanded)}
-              class="mt-0.5 flex min-h-10 w-full cursor-pointer items-center justify-end text-[0.6875rem] font-medium text-(--solus-text-tertiary) transition-[color,transform] duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none active:scale-[0.96]"
+              class="mt-0.5 flex min-h-10 w-full cursor-pointer items-center justify-end text-xs font-medium text-(--solus-text-tertiary) transition-[color,transform] duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none active:scale-[0.96]"
             >
               {isExpanded ? "Show less" : "Read more"}
             </button>
@@ -252,7 +252,7 @@
                   <button
                     type="button"
                     onclick={startEdit}
-                    class="cursor-pointer text-[0.65625rem] text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none"
+                    class="cursor-pointer text-xs text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none"
                   >
                     Edit
                   </button>
@@ -262,7 +262,7 @@
                   <button
                     type="button"
                     onclick={onRemove}
-                    class="cursor-pointer text-[0.6875rem] text-(--solus-text-tertiary) opacity-60 transition-all duration-100 hover:text-(--destructive) hover:opacity-100 focus-visible:text-(--destructive) focus-visible:opacity-100 focus-visible:outline-none"
+                    class="cursor-pointer text-xs text-(--solus-text-tertiary) opacity-60 transition-all duration-100 hover:text-(--destructive) hover:opacity-100 focus-visible:text-(--destructive) focus-visible:opacity-100 focus-visible:outline-none"
                   >
                     Remove
                   </button>
@@ -275,7 +275,7 @@
     </div>
     {#if waitedLabel}
       <!-- The wait is over, so the caption is a fact, not a countdown. -->
-      <div class="mt-1.5 flex justify-end font-mono text-[0.625rem] text-(--muted-foreground)">
+      <div class="mt-1.5 flex justify-end font-mono text-xs text-(--muted-foreground)">
         {waitedLabel}
       </div>
     {/if}
@@ -295,7 +295,7 @@
       <img
         src={previewSrc}
         onclick={(e) => e.stopPropagation()}
-        style="max-width:90vw;max-height:90vh;border-radius:0.625rem;object-fit:contain;cursor:default"
+        style="max-width:90vw;max-height:90vh;border-radius:1rem;object-fit:contain;cursor:default"
         alt="preview"
       />
     </div>
@@ -319,8 +319,8 @@
        sit flush under the last bubble. -->
   <div
     class="user-cv-body flex flex-col items-end gap-1.5 {isPending
-      ? 'py-[0.1875rem]'
-      : 'pt-4 pb-1.5'}"
+ ? 'py-[0.1875rem]'
+ : 'pt-4 pb-1.5'}"
   >
     {@render bubbleBody()}
   </div>

@@ -50,7 +50,7 @@
   {/snippet}
 
   {#if serversStore.servers.length === 0}
-    <p class="px-4 py-6 text-center text-[0.75rem] text-(--solus-text-tertiary)">
+    <p class="px-4 py-6 text-center text-xs text-(--solus-text-tertiary)">
       No hosts have been saved yet.
     </p>
   {:else}
@@ -77,14 +77,14 @@
             <span class="truncate">{server.label}</span>
             {#if isActive}
               <span
-                class="shrink-0 rounded-full bg-(--solus-accent-light) px-1.5 py-0.5 text-[0.5625rem] font-medium uppercase tracking-wide text-(--solus-accent)"
+                class="shrink-0 rounded-full bg-(--solus-accent-light) px-1.5 py-0.5 text-xs font-medium uppercase text-(--solus-accent)"
               >
                 Running sessions
               </span>
             {/if}
           </span>
           <span
-            class="mt-0.5 block truncate text-[0.6875rem] text-(--solus-text-tertiary)"
+            class="mt-0.5 block truncate text-xs text-(--solus-text-tertiary)"
             style="font-family: 'Geist Mono', ui-monospace, monospace"
           >
             {hostMeta(server.id, server.url)}
@@ -126,13 +126,13 @@
             {host.server.name}
           </p>
           <span
-            class="shrink-0 rounded-full bg-(--solus-surface-active) px-1.5 py-0.5 text-[0.5625rem] font-medium uppercase tracking-wide text-(--solus-text-tertiary)"
+            class="shrink-0 rounded-full bg-(--solus-surface-active) px-1.5 py-0.5 text-xs font-medium uppercase text-(--solus-text-tertiary)"
           >
             {host.server.source === "lan" ? "LAN" : "Tailnet"}
           </span>
         </div>
         <p
-          class="mt-0.5 truncate text-[0.6875rem] text-(--solus-text-tertiary)"
+          class="mt-0.5 truncate text-xs text-(--solus-text-tertiary)"
           style="font-family: 'Geist Mono', ui-monospace, monospace"
         >
           {discoveredServerUrl(host.server)} · {relativeTime(host.lastSeenAt)}
@@ -152,7 +152,7 @@
        silently is the same picture as a network with no hosts on it, and this
        is the only place that says which one the user is looking at. -->
   <div class="border-t border-border px-4 py-3 first:border-t-0">
-    <p class="text-pretty text-[0.75rem] leading-5 text-(--solus-text-tertiary)">
+    <p class="text-pretty text-xs leading-5 text-(--solus-text-tertiary)">
       {#if serversStore.nearbyHosts.length === 0}
         No nearby hosts found.
       {/if}

@@ -254,7 +254,7 @@
     gap: 0.5rem;
     padding: 0.6875rem 0.75rem;
     border: 0.0625rem solid color-mix(in srgb, var(--solus-art-2) 55%, transparent);
-    border-radius: 0.625rem;
+    border-radius: 1rem;
     background: color-mix(in srgb, var(--solus-art-2) 9%, var(--solus-container-bg));
     text-align: left;
     cursor: pointer;
@@ -277,7 +277,7 @@
     top: 0.5625rem;
     bottom: 0.5625rem;
     width: 0.125rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--solus-art-2);
   }
   /* Solus: terracotta, and a ✦ where the avatar would be. */
@@ -334,7 +334,7 @@
     flex-shrink: 0;
     width: 0.375rem;
     height: 0.375rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--solus-art-2);
   }
   /* Terracotta, because in this document there is one human and it is you —
@@ -345,25 +345,24 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--solus-accent);
     color: var(--solus-text-on-accent);
-    font-weight: 600;
-    letter-spacing: 0.01em;
+    font-weight: 500;
   }
   .ctc__avatar {
     width: 1.1875rem;
     height: 1.1875rem;
-    font-size: 0.5rem;
+    font-size: 0.75rem;
   }
   .ctc__reply-avatar {
     width: 1.0625rem;
     height: 1.0625rem;
-    font-size: 0.46875rem;
+    font-size: 0.75rem;
   }
   .ctc__spark {
     flex-shrink: 0;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     line-height: 1.1875rem;
     color: var(--solus-accent);
   }
@@ -372,20 +371,20 @@
   .ctc__spark--reply {
     width: 1.0625rem;
     text-align: center;
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     line-height: 1.0625rem;
   }
   /* The only bold text in the card. */
   .ctc__author {
     font-size: 0.75rem;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--solus-text-primary);
   }
   .ctc--solus .ctc__author {
     color: var(--solus-accent);
   }
   .ctc__time {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
     font-variant-numeric: tabular-nums;
   }
@@ -407,7 +406,7 @@
     border: none;
     background: transparent;
     font-family: inherit;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
     cursor: pointer;
     transition: color var(--duration-quick) var(--ease-premium);
@@ -438,7 +437,7 @@
     line-height: 1;
   }
   .ctc__anchor {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     line-height: 1.5;
     color: var(--solus-text-tertiary);
     border-left: 0.125rem solid color-mix(in srgb, var(--solus-art-2) 55%, transparent);
@@ -477,7 +476,7 @@
     line-height: 1.55;
   }
   .ctc__reply-author {
-    font-weight: 600;
+    font-weight: 500;
     color: var(--solus-text-primary);
     margin-right: 0.25rem;
   }
@@ -493,7 +492,7 @@
     border: none;
     background: transparent;
     font-family: inherit;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
     cursor: pointer;
   }
@@ -503,7 +502,7 @@
   .ctc__hint {
     margin-left: auto;
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     color: color-mix(in srgb, var(--solus-text-tertiary) 70%, transparent);
     opacity: 0;
     transition: opacity var(--duration-quick) var(--ease-premium);
@@ -519,13 +518,13 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.375rem 0.125rem;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
   }
   .ctc-resolved-row__dot {
     width: 0.375rem;
     height: 0.375rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: color-mix(in srgb, var(--solus-art-3) 70%, transparent);
   }
   .ctc-resolved-row__label {

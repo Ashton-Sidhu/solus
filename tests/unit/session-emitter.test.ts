@@ -46,12 +46,31 @@ interface SpanRow {
   attrs: string
 }
 
+interface SpanAttrs {
+  blocking?: boolean
+  cacheReadTokens?: number
+  costUsd?: number
+  decision?: string
+  input?: string
+  inputTokens?: number
+  outcomeStatus?: string
+  outputTokens?: number
+  permissionDenialCount?: number
+  prompt?: string
+  promptChars?: number
+  promptSource?: string
+  providerDurationMs?: number
+  reasoningEffort?: string
+  taskId?: string
+  toolCallCount?: number
+}
+
 function rows(): SpanRow[] {
   return metricsDb.getMetricsDb().prepare('SELECT * FROM spans ORDER BY started_at, kind').all() as SpanRow[]
 }
 
-function attrs(row: SpanRow): Record<string, unknown> {
-  return JSON.parse(row.attrs) as Record<string, unknown>
+function attrs(row: SpanRow): SpanAttrs {
+  return JSON.parse(row.attrs) as SpanAttrs
 }
 
 function expectGaplessTurn(spans: SpanRow[]): void {

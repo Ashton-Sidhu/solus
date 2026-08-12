@@ -147,6 +147,10 @@ Use these terms consistently in code, plans, and conversation:
    a narrow search.
 10. **No surprise interactive verification.** Do not start a dev server, open a browser,
     or use computer control unless the developer explicitly asks or agrees.
+11. **No broad unknown records.** `Record<string, unknown>` is forbidden in authored code.
+    Define the exact object shape with a domain-specific type. Do not replace it with
+    `object`, `unknown`, a broad index signature, a type assertion, or a renamed loose
+    alias. Do not edit generated files to satisfy this rule; run `bun run lint:types`.
 
 ## The three ways to hurt yourself
 

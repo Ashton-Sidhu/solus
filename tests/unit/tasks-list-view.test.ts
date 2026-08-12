@@ -5,6 +5,7 @@ import {
   TASK_STATUS_GROUPS,
   taskGroups,
   taskInboxGroups,
+  taskRow,
   taskStatusesFor,
 } from '../../src/renderer/components/tasks/lib/tasks-list-view'
 
@@ -67,5 +68,52 @@ describe('task status filter', () => {
 
     const withDone = taskInboxGroups(rows, noSessions, NOW, actions, taskStatusesFor([...OPEN_TASK_STATUS_KEYS, 'done']))
     expect(withDone.find((group) => group.key === 'done')?.rows).toHaveLength(1)
+  })
+})
+
+describe('the provider a task row names', () => {
+  test('a task with no ticket reads as local', () => {
+    expect(taskRow(task('a', 'todo'), 0, NOW).source).toEqual({
+      id: 'local',
+      title: 'Local task · lives in Solus',
+    })
+  })
+
+  test('a published task reads as GitHub, naming the issue it was filed as', () => {
+    // WHY: once the work is on GitHub, that is where colleagues see it. A row
+    // still marked "local" tells the user their push did not take.
+    const published: Task = {
+      ...task('b', 'todo'),
+      mirroredTicket: { provider: 'github', externalId: '412', url: 'https://github.com/o/r/issues/412' },
+    }
+
+    expect(taskRow(published, 0, NOW).source).toEqual({
+      id: 'github',
+      title: 'GitHub · synced with #412',
+    })
+  })
+})
+
+describe('which provider a task row names', () => {
+  test('a task that has been published reads as its ticket\'s provider', () => {
+    // WHY: once the work is filed on GitHub, that is where other people see it.
+    // Still calling the row "local" hides the thing the user just did — and the
+    // ticket is the same work, not a second item.
+    const published: Task = {
+      ...task('t1', 'todo'),
+      mirroredTicket: { provider: 'github', externalId: '412', url: 'https://github.com/o/r/issues/412' },
+    }
+
+    expect(taskRow(published, 0, NOW).source).toEqual({
+      id: 'github',
+      title: 'GitHub · synced with #412',
+    })
+  })
+
+  test('a task with no ticket still reads as local', () => {
+    expect(taskRow(task('t2', 'todo'), 0, NOW).source).toEqual({
+      id: 'local',
+      title: 'Local task · lives in Solus',
+    })
   })
 })

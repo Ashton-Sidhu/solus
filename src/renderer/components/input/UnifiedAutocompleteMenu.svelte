@@ -107,7 +107,7 @@
       : `bottom:${window.innerHeight - anchorRect.top + 4}px`}"
   >
     <div
-      class="unified-menu rounded-xl bg-(--solus-popover-bg) p-1.5"
+      class="unified-menu rounded-2xl bg-(--solus-popover-bg) p-1.5"
       style="box-shadow:var(--solus-popover-shadow), 0 0 0 0.03125rem var(--wash-ring);backdrop-filter:blur(1.25rem)"
     >
       <div
@@ -129,7 +129,7 @@
 
       <div class="mx-0.5 mt-[0.3125rem] h-px bg-(--wash-rule)"></div>
       <div
-        class="flex items-center justify-between px-2 pt-[0.4375rem] pb-[0.1875rem] text-[0.6875rem] text-(--solus-text-tertiary) select-none"
+        class="flex items-center justify-between px-2 pt-[0.4375rem] pb-[0.1875rem] text-xs text-(--solus-text-tertiary) select-none"
       >
         <span class="flex items-center gap-[0.6875rem]">
           <span><span class="font-mono text-(--solus-text-primary)">↑↓</span> move</span>
@@ -139,7 +139,7 @@
           {/if}
         </span>
         {#if footer}
-          <span class="font-mono text-[0.65625rem] opacity-80">{footer}</span>
+          <span class="font-mono text-xs opacity-80">{footer}</span>
         {/if}
       </div>
     </div>
@@ -163,12 +163,12 @@
 {#snippet label(text: string, hint: string)}
   <div class="flex items-center gap-2.5 px-[0.5625rem] pt-[0.5625rem] pb-[0.3125rem]">
     <span
-      class="text-[0.59375rem] font-medium tracking-[0.12em] uppercase text-(--solus-text-tertiary)"
+      class="text-xs font-medium uppercase text-(--solus-text-tertiary)"
       >{text}</span
     >
     <span class="h-px flex-1 bg-(--wash-rule)"></span>
     {#if hint}
-      <span class="font-mono text-[0.625rem] text-(--solus-text-tertiary) opacity-70"
+      <span class="font-mono text-xs text-(--solus-text-tertiary) opacity-70"
         >{hint}</span
       >
     {/if}
@@ -186,10 +186,10 @@
     <span class="flex w-4 shrink-0 items-center justify-center"
       >{@render glyph(icon)}</span
     >
-    <span class="text-[0.78125rem] font-medium text-(--solus-text-primary)">{text}</span>
-    <span class="text-[0.71875rem] text-(--solus-text-tertiary)">{meta}</span>
+    <span class="text-[0.8125rem] font-medium text-(--solus-text-primary)">{text}</span>
+    <span class="text-xs text-(--solus-text-tertiary)">{meta}</span>
     <span class="flex-1"></span>
-    <span class="font-mono text-[0.65625rem] text-(--solus-text-tertiary) opacity-70"
+    <span class="font-mono text-xs text-(--solus-text-tertiary) opacity-70"
       >⌫ back</span
     >
   </button>
@@ -229,20 +229,20 @@
     {#if entry.type === "deadEnd"}
       <!-- A dead end always offers a next move instead of an empty box. -->
       <span
-        class="max-w-[20rem] shrink-0 overflow-hidden whitespace-nowrap text-[0.78125rem] font-medium tracking-[-0.005em] text-(--solus-text-tertiary)"
+        class="max-w-[20rem] shrink-0 overflow-hidden whitespace-nowrap text-[0.8125rem] font-medium text-(--solus-text-tertiary)"
         >{entry.title}</span
       >
       <span
-        class="min-w-0 flex-1 truncate text-[0.71875rem] text-(--solus-text-tertiary)"
+        class="min-w-0 flex-1 truncate text-xs text-(--solus-text-tertiary)"
         >{entry.meta}</span
       >
     {:else}
       {@const parts = entry.parts}
       {@const mono = entry.type === "item" && entry.item.mono}
       <span
-        class="flex max-w-[20rem] shrink-0 overflow-hidden whitespace-nowrap text-[0.78125rem] font-medium tracking-[-0.005em] text-(--solus-text-primary) {mono
-          ? 'font-mono'
-          : ''}"
+        class="block max-w-[20rem] shrink-0 truncate text-[0.8125rem] font-medium text-(--solus-text-primary) {mono
+ ? 'font-mono'
+ : ''}"
       >
         <!-- Matched characters light up in every row; a metadata-only match
              lights nothing, because none of the title matched. -->
@@ -254,14 +254,14 @@
 
       {#if entry.type === "item"}
         <span
-          class="min-w-0 flex-1 truncate text-[0.71875rem] text-(--solus-text-tertiary) {entry
-            .item.monoMeta
-            ? 'font-mono text-[0.6875rem]'
-            : ''}">{rowMeta(entry.item, entry.showKind)}</span
+          class="min-w-0 flex-1 truncate text-xs text-(--solus-text-tertiary) {entry
+ .item.monoMeta
+ ? 'font-mono text-xs'
+ : ''}">{rowMeta(entry.item, entry.showKind)}</span
         >
         {#if entry.item.when}
           <span
-            class="shrink-0 font-mono text-[0.65625rem] text-(--solus-text-tertiary) opacity-75"
+            class="shrink-0 font-mono text-xs text-(--solus-text-tertiary) opacity-75"
             >{entry.item.when}</span
           >
         {/if}
@@ -269,7 +269,7 @@
         <span class="flex-1"></span>
         <!-- A category's trailing slot is its count, and nothing else. -->
         <span class="flex shrink-0 items-center gap-2 text-(--solus-text-tertiary)">
-          <span class="font-mono text-[0.625rem] tabular-nums opacity-55"
+          <span class="font-mono text-xs tabular-nums opacity-55"
             >{entry.count}</span
           >
           <span class="opacity-40">{@render glyph(GLYPH.chevron)}</span>

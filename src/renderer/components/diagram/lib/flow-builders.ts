@@ -13,10 +13,10 @@ import {
  */
 export const DEFAULT_ARROW_COLOR = "var(--diagram-edge-arrow)";
 
-export function toFlowNodes(
+export function toFlowNodes<TNodeHandlers extends object>(
   diagNodes: DiagramNode[],
   expandedNodeIds: Set<string>,
-  nodeHandlers: Record<string, unknown>,
+  nodeHandlers: TNodeHandlers,
 ): Node[] {
   const byId = new Map(diagNodes.map((n) => [n.id, n]));
   const hiddenByCollapse = (n: DiagramNode): boolean => {
@@ -61,9 +61,9 @@ export function toFlowNodes(
   );
 }
 
-export function toFlowEdges(
+export function toFlowEdges<TEdgeHandlers extends object>(
   diagEdges: DiagramEdge[],
-  edgeHandlers: Record<string, unknown>,
+  edgeHandlers: TEdgeHandlers,
 ): Edge[] {
   return diagEdges.map((e) => {
     const isAsync = e.kind === "async";

@@ -4,7 +4,9 @@
     ArrowSquareOutIcon,
     GlobeIcon,
     LaptopIcon,
+    PlusIcon,
     StopIcon,
+    TerminalWindowIcon,
   } from "phosphor-svelte";
   import type { TaskSessionLink } from "../../../../shared/task-types";
   import * as TooltipUI from "../../ui/tooltip";
@@ -54,70 +56,41 @@
       );
     }),
   );
+
+  const ROW_ACTION =
+    "flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground";
 </script>
 
 <div class="flex flex-col gap-[7px] pt-[26px]">
-  <div class="flex items-center gap-2">
-    <span class="text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase">
+  <div class="flex items-center gap-2.5">
+    <span class="text-xs font-normal text-muted-foreground uppercase">
       Sessions
     </span>
-    <span class="font-mono text-[11px] tabular-nums text-muted-foreground opacity-70">
+    <span class="font-mono text-xs tabular-nums text-muted-foreground opacity-70">
       {sessions.length}
     </span>
     <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
     <button
       type="button"
-      class="flex h-[22px] cursor-pointer items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
+      class="flex h-6 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
       onclick={onNewSession}
     >
-      <svg
-        width="11"
-        height="11"
-        viewBox="0 0 14 14"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.6"
-        stroke-linecap="round"
-        aria-hidden="true"><path d="M7 2.6v8.8M2.6 7h8.8" /></svg
-      >
+      <PlusIcon size={11} weight="bold" aria-hidden="true" />
       New session
     </button>
   </div>
 
-  <!-- Same flat table as the linked section above: a column header, then rows
-       separated by hairlines. No card, so both sections read as one grammar. -->
-  <div class="flex flex-col">
-    <div
-      class="flex h-6 items-center gap-[11px] border-b-[.5px] border-[var(--hairline)] px-1"
-      aria-hidden="true"
-    >
-      <span class="w-3.5 shrink-0"></span>
-      <span
-        class="min-w-0 flex-1 text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase opacity-75"
-      >
-        Session
-      </span>
-      <span
-        class="w-[92px] shrink-0 text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase opacity-75"
-      >
-        Agent
-      </span>
-      <!-- Attempts of one task can sit on different machines, and after the fact
-           that is the only thing distinguishing them. -->
-      <span
-        class="w-[104px] shrink-0 text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase opacity-75"
-      >
-        Ran on
-      </span>
-      <span
-        class="w-[88px] shrink-0 text-right text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase opacity-75"
-      >
-        Active
-      </span>
-    </div>
-    {#each rows as row (row.sessionId)}
+  <!-- An attempt is a small story, not a table cell: the card gives each one two
+       lines, so the title reads as a title and the facts that tell two attempts
+       of the same task apart — agent, machine, when — sit under it. -->
+  <div
+    class="overflow-hidden rounded-xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
+  >
+    {#each rows as row, index (row.sessionId)}
       <div
-        class="group flex h-[33px] cursor-pointer items-center gap-[11px] border-b-[.5px] border-[color-mix(in_oklch,var(--hairline)_60%,transparent)] px-1 transition-colors hover:bg-[var(--wash-1)]"
+        class="group flex cursor-pointer items-center gap-[11px] py-2.5 pr-2.5 pl-[13px] transition-colors hover:bg-[var(--wash-1)] {index
+          ? 'border-t-[.5px] border-[var(--hairline)]'
+          : ''}"
         role="button"
         tabindex="0"
         title={row.dateFull}
@@ -129,114 +102,117 @@
           }
         }}
       >
-        <!-- The only live marker left: a dot while the agent is working. It sits
-             in the icon slot so the title column lines up with the header. -->
         <span class="flex size-3.5 shrink-0 items-center justify-center">
           {#if row.running}
             <span
-              class="size-[6px] animate-pulse rounded-full bg-[var(--running)]"
-              title="Running"
+              class="size-[7px] animate-pulse rounded-full bg-[var(--running)] motion-reduce:animate-none"
+              aria-hidden="true"
             ></span>
-          {/if}
-        </span>
-        <span class="min-w-0 flex-1 truncate text-[13px] tracking-[-.006em]">{row.title}</span>
-
-        <span class="w-[92px] shrink-0 truncate text-[12px] text-muted-foreground opacity-70">
-          {row.agent}
-        </span>
-
-        <!-- The same laptop/globe pair the sidebar uses, so one machine reads
-             the same way wherever it is named. A host that cannot be named is
-             left as a dash rather than defaulting to this machine. -->
-        <span
-          class="flex w-[104px] shrink-0 items-center gap-1.5 text-[12px] text-muted-foreground opacity-70"
-        >
-          {#if row.host}
-            {#if row.host.isRemote}
-              <GlobeIcon size={12} class="shrink-0" aria-hidden="true" />
-            {:else}
-              <LaptopIcon size={12} class="shrink-0" aria-hidden="true" />
-            {/if}
-            <span class="truncate">{row.host.label}</span>
           {:else}
-            <span aria-label="Unknown host">—</span>
+            <TerminalWindowIcon
+              size={13}
+              class="text-muted-foreground opacity-55"
+              aria-hidden="true"
+            />
           {/if}
         </span>
 
-        <!-- The date reads at rest and hands its slot to the actions on hover,
-             so the row never carries a column of unlabelled icons. -->
-        <span class="relative flex w-[88px] shrink-0 items-center justify-end">
-          <span
-            class="text-[12px] whitespace-nowrap text-muted-foreground opacity-70 transition-opacity group-hover:opacity-0"
-          >
-            {row.date}
-          </span>
-          <!-- Icon buttons, each with a tooltip: the row can't afford three
-               words, and an unlabelled glyph is only fair if hovering says
-               what it does. -->
-          <span
-            class="absolute inset-y-0 right-0 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100"
-          >
+        <span class="flex min-w-0 flex-1 flex-col gap-[3px]">
+          <span class="truncate text-[0.8125rem] font-medium">{row.title}</span>
+          <span class="flex min-w-0 items-center gap-[7px]">
             {#if row.running}
-              <TooltipUI.Root>
-                <TooltipUI.Trigger>
-                  {#snippet child({ props })}
-                    <button
-                      {...props}
-                      type="button"
-                      class="flex size-[24px] cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-[color-mix(in_oklch,var(--failure)_72%,var(--foreground))]"
-                      onclick={(e) => {
-                        e.stopPropagation();
-                        onStop(row.sessionId);
-                      }}
-                      aria-label="Stop session"
-                    >
-                      <StopIcon size={13} weight="fill" />
-                    </button>
-                  {/snippet}
-                </TooltipUI.Trigger>
-                <TooltipUI.Content value="Stop session" />
-              </TooltipUI.Root>
+              <span class="shrink-0 text-xs text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]">
+                Running
+              </span>
+              <span class="text-xs text-muted-foreground opacity-35" aria-hidden="true">·</span>
             {/if}
-            <TooltipUI.Root>
-              <TooltipUI.Trigger>
-                {#snippet child({ props })}
-                  <button
-                    {...props}
-                    type="button"
-                    class="flex size-[24px] cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
-                    onclick={(e) => {
-                      e.stopPropagation();
-                      onOpenSplit(row.sessionId);
-                    }}
-                    aria-label="Open in split"
-                  >
-                    <ArrowSquareOutIcon size={14} />
-                  </button>
-                {/snippet}
-              </TooltipUI.Trigger>
-              <TooltipUI.Content value="Open in split" />
-            </TooltipUI.Root>
-            <TooltipUI.Root>
-              <TooltipUI.Trigger>
-                {#snippet child({ props })}
-                  <button
-                    {...props}
-                    type="button"
-                    class="flex size-[24px] cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
-                    onclick={(e) => {
-                      e.stopPropagation();
-                      onOpen(row.sessionId);
-                    }}
-                    aria-label="Open session"
-                  >
-                    <ArrowRightIcon size={14} />
-                  </button>
-                {/snippet}
-              </TooltipUI.Trigger>
-              <TooltipUI.Content value="Open session" />
-            </TooltipUI.Root>
+            {#if row.agent}
+              <span class="shrink-0 truncate text-xs text-muted-foreground opacity-70">
+                {row.agent}
+              </span>
+              <span class="text-xs text-muted-foreground opacity-35" aria-hidden="true">·</span>
+            {/if}
+            <!-- The same laptop/globe pair the sidebar uses, so one machine reads
+                 the same way wherever it is named. A host that cannot be named is
+                 left out rather than defaulting to this machine. -->
+            {#if row.host}
+              <span
+                class="flex min-w-0 shrink items-center gap-1 text-xs text-muted-foreground opacity-70"
+              >
+                {#if row.host.isRemote}
+                  <GlobeIcon size={11} class="shrink-0" aria-hidden="true" />
+                {:else}
+                  <LaptopIcon size={11} class="shrink-0" aria-hidden="true" />
+                {/if}
+                <span class="truncate">{row.host.label}</span>
+              </span>
+              <span class="text-xs text-muted-foreground opacity-35" aria-hidden="true">·</span>
+            {/if}
+            <span class="shrink-0 font-mono text-xs tabular-nums text-muted-foreground opacity-65">
+              {row.date}
+            </span>
           </span>
+        </span>
+
+        <!-- Actions appear on hover, and stay put on a running row: Stop is the
+             one action a user may need without hunting for it. -->
+        <span
+          class="flex shrink-0 items-center gap-1 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 {row.running
+            ? 'opacity-100'
+            : 'opacity-0'}"
+        >
+          {#if row.running}
+            <button
+              type="button"
+              class="flex h-[26px] cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-[color-mix(in_oklch,var(--failure)_72%,var(--foreground))] hover:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--failure)_45%,transparent)]"
+              onclick={(e) => {
+                e.stopPropagation();
+                onStop(row.sessionId);
+              }}
+              aria-label="Stop session"
+            >
+              <StopIcon size={10} weight="fill" aria-hidden="true" />
+              Stop
+            </button>
+          {/if}
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  class={ROW_ACTION}
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    onOpenSplit(row.sessionId);
+                  }}
+                  aria-label="Open in split"
+                >
+                  <ArrowSquareOutIcon size={14} />
+                </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value="Open in split" />
+          </TooltipUI.Root>
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  class={ROW_ACTION}
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    onOpen(row.sessionId);
+                  }}
+                  aria-label="Open session"
+                >
+                  <ArrowRightIcon size={14} />
+                </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value="Open session" />
+          </TooltipUI.Root>
         </span>
       </div>
     {/each}

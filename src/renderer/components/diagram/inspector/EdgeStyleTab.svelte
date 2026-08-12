@@ -196,7 +196,7 @@
     flex: none;
     width: 2.25rem;
     height: var(--weight);
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--diagram-edge-stroke);
   }
 
@@ -205,7 +205,7 @@
   .weight__value {
     flex: none;
     font-family: var(--solus-code-font-family);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
     color: var(--solus-text-tertiary);
   }

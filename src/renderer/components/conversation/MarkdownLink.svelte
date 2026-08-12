@@ -11,6 +11,7 @@
   import { FILE_ICON_VIEWBOX, getFileIconPath } from "../editor/fileIcons";
   import { tokenClassName } from "../editor/tokenStyle";
   import { faviconUrlForHref } from "./lib/external-link";
+  import { codeFileLinkLabel } from "./lib/assistant-markdown";
   import { parseSessionHref, resolveSessionLinkMeta } from "./lib/session-link";
   import { getSessionLinkContext } from "./lib/session-link-context";
   import type { Snippet } from "svelte";
@@ -18,9 +19,10 @@
   interface Props {
     href?: string;
     title?: string;
+    text?: string;
     children?: Snippet;
   }
-  let { href = "", title = undefined, children }: Props = $props();
+  let { href = "", title = undefined, text = undefined, children }: Props = $props();
 
   type Status = "pending" | "accepted" | "rejected";
 
@@ -38,6 +40,7 @@
   const isPrRef = $derived(href.startsWith("pr://"));
   const sessionParams = $derived(parseSessionHref(href));
   const fileRef = $derived(parseFileHref(href));
+  const codeFileLabel = $derived(codeFileLinkLabel(text, fileRef?.line));
   // The destination comes from the codec; only the chip's own decoration is
   // read off the href here, and a plan's approval status is the whole of it.
   const linkRoute = $derived(routeForHref(href, { title }));
@@ -49,9 +52,6 @@
     }
   });
 
-  // Anything leaving the app carries the arrow glyph; an in-app destination that
-  // has a chip type took one of the branches above instead.
-  const isExternal = $derived(/^https?:\/\//i.test(href));
   const faviconUrl = $derived(faviconUrlForHref(href));
   let failedFaviconUrl = $state<string | null>(null);
 
@@ -68,7 +68,9 @@
   function handleClick(e: MouseEvent) {
     if (linkRoute) {
       e.preventDefault();
-      session.openRoute(linkRoute);
+      session.openRoute(linkRoute, {
+        target: linkRoute.name === "prReview" ? "aside" : undefined,
+      });
     } else if (sessionParams) {
       e.preventDefault();
       void resolveSessionLinkMeta(sessionParams, sessionLinkContext?.serverId()).then((meta) =>
@@ -155,14 +157,13 @@
         <svg viewBox={FILE_ICON_VIEWBOX} fill="currentColor"><path d={getFileIconPath(basename(fileRef.path))} /></svg>
       {/if}
     </span>
-    <span>{@render children?.()}{#if fileRef.line}<span class="solus-token__line-number">:{fileRef.line}</span>{/if}</span>
+    <span>{#if codeFileLabel !== null}{codeFileLabel}{:else}{@render children?.()}{/if}{#if fileRef.line}<span class="solus-token__line-number">:{fileRef.line}</span>{/if}</span>
   </button>
 {:else}
   <a
     {href}
     {title}
     class="solus-link"
-    class:solus-link--external={isExternal}
     onclick={handleClick}
     >{#if faviconUrl && failedFaviconUrl !== faviconUrl}<img
         class="solus-link__favicon"

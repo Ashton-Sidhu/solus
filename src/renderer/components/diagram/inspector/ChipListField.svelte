@@ -68,7 +68,7 @@
     border-radius: 0.5rem;
     background: color-mix(in srgb, var(--solus-accent) 10%, transparent);
     color: var(--solus-text-secondary);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 500;
   }
 
@@ -86,7 +86,7 @@
     border-radius: 0.25rem;
     background: transparent;
     color: inherit;
-    font-size: 0.5625rem;
+    font-size: 0.75rem;
     cursor: pointer;
     opacity: 0.7;
     transition:

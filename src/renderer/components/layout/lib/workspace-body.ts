@@ -33,14 +33,18 @@ export const MAX_RETAINED_CONVERSATION_TRANSCRIPTS = 4
  */
 export function isHomeVisible(
   session:
-    | Pick<Session, 'agentSessionId' | 'messages' | 'statusCard' | 'loadingHistory'>
+    | Pick<Session, 'agentSessionId' | 'handoffFrom' | 'messages' | 'statusCard' | 'loadingHistory'>
     | undefined,
+  hasConversationNotice = false,
 ): boolean {
   if (!session) return false
   return (
     !session.loadingHistory &&
+    !session.agentSessionId &&
+    !session.handoffFrom &&
     session.messages.length === 0 &&
-    !session.statusCard
+    !session.statusCard &&
+    !hasConversationNotice
   )
 }
 

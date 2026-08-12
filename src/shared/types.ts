@@ -1,10 +1,13 @@
 import rawModelProfiles from './model-profiles.json'
 import type { GitIdentity, GitState } from './git-types'
 import type { TaskProviderId, TaskSnapshot } from './task-types'
+import type { PrReviewTarget, PullRequestDetail } from './providers'
 
 // ─── Agent ID (needed by ModelProfile below) ───
 
 export type AgentId = 'claude-code' | 'codex' | 'opencode'
+
+export type AgentTaskLifecyclePolicy = 'none' | 'moderate' | 'autonomous'
 
 export const AGENT_BIN: Record<AgentId, string> = {
   'claude-code': 'claude',
@@ -32,6 +35,8 @@ export interface ServerCapabilities {
   serverName?: string
   /** Where this host's folder picker starts when opening a new project. */
   projectsBaseDirectory?: string
+  /** How much control agents have over task lifecycle status. */
+  agentTaskLifecyclePolicy?: AgentTaskLifecyclePolicy
   /** This host's general-purpose workspace — the app's default working directory. */
   workspacePath?: string
 }
@@ -386,8 +391,21 @@ export interface PermissionRequest {
   questionId: string
   toolTitle: string
   toolDescription?: string
-  toolInput?: Record<string, unknown>
+  toolInput?: PermissionToolInput
   options: Array<{ optionId: string; kind?: string; label: string }>
+}
+
+/** Fields the permission UI and policy inspect from provider tool payloads. */
+export interface PermissionToolInput {
+  command?: unknown
+  cwd?: unknown
+  description?: unknown
+  plan?: unknown
+  planFilePath?: unknown
+  url?: unknown
+  old_string?: unknown
+  new_string?: unknown
+  changes?: unknown
 }
 
 export interface QuestionOption {
@@ -841,37 +859,26 @@ export interface DiffComment {
  * alongside `diffComments`. The worktree is the PR head checked out locally, so
  * the agent's reads see the real post-change files.
  */
-export interface PrReviewContext {
-  /** e.g. `github.com`. */
-  host: string
-  /** Owner of the base repo (where the PR lives). */
-  owner: string
-  /** Base repo name (where the PR lives). */
-  repo: string
-  number: number
-  /** PR title — surfaced in the review header and the agent system hint. */
-  title: string
-  /** PR base branch (e.g. `main`) — the worktree's target branch + companion target. */
-  baseRef: string
-  /** PR head branch as named on the host; used for review UI labels. */
-  headRef: string
-  /** PR head commit at load/refresh — the anchor for new review comments. */
-  headSha: string
-  /** `merge-base(base, head)` — diff base + companion episode base. */
-  baseSha: string
-  /** Where the head branch lives; `isFork` true when it differs from the base repo. */
-  headRepo: { owner: string; repo: string; isFork: boolean }
+export interface PrCheckoutContext {
   /** `.solus-worktrees/pr-<n>`. */
   worktreePath: string
   /** Local review branch, e.g. `solus/pr-<n>`. */
   branch: string
+  /** Exact local revisions. Callers reject a checkout for an older host head. */
+  baseSha: string
+  headSha: string
 }
+
+/** Source-grounded PR context stored on agent sessions. Host-only review uses
+ * `PrReviewTarget` and creates this combined object only after lazy checkout. */
+export interface PrReviewContext extends PrReviewTarget, PrCheckoutContext {}
 
 export type MergeMethod = 'merge' | 'squash' | 'rebase'
 
 export interface PrMergeResult {
   merged: boolean
   message?: string
+  detail?: PullRequestDetail
 }
 
 export interface PrConflictResolutionResult {
@@ -893,10 +900,12 @@ export interface Message {
   /** For a sub-agent card this tracks the *agent*, not the tool call: it stays
    *  'running' until the agent's own result or background-settle event lands. */
   toolStatus?: 'running' | 'completed' | 'error'
-  /** The tool's `tool_result` content (e.g. a sub-agent's final answer to the
-   *  main agent). Drives the sub-agent card's summary. */
-  toolResult?: string
-  toolResultIsError?: boolean
+  /** A subagent's final answer. Ordinary tool output never reaches the client. */
+  report?: string
+  /** Bounded head of a failed tool's output. */
+  errorHead?: string
+  /** UTF-8 byte size of tool output that the server did not ship. */
+  contentBytes?: number
   /** Epoch ms the tool's result landed. `toolCompletedAt - timestamp` is the
    *  duration the activity block prints in its right-hand rail; absent means the
    *  rail stays empty rather than showing a made-up figure. */
@@ -1174,6 +1183,9 @@ export interface SessionTitleChangedEvent {
   sessionId: string
   /** Null clears the custom name back to the opening prompt. */
   title: string | null
+  source: 'generated' | 'manual'
+  /** Present for generated names so the task host can apply the same metadata. */
+  generatedDescription?: string
 }
 
 /** Model-generated scaffolding derived from the opening prompt. The title names
@@ -1296,7 +1308,8 @@ export type NormalizedEvent =
   | { type: 'tool_call'; toolName: string; toolId: string; index: number; toolInput?: string; content?: string; parentToolUseId?: string; isSubagent?: boolean; subagentType?: string; startedAtMs?: number }
   | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; content?: string; parentToolUseId?: string }
   | { type: 'tool_call_complete'; index: number; toolId?: string; toolInput?: string; parentToolUseId?: string; completedAtMs?: number; outcome?: { status?: string; exitCode?: number; error?: string; declined?: boolean; durationMs?: number } }
-  | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string; isAsyncLaunch?: boolean }
+  | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string; isAsyncLaunch?: boolean; isSubagentReport?: boolean }
+  | { type: 'subagent_report'; toolUseId: string; text: string; isError?: boolean }
   | { type: 'assistant_message'; text: string; parentToolUseId?: string; isFinal?: boolean }
   | { type: 'task_complete'; result: string; costUsd: number; durationMs: number; numTurns: number; usage: UsageData; sessionId: string; permissionDenials?: Array<{ toolName: string; toolUseId: string }> }
   /** Solus's authoritative top-level turn boundary. Unlike `task_complete`, this
@@ -1311,7 +1324,7 @@ export type NormalizedEvent =
   | { type: 'usage'; context?: ContextUsage; run?: UsageData }
   | { type: 'model_rerouted'; fromModel: string; toModel: string; reason?: string }
   | { type: 'session_changed_files_updated'; paths: string[] }
-  | { type: 'permission_request'; questionId: string; toolName: string; toolDescription?: string; toolInput?: Record<string, unknown>; options: PermissionOption[]; startedAtMs?: number }
+  | { type: 'permission_request'; questionId: string; toolName: string; toolDescription?: string; toolInput?: PermissionToolInput; options: PermissionOption[]; startedAtMs?: number }
   | { type: 'permission_resolved'; questionId: string }
   /** `kind` rides along from Codex's MCP elicitation normalizer — an elicitation
    *  form is answered with an extra `__action` entry, so anything answering this
@@ -1339,6 +1352,17 @@ export type NormalizedEvent =
   | { type: 'automation_saved'; automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
   | { type: 'task_created'; taskId: string; title: string; url: string | null }
   | { type: 'agent_conversation_update'; update: AgentConversationUpdate }
+
+type ToolCallEvent = Extract<NormalizedEvent, { type: 'tool_call' }>
+type ToolCallUpdateEvent = Extract<NormalizedEvent, { type: 'tool_call_update' }>
+type ToolResultEvent = Extract<NormalizedEvent, { type: 'tool_result' }>
+
+/** Session event shape allowed across the host-to-client boundary. */
+export type WireNormalizedEvent =
+  | Exclude<NormalizedEvent, ToolCallEvent | ToolCallUpdateEvent | ToolResultEvent>
+  | Omit<ToolCallEvent, 'content'>
+  | Omit<ToolCallUpdateEvent, 'content'>
+  | { type: 'tool_result'; toolUseId: string; parentToolUseId?: string; status: 'ok' | 'error'; errorHead?: string; contentBytes: number }
   | { type: 'status_card'; card: StatusCardState }
 
 // ─── Prompt Options ───
@@ -1719,6 +1743,9 @@ export interface SessionMeta {
   serverId?: string
   isWorktree?: boolean
   status?: SessionStatus
+  /** Start of the live turn, when this metadata describes an attached run. Used
+   * by restored clients to resume the sidebar clock without loading history. */
+  currentTurnStartedAt?: number
   model?: string
   reasoningEffort?: ReasoningEffort
   /** Git-root that groups a repo with all its worktrees. The canonical
@@ -1821,6 +1848,10 @@ export interface ProjectConfig {
   taskProvider?: TaskProviderId
   /** Provider scope. Auto-filled from the git remote for GitHub (`owner`/`repo`). */
   taskProviderConfig?: { owner?: string; repo?: string }
+  /** Local comments remain private unless this is enabled or a caller opts in. */
+  tasksAutoPushComments?: boolean
+  /** Move in-review tasks to done when their linked pull request merges. */
+  taskDoneOnMerge?: boolean
 }
 
 // ─── Editor / Terminal Types ───

@@ -554,7 +554,7 @@
     flex-direction: column;
     gap: 0.375rem;
     padding: 0.5rem 0.625rem;
-    border-radius: 0.625rem;
+    border-radius: 1rem;
     border: 0.0625rem dashed color-mix(in srgb, var(--solus-accent) 45%, transparent);
     background: color-mix(in srgb, var(--solus-accent) 5%, var(--solus-popover-bg));
     box-shadow: var(--solus-popover-shadow);

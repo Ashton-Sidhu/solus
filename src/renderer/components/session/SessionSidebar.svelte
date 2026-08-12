@@ -1,8 +1,7 @@
 <script lang="ts">
   import { localApi } from "@client-core/local-api";
+  import { serverConnections } from "@client-core/server-connections";
   import { tick } from "svelte";
-  import { slide } from "svelte/transition";
-  import { cubicOut } from "svelte/easing";
   import { SvelteSet } from "svelte/reactivity";
   import { comboHint } from "../../lib/keybindings/manifest";
   import {
@@ -15,12 +14,13 @@
     ListChecksIcon,
     GitPullRequestIcon,
     PlusIcon,
-    XIcon,
   } from "phosphor-svelte";
   import type { PinnedSession } from "../../../shared/types";
+  import type { Task } from "../../../shared/task-types";
   import { getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { routeForHref } from "../../lib/agent-links";
   import SidePanel from "../layout/SidePanel.svelte";
   import {
     SIDEBAR_MAX_WIDTH,
@@ -29,17 +29,19 @@
   import * as Sidebar from "../ui/sidebar";
   import TaskListSkeleton from "./TaskListSkeleton.svelte";
   import SessionContextMenu from "./SessionContextMenu.svelte";
-  import ProjectMark from "./ProjectMark.svelte";
   import TaskContextMenu from "./TaskContextMenu.svelte";
   import TaskListHeader from "./TaskListHeader.svelte";
   import TaskRow from "./TaskRow.svelte";
   import DraftRow from "./DraftRow.svelte";
+  import SnoozeTaskMenu from "./SnoozeTaskMenu.svelte";
+  import type { TaskSnoozeAnchor } from "./lib/task-snooze";
   import type { DraftRow as DraftRowModel } from "./lib/draft-list";
+  import { prNavigationTarget } from "./lib/pr-navigation";
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import {
     hasDisclosure,
+    type PrChip,
     type SidebarTask,
-    type TaskGroup,
   } from "./lib/task-list";
   import { treeKeyIntent } from "./lib/task-tree-keys";
 
@@ -85,7 +87,6 @@
     | null
   >(null);
   const expandedTaskIds = new SvelteSet<string>();
-  const collapsedProjectKeys = new SvelteSet<string>();
   /** The row being renamed in place. One at a time: the edit replaces the label
    *  where it sits, so two open editors would be two claims on the same name.
    *  A durable row is named by its task, which outlives any session it has open
@@ -109,10 +110,20 @@
     requestInputFocus();
   }
   let savedSessionsOpen = $state(false);
-
-  const reduceMotion = window.matchMedia(
-    "(prefers-reduced-motion: reduce)",
-  ).matches;
+  let snoozedShelfOpen = $state(false);
+  let completedShelfOpen = $state(false);
+  let snoozeTargets = $state<Task[]>([]);
+  let snoozeAnchor = $state<TaskSnoozeAnchor | null>(null);
+  const selectedTaskIds = new SvelteSet<string>();
+  let selectionAnchorId = $state<string | null>(null);
+  $effect(() => {
+    const visibleIds = new Set(
+      sidebarStore.visibleTasks.map((task) => task.id),
+    );
+    for (const taskId of selectedTaskIds) {
+      if (!visibleIds.has(taskId)) selectedTaskIds.delete(taskId);
+    }
+  });
 
   // Top-nav cluster (Workspace / Automations / …). These are static places,
   // not tasks — but they sit on the same spine: their icons occupy the 16px
@@ -127,16 +138,13 @@
     else expandedTaskIds.add(taskId);
   }
 
-  function toggleProject(projectKey: string) {
-    if (collapsedProjectKeys.has(projectKey)) {
-      collapsedProjectKeys.delete(projectKey);
-    } else {
-      collapsedProjectKeys.add(projectKey);
-    }
-  }
-
-  function projectGroupId(projectKey: string) {
-    return `sidebar-project-${encodeURIComponent(projectKey)}`;
+  /** Scoping the column produces a different list, so an offset into the old
+   *  one lands nowhere. Selection is deliberately left alone: the filter is a
+   *  lens on the list, not a navigation. */
+  function filterToProject(projectKey: string | null) {
+    sidebarStore.setProjectFilter(projectKey);
+    if (scrollEl) scrollEl.scrollTop = 0;
+    requestInputFocus();
   }
 
   function togglePrs() {
@@ -146,6 +154,31 @@
 
   function newTask() {
     session.openSessionDraft({ freshTask: true, via: "click" });
+  }
+
+  function openTaskPr(task: SidebarTask, chip: PrChip): void {
+    const linkedPr = session.tasksStore.prLinkFor(task.taskId);
+    const linkedRoute = linkedPr ? routeForHref(linkedPr.url) : null;
+    const linkedParams =
+      linkedRoute?.name === "prReview" ? linkedRoute.params : null;
+    const number = linkedParams?.number ?? chip.number;
+    const pullRequest = session.prsStore.items.find(
+      (item) => item.number === number,
+    );
+    const clientApi = serverConnections.primaryApi();
+    const target = prNavigationTarget({
+      clientServerId: serverConnections.serverIdForApi(clientApi),
+      projectDirectory: task.projectKey,
+      taskServerId: session.tasksStore.hostFor(task.taskId),
+      attemptServerId: task.serverId,
+    });
+    void session.enterPrReview(number, pullRequest?.title, {
+      ctx: session.ctxForDirectory(target.projectDirectory),
+      serverId: target.serverId,
+      expectedRepo: linkedParams?.expectedRepo,
+      target: target.paneTarget,
+      via: "click",
+    });
   }
 
   /** A draft row goes back to the composer it was left in, with the caret in it
@@ -218,6 +251,7 @@
    *  tree feel slow. The disclosure gets its own frame, and navigation follows
    *  on the next one, by which time the row has already answered the click. */
   function activateTask(task: SidebarTask) {
+    if (task.taskId) void session.tasksStore.markRead(task.taskId, true);
     if (hasDisclosure(sidebarStore.sessionsFor(task))) toggleExpand(task.id);
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -226,6 +260,107 @@
         onSessionSelect?.();
       });
     });
+  }
+
+  function selectOrActivateTask(task: SidebarTask, event?: MouseEvent) {
+    if (event?.metaKey || event?.ctrlKey) {
+      if (!selectedTaskIds.delete(task.id)) selectedTaskIds.add(task.id);
+      selectionAnchorId = task.id;
+      return;
+    }
+    if (event?.shiftKey && selectionAnchorId) {
+      const rows = sidebarStore.visibleTasks;
+      const from = rows.findIndex((row) => row.id === selectionAnchorId);
+      const to = rows.findIndex((row) => row.id === task.id);
+      if (from >= 0 && to >= 0) {
+        selectedTaskIds.clear();
+        for (const row of rows.slice(
+          Math.min(from, to),
+          Math.max(from, to) + 1,
+        )) {
+          selectedTaskIds.add(row.id);
+        }
+        return;
+      }
+    }
+    selectedTaskIds.clear();
+    selectionAnchorId = null;
+    activateTask(task);
+  }
+
+  function selectedTasks(): SidebarTask[] {
+    return sidebarStore.visibleTasks.filter((task) =>
+      selectedTaskIds.has(task.id),
+    );
+  }
+
+  async function bulkComplete() {
+    const rows = selectedTasks();
+    const wasSelected = rows.some((task) =>
+      task.tabIds.includes(session.onScreenTabId),
+    );
+    const next =
+      sidebarStore.visibleTasks.find((task) => !selectedTaskIds.has(task.id)) ??
+      null;
+    const blocked = rows.find(
+      (task) => lifecycleBlocked(task.attention) || !task.taskId,
+    );
+    if (blocked) {
+      toasts.error(`“${blocked.title}” cannot be completed right now.`);
+      return;
+    }
+    for (const row of rows) {
+      try {
+        await session.tasksStore.setStatus(row.taskId!, "done");
+      } catch (error) {
+        toasts.error(
+          `Stopped after “${row.title}”: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        break;
+      }
+    }
+    selectedTaskIds.clear();
+    if (wasSelected) navigateAfterLifecycleMove(next);
+    requestInputFocus();
+  }
+
+  async function bulkMarkUnread() {
+    for (const row of selectedTasks()) {
+      if (!row.taskId) continue;
+      try {
+        await session.tasksStore.markRead(row.taskId, false);
+      } catch (error) {
+        toasts.error(
+          `Stopped after “${row.title}”: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        break;
+      }
+    }
+    selectedTaskIds.clear();
+    requestInputFocus();
+  }
+
+  function bulkDelete() {
+    const ids = selectedTasks().flatMap((task) =>
+      task.taskId ? [task.taskId] : [],
+    );
+    selectedTaskIds.clear();
+    const pending = session.tasksStore.softRemove(ids);
+    if (!pending.length) return;
+    toasts.undo(
+      `${ids.length} task${ids.length === 1 ? "" : "s"} deleted`,
+      () => session.tasksStore.restorePending(pending),
+      {
+        onDismiss: () =>
+          void session.tasksStore
+            .commitPending(pending)
+            .catch((error) =>
+              toasts.error(
+                `Couldn't delete task: ${error instanceof Error ? error.message : String(error)}`,
+              ),
+            ),
+      },
+    );
   }
 
   function renameSidebarItem(
@@ -242,6 +377,7 @@
   }
 
   function selectSession(child: SidebarSessionChild) {
+    if (child.taskId) void session.tasksStore.markRead(child.taskId, true);
     void sidebarStore.selectChild(child);
     requestInputFocus();
     onSessionSelect?.();
@@ -266,16 +402,15 @@
     requestInputFocus();
   }
 
-  /** Completion writes the lifecycle status, then clears the row exactly the way
-   * the remove action does — the task and its subtasks leave the column and
-   * their mounted conversations unload. Nothing about the status hides a row, so
-   * reopening any of those sessions brings the task back like any other. */
+  /** Completion and reopening use the task's canonical workflow status. */
   async function completeTask(task: SidebarTask) {
     try {
-      if (task.taskId) await session.tasksStore.setStatus(task.taskId, "done");
+      if (task.taskId)
+        await session.tasksStore.setStatus(
+          task.taskId,
+          task.status === "done" ? "todo" : "done",
+        );
       else sidebarStore.toggleTaskDone(task.id);
-      expandedTaskIds.delete(task.id);
-      sidebarStore.closeTask(task);
       requestInputFocus();
     } catch (error) {
       toasts.error(
@@ -292,10 +427,13 @@
 
   async function completeChild(child: SidebarSessionChild) {
     try {
-      if (child.taskId)
-        await session.tasksStore.setStatus(child.taskId, "done");
-      else if (child.tabId) sidebarStore.toggleTaskDone(child.tabId);
-      sidebarStore.closeChild(child);
+      if (child.taskId) {
+        const task = session.tasksStore.taskForId(child.taskId);
+        await session.tasksStore.setStatus(
+          child.taskId,
+          task?.status === "done" ? "todo" : "done",
+        );
+      } else if (child.tabId) sidebarStore.toggleTaskDone(child.tabId);
       requestInputFocus();
     } catch (error) {
       toasts.error(
@@ -321,30 +459,97 @@
     removeTask(task);
   }
 
-  function removeProject(group: TaskGroup) {
-    for (const task of group.tasks) expandedTaskIds.delete(task.id);
-    collapsedProjectKeys.delete(group.projectKey);
-    sidebarStore.closeProject(group.projectKey);
-    requestInputFocus();
+  function lifecycleBlocked(
+    attention: SidebarTask["attention"] | SidebarSessionChild["attention"],
+  ): boolean {
+    return (
+      attention === "running" ||
+      attention === "awaiting" ||
+      attention === "awaiting_plan" ||
+      attention === "queued"
+    );
   }
 
-  /** A project heading closes everything under it at once, which is the only
-   *  place in this column where one click unloads several conversations. Work
-   *  in flight is the one thing that cannot be reopened as it was, so a project
-   *  with a live run asks before it takes them. */
-  function closeProject(group: TaskGroup) {
-    const running = sidebarStore.runningTaskCountIn(group.projectKey);
-    if (running === 0) {
-      removeProject(group);
+  function openSnooze(
+    taskId: string | null | undefined,
+    attention: SidebarTask["attention"] | SidebarSessionChild["attention"],
+    anchor: TaskSnoozeAnchor,
+  ) {
+    if (!taskId) return;
+    const task = session.tasksStore.taskForId(taskId);
+    if (!task || task.status === "done" || task.status === "dropped") return;
+    if (lifecycleBlocked(attention)) {
+      toasts.error(
+        "This task cannot be snoozed while it is running or waiting for input.",
+      );
+      requestInputFocus();
       return;
     }
-    toasts.show({
-      message: `Stop ${running === 1 ? "the run" : `${running} runs`} in “${group.projectLabel}” and remove its tasks from the sidebar?`,
-      actions: [
-        { label: "Stop and remove", onAction: () => removeProject(group) },
-        { label: "Keep open", onAction: requestInputFocus },
-      ],
-    });
+    snoozeAnchor = anchor;
+    snoozeTargets = [task];
+  }
+
+  function nextActiveTaskAfter(taskId: string): SidebarTask | null {
+    const tasks = sidebarStore.visibleTasks;
+    const index = tasks.findIndex((task) => task.id === taskId);
+    if (index < 0) return null;
+    return tasks[index + 1] ?? tasks[index - 1] ?? null;
+  }
+
+  function navigateAfterLifecycleMove(next: SidebarTask | null) {
+    if (next) void sidebarStore.selectTask(next);
+    else newTask();
+    requestInputFocus();
+    onSessionSelect?.();
+  }
+
+  async function wakeTask(task: Task) {
+    try {
+      await session.tasksStore.snooze(task.id, { until: null });
+    } catch (error) {
+      toasts.error(
+        `Couldn't wake task: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      requestInputFocus();
+    }
+  }
+
+  async function confirmSnooze(until: number, note: string) {
+    const targets = snoozeTargets;
+    snoozeTargets = [];
+    snoozeAnchor = null;
+    if (!targets.length) return;
+    const task = targets[0];
+    const row =
+      sidebarStore.visibleTasks.find(
+        (candidate) => candidate.taskId === task.id,
+      ) ?? null;
+    const next = row ? nextActiveTaskAfter(row.id) : null;
+    const wasSelected = !!row?.tabIds.includes(session.onScreenTabId);
+    try {
+      for (const target of targets)
+        await session.tasksStore.snooze(target.id, { until, note });
+      const label = `${targets.length === 1 ? "Task" : `${targets.length} tasks`} snoozed${note ? " with a reminder" : ""}`;
+      toasts.undo(label, () => {
+        void Promise.all(
+          targets.map((target) =>
+            session.tasksStore.snooze(target.id, { until: null }),
+          ),
+        ).catch((error) =>
+          toasts.error(
+            `Couldn't undo snooze: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        );
+      });
+      if (wasSelected) navigateAfterLifecycleMove(next);
+    } catch (error) {
+      toasts.error(
+        `Couldn't snooze task: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      requestInputFocus();
+    }
   }
 
   /** The tree drives itself off the DOM rather than a mirrored index: the rows
@@ -389,7 +594,6 @@
     event.preventDefault();
 
     const taskKey = focused!.dataset.taskKey;
-    const projectKey = focused!.dataset.projectKey;
     const task = taskKey
       ? sidebarStore.visibleTasks.find((item) => item.key === taskKey)
       : undefined;
@@ -400,8 +604,7 @@
         break;
       case "expand":
       case "collapse":
-        if (projectKey) toggleProject(projectKey);
-        else if (task) toggleExpand(task.id);
+        if (task) toggleExpand(task.id);
         break;
       case "enterPane":
         requestInputFocus();
@@ -410,12 +613,7 @@
         // Sidebar dismissal never stops the run, so keyboard and pointer paths
         // have the same presentation-only behavior.
         if (task) closeTask(task);
-        else if (projectKey) {
-          const group = sidebarStore.taskGroups.find(
-            (item) => item.projectKey === projectKey,
-          );
-          if (group) closeProject(group);
-        } else if (focused!.dataset.tabId) closeSession(focused!.dataset.tabId);
+        else if (focused!.dataset.tabId) closeSession(focused!.dataset.tabId);
         break;
     }
   }
@@ -441,7 +639,7 @@
   }
 
   function openTaskContextMenu(
-    event: MouseEvent,
+    event: MouseEvent | PointerEvent,
     taskId: string,
     sidebarTask?: SidebarTask,
     child?: SidebarSessionChild,
@@ -458,7 +656,10 @@
     };
   }
 
-  function openTaskOrSessionContextMenu(event: MouseEvent, task: SidebarTask) {
+  function openTaskOrSessionContextMenu(
+    event: MouseEvent | PointerEvent,
+    task: SidebarTask,
+  ) {
     if (task.taskId) {
       openTaskContextMenu(event, task.taskId, task);
       return;
@@ -469,7 +670,10 @@
     });
   }
 
-  function openChildContextMenu(event: MouseEvent, child: SidebarSessionChild) {
+  function openChildContextMenu(
+    event: MouseEvent | PointerEvent,
+    child: SidebarSessionChild,
+  ) {
     if (child.tabId) {
       openSessionContextMenu(event, { kind: "tab", tabId: child.tabId });
       return;
@@ -504,28 +708,40 @@
   }
 </script>
 
-{#snippet taskRow(task: SidebarTask, grouped: boolean)}
+{#snippet taskRow(task: SidebarTask)}
   <TaskRow
     {task}
-    {grouped}
     prChip={sidebarStore.prChipFor(task)}
     onPath={task.tabIds.includes(session.onScreenTabId)}
+    bulkSelected={selectedTaskIds.has(task.id)}
     expanded={expandedTaskIds.has(task.id)}
-    showProjectLine={sidebarStore.showsProjectLine}
+    onFilterProject={() => filterToProject(task.projectKey)}
     sessions={sidebarStore.sessionsFor(task)}
     selectedTabId={task.tabIds.includes(session.onScreenTabId)
       ? session.onScreenTabId
       : null}
     {renamingTabId}
     {renamingTaskId}
-    onSelect={() => activateTask(task)}
+    onSelect={(event) => selectOrActivateTask(task, event)}
     onRename={(child, next) => renameSidebarItem(task, child, next)}
     onRenameCancel={cancelRename}
     onMore={(event) => openTaskOrSessionContextMenu(event, task)}
+    onSnooze={(anchor) => openSnooze(task.taskId, task.attention, anchor)}
+    onWake={() => {
+      if (!task.taskId) return;
+      const record = session.tasksStore.taskForId(task.taskId);
+      if (record) void wakeTask(record);
+    }}
     onComplete={() => completeTask(task)}
     onClose={() => closeTask(task)}
+    onOpenPr={() => {
+      const chip = sidebarStore.prChipFor(task);
+      if (chip) openTaskPr(task, chip);
+    }}
     onSelectSession={selectSession}
     onMoreSession={openChildContextMenu}
+    onSnoozeSession={(child, anchor) =>
+      openSnooze(child.taskId, child.attention, anchor)}
     onCompleteSession={completeChild}
     onCloseSession={closeChild}
   />
@@ -544,63 +760,68 @@
   background="color-mix(in oklch, var(--card) 99%, var(--foreground))"
 >
   <!-- The one filled control in the column, kept compact so it leads without
-       overpowering the navigation below it. -->
-  <div class="flex-shrink-0 px-3.5 pt-0.5 pb-2.5">
-    <button
-      class="relative flex h-[2.375rem] w-full cursor-pointer items-center gap-[0.4375rem] rounded-[0.5625rem] bg-[color-mix(in_oklch,var(--primary)_92%,var(--card))] px-2.5 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_3px_10px_-8px_color-mix(in_oklch,var(--primary)_72%,transparent)] transition-[filter,scale] before:absolute before:inset-x-0 before:-inset-y-px before:content-[''] hover:brightness-105 active:scale-[0.96]"
-      onclick={newTask}
-    >
-      <PlusIcon size={14} class="shrink-0" />
-      <span
-        class="text-[0.78125rem] font-medium tracking-[-0.004em] whitespace-nowrap"
-        >New task</span
-      >
-      <span
-        class="ml-auto rounded-[0.3125rem] bg-white/10 px-1.5 py-0.5 font-mono text-[0.625rem]"
-        >{comboHint("global.new-task")}</span
-      >
-    </button>
-  </div>
+      overpowering the navigation below it. -->
 
   <Sidebar.Group class="flex-shrink-0 p-0">
     <Sidebar.GroupContent class="px-3.5">
       <Sidebar.Menu class="gap-0.5">
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
-            class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-[0.5625rem] bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at('folio') ? 'text-foreground' : ''}"
+            class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
+              'folio',
+            )
+              ? 'text-foreground'
+              : ''}"
             isActive={session.router.at("folio")}
             onclick={() => session.toggleFolio()}
           >
-            <span class="flex shrink-0 items-center"><BooksIcon size={16} /></span>
-            <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]">Workspace</span>
-            <span class="shrink-0 font-mono text-[0.65625rem] opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70">{comboHint("global.toggle-workspace")}</span>
+            <span class="flex shrink-0 items-center"
+              ><BooksIcon size={14} /></span
+            >
+            <span class="flex-1 text-left text-sm">Workspace</span>
+            <span
+              class="shrink-0 font-mono text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
+              >{comboHint("global.toggle-workspace")}</span
+            >
           </Sidebar.MenuButton>
         </Sidebar.MenuItem>
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
-            class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-[0.5625rem] bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at('automations') ? 'text-foreground' : ''}"
+            class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
+              'automations',
+            )
+              ? 'text-foreground'
+              : ''}"
             isActive={session.router.at("automations")}
             onclick={() => session.toggleAutomations()}
           >
-            <span class="flex shrink-0 items-center"><ArrowsClockwiseIcon size={16} /></span>
-            <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]">Automations</span>
-            <span class="shrink-0 font-mono text-[0.65625rem] opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70">{comboHint("global.toggle-automations")}</span
+            <span class="flex shrink-0 items-center"
+              ><ArrowsClockwiseIcon size={14} /></span
+            >
+            <span class="flex-1 text-left text-sm">Automations</span>
+            <span
+              class="shrink-0 font-mono text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
+              >{comboHint("global.toggle-automations")}</span
             >
           </Sidebar.MenuButton>
         </Sidebar.MenuItem>
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
-            class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-[0.5625rem] bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at('prs') ? 'text-foreground' : ''}"
+            class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
+              'prs',
+            )
+              ? 'text-foreground'
+              : ''}"
             isActive={session.router.at("prs")}
             onclick={togglePrs}
           >
-            <span class="flex shrink-0 items-center"><GitPullRequestIcon size={16} /></span>
-            <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]"
-              >Pull requests<span class="ml-1.5 inline-flex items-center rounded-[0.3125rem] px-[0.3125rem] py-0.5 align-middle font-mono text-[0.5625rem] leading-none font-medium tracking-[0.07em] text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))] uppercase bg-[color-mix(in_oklch,var(--primary)_13%,transparent)]">Beta</span></span
+            <span class="flex shrink-0 items-center"
+              ><GitPullRequestIcon size={14} /></span
             >
+            <span class="flex-1 text-left text-sm">Pull requests</span>
             {#if needsReviewCount > 0}
               <span
-                class="shrink-0 font-mono text-[0.6875rem] text-muted-foreground opacity-60 tabular-nums"
+                class="shrink-0 font-mono text-xs text-muted-foreground opacity-60 tabular-nums"
                 title={`${needsReviewCount} pull ${needsReviewCount === 1 ? "request needs" : "requests need"} your review`}
                 aria-label={`${needsReviewCount} need your review`}
                 >{needsReviewCount > 99 ? "99+" : needsReviewCount}</span
@@ -610,26 +831,40 @@
         </Sidebar.MenuItem>
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
-            class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-[0.5625rem] bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at('tasks') ? 'text-foreground' : ''}"
+            class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
+              'tasks',
+            )
+              ? 'text-foreground'
+              : ''}"
             isActive={session.router.at("tasks")}
             onclick={() => session.toggleTasks()}
           >
-            <span class="flex shrink-0 items-center"><ListChecksIcon size={16} /></span>
-            <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]">Tasks<span class="ml-1.5 inline-flex items-center rounded-[0.3125rem] px-[0.3125rem] py-0.5 align-middle font-mono text-[0.5625rem] leading-none font-medium tracking-[0.07em] text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))] uppercase bg-[color-mix(in_oklch,var(--primary)_13%,transparent)]">Beta</span></span>
-            <span class="shrink-0 font-mono text-[0.65625rem] opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70">{comboHint("global.toggle-tasks")}</span>
+            <span class="flex shrink-0 items-center"
+              ><ListChecksIcon size={14} /></span
+            >
+            <span class="flex-1 text-left text-sm">Tasks</span>
+            <span
+              class="shrink-0 font-mono text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
+              >{comboHint("global.toggle-tasks")}</span
+            >
           </Sidebar.MenuButton>
         </Sidebar.MenuItem>
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
-            class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-[0.5625rem] bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+            class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
             onclick={() =>
               window.dispatchEvent(
                 new CustomEvent("solus:toggle-session-picker"),
               )}
           >
-            <span class="flex shrink-0 items-center"><ClockIcon size={16} /></span>
-            <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]">History</span>
-            <span class="shrink-0 font-mono text-[0.65625rem] opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70">{comboHint("global.session-picker")}</span>
+            <span class="flex shrink-0 items-center"
+              ><ClockIcon size={14} /></span
+            >
+            <span class="flex-1 text-left text-sm">History</span>
+            <span
+              class="shrink-0 font-mono text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
+              >{comboHint("global.session-picker")}</span
+            >
           </Sidebar.MenuButton>
         </Sidebar.MenuItem>
       </Sidebar.Menu>
@@ -661,7 +896,6 @@
           {#each sidebarStore.draftRows as row (row.draftId)}
             <DraftRow
               {row}
-              showProjectLine={sidebarStore.showsProjectLine}
               onSelect={() => openDraft(row)}
               onDiscard={() => discardDraft(row)}
             />
@@ -675,10 +909,58 @@
     <TaskListHeader
       label="Tasks"
       count={sidebarStore.headerCount}
-      mode={sidebarStore.viewMode}
-      onModeChange={(mode) => sidebarStore.setViewMode(mode)}
+      scopedProject={sidebarStore.scopedProject}
+      projectChoices={sidebarStore.projectFilterChoices}
+      onFilter={filterToProject}
+      showLabel={false}
     />
   </div>
+
+  {#if selectedTaskIds.size > 0}
+    <div
+      class="mx-3.5 mb-2 flex min-h-9 items-center gap-1 rounded-lg border border-border bg-popover px-2 shadow-sm"
+    >
+      <span class="mr-auto text-xs font-medium"
+        >{selectedTaskIds.size} selected</span
+      >
+      <button
+        type="button"
+        class="rounded-lg px-2 py-1 text-xs hover:bg-accent"
+        onclick={() => void bulkComplete()}>Complete</button
+      >
+      <button
+        type="button"
+        class="rounded-lg px-2 py-1 text-xs hover:bg-accent"
+        onclick={(event) => {
+          const tasks = selectedTasks()
+            .filter((row) => row.taskId && !lifecycleBlocked(row.attention))
+            .map((row) => session.tasksStore.taskForId(row.taskId!))
+            .filter((task): task is Task => !!task);
+          if (tasks.length !== selectedTaskIds.size) {
+            toasts.error("Every selected task must be idle before snoozing.");
+            return;
+          }
+          snoozeAnchor = event.currentTarget;
+          snoozeTargets = tasks;
+        }}>Snooze…</button
+      >
+      <button
+        type="button"
+        class="rounded-lg px-2 py-1 text-xs hover:bg-accent"
+        onclick={() => void bulkMarkUnread()}>Unread</button
+      >
+      <button
+        type="button"
+        class="rounded-lg px-2 py-1 text-xs text-destructive hover:bg-destructive/10"
+        onclick={bulkDelete}>Delete</button
+      >
+      <button
+        type="button"
+        class="rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-accent"
+        onclick={() => selectedTaskIds.clear()}>Clear</button
+      >
+    </div>
+  {/if}
 
   <!-- Only the list scrolls; everything above it is furniture. Rows hold the
        position they were created at — a row that moves under the cursor costs a
@@ -695,101 +977,90 @@
     class="@container min-h-0 flex-1 overflow-y-auto px-3.5 pb-3.5 [scrollbar-gutter:stable]"
     style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
   >
-    <div role="tree" tabindex="-1" aria-label="Tasks" onkeydown={handleTreeKeydown}>
-    {#if !session.tasksStore.loaded}
-      <TaskListSkeleton />
-    {:else if sidebarStore.visibleTasks.length === 0}
-      <p class="px-[0.625rem] py-1 text-[0.8125rem] text-muted-foreground">
-        No open tasks
-      </p>
-    {:else if sidebarStore.viewMode === "flat"}
-      <div class="flex flex-col gap-[0.1875rem]">
-        {#each sidebarStore.visibleTasks as task (task.id)}
-          {@render taskRow(task, false)}
-        {/each}
-      </div>
-    {:else}
-      {#each sidebarStore.taskGroups as group (group.projectKey)}
-        <div class="mb-4">
-          <!-- A project is the level above, so it is a section header rather
-               than another row: mark, small uppercase name, a hairline running
-               to the count. The whole divider is its disclosure target. -->
-          <div
-            role="treeitem"
-            tabindex="0"
-            aria-selected="false"
-            data-project-key={group.projectKey}
-            class="group/project mb-0.5 flex h-8 w-full cursor-pointer items-center gap-[0.625rem] rounded px-[0.625rem] text-left transition-[color,background] duration-150 hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
-            aria-expanded={!collapsedProjectKeys.has(group.projectKey)}
-            aria-controls={projectGroupId(group.projectKey)}
-            onclick={() => toggleProject(group.projectKey)}
-            onkeydown={(event) => {
-              if (event.key !== "Enter" && event.key !== " ") return;
-              event.preventDefault();
-              toggleProject(group.projectKey);
-            }}
+    <div
+      role="tree"
+      tabindex="-1"
+      aria-label="Tasks"
+      onkeydown={handleTreeKeydown}
+    >
+      {#if !session.tasksStore.loaded}
+        <TaskListSkeleton />
+      {:else if sidebarStore.visibleTasks.length === 0}
+        <!-- A scoped list that comes back empty says which project it looked
+             in, and stays scoped: clearing the filter for the user hides the
+             fact that the project has nothing open. -->
+        <p class="py-1 pl-[0.125rem] text-[0.8125rem] text-muted-foreground">
+          {sidebarStore.scopedProject
+            ? `No open tasks in ${sidebarStore.scopedProject.label}`
+            : "No open tasks"}
+        </p>
+      {:else}
+        <div class="flex flex-col gap-[0.1875rem]">
+          {#each sidebarStore.visibleTasks as task (task.id)}
+            {@render taskRow(task)}
+          {/each}
+        </div>
+      {/if}
+      {#if sidebarStore.snoozedTasks.length > 0}
+        <div class="mt-3">
+          <button
+            type="button"
+            class="-mr-1 flex h-7 w-[calc(100%+0.25rem)] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.125rem] text-xs font-medium text-(--solus-status-unread) transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:text-[color-mix(in_oklch,var(--solus-status-unread)_78%,var(--foreground))]"
+            aria-expanded={snoozedShelfOpen}
+            onclick={() => (snoozedShelfOpen = !snoozedShelfOpen)}
           >
-            <ProjectMark
-              projectKey={group.projectKey}
-              initial={group.initial}
-              active={group.projectKey === sidebarStore.activeProjectKey}
-              class="size-4"
-              letterClass="text-[0.53125rem]"
-            />
-            <span
-              class="shrink-0 text-[0.59375rem] font-semibold tracking-[0.1em] text-[color-mix(in_oklch,var(--foreground)_68%,transparent)] uppercase"
-              >{group.projectLabel}</span
+            Snoozed
+            <span class="ml-auto font-mono tabular-nums opacity-60"
+              >{sidebarStore.snoozedTasks.length}</span
             >
-            <span
-              class="h-[0.03125rem] flex-1 bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)]"
-            ></span>
-            <span
-              class="shrink-0 font-mono text-[0.625rem] text-muted-foreground opacity-45 tabular-nums group-hover/project:hidden group-focus-within/project:hidden"
-              >{group.tasks.length}</span
-            >
-            <!-- The count is what you read while scanning, so the close action
-                 takes its place only once the pointer is on the heading. It is
-                 the group-level twin of a task row's remove: the section and
-                 every row under it leave the column, and nothing about the
-                 tasks themselves changes. -->
-            <button
-              type="button"
-              class="hidden size-5 shrink-0 cursor-pointer items-center justify-center rounded-[0.375rem] text-muted-foreground transition-[color,background] duration-[120ms] group-hover/project:flex group-focus-within/project:flex hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
-              title="Close project"
-              aria-label="Close {group.projectLabel} and remove its tasks from the sidebar"
-              onclick={(event) => {
-                event.stopPropagation();
-                closeProject(group);
-              }}
-            >
-              <XIcon size={12} weight="bold" />
-            </button>
-            <CaretRightIcon
-              size={11}
-              class="shrink-0 text-muted-foreground transition-transform duration-150 {collapsedProjectKeys.has(
-                group.projectKey,
-              )
-                ? ''
-                : 'rotate-90'}"
-            />
-          </div>
-          {#if !collapsedProjectKeys.has(group.projectKey)}
-            <div
-              id={projectGroupId(group.projectKey)}
-              class="flex flex-col gap-[0.1875rem]"
-              transition:slide={{
-                duration: reduceMotion ? 0 : 120,
-                easing: cubicOut,
-              }}
-            >
-              {#each group.tasks as task (task.id)}
-                {@render taskRow(task, true)}
+            <span class="flex size-4 shrink-0 items-center justify-center">
+              <CaretRightIcon
+                size={14}
+                class="transition-transform duration-150 {snoozedShelfOpen
+                  ? 'rotate-90'
+                  : ''}"
+              />
+            </span>
+          </button>
+          {#if snoozedShelfOpen}
+            <div class="flex flex-col gap-[0.1875rem]">
+              {#each sidebarStore.snoozedTasks as task (task.id)}
+                {@render taskRow(task)}
               {/each}
             </div>
           {/if}
         </div>
-      {/each}
-    {/if}
+      {/if}
+      {#if sidebarStore.completedTasks.length > 0}
+        <div class="mt-2">
+          <button
+            type="button"
+            class="-mr-1 flex h-7 w-[calc(100%+0.25rem)] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.125rem] text-xs font-medium text-muted-foreground transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:text-foreground"
+            aria-expanded={completedShelfOpen}
+            onclick={() => (completedShelfOpen = !completedShelfOpen)}
+          >
+            Completed
+            <span class="ml-auto font-mono tabular-nums opacity-60"
+              >{sidebarStore.completedTasks.length}</span
+            >
+            <span class="flex size-4 shrink-0 items-center justify-center">
+              <CaretRightIcon
+                size={14}
+                class="transition-transform duration-150 {completedShelfOpen
+                  ? 'rotate-90'
+                  : ''}"
+              />
+            </span>
+          </button>
+          {#if completedShelfOpen}
+            <div class="flex flex-col gap-[0.1875rem] opacity-80">
+              {#each sidebarStore.completedTasks as task (task.id)}
+                {@render taskRow(task)}
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
     </div>
   </div>
 
@@ -801,14 +1072,19 @@
       {#if sidebarStore.pinnedSessions.length > 0}
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
-            class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-[0.5625rem] bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+            class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
             onclick={() => (savedSessionsOpen = !savedSessionsOpen)}
           >
-            <span class="flex shrink-0 items-center"><PushPinIcon size={16} weight="fill" /></span>
-            <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]">Saved sessions</span>
-            <span class="shrink-0 font-mono text-[0.6875rem] text-muted-foreground opacity-60 tabular-nums">{sidebarStore.pinnedSessions.length}</span>
+            <span class="flex shrink-0 items-center"
+              ><PushPinIcon size={14} weight="fill" /></span
+            >
+            <span class="flex-1 text-left text-sm">Saved sessions</span>
+            <span
+              class="shrink-0 font-mono text-xs text-muted-foreground opacity-60 tabular-nums"
+              >{sidebarStore.pinnedSessions.length}</span
+            >
             <CaretRightIcon
-              size={11}
+              size={14}
               class="shrink-0 transition-transform duration-150 {savedSessionsOpen
                 ? 'rotate-90'
                 : ''}"
@@ -816,19 +1092,13 @@
           </Sidebar.MenuButton>
         </Sidebar.MenuItem>
         {#if savedSessionsOpen}
-          <div
-            class="flex flex-col gap-0.5 pb-1"
-            transition:slide={{
-              duration: reduceMotion ? 0 : 160,
-              easing: cubicOut,
-            }}
-          >
-          {#each sidebarStore.pinnedSessions as pin (`${pin.serverId ?? ""}:${pin.sessionId}`)}
+          <div class="flex flex-col gap-0.5 pb-1">
+            {#each sidebarStore.pinnedSessions as pin (`${pin.serverId ?? ""}:${pin.sessionId}`)}
               {@const openTabId = sidebarStore.openTabIdForPinned(pin)}
               {@const isActive =
                 !!openTabId && openTabId === session.onScreenTabId}
               <div
-                class="group/pin flex h-[1.875rem] cursor-pointer items-center gap-2 rounded pr-1.5 pl-[2.25rem] transition-[background] duration-150 hover:bg-accent"
+                class="group/pin flex h-[1.875rem] cursor-pointer items-center gap-2 rounded-lg pr-1.5 pl-[2.25rem] transition-[background] duration-150 hover:bg-accent"
                 role="button"
                 tabindex="0"
                 title={pin.title}
@@ -847,13 +1117,13 @@
                   openSessionContextMenu(event, { kind: "pinned", pin })}
               >
                 <span
-                  class="min-w-0 flex-1 overflow-hidden text-[0.78125rem] text-ellipsis whitespace-nowrap {isActive
-                    ? 'font-[560] text-foreground'
+                  class="min-w-0 flex-1 overflow-hidden text-[0.8125rem] text-ellipsis whitespace-nowrap {isActive
+                    ? 'font-medium text-foreground'
                     : 'text-[color-mix(in_oklch,var(--foreground)_88%,transparent)]'}"
                   >{pin.title}</span
                 >
                 <button
-                  class="hidden size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-[color,background] duration-[120ms] group-hover/pin:flex hover:bg-accent hover:text-foreground"
+                  class="hidden size-5 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] group-hover/pin:flex hover:bg-accent hover:text-foreground"
                   aria-label="Unpin session"
                   title="Unpin"
                   onclick={(event) => {
@@ -862,7 +1132,7 @@
                     requestInputFocus();
                   }}
                 >
-                  <PushPinIcon size={12} weight="fill" />
+                  <PushPinIcon size={14} weight="fill" />
                 </button>
               </div>
             {/each}
@@ -871,16 +1141,23 @@
       {/if}
       <Sidebar.MenuItem>
         <Sidebar.MenuButton
-          class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-[0.5625rem] bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at('settings') ? 'text-foreground' : ''}"
+          class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
+            'settings',
+          )
+            ? 'text-foreground'
+            : ''}"
           isActive={session.router.at("settings")}
           onclick={() => session.showSettings()}
         >
           <span
             class="flex shrink-0 items-center motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:rotate-90"
-            ><GearIcon size={16} /></span
+            ><GearIcon size={14} /></span
           >
-          <span class="flex-1 text-left text-[0.84375rem] tracking-[-0.006em]">Settings</span>
-          <span class="shrink-0 font-mono text-[0.65625rem] opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70">{comboHint("global.settings")}</span>
+          <span class="flex-1 text-left text-sm">Settings</span>
+          <span
+            class="shrink-0 font-mono text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
+            >{comboHint("global.settings")}</span
+          >
         </Sidebar.MenuButton>
       </Sidebar.MenuItem>
     </Sidebar.Menu>
@@ -892,6 +1169,7 @@
     {@const menuTask = session.tasksStore.tasks.find(
       (task) => task.id === sessionContextMenu.taskId,
     )}
+    {@const menuPoint = { x: sessionContextMenu.x, y: sessionContextMenu.y }}
     {@const sidebarTask = sessionContextMenu.sidebarTask}
     {@const menuChild = sessionContextMenu.child}
     {@const hasLinkedSession =
@@ -903,7 +1181,9 @@
         : false)}
     <!-- A task with no nested subtasks is a single session wearing a task's row,
          so it earns the session menu items a loose session row gets. -->
-    {@const leafSessions = sidebarTask ? sidebarStore.sessionsFor(sidebarTask) : []}
+    {@const leafSessions = sidebarTask
+      ? sidebarStore.sessionsFor(sidebarTask)
+      : []}
     {@const leafSession = !hasDisclosure(leafSessions)
       ? leafSessions[0]
       : undefined}
@@ -917,6 +1197,9 @@
         {hasLinkedSession}
         isRunning={sidebarTask?.status === "running" ||
           menuChild?.attention === "running"}
+        lifecycleBlocked={lifecycleBlocked(
+          sidebarTask?.attention ?? menuChild?.attention ?? null,
+        )}
         onStart={() => void session.openTaskSession(menuTask)}
         onResume={hasLinkedSession
           ? () => void session.openTaskLinkedSession(menuTask)
@@ -937,11 +1220,19 @@
           else if (menuChild?.isSubtask) completeChild(menuChild);
           else markTaskDone(menuTask.id);
         }}
-        onRemove={sidebarTask
-          ? () => closeTask(sidebarTask)
-          : menuChild
-            ? () => closeChild(menuChild)
-            : undefined}
+        onSnooze={menuTask.status === "done" ||
+        (menuTask.snoozedUntil ?? 0) > Date.now()
+          ? undefined
+          : () => {
+              snoozeAnchor = menuPoint;
+              snoozeTargets = [menuTask];
+            }}
+        onWake={(menuTask.snoozedUntil ?? 0) > Date.now()
+          ? () => void wakeTask(menuTask)
+          : undefined}
+        onMarkUnread={() =>
+          void session.tasksStore.markRead(menuTask.id, false)}
+        onRemove={undefined}
         sessionId={leafSession?.sessionId ?? null}
         onFork={leafTabId && leafSess?.agentSessionId
           ? () => void session.forkTab(leafTabId)
@@ -994,4 +1285,19 @@
       onClose={closeSessionContextMenu}
     />
   {/if}
+{/if}
+
+{#if snoozeTargets.length > 0 && snoozeAnchor}
+  <SnoozeTaskMenu
+    anchor={snoozeAnchor}
+    taskTitle={snoozeTargets.length === 1
+      ? snoozeTargets[0].title
+      : `${snoozeTargets.length} selected tasks`}
+    onConfirm={(until, note) => void confirmSnooze(until, note)}
+    onClose={() => {
+      snoozeTargets = [];
+      snoozeAnchor = null;
+      requestInputFocus();
+    }}
+  />
 {/if}

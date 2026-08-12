@@ -62,9 +62,10 @@
     pastedImageAttachment,
     uploadPastedImage,
   } from "./lib/attachment-upload";
-
-  const HISTORY_KEY = "solus-prompt-history";
-  const MAX_HISTORY = 100;
+  import {
+    loadPromptHistory,
+    savePromptToHistory,
+  } from "./lib/prompt-history";
 
   import type { Snippet } from "svelte";
 
@@ -195,25 +196,9 @@
 
   // ─── Prompt history ───
 
-  function loadHistory(): string[] {
-    try {
-      const stored = localStorage.getItem(HISTORY_KEY);
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  }
-  let promptHistory = $state<string[]>(loadHistory());
+  let promptHistory = $state<string[]>(loadPromptHistory(localStorage));
   let historyIndex = $state(-1);
   let savedInput = "";
-
-  function savePromptToHistory(text: string) {
-    if (!text || promptHistory[promptHistory.length - 1] === text) return;
-
-    promptHistory.push(text);
-    if (promptHistory.length > MAX_HISTORY) promptHistory.shift();
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(promptHistory));
-  }
 
   function resetHistoryNavigation() {
     historyIndex = -1;
@@ -236,6 +221,16 @@
   });
   const editorValue = $derived(isActiveMode ? prompt.text : frozenText);
   let composerEl: ReturnType<typeof PromptEditor> | null = $state(null);
+  // The draft route stays mounted while its draft id changes. The editor then
+  // receives a different prompt object without an input event, so explicitly
+  // retire any trigger state that belonged to the previous draft.
+  let autocompletePrompt = untrack(() => prompt);
+  $effect(() => {
+    const nextPrompt = prompt;
+    if (nextPrompt === autocompletePrompt) return;
+    autocompletePrompt = nextPrompt;
+    untrack(() => composerEl?.clearCompletions());
+  });
   /** The composer card — the saved-prompts sheet matches its width. */
   let composerRootEl = $state<HTMLElement | null>(null);
 
@@ -1048,7 +1043,7 @@
       return false;
     }
 
-    savePromptToHistory(text);
+    promptHistory = savePromptToHistory(localStorage, text);
     prompt.text = "";
     resetHistoryNavigation();
     composerEl?.clearEditor();
@@ -1111,6 +1106,12 @@
   }
 
   function navigateHistory(delta: -1 | 1) {
+    // Editor mode, Pill mode, and split panes keep separate composers mounted.
+    // Ctrl+C can refocus a composer other than the one that sent the prompt, so
+    // refresh from the shared durable history before recall.
+    if (historyIndex === -1) {
+      promptHistory = loadPromptHistory(localStorage);
+    }
     if (delta === -1) {
       if (historyIndex === -1) {
         savedInput = inputText;
@@ -1221,7 +1222,7 @@
   {#if boundWork}
     <div class="flex pt-1.5">
       <div
-        class="inline-flex items-center gap-1.5 rounded-lg bg-(--solus-accent-light) px-2 py-1 text-[0.6875rem] font-medium text-(--solus-accent) max-w-full"
+        class="inline-flex items-center gap-1.5 rounded-lg bg-(--solus-accent-light) px-2 py-1 text-xs font-medium text-(--solus-accent) max-w-full"
         data-testid="bound-work-chip"
       >
         <span class="opacity-70 shrink-0">Working on:</span>
@@ -1322,7 +1323,7 @@
   <div
     class="[--solus-font-weight-body:var(--solus-font-weight-user-content)] {mode ===
     'editor'
-      ? '[--plain-editor-font-size:0.84375rem] [--plain-editor-padding:1.25rem_0_1.25rem_0]'
+      ? '[--plain-editor-font-size:0.875rem] [--plain-editor-padding:1.25rem_0_1.25rem_0]'
       : ''}"
   >
     {#if hasMountedWaveform}
@@ -1348,6 +1349,7 @@
         {pluginCommands}
         provider={activeProvider}
         tabId={targetTabId}
+        serverId={run?.serverId}
         sessionId={sessionId ?? undefined}
         workingDirectory={composerCwd}
         onRefsChange={handleRefsChange}

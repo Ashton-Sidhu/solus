@@ -1,4 +1,4 @@
-import type { AgentId, EnrichedError, GitState, Message, NormalizedEvent, Session, ThreadGoal } from '../../../shared/types'
+import type { AgentId, EnrichedError, GitState, Message, Session, ThreadGoal, WireNormalizedEvent } from '../../../shared/types'
 import { existingTaskId } from './session-draft.svelte'
 import { encodePathAsFolder } from '../../../shared/types'
 import { uuid } from '../../../shared/uuid'
@@ -35,7 +35,7 @@ export interface SessionEventReducerDeps {
   applyGoalUpdated?(sessionId: string, goal: ThreadGoal): boolean
   applyGoalCleared?(sessionId: string, threadId: string): void
   onSessionInitialized?(sessionId: string): void
-  handlePendingInputSync(session: Session, events: Extract<NormalizedEvent, { type: 'pending_input_sync' }>['pendingInputEvents']): void
+  handlePendingInputSync(session: Session, events: Extract<WireNormalizedEvent, { type: 'pending_input_sync' }>['pendingInputEvents']): void
   log(eventType: string, session: Session): void
 }
 
@@ -110,7 +110,7 @@ export class SessionEventReducer {
     }
   }
 
-  apply(sessionId: string, event: NormalizedEvent): void {
+  apply(sessionId: string, event: WireNormalizedEvent): void {
     const session = this.deps.registry.sessions[sessionId]
     if (!session) return
 
@@ -124,6 +124,10 @@ export class SessionEventReducer {
     // as user messages" path.
     if (event.type === 'tool_result') {
       this.applyToolResult(session, event)
+      return
+    }
+    if (event.type === 'subagent_report') {
+      this.applySubagentReport(session, event)
       return
     }
 
@@ -202,6 +206,7 @@ export class SessionEventReducer {
                   projectRoot: session.run.projectGroupPath,
                 }
               : null,
+            session.run.gitContext?.branch ?? null,
           )
         }
         void this.deps.tasksStore.refreshSessionBinding(event.sessionId, taskServerId)
@@ -221,7 +226,7 @@ export class SessionEventReducer {
         session.messages.push({
           id: nextMsgId(),
           role: 'tool',
-          content: event.content ?? '',
+          content: '',
           toolName: event.toolName,
           toolId: event.toolId,
           toolIndex: event.index,
@@ -250,9 +255,6 @@ export class SessionEventReducer {
             (event.index === undefined || m.toolIndex === event.index)
           ) {
             if (event.toolInput !== undefined) m.toolInput = event.toolInput
-            if (event.content !== undefined) {
-              m.content = event.content
-            }
             break
           }
         }
@@ -376,7 +378,6 @@ export class SessionEventReducer {
         // already settled on its own tool_result, which is the richer signal.
         if (msg && msg.toolStatus === 'running') {
           msg.toolStatus = event.status === 'completed' ? 'completed' : 'error'
-          msg.toolResultIsError = event.status !== 'completed'
           msg.toolCompletedAt = Date.now()
         }
         break
@@ -561,6 +562,28 @@ export class SessionEventReducer {
       case 'git_context':
         session.run.gitContext = event.gitContext
         if (event.gitContext.worktreePath) session.run.worktree = null
+        // A dispatched host can create its worktree after session_init. Carry
+        // that authoritative branch back to the task host when it arrives, or
+        // the durable attempt stays branchless and PR discovery cannot recover
+        // it after a client refresh.
+        if (session.agentSessionId && event.gitContext.branch) {
+          const task = this.deps.tasksStore.taskForSession(session.agentSessionId)
+          const taskServerId = session.run.taskServerId
+          if (
+            task
+            && taskServerId
+            && this.deps.tasksStore.sessionBranchFor(task.id, session.agentSessionId) !== event.gitContext.branch
+          ) {
+            void this.deps.tasksStore.linkSession(
+              taskServerId,
+              task.id,
+              session.agentSessionId,
+              null,
+              event.gitContext.branch,
+            ).then(() => this.deps.tasksStore.refreshSessionBinding(session.agentSessionId!, taskServerId))
+              .catch(() => null)
+          }
+        }
         break
 
       case 'git_status':
@@ -889,27 +912,28 @@ export class SessionEventReducer {
 
   /**
    * Land a tool_result on its tool message. The parent Agent tool's result
-   * (parentToolUseId == null) lands in the main thread and flips the sub-agent
-   * card to done/error; a sub-agent's inner tool result lands in that parent's
-   * subMessages. Non-sub-agent results just set fields nothing else reads.
-   *
-   * A backgrounded sub-agent's result arrives at *launch*, not completion, and
-   * holds only launch metadata the SDK forbids surfacing. Drop it: the agent is
-   * still working, and `background_task_settled` reports its real outcome.
+   * is a separate subagent_report event. This path only records the bounded
+   * status metadata for ordinary main-thread and nested tool calls.
    */
-  private applyToolResult(session: Session, event: Extract<NormalizedEvent, { type: 'tool_result' }>): void {
+  private applyToolResult(session: Session, event: Extract<WireNormalizedEvent, { type: 'tool_result' }>): void {
     const parent = event.parentToolUseId ? this.findToolMsg(session.messages, event.parentToolUseId) : undefined
     const list = parent?.subMessages ?? session.messages
-    const target = event.parentToolUseId === event.toolUseId
-      ? parent
-      : this.findToolMsg(list, event.toolUseId)
+    const target = this.findToolMsg(list, event.toolUseId)
     if (!target) return
-    if (event.isAsyncLaunch && !event.isError) return
-    target.toolResult = event.content
-    target.toolResultIsError = event.isError ?? false
-    target.toolStatus = event.isError ? 'error' : 'completed'
+    target.errorHead = event.errorHead
+    target.contentBytes = event.contentBytes
+    target.toolStatus = event.status === 'error' ? 'error' : 'completed'
     target.toolCompletedAt = Date.now()
     if (!event.parentToolUseId) session.currentActivity = 'Thinking...'
+  }
+
+  private applySubagentReport(session: Session, event: Extract<WireNormalizedEvent, { type: 'subagent_report' }>): void {
+    const target = this.findToolMsg(session.messages, event.toolUseId)
+    if (!target) return
+    target.report = event.text
+    target.toolStatus = event.isError ? 'error' : 'completed'
+    target.toolCompletedAt = Date.now()
+    session.currentActivity = 'Thinking...'
   }
 
   /**
@@ -933,7 +957,7 @@ export class SessionEventReducer {
    * Apply a sub-agent event to its parent tool's nested transcript, mirroring the
    * main-thread push/update/complete/text logic but scoped to `subMessages`.
    */
-  private applyChildEvent(session: Session, parentToolUseId: string, event: NormalizedEvent): void {
+  private applyChildEvent(session: Session, parentToolUseId: string, event: WireNormalizedEvent): void {
     const parent = this.findToolMsg(session.messages, parentToolUseId)
     if (!parent) return
     if (!parent.subMessages) parent.subMessages = []
@@ -964,7 +988,7 @@ export class SessionEventReducer {
         subs.push({
           id: nextMsgId(),
           role: 'tool',
-          content: event.content ?? '',
+          content: '',
           toolName: event.toolName,
           toolId: event.toolId,
           toolIndex: event.index,
@@ -984,7 +1008,6 @@ export class SessionEventReducer {
             (event.index === undefined || m.toolIndex === event.index)
           ) {
             if (event.toolInput !== undefined) m.toolInput = event.toolInput
-            if (event.content !== undefined) m.content = event.content
             break
           }
         }

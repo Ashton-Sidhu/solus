@@ -52,7 +52,7 @@
 
 <div class="flex items-center gap-[13px] pb-[11px]">
   <span
-    class="inline-flex items-center gap-1.5 text-[13px] font-[450] tracking-[-.005em]"
+    class="inline-flex items-center gap-1.5 text-[0.8125rem] font-normal "
     style="color:{statusTextColor(task.status)}"
   >
     <svg
@@ -69,11 +69,11 @@
     {status.label}
   </span>
   <span class="h-[11px] w-px bg-[var(--hairline-strong)]" aria-hidden="true"></span>
-  <span class="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground">
+  <span class="inline-flex items-center gap-1.5 text-[0.8125rem] text-muted-foreground">
     <span class="flex h-[9px] shrink-0 items-end gap-[1.5px]" aria-hidden="true">
       {#each bars as bar (bar.height)}
         <span
-          class="w-[2.5px] rounded-[1px]"
+          class="w-[2.5px] rounded-[0.0625rem]"
           style="height:{bar.height};background:{bar.background}"
         ></span>
       {/each}
@@ -82,13 +82,13 @@
   </span>
   {#if openedAt}
     <span class="h-[11px] w-px bg-[var(--hairline-strong)]" aria-hidden="true"></span>
-    <span class="font-mono text-[12px] text-muted-foreground opacity-75">opened {openedAt}</span>
+    <span class="font-mono text-xs text-muted-foreground opacity-75">opened {openedAt}</span>
   {/if}
 </div>
 
 {#if canEdit}
   <input
-    class="m-0 w-full bg-transparent text-[27px] leading-[1.25] font-semibold tracking-[-.021em] text-pretty outline-none"
+    class="m-0 w-full bg-transparent text-[1.5rem] leading-[1.25] font-medium text-pretty outline-none"
     bind:value={titleDraft}
     onblur={commitTitle}
     onkeydown={(e) => {
@@ -101,7 +101,7 @@
     aria-label="Task title"
   />
 {:else}
-  <h1 class="m-0 text-[27px] leading-[1.25] font-semibold tracking-[-.021em] text-pretty">
+  <h1 class="m-0 text-[1.5rem] leading-[1.25] font-medium text-pretty">
     {task.title}
   </h1>
 {/if}

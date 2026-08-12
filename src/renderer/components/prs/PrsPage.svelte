@@ -37,6 +37,7 @@
     ListFilterBar,
     ListGroup,
     ListPage,
+    ListRailRow,
     ListRow,
     ListSkeleton,
     ListStatusMenu,
@@ -59,12 +60,16 @@
   import type { PrReviewTab } from "../../contexts/prs/prs.store.svelte";
   import { groupStackedPrRows } from "./lib/stack-grouping";
   import GithubConnectionRequired from "./GithubConnectionRequired.svelte";
+  import PrDetailPanel from "./PrDetailPanel.svelte";
 
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
   const sessionSidebar = getSessionSidebarStore();
   const store = session.prsStore;
   const stacks = session.stacksStore;
+  const reduceMotion =
+    typeof window !== "undefined" &&
+    !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
   const open = $derived(session.router.at("prs"));
 
@@ -79,6 +84,7 @@
   let searchEl = $state<HTMLInputElement | null>(null);
   let listEl = $state<HTMLDivElement | undefined>();
   let contentHeight = $state(0);
+  let pageWidth = $state(0);
   let stacksReady = $state(false);
   let viewerLogin = $state("");
 
@@ -194,7 +200,23 @@
     return rows;
   });
 
-  const groups = $derived(prGroups(filtered, rowContext, now));
+  const stackGraph = $derived(
+    settings.stackedPrsEnabled && stacksReady
+      ? stacks.graphFor(prsServerId, activeProjectPath)
+      : null,
+  );
+  const groupedRows = $derived(groupStackedPrRows(filtered, stackGraph));
+  // The row says what it is stacked on inside its own hover reveal, so the
+  // relationship reads without the list having to indent anything.
+  const stackParents = $derived(
+    new Map(
+      groupedRows
+        .filter((row) => row.parent !== null)
+        .map((row) => [row.pr.number, row.parent as number]),
+    ),
+  );
+
+  const groups = $derived(prGroups(filtered, rowContext, now, stackParents));
   // The row's verb picks the tab it lands on: a row that says Review opens on
   // the diff, everything else on Activity.
   const inboxGroups = $derived(
@@ -238,12 +260,17 @@
     inboxGroups.find((g) => g.key === "needs")?.rows.length ?? 0,
   );
 
+  // Counts are the first thing to go at rail width: they are a nice-to-know
+  // beside a label that has to survive, and the list under the chip answers the
+  // same question.
   const listFilters = $derived<ListFilterSpec[]>([
     {
       key: "mine",
       label: "Yours",
       icon: UserIcon,
-      count: searched.filter((pr) => rowContext.isMine(pr)).length,
+      count: splitList
+        ? undefined
+        : searched.filter((pr) => rowContext.isMine(pr)).length,
       active: listView.minesOnly,
       toggle: () => (listView.minesOnly = !listView.minesOnly),
     },
@@ -251,18 +278,28 @@
       key: "failing",
       label: "Checks failing",
       icon: WarningIcon,
-      count: searched.filter((pr) => {
-        const checks = store.checksFor(prsServerId, prsCtx(), pr.number);
-        return (
-          !!checks &&
-          checks.headSha === pr.headSha &&
-          checks.state === "failing"
-        );
-      }).length,
+      count: splitList
+        ? undefined
+        : searched.filter((pr) => {
+            const checks = store.checksFor(prsServerId, prsCtx(), pr.number);
+            return (
+              !!checks &&
+              checks.headSha === pr.headSha &&
+              checks.state === "failing"
+            );
+          }).length,
       active: listView.failingOnly,
       toggle: () => (listView.failingOnly = !listView.failingOnly),
     },
   ]);
+
+  // The rail's filter row fits the search field and the two toggles, so the
+  // menu-backed controls step aside — except when the status menu is actually
+  // narrowing the list, which must never be hidden with no way to see or undo it.
+  const statusFilterNarrowed = $derived(
+    listView.statusKeys.length !== OPEN_PR_STATUS_KEYS.length ||
+      OPEN_PR_STATUS_KEYS.some((key) => !listView.statusKeys.includes(key)),
+  );
 
   // A status the page has not fetched can't be counted, so its count reads 0
   // until it is picked and the widened fetch lands. Better than a blank, and it
@@ -297,12 +334,6 @@
     ];
   });
 
-  const stackGraph = $derived(
-    settings.stackedPrsEnabled && stacksReady
-      ? stacks.graphFor(prsServerId, activeProjectPath)
-      : null,
-  );
-  const groupedRows = $derived(groupStackedPrRows(filtered, stackGraph));
   const listNavigationItems = $derived(groupedRows.map((row) => row.pr));
 
   // Publish the visible order so the review's crumb switcher and its `n of N`
@@ -318,6 +349,53 @@
       ? (store.items.find((p) => p.number === listView.selectedNumber) ?? null)
       : null,
   );
+
+  // ── The detail panel ──
+  // A pull request comes out from the side of the list rather than replacing it:
+  // the rows stay on screen so the queue is still readable while one item is
+  // being reviewed. Below the width where both fit, the panel covers the list
+  // instead — a 380px column beside a 380px review is neither.
+  const openNumber = $derived(listView.openNumber);
+  const panelOpen = $derived(openNumber !== null);
+  const openPr = $derived(
+    openNumber ? (store.items.find((p) => p.number === openNumber) ?? null) : null,
+  );
+  const roomForSplit = $derived(pageWidth >= 1040);
+  const panelFullScreen = $derived(
+    panelOpen && (listView.panelFullScreen || !roomForSplit),
+  );
+  const splitList = $derived(panelOpen && !panelFullScreen);
+
+  function closePanel() {
+    listView.openNumber = null;
+    listView.panelFullScreen = false;
+    void tick().then(() => {
+      const selectedRow = listEl?.querySelector<HTMLElement>(
+        '[data-selected="true"]',
+      );
+      if (selectedRow) selectedRow.focus();
+      else searchEl?.focus();
+    });
+  }
+
+  function toggleFullScreen() {
+    listView.panelFullScreen = !listView.panelFullScreen;
+  }
+
+  /** Step to the pull request before or after the open one, in the list's own
+   *  order — what J / K and the panel's stepper walk. */
+  function stepPanel(delta: number) {
+    if (listNavigationItems.length === 0 || openNumber === null) return;
+    const index = listNavigationItems.findIndex((p) => p.number === openNumber);
+    if (index === -1) return;
+    const next =
+      listNavigationItems[
+        (index + delta + listNavigationItems.length) % listNavigationItems.length
+      ];
+    // Stepping is a move inside one reading session, so it keeps the tab you
+    // are reading; only picking a row afresh re-decides that.
+    if (next && next.number !== openNumber) selectPr(next, store.prReviewTab);
+  }
 
   function prByNumber(key: string): PullRequestSummary | undefined {
     return store.items.find((pr) => String(pr.number) === key);
@@ -430,16 +508,16 @@
     };
   });
 
-  /** Open a pull request. It replaces this page, so the row stays selected in
-   *  the remembered view and the list resumes on it when the review exits. */
+  /** Open a pull request in the panel beside the list. The row stays selected,
+   *  so closing the panel resumes the list on what was just read. */
   function selectPr(pr: PullRequestSummary, tab?: PrReviewTab) {
     listView.selectedNumber = pr.number;
+    listView.openNumber = pr.number;
+    // The row's verb picks the landing tab: a row that says Review opens on the
+    // diff, everything else on Activity.
+    store.prReviewTab = tab ?? "activity";
     void store.loadEfforts(prsApi, prsServerId, prsCtx(), [pr.number]);
-    void session.openPrReview(pr.number, pr.title, {
-      ctx: prsCtx(),
-      tab,
-      serverId: prsServerId,
-    });
+    store.prefetchReview(prsApi, prsServerId, prsCtx(), pr.number);
   }
 
   /** Arrow-key movement only highlights. Nothing is fetched or mounted until
@@ -539,8 +617,12 @@
   }
 
   // ── Keybindings ──
+  // While the panel is open, Esc belongs to it: it collapses full screen, then
+  // closes the review, and only an empty list page closes the page itself.
   useScope("prs", { active: () => open });
-  useKeybinding("prs.close", () => close(), { enabled: () => open });
+  useKeybinding("prs.close", () => close(), {
+    enabled: () => open && !panelOpen,
+  });
   function close() {
     session.router.close("prs");
     requestInputFocus();
@@ -610,13 +692,13 @@
       transition:fly={{ y: -4, duration: 160 }}
     >
       <span
-        class="font-mono text-[11px] tabular-nums whitespace-nowrap text-muted-foreground"
+        class="font-mono text-xs tabular-nums whitespace-nowrap text-muted-foreground"
       >
         {selected.length} selected
       </span>
       <Button
         type="button"
-        class="inline-flex h-[26px] shrink-0 cursor-pointer items-center rounded-lg border-0 bg-transparent px-2 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        class="inline-flex h-[26px] shrink-0 cursor-pointer items-center rounded-lg border-0 bg-transparent px-2 text-[0.8125rem] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         onclick={clearReviewSelection}
         aria-label={`Clear ${selected.length} selected pull requests`}
       >
@@ -624,7 +706,7 @@
       </Button>
       <Button
         type="button"
-        class="inline-flex h-[26px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+        class="inline-flex h-[26px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-2.5 text-[0.8125rem] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
         disabled={guideEligible.length === 0}
         onclick={generateGuides}
         aria-label={`Generate ${guideEligible.length} review guides in the background`}
@@ -642,7 +724,7 @@
       <Button
         type="button"
         onclick={openReviewMode}
-        class="inline-flex h-[26px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-primary px-2.5 text-[13px] font-medium text-primary-foreground transition-[filter] duration-100 hover:brightness-[1.07]"
+        class="inline-flex h-[26px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-primary px-2.5 text-[0.8125rem] font-medium text-primary-foreground transition-[filter] duration-100 hover:brightness-[1.07]"
       >
         <PlayIcon size={12} weight="fill" class="shrink-0" />
         <span>Review</span>
@@ -656,23 +738,27 @@
     bind:query={listView.query}
     bind:searchEl
     placeholder={view === "global"
-      ? "Search pull requests, branches, authors…"
+      ? splitList
+        ? "Search pull requests…"
+        : "Search pull requests, branches, authors…"
       : "Search your inbox…"}
     filters={view === "global" ? listFilters : []}
   >
     {#snippet trailing()}
-      <ListStatusMenu
-        options={statusOptions}
-        selected={listView.statusKeys}
-        onChange={onStatusChange}
-        ariaLabel="Filter pull requests by status"
-      />
-      {#if view === "global"}
+      {#if !splitList || statusFilterNarrowed}
+        <ListStatusMenu
+          options={statusOptions}
+          selected={listView.statusKeys}
+          onChange={onStatusChange}
+          ariaLabel="Filter pull requests by status"
+        />
+      {/if}
+      {#if view === "global" && !splitList}
         <SortMenu
           bind:value={listView.sortMode}
           options={SORT_OPTIONS}
           ariaLabel="Sort pull requests"
-          class="h-7 gap-1.5 rounded-[10px] px-2.5 text-[13px] font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
+          class="h-7 gap-1.5 rounded-lg px-2.5 text-[0.8125rem] font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
         />
       {/if}
     {/snippet}
@@ -684,17 +770,28 @@
 {/snippet}
 
 {#if open}
+  <!-- This page owns its titlebar chrome (see the `prs` route), so it paints to
+       the window's top edge. The list uses the same fixed top measure as the
+       Automations workspace; its position does not change with the sidebar. -->
   <div
     class="@container relative flex min-h-0 flex-1 overflow-hidden bg-card focus:outline-none"
+    bind:clientWidth={pageWidth}
     role="dialog"
     aria-label="Pull Requests"
     tabindex="-1"
   >
-    <!-- A pull request is a place inside this list, not a panel beside it:
-         opening one replaces this page (both share the `page` exclusive group)
-         and the review's own chrome band carries the way back. Nothing here
-         renders a second copy of the list. -->
+    <!-- A pull request comes out from the side of this list rather than
+         replacing it. The list narrows to a navigation column and the review
+         takes the room that is left, so the queue stays readable while one item
+         is open; E gives the review the whole surface, and Esc walks that back
+         one step at a time. -->
+    <div
+      class="flex min-h-0 min-w-0 shrink-0 transition-[width] duration-200 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none {splitList
+        ? 'w-[380px]'
+        : 'w-full'}"
+    >
     <ListPage
+      split={splitList}
       projects={projectOptions}
       activeProjectKey={activeProjectPath}
       emptyProjectLabel="Choose a project"
@@ -735,7 +832,7 @@
             {#snippet actions()}
               <Button
                 type="button"
-                class="inline-flex h-[34px] cursor-pointer items-center gap-2 rounded-lg border-0 bg-muted px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                class="inline-flex h-[34px] cursor-pointer items-center gap-2 rounded-lg border-0 bg-muted px-3 text-[0.8125rem] font-medium text-muted-foreground transition-colors hover:text-foreground"
                 onclick={refreshList}
               >
                 <ArrowsClockwiseIcon size={13} class="shrink-0" />
@@ -798,7 +895,7 @@
             {#snippet actions()}
               <Button
                 type="button"
-                class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-[0.8125rem] font-medium text-muted-foreground transition-colors hover:text-foreground"
                 onclick={() => {
                   listView.query = "";
                   listView.minesOnly = false;
@@ -815,7 +912,11 @@
             items={globalVirtualItems}
             height={contentHeight}
             itemSize={(index) =>
-              globalVirtualItems[index].kind === "header" ? 36 : 44}
+              globalVirtualItems[index].kind === "header"
+                ? 36
+                : splitList
+                  ? 52
+                  : 44}
             keyOf={(item) => item.key}
             activeKey={globalActiveKey}
             scrollOffset={listView.scrollTop}
@@ -839,34 +940,47 @@
                   </ListGroup>
                 {:else}
                 {@const pr = prByNumber(item.row.key)}
-                <div use:observeEffort={Number(item.row.key)}>
-                  <ListRow
-                    row={item.row}
-                    identWidth={44}
-                    selected={String(listView.selectedNumber) === item.row.key ||
-                      reviewSelection.has(Number(item.row.key))}
-                    onSelect={() => {
-                      if (pr) selectPr(pr);
+                {@const rowSelected =
+                  String(listView.selectedNumber) === item.row.key ||
+                  reviewSelection.has(Number(item.row.key))}
+                {#snippet reviewCheckbox()}
+                  <button
+                    type="button"
+                    class="mr-2 grid size-4 shrink-0 cursor-pointer place-items-center rounded border-0 text-xs transition-opacity {reviewSelection.has(
+                      Number(item.row.key),
+                    )
+                      ? 'bg-primary text-primary-foreground opacity-100'
+                      : 'bg-[var(--wash-3)] text-transparent opacity-0 group-hover:opacity-100'}"
+                    onclick={() => {
+                      if (pr) toggleReviewSelect(pr);
                     }}
+                    aria-pressed={reviewSelection.has(Number(item.row.key))}
+                    aria-label="Select for review"
                   >
-                    {#snippet leading()}
-                      <button
-                        type="button"
-                        class="mr-2 grid size-4 shrink-0 cursor-pointer place-items-center rounded border-0 text-[11px] transition-opacity {reviewSelection.has(
-                          Number(item.row.key),
-                        )
-                          ? 'bg-primary text-primary-foreground opacity-100'
-                          : 'bg-[var(--wash-3)] text-transparent opacity-0 group-hover:opacity-100'}"
-                        onclick={() => {
-                          if (pr) toggleReviewSelect(pr);
-                        }}
-                        aria-pressed={reviewSelection.has(Number(item.row.key))}
-                        aria-label="Select for review"
-                      >
-                        ✓
-                      </button>
-                    {/snippet}
-                  </ListRow>
+                    ✓
+                  </button>
+                {/snippet}
+                <div use:observeEffort={Number(item.row.key)}>
+                  {#if splitList}
+                    <ListRailRow
+                      row={item.row}
+                      selected={rowSelected}
+                      leading={reviewCheckbox}
+                      onSelect={() => {
+                        if (pr) selectPr(pr);
+                      }}
+                    />
+                  {:else}
+                    <ListRow
+                      row={item.row}
+                      identWidth={44}
+                      selected={rowSelected}
+                      leading={reviewCheckbox}
+                      onSelect={() => {
+                        if (pr) selectPr(pr);
+                      }}
+                    />
+                  {/if}
                 </div>
                 {/if}
               </div>
@@ -876,7 +990,7 @@
                 <div use:loadMoreSentinel class="flex items-center justify-center py-3">
                   <Button
                     type="button"
-                    class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                    class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-[0.8125rem] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={store.loadingMore}
                     onclick={() => void store.loadMore(prsApi, prsServerId, prsCtx())}
                   >
@@ -889,5 +1003,27 @@
         {/if}
       </div>
     </ListPage>
+    </div>
+
+    {#if openNumber !== null}
+      <div
+        class="flex flex-col bg-background {panelFullScreen
+          ? 'absolute inset-0 z-20'
+          : 'relative min-w-0 flex-1 shadow-[-1px_0_0_var(--hairline-strong),-18px_0_30px_-26px_rgba(0,0,0,.28)]'}"
+        transition:fly={{ x: 14, duration: reduceMotion ? 0 : 200 }}
+      >
+        <PrDetailPanel
+          number={openNumber}
+          api={prsApi}
+          serverId={prsServerId}
+          ctx={prsCtx()}
+          title={openPr?.title ?? ""}
+          fullScreen={panelFullScreen}
+          onToggleFullScreen={roomForSplit ? toggleFullScreen : undefined}
+          onClose={closePanel}
+          onStep={stepPanel}
+        />
+      </div>
+    {/if}
   </div>
 {/if}

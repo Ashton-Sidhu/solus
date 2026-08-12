@@ -119,8 +119,8 @@
     >
       <header class="flex items-center justify-between gap-3 border-b border-(--solus-popover-border) px-4 py-3">
         <div class="min-w-0">
-          <h2 id="add-server-title" class="truncate text-[0.9375rem] font-semibold text-(--solus-text-primary)">Add server</h2>
-          <p class="mt-0.5 text-[0.75rem] text-(--solus-text-tertiary)">Pair this desktop with another Solus server.</p>
+          <h2 id="add-server-title" class="truncate text-sm font-medium text-(--solus-text-primary)">Add server</h2>
+          <p class="mt-0.5 text-xs text-(--solus-text-tertiary)">Pair this desktop with another Solus server.</p>
         </div>
         <button
           type="button"
@@ -134,11 +134,11 @@
 
       {#if paired}
         <div class="space-y-4 px-4 py-4">
-          <div class="flex items-start gap-3 rounded-xl bg-(--solus-accent-light) p-3 text-(--solus-text-primary)">
+          <div class="flex items-start gap-3 rounded-2xl bg-(--solus-accent-light) p-3 text-(--solus-text-primary)">
             <CheckCircleIcon size={18} class="mt-0.5 shrink-0 text-(--solus-status-complete)" />
             <div class="min-w-0">
               <div class="text-[0.8125rem] font-medium">Server paired</div>
-              <div class="mt-1 break-all font-mono text-[0.6875rem] text-(--solus-text-tertiary)">
+              <div class="mt-1 break-all font-mono text-xs text-(--solus-text-tertiary)">
                 {paired.installationId ?? paired.id}
               </div>
             </div>
@@ -157,7 +157,7 @@
               mode = value as Mode;
             }}
           >
-            <Tabs.List class="mb-4 grid h-auto w-full grid-cols-2 gap-1 rounded-xl bg-(--solus-surface-hover) p-1">
+            <Tabs.List class="mb-4 grid h-auto w-full grid-cols-2 gap-1 rounded-lg bg-(--solus-surface-hover) p-1">
               <Tabs.Trigger value="link" class="h-auto rounded-lg border-0 px-3 py-2 text-[0.8125rem] font-medium text-(--solus-text-tertiary) transition-[background-color,color,transform] hover:text-(--solus-text-primary) active:scale-[0.96] data-active:bg-(--solus-popover-bg) data-active:text-(--solus-text-primary) data-active:shadow-sm">Pair link</Tabs.Trigger>
               <Tabs.Trigger value="manual" class="h-auto rounded-lg border-0 px-3 py-2 text-[0.8125rem] font-medium text-(--solus-text-tertiary) transition-[background-color,color,transform] hover:text-(--solus-text-primary) active:scale-[0.96] data-active:bg-(--solus-popover-bg) data-active:text-(--solus-text-primary) data-active:shadow-sm">Code</Tabs.Trigger>
             </Tabs.List>
@@ -165,23 +165,23 @@
             <form class="space-y-3" onsubmit={(event) => { event.preventDefault(); void (mode === "link" ? submitLink() : submitManual()); }}>
               <Tabs.Content value="link" class="mt-0">
                 <label class="block">
-                  <span class="text-[0.75rem] font-medium text-(--solus-text-secondary)">Pairing link</span>
+                  <span class="text-xs font-medium text-(--solus-text-secondary)">Pairing link</span>
                   <Input bind:ref={linkInput} bind:value={pairLink} class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 text-[0.8125rem] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]" placeholder="http://192.168.1.42:51234/pair#token=..." autocomplete="off" />
                 </label>
               </Tabs.Content>
               <Tabs.Content value="manual" class="mt-0 space-y-3">
                 <label class="block">
-                  <span class="text-[0.75rem] font-medium text-(--solus-text-secondary)">Server address</span>
+                  <span class="text-xs font-medium text-(--solus-text-secondary)">Server address</span>
                   <Input bind:ref={urlInput} bind:value={serverUrl} class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 text-[0.8125rem] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]" placeholder="192.168.1.42:51234" autocomplete="off" />
                 </label>
                 <label class="block">
-                  <span class="text-[0.75rem] font-medium text-(--solus-text-secondary)">Pair code</span>
-                  <Input bind:value={pairCode} class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 font-mono text-[0.8125rem] tracking-[0.16em] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]" placeholder="000000" inputmode="numeric" maxlength="6" autocomplete="one-time-code" />
+                  <span class="text-xs font-medium text-(--solus-text-secondary)">Pair code</span>
+                  <Input bind:value={pairCode} class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 font-mono text-[0.8125rem] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]" placeholder="000000" inputmode="numeric" maxlength="6" autocomplete="one-time-code" />
                 </label>
               </Tabs.Content>
 
             <label class="block">
-              <span class="text-[0.75rem] font-medium text-(--solus-text-secondary)">Server name</span>
+              <span class="text-xs font-medium text-(--solus-text-secondary)">Server name</span>
               <Input bind:value={label} class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 text-[0.8125rem] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]" placeholder="Studio Mac" autocomplete="off" />
             </label>
 

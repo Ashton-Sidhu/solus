@@ -8,6 +8,7 @@ import type {
   TaskActor,
   TaskComment,
   TaskCreateInput,
+  TaskExternalLink,
   TaskListFilter,
   TaskListResult,
   TaskPr,
@@ -51,6 +52,14 @@ interface TaskRow {
   updated_at: number
   triaged_at: number | null
   done_at: number | null
+  snoozed_until: number | null
+  snoozed_at: number | null
+  snooze_note: string | null
+  last_read_at: number | null
+  /** Joined from `task_external_links`; null on a task with no ticket. */
+  external_provider: TaskExternalLink['provider'] | null
+  external_id: string | null
+  external_url: string | null
 }
 
 interface TaskCommentRow {
@@ -62,6 +71,7 @@ interface TaskCommentRow {
   origin_session_id: string | null
   body: string
   created_at: number
+  dirty: number
 }
 
 type TasksChangedListener = () => void
@@ -109,6 +119,15 @@ export function taskFromRow(row: TaskRow): Task {
     body: row.body,
     status: row.status,
     url: null,
+    ...(row.external_provider && row.external_id
+      ? {
+        mirroredTicket: {
+          provider: row.external_provider,
+          externalId: row.external_id,
+          url: row.external_url ?? '',
+        },
+      }
+      : {}),
     ...(row.assignee === null ? {} : { assignee: row.assignee }),
     labels: jsonValue<string[]>(row.labels, []),
     ...(row.parent_id === null ? {} : { parentId: row.parent_id }),
@@ -125,6 +144,10 @@ export function taskFromRow(row: TaskRow): Task {
     updatedAt: row.updated_at,
     ...(row.triaged_at === null ? {} : { triagedAt: row.triaged_at }),
     ...(row.done_at === null ? {} : { doneAt: row.done_at }),
+    ...(row.snoozed_until === null ? {} : { snoozedUntil: row.snoozed_until }),
+    ...(row.snoozed_at === null ? {} : { snoozedAt: row.snoozed_at }),
+    ...(row.snooze_note === null ? {} : { snoozeNote: row.snooze_note }),
+    ...(row.last_read_at === null ? {} : { lastReadAt: row.last_read_at }),
   }
 }
 
@@ -138,6 +161,7 @@ function commentFromRow(row: TaskCommentRow): TaskComment {
     ...(row.origin_session_id === null ? {} : { originSessionId: row.origin_session_id }),
     body: row.body,
     createdAt: row.created_at,
+    ...(row.dirty === 1 ? { syncPending: true } : {}),
   }
 }
 
@@ -145,8 +169,23 @@ export function database(): DatabaseSync {
   return getDb()
 }
 
+/**
+ * Every task read joins its external link, so a published task names its
+ * provider everywhere it is listed — not only on the detail page, which is the
+ * one surface that separately reads the full sync state.
+ */
+const TASK_SELECT = `
+  SELECT
+    tasks.*,
+    task_external_links.provider AS external_provider,
+    task_external_links.external_id AS external_id,
+    task_external_links.url AS external_url
+  FROM tasks
+  LEFT JOIN task_external_links ON task_external_links.task_id = tasks.id
+`
+
 function taskRow(id: string, db: DatabaseSync = database()): TaskRow | undefined {
-  return db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as unknown as TaskRow | undefined
+  return db.prepare(`${TASK_SELECT} WHERE tasks.id = ?`).get(id) as unknown as TaskRow | undefined
 }
 
 /** Internal record read used by the session-link store. */
@@ -157,9 +196,9 @@ export function loadTaskRecord(id: string): Task | null {
 
 export function listTaskChildren(parentId: string): Task[] {
   const rows = database().prepare(`
-    SELECT * FROM tasks
-    WHERE parent_id = ?
-    ORDER BY updated_at DESC, created_at DESC, id
+    ${TASK_SELECT}
+    WHERE tasks.parent_id = ?
+    ORDER BY tasks.updated_at DESC, tasks.created_at DESC, tasks.id
   `).all(parentId) as unknown as TaskRow[]
   return rows.map(taskFromRow)
 }
@@ -308,9 +347,9 @@ export function listTasks(filter: TaskListFilter = {}): TaskListResult {
 
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
   const rows = database().prepare(`
-    SELECT * FROM tasks
+    ${TASK_SELECT}
     ${where}
-    ORDER BY updated_at DESC, created_at DESC, id
+    ORDER BY tasks.updated_at DESC, tasks.created_at DESC, tasks.id
   `).all(...params) as unknown as TaskRow[]
   return { tasks: rows.map(taskFromRow) }
 }

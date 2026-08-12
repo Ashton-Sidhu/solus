@@ -8,7 +8,8 @@
     PaperPlaneTiltIcon,
   } from "phosphor-svelte";
   import { CommentEditor } from "../ui/comment-editor";
-  import type { IpcContext, PrReviewContext } from "../../../shared/types";
+  import type { IpcContext } from "../../../shared/types";
+  import type { PrReviewTarget, PrReviewVerdict } from "../../../shared/providers";
   import type { DraftReview, DraftReviewComment } from "../../../shared/providers";
   import type { ReviewDraftComment } from "../../../shared/review";
   import { getWorkspaceContext } from "../../contexts";
@@ -17,6 +18,7 @@
   import type { HostApi } from "@client-core/host-api";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { Button } from "../ui/button";
+  import type { PrFixFeedback } from "../../contexts/workspace/pr-fix-session";
 
   // The submit modal (decision #14): pick an event, write a summary body, review
   // the read-only queued comments, and fire one prSubmitReview anchored to the
@@ -32,8 +34,10 @@
     onSubmitted,
     getCtx,
     getApi,
+    onSendToFixAgent,
+    allowedVerdicts,
   }: {
-    pr: PrReviewContext;
+    pr: PrReviewTarget;
     drafts: ReviewDraftComment[];
     event?: DraftReview["event"];
     body?: string;
@@ -43,6 +47,8 @@
      *  project rather than the active tab's. Defaults to the active tab. */
     getCtx?: () => IpcContext;
     getApi: () => HostApi;
+    onSendToFixAgent?: (feedback: PrFixFeedback) => Promise<void>;
+    allowedVerdicts: PrReviewVerdict[];
   } = $props();
 
   const session = getWorkspaceContext();
@@ -84,6 +90,15 @@
       soft: "var(--solus-status-error-bg)",
     },
   ];
+  const eventVerdict = (reviewEvent: DraftReview["event"]): PrReviewVerdict =>
+    reviewEvent === "APPROVE"
+      ? "approve"
+      : reviewEvent === "REQUEST_CHANGES"
+        ? "request-changes"
+        : "comment";
+  const availableEvents = $derived(
+    EVENTS.filter((reviewEvent) => allowedVerdicts.includes(eventVerdict(reviewEvent.id))),
+  );
 
   let submitting = $state(false);
 
@@ -92,6 +107,11 @@
   let bodyEditor: ReturnType<typeof CommentEditor> | null = $state(null);
   $effect(() => {
     bodyEditor?.focus();
+  });
+  $effect(() => {
+    if (!availableEvents.some((reviewEvent) => reviewEvent.id === event)) {
+      event = availableEvents[0]?.id ?? "COMMENT";
+    }
   });
 
   // Markdown input styled like the message composer: transparent field, accent
@@ -134,7 +154,7 @@
     }
     if (sendToFixAgent) {
       try {
-        await session.startPrCommentsFixSession(pr, feedback);
+        await onSendToFixAgent?.(feedback);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         toasts.error(`Review submitted, but the fix agent couldn't open: ${message}`);
@@ -169,6 +189,7 @@
   // Its exclusive scope keeps the underlying diff panel from seeing the modal keystroke.
   useScope("pr-review", { exclusive: true });
   useKeybinding("pr-review.approve", () => {
+    if (!allowedVerdicts.includes("approve")) return;
     if (event !== "APPROVE") {
       event = "APPROVE";
       return;
@@ -187,14 +208,14 @@
 >
   <div class="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-(--solus-container-bg) shadow-2xl ring-1 ring-black/10 dark:ring-white/10">
     <header class="flex shrink-0 items-center gap-3 border-b border-border px-5 py-4">
-      <span class="flex size-9 shrink-0 items-center justify-center rounded-xl bg-(--solus-accent-soft) text-primary">
+      <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-(--solus-accent-soft) text-primary">
         <PaperPlaneTiltIcon size={17} weight="fill" />
       </span>
       <div class="flex min-w-0 flex-col">
-        <h2 class="text-[15px] font-semibold tracking-tight">
+        <h2 class="text-sm font-medium ">
           Submit review
         </h2>
-        <span class="font-mono text-[11px] text-muted-foreground">#{pr.number}</span>
+        <span class="font-mono text-xs text-muted-foreground">#{pr.number}</span>
       </div>
       <Button
         type="button"
@@ -214,27 +235,27 @@
 
     <div class="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 py-5">
       <fieldset class="flex flex-col gap-2">
-        <legend class="mb-2 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">Event</legend>
-        {#each EVENTS as e (e.id)}
+        <legend class="mb-2 text-xs font-medium r text-muted-foreground uppercase">Event</legend>
+        {#each availableEvents as e (e.id)}
           {@const selected = event === e.id}
           {@const Icon = e.icon}
           <label
             style="--ev:{e.color}; --ev-soft:{e.soft};"
-            class="group flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-(--ev) has-[:focus-visible]:ring-offset-1 has-[:focus-visible]:ring-offset-(--solus-container-bg) {selected
-              ? 'border-(--ev) bg-(--ev-soft)'
-              : 'border-border hover:bg-muted'}"
+            class="group flex cursor-pointer items-center gap-3 rounded-2xl border px-3 py-2.5 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-(--ev) has-[:focus-visible]:ring-offset-1 has-[:focus-visible]:ring-offset-(--solus-container-bg) {selected
+ ? 'border-(--ev) bg-(--ev-soft)'
+ : 'border-border hover:bg-muted'}"
           >
             <input type="radio" name="event" value={e.id} bind:group={event} class="sr-only" />
             <span
               class="flex size-8 shrink-0 items-center justify-center rounded-lg {selected
-                ? 'bg-(--ev) text-white'
-                : 'bg-muted text-muted-foreground'}"
+ ? 'bg-(--ev) text-white'
+ : 'bg-muted text-muted-foreground'}"
             >
               <Icon size={17} weight={selected ? "fill" : "regular"} />
             </span>
             <span class="flex min-w-0 flex-col">
-              <span class="text-[12.5px] font-medium text-foreground">{e.label}</span>
-              <span class="text-[11.5px] text-muted-foreground">{e.hint}</span>
+              <span class="text-[0.8125rem] font-medium text-foreground">{e.label}</span>
+              <span class="text-xs text-muted-foreground">{e.hint}</span>
             </span>
             <span
               class="ml-auto flex size-5 shrink-0 items-center justify-center text-(--ev) {selected ? '' : 'opacity-0'}"
@@ -247,7 +268,7 @@
       </fieldset>
 
       <div class="flex flex-col gap-2">
-        <span class="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">Summary</span>
+        <span class="text-xs font-medium r text-muted-foreground uppercase">Summary</span>
         <CommentEditor
           bind:this={bodyEditor}
           value={body}
@@ -264,26 +285,26 @@
 
       <div class="flex flex-col gap-2">
         <div class="flex items-center gap-2">
-          <span class="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">Queued comments</span>
-          <span class="flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10.5px] font-medium text-foreground tabular-nums">
+          <span class="text-xs font-medium r text-muted-foreground uppercase">Queued comments</span>
+          <span class="flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-xs font-medium text-foreground tabular-nums">
             {drafts.length}
           </span>
         </div>
         {#if drafts.length === 0}
-          <p class="rounded-xl border border-dashed border-border px-3 py-3 text-[12.5px] text-muted-foreground">
+          <p class="rounded-2xl border border-dashed border-border px-3 py-3 text-[0.8125rem] text-muted-foreground">
             No inline comments — {event === "APPROVE" ? "this submits the summary only." : "a summary is required to submit."}
           </p>
         {:else}
           <ul class="flex flex-col gap-1.5">
             {#each drafts as d (d.id)}
-              <li class="rounded-xl border border-border bg-card px-3 py-2.5">
-                <div class="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
+              <li class="rounded-2xl border border-border bg-card px-3 py-2.5">
+                <div class="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
                   <span class="truncate">{d.path}:{d.line}</span>
-                  <span class="shrink-0 rounded bg-muted px-1 py-px text-[10.5px] font-medium tracking-wide text-foreground">
+                  <span class="shrink-0 rounded bg-muted px-1 py-px text-xs font-medium text-foreground">
                     {d.side === "old" ? "LEFT" : "RIGHT"}
                   </span>
                 </div>
-                <p class="mt-1 text-[12.5px] leading-relaxed whitespace-pre-wrap text-foreground">{d.body}</p>
+                <p class="mt-1 text-[0.8125rem] leading-relaxed whitespace-pre-wrap text-foreground">{d.body}</p>
               </li>
             {/each}
           </ul>

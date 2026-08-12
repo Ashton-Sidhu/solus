@@ -125,7 +125,7 @@
     </button>
   {:else}
     <section
-      class="subagent-group mx-auto w-[88%] overflow-hidden rounded-[0.875rem]"
+      class="subagent-group mx-auto w-[88%] overflow-hidden rounded-2xl"
       aria-label={`${messages.length} sub-agents`}
       data-testid="subagent-group"
     >
@@ -186,9 +186,9 @@
 
   .subagent-group__kicker {
     margin-bottom: 0.3125rem;
-    font-size: 0.59375rem;
+    font-size: 0.75rem;
     font-weight: 500;
-    letter-spacing: 0.12em;
+
     text-transform: uppercase;
     color: var(--muted-foreground);
     opacity: 0.7;
@@ -200,8 +200,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 0.875rem;
-    font-weight: 600;
-    letter-spacing: -0.012em;
+    font-weight: 500;
     color: var(--solus-text-primary);
   }
 
@@ -210,9 +209,9 @@
     flex-shrink: 0;
     align-items: center;
     gap: 0.375rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     padding: 0.125rem 0.5rem;
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     font-weight: 500;
     color: var(--muted-foreground);
     background: color-mix(in oklch, var(--foreground) 6%, transparent);
@@ -229,7 +228,7 @@
   .subagent-group__chip-dot {
     width: 0.3125rem;
     height: 0.3125rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: currentColor;
   }
 
@@ -238,7 +237,7 @@
     align-items: center;
     gap: 0.5rem;
     margin-top: 0.125rem;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
   }
 
@@ -259,7 +258,7 @@
     background: transparent;
     padding: 0.375rem;
     text-align: left;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     cursor: pointer;
     transition: background var(--duration-quick) var(--ease-premium);
@@ -300,7 +299,7 @@
   }
 
   .subagent-fold__label {
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     color: var(--muted-foreground);
   }
 
@@ -310,7 +309,7 @@
 
   .subagent-fold__rail {
     flex-shrink: 0;
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     opacity: 0.55;
     font-variant-numeric: tabular-nums;

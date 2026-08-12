@@ -11,7 +11,8 @@
   } from "phosphor-svelte";
   import type { Automation } from "../../../shared/types";
   import { compactRelativeTime } from "../ui/list-page";
-  import { triggerSummary, folderLabel } from "./lib/automation-format";
+  import ProjectFavicon from "../ui/ProjectFavicon.svelte";
+  import { triggerSummary } from "./lib/automation-format";
 
   /** One line of the automations list, in the shared list-page row grammar:
    *  a 20px status tile, the name, the machine facts, then a right end that
@@ -21,6 +22,8 @@
    *  already says. */
   interface Props {
     automation: Automation;
+    projectLabel: string;
+    projectPath: string;
     /** Ticking clock from the page, so the age column counts up on its own. */
     now: number;
     selected?: boolean;
@@ -33,6 +36,8 @@
   }
   let {
     automation: a,
+    projectLabel,
+    projectPath,
     now,
     selected = false,
     onOpen,
@@ -44,7 +49,7 @@
   }: Props = $props();
 
   const actBtn =
-    "grid size-6 shrink-0 cursor-pointer place-items-center rounded-[7px] border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-3)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40";
+    "grid size-6 shrink-0 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-3)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40";
 
   const tone = $derived(
     a.lastRunStatus === "running"
@@ -82,14 +87,14 @@
 </script>
 
 <div
-  class="group relative flex h-11 w-full items-center rounded-[10px] pr-2 pl-2.5 transition-shadow duration-150 {selected
+  class="group relative flex h-11 w-full items-center rounded-lg pr-2 pl-2.5 transition-shadow duration-150 {selected
     ? 'bg-[var(--wash-2)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)]'
     : 'hover:bg-[var(--wash-1)]'} {a.enabled ? '' : 'opacity-70'}"
   data-selected={selected}
 >
   <button
     type="button"
-    class="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-[11px] border-0 bg-transparent p-0 text-left focus-visible:outline-none"
+    class="grid h-full min-w-0 flex-1 cursor-pointer grid-cols-[20px_minmax(140px,330px)_minmax(148px,1fr)_156px_64px] items-center gap-x-[11px] border-0 bg-transparent p-0 text-left focus-visible:outline-none @max-[44rem]:grid-cols-[20px_minmax(100px,1fr)_128px_64px]"
     onclick={() => onOpen(a)}
   >
     <!-- Slot 1 — cadence kind as a glyph, status as the tile's tint. -->
@@ -98,45 +103,43 @@
       title="{schedule} — {toneLabel}"
     >
       {#if tone === "running"}
-        <CircleNotchIcon size={11} class="animate-spin [animation-duration:0.9s]" />
+        <CircleNotchIcon size={14} class="animate-spin [animation-duration:0.9s]" />
       {:else if a.trigger.type === "manual"}
-        <PlayIcon size={9} weight="fill" />
+        <PlayIcon size={14} weight="fill" />
       {:else}
-        <ClockIcon size={10} />
+        <ClockIcon size={14} />
       {/if}
     </span>
 
     <!-- Slot 2 — the only full-strength text in the row. -->
     <span
-      class="max-w-[330px] shrink-0 truncate text-[13px] font-[450] tracking-[-.005em]"
+      class="min-w-0 truncate text-[0.8125rem] font-normal "
       title={a.name}
     >
       {a.name}
     </span>
 
-    <!-- Slot 3 — where it runs, and who wrote it. -->
-    <span class="min-w-0 truncate font-mono text-[11px] text-muted-foreground opacity-75">
-      {folderLabel(a.action.cwd)}{a.createdBy.kind === "agent" ? " · agent" : ""}
+    <!-- Slot 3 — the project where this automation runs. -->
+    <span
+      class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+      title="Project: {projectLabel}"
+    >
+      <ProjectFavicon projectRoot={projectPath} class="size-3 shrink-0" />
+      <span class="truncate">{projectLabel}</span>
     </span>
-
-    <span class="flex-1"></span>
 
     <!-- Slots 4 and 5 — what it does and when it last did it. They step aside
          for the verbs rather than sharing the line with them, so the right end
          is never two things at once. -->
     <span
-      class="flex shrink-0 items-center gap-2 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
+      class="truncate text-right font-mono text-xs whitespace-nowrap text-muted-foreground opacity-85 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0 @max-[44rem]:hidden"
     >
-      <span
-        class="w-[156px] text-right font-mono text-[11px] whitespace-nowrap text-muted-foreground opacity-85"
-      >
-        {schedule}
-      </span>
-      <span
-        class="w-11 text-right font-mono text-[11px] tabular-nums text-muted-foreground opacity-70"
-      >
-        {age}
-      </span>
+      {schedule}
+    </span>
+    <span
+      class="text-right font-mono text-xs tabular-nums text-muted-foreground opacity-70 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
+    >
+      {age}
     </span>
   </button>
 
@@ -151,7 +154,7 @@
       aria-pressed={a.favorite}
       title={a.favorite ? "Unstar" : "Star"}
     >
-      <StarIcon size={12} weight={a.favorite ? "fill" : "regular"} />
+      <StarIcon size={14} weight={a.favorite ? "fill" : "regular"} />
     </button>
     <button
       type="button"
@@ -161,7 +164,7 @@
       aria-label="Run now"
       title="Run now"
     >
-      <PlayIcon size={12} weight="fill" />
+      <PlayIcon size={14} weight="fill" />
     </button>
     <button
       type="button"
@@ -173,7 +176,7 @@
       aria-label="Edit"
       title="Edit"
     >
-      <PencilSimpleIcon size={12} />
+      <PencilSimpleIcon size={14} />
     </button>
     {#if a.lastRunStatus === "running"}
       <button
@@ -183,7 +186,7 @@
         aria-label="Stop run"
         title="Stop this run"
       >
-        <StopIcon size={12} weight="fill" />
+        <StopIcon size={14} weight="fill" />
       </button>
     {:else if a.enabled}
       <button
@@ -193,7 +196,7 @@
         aria-label="Pause automation"
         title="Pause — stop running on schedule"
       >
-        <PauseIcon size={12} weight="fill" />
+        <PauseIcon size={14} weight="fill" />
       </button>
     {:else}
       <button
@@ -203,7 +206,7 @@
         aria-label="Resume automation"
         title="Resume — run on schedule again"
       >
-        <PlayIcon size={12} weight="fill" />
+        <PlayIcon size={14} weight="fill" />
       </button>
     {/if}
     <button
@@ -213,7 +216,7 @@
       aria-label="Delete"
       title="Delete"
     >
-      <TrashIcon size={12} />
+      <TrashIcon size={14} />
     </button>
   </div>
 </div>

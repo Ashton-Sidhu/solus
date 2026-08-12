@@ -8,7 +8,7 @@ import { assertUniqueAgentTools, executeAgentTool } from '../tools/agent-tool'
 const TOOL_USE_ID_META_KEY = 'claudecode/toolUseId'
 
 export function claudeParentToolUseId(extra: unknown): string | undefined {
-  const meta = (extra as { _meta?: Record<string, unknown> } | undefined)?._meta
+  const meta = (extra as { _meta?: { 'claudecode/toolUseId'?: unknown } } | undefined)?._meta
   const id = meta?.[TOOL_USE_ID_META_KEY]
   return typeof id === 'string' && id ? id : undefined
 }

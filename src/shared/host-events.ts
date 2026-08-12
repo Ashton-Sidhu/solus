@@ -2,13 +2,14 @@ import type { AttentionEntry } from './attention-types'
 import type { PrChecksSnapshot } from './checks-rpc-types'
 import type { ReviewGuideStatusEvent, ReviewProgressEvent, PrGuideStatusEvent } from './review'
 import type { StackGraph } from './stack-types'
+import type { PullRequestDetail } from './providers'
 import type {
   AgentUsageLimits,
   AnnotationsChanged,
   AutomationsChangedEvent,
   DeviceCodePrompt,
   EnrichedError,
-  NormalizedEvent,
+  WireNormalizedEvent,
   SessionIndexUpdatedEvent,
   SessionScanEvent,
   SessionStatus,
@@ -23,7 +24,7 @@ import type {
  * Commands and queries remain RPC methods; native shell signals stay local.
  */
 export interface HostEventMap {
-  'session.eventReceived': { sessionId: string; event: NormalizedEvent }
+  'session.eventReceived': { sessionId: string; event: WireNormalizedEvent }
   'session.errorReceived': { sessionId: string; error: EnrichedError }
   'session.scanProgressed': SessionScanEvent
   'session.indexChanged': SessionIndexUpdatedEvent
@@ -43,6 +44,7 @@ export interface HostEventMap {
    *  by draining (`outboxList` → apply on the owner host → `outboxAck`). */
   'outbox.changed': Record<string, never>
   'prs.invalidated': { projectRoot: string }
+  'pr.lifecycleChanged': { projectRoot: string; detail: PullRequestDetail }
   'annotations.changed': AnnotationsChanged
   'attention.snapshotChanged': { entries: AttentionEntry[] }
   'stack.graphChanged': { repoRoot: string; graph: StackGraph }
@@ -85,6 +87,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'tasks.invalidated': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: 'The local task store changed.' },
   'outbox.changed': { owner: 'outbox', category: 'invalidation', recovery: 'reload', description: 'The host outbox changed; connected clients should drain it.' },
   'prs.invalidated': { owner: 'prs', category: 'invalidation', recovery: 'reload', description: 'Pull-request state changed for one project.' },
+  'pr.lifecycleChanged': { owner: 'prs', category: 'delta', recovery: 'reload', description: 'A pull request changed lifecycle state.' },
   'annotations.changed': { owner: 'annotations', category: 'delta', recovery: 'reload', description: 'Plan or work annotations changed.' },
   'attention.snapshotChanged': { owner: 'attention', category: 'snapshot', recovery: 'reload', description: 'The bounded attention list changed.' },
   'stack.graphChanged': { owner: 'stacks', category: 'snapshot', recovery: 'reload', description: 'A repository PR stack graph changed.' },

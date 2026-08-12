@@ -9,7 +9,12 @@ export interface AgentToolResult {
 export interface AgentToolContext {
   provider: AgentId
   cwd: string
+  /** The provider's thread id — the currency of durable rows (session links,
+   *  comment provenance, the session index). */
   sessionId: () => string | undefined
+  /** Solus's own session id — the key the ControlPlane holds per-session state
+   *  under, e.g. a dispatched session's foreign task snapshot. */
+  solusSessionId: () => string | undefined
   abortSignal: AbortSignal
   parentToolUseId: () => string | undefined
   emit: (event: NormalizedEvent) => void

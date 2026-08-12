@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import type { PrReviewContext } from "../../../shared/types";
+  import type { PrReviewTarget } from "../../../shared/providers";
   import { getWorkspaceContext } from "../../contexts";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
@@ -31,8 +31,9 @@
     session.router.params("prReview")?.serverId ??
       serverConnections.serverIdForApi(serverConnections.primaryApi()),
   );
-  const review = $derived(existingPrReviewState(reviewServerId, params.number));
-  const pr = $derived<PrReviewContext | null>(review?.pr ?? null);
+  const review = $derived(existingPrReviewState(reviewServerId, params.cwd ?? "", params.number));
+  const pr = $derived<PrReviewTarget | null>(review?.pr ?? null);
+  const checkout = $derived(review?.checkout ?? null);
 
   const reviewTabId = `pr-diff-${params.number}`;
 
@@ -82,21 +83,27 @@
       />
     {/if}
     <div class="min-h-0 flex-1">
+      {#if review.diffLoading && review.diffPatch === null}
+        <div class="grid h-full place-items-center text-xs text-muted-foreground" role="status">Loading pull request diff…</div>
+      {:else if review.diffError}
+        <div class="grid h-full place-items-center px-6 text-center text-xs text-destructive" role="alert">{review.diffError}</div>
+      {:else}
       <DiffPanel
         bind:this={diffPanelRef}
         tabId={reviewTabId}
         getCtx={() => review.ctx}
         getApi={() => review.api}
-        projectPath={pr.worktreePath}
-        worktreePath={pr.worktreePath}
+        projectPath={checkout?.worktreePath ?? params.cwd ?? review.ctx.session.projectPath ?? review.ctx.session.workingDirectory}
+        worktreePath={checkout?.worktreePath}
         worktreeBranch={pr.headRef}
         targetBranch={pr.baseRef}
-        isWorktree
+        isWorktree={!!checkout}
         onClose={close}
         embedded
         onToggleMaximize={pane.toggleMaximize}
         initialScope={review.diffScope}
-        patchOverride={review.isSinceReviewMode ? (review.interdiff?.patch ?? "") : null}
+        patchOverride={review.isSinceReviewMode ? (review.interdiff?.patch ?? "") : (review.diffPatch ?? "")}
+        patchOverrideFileLoader={review.isSinceReviewMode ? undefined : review.loadDiffFiles}
         emptyState={review.isSinceReviewMode
           ? {
               title: "No patch changes since your review",
@@ -110,6 +117,7 @@
         onThreadReply={(threadId, body) => review.replyToThread(threadId, body)}
         onThreadResolve={(threadId, resolved) => review.resolveThread(threadId, resolved)}
       />
+      {/if}
     </div>
   </div>
 {:else}
@@ -123,7 +131,7 @@
       aria-hidden="true"
     ></div>
     <div class="grid min-h-0 flex-1 place-items-center text-xs text-muted-foreground" role="status">
-      Checking out this pull request…
+      Loading this pull request…
     </div>
   </div>
 {/if}

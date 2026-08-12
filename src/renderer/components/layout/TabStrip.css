@@ -108,7 +108,7 @@
     margin-right: 0.25rem;
     padding: 0 0.4375rem;
     border-left: 0.125rem solid var(--gc);
-    border-radius: 0 0.4375rem 0.4375rem 0;
+    border-radius: 0 0.5rem 0.5rem 0;
     background: color-mix(in srgb, var(--gc) 9%, transparent);
   }
 
@@ -123,12 +123,11 @@
     max-width: 11.25rem;
     min-height: 1.75rem;
     padding: 0.1875rem 0.3125rem 0.1875rem 0.5625rem;
-    border-radius: 0.625rem;
-    font-size: 0.7188rem;
-    letter-spacing: -0.01em;
+    border-radius: 0.5rem;
+    font-size: 0.75rem;
     /* Single weight across all states — active/attention differentiate via color +
        background only, avoiding the layout reflow a weight change causes. */
-    font-weight: 450;
+    font-weight: 400;
     transition:
       box-shadow 0.12s ease,
       width 0.11s cubic-bezier(0.2, 0.8, 0.2, 1),

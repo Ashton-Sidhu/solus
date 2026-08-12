@@ -74,7 +74,11 @@ export type CodexTurnConfigExtras = {
   reasoning_effort?: string
   collaborationMode?: {
     mode: 'default' | 'plan'
-    settings: Record<string, unknown>
+    settings: {
+      model: string
+      reasoning_effort: string
+      developer_instructions: string | null
+    }
   }
 }
 

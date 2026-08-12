@@ -168,11 +168,11 @@
       bind:value={query}
       onkeydown={onKeydown}
       placeholder="Search skills.sh…"
-      class="rounded-md py-1 [&_input]:text-[0.75rem]"
+      class="rounded-md py-1 [&_input]:text-xs"
     />
   </div>
   {#if activeAgentLabels.length > 0}
-    <p class="mt-2 px-0.5 text-[0.6875rem] text-(--solus-text-tertiary)">
+    <p class="mt-2 px-0.5 text-xs text-(--solus-text-tertiary)">
       Installs into: {activeAgentLabels.join(", ")}
     </p>
   {/if}
@@ -199,7 +199,7 @@
       {@const isInstalling = installing.has(installKey)}
       {@const error = installErrors.get(installKey)}
       {#snippet installError()}
-        <div class="flex items-center gap-1 text-[0.6875rem] text-(--solus-status-error)">
+        <div class="flex items-center gap-1 text-xs text-(--solus-status-error)">
           <WarningCircleIcon size={12} />
           <span class="truncate">{error}</span>
         </div>

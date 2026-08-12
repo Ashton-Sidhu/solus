@@ -10,7 +10,7 @@ import type { RouteRef } from '../contexts/workspace/routing/route-registry'
  * back to opening it externally.
  */
 export function routeForHref(href: string, opts: { title?: string } = {}): RouteRef | null {
-  if (!/^(plan|work|pr):\/\//i.test(href)) return null
+  if (!/^(plan|work|pr):\/\//i.test(href) && !/^https:\/\/github\.com\//i.test(href)) return null
   let url: URL
   try {
     url = new URL(href)
@@ -18,6 +18,22 @@ export function routeForHref(href: string, opts: { title?: string } = {}): Route
     return null
   }
   const params = url.searchParams
+
+  if (url.protocol === 'https:' && url.hostname.toLowerCase() === 'github.com') {
+    const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/(\d+)\/?$/i)
+    if (!match) return null
+    const number = Number(match[3])
+    return Number.isInteger(number) && number > 0
+      ? {
+          name: 'prReview',
+          params: {
+            number,
+            title: opts.title,
+            expectedRepo: { host: url.hostname, owner: match[1], repo: match[2] },
+          },
+        }
+      : null
+  }
 
   if (href.startsWith('plan://')) {
     const sessionId = params.get('sessionId') ?? ''

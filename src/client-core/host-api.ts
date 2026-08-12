@@ -18,6 +18,6 @@ export type HostApi = SolusAPI & {
 export interface LocalApi extends Pick<SolusAPI & NativeSolusAPI, NativeOnlySolusMethod | 'isVisible'> {}
 
 /** @internal The only widening point from a raw RPC API to a host API. */
-export function asHostApi(api: SolusAPI | Record<string, unknown>): HostApi {
+export function asHostApi(api: object): HostApi {
   return api as HostApi
 }

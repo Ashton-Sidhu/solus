@@ -93,14 +93,14 @@
   /* The same warm wash as the document's inline code, one step smaller. */
   .cb__code {
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.88em;
+    font-size: 0.875rem;
     background: var(--solus-art-raised);
     padding: 0.1em 0.32em;
     border-radius: 0.25rem;
   }
   .cb__quote {
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     line-height: 1.7;
     color: color-mix(in srgb, var(--solus-text-primary) 84%, var(--solus-text-tertiary));
     border-left: 0.0625rem solid color-mix(in srgb, var(--solus-art-border) 90%, transparent);
@@ -111,7 +111,7 @@
   }
   .cb__mention {
     color: var(--solus-accent);
-    font-weight: 550;
+    font-weight: 500;
   }
   .cb__link {
     color: var(--solus-accent);
@@ -127,7 +127,7 @@
     border: none;
     background: transparent;
     font-family: inherit;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-tertiary);
     cursor: pointer;
   }

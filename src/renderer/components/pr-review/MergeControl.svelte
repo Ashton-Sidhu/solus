@@ -7,6 +7,7 @@
     GitMergeIcon,
   } from "phosphor-svelte";
   import type { IpcContext, MergeMethod } from "../../../shared/types";
+  import type { PullRequestDetail } from "../../../shared/providers";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import type { HostApi } from "@client-core/host-api";
@@ -19,10 +20,14 @@
     pr,
     getCtx,
     getApi,
+    methods,
+    onMerged,
   }: {
-    pr: { number: number; title: string };
+    pr: { number: number; title: string; headSha: string };
     getCtx: () => IpcContext;
     getApi: () => HostApi;
+    methods: MergeMethod[];
+    onMerged?: (detail: PullRequestDetail) => void;
   } = $props();
 
   let method = $state<MergeMethod>("merge");
@@ -56,8 +61,16 @@
       hint: "Replay each commit onto the base branch.",
     },
   ];
+  const availableOptions = $derived(
+    METHOD_OPTIONS.filter((option) => methods.includes(option.value)),
+  );
+  const selectedMethod = $derived(
+    availableOptions.some((option) => option.value === method)
+      ? method
+      : (availableOptions[0]?.value ?? "merge"),
+  );
   const actionLabel = $derived(
-    METHOD_OPTIONS.find((o) => o.value === method)?.action ?? "",
+    availableOptions.find((option) => option.value === selectedMethod)?.action ?? "Merge pull request",
   );
 
   async function merge() {
@@ -68,13 +81,15 @@
       const result = await getApi().prMerge(
         getCtx(),
         pr.number,
-        method,
+        selectedMethod,
+        pr.headSha,
       );
       if (!result.merged) {
         toasts.error(result.message ?? "The code host refused the merge.");
         return;
       }
       merged = true;
+      if (result.detail) onMerged?.(result.detail);
     } catch (err) {
       toasts.error(
         `Couldn't merge the pull request: ${err instanceof Error ? err.message : String(err)}`,
@@ -88,7 +103,7 @@
 
 {#if merged}
   <div
-    class="flex h-[34px] items-center gap-1.5 text-[13px] font-medium text-(--solus-art-positive)"
+    class="flex h-[34px] items-center gap-1.5 text-[0.8125rem] font-medium text-(--solus-art-positive)"
   >
     <CheckCircleIcon size={14} weight="fill" class="shrink-0" />
     Merged
@@ -99,7 +114,7 @@
   >
     <Button
       type="button"
-      class="inline-flex h-full min-w-0 flex-1 cursor-pointer items-center justify-center gap-2 border-0 bg-transparent px-3.5 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary-foreground/10 disabled:cursor-not-allowed disabled:opacity-60"
+      class="inline-flex h-full min-w-0 flex-1 cursor-pointer items-center justify-center gap-2 border-0 bg-transparent px-3.5 text-[0.8125rem] font-medium text-primary-foreground transition-colors hover:bg-primary-foreground/10 disabled:cursor-not-allowed disabled:opacity-60"
       disabled={merging}
       onclick={merge}
     >
@@ -112,24 +127,26 @@
         {merging ? "Merging…" : actionLabel}
       </span>
     </Button>
-    <span class="my-1 w-px shrink-0 bg-primary-foreground/25" aria-hidden="true"></span>
-    <Button
-      type="button"
-      bind:ref={triggerEl}
-      class="inline-flex w-[30px] shrink-0 cursor-pointer items-center justify-center border-0 bg-transparent px-0 text-primary-foreground transition-colors hover:bg-primary-foreground/10 disabled:cursor-not-allowed disabled:opacity-60"
-      disabled={merging}
-      aria-label="Merge method"
-      aria-haspopup="menu"
-      aria-expanded={menuOpen}
-      onclick={() => (menuOpen = !menuOpen)}
-    >
-      <CaretDownIcon
-        size={11}
-        class="shrink-0 transition-transform duration-150 {menuOpen
-          ? 'rotate-180'
-          : ''}"
-      />
-    </Button>
+    {#if availableOptions.length > 1}
+      <span class="my-1 w-px shrink-0 bg-primary-foreground/25" aria-hidden="true"></span>
+      <Button
+        type="button"
+        bind:ref={triggerEl}
+        class="inline-flex w-[30px] shrink-0 cursor-pointer items-center justify-center border-0 bg-transparent px-0 text-primary-foreground transition-colors hover:bg-primary-foreground/10 disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={merging}
+        aria-label="Merge method"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        onclick={() => (menuOpen = !menuOpen)}
+      >
+        <CaretDownIcon
+          size={11}
+          class="shrink-0 transition-transform duration-150 {menuOpen
+            ? 'rotate-180'
+            : ''}"
+        />
+      </Button>
+    {/if}
   </div>
   <DropdownMenu.Root bind:open={menuOpen}>
     <DropdownMenu.Content
@@ -144,9 +161,9 @@
         if (triggerEl?.contains(event.target as Node)) event.preventDefault();
       }}
     >
-      {#each METHOD_OPTIONS as opt (opt.value)}
+      {#each availableOptions as opt (opt.value)}
         <DropdownMenu.Item
-          data-menu-current={method === opt.value ? "" : undefined}
+          data-menu-current={selectedMethod === opt.value ? "" : undefined}
           class="h-auto min-h-11 items-start gap-2.5 py-2"
           onSelect={() => {
             method = opt.value;
@@ -165,7 +182,7 @@
               {opt.hint}
             </span>
           </span>
-          {#if method === opt.value}
+          {#if selectedMethod === opt.value}
             <CheckIcon
               size={12}
               class="mt-1 shrink-0 text-(--solus-accent)"

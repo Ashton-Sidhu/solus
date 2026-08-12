@@ -38,7 +38,7 @@
 
 <button
   onclick={handleCopy}
-  class="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md border-none text-[0.6875rem] transition-colors {iconOnly
+  class="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md border-none text-xs transition-colors {iconOnly
     ? 'size-7 justify-center p-0'
     : 'px-1.5 py-0.5'}"
   class:bg-(--solus-status-complete-bg)={copied}

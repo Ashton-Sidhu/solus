@@ -86,10 +86,9 @@ export function estimateRetainedBytes(value: unknown, ceiling = Number.POSITIVE_
       }
       return
     }
-    for (const key in candidate as Record<string, unknown>) {
-      if (!Object.prototype.hasOwnProperty.call(candidate, key)) continue
+    for (const [key, item] of Object.entries(candidate)) {
       bytes += 8 + key.length * 2
-      visit((candidate as Record<string, unknown>)[key])
+      visit(item)
       if (bytes > ceiling) break
     }
   }

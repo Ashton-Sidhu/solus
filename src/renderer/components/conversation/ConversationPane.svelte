@@ -21,6 +21,10 @@
   // the workspace's answer, not the route's — the one place that hop happens.
   // The leading pane's chat goes through the pool instead.
   const tabId = $derived(session.chatTabIn(paneId));
+  const paneSession = $derived(tabId ? session.sessionFor(tabId) : undefined);
+  const snoozeReminder = $derived(
+    session.tasksStore.snoozeReminderForSession(paneSession?.agentSessionId),
+  );
 
   // Only the leading pane renders the pool, so a companion that names no
   // session has no conversation of its own. Borrowing the active tab put the
@@ -37,7 +41,7 @@
   // the leading column centres, not a hero stranded in the middle of a blank
   // transcript with the composer far below it.
   const centerHome = $derived(
-    isHomeVisible(tabId ? session.sessionFor(tabId) : undefined),
+    isHomeVisible(paneSession, !!snoozeReminder),
   );
 
   async function attachFile(conversationTabId: string) {

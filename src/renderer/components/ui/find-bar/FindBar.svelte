@@ -245,7 +245,7 @@
     width: min(22rem, calc(100vw - 1.5rem));
     padding: 0.375rem;
     border: 0.0625rem solid var(--solus-popover-border);
-    border-radius: 0.625rem;
+    border-radius: 1rem;
     background: var(--solus-popover-bg);
     box-shadow: var(--solus-popover-shadow);
     backdrop-filter: blur(1.25rem) saturate(1.1);
@@ -288,7 +288,7 @@
     padding-inline: 0.25rem;
     text-align: right;
     color: var(--solus-text-tertiary);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
   }
   .find-bar__btn {
@@ -353,7 +353,7 @@
     background: var(--solus-surface-hover);
     padding: 0 0.5rem;
     color: var(--solus-text-secondary);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 500;
     cursor: pointer;
     transition:

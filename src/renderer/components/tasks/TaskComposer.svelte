@@ -332,20 +332,20 @@
   }
 
   const segBtn = (active: boolean) =>
-    "inline-flex items-center gap-1.5 cursor-pointer rounded-md border-0 px-2.5 py-1 text-[12px] font-medium transition-colors duration-100 " +
+    "inline-flex items-center gap-1.5 cursor-pointer rounded-md border-0 px-2.5 py-1 text-xs font-medium transition-colors duration-100 " +
     (active
       ? "bg-(--solus-accent-light) text-(--solus-accent)"
       : "bg-transparent text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)");
 
   // Shared property-pill trigger styling (neutral chip, accent on hover/focus).
   const PILL =
-    "inline-flex items-center gap-1.5 min-h-[1.75rem] cursor-pointer rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 text-[12px] font-secondary text-(--solus-text-secondary) outline-none transition-colors duration-100 hover:border-[color-mix(in_srgb,var(--solus-accent)_35%,transparent)] hover:text-(--solus-text-primary) focus-visible:border-(--solus-accent) disabled:opacity-50";
+    "inline-flex items-center gap-1.5 min-h-[1.75rem] cursor-pointer rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 text-xs font-secondary text-(--solus-text-secondary) outline-none transition-colors duration-100 hover:border-[color-mix(in_srgb,var(--solus-accent)_35%,transparent)] hover:text-(--solus-text-primary) focus-visible:border-(--solus-accent) disabled:opacity-50";
   // Square ghost icon button in the header (expand / close).
   const ICON_BTN =
     "inline-flex items-center justify-center size-6 flex-shrink-0 border-none rounded-md bg-transparent text-(--solus-text-tertiary) cursor-pointer transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) disabled:opacity-50";
   // Shared option-row styling inside a picker popover.
   const OPT =
-    "flex w-full items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[13px] font-secondary text-(--solus-text-secondary) cursor-pointer outline-none transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) data-[selected=true]:font-semibold data-[selected=true]:text-(--solus-text-primary)";
+    "flex w-full items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[0.8125rem] font-secondary text-(--solus-text-secondary) cursor-pointer outline-none transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) data-[selected=true]:font-medium data-[selected=true]:text-(--solus-text-primary)";
   // Layout-only prompt wrapper: the editor reads like AutomationBuilder's unboxed
   // prompt area — the plain-text editor ships no border/background of its own, so the
   // wrapper only needs a transparent base plus flex sizing.
@@ -364,8 +364,8 @@
 <div
   data-solus-ui
   class="fixed inset-0 z-[10008] flex items-start justify-center {expanded
-    ? 'pt-[7vh]'
-    : 'pt-[13vh]'} pointer-events-auto bg-transparent [animation:task-modal-backdrop-in_160ms_ease_both]"
+ ? 'pt-[7vh]'
+ : 'pt-[13vh]'} pointer-events-auto bg-transparent [animation:task-modal-backdrop-in_160ms_ease_both]"
   role="presentation"
   onclick={(e) => {
     if (e.target === e.currentTarget && !saving) onCancel();
@@ -374,8 +374,8 @@
 >
   <div
     class="{expanded
-      ? 'w-[clamp(20rem,76vw,54rem)] h-[min(44rem,84vh)]'
-      : 'w-[clamp(20rem,52vw,34rem)]'} max-w-[calc(100vw-3rem)] outline-none flex flex-col rounded-[1.125rem] border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] [.dark_&]:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] overflow-hidden origin-top transition-[width,height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] [animation:task-modal-enter_200ms_cubic-bezier(0.22,1,0.36,1)_both]"
+ ? 'w-[clamp(20rem,76vw,54rem)] h-[min(44rem,84vh)]'
+ : 'w-[clamp(20rem,52vw,34rem)]'} max-w-[calc(100vw-3rem)] outline-none flex flex-col rounded-2xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] [.dark_&]:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] overflow-hidden origin-top transition-[width,height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] [animation:task-modal-enter_200ms_cubic-bezier(0.22,1,0.36,1)_both]"
     role="dialog"
     aria-label={heading}
     aria-modal="true"
@@ -398,13 +398,13 @@
         />
       {/if}
       <span
-        class="text-[13px] font-medium tracking-[-0.005em] text-(--solus-text-primary)"
+        class="text-[0.8125rem] font-medium text-(--solus-text-primary)"
         >{heading}</span
       >
       {#if initialParentId && parentEpic}
         <span class="text-(--solus-text-tertiary)">›</span>
         <span
-          class="min-w-0 truncate text-[13px] font-secondary text-(--solus-text-secondary)"
+          class="min-w-0 truncate text-[0.8125rem] font-secondary text-(--solus-text-secondary)"
           >{parentEpic.title}</span
         >
       {/if}
@@ -422,14 +422,14 @@
           <ArrowsInSimpleIcon
             size={14}
             class="col-start-1 row-start-1 transition-[opacity,scale,filter] duration-300 ease-[cubic-bezier(0.2,0,0,1)] {expanded
-              ? 'opacity-100 scale-100 blur-none'
-              : 'opacity-0 scale-[0.25] blur-[4px]'}"
+ ? 'opacity-100 scale-100 blur-none'
+ : 'opacity-0 scale-[0.25] blur-[4px]'}"
           />
           <ArrowsOutSimpleIcon
             size={14}
             class="col-start-1 row-start-1 transition-[opacity,scale,filter] duration-300 ease-[cubic-bezier(0.2,0,0,1)] {expanded
-              ? 'opacity-0 scale-[0.25] blur-[4px]'
-              : 'opacity-100 scale-100 blur-none'}"
+ ? 'opacity-0 scale-[0.25] blur-[4px]'
+ : 'opacity-100 scale-100 blur-none'}"
           />
         </span>
       </button>
@@ -447,8 +447,8 @@
     <!-- Body -->
     <div
       class="flex flex-col gap-1.5 px-[1.125rem] pt-3.5 pb-2 {expanded
-        ? 'flex-1 min-h-0'
-        : ''}"
+ ? 'flex-1 min-h-0'
+ : ''}"
     >
       <input
         bind:this={titleEl}
@@ -457,7 +457,7 @@
         placeholder="Task title"
         aria-label="Task title"
         disabled={saving}
-        class="w-full border-0 border-none outline-none shadow-none appearance-none bg-transparent text-[16px] font-medium tracking-[-0.01em] text-(--solus-text-primary) placeholder:text-(--solus-text-tertiary) disabled:opacity-60"
+        class="w-full border-0 border-none outline-none shadow-none appearance-none bg-transparent text-sm font-medium text-(--solus-text-primary) placeholder:text-(--solus-text-tertiary) disabled:opacity-60"
         onkeydown={(e) => {
           if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
             e.preventDefault();
@@ -564,7 +564,7 @@
         title="Priority (⌥P)"
       >
         <FlagIcon
-          size={12}
+          size={14}
           weight={priority ? "fill" : "regular"}
           class={priority
             ? PRIORITY_META[priority].flagClass
@@ -594,7 +594,7 @@
             class={OPT}
             onclick={() => commit(() => (priority = ""))}
           >
-            <FlagIcon size={12} class="text-(--solus-text-tertiary)" />
+            <FlagIcon size={14} class="text-(--solus-text-tertiary)" />
             No priority
           </button>
           {#each PRIORITY_OPTIONS as p (p)}
@@ -606,7 +606,7 @@
               onclick={() => commit(() => (priority = p))}
             >
               <FlagIcon
-                size={12}
+                size={14}
                 weight="fill"
                 class={PRIORITY_META[p].flagClass}
               />
@@ -628,7 +628,7 @@
         aria-label="Due date"
         title="Due date (⌥D)"
       >
-        <CalendarBlankIcon size={12} class="text-(--solus-text-tertiary)" />
+        <CalendarBlankIcon size={14} class="text-(--solus-text-tertiary)" />
         {dueLabel ?? "Due date"}
       </button>
       <Dropdown
@@ -655,7 +655,7 @@
               onclick={() => commit(() => (dueDate = preset.iso))}
             >
               <CalendarBlankIcon
-                size={12}
+                size={14}
                 class="text-(--solus-text-tertiary)"
               />
               {preset.label}
@@ -669,7 +669,7 @@
               type="date"
               bind:value={dueDate}
               aria-label="Custom due date"
-              class="w-full cursor-pointer rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 py-1 text-[13px] font-secondary text-(--solus-text-secondary) outline-none focus:border-(--solus-accent) [color-scheme:light] [.dark_&]:[color-scheme:dark]"
+              class="w-full cursor-pointer rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 py-1 text-[0.8125rem] font-secondary text-(--solus-text-secondary) outline-none focus:border-(--solus-accent) [color-scheme:light] [.dark_&]:[color-scheme:dark]"
             />
           </div>
           {#if dueDate}
@@ -678,7 +678,7 @@
               class={OPT}
               onclick={() => commit(() => (dueDate = ""))}
             >
-              <XIcon size={12} class="text-(--solus-text-tertiary)" />
+              <XIcon size={14} class="text-(--solus-text-tertiary)" />
               Clear
             </button>
           {/if}
@@ -698,7 +698,7 @@
         aria-label="Labels"
         title="Labels (⌥L)"
       >
-        <TagIcon size={12} class="text-(--solus-text-tertiary)" />
+        <TagIcon size={14} class="text-(--solus-text-tertiary)" />
         {labels.length
           ? `${labels.length} label${labels.length > 1 ? "s" : ""}`
           : "Labels"}
@@ -715,7 +715,7 @@
             <div class="flex flex-wrap gap-1">
               {#each labels as label (label)}
                 <span
-                  class="inline-flex items-center gap-1 rounded bg-(--solus-surface-hover) px-1.5 py-0.5 text-[12px] font-medium text-(--solus-text-secondary)"
+                  class="inline-flex items-center gap-1 rounded bg-(--solus-surface-hover) px-1.5 py-0.5 text-xs font-medium text-(--solus-text-secondary)"
                 >
                   {label}
                   <button
@@ -724,7 +724,7 @@
                     onclick={() => removeLabel(label)}
                     aria-label={`Remove ${label}`}
                   >
-                    <XIcon size={9} weight="bold" />
+                    <XIcon size={14} weight="bold" />
                   </button>
                 </span>
               {/each}
@@ -736,7 +736,7 @@
             type="text"
             placeholder="Add a label…"
             aria-label="Add a label"
-            class="w-full rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 py-1 text-[13px] font-secondary text-(--solus-text-secondary) outline-none focus:border-(--solus-accent)"
+            class="w-full rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 py-1 text-[0.8125rem] font-secondary text-(--solus-text-secondary) outline-none focus:border-(--solus-accent)"
             onkeydown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
@@ -760,7 +760,7 @@
                     labelInputEl?.focus();
                   }}
                 >
-                  <TagIcon size={11} class="text-(--solus-text-tertiary)" />
+                  <TagIcon size={14} class="text-(--solus-text-tertiary)" />
                   {s}
                 </button>
               {/each}
@@ -781,7 +781,7 @@
             disabled={saving}
           >
             <CheckSquareIcon
-              size={12}
+              size={14}
               weight={kind === "task" ? "fill" : "regular"}
             />
             Task
@@ -794,7 +794,7 @@
             disabled={saving}
           >
             <StackIcon
-              size={12}
+              size={14}
               weight={kind === "epic" ? "fill" : "regular"}
             />
             Epic
@@ -812,7 +812,7 @@
             disabled={saving}
             aria-label="Parent epic"
           >
-            <StackIcon size={12} class="text-(--solus-text-tertiary)" />
+            <StackIcon size={14} class="text-(--solus-text-tertiary)" />
             <span class="max-w-[10rem] truncate"
               >{parentEpic ? parentEpic.title : "No epic"}</span
             >
@@ -850,7 +850,7 @@
                   onclick={() => commit(() => (parentId = epic.id))}
                 >
                   <StackIcon
-                    size={12}
+                    size={14}
                     class="text-(--solus-text-tertiary) flex-shrink-0"
                   />
                   <span class="truncate">{epic.title}</span>
@@ -868,7 +868,7 @@
     >
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 text-[12px] text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-secondary) disabled:opacity-50"
+        class="inline-flex items-center gap-1.5 cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 text-xs text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-secondary) disabled:opacity-50"
         onclick={toggleCreateAnother}
         aria-pressed={createAnother}
         disabled={saving}
@@ -876,15 +876,15 @@
       >
         <span
           class="grid size-3.5 place-items-center rounded-[0.25rem] border transition-colors duration-100 {createAnother
-            ? 'border-(--solus-accent) bg-(--solus-accent) text-white'
-            : 'border-(--solus-container-border)'}"
+ ? 'border-(--solus-accent) bg-(--solus-accent) text-white'
+ : 'border-(--solus-container-border)'}"
         >
           <CheckIcon
-            size={9}
+            size={14}
             weight="bold"
             class="transition-[opacity,scale,filter] duration-300 ease-[cubic-bezier(0.2,0,0,1)] {createAnother
-              ? 'opacity-100 scale-100 blur-none'
-              : 'opacity-0 scale-[0.25] blur-[4px]'}"
+ ? 'opacity-100 scale-100 blur-none'
+ : 'opacity-0 scale-[0.25] blur-[4px]'}"
           />
         </span>
         Create more
@@ -892,7 +892,7 @@
       <div class="flex items-center gap-1.5">
         <button
           type="button"
-          class="cursor-pointer rounded-md border-0 bg-transparent px-2.5 py-[0.3125rem] text-[12px] font-medium text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-secondary) disabled:opacity-50"
+          class="cursor-pointer rounded-md border-0 bg-transparent px-2.5 py-[0.3125rem] text-xs font-medium text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-secondary) disabled:opacity-50"
           onclick={onCancel}
           disabled={saving}
         >
@@ -900,13 +900,13 @@
         </button>
         <button
           type="button"
-          class="inline-flex items-center gap-1.5 cursor-pointer rounded-md border-0 bg-(--solus-accent) px-3 py-[0.3125rem] text-[12px] font-semibold text-white transition-[opacity,scale] duration-100 hover:opacity-90 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
+          class="inline-flex items-center gap-1.5 cursor-pointer rounded-md border-0 bg-(--solus-accent) px-3 py-[0.3125rem] text-xs font-medium text-white transition-[opacity,scale] duration-100 hover:opacity-90 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
           disabled={!canSubmit}
           onclick={submit}
         >
           {#if saving}
             <CircleNotchIcon
-              size={12}
+              size={14}
               class="animate-spin [animation-duration:0.7s]"
             />
             Creating…
@@ -919,7 +919,7 @@
           {/if}
         </button>
         <span
-          class="mr-1 inline-flex items-center gap-1.5 text-[12px] text-(--solus-text-tertiary)"
+          class="mr-1 inline-flex items-center gap-1.5 text-xs text-(--solus-text-tertiary)"
         >
           <Kbd variant="hint">⌘</Kbd>
           <Kbd variant="hint">↵</Kbd>

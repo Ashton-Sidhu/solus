@@ -1,6 +1,6 @@
 import { untrack } from 'svelte'
-import type { ReviewComment, ReviewThread } from '../../../../shared/providers'
-import type { DiffScope, IpcContext, PrInterdiffResult, PrReviewContext } from '../../../../shared/types'
+import type { PrDiffSlice, PrReviewTarget, ReviewComment, ReviewThread } from '../../../../shared/providers'
+import type { DiffScope, IpcContext, PrCheckoutContext, PrInterdiffResult, PrReviewContext } from '../../../../shared/types'
 import { worktreeProjectRoot } from '../../../../shared/types'
 import type { DiffBase } from '../../../../shared/stack-types'
 import { reviewGuideKeyForBase } from '../../../../shared/review'
@@ -9,6 +9,7 @@ import { interdiffReviewThreads } from '../../diff/lib/interdiff-annotations'
 import { matchedReviewComments } from './since-review'
 import type { HostApi } from '@client-core/host-api'
 import { hostKey } from '@client-core/host-key'
+import type { FileDiffLoadedFiles, FileDiffMetadata } from '@pierre/diffs'
 
 /**
  * One pull request's review state, shared by every surface that shows it.
@@ -27,9 +28,17 @@ import { hostKey } from '@client-core/host-key'
 export class PrReviewState {
   readonly number: number
 
-  /** The checked-out worktree. Null through the pending phase, before the
-   *  fetch/checkout lands; everything that reads the checkout waits for it. */
-  pr = $state<PrReviewContext | null>(null)
+  /** Host identity is available without a checkout. */
+  pr = $state<PrReviewTarget | null>(null)
+  checkout = $state<PrCheckoutContext | null>(null)
+  checkoutStatus = $state<'idle' | 'preparing' | 'ready' | 'failed'>('idle')
+  checkoutError = $state<string | null>(null)
+
+  // ── Host diff ──
+  diffPatch = $state<string | null>(null)
+  diffLoading = $state(false)
+  diffError = $state<string | null>(null)
+  diffTruncated = $state(false)
 
   // ── Threads ──
   // Existing GitHub inline review comments. Fetched once and shared with the
@@ -62,6 +71,8 @@ export class PrReviewState {
 
   #deps: PrReviewDeps
   #interdiffKey = ''
+  #diffKey = ''
+  #checkoutPromise: Promise<PrReviewContext> | null = null
 
   constructor(number: number, deps: PrReviewDeps) {
     this.number = number
@@ -77,17 +88,45 @@ export class PrReviewState {
     return this.#deps.getApi()
   }
 
-  /**
-   * Review data belongs to the checked-out worktree, not to whichever chat
-   * happens to be attached. Both contexts key `PrsStore`'s caches by project
-   * root, so reads made while the worktree is still checking out stay warm once
-   * it lands.
-   */
+  /** Provider data belongs to the project host. Source-dependent reads switch
+   * to the optional checkout context after a requesting action prepares it. */
   get ctx(): IpcContext {
-    const review = this.pr
-    return review
-      ? this.#deps.ctxForDirectory(worktreeProjectRoot(review.worktreePath))
+    const checkout = this.checkout
+    return checkout
+      ? this.#deps.ctxForDirectory(worktreeProjectRoot(checkout.worktreePath))
       : this.#deps.fallbackCtx()
+  }
+
+  get sourceContext(): PrReviewContext | null {
+    const target = this.pr
+    const checkout = this.checkout
+    return target && checkout && target.headSha === checkout.headSha && target.baseSha === checkout.baseSha
+      ? { ...target, ...checkout }
+      : null
+  }
+
+  setTarget(target: PrReviewTarget | null): void {
+    // This command is called from an effect that tracks the target prop. Do not
+    // also subscribe that effect to the state it updates, or each assignment
+    // schedules the target sync again and repeatedly reloads the stack.
+    const changedRevision = untrack(() => {
+      const previous = this.pr
+      return previous?.host !== target?.host
+        || previous?.owner !== target?.owner
+        || previous?.repo !== target?.repo
+        || previous?.number !== target?.number
+        || previous?.baseSha !== target?.baseSha
+        || previous?.headSha !== target?.headSha
+    })
+    this.pr = target
+    if (!changedRevision) return
+    this.checkout = null
+    this.checkoutStatus = 'idle'
+    this.checkoutError = null
+    this.interdiff = null
+    this.showingSinceReview = false
+    this.stackReady = false
+    this.stackLoadFailed = false
   }
 
   get liveDiffBase(): DiffBase {
@@ -104,11 +143,10 @@ export class PrReviewState {
       : null
   }
 
-  /** Guides are keyed by the local review branch, so one exists only once the
-   *  worktree does. Every read is gated on `stackReady`, which the pending phase
-   *  never reaches, so the empty key is never used. */
+  /** The deterministic review branch key also finds a cached guide before the
+   * checkout exists. Generating a new guide still requires `ensureCheckout`. */
   get guideKey(): string {
-    return this.pr ? this.pr.branch.replace(/\//g, '__') : ''
+    return this.pr ? (this.checkout?.branch ?? `solus/pr-${this.pr.number}`).replace(/\//g, '__') : ''
   }
 
   get effectiveGuideKey(): string {
@@ -154,6 +192,10 @@ export class PrReviewState {
     this.stackReady = false
     this.stackLoadFailed = false
     if (!this.pr) return
+    if (!this.checkout) {
+      this.stackReady = true
+      return
+    }
     void this.#deps
       .loadStacks(this.ctx)
       .catch(() => (this.stackLoadFailed = true))
@@ -173,7 +215,7 @@ export class PrReviewState {
   }
 
   loadInterdiff(force = false): void {
-    const review = this.pr
+    const review = this.sourceContext
     if (!review) return
     const key = `${review.number}:${review.baseSha}:${review.headSha}`
     const shouldDefaultMode = key !== this.#interdiffKey || force
@@ -198,7 +240,7 @@ export class PrReviewState {
   loadOwnDeltaFileCount(): void {
     const base = this.ownDeltaBase
     const review = this.pr
-    if (!base || !review) {
+    if (!base || !review || !this.checkout) {
       this.ownDeltaFileCount = null
       return
     }
@@ -228,6 +270,103 @@ export class PrReviewState {
     }
   }
 
+  loadDiff(force = false): void {
+    const target = this.pr
+    if (!target) return
+    const key = `${target.host}/${target.owner}/${target.repo}:${target.number}:${target.baseSha}:${target.headSha}`
+    if (!force && (this.#diffKey === key && (this.diffPatch !== null || this.diffLoading))) return
+    this.#diffKey = key
+    this.diffPatch = null
+    this.diffError = null
+    this.diffTruncated = false
+    this.diffLoading = true
+    const context = this.#deps.fallbackCtx()
+    void (async () => {
+      const patches: string[] = []
+      let cursor: string | undefined
+      do {
+        const slice: PrDiffSlice = await this.#deps.loadDiff(context, {
+          number: target.number,
+          baseSha: target.baseSha,
+          headSha: target.headSha,
+          ...(cursor ? { cursor } : {}),
+        })
+        if (`${this.pr?.host}/${this.pr?.owner}/${this.pr?.repo}:${this.pr?.number}:${this.pr?.baseSha}:${this.pr?.headSha}` !== key) return
+        if (slice.patch) patches.push(slice.patch)
+        this.diffTruncated ||= slice.truncated
+        cursor = slice.nextCursor ?? undefined
+      } while (cursor)
+      if (`${this.pr?.host}/${this.pr?.owner}/${this.pr?.repo}:${this.pr?.number}:${this.pr?.baseSha}:${this.pr?.headSha}` === key) {
+        this.diffPatch = patches.join('\n')
+      }
+    })().catch((error) => {
+      if (`${this.pr?.host}/${this.pr?.owner}/${this.pr?.repo}:${this.pr?.number}:${this.pr?.baseSha}:${this.pr?.headSha}` === key) {
+        this.diffError = error instanceof Error ? error.message : String(error)
+      }
+    }).finally(() => {
+      if (`${this.pr?.host}/${this.pr?.owner}/${this.pr?.repo}:${this.pr?.number}:${this.pr?.baseSha}:${this.pr?.headSha}` === key) this.diffLoading = false
+    })
+  }
+
+  ensureCheckout(): Promise<PrReviewContext> {
+    const target = this.pr
+    if (!target) return Promise.reject(new Error('The pull request is not ready.'))
+    const ready = this.sourceContext
+    if (ready) return Promise.resolve(ready)
+    if (this.#checkoutPromise) return this.#checkoutPromise
+    this.checkoutStatus = 'preparing'
+    this.checkoutError = null
+    const headSha = target.headSha
+    const baseSha = target.baseSha
+    const promise = this.#deps.prepareCheckout(this.#deps.fallbackCtx(), target)
+      .then((checkout) => {
+        if (this.pr?.headSha !== headSha || this.pr?.baseSha !== baseSha || checkout.headSha !== headSha || checkout.baseSha !== baseSha) {
+          throw new Error('The pull request changed while its checkout was being prepared.')
+        }
+        this.checkout = checkout
+        this.checkoutStatus = 'ready'
+        this.loadStack()
+        return { ...target, ...checkout }
+      })
+      .catch((error) => {
+        this.checkoutStatus = 'failed'
+        this.checkoutError = error instanceof Error ? error.message : String(error)
+        throw error
+      })
+      .finally(() => {
+        if (this.#checkoutPromise === promise) this.#checkoutPromise = null
+      })
+    this.#checkoutPromise = promise
+    return promise
+  }
+
+  loadDiffFiles = async (fileDiff: FileDiffMetadata): Promise<FileDiffLoadedFiles> => {
+    const target = this.pr
+    if (!target) throw new Error('The pull request is not ready.')
+    const result = await this.api.prGetDiffFileContents(this.#deps.fallbackCtx(), {
+      number: target.number,
+      baseSha: target.baseSha,
+      headSha: target.headSha,
+      oldPath: fileDiff.prevName ?? fileDiff.name,
+      newPath: fileDiff.name,
+      changeType: fileDiff.type,
+    })
+    if (this.pr?.headSha !== target.headSha) {
+      throw new Error('The pull request changed while file contents were loading.')
+    }
+    const oldFile = {
+      name: fileDiff.prevName ?? fileDiff.name,
+      contents: result.oldContents,
+      cacheKey: `${target.baseSha}:${fileDiff.prevName ?? fileDiff.name}`,
+    }
+    const newFile = {
+      name: fileDiff.name,
+      contents: result.newContents,
+      cacheKey: `${target.headSha}:${fileDiff.name}`,
+    }
+    return { oldFile: fileDiff.type === 'rename-pure' ? null : oldFile, newFile }
+  }
+
   // ── Thread mutation ──
 
   replyToThread(threadId: string, body: string): Promise<ReviewComment> {
@@ -249,6 +388,8 @@ export interface PrReviewDeps {
   resolveDiffBase: (number: number, baseRef: string) => DiffBase
   loadStacks: (ctx: IpcContext) => Promise<unknown>
   loadThreads: (ctx: IpcContext, number: number, force: boolean) => Promise<ReviewThread[]>
+  loadDiff: (ctx: IpcContext, request: import('../../../../shared/providers').PrDiffRequest) => Promise<PrDiffSlice>
+  prepareCheckout: (ctx: IpcContext, target: PrReviewTarget) => Promise<PrCheckoutContext>
   loadInterdiff: (ctx: IpcContext, pr: PrReviewContext, force: boolean) => Promise<PrInterdiffResult>
   diffStats: (ctx: IpcContext, scope: DiffScope) => Promise<number>
   replyThread: (ctx: IpcContext, number: number, threadId: string, body: string) => Promise<ReviewComment>
@@ -263,8 +404,8 @@ const states = new Map<string, PrReviewState>()
 
 /** The review state for one PR — the same instance for every surface showing
  *  it, which is what keeps the review and its popped-out diff one review. */
-export function prReviewState(serverId: string, number: number, deps: PrReviewDeps): PrReviewState {
-  const key = hostKey(serverId, String(number))
+export function prReviewState(serverId: string, projectScope: string, number: number, deps: PrReviewDeps): PrReviewState {
+  const key = hostKey(serverId, `${projectScope}::${number}`)
   const existing = states.get(key)
   if (existing) return existing
   const created = new PrReviewState(number, deps)
@@ -274,6 +415,6 @@ export function prReviewState(serverId: string, number: number, deps: PrReviewDe
 
 /** Read-only lookup for surfaces that must not create state they can't fill —
  *  the popped-out diff exists only alongside a review that already opened. */
-export function existingPrReviewState(serverId: string, number: number): PrReviewState | undefined {
-  return states.get(hostKey(serverId, String(number)))
+export function existingPrReviewState(serverId: string, projectScope: string, number: number): PrReviewState | undefined {
+  return states.get(hostKey(serverId, `${projectScope}::${number}`))
 }

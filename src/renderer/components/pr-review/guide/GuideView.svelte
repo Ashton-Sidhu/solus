@@ -45,7 +45,7 @@
     /** Whether the cached guide describes the checkout's current HEAD. */
     guideCurrent?: boolean;
     /** Rewrite the guide against the current HEAD. Absent where the host has no
-     *  way to regenerate, which leaves the outdated marker inert but honest. */
+     *  way to regenerate, which leaves the new-commits marker inert but honest. */
     onRegenerate?: () => void;
     /** A regeneration already in flight, so the marker can say so. */
     regenerating?: boolean;
@@ -90,7 +90,7 @@
              deep top pad on top of them read as a hole rather than as air. The
              weight stays below the header, where the guide starts. -->
         <header class="guide-intro border-b border-(--solus-art-border) pt-6 pr-8 pb-10 pl-14">
-          <h1 class="text-[2rem] leading-[1.15] font-bold tracking-tight text-balance text-(--solus-text-primary)">
+          <h1 class="text-[1.5rem] leading-[1.15] font-medium text-balance text-(--solus-text-primary)">
             {guide.title}
           </h1>
 
@@ -103,7 +103,7 @@
                 <span class="opacity-50">·</span>
               {/if}
               {#if meta}
-                <span class="inline-flex items-center gap-1.5 font-mono text-[0.75rem]">
+                <span class="inline-flex items-center gap-1.5 font-mono text-xs">
                   <span>{meta.baseRef}</span>
                   <span aria-hidden="true">←</span>
                   <span class="font-secondary text-(--solus-text-secondary)">{meta.branch}</span>
@@ -126,7 +126,7 @@
                     Current
                   </span>
                 {:else if onRegenerate}
-                  <!-- The staleness marker *is* the fix: rather than a full-width
+                  <!-- The new-commits marker *is* the fix: rather than a full-width
                        strip above the guide announcing new commits, the line that
                        already dates the guide carries the one action it implies. -->
                   <button
@@ -142,10 +142,10 @@
                         ? "shrink-0 animate-spin [animation-duration:1.2s] motion-reduce:animate-none"
                         : "shrink-0"}
                     />
-                    {regenerating ? "Regenerating…" : "Outdated — regenerate"}
+                    {regenerating ? "Regenerating…" : "New commits since guide"}
                   </button>
                 {:else}
-                  <span class="font-medium text-amber-700 dark:text-amber-400">Outdated</span>
+                  <span class="font-medium text-amber-700 dark:text-amber-400">New commits since guide</span>
                 {/if}
               {/if}
             </div>
@@ -178,7 +178,7 @@
         {#if lowSignalSections.length > 0}
           <details class="group border-t border-(--solus-art-border)">
             <summary
-              class="flex cursor-pointer list-none items-center gap-1.5 py-3.5 pr-8 pl-14 text-[0.8125rem] font-semibold text-(--solus-text-tertiary) select-none hover:text-(--solus-text-secondary)"
+              class="flex cursor-pointer list-none items-center gap-1.5 py-3.5 pr-8 pl-14 text-[0.8125rem] font-medium text-(--solus-text-tertiary) select-none hover:text-(--solus-text-secondary)"
             >
               <span
                 class="inline-block size-1.5 rotate-45 border-r-[1.5px] border-b-[1.5px] border-current transition-transform duration-150 group-open:rotate-[225deg]"

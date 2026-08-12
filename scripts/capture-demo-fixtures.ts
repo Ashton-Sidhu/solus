@@ -364,7 +364,7 @@ function captureTasks(workspace: string, db: Database | null): DemoFixtures['tas
 
 function captureAutomations(workspace: string, db: Database | null): DemoFixtures['automations'] {
   const list: Automation[] = query(db, 'SELECT * FROM automations ORDER BY id').map((row) => ({
-    ...parseJson<Record<string, unknown>>(row.last_run, {}), id: String(row.id), name: String(row.name), enabled: row.enabled === 1,
+    ...parseJson<Partial<Automation>>(row.last_run, {}), id: String(row.id), name: String(row.name), enabled: row.enabled === 1,
     ...(row.favorite === null ? {} : { favorite: row.favorite === 1 }), action: parseJson(row.action, {}),
     trigger: parseJson(row.trigger_config, { type: 'manual' }),
     ...(row.next_run_at === null ? {} : { nextRunAt: new Date(Number(row.next_run_at)).toISOString() }),
@@ -373,7 +373,7 @@ function captureAutomations(workspace: string, db: Database | null): DemoFixture
   const runs: Record<string, AutomationRun[]> = {}
   for (const automation of list) {
     runs[automation.id] = query(db, 'SELECT * FROM automation_runs WHERE automation_id = ? ORDER BY started_at DESC, id', [automation.id]).map((row) => ({
-      ...parseJson<Record<string, unknown>>(row.data, {}), id: String(row.id), automationId: String(row.automation_id),
+      ...parseJson<Partial<AutomationRun>>(row.data, {}), id: String(row.id), automationId: String(row.automation_id),
       startedAt: new Date(Number(row.started_at)).toISOString(),
       ...(row.finished_at === null ? {} : { finishedAt: new Date(Number(row.finished_at)).toISOString() }),
       status: row.status, ...(row.output === null ? {} : { output: String(row.output) }),
@@ -471,7 +471,7 @@ async function main(): Promise<void> {
     }
     const captured = normalizeAndSanitize(fixtures, args.workspace)
     await mkdir(args.out, { recursive: true })
-    const domains: Record<string, unknown> = {
+    const domains = {
       'sessions.json': captured.sessions, 'plans.json': captured.plans, 'works.json': captured.works,
       'pr.json': captured.pr, 'tasks.json': captured.tasks, 'automations.json': captured.automations,
       'diffs.json': captured.diffs, 'git-status.json': captured.gitStatus, 'manifest.json': captured,

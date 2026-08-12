@@ -136,7 +136,7 @@
       <GitPullRequestIcon size={13} weight="bold" />
     </span>
     <div class="min-w-0 flex-1 pt-1">
-      <p class="text-[13px] text-muted-foreground">
+      <p class="text-[0.8125rem] text-muted-foreground">
         <span class="font-medium text-foreground">{authorName}</span>
         opened this pull request{#if openedAt}<TooltipUI.Root>
           <TooltipUI.Trigger>
@@ -185,7 +185,7 @@
             <GitCommitIcon size={12} weight="bold" />
           </span>
           <div class="min-w-0 flex-1 pt-1">
-            <p class="text-[13px] text-muted-foreground">
+            <p class="text-[0.8125rem] text-muted-foreground">
               <span class="font-medium text-foreground"
                 >{commitRunAuthorLabel(event.commits, authorName)}</span
               >
@@ -212,13 +212,13 @@
             <ul class="mt-2 flex flex-col gap-1.5" role="list">
               {#each preview.visible as commit (commit.sha)}
                 <li
-                  class="flex items-center gap-3 rounded-[10px] bg-card px-3 py-[9px] shadow-[inset_0_0_0_.5px_var(--hairline-strong)]"
+                  class="flex items-center gap-3 rounded-2xl bg-card px-3 py-[9px] shadow-[inset_0_0_0_.5px_var(--hairline-strong)]"
                 >
-                  <code class="shrink-0 font-mono text-[11px] text-primary"
+                  <code class="shrink-0 font-mono text-xs text-primary"
                     >{commit.sha.slice(0, 7)}</code
                   >
                   <span
-                    class="min-w-0 flex-1 truncate text-[12.5px] text-muted-foreground"
+                    class="min-w-0 flex-1 truncate text-[0.8125rem] text-muted-foreground"
                     >{commit.message}</span
                   >
                 </li>
@@ -228,7 +228,7 @@
               <Button
                 type="button"
                 variant="ghost"
-                class="-mx-2 mt-1.5 h-[24px] cursor-pointer justify-start rounded-md border-0 bg-transparent px-2 text-[11.5px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                class="-mx-2 mt-1.5 h-[24px] cursor-pointer justify-start rounded-md border-0 bg-transparent px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 onclick={() => expandRun(activityEventKey(event))}
               >
                 Show {preview.hidden} more commit{preview.hidden === 1 ? "" : "s"}
@@ -281,7 +281,7 @@
               {/if}
             </span>
             <div class="group/comment min-w-0 flex-1 pt-1">
-              <p class="flex items-start gap-2 text-[13px] font-medium">
+              <p class="flex items-start gap-2 text-[0.8125rem] font-medium">
                 <span class="min-w-0 flex-1">
                   {event.comment.author}
                   {milestone.headline}<TooltipUI.Root>
@@ -321,11 +321,11 @@
               <PrAvatar
                 name={event.comment.author}
                 url={event.comment.authorAvatarUrl}
-                size="size-[22px] text-[9.5px]"
+                size="size-[22px] text-xs"
               />
             </span>
             <div class="group/comment min-w-0 flex-1 pt-0.5">
-              <div class="flex items-start gap-2 text-[13px]">
+              <div class="flex items-start gap-2 text-[0.8125rem]">
                 <span class="min-w-0 flex-1">
                 <span class="font-medium text-foreground"
                   >{event.comment.author}</span
@@ -370,7 +370,7 @@
     {#if filtered && events.length === 0}
       <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
         <span class="size-[22px] shrink-0" aria-hidden="true"></span>
-        <p class="min-w-0 flex-1 pt-1 text-[13px] text-muted-foreground">
+        <p class="min-w-0 flex-1 pt-1 text-[0.8125rem] text-muted-foreground">
           Nothing matches this filter.
         </p>
       </li>

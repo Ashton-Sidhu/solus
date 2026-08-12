@@ -18,6 +18,7 @@ import type {
 
 type ProseMirrorNode = Editor["state"]["doc"];
 type ResolvedPos = Editor["state"]["selection"]["$head"];
+type ReferenceAttrs = PlanRefAttrs | PrRefAttrs | WorkRefAttrs | FileRefAttrs | SlashRefAttrs | SessionRefAttrs;
 
 export function textBeforeCursor(editor: Editor | null): string {
   if (!editor) return "";
@@ -70,7 +71,7 @@ function findTriggerDocPos(
 function insertReferenceNode(
   editor: Editor | null,
   nodeName: string,
-  attrs: Record<string, unknown>,
+  attrs: ReferenceAttrs,
   triggerPattern: RegExp,
 ): boolean {
   if (!editor) return false;
@@ -150,7 +151,7 @@ export function insertPlanReference(
   return insertReferenceNode(
     editor,
     "planReference",
-    attrs as unknown as Record<string, unknown>,
+    attrs,
     triggerPattern,
   );
 }
@@ -163,7 +164,7 @@ export function insertWorkReference(
   return insertReferenceNode(
     editor,
     "workReference",
-    attrs as unknown as Record<string, unknown>,
+    attrs,
     triggerPattern,
   );
 }
@@ -176,7 +177,7 @@ export function insertPrReference(
   return insertReferenceNode(
     editor,
     "prReference",
-    attrs as unknown as Record<string, unknown>,
+    attrs,
     triggerPattern,
   );
 }
@@ -189,7 +190,7 @@ export function insertFileReference(
   return insertReferenceNode(
     editor,
     "fileReference",
-    attrs as unknown as Record<string, unknown>,
+    attrs,
     triggerPattern,
   );
 }
@@ -202,7 +203,7 @@ export function insertSlashReference(
   return insertReferenceNode(
     editor,
     "slashReference",
-    attrs as unknown as Record<string, unknown>,
+    attrs,
     triggerPattern,
   );
 }
@@ -215,7 +216,7 @@ export function insertSessionReference(
   return insertReferenceNode(
     editor,
     "sessionReference",
-    attrs as unknown as Record<string, unknown>,
+    attrs,
     triggerPattern,
   );
 }

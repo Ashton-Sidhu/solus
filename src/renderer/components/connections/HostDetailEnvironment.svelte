@@ -122,7 +122,7 @@
 </SettingsSection>
 
 {#snippet gitError()}
-  <p class="text-pretty text-[0.75rem] text-(--solus-status-error)">
+  <p class="text-pretty text-xs text-(--solus-status-error)">
     {setup.stepError?.message}
   </p>
 {/snippet}

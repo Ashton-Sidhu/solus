@@ -101,7 +101,7 @@
     <div class="flex items-center justify-between gap-3">
       <div class="flex items-center gap-3">
         <code
-          class="text-[1.75rem] font-semibold tracking-[0.15em] text-(--solus-text-primary) tabular-nums"
+          class="text-[1.5rem] font-medium text-(--solus-text-primary) tabular-nums"
           class:opacity-40={pairExpired}
           style="font-family: 'Geist Mono', ui-monospace, monospace"
           >{connections.activePair.code}</code
@@ -122,7 +122,7 @@
       </div>
       <div class="flex items-center gap-2">
         <span
-          class="text-[0.75rem] font-medium tabular-nums"
+          class="text-xs font-medium tabular-nums"
           class:text-red-500={pairExpired}
           class:text-(--solus-text-tertiary)={!pairExpired}
           style="font-family: 'Geist Mono', ui-monospace, monospace"
@@ -165,7 +165,7 @@
             <p class="text-[0.8125rem] font-medium text-(--solus-text-primary)">
               Scan to pair
             </p>
-            <p class="mt-1 text-[0.6875rem] leading-4 text-(--solus-text-tertiary)">
+            <p class="mt-1 text-xs leading-4 text-(--solus-text-tertiary)">
               Opens the web client with this one-time token.
             </p>
           </div>
@@ -174,7 +174,7 @@
           >
             <BestIcon size={12} class="shrink-0 text-(--solus-text-tertiary)" />
             <code
-              class="min-w-0 flex-1 truncate text-[0.6875rem] font-secondary text-(--solus-text-secondary)"
+              class="min-w-0 flex-1 truncate text-xs font-secondary text-(--solus-text-secondary)"
               style="font-family: 'Geist Mono', ui-monospace, monospace"
               >{bestPairLink}</code
             >
@@ -199,7 +199,7 @@
     <!-- Pair links per endpoint -->
     {#if connections.endpoints.length > 0}
       <div class="flex flex-col gap-1.5">
-        <p class="text-[0.6875rem] text-(--solus-text-tertiary)">
+        <p class="text-xs text-(--solus-text-tertiary)">
           Other direct links:
         </p>
         {#each connections.endpoints as endpoint (endpoint.host)}
@@ -210,7 +210,7 @@
           >
             <PairIcon size={11} class="shrink-0 text-(--solus-text-tertiary)" />
             <code
-              class="min-w-0 flex-1 truncate text-[0.6875rem] font-secondary text-(--solus-text-secondary)"
+              class="min-w-0 flex-1 truncate text-xs font-secondary text-(--solus-text-secondary)"
               style="font-family: 'Geist Mono', ui-monospace, monospace"
               >{link}</code
             >

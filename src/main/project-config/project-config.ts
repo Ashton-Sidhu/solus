@@ -41,6 +41,8 @@ function normalizeConfig(value: unknown): ProjectConfig | null {
     version?: unknown
     taskProvider?: unknown
     taskProviderConfig?: unknown
+    tasksAutoPushComments?: unknown
+    taskDoneOnMerge?: unknown
   }
   const config: ProjectConfig = { version: 1 }
   if (typeof raw.taskProvider === 'string' && TASK_PROVIDERS.has(raw.taskProvider)) {
@@ -51,6 +53,12 @@ function normalizeConfig(value: unknown): ProjectConfig | null {
     const owner = typeof scope.owner === 'string' ? scope.owner : undefined
     const repo = typeof scope.repo === 'string' ? scope.repo : undefined
     if (owner || repo) config.taskProviderConfig = { owner, repo }
+  }
+  if (typeof raw.tasksAutoPushComments === 'boolean') {
+    config.tasksAutoPushComments = raw.tasksAutoPushComments
+  }
+  if (typeof raw.taskDoneOnMerge === 'boolean') {
+    config.taskDoneOnMerge = raw.taskDoneOnMerge
   }
   return config
 }

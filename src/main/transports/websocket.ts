@@ -10,6 +10,7 @@ import { ResponseReceiptBudget, ResponseReceiptCache } from './response-receipt-
 const log = createLogger('main', 'ws-transport')
 const STREAM_TTL_MS = 6 * 60_000
 const MAX_HTTP_BUFFER_SIZE = 32 * 1024 * 1024
+export const FRAME_COMPRESSION_OPTIONS = { threshold: 1024 } as const
 
 interface WsRequest {
   id: string
@@ -54,6 +55,7 @@ export function attachWebSocketTransport(
   const io = new Server(http, {
     path: '/ws',
     transports: ['websocket'],
+    perMessageDeflate: FRAME_COMPRESSION_OPTIONS,
     pingInterval: 15_000,
     pingTimeout: 10_000,
     maxHttpBufferSize: MAX_HTTP_BUFFER_SIZE,
@@ -61,6 +63,15 @@ export function attachWebSocketTransport(
       maxDisconnectionDuration: STREAM_TTL_MS,
       skipMiddlewares: false,
     },
+  })
+  // A local desktop renderer uses the same WebSocket transport as a remote
+  // client. Remove the extension offer on loopback before ws negotiates it, so
+  // host events and RPC acknowledgements both avoid local zlib work.
+  io.engine.use((request, _response, next) => {
+    if (isLoopbackAddress(request.socket.remoteAddress)) {
+      delete request.headers['sec-websocket-extensions']
+    }
+    next()
   })
   // Socket.IO owns heartbeat/reconnect and missed-event replay. The receipt
   // cache below is intentionally narrower: Socket.IO retries do not prevent a
@@ -187,6 +198,15 @@ export function attachWebSocketTransport(
     },
     sessions,
   }
+}
+
+export function isLoopbackAddress(address: string | undefined): boolean {
+  if (!address) return false
+  const normalized = address.toLowerCase()
+  if (normalized === '::1') return true
+  const ipv4 = normalized.startsWith('::ffff:') ? normalized.slice(7) : normalized
+  const firstOctet = Number(ipv4.split('.')[0])
+  return Number.isInteger(firstOctet) && firstOctet === 127
 }
 
 function getCachedResponse(

@@ -112,6 +112,9 @@
     },
   });
   const sess = $derived(session.sessionFor(session.activeTabId));
+  const snoozeReminder = $derived(
+    session.tasksStore.snoozeReminderForSession(sess?.agentSessionId),
+  );
   const hasStartedSession = $derived(hasSessionStarted(sess));
   // The home reads as a headline sitting on top of the composer, so the column
   // centres the pair as one block rather than pinning the composer to the floor.
@@ -130,7 +133,7 @@
       : null,
   );
   const centerHome = $derived(
-    isHomeVisible(sess) && poolInLead,
+    isHomeVisible(sess, !!snoozeReminder) && poolInLead,
   );
   // A draft's rail follows the fresh-tab rule regardless of what the tab behind
   // it was doing: nothing has started here either.
@@ -181,11 +184,12 @@
   const secondaryCollapsesSidebar = $derived(
     secondaryVisible && companionRef?.name !== "automation",
   );
-  // Both review surfaces read edge-to-edge: the standalone guide pane and the
-  // PR review, which replaces the list in the leading pane. Neither wants a
-  // session column beside it.
+  // Dedicated review surfaces read edge-to-edge and do not want a session
+  // column beside them. The pull requests page is a workspace list, so it keeps
+  // the user's sidebar state like Automations and Workspace do.
   const primaryReviewOpen = $derived(
-    leadingRef?.name === "review" || leadingRef?.name === "prReview",
+    leadingRef?.name === "review" ||
+      leadingRef?.name === "prReview",
   );
   const maximizedPaneId = $derived(geometry.maximizedPaneId);
   const sidebarOpenForChrome = $derived(

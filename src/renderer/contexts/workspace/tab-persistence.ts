@@ -1,4 +1,4 @@
-import type { AgentId, ContextUsage, GitCheckout, ModelConfig, SessionHandoffLineage, SessionSpec, StartInfo } from '../../../shared/types'
+import type { AgentId, ContextUsage, GitCheckout, ModelConfig, SessionHandoffLineage, SessionSpec, SessionStatus, StartInfo } from '../../../shared/types'
 import { localApi } from '@client-core/local-api'
 
 // Tab state is scoped first by server installation, then by Electron window
@@ -114,6 +114,10 @@ export interface PersistedTab {
    *  would report an empty window until its next turn. Kept here and refreshed
    *  by the first usage report after resume. */
   contextUsage?: ContextUsage | null
+  /** Lightweight live state restored before transcripts. This lets every sidebar
+   * row show its status and turn clock on the first frame. */
+  status?: SessionStatus
+  currentTurnStartedAt?: number | null
 }
 
 export interface PersistedTabs {
@@ -132,13 +136,30 @@ export function loadPersistedTabs(): PersistedTabs | null {
     const raw = readStorageWithMigration(LEGACY_TABS_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    if (
-      parsed?.version !== 1 ||
-      !Array.isArray(parsed.tabs) ||
-      typeof parsed.activeTabId !== 'string' ||
-      !Array.isArray(parsed.tabOrder)
-    ) return null
-    return parsed as PersistedTabs
+    if (parsed?.version !== 1 || !Array.isArray(parsed.tabs)) return null
+
+    // Keep recoverable tabs even when an older or interrupted writer omitted
+    // the selection fields. Rejecting the whole snapshot here makes startup
+    // treat a real prior session as an empty workspace and open a composer.
+    const persistedTabIds = parsed.tabs
+      .map((tab: unknown) => (typeof (tab as { tabId?: unknown })?.tabId === 'string'
+        ? (tab as { tabId: string }).tabId
+        : null))
+      .filter((tabId: string | null): tabId is string => !!tabId)
+    const persistedTabIdSet = new Set(persistedTabIds)
+    const tabOrder = Array.isArray(parsed.tabOrder)
+      ? parsed.tabOrder.filter((tabId: unknown): tabId is string =>
+          typeof tabId === 'string' && persistedTabIdSet.has(tabId))
+      : []
+    for (const tabId of persistedTabIds) {
+      if (!tabOrder.includes(tabId)) tabOrder.push(tabId)
+    }
+    const activeTabId = typeof parsed.activeTabId === 'string'
+      && persistedTabIdSet.has(parsed.activeTabId)
+      ? parsed.activeTabId
+      : tabOrder[0] ?? ''
+
+    return { ...parsed, activeTabId, tabOrder } as PersistedTabs
   } catch {
     return null
   }
@@ -302,6 +323,12 @@ export function persistDismissedSidebarRow(rowKey: string): void {
     const rowKeys = new Set(loadDismissedSidebarRowKeys())
     rowKeys.add(rowKey)
     localStorage.setItem(storageKey(DISMISSED_SIDEBAR_TASKS_KEY), JSON.stringify([...rowKeys]))
+  } catch {}
+}
+
+export function clearDismissedSidebarRowKeys(): void {
+  try {
+    localStorage.removeItem(storageKey(DISMISSED_SIDEBAR_TASKS_KEY))
   } catch {}
 }
 

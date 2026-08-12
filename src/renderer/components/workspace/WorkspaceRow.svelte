@@ -100,9 +100,9 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="group flex h-11 cursor-pointer items-center gap-2 rounded-[10px] pr-3 pl-2.5 transition-shadow duration-150 select-none hover:shadow-[inset_0_0_0_999px_var(--wash-1)] focus-visible:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--primary)_45%,transparent)] focus-visible:outline-none {selected
-    ? 'bg-[var(--wash-2)]'
-    : ''}"
+  class="group flex h-11 cursor-pointer items-center gap-2 rounded-lg pr-3 pl-2.5 transition-shadow duration-150 select-none hover:shadow-[inset_0_0_0_999px_var(--wash-1)] focus-visible:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--primary)_45%,transparent)] focus-visible:outline-none {selected
+ ? 'bg-[var(--wash-2)]'
+ : ''}"
   data-selected={selected ? "true" : null}
   role="option"
   aria-selected={selected}
@@ -120,19 +120,19 @@
     aria-hidden="true"
   >
     {#if item.glyph === "claude"}
-      <ClaudeIcon size={12} />
+      <ClaudeIcon size={14} />
     {:else if item.glyph === "codex"}
       <span class="flex size-4 items-center justify-center rounded-full bg-white">
-        <OpenAIBlossom size={11} />
+        <OpenAIBlossom size={14} />
       </span>
     {:else if item.glyph === "plan"}
-      <AsteriskIcon size={12} />
+      <AsteriskIcon size={14} />
     {:else if item.glyph === "diagram"}
-      <GraphIcon size={12} />
+      <GraphIcon size={14} />
     {:else if item.glyph === "slides"}
-      <PresentationIcon size={12} />
+      <PresentationIcon size={14} />
     {:else}
-      <FileTextIcon size={12} />
+      <FileTextIcon size={14} />
     {/if}
   </span>
 
@@ -141,9 +141,9 @@
        right edge and opened a dead band across the middle of every row; sharing
        the growth closes that band and spends it on the one other column with
        prose in it. Ellipsis, never wraps. -->
-  <span class="min-w-0 flex-[3] truncate text-[13px] font-[450] tracking-[-.005em]">
+  <span class="min-w-0 flex-[3] truncate text-[0.8125rem] font-normal ">
     {#each titleRuns as run, i (i)}{#if run.hit}<mark
-          class="rounded-[3px] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
+          class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
           >{run.text}</mark
         >{:else}{run.text}{/if}{/each}
   </span>
@@ -157,8 +157,8 @@
        running away on an ultrawide window, where the name has long since fit. -->
   <span class="flex min-w-0 max-w-[26rem] flex-[2] items-center gap-[5px]">
     {#if item.sessionId}
-      <ChatCircleIcon size={12} class="shrink-0 opacity-70" />
-      <span class="min-w-0 flex-1 truncate text-[12px]" title={sessionLabel ?? undefined}>
+      <ChatCircleIcon size={14} class="shrink-0 opacity-70" />
+      <span class="min-w-0 flex-1 truncate text-xs" title={sessionLabel ?? undefined}>
         {sessionLabel ?? "Session"}
       </span>
       <!-- The two ways back in. The slot is reserved at rest, so the name has
@@ -177,7 +177,7 @@
             aria-label="Open session"
             title="Open session{sessionLabel ? ` — ${sessionLabel}` : ''}"
           >
-            <ArrowSquareOutIcon size={12} />
+            <ArrowSquareOutIcon size={14} />
           </button>
         {/if}
         {#if onOpenSessionSplit}
@@ -191,7 +191,7 @@
             aria-label="Open session in split"
             title="Open session in split"
           >
-            <ColumnsIcon size={12} />
+            <ColumnsIcon size={14} />
           </button>
         {/if}
       </span>
@@ -201,7 +201,7 @@
   <!-- Generated on: absolute, so it never reads as a second copy of the
        relative activity time at the row's end. -->
   <span
-    class="w-[4.5rem] shrink-0 text-right text-[12px]"
+    class="w-[4.5rem] shrink-0 text-right text-xs"
     title={generated ? `Generated ${formatGeneratedFull(item.createdAt)}` : ""}
   >
     {generated}
@@ -215,10 +215,10 @@
     <button
       type="button"
       class="flex size-[22px] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent transition-[background-color,color,opacity] duration-150 hover:bg-[var(--wash-3)] focus-visible:opacity-100 {item.pinned
-        ? 'text-[color-mix(in_oklch,var(--primary)_78%,var(--foreground))] opacity-100'
-        : 'text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'} {selected
-        ? 'opacity-100'
-        : ''}"
+ ? 'text-[color-mix(in_oklch,var(--primary)_78%,var(--foreground))] opacity-100'
+ : 'text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'} {selected
+ ? 'opacity-100'
+ : ''}"
       onclick={(e) => {
         e.stopPropagation();
         onTogglePin();
@@ -226,12 +226,12 @@
       aria-label={item.pinned ? "Unpin" : "Pin"}
       title={item.pinned ? "Unpin (⌥P)" : "Pin (⌥P)"}
     >
-      <PushPinIcon size={12} />
+      <PushPinIcon size={14} />
     </button>
   </span>
 
   {#if showProject}
-    <span class="w-[4rem] shrink-0 truncate text-right text-[12px]" title={item.cwd}>
+    <span class="w-[4rem] shrink-0 truncate text-right text-xs" title={item.cwd}>
       {item.projectLabel}
     </span>
   {/if}
@@ -244,15 +244,15 @@
        these are the facts a person scans the ledger for, and the title leads on
        weight instead. Pending is the one coloured word — the one live state. -->
   <span
-    class="w-[3.75rem] shrink-0 text-right text-[12px] tracking-[.03em] {item.status ===
-    'pending'
-      ? 'font-medium text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]'
-      : ''}"
+    class="w-[3.75rem] shrink-0 text-right text-xs {item.status ===
+ 'pending'
+ ? 'font-medium text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]'
+ : ''}"
   >
     {statusLabel}
   </span>
   <span
-    class="w-[2.75rem] shrink-0 text-right font-mono text-[12px] tabular-nums"
+    class="w-[2.75rem] shrink-0 text-right font-mono text-xs tabular-nums"
     title="Last activity {formatGeneratedFull(item.timestamp)}"
   >
     {formatLedgerTime(item.timestamp)}
@@ -268,8 +268,8 @@
       <button
         type="button"
         class="flex size-[22px] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground opacity-0 transition-[background-color,color,opacity] duration-150 group-focus-within:opacity-100 group-hover:opacity-60 hover:bg-[color-mix(in_oklch,var(--failure)_10%,transparent)] hover:text-[var(--failure)] hover:opacity-100! focus-visible:opacity-100 {selected
-          ? 'opacity-60'
-          : ''}"
+ ? 'opacity-60'
+ : ''}"
         onclick={(e) => {
           e.stopPropagation();
           onDelete();
@@ -277,7 +277,7 @@
         aria-label="Delete document"
         title="Delete (⌥⌫)"
       >
-        <TrashIcon size={12} />
+        <TrashIcon size={14} />
       </button>
     {/if}
   </span>

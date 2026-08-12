@@ -152,7 +152,7 @@
     position: fixed;
     padding: 0;
     border: none;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: color-mix(in srgb, var(--solus-text-tertiary) 22%, transparent);
     cursor: pointer;
     pointer-events: auto;

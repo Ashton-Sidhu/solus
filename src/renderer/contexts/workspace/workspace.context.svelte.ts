@@ -1,5 +1,6 @@
 import { createAppContext } from '../app/create-app-context'
-import type { AgentId, NormalizedEvent, EnrichedError, Message, Tab, Prompt, Session, SessionSpec, RunConfig, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, ModelConfig, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, StatusCardState, PrReviewContext, PromptDelivery, ThreadGoal, ThreadGoalSetRequest } from '../../../shared/types'
+import type { AgentId, WireNormalizedEvent, EnrichedError, Message, Tab, Prompt, Session, SessionSpec, RunConfig, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, ModelConfig, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, StatusCardState, PrReviewContext, PromptDelivery, ThreadGoal, ThreadGoalSetRequest } from '../../../shared/types'
+import type { PrReviewTarget } from '../../../shared/providers'
 import type { PullRequestSummary } from '../../../shared/providers'
 import type { SolusEventMap, Via } from '../../../shared/analytics-events'
 import { buildConflictResolutionPrompt, buildConflictResolverCard, buildConflictResolverErrorCard } from '../../lib/pr-conflict-resolution'
@@ -37,7 +38,7 @@ import { type SettingsContext, type TabGroupMode } from '../app/settings.context
 import { type WindowContext } from '../app/window.context.svelte'
 import { type StatusBarContext } from '../app/status-bar.context.svelte'
 import { type AgentContext } from '../app/agent.context.svelte'
-import { type GitRefreshResult, type SessionEnvironmentStore } from '../git/session-environment.store.svelte'
+import { environmentProjectKey, type GitRefreshResult, type SessionEnvironmentStore } from '../git/session-environment.store.svelte'
 import { makeSession, makeTab, makePrompt } from './session.factories'
 import {
   SessionDraft,
@@ -195,6 +196,15 @@ export class WorkspaceContext {
     // The courier stays domain-blind; each domain contributes only the answer
     // to "which connected host owns this resource id".
     this.outboxStore.registerOwnerResolver('tasks', (taskId) => this.tasksStore.ownerHostForTask(taskId))
+    // A dispatched session's works ops carry their task's id — the work row may
+    // not exist on any host yet (a create in flight), so the task locates the
+    // owner.
+    this.outboxStore.registerOwnerResolver('works', (_workId, ops) => {
+      const taskId = ops
+        .map((op) => (op.payload as { taskId?: string } | null)?.taskId)
+        .find((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0)
+      return taskId ? this.tasksStore.ownerHostForTask(taskId) : Promise.resolve(undefined)
+    })
     // A goal belongs to a thread, so GoalSync names sessions. The RPC surface
     // and IPC context are still reached through a tab — they describe where the
     // work runs — so the resolver supplies one.
@@ -899,8 +909,17 @@ export class WorkspaceContext {
     serverId: string,
     event: SessionTitleChangedEvent,
   ): void {
-    for (const sessionId of applySessionTitleChange(this, serverId, event)) {
+    for (const { sessionId, taskServerId } of applySessionTitleChange(this, serverId, event)) {
       for (const tabId of this.tabIdsForSession(sessionId)) this.metadataFinalizedTabs.add(tabId)
+      if (taskServerId === serverId) continue
+      // A dispatched session is indexed on its execution host, while its task
+      // host holds a lightweight proxy row for closed-attempt display. Carry
+      // the authoritative rename back across that boundary; otherwise only the
+      // borrowed host learns the generated name.
+      void serverConnections.apiFor(taskServerId)
+        .setSessionTitle(event.sessionId, event.title, event.source, event.generatedDescription, false)
+        .then(() => this.tasksStore.refreshSessionBinding(event.sessionId, taskServerId))
+        .catch(() => null)
     }
   }
 
@@ -1238,13 +1257,22 @@ export class WorkspaceContext {
       draft.run = spec.run
       draft.task = spec.task
       draft.prompt = spec.prompt
+      // Empty drafts are disposable UI state, not user work. Older snapshots
+      // persisted the foreground empty composer and could therefore restore its
+      // `draft/<id>` route over a real active session after reload.
+      if (draft.isEmpty) continue
       this.sessionDrafts.set(draftId, draft)
     }
   }
 
   /** The plain shape the drafts persist as. */
   get sessionDraftsSnapshot(): { version: 1; order: string[]; drafts: Record<string, SessionSpec> } {
-    const order = [...this.sessionDrafts.keys()]
+    // The same rule used when a pane leaves a draft: only words or attachments
+    // make it durable. Persisting the empty foreground composer gives reload a
+    // draft route with no user state to recover and hides the active session.
+    const order = [...this.sessionDrafts.entries()]
+      .filter(([, draft]) => !draft.isEmpty)
+      .map(([draftId]) => draftId)
     return {
       version: 1,
       order,
@@ -1454,6 +1482,11 @@ export class WorkspaceContext {
   }
 
   selectTab(tabId: string, via: Via = 'click'): void {
+    // Selecting is also the user's explicit request to see this transcript.
+    // Retry even when this is already active behind a draft/page: setActiveTab
+    // does not run in that branch, and a failed boot hydration must not strand
+    // the conversation as an empty composer for the renderer lifetime.
+    prioritizeTabHydration(this, tabId)
     if (tabId === this.splitChatTabId) {
       const paneId = this.splitChatPaneId
       if (paneId) this.router.focusPane(paneId)
@@ -2047,6 +2080,15 @@ export class WorkspaceContext {
     // Watch before prompting, or the run's own events would have nowhere to go.
     api.watchSession({ sessionId: watchedSessionId })
       .then(() => this.config.pendingSessionStartTarget(tabId))
+      .then(async () => {
+        if (options.taskId) {
+          try {
+            await this.tasksStore.recordActivity(options.taskId)
+          } catch (error) {
+            console.warn('[Solus] Task activity update failed; the prompt will still send.', error)
+          }
+        }
+      })
       .then(() => this.resolveTaskOnItsHost(tabId, options))
       .then((resolved) => {
         // Guard: user may have interrupted between the watch resolving and this
@@ -2104,7 +2146,7 @@ export class WorkspaceContext {
       const { task, snapshot } = await this.tasksStore.prepareForSession(session.run.taskServerId, {
         existingTaskId: options.taskId ?? null,
         parentTaskId: options.taskId ? null : options.parentTaskId ?? null,
-        projectKey: session.run.projectGroupPath ?? environment.repoRoot ?? null,
+        projectKey: environmentProjectKey(environment, session.run.projectGroupPath),
         worktreeKey: environment.worktreePath ?? null,
         prompt: options.prompt,
         branch: environment.branch ?? null,
@@ -2287,16 +2329,17 @@ export class WorkspaceContext {
       this.eventReducer.closeAgentConversationTurn(session)
     }
 
+    const promptTaskId =
+      existingTaskId(session.task) ??
+      this.tasksStore.taskForSession(session.agentSessionId)?.id ??
+      undefined
     this.promptTab(targetTabId, {
       prompt: fullPrompt,
       displayPrompt: prompt,
       clientPromptId,
       delivery,
       imageAttachments,
-      taskId:
-        existingTaskId(session.task) ??
-        this.tasksStore.taskForSession(session.agentSessionId)?.id ??
-        undefined,
+      taskId: promptTaskId,
       // Only until the fork's own subtask exists — the two are mutually exclusive.
       parentTaskId: existingTaskId(session.task) || this.tasksStore.taskForSession(session.agentSessionId)
         ? undefined
@@ -2471,7 +2514,7 @@ export class WorkspaceContext {
 
   // ─── Event handlers ───
 
-  handleNormalizedEvent(sessionId: string, event: NormalizedEvent): void {
+  handleNormalizedEvent(sessionId: string, event: WireNormalizedEvent): void {
     this.eventReducer.apply(sessionId, event)
   }
 
@@ -2818,7 +2861,7 @@ export class WorkspaceContext {
 
   toggleAutomations(via: Via = 'click'): void {
     if (this.togglePage({ name: 'automations', params: {} }, via, 'automations')) {
-      void this.automationsStore.loadAll()
+      void this.automationsStore.loadAll(serverConnections.connectionFor()?.serverId)
     }
   }
 
@@ -2828,7 +2871,7 @@ export class WorkspaceContext {
   openAutomations(focusId?: string | null, via: Via = 'click'): void {
     if (focusId && this.window.viewMode === 'editor') this.openAutomationBuilder(focusId)
     else this.showPage({ name: 'automations', params: { automationId: focusId ?? undefined } }, via, 'automations')
-    void this.automationsStore.loadAll()
+    void this.automationsStore.loadAll(serverConnections.connectionFor()?.serverId)
   }
 
   /** Open one automation as the single artifact. `aside` puts it beside the
@@ -2846,7 +2889,7 @@ export class WorkspaceContext {
     )
     if (target === 'aside') this.geometry.open(pane.id)
     this.isExpanded = true
-    void this.automationsStore.loadAll()
+    void this.automationsStore.loadAll(serverId ?? serverConnections.connectionFor()?.serverId)
   }
 
   // ─── Diff comments (on Tab — UI-only) ───
@@ -2975,43 +3018,64 @@ export class WorkspaceContext {
   }
 
   /** The route for one PR, scoped to the project it was opened from. */
-  private prReviewRef(number: number, title: string | undefined, ctx: IpcContext, serverId: string): RouteRef<'prReview'> {
+  private prReviewRef(
+    number: number,
+    title: string | undefined,
+    ctx: IpcContext,
+    serverId: string,
+    expectedRepo?: RouteRef<'prReview'>['params']['expectedRepo'],
+  ): RouteRef<'prReview'> {
     return {
       name: 'prReview',
-      params: { number, title, cwd: ctx.session.projectPath ?? undefined, serverId },
+      params: {
+        number,
+        title,
+        cwd: ctx.session.projectPath ?? ctx.session.workingDirectory ?? undefined,
+        serverId,
+        expectedRepo,
+      },
     }
   }
 
   /**
    * Open a PR review as the page. The route is entered before the (slow)
-   * fetch/checkout so the click gets a real surface rather than a blank pane;
+   * host detail request so the click gets a real surface rather than a blank pane;
    * the descriptor's `resolve` fills that same mounted surface in place when the
-   * worktree lands. Re-entering a PR already in the router's payload cache skips
-   * the fetch entirely.
+   * host target lands. Re-entering a PR already in the router's payload cache
+   * skips the request entirely. Checkout is a later, action-specific operation.
    *
-   * The review replaces the list in the leading pane rather than docking beside
-   * it: `prReview` shares the `page` exclusive group with `prs`, so navigating
-   * here *is* leaving the list. The way back and the way sideways live in the
-   * review's own chrome band (see PrDetailChrome).
+   * List selection replaces the list in the leading pane. A transcript link can
+   * explicitly target the companion pane instead, so reading the conversation
+   * remains uninterrupted. The review's own chrome owns later pane changes.
    */
   private async openPrReviewRoute(
     number: number,
     title: string | undefined,
     ctx: IpcContext,
-    opts: { tab?: PrReviewTab; via?: Via; serverId?: string } = {},
-  ): Promise<PrReviewContext | null> {
+    opts: {
+      tab?: PrReviewTab
+      via?: Via
+      serverId?: string
+      target?: NavTarget
+      expectedRepo?: RouteRef<'prReview'>['params']['expectedRepo']
+    } = {},
+  ): Promise<PrReviewTarget | null> {
     // The row's verb picks the tab: an inbox row that says Review lands on the
     // diff, everything else on Activity.
     this.prsStore.prReviewTab = opts.tab ?? 'activity'
     const api = opts.serverId ? serverConnections.apiFor(opts.serverId) : this.apiForContext(ctx)
     const serverId = opts.serverId ?? serverConnections.serverIdForApi(api)
-    const ref = this.prReviewRef(number, title, ctx, serverId)
-    this.router.navigate(ref, { target: this.router.leadingPane.id, via: opts.via })
+    const ref = this.prReviewRef(number, title, ctx, serverId, opts.expectedRepo)
+    const pane = this.router.navigate(ref, {
+      target: opts.target ?? this.router.leadingPane.id,
+      via: opts.via,
+    })
+    if (pane.id !== this.router.leadingPane.id) this.geometry.open(pane.id)
     this.isExpanded = true
     track('surface_viewed', { surface: 'pr_review', via: opts.via })
     this.prsStore.prefetchReview(api, serverId, ctx, number)
     try {
-      const pr = await this.router.resolve<PrReviewContext>(ref, {
+      const pr = await this.router.resolve<PrReviewTarget>(ref, {
         api,
         ipc: (cwd) => (cwd ? this.ctxForDirectory(cwd) : ctx),
       })
@@ -3021,30 +3085,49 @@ export class WorkspaceContext {
       if (prSurfaceError(err).kind === 'github-auth') return null
       // Tear down the pending surface so a failed open doesn't strand the user.
       this.router.dropResolved(ref)
-      if (this.router.params('prReview')?.number === number) this.exitPrReview()
+      if (this.router.params('prReview')?.number === number) {
+        if (pane.id === this.router.leadingPane.id) this.exitPrReview()
+        else this.router.closePane(pane.id)
+      }
       toasts.error(`Couldn't open PR #${number}: ${err instanceof Error ? err.message : String(err)}`)
       return null
     }
   }
 
-  /** Enter PR review without creating a chat. The checked-out worktree supplies
-   *  the review context; a worktree-rooted chat is created only on demand. */
+  /** Enter PR review without creating a checkout. A worktree-rooted chat is
+   * created only on demand. */
   async enterPrReview(
     number: number,
     title?: string,
-    opts: { openChat?: boolean; ctx?: IpcContext; via?: Via; serverId?: string } = {},
+    opts: {
+      openChat?: boolean
+      ctx?: IpcContext
+      via?: Via
+      serverId?: string
+      target?: NavTarget
+      expectedRepo?: RouteRef<'prReview'>['params']['expectedRepo']
+    } = {},
   ): Promise<void> {
     beginPrReviewProfile(number)
     // Switch to the editor layout up front so the click registers immediately.
     if (this.window.viewMode !== 'editor') await this.window.setViewMode('editor')
     const ctx = opts.ctx ?? this.ctx
-    const pr = await this.openPrReviewRoute(number, title, ctx, { via: opts.via, serverId: opts.serverId })
-    if (pr && opts.openChat) await this.openPrReviewChat(pr)
+    const pr = await this.openPrReviewRoute(number, title, ctx, {
+      via: opts.via,
+      serverId: opts.serverId,
+      target: opts.target,
+      expectedRepo: opts.expectedRepo,
+    })
+    if (pr && opts.openChat) {
+      const api = opts.serverId ? serverConnections.apiFor(opts.serverId) : this.apiForContext(ctx)
+      const checkout = await api.prPrepareCheckout(ctx, pr)
+      await this.openPrReviewChat({ ...pr, ...checkout })
+    }
   }
 
   /** Prepare one review without changing pane placement. Review Mode uses this
    * seam to warm the next item in its queue. */
-  async preparePrReview(number: number, opts: { ctx?: IpcContext; serverId?: string } = {}): Promise<{ pr: PrReviewContext }> {
+  async preparePrReview(number: number, opts: { ctx?: IpcContext; serverId?: string } = {}): Promise<{ pr: PrReviewTarget }> {
     const ctx = opts.ctx ?? this.ctx
     const api = opts.serverId ? serverConnections.apiFor(opts.serverId) : this.apiForContext(ctx)
     const pr = await api.prOpenReview(ctx, number)
@@ -3146,7 +3229,7 @@ export class WorkspaceContext {
    *  change read together. Closing it returns the review to Activity. */
   openPrDiff(number: number, ctx: IpcContext = this.ctx): void {
     const pane = this.router.navigate(
-      { name: 'prDiff', params: { number, cwd: ctx.session.projectPath ?? undefined } },
+      { name: 'prDiff', params: { number, cwd: ctx.session.projectPath ?? ctx.session.workingDirectory ?? undefined } },
       { target: 'aside' },
     )
     this.geometry.open(pane.id, 0.5)
@@ -3203,9 +3286,10 @@ export class WorkspaceContext {
    * Enter a route that came from somewhere other than a click in the UI: an
    * agent-emitted `plan://` link, a notification payload, a deep link. The
    * router places it; this adds whatever the destination needs on entry that a
-   * bare navigation cannot know about — a plan's body off disk, a PR's worktree.
+   * bare navigation cannot know about — a plan's body off disk, a PR's provider
+   * detail, or a session that must be resumed.
    */
-  openRoute(ref: RouteRef, opts: { via?: Via } = {}): void {
+  openRoute(ref: RouteRef, opts: { via?: Via; target?: NavTarget } = {}): void {
     switch (ref.name) {
       case 'plan':
         if (ref.params.planId) void this.openPlanModal(ref.params.planId)
@@ -3216,6 +3300,8 @@ export class WorkspaceContext {
       case 'prReview':
         void this.enterPrReview(ref.params.number, ref.params.title, {
           via: opts.via,
+          target: opts.target,
+          expectedRepo: ref.params.expectedRepo,
           serverId: ref.params.serverId,
           ctx: ref.params.cwd ? this.ctxForDirectory(ref.params.cwd) : this.ctx,
         })

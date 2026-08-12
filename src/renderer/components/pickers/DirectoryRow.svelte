@@ -45,7 +45,7 @@
 >
   {#if isUpRow}
     <ArrowElbowLeftUpIcon size={13} class="shrink-0 text-muted-foreground" />
-    <span class="flex-1 truncate font-mono text-[0.75rem] text-muted-foreground">{name}</span>
+    <span class="flex-1 truncate font-mono text-xs text-muted-foreground">{name}</span>
   {:else}
     <!-- A checkout is the thing you are usually looking for, so it is the one
          row that carries the accent. -->
@@ -54,14 +54,14 @@
     {:else}
       <FolderIcon size={13} class="shrink-0 text-muted-foreground" />
     {/if}
-    <span class="min-w-0 shrink truncate text-[0.78125rem]">{name}</span>
+    <span class="min-w-0 shrink truncate text-[0.8125rem]">{name}</span>
     {#if branch}
-      <span class="shrink-0 truncate font-mono text-[0.6875rem] text-muted-foreground" title="On branch {branch}">
+      <span class="shrink-0 truncate font-mono text-xs text-muted-foreground" title="On branch {branch}">
         {branch}
       </span>
     {/if}
     {#if isProject}
-      <span class="shrink-0 text-[0.6875rem] text-muted-foreground">Project</span>
+      <span class="shrink-0 text-xs text-muted-foreground">Project</span>
     {/if}
   {/if}
 </button>

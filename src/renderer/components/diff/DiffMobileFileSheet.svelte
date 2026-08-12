@@ -33,10 +33,10 @@
 >
   <div class="mobile-tree-grabber" aria-hidden="true"></div>
   <div class="mobile-tree-header">
-    <span class="text-[0.8125rem] font-semibold text-(--solus-text-primary)"
+    <span class="text-[0.8125rem] font-medium text-(--solus-text-primary)"
       >Changed files</span
     >
-    <span class="text-[0.6875rem] text-(--solus-text-tertiary) tabular-nums"
+    <span class="text-xs text-(--solus-text-tertiary) tabular-nums"
       >{files.length}</span
     >
     <span class="flex-1"></span>
@@ -166,8 +166,8 @@
     flex-shrink: 0;
     width: 1.125rem;
     text-align: center;
-    font-size: 0.625rem;
-    font-weight: 700;
+    font-size: 0.75rem;
+    font-weight: 500;
     font-family: var(--solus-code-font-family);
     color: var(--solus-text-tertiary);
   }
@@ -197,7 +197,7 @@
     flex-shrink: 0;
     display: flex;
     gap: 0.375rem;
-    font-size: 0.6875rem;
-    font-weight: 600;
+    font-size: 0.75rem;
+    font-weight: 500;
   }
 </style>

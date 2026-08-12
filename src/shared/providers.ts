@@ -82,6 +82,93 @@ export interface PullRequestDetail extends PullRequestSummary {
   mergeStateStatus: string | null
   /** Where the head branch lives; `isFork` true when it differs from the base repo. */
   headRepo: { owner: string; repo: string; isFork: boolean }
+  capabilities: PrReviewCapabilities
+  viewerPermissions: PrViewerPermissions
+}
+
+export type PrReviewVerdict = 'comment' | 'approve' | 'request-changes'
+export type PrLifecycleAction = 'merge' | 'close' | 'reopen' | 'ready' | 'draft'
+
+/** Canonical lifecycle fields returned by a provider mutation. The mutation
+ * response owns these values; callers must not immediately re-read an
+ * eventually consistent list/detail endpoint to discover them. */
+export type PrLifecycleUpdate = Pick<PullRequestSummary, 'state' | 'draft' | 'updatedAt'>
+export type PrMergeMethod = 'merge' | 'squash' | 'rebase'
+
+/** Operations supported by the provider and repository configuration. */
+export interface PrReviewCapabilities {
+  diff: boolean
+  diffFileContents: boolean
+  inlineComments: boolean
+  threadReplies: boolean
+  threadResolution: boolean
+  reviewVerdicts: PrReviewVerdict[]
+  actions: PrLifecycleAction[]
+  mergeMethods: PrMergeMethod[]
+  reviewerRequests: boolean
+  reviewerCandidates: boolean
+}
+
+/** Operations the connected viewer may perform on this pull request. */
+export interface PrViewerPermissions {
+  actions: PrLifecycleAction[]
+  reviewVerdicts: PrReviewVerdict[]
+  comment: boolean
+  resolveThreads: boolean
+  requestReviewers: boolean
+}
+
+export interface PrReviewerCandidate {
+  login: string
+  avatarUrl?: string
+}
+
+/** Exact host revision shown by PR review. It deliberately contains no local path. */
+export interface PrReviewTarget {
+  host: string
+  owner: string
+  repo: string
+  number: number
+  title: string
+  baseRef: string
+  headRef: string
+  baseSha: string
+  headSha: string
+  headRepo: { owner: string; repo: string; isFork: boolean }
+}
+
+export interface PrDiffRequest {
+  number: number
+  baseSha: string
+  /** Reject the response if the pull request moved after the review opened. */
+  headSha: string
+  /** Provider-owned opaque page cursor. */
+  cursor?: string
+  commitSha?: string
+}
+
+export interface PrDiffSlice {
+  /** Complete unified file patches. A slice never ends inside one file patch. */
+  patch: string
+  truncated: boolean
+  nextCursor: string | null
+}
+
+export type PrDiffChangeType = 'change' | 'rename-pure' | 'rename-changed' | 'new' | 'deleted'
+
+export interface PrDiffFileContentsRequest {
+  number: number
+  baseSha: string
+  headSha: string
+  commitSha?: string
+  oldPath: string
+  newPath: string
+  changeType: PrDiffChangeType
+}
+
+export interface PrDiffFileContents {
+  oldContents: string
+  newContents: string
 }
 
 /** Mutable pull-request content. State/base changes stay behind their dedicated

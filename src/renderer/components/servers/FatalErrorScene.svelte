@@ -47,12 +47,12 @@
     </svg>
 
     <div
-      class="mt-7 max-w-88 text-center text-[1.0625rem] text-(--solus-text-primary)"
+      class="mt-7 max-w-88 text-center text-sm text-(--solus-text-primary)"
     >
       Solus hit an unexpected error
     </div>
     <p
-      class="mt-1.5 max-w-88 text-center text-[0.84375rem] leading-relaxed text-(--solus-text-tertiary)"
+      class="mt-1.5 max-w-88 text-center text-sm leading-relaxed text-(--solus-text-tertiary)"
     >
       The interface stopped rendering. Your sessions live on the host and are not
       affected.
@@ -81,7 +81,7 @@
       class="group mt-4 w-full overflow-hidden rounded-lg border border-(--solus-menu-hairline) bg-(--solus-surface-hover)"
     >
       <summary
-        class="flex cursor-pointer list-none items-center justify-between gap-3 border-(--solus-menu-hairline) py-1.5 pr-2 pl-3 text-[0.78125rem] text-(--solus-text-secondary) group-open:border-b"
+        class="flex cursor-pointer list-none items-center justify-between gap-3 border-(--solus-menu-hairline) py-1.5 pr-2 pl-3 text-[0.8125rem] text-(--solus-text-secondary) group-open:border-b"
       >
         Technical details
         <!-- Inside <summary>, a click would toggle the disclosure shut on the

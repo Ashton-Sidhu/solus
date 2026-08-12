@@ -298,9 +298,9 @@
     align-items: center;
     padding: 0 0.125rem 0.625rem;
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.65625rem;
-    font-weight: 600;
-    letter-spacing: 0.1em;
+    font-size: 0.75rem;
+    font-weight: 500;
+
     text-transform: uppercase;
     color: var(--solus-text-tertiary);
     font-variant-numeric: tabular-nums;
@@ -391,9 +391,9 @@
     height: 1.25rem;
     padding: 0 0.5rem;
     border: 0.0625rem solid color-mix(in srgb, var(--solus-art-2) 45%, transparent);
-    border-radius: 999px;
+    border-radius: 9999px;
     background: color-mix(in srgb, var(--solus-art-2) 12%, var(--solus-container-bg));
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     color: color-mix(in srgb, var(--solus-text-primary) 84%, var(--solus-text-tertiary));
     font-variant-numeric: tabular-nums;
     cursor: pointer;
@@ -422,7 +422,7 @@
   .plan-comments-rail__empty {
     margin: 0;
     padding: 0.25rem 0.125rem;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     line-height: 1.6;
     color: var(--solus-text-tertiary);
   }

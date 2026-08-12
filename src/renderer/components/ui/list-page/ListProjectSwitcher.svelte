@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { CaretDownIcon, MagnifyingGlassIcon, CheckIcon } from "phosphor-svelte";
+  import {
+    CaretDownIcon,
+    MagnifyingGlassIcon,
+    CheckIcon,
+  } from "phosphor-svelte";
   import ProjectFavicon from "../ProjectFavicon.svelte";
   import { abbreviateHome } from "../../../lib/paths";
   import type { ListProjectOption } from "./list-page";
@@ -14,10 +18,10 @@
   interface Props {
     projects: ListProjectOption[];
     /** Repo root of the project on screen; `""` when there is none. */
-    activeProjectKey: string;
+    activeProjectKey?: string;
     /** Stands in when nothing is scoped yet. */
     emptyLabel?: string;
-    onSelect: (projectKey: string) => void;
+    onSelect?: (projectKey: string) => void;
   }
   let {
     projects,
@@ -30,7 +34,9 @@
   let query = $state("");
   let queryEl = $state<HTMLInputElement | null>(null);
 
-  const active = $derived(projects.find((p) => p.projectKey === activeProjectKey));
+  const active = $derived(
+    projects.find((p) => p.projectKey === activeProjectKey),
+  );
   // A handful of projects is a list you read; past that it is one you search.
   const showFilter = $derived(projects.length > 6);
   const matches = $derived(
@@ -65,7 +71,7 @@
   function pick(projectKey: string) {
     menuOpen = false;
     query = "";
-    onSelect(projectKey);
+    if (onSelect) onSelect(projectKey);
   }
 </script>
 
@@ -81,8 +87,8 @@
   <button
     type="button"
     class="relative z-40 flex h-[26px] max-w-full cursor-pointer items-center gap-2 rounded-md border-0 px-[7px] transition-colors duration-150 hover:bg-[var(--wash-1)] {menuOpen
-      ? 'bg-[var(--wash-2)]'
-      : 'bg-transparent'}"
+ ? 'bg-[var(--wash-2)]'
+ : 'bg-transparent'}"
     title="Switch project"
     aria-haspopup="menu"
     aria-expanded={menuOpen}
@@ -90,19 +96,23 @@
   >
     {#if active}
       {#key active.projectKey}
-        <ProjectFavicon projectRoot={active.projectKey} class="size-3.5" />
+        <ProjectFavicon
+          projectRoot={active.projectKey}
+          class="size-3.5"
+          coloredFallback
+        />
       {/key}
     {/if}
     <span
-      class="max-w-[180px] truncate text-[13px] font-[450] tracking-[-.005em]"
+      class="max-w-[180px] truncate text-[0.8125rem] font-normal "
     >
       {active?.label ?? emptyLabel}
     </span>
     <CaretDownIcon
-      size={11}
+      size={14}
       class="shrink-0 text-muted-foreground opacity-50 transition-transform duration-200 {menuOpen
-        ? 'rotate-180'
-        : ''}"
+ ? 'rotate-180'
+ : ''}"
     />
   </button>
 
@@ -117,20 +127,20 @@
           class="mx-px mt-px mb-[3px] flex h-[30px] items-center gap-2 rounded-lg bg-[var(--wash-1)] px-[9px]"
         >
           <MagnifyingGlassIcon
-            size={12}
+            size={14}
             class="shrink-0 text-muted-foreground opacity-70"
           />
           <input
             bind:this={queryEl}
             bind:value={query}
-            class="w-full border-0 bg-transparent text-[13px] outline-none"
+            class="w-full border-0 bg-transparent text-[0.8125rem] outline-none"
             placeholder="Find a project…"
           />
         </div>
       {/if}
 
       <div
-        class="px-[9px] pt-[5px] pb-1 text-[10px] font-[450] tracking-[.09em] text-muted-foreground uppercase"
+        class="px-[9px] pt-[5px] pb-1 text-xs font-normal text-muted-foreground uppercase"
       >
         Projects
       </div>
@@ -140,35 +150,39 @@
         <button
           type="button"
           class="flex h-[34px] w-full cursor-pointer items-center gap-[9px] rounded-lg border-0 px-[9px] text-left transition-colors duration-150 hover:bg-[var(--wash-2)] {isActive
-            ? 'bg-[var(--wash-2)]'
-            : 'bg-transparent'}"
+ ? 'bg-[var(--wash-2)]'
+ : 'bg-transparent'}"
           title={abbreviateHome(project.projectKey)}
           onclick={() => pick(project.projectKey)}
         >
-          <ProjectFavicon projectRoot={project.projectKey} class="size-3.5" />
+          <ProjectFavicon
+            projectRoot={project.projectKey}
+            class="size-3.5"
+            coloredFallback
+          />
           <span
-            class="min-w-0 flex-1 truncate text-[13px] tracking-[-.005em] {isActive
-              ? 'font-medium'
-              : ''}"
+            class="min-w-0 flex-1 truncate text-[0.8125rem] {isActive
+ ? 'font-medium'
+ : ''}"
           >
             {project.label}
           </span>
           <span class="flex w-3 shrink-0 justify-end">
             {#if isActive}
-              <CheckIcon size={12} class="text-primary" />
+              <CheckIcon size={14} class="text-primary" />
             {/if}
           </span>
         </button>
       {/each}
 
       {#if matches.length === 0}
-        <div class="px-[9px] pt-3 pb-3.5 text-[13px] text-muted-foreground">
+        <div class="px-[9px] pt-3 pb-3.5 text-[0.8125rem] text-muted-foreground">
           No project matches.
         </div>
       {/if}
 
       <div
-        class="mt-0.5 flex items-center border-t border-[var(--hairline)] px-[9px] pt-[7px] pb-1 text-[12px] text-muted-foreground"
+        class="mt-0.5 flex items-center border-t border-[var(--hairline)] px-[9px] pt-[7px] pb-1 text-xs text-muted-foreground"
       >
         Switching clears search and filters
       </div>

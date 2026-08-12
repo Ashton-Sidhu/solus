@@ -4,12 +4,10 @@
 
   interface Props {
     row: DraftRow;
-    /** The project name under the title — only when the list spans projects. */
-    showProjectLine: boolean;
     onSelect: () => void;
     onDiscard: () => void;
   }
-  let { row, showProjectLine, onSelect, onDiscard }: Props = $props();
+  let { row, onSelect, onDiscard }: Props = $props();
 </script>
 
 <!--
@@ -22,9 +20,7 @@
   composing it, so the row you are looking at is never the prompt you are in.
 -->
 <div
-  class="group/draft relative -mr-1 flex cursor-pointer items-center gap-[0.5625rem] rounded-[0.6875rem] pr-2 pl-[0.125rem] transition-[background] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] {showProjectLine
-    ? 'h-[3.25rem]'
-    : 'h-[2.125rem]'}"
+  class="group/draft relative -mr-1 flex cursor-pointer items-center gap-[0.5625rem] rounded-[0.6875rem] pr-2 pl-[0.125rem] transition-[background] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 h-[3.25rem] focus-visible:outline-ring hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)]"
   role="option"
   tabindex="0"
   aria-selected="false"
@@ -37,9 +33,7 @@
   }}
 >
   <span
-    class="-mr-[0.375rem] flex size-4 shrink-0 items-center justify-center text-(--solus-text-tertiary) {showProjectLine
-      ? 'mt-2 self-start'
-      : ''}"
+    class="mt-2 -mr-[0.375rem] flex size-4 shrink-0 items-center justify-center self-start text-(--solus-text-tertiary)"
     aria-hidden="true"
   >
     <NotePencilIcon size={12} />
@@ -48,7 +42,7 @@
   <span class="flex min-w-0 flex-1 flex-col">
     <span class="flex h-[1.1875rem] items-center gap-[0.5625rem]">
       <span
-        class="min-w-0 flex-1 overflow-hidden text-[0.84375rem] leading-[1.1875rem] tracking-[-0.008em] text-ellipsis whitespace-nowrap text-(--solus-text-secondary)"
+        class="min-w-0 flex-1 overflow-hidden text-sm leading-[1.1875rem] text-ellipsis whitespace-nowrap text-(--solus-text-secondary)"
         title={row.title}>{row.title}</span
       >
 
@@ -80,11 +74,9 @@
       </button>
     </span>
 
-    {#if showProjectLine}
-      <span
-        class="mt-[0.1875rem] overflow-hidden text-[0.6875rem] text-ellipsis whitespace-nowrap text-(--solus-text-tertiary)"
-        >{row.projectLabel}</span
-      >
-    {/if}
+    <span
+      class="mt-[0.1875rem] overflow-hidden text-xs text-ellipsis whitespace-nowrap text-(--solus-text-tertiary)"
+      >{row.projectLabel}</span
+    >
   </span>
 </div>

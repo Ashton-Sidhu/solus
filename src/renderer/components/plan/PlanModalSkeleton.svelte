@@ -29,15 +29,15 @@
 {#snippet shellInner()}
   <div
     class="relative flex flex-col overflow-hidden bg-(--solus-container-bg) @container {inline
-      ? 'h-full'
-      : 'h-[min(86vh,90vh)] w-[min(100rem,96vw)] rounded-2xl border border-(--solus-tool-border) shadow-[shadow:var(--solus-popover-shadow)]'}"
+ ? 'h-full'
+ : 'h-[min(86vh,90vh)] w-[min(100rem,96vw)] rounded-2xl border border-(--solus-tool-border) shadow-[shadow:var(--solus-popover-shadow)]'}"
     role="status"
     aria-label="Loading plan"
   >
     <!-- The title is known before the content is, so it stays real type; only
          the verbs on the right are ghosts. -->
     <header class="flex h-[2.875rem] shrink-0 items-center pl-[1.375rem]">
-      <span class="text-[0.78125rem] font-semibold tracking-[-0.01em] text-(--solus-text-primary)">
+      <span class="text-[0.8125rem] font-medium text-(--solus-text-primary)">
         Review Plan
       </span>
       <div class="min-w-4 flex-auto"></div>
@@ -45,10 +45,10 @@
         class="flex shrink-0 items-center gap-0.75 pr-[max(0.875rem,var(--solus-pane-chrome-inset,3.25rem))]"
         aria-hidden="true"
       >
-        <Skeleton class="h-7 w-[4.75rem] rounded-[0.4375rem]" />
-        <Skeleton class="h-7 w-[6rem] rounded-[0.4375rem]" />
-        <Skeleton class="size-7 rounded-[0.4375rem]" />
-        <Skeleton class="size-7 rounded-[0.4375rem]" />
+        <Skeleton class="h-7 w-[4.75rem] rounded-lg" />
+        <Skeleton class="h-7 w-[6rem] rounded-lg" />
+        <Skeleton class="size-7 rounded-lg" />
+        <Skeleton class="size-7 rounded-lg" />
       </div>
     </header>
 
@@ -142,7 +142,7 @@
      the shell container, which is what makes a split pane narrow the column
      instead of the window doing it. */
   .plan-skeleton-column {
-    --solus-doc-size: calc(0.96875rem * var(--solus-font-scale, 1));
+    --solus-doc-size: calc(0.875rem * var(--solus-font-scale, 1));
     --solus-doc-measure: clamp(66ch, 68cqi, 112ch);
     --solus-doc-rail-w: clamp(13.5rem, 26cqi, 18rem);
   }
@@ -189,7 +189,7 @@
   }
   @container (max-width: 45rem) {
     .plan-skeleton-column {
-      --solus-doc-size: calc(0.9375rem * var(--solus-font-scale, 1));
+      --solus-doc-size: calc(0.875rem * var(--solus-font-scale, 1));
     }
     .plan-skeleton-prose {
       --doc-pad-x: 1.375rem;
@@ -197,7 +197,7 @@
   }
   @media (max-width: 767px) {
     .plan-skeleton-column {
-      --solus-doc-size: calc(1.0625rem * var(--solus-font-scale, 1));
+      --solus-doc-size: calc(0.875rem * var(--solus-font-scale, 1));
     }
     .plan-skeleton-prose {
       padding-top: 1.25rem;

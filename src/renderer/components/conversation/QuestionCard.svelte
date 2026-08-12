@@ -262,14 +262,14 @@
 
   {#snippet meta()}
     {#if sessionId}
-      <span class="shrink-0">{assistantName} <span class="font-mono text-[0.71875rem]">{sessionId}</span></span>
+      <span class="shrink-0">{assistantName} <span class="font-mono text-xs">{sessionId}</span></span>
       <span class="shrink-0 opacity-60">·</span>
     {/if}
     {#if total > 1}
       <span class="shrink-0 text-(--solus-text-primary)">{ordinal(currentIndex + 1)} of {total}</span>
       <span class="shrink-0 opacity-60">·</span>
     {/if}
-    <span class="shrink-0 font-mono text-[0.71875rem]">waiting {waiting}</span>
+    <span class="shrink-0 font-mono text-xs">waiting {waiting}</span>
   {/snippet}
 
   {#snippet headerAside()}
@@ -282,7 +282,7 @@
           aria-label="Previous question"
           onclick={goPrev}
         >
-          <CaretLeftIcon size={11} weight="bold" />
+          <CaretLeftIcon size={14} weight="bold" />
         </button>
         <span class="interrupt-pager-count font-mono">{currentIndex + 1} of {total}</span>
         <button
@@ -292,7 +292,7 @@
           aria-label="Next question"
           onclick={() => !isLast && (currentIndex += 1)}
         >
-          <CaretRightIcon size={11} weight="bold" />
+          <CaretRightIcon size={14} weight="bold" />
         </button>
       </div>
     {/if}
@@ -313,12 +313,12 @@
                 onclick={() => goTo(entry.index)}
               >
                 <span class="trail-index font-mono">{entry.index + 1}</span>
-                <CheckIcon size={11} weight="bold" class="trail-check" />
-                <span class="min-w-0 flex-1 truncate text-[0.75rem] text-(--muted-foreground)">
+                <CheckIcon size={14} weight="bold" class="trail-check" />
+                <span class="min-w-0 flex-1 truncate text-xs text-(--muted-foreground)">
                   {entry.question.question}
                 </span>
-                <span class="shrink-0 text-[0.75rem] opacity-40" aria-hidden="true">→</span>
-                <span class="max-w-[45%] min-w-0 truncate text-[0.75rem] font-medium">
+                <span class="shrink-0 text-xs opacity-40" aria-hidden="true">→</span>
+                <span class="max-w-[45%] min-w-0 truncate text-xs font-medium">
                   {entry.answer}
                 </span>
                 <span class="trail-change">Change</span>
@@ -330,7 +330,7 @@
         <!-- The question is a sentence, not a heading: the header's title stays
              the card's only bold line. -->
         <div
-          class="prose-cloud prose-reading prose-transcript prose-interrupt min-w-0 px-[1.125rem] pt-[0.9375rem] pb-3 text-[0.875rem] font-normal"
+          class="prose-cloud prose-reading prose-transcript prose-interrupt min-w-0 px-[1.125rem] pt-[0.9375rem] pb-3 text-sm font-normal"
         >
           <SvelteMarkdown
             source={currentQuestion.question}
@@ -341,13 +341,13 @@
         </div>
 
         {#if request.kind === "mcp_url" && request.url}
-          <div class="px-[1.125rem] pb-2 font-mono text-[0.71875rem] leading-relaxed break-all text-(--muted-foreground)">
+          <div class="px-[1.125rem] pb-2 font-mono text-xs leading-relaxed break-all text-(--muted-foreground)">
             {request.url}
           </div>
         {/if}
 
         {#if currentQuestion.multiSelect && hasOptions}
-          <div class="px-[1.125rem] pb-2 text-[0.65625rem] tracking-[0.07em] uppercase text-(--muted-foreground)">
+          <div class="px-[1.125rem] pb-2 text-xs uppercase text-(--muted-foreground)">
             Select all that apply
           </div>
         {/if}
@@ -377,7 +377,7 @@
                       >{/if}
                   </span>
                   {#if opt.description}
-                    <span class="text-[0.71875rem] leading-[1.5] text-pretty text-(--muted-foreground)">
+                    <span class="text-xs leading-[1.5] text-pretty text-(--muted-foreground)">
                       {#each inlineCodeParts(opt.description) as part, p (p)}
                         {#if part.code}<code class="option-code">{part.text}</code
                           >{:else}{part.text}{/if}
@@ -391,7 +391,7 @@
                   class:is-multi={currentQuestion.multiSelect}
                 >
                   {#if selected && currentQuestion.multiSelect}
-                    <CheckIcon size={9} weight="bold" />
+                    <CheckIcon size={14} weight="bold" />
                   {:else if selected}
                     <span class="option-dot"></span>
                   {/if}
@@ -410,7 +410,7 @@
               onclick={() => (previewOpen = !previewOpen)}
             >
               <span class="interrupt-caret" class:is-open={previewOpen}>
-                <CaretRightIcon size={9} weight="bold" />
+                <CaretRightIcon size={14} weight="bold" />
               </span>
               Preview “{activeOption.label}”
               <span class="key-chip font-mono">P</span>
@@ -418,7 +418,7 @@
             {#if previewOpen}
               <div
                 in:fly={{ y: -2, duration: 140 }}
-                class="interrupt-payload px-[0.8125rem] py-[0.6875rem] font-mono text-[0.75rem] leading-[1.75] whitespace-pre-wrap text-(--muted-foreground) [&_code]:!bg-transparent [&_p:last-child]:mb-0 [&_p]:mb-1 [&_p]:whitespace-pre-wrap [&_pre]:!bg-transparent [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_strong]:font-semibold [&_strong]:text-(--solus-text-primary)"
+                class="interrupt-payload px-[0.8125rem] py-[0.6875rem] font-mono text-xs leading-[1.75] whitespace-pre-wrap text-(--muted-foreground) [&_code]:!bg-transparent [&_p:last-child]:mb-0 [&_p]:mb-1 [&_p]:whitespace-pre-wrap [&_pre]:!bg-transparent [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_strong]:font-medium [&_strong]:text-(--solus-text-primary)"
               >
                 <SvelteMarkdown
                   source={activeOption.preview ?? ""}
@@ -434,19 +434,19 @@
         <!-- Permanent: an off-menu reply must never require abandoning the card.
              Card fill, not a grey well — it is an alternative, not the emphasis. -->
         <div class="px-[1.125rem] pt-3">
-          <div class="answer-field flex items-start gap-2 rounded-lg px-2.5 py-2">
-            <ChatTeardropTextIcon size={12} class="mt-[0.1875rem] shrink-0 text-(--muted-foreground)" />
+          <div class="answer-field flex items-center gap-2 rounded-lg px-2.5 py-2">
+            <ChatTeardropTextIcon size={14} class="shrink-0 text-(--muted-foreground)" />
             <Textarea
               value={getComment(currentQuestion)}
               placeholder={hasOptions ? "Or answer in your own words…" : "Type your answer…"}
               disabled={responded}
               rows={1}
-              class="min-h-0 rounded-none border-0 bg-transparent p-0 text-[0.78125rem] font-normal shadow-none focus-visible:ring-0 dark:bg-transparent"
+              class="min-h-0 rounded-none border-0 bg-transparent p-0 text-[0.8125rem] font-normal shadow-none focus-visible:ring-0 dark:bg-transparent"
               oninput={(e) => {
                 ensureState(currentQuestion).comment = (e.target as HTMLTextAreaElement).value;
               }}
             />
-            <span class="key-chip font-mono mt-[0.125rem] shrink-0">⏎</span>
+            <span class="key-chip shrink-0 font-mono">⏎</span>
           </div>
         </div>
       </div>
@@ -470,11 +470,11 @@
       </button>
     {/if}
     <div class="flex-1"></div>
-    <span class="shrink-0 text-[0.71875rem] text-(--muted-foreground)">
+    <span class="shrink-0 text-xs text-(--muted-foreground)">
       {#if responded}
         Answered
       {:else}
-        Holding · <span class="font-mono text-[0.6875rem]">{waiting}</span>
+        Holding · <span class="font-mono text-xs">{waiting}</span>
       {/if}
     </span>
     <button
@@ -484,7 +484,7 @@
       onclick={goNext}
     >
       {#if responded}
-        <CheckIcon size={11} weight="bold" />
+        <CheckIcon size={14} weight="bold" />
         Answered
       {:else}
         {primaryLabel}
@@ -514,7 +514,7 @@
   }
   .interrupt-pager-count {
     padding: 0 0.1875rem;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
     color: var(--muted-foreground);
   }
@@ -537,7 +537,7 @@
   .trail-index {
     width: 0.875rem;
     flex-shrink: 0;
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     opacity: 0.5;
   }
@@ -551,7 +551,7 @@
     flex-shrink: 0;
     border-radius: 0.375rem;
     padding: 0.125rem 0.4375rem;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 500;
     color: var(--muted-foreground);
     transition: background var(--duration-quick) var(--ease-premium);
@@ -563,7 +563,7 @@
   /* "recommended" is a note about the option, never part of its name. */
   .option-note {
     margin-left: 0.25rem;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     font-weight: 400;
     color: var(--muted-foreground);
   }
@@ -599,7 +599,7 @@
     border-radius: 0.25rem;
     background: color-mix(in oklch, var(--foreground) 7%, transparent);
     font-family: var(--solus-code-font-family);
-    font-size: 0.9em;
+    font-size: 0.875rem;
   }
 
   /* Number keys select, so the number is part of the row — and it stays neutral
@@ -615,7 +615,7 @@
     border: 0.0625rem solid var(--border);
     border-radius: 0.25rem;
     color: var(--muted-foreground);
-    font-size: 0.625rem;
+    font-size: 0.75rem;
   }
 
   .option-mark {
@@ -627,7 +627,7 @@
     align-items: center;
     justify-content: center;
     border: 0.0625rem solid var(--border);
-    border-radius: 999px;
+    border-radius: 9999px;
     color: var(--primary-foreground);
   }
   .option-mark.is-multi {
@@ -642,7 +642,7 @@
   .option-dot {
     width: 0.4375rem;
     height: 0.4375rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--primary);
   }
 
@@ -661,7 +661,7 @@
     border-radius: 0.25rem;
     padding: 0 0.25rem;
     color: var(--muted-foreground);
-    font-size: 0.59375rem;
+    font-size: 0.75rem;
     line-height: 1.5;
   }
 </style>

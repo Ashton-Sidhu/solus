@@ -28,7 +28,7 @@
 
 <Button
   type="button"
-  class="flex h-[30px] w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border bg-transparent px-3.5 text-[12.5px] font-medium text-(--solus-art-negative) transition-colors hover:bg-muted"
+  class="flex h-[30px] w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border bg-transparent px-3.5 text-[0.8125rem] font-medium text-(--solus-art-negative) transition-colors hover:bg-muted"
   onclick={resolve}
   title="Open an agent session to resolve the merge conflicts"
 >

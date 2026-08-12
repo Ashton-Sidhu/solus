@@ -1,7 +1,10 @@
 <script lang="ts">
   import { CaretDownIcon, CircleDashedIcon } from "phosphor-svelte";
   import * as DropdownMenu from "../dropdown-menu";
-  import type { ListStatusOption } from "./list-page";
+  import {
+    updateListStatusSelection,
+    type ListStatusOption,
+  } from "./list-page";
 
   /** The filter bar's lifecycle picker: which statuses the list is showing.
    *
@@ -40,14 +43,8 @@
     return `${selected.length} statuses`;
   });
 
-  function toggle(value: string) {
-    onChange(
-      selected.includes(value)
-        ? selected.filter((status) => status !== value)
-        : // Keep the menu's order, not click order, so the label's "2 statuses"
-          // and the list underneath always resolve the same way.
-          options.map((option) => option.value).filter((status) => status === value || selected.includes(status)),
-    );
+  function setChecked(value: string, checked: boolean) {
+    onChange(updateListStatusSelection(options, selected, value, checked));
   }
 </script>
 
@@ -57,7 +54,7 @@
       <button
         {...props}
         type="button"
-        class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-[10px] border-0 px-2.5 text-[13px] transition-colors duration-150 {showingAll
+        class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 text-[0.8125rem] transition-colors duration-150 {showingAll
           ? 'bg-transparent text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)]'
           : 'bg-[color-mix(in_oklch,var(--primary)_13%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'}"
         aria-label={ariaLabel}
@@ -73,10 +70,10 @@
       <DropdownMenu.CheckboxItem
         checked={selected.includes(option.value)}
         closeOnSelect={false}
-        onSelect={() => toggle(option.value)}
+        onCheckedChange={(checked) => setChecked(option.value, checked)}
       >
         <span class="flex-1">{option.label}</span>
-        <span class="mr-4 font-mono text-[11px] tabular-nums opacity-60">
+        <span class="mr-4 font-mono text-xs tabular-nums opacity-60">
           {option.count}
         </span>
       </DropdownMenu.CheckboxItem>

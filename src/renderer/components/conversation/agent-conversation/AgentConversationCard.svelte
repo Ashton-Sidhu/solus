@@ -152,10 +152,10 @@
 </script>
 
 <div
-  class="group/agent-card bg-card rounded-[13px] overflow-hidden {stateRing} {state ===
-  'closed'
-    ? 'opacity-70'
-    : ''} {skipMotion ? '' : 'animate-msg-in-side'}"
+  class="group/agent-card bg-card rounded-2xl overflow-hidden {stateRing} {state ===
+ 'closed'
+ ? 'opacity-70'
+ : ''} {skipMotion ? '' : 'animate-msg-in-side'}"
   style:--agent-accent={live
     ? agentAccent(accentIndex)
     : "var(--muted-foreground)"}
@@ -166,16 +166,16 @@
        never truncate. -->
   <div
     class="flex items-center gap-[11px] pt-[13px] pr-[15px] pb-[13px] pl-[14px] border-b-[0.5px] transition-colors duration-200 {bodyOpen
-      ? 'border-(--solus-agent-card-rule)'
-      : 'border-transparent'}"
+ ? 'border-(--solus-agent-card-rule)'
+ : 'border-transparent'}"
   >
     <!-- Sixth slot. Muted to near-invisible until the card is hovered or the
          body is folded: a control that is always available is not always worth
          looking at, and the header's job is to be read, not operated. -->
     <button
-      class="flex items-center justify-center shrink-0 -ml-1 -mr-[3px] size-[18px] rounded-[5px] cursor-pointer transition-colors hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] focus-visible:text-foreground {bodyOpen
-        ? 'text-transparent group-hover/agent-card:text-muted-foreground'
-        : 'text-muted-foreground'}"
+      class="flex items-center justify-center shrink-0 -ml-1 -mr-[3px] size-[18px] rounded-[0.3125rem] cursor-pointer transition-colors hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] focus-visible:text-foreground {bodyOpen
+ ? 'text-transparent group-hover/agent-card:text-muted-foreground'
+ : 'text-muted-foreground'}"
       aria-expanded={bodyOpen}
       aria-label="{bodyOpen ? 'Collapse' : 'Expand'} {agentName} exchange"
       onclick={() => (openedByUser = !bodyOpen)}
@@ -195,12 +195,12 @@
       </svg>
     </button>
     <span
-      class="flex items-center justify-center shrink-0 size-6 rounded-[7px] {provider ===
-      'codex'
-        ? 'bg-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.1)]'
-        : provider === 'claude-code'
-          ? 'bg-[color-mix(in_srgb,#c15f2c_12%,transparent)] text-[#c15f2c] shadow-[inset_0_0_0_1px_color-mix(in_srgb,#c15f2c_18%,transparent)]'
-          : 'bg-[color-mix(in_oklch,var(--agent-accent)_17%,transparent)] text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]'}"
+      class="flex items-center justify-center shrink-0 size-6 rounded-lg {provider ===
+ 'codex'
+ ? 'bg-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.1)]'
+ : provider === 'claude-code'
+ ? 'bg-[color-mix(in_srgb,#c15f2c_12%,transparent)] text-[#c15f2c] shadow-[inset_0_0_0_1px_color-mix(in_srgb,#c15f2c_18%,transparent)]'
+ : 'bg-[color-mix(in_oklch,var(--agent-accent)_17%,transparent)] text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]'}"
       aria-label="{agentName} session"
     >
       {#if provider === "codex"}
@@ -208,15 +208,15 @@
       {:else if provider === "claude-code"}
         <ClaudeIcon size={14} />
       {:else}
-        <span class="text-[11px] font-semibold">Oc</span>
+        <span class="text-xs font-medium">Oc</span>
       {/if}
     </span>
     <span
-      class="shrink-0 text-[14px] font-semibold tracking-[-0.01em] text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]"
+      class="shrink-0 text-sm font-medium text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]"
     >
       {agentName}
     </span>
-    <span class="min-w-0 truncate text-[13px] text-muted-foreground"
+    <span class="min-w-0 truncate text-[0.8125rem] text-muted-foreground"
       >{title}</span
     >
     <span class="flex-1"></span>
@@ -230,9 +230,9 @@
            everywhere else in this card, and one tinted "you" would undo it. -->
       <span class="flex items-center gap-[7px] shrink-0">
         <span
-          class="text-[12px] {flow === 'to-agent'
-            ? 'font-medium text-foreground'
-            : 'text-muted-foreground'}"
+          class="text-xs {flow === 'to-agent'
+ ? 'font-medium text-foreground'
+ : 'text-muted-foreground'}"
         >
           you
         </span>
@@ -247,29 +247,29 @@
           {/if}
         </span>
         <span
-          class="text-[12px] {flow === 'to-you'
-            ? 'font-medium text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]'
-            : 'text-muted-foreground'}"
+          class="text-xs {flow === 'to-you'
+ ? 'font-medium text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]'
+ : 'text-muted-foreground'}"
         >
           {agentName}
         </span>
         <span
-          class="ml-[3px] font-mono text-[11px] text-muted-foreground/55 tabular-nums"
+          class="ml-[3px] font-mono text-xs text-muted-foreground/55 tabular-nums"
         >
           {elapsed}
         </span>
       </span>
     {:else if state === "failed"}
-      <span class="shrink-0 text-[12.5px] text-(--destructive)">
+      <span class="shrink-0 text-[0.8125rem] text-(--destructive)">
         {neverStarted ? "never started" : "stopped replying"}
       </span>
-      <span class="shrink-0 text-[12.5px] text-muted-foreground">
+      <span class="shrink-0 text-[0.8125rem] text-muted-foreground">
         {messageCount}
         {messageCount === 1 ? "message" : "messages"} kept
       </span>
       {#if !neverStarted}
         <button
-          class="shrink-0 rounded-[7px] px-2 py-1 text-[12px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+          class="shrink-0 rounded-lg px-2 py-1 text-xs text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
           onclick={retry}
         >
           Retry
@@ -277,7 +277,7 @@
       {/if}
     {:else}
       {#if state === "closed"}
-        <span class="shrink-0 text-[12.5px] text-muted-foreground">
+        <span class="shrink-0 text-[0.8125rem] text-muted-foreground">
           closed its session · transcript kept
         </span>
       {:else}
@@ -287,7 +287,7 @@
           class="shrink-0 text-[color-mix(in_oklch,var(--chart-3)_64%,var(--foreground))]"
         />
       {/if}
-      <span class="shrink-0 text-[12.5px] text-muted-foreground">
+      <span class="shrink-0 text-[0.8125rem] text-muted-foreground">
         {messageCount}
         {messageCount === 1 ? "message" : "messages"}
       </span>
@@ -295,7 +295,7 @@
 
     {#if !neverStarted}
       <button
-        class="flex items-center justify-center shrink-0 size-[26px] rounded-[7px] text-muted-foreground cursor-pointer transition-[background-color,color,scale] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground active:scale-[0.96]"
+        class="flex items-center justify-center shrink-0 size-[26px] rounded-lg text-muted-foreground cursor-pointer transition-[background-color,color,scale] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground active:scale-[0.96]"
         title="Open session in a new tab"
         aria-label="Open {agentName} session in a new tab"
         onclick={() => open()}
@@ -304,7 +304,7 @@
       </button>
       <DropdownMenu.Root>
         <DropdownMenu.Trigger
-          class="flex items-center justify-center shrink-0 size-[26px] rounded-[7px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+          class="flex items-center justify-center shrink-0 size-[26px] rounded-lg text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
           aria-label="{agentName} exchange actions"
         >
           <DotsThreeIcon size={14} weight="bold" />

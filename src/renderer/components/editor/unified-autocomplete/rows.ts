@@ -270,7 +270,7 @@ function referenceRootRows(input: RowInput): MenuRow[] {
       matches.push({
         item,
         score: 6 + index * 0.001,
-        parts: [{ text: item.title, hit: false }],
+        parts: highlightParts(item.title, []),
       });
     });
     matches = matches.sort((left, right) => left.score - right.score);
@@ -350,7 +350,7 @@ function referenceBrowseRows(input: RowInput): MenuRow[] {
         type: "item" as const,
         key: `recent:${item.id}`,
         item,
-        parts: [{ text: item.title, hit: false }],
+        parts: highlightParts(item.title, []),
         showKind: true,
       })),
     );

@@ -5,15 +5,26 @@ import {
   type SidebarSessionChild,
 } from '../../src/renderer/contexts/workspace/session-sidebar.store.svelte'
 
-function sidebarStoreForDismissal(): SessionSidebarStore & Record<string, unknown> {
-  const store = Object.create(SessionSidebarStore.prototype) as SessionSidebarStore &
-    Record<string, unknown>
+type SidebarStoreHarness = Pick<SessionSidebarStore, 'closeTask' | 'closeChild' | 'closeProject' | 'runningTaskCountIn' | 'renameTask'> & {
+  doneTaskIds: Set<string>
+  dismissedRowKeys: Set<string>
+  closedTabIds: string[]
+  unloadedCompletedTaskIds: Set<string>
+  closeTabs: (tabIds: string[]) => void
+  hostTasks: SidebarTask[]
+  session: unknown
+  tabIdBySessionId: Map<string, string>
+  renameSession: (tabId: string) => Promise<void>
+}
+
+function sidebarStoreForDismissal(): SidebarStoreHarness {
+  const store = Object.create(SessionSidebarStore.prototype) as SidebarStoreHarness
   store.doneTaskIds = new Set<string>()
   store.dismissedRowKeys = new Set<string>()
   store.closedTabIds = []
   store.unloadedCompletedTaskIds = new Set<string>()
   store.closeTabs = (tabIds: string[]) => {
-    ;(store.closedTabIds as string[]).push(...tabIds)
+    store.closedTabIds.push(...tabIds)
   }
   return store
 }
@@ -63,10 +74,9 @@ describe('session sidebar dismissal', () => {
     expect(store.closedTabIds).toEqual(['child-tab'])
   })
 
-  test('closing a durable task unloads every tab in its tree and dismisses the row', () => {
-    // WHY: this is the one path completion also takes, so it has to clear the
-    // whole task at once — the root row's tabIds already span its subtasks, and
-    // the dismissal is what removes the row rather than any lifecycle status.
+  test('closing a durable task unloads every tab and dismisses the row', () => {
+    // WHY: removing a row is presentation state only. It must not complete or
+    // otherwise change the task's workflow status.
     const store = sidebarStoreForDismissal()
 
     store.closeTask({
@@ -89,7 +99,7 @@ describe('session sidebar project dismissal', () => {
     // exactly the rows under it — a project close that reached a neighbouring
     // project would unload conversations the user never pointed at.
     const store = sidebarStoreForDismissal()
-    store.allTasks = [taskIn('/repo', 'one'), taskIn('/other', 'two'), taskIn('/repo', 'three')]
+    store.hostTasks = [taskIn('/repo', 'one'), taskIn('/other', 'two'), taskIn('/repo', 'three')]
 
     store.closeProject('/repo')
 
@@ -101,7 +111,7 @@ describe('session sidebar project dismissal', () => {
     // WHY: it is what decides whether the close asks first, so counting another
     // project's run would make a quiet project prompt for nothing.
     const store = sidebarStoreForDismissal()
-    store.allTasks = [
+    store.hostTasks = [
       taskIn('/repo', 'one', 'running'),
       taskIn('/repo', 'two'),
       taskIn('/other', 'three', 'running'),

@@ -111,7 +111,7 @@
     padding: 0.4375rem 0.75rem;
     /* Fully round: at this row's height a corner radius reads as a cut no matter
        how large it gets, so the ends are capped instead. */
-    border-radius: 999px;
+    border-radius: 9999px;
     /* Hover only — an open row is still a caption, and the rotated caret plus
        the detail's rule already say it is open. */
     transition:
@@ -189,13 +189,13 @@
   }
 
   .activity-label {
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     color: var(--muted-foreground);
   }
 
   .activity-target {
     min-width: 0;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     opacity: 0.7;
   }
@@ -205,7 +205,7 @@
     align-items: center;
     gap: 0.5rem;
     padding-top: 0.0625rem;
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     opacity: 0.55;
   }
@@ -249,7 +249,7 @@
   :global(.activity-spinner) {
     width: 0.8125rem;
     height: 0.8125rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     border: 0.09375rem solid color-mix(in oklch, var(--foreground) 14%, transparent);
     border-top-color: var(--muted-foreground);
     animation: activity-spin 0.8s linear infinite;
@@ -265,7 +265,7 @@
   :global(.activity-dots > span) {
     width: 0.1875rem;
     height: 0.1875rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: color-mix(in oklch, var(--foreground) 45%, transparent);
     animation: activity-breathe 1.6s ease-in-out infinite;
   }

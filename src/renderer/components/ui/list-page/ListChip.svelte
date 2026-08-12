@@ -14,9 +14,9 @@
 </script>
 
 <span
-  class="inline-flex h-[19px] shrink-0 items-center rounded-md px-[7px] text-[11px] font-[450] tracking-[.02em] {chip.mono
-    ? 'font-mono'
-    : ''}"
+  class="inline-flex h-[19px] shrink-0 items-center rounded-md px-[7px] text-xs font-normal {chip.mono
+ ? 'font-mono'
+ : ''}"
   style="background: {skin.background}; color: {skin.color}; box-shadow: {skin.boxShadow}"
 >
   {chip.label}

@@ -42,7 +42,7 @@
     type="button"
     onclick={onAttachFile}
     disabled={disabled || attachDisabled}
-    class="flex h-full min-w-[1.25rem] items-center justify-center rounded-lg text-[0.78125rem] transition-[color] duration-[var(--duration-quick)] hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) disabled:opacity-50"
+    class="flex h-full min-w-[1.25rem] items-center justify-center rounded-lg text-[0.8125rem] transition-[color] duration-[var(--duration-quick)] hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) disabled:opacity-50"
     style="cursor:{disabled || attachDisabled ? 'not-allowed' : 'pointer'}"
     aria-label="Add files"
   >

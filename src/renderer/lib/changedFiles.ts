@@ -21,7 +21,7 @@ function addStringPath(paths: Set<string>, value: unknown, projectPath?: string)
 
 function addPathsFromChange(paths: Set<string>, change: unknown, projectPath?: string): void {
   if (!change || typeof change !== "object") return;
-  const record = change as Record<string, unknown>;
+  const record = change as { path?: unknown; filePath?: unknown; file_path?: unknown; filename?: unknown; file?: unknown };
   addStringPath(paths, record.path, projectPath);
   addStringPath(paths, record.filePath, projectPath);
   addStringPath(paths, record.file_path, projectPath);
@@ -31,7 +31,7 @@ function addPathsFromChange(paths: Set<string>, change: unknown, projectPath?: s
 
 function addPathsFromParsed(paths: Set<string>, parsed: unknown, projectPath?: string): void {
   if (!parsed || typeof parsed !== "object") return;
-  const record = parsed as Record<string, unknown>;
+  const record = parsed as { file_path?: unknown; filePath?: unknown; path?: unknown; filename?: unknown; file?: unknown; changes?: unknown };
   addStringPath(paths, record.file_path, projectPath);
   addStringPath(paths, record.filePath, projectPath);
   addStringPath(paths, record.path, projectPath);

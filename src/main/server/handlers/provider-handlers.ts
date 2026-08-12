@@ -11,20 +11,22 @@ import { writeReviewCheckpoint } from '../../review/checkpoints'
 import { estimateReviewEffort } from '../../review/effort'
 import { readPrGuideMetadata, requestPrGuides, scheduleGuideWarming } from '../../review/guide-warmer'
 import type { Provider, RepoRef } from '../../providers/types'
-import type { PrEffortRequest, PrEffortResult, PrFilter, DraftReview, PullRequestUpdate } from '../../../shared/providers'
+import type { PrDiffFileContentsRequest, PrDiffRequest, PrEffortRequest, PrEffortResult, PrFilter, PrLifecycleAction, PrReviewTarget, DraftReview, PullRequestUpdate } from '../../../shared/providers'
 import type { ReviewEffort } from '../../../shared/effort-types'
 import type { PrGuideMetadataRequest } from '../../../shared/review'
-import type { GithubDelegatedCredential, IpcContext, MergeMethod, PrConflictResolutionResult, PrMergeResult, PrReviewContext } from '../../../shared/types'
+import type { GithubDelegatedCredential, IpcContext, MergeMethod, PrCheckoutContext, PrConflictResolutionResult, PrMergeResult, PrReviewContext } from '../../../shared/types'
 import { LOCAL_DEVICE_LABEL, type SolusServer } from '../server'
 import { attachReviewAttention } from './review-attention'
 import type { AgentDispatcher } from '../../agents/agent-runner'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { Task } from '../../tasks/task'
+import { buildPrReviewTarget } from '../../providers/pr-review-target'
 
 const log = createLogger('main', 'provider-handlers')
 const EFFORT_FETCH_CONCURRENCY = 4
 type ReviewEffortStats = Pick<PrEffortResult, 'effort' | 'additions' | 'deletions'>
 const effortCache = new Map<string, Promise<ReviewEffortStats | undefined>>()
+const checkoutRequests = new Map<string, Promise<PrCheckoutContext>>()
 
 const GENERATED_PATH_PATTERNS = [
   /(^|\/)(bun\.lockb?|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|cargo\.lock|gemfile\.lock|poetry\.lock|composer\.lock|go\.sum)$/i,
@@ -115,28 +117,46 @@ export async function reviewTargetFor(ctx: IpcContext): Promise<{ repo: RepoRef;
   return { repo, provider }
 }
 
-/** Fetch the PR, check out its worktree, and assemble the review context. */
-async function openPrReview(ctx: IpcContext, number: number): Promise<PrReviewContext> {
+/** Resolve the exact host revision. Reading a PR must not mutate local git state. */
+async function openPrReview(ctx: IpcContext, number: number): Promise<PrReviewTarget> {
   const { repo, provider } = await reviewTargetFor(ctx)
   const detail = await provider.review.getPullRequest(repo, number)
-  const base = ctx.session.projectPath || ctx.session.workingDirectory
-  const repoRoot = (await resolveRepoRoot(base)) ?? base
-  const wt = await fetchAndCheckoutPr(repoRoot, number, detail.baseRef)
-  return {
-    host: repo.host,
-    owner: repo.owner,
-    repo: repo.repo,
-    number,
-    title: detail.title,
-    baseRef: detail.baseRef,
-    headRef: detail.headRef,
-    // Anchor comments to the head we actually checked out and rendered.
-    headSha: wt.headSha,
-    baseSha: wt.baseSha,
-    headRepo: detail.headRepo,
-    worktreePath: wt.worktreePath,
-    branch: wt.branch,
+  const baseSha = await provider.review.getPullRequestDiffBase(repo, detail)
+  const target = buildPrReviewTarget(repo, detail, baseSha)
+  log.info('pr_review_opened_host_only', { host: repo.host, owner: repo.owner, repo: repo.repo, prNumber: number, headSha: detail.headSha })
+  return target
+}
+
+async function preparePrCheckout(ctx: IpcContext, target: PrReviewTarget): Promise<PrCheckoutContext> {
+  const { repo, provider } = await reviewTargetFor(ctx)
+  if (repo.host !== target.host || repo.owner !== target.owner || repo.repo !== target.repo) {
+    throw new Error('The pull request does not belong to this project.')
   }
+  const key = `${repo.host}/${repo.owner}/${repo.repo}:${target.number}:${target.baseSha}:${target.headSha}`
+  const existing = checkoutRequests.get(key)
+  if (existing) return existing
+  log.info('pr_checkout_requested', { host: repo.host, owner: repo.owner, repo: repo.repo, prNumber: target.number, headSha: target.headSha })
+  const operation = (async (): Promise<PrCheckoutContext> => {
+    const detail = await provider.review.getPullRequest(repo, target.number)
+    if (detail.headSha !== target.headSha) {
+      throw new Error('This pull request changed. Refresh it before preparing a checkout.')
+    }
+    const base = ctx.session.projectPath || ctx.session.workingDirectory
+    const repoRoot = (await resolveRepoRoot(base)) ?? base
+    const checkout = await fetchAndCheckoutPr(repoRoot, target.number, detail.baseRef)
+    if (checkout.headSha !== target.headSha || checkout.baseSha !== target.baseSha) {
+      throw new Error('The prepared checkout does not match the pull request revision. Refresh it and try again.')
+    }
+    log.info(checkout.reused ? 'pr_checkout_reused' : 'pr_checkout_created', { host: repo.host, owner: repo.owner, repo: repo.repo, prNumber: target.number, headSha: checkout.headSha, worktreePath: checkout.worktreePath })
+    return checkout
+  })().catch((error) => {
+    log.warn('pr_checkout_failed', { host: repo.host, owner: repo.owner, repo: repo.repo, prNumber: target.number, headSha: target.headSha, error: error instanceof Error ? error.message : String(error) })
+    throw error
+  }).finally(() => {
+    if (checkoutRequests.get(key) === operation) checkoutRequests.delete(key)
+  })
+  checkoutRequests.set(key, operation)
+  return operation
 }
 
 async function repoRootForContext(ctx: IpcContext): Promise<string> {
@@ -353,13 +373,39 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     return openPrReview(ctx, number)
   })
 
-  server.register('prMerge', async (args): Promise<PrMergeResult> => {
-    const [ctx, number, method] = args as [IpcContext, number, MergeMethod]
+  server.register('prGetDiff', async (args) => {
+    const [ctx, request] = args as [IpcContext, PrDiffRequest]
     const { repo, provider } = await reviewTargetFor(ctx)
+    return provider.review.getPullRequestDiff(repo, request)
+  })
+
+  server.register('prGetDiffFileContents', async (args) => {
+    const [ctx, request] = args as [IpcContext, PrDiffFileContentsRequest]
+    const { repo, provider } = await reviewTargetFor(ctx)
+    return provider.review.getPullRequestDiffFileContents(repo, request)
+  })
+
+  server.register('prPrepareCheckout', async (args) => {
+    const [ctx, target] = args as [IpcContext, PrReviewTarget]
+    return preparePrCheckout(ctx, target)
+  })
+
+  server.register('prMerge', async (args): Promise<PrMergeResult> => {
+    const [ctx, number, method, expectedHeadSha] = args as [IpcContext, number, MergeMethod, string]
+    const { repo, provider } = await reviewTargetFor(ctx)
+    const detail = await provider.review.getPullRequest(repo, number)
+    if (detail.headSha !== expectedHeadSha) {
+      throw new Error('This pull request changed. Refresh it before merging.')
+    }
+    if (!detail.viewerPermissions.actions.includes('merge')) throw new Error('You do not have permission to merge this pull request.')
+    if (!detail.capabilities.mergeMethods.includes(method)) throw new Error(`The repository does not allow ${method} merges.`)
     const result = await provider.review.mergePullRequest(repo, number, method)
     if (result.merged) {
-      const cwd = ctx.session.projectPath || ctx.session.workingDirectory
-      if (cwd) deps.events.broadcast('prs.invalidated', { projectRoot: cwd })
+      const projectPath = ctx.session.projectPath || ctx.session.workingDirectory
+      const { completeTasksForMergedPullRequest } = await import('../../tasks/sync-engine')
+      await completeTasksForMergedPullRequest(projectPath, number)
+      const updated = await provider.review.getPullRequest(repo, number)
+      return { ...result, detail: updated }
     }
     return result
   })
@@ -490,6 +536,46 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     return provider.review.listReviewers(repo, number)
   })
 
+  server.register('prListReviewerCandidates', async (args) => {
+    const [ctx, number] = args as [IpcContext, number]
+    const { repo, provider } = await reviewTargetFor(ctx)
+    const detail = await provider.review.getPullRequest(repo, number)
+    if (!detail.viewerPermissions.requestReviewers) throw new Error('You do not have permission to request reviewers.')
+    return provider.review.listReviewerCandidates(repo, number)
+  })
+
+  server.register('prRequestReviewers', async (args) => {
+    const [ctx, number, requestedLogins] = args as [IpcContext, number, string[]]
+    const logins = [...new Set(requestedLogins.map((login) => login.trim()).filter(Boolean))]
+    if (logins.length === 0) throw new Error('Select at least one reviewer.')
+    const { repo, provider } = await reviewTargetFor(ctx)
+    const detail = await provider.review.getPullRequest(repo, number)
+    if (!detail.viewerPermissions.requestReviewers) throw new Error('You do not have permission to request reviewers.')
+    const reviewers = await provider.review.requestReviewers(repo, number, logins)
+    return reviewers
+  })
+
+  server.register('prRemoveRequestedReviewer', async (args) => {
+    const [ctx, number, requestedLogin] = args as [IpcContext, number, string]
+    const login = requestedLogin.trim()
+    if (!login) throw new Error('A reviewer login is required.')
+    const { repo, provider } = await reviewTargetFor(ctx)
+    const detail = await provider.review.getPullRequest(repo, number)
+    if (!detail.viewerPermissions.requestReviewers) throw new Error('You do not have permission to remove requested reviewers.')
+    const reviewers = await provider.review.removeRequestedReviewer(repo, number, login)
+    return reviewers
+  })
+
+  server.register('prUpdateLifecycle', async (args) => {
+    const [ctx, number, action, expectedHeadSha] = args as [IpcContext, number, Exclude<PrLifecycleAction, 'merge'>, string]
+    if (!['close', 'reopen', 'ready', 'draft'].includes(action)) throw new Error('Unsupported pull request action.')
+    const { repo, provider } = await reviewTargetFor(ctx)
+    const detail = await provider.review.updatePullRequestLifecycle(repo, number, action, expectedHeadSha)
+    const projectRoot = ctx.session.projectPath || ctx.session.workingDirectory
+    if (projectRoot) deps.events.broadcast('pr.lifecycleChanged', { projectRoot, detail })
+    return detail
+  })
+
   server.register('prChangedFiles', async (args) => {
     const [ctx, number] = args as [IpcContext, number]
     const { repo, provider } = await reviewTargetFor(ctx)
@@ -499,11 +585,20 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   server.register('prSubmitReview', async (args) => {
     const [ctx, number, review] = args as [IpcContext, number, DraftReview]
     const { repo, provider } = await reviewTargetFor(ctx)
+    const pullRequest = await provider.review.getPullRequest(repo, number)
+    if (pullRequest.headSha !== review.commitId) {
+      throw new Error('This pull request changed. Refresh the diff before submitting your review.')
+    }
+    const verdict = review.event === 'APPROVE'
+      ? 'approve'
+      : review.event === 'REQUEST_CHANGES'
+        ? 'request-changes'
+        : 'comment'
+    if (!pullRequest.viewerPermissions.reviewVerdicts.includes(verdict)) {
+      throw new Error('You do not have permission to submit this review verdict.')
+    }
     if (review.event === 'APPROVE') {
-      const [pullRequest, viewer] = await Promise.all([
-        provider.review.getPullRequest(repo, number),
-        provider.review.getViewer(),
-      ])
+      const viewer = await provider.review.getViewer()
       if (pullRequest.author.toLowerCase() === viewer.toLowerCase()) {
         throw new Error("GitHub doesn't allow you to approve your own pull request")
       }
@@ -519,6 +614,8 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   server.register('prAddIssueComment', async (args) => {
     const [ctx, number, body] = args as [IpcContext, number, string]
     const { repo, provider } = await reviewTargetFor(ctx)
+    const pullRequest = await provider.review.getPullRequest(repo, number)
+    if (!pullRequest.viewerPermissions.comment) throw new Error('You do not have permission to comment on this pull request.')
     await provider.review.addIssueComment(repo, number, body)
   })
 

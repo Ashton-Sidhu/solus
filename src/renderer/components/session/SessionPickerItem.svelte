@@ -103,15 +103,15 @@
   onmousemove={onHover}
 >
   <div
-    class="relative flex w-full items-center rounded-[0.625rem] px-3 py-1.5 group-focus-visible:shadow-[inset_0.125rem_0_0_var(--solus-accent),0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_22%,transparent)]
-      {isSelected
-      ? 'bg-[var(--solus-accent-light)] group-hover:bg-[var(--solus-accent-soft)]'
-      : 'group-hover:bg-(--solus-surface-hover)'}"
+    class="relative flex w-full items-center rounded-lg px-3 py-1.5 group-focus-visible:shadow-[inset_0.125rem_0_0_var(--solus-accent),0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_22%,transparent)]
+ {isSelected
+ ? 'bg-[var(--solus-accent-light)] group-hover:bg-[var(--solus-accent-soft)]'
+ : 'group-hover:bg-(--solus-surface-hover)'}"
   >
     <span
-      class="relative mr-[0.5625rem] inline-flex h-[1.375rem] w-[1.375rem] flex-shrink-0 items-center justify-center rounded-[0.4375rem] {statusIcon
-        ? 'opacity-100'
-        : 'opacity-[0.92]'} {iconClass}"
+      class="relative mr-[0.5625rem] inline-flex h-[1.375rem] w-[1.375rem] flex-shrink-0 items-center justify-center rounded-lg {statusIcon
+ ? 'opacity-100'
+ : 'opacity-[0.92]'} {iconClass}"
       aria-label={providerLabel}
       title={providerLabel}
     >
@@ -127,8 +127,8 @@
         {@const Icon = statusIcon.component}
         <span
           class="absolute -bottom-1 -right-1 inline-flex h-[0.8125rem] w-[0.8125rem] items-center justify-center rounded-full bg-[var(--solus-popover-bg)] shadow-[0_0_0_0.0625rem_var(--solus-popover-border)] {statusIcon.spin
-            ? 'animate-spin'
-            : ''}"
+ ? 'animate-spin'
+ : ''}"
           style="color:{statusIcon.color}"
         >
           <Icon size={12} weight="regular" />
@@ -139,11 +139,11 @@
     <div class="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
       <div class="flex min-w-0 items-center gap-2">
         <span
-          class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.8125rem] leading-[1.3] tracking-[-0.01em] text-[var(--solus-text-primary)] {isSelected
-            ? 'font-[550]'
-            : 'font-[450]'}"
+          class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.8125rem] leading-[1.3] text-[var(--solus-text-primary)] {isSelected
+ ? 'font-medium'
+ : 'font-normal'}"
           >{#each titleRuns as run, i (i)}{#if run.hit}<mark
-                class="rounded-[3px] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
+                class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
                 >{run.text}</mark
               >{:else}{run.text}{/if}{/each}</span
         >
@@ -155,7 +155,7 @@
         {/if}
         {#if remoteHost}
           <span
-            class="flex min-w-0 max-w-[7rem] flex-shrink-0 items-center gap-1 text-[0.6875rem] text-[var(--solus-text-tertiary)]"
+            class="flex min-w-0 max-w-[7rem] flex-shrink-0 items-center gap-1 text-xs text-[var(--solus-text-tertiary)]"
             title="Runs on {remoteHost.label}"
           >
             <GlobeIcon size={11} class="shrink-0" />
@@ -168,15 +168,15 @@
 
       <div class="flex min-w-0 items-center gap-3">
         <span
-          class="min-w-0 flex-shrink overflow-hidden text-ellipsis whitespace-nowrap text-[0.6875rem] tracking-[0.005em] text-[var(--solus-text-tertiary)]"
+          class="min-w-0 flex-shrink overflow-hidden text-ellipsis whitespace-nowrap text-xs text-[var(--solus-text-tertiary)]"
           >{#each bylineRuns as run, i (i)}{#if run.hit}<mark
-                class="rounded-[3px] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
+                class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
                 >{run.text}</mark
               >{:else}{run.text}{/if}{/each}</span
         >
         {#if timeAgo}
           <span
-            class="flex-shrink-0 text-[0.6875rem] text-[var(--solus-text-tertiary)] opacity-70 [font-variant-numeric:tabular-nums]"
+            class="flex-shrink-0 text-xs text-[var(--solus-text-tertiary)] opacity-70 [font-variant-numeric:tabular-nums]"
             >{timeAgo}</span
           >
         {/if}

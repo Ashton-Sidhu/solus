@@ -41,7 +41,7 @@
   >
     <div
       bind:this={listEl}
-      class="slash-block-menu overflow-y-auto rounded-[0.625rem] p-1.5 bg-(--solus-popover-bg) border border-(--solus-popover-border)"
+      class="slash-block-menu overflow-y-auto rounded-2xl p-1.5 bg-(--solus-popover-bg) border border-(--solus-popover-border)"
       style="max-height:17.5rem;min-width:15.75rem;backdrop-filter:blur(1.25rem) saturate(1.1);-webkit-backdrop-filter:blur(1.25rem) saturate(1.1);box-shadow:var(--solus-popover-shadow)"
     >
       {#each commands as cmd, i (cmd.id)}
@@ -62,7 +62,7 @@
           </span>
           <div class="min-w-0 flex-1">
             <div class="slash-block-menu__label">{cmd.label}</div>
-            <div class="text-[0.625rem] truncate leading-tight text-(--solus-text-tertiary)">
+            <div class="text-xs truncate leading-tight text-(--solus-text-tertiary)">
               {cmd.description}
             </div>
           </div>
@@ -107,7 +107,7 @@
     color: var(--solus-text-secondary);
   }
   .slash-block-menu__label {
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     font-weight: 500;
     line-height: 1.25;
     color: var(--solus-text-primary);

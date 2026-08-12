@@ -31,6 +31,11 @@ export const KEYBINDINGS = {
   'global.toggle-tasks':       { combo: { alt: true, shift: true, code: 'KeyT' },          scope: 'global',             label: 'Open tasks',               group: 'View' },
   'global.toggle-sidebar':     { combo: { mod: true, code: 'KeyB' },                       scope: 'global',             label: 'Toggle sidebar',           group: 'View' },
   'global.toggle-expanded':   { combo: { alt: true, shift: true, code: 'Equal' },         scope: 'global',             label: 'Expand / collapse input',  group: 'View' },
+  // Desktop-only: on web these combos stay with the browser's own zoom (the
+  // handlers register disabled there, so the dispatcher lets them fall through).
+  'global.zoom-in':           { combo: { mod: true, code: 'Equal' },                      scope: 'global',             label: 'Zoom in',                  group: 'View' },
+  'global.zoom-out':          { combo: { mod: true, code: 'Minus' },                      scope: 'global',             label: 'Zoom out',                 group: 'View' },
+  'global.zoom-reset':        { combo: { mod: true, code: 'Digit0' },                     scope: 'global',             label: 'Reset zoom',               group: 'View' },
   'global.history-back':      { combo: { mod: true, code: 'BracketLeft' },              scope: 'global',             label: 'Back',                     group: 'Navigation' },
   'global.history-forward':   { combo: { mod: true, code: 'BracketRight' },             scope: 'global',             label: 'Forward',                  group: 'Navigation' },
   'global.session-picker':    { combo: { mod: true, code: 'KeyP' }, web: { alt: true, shift: true, code: 'KeyR' }, scope: 'global', label: 'Session picker',           group: 'Navigation' },

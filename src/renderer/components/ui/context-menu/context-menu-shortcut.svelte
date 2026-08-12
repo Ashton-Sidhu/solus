@@ -13,7 +13,7 @@
 <span
 	bind:this={ref}
 	data-slot="context-menu-shortcut"
-	class={cn("text-(--solus-text-tertiary) ml-auto font-mono text-menu-meta tracking-widest", className)}
+	class={cn("text-(--solus-text-tertiary) ml-auto font-mono text-menu-meta st", className)}
 	{...restProps}
 >
 	{@render children?.()}

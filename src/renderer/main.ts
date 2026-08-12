@@ -73,7 +73,7 @@ async function boot(): Promise<void> {
   setTabPersistenceServerInstallationId(target.installationId ?? target.id, { migrateLegacy: target.local })
 
   let appMounted = false
-  const { transport, api } = installWsBackedSolusApi(target, nativeApi as unknown as Record<string, unknown>, {
+  const { transport, api } = installWsBackedSolusApi(target, nativeApi, {
     verifyConnectedHost: () => serverConnections.verifySavedServerIdentity(target),
     onStatusChange: (status, attempt) => {
       serverConnections.updateStatus(target.id, status, attempt)

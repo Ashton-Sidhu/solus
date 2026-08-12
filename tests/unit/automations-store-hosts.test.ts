@@ -41,6 +41,32 @@ function automation(id: string, cwd: string): Automation {
 }
 
 describe('AutomationsStore host federation', () => {
+  test('loads and exposes only the selected host when the automations page is scoped', async () => {
+    let hostAReads = 0
+    let hostBReads = 0
+    connections.registerPrimary('host-a', {
+      automationList: async () => {
+        hostAReads++
+        return [automation('a', '/same')]
+      },
+    })
+    connections.registerHost('host-b', {
+      automationList: async () => {
+        hostBReads++
+        return [automation('b', '/same')]
+      },
+    })
+    const store = new AutomationsStore()
+
+    await store.loadAll('host-b')
+
+    expect(hostAReads).toBe(0)
+    expect(hostBReads).toBe(1)
+    expect(store.itemsForHost('host-b').map((item) => item.id)).toEqual(['b'])
+    expect(store.itemsForHost('host-a')).toEqual([])
+    expect(store.hasLoadedHost('host-b')).toBe(true)
+  })
+
   test('unions connected hosts without evicting a host whose list failed', async () => {
     let hostBShouldFail = false
     connections.registerPrimary('host-a', {

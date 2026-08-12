@@ -12,7 +12,6 @@
     XIcon,
   } from "phosphor-svelte";
   import { getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
-  import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { frameChrome } from "../layout/frame-chrome.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { comboHint } from "../../lib/keybindings/manifest";
@@ -75,9 +74,9 @@
   const draftTaskId = $derived(draft ? existingTaskId(draft.task) : null);
   const task = $derived(
     draft
-      ? (draftTaskId
+      ? ((draftTaskId
           ? sidebarStore.allTasks.find((item) => item.taskId === draftTaskId)
-          : null) ?? null
+          : null) ?? null)
       : sidebarStore.taskForTab(tabId),
   );
   const sessions = $derived(draft ? [] : sidebarStore.sessionsForTab(tabId));
@@ -85,13 +84,13 @@
   // off the run it will use rather than off a task row it does not have.
   const projectKey = $derived(
     draft
-      ? homeGitDetails(
+      ? (homeGitDetails(
           draft.run.workingDirectory ?? "~",
           draft.run.gitContext ?? null,
           session.globalDefaults.gitContext,
         ).projectRoot ??
           draft.run.workingDirectory ??
-          "~"
+          "~")
       : (task?.projectKey ?? "~"),
   );
   const projectLabel = $derived(
@@ -135,15 +134,6 @@
   const currentStatus = $derived(taskStatusFor(current?.attention ?? null));
   const statusIcon = $derived(getAttentionIcon(current?.attention ?? null));
   const currentStatusColor = $derived(statusColor(currentStatus));
-  // Null while the session runs — or will run — on this machine: the default
-  // the band never needs to spell out.
-  const bandServerId = $derived(
-    draft?.run.serverId ?? session.sessionFor(tabId)?.run.serverId,
-  );
-  const hostAffinity = $derived(serversStore.affinityFor(bandServerId));
-  const hostLabel = $derived(
-    serversStore.hostFor(bandServerId)?.label ?? "",
-  );
 
   // The project crumb is a click, not a hover: it is the one move that changes
   // everything under it, so it must not happen on the way past.
@@ -257,7 +247,11 @@
 
   function newTask() {
     menu = null;
-    session.openSessionDraft({ freshTask: true, via: "click", sourceTabId: tabId });
+    session.openSessionDraft({
+      freshTask: true,
+      via: "click",
+      sourceTabId: tabId,
+    });
   }
 
   const crumbButton =
@@ -267,13 +261,13 @@
   const menuLabel =
     "min-w-0 flex-1 overflow-hidden text-[0.8125rem] text-ellipsis whitespace-nowrap";
   const menuHeading =
-    "px-[0.5625rem] pt-1.5 pb-1.5 text-[0.5625rem] font-semibold tracking-[0.09em] text-muted-foreground uppercase";
+    "px-[0.5625rem] pt-1.5 pb-1.5 text-xs font-medium  text-muted-foreground uppercase";
   // Rows you can close reserve the slot the X lands in, so nothing reflows the
   // moment a pointer crosses the row.
   // The wash follows the row, not the pointer's exact target: reaching for the X
   // must not read as leaving the row.
   const menuRowClosable = `${menuRow} pr-7 group-hover/row:bg-accent`;
-  const rowStatus = "shrink-0 text-[0.65625rem] font-medium whitespace-nowrap";
+  const rowStatus = "shrink-0 text-xs font-medium whitespace-nowrap";
   const rowClose =
     "absolute top-1/2 right-[0.4375rem] flex size-[1.125rem] -translate-y-1/2 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-[opacity,background,color] duration-150 hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100";
   const bandAction =
@@ -297,10 +291,10 @@
        a centreline. The crumb has no container of its own — it is plain text on
        the band, and the only affordance is the hover wash under each part. -->
   <div
-    class="crumb-band @container z-[3] flex items-center gap-px text-[0.84375rem] {variant ===
-    'inline'
-      ? 'crumb-band--inline relative h-full min-w-0 flex-1 px-1'
-      : 'absolute inset-x-0 top-1 h-[2.875rem] pr-3.5'}"
+    class="crumb-band @container z-[3] flex items-center gap-px text-sm {variant ===
+ 'inline'
+ ? 'crumb-band--inline relative h-full min-w-0 flex-1 px-1'
+ : 'absolute inset-x-0 top-1 h-[2.875rem] pr-3.5'}"
     style={variant === "floating"
       ? "padding-left:max(1.125rem, var(--solus-chrome-lead-inset, 0px))"
       : undefined}
@@ -312,7 +306,7 @@
       <!-- The band, not the list, owns the type scale and the neutral colour:
            each crumb states its own, and the leaf stays full-contrast. -->
       <Breadcrumb.List
-        class="min-w-0 flex-nowrap gap-px text-[0.84375rem] text-foreground"
+        class="min-w-0 flex-nowrap gap-px text-sm text-foreground"
       >
         <Breadcrumb.Item
           class="relative shrink-0"
@@ -332,7 +326,7 @@
                   initial={projectInitial(projectLabel)}
                   active
                   class="size-4"
-                  letterClass="text-[0.53125rem]"
+                  letterClass="text-xs"
                 />
                 <span class="whitespace-nowrap text-muted-foreground"
                   >{projectLabel}</span
@@ -357,23 +351,23 @@
                       initial={project.initial}
                       active={project.projectKey === projectKey}
                       class="size-[1.125rem]"
-                      letterClass="text-[0.5625rem]"
+                      letterClass="text-xs"
                     />
                     <span
                       class="{menuLabel} {project.projectKey === projectKey
-                        ? 'font-medium'
-                        : ''}">{project.label}</span
+ ? 'font-medium'
+ : ''}">{project.label}</span
                     >
                     {#if note}
                       <span
-                        class="shrink-0 text-[0.65625rem] font-medium"
+                        class="shrink-0 text-xs font-medium"
                         style:color={note.tone === "primary"
                           ? "var(--solus-status-permission)"
                           : "var(--solus-status-error)"}>{note.text}</span
                       >
                     {/if}
                     <span
-                      class="shrink-0 font-mono text-[0.625rem] text-muted-foreground opacity-50 tabular-nums"
+                      class="shrink-0 font-mono text-xs text-muted-foreground opacity-50 tabular-nums"
                       >{project.count}</span
                     >
                   </button>
@@ -395,7 +389,7 @@
                     );
                   }}
                 >
-                  <FolderOpenIcon size={15} class="shrink-0" />
+                  <FolderOpenIcon size={14} class="shrink-0" />
                   <span class="flex-1 text-[0.8125rem]">Open project…</span>
                 </button>
               </div>
@@ -439,8 +433,8 @@
                          have not reached the task's own host yet (ADR-0007). -->
                     <span
                       class="ml-1 size-1.5 shrink-0 rounded-full {taskSyncFailed
-                        ? 'bg-red-500'
-                        : 'bg-amber-500'}"
+ ? 'bg-red-500'
+ : 'bg-amber-500'}"
                       title={taskSyncFailed
                         ? "Some task updates failed to sync"
                         : `${taskSyncOps.length} task update${taskSyncOps.length === 1 ? "" : "s"} waiting to sync`}
@@ -466,8 +460,8 @@
                       >
                         <span
                           class="{menuLabel} {item.key === task?.key
-                            ? 'font-medium'
-                            : ''}">{item.title}</span
+ ? 'font-medium'
+ : ''}">{item.title}</span
                         >
                         {#if item.status === "running"}
                           <span
@@ -477,7 +471,7 @@
                             title="Running"
                           >
                             <SpinnerGapIcon
-                              size={13}
+                              size={14}
                               class="animate-spin motion-reduce:animate-none"
                             />
                           </span>
@@ -494,7 +488,7 @@
                         aria-label="Close {item.title}"
                         onclick={() => closeTask(item)}
                       >
-                        <XIcon size={11} weight="bold" />
+                        <XIcon size={14} weight="bold" />
                       </button>
                     </div>
                   {/each}
@@ -508,7 +502,7 @@
                   >
                     <PlusIcon size={14} class="shrink-0" />
                     <span class="flex-1 text-[0.8125rem]">New task</span>
-                    <span class="font-mono text-[0.65625rem] opacity-60"
+                    <span class="font-mono text-xs opacity-60"
                       >{comboHint("global.new-task")}</span
                     >
                   </button>
@@ -527,8 +521,8 @@
              keeps the whole remainder and pushes the trailing actions off. -->
         <Breadcrumb.Item
           class="relative min-w-0 shrink {renamingTabId === tabId
-            ? 'w-[min(20rem,42vw)]'
-            : 'max-w-[20rem] @max-[68rem]:max-w-[12rem] @max-[52rem]:max-w-[9rem]'}"
+ ? 'w-[min(20rem,42vw)]'
+ : 'max-w-[20rem] @max-[68rem]:max-w-[12rem] @max-[52rem]:max-w-[9rem]'}"
           onmouseenter={() => {
             if (renamingTabId !== tabId) menu = "session";
           }}
@@ -542,7 +536,7 @@
               <SessionNameInput
                 value={current?.label ?? leafLabels.session}
                 variant="band"
-                class="text-[0.84375rem] font-medium tracking-[-0.005em]"
+                class="text-sm font-medium "
                 onCommit={(next) => {
                   void session.renameTab(tabId, next);
                   renamingTabId = null;
@@ -555,39 +549,39 @@
               />
             </span>
           {:else}
-          <Breadcrumb.Link class="{crumbButton} max-w-full gap-[0.4375rem]">
-            {#snippet child({ props })}
-              <button
-                {...props}
-                type="button"
-                aria-expanded={menu === "session"}
-                title={leafLabels.session}
-                onclick={() => (menu = menu === "session" ? null : "session")}
-                onfocus={() => (menu = "session")}
-                oncontextmenu={(event) =>
-                  current && openChildContextMenu(event, current)}
-              >
-                <span
-                  class="min-w-0 overflow-hidden font-medium tracking-[-0.005em] text-ellipsis whitespace-nowrap"
-                  >{leafLabels.session}</span
+            <Breadcrumb.Link class="{crumbButton} max-w-full gap-[0.4375rem]">
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  aria-expanded={menu === "session"}
+                  title={leafLabels.session}
+                  onclick={() => (menu = menu === "session" ? null : "session")}
+                  onfocus={() => (menu = "session")}
+                  oncontextmenu={(event) =>
+                    current && openChildContextMenu(event, current)}
                 >
-                {#if statusIcon}
-                  {@const StatusIcon = statusIcon.component}
                   <span
-                    class="flex size-[0.8125rem] shrink-0 items-center justify-center {statusIcon.spin
-                      ? 'animate-spin motion-reduce:animate-none'
-                      : ''}"
-                    style:color={currentStatusColor ?? statusIcon.color}
-                    role="img"
-                    aria-label={statusNote(currentStatus)?.text}
-                    title={statusNote(currentStatus)?.text}
+                    class="min-w-0 overflow-hidden font-medium text-ellipsis whitespace-nowrap"
+                    >{leafLabels.session}</span
                   >
-                    <StatusIcon size={13} weight="regular" />
-                  </span>
-                {/if}
-              </button>
-            {/snippet}
-          </Breadcrumb.Link>
+                  {#if statusIcon}
+                    {@const StatusIcon = statusIcon.component}
+                    <span
+                      class="flex size-[0.8125rem] shrink-0 items-center justify-center {statusIcon.spin
+ ? 'animate-spin motion-reduce:animate-none'
+ : ''}"
+                      style:color={currentStatusColor ?? statusIcon.color}
+                      role="img"
+                      aria-label={statusNote(currentStatus)?.text}
+                      title={statusNote(currentStatus)?.text}
+                    >
+                      <StatusIcon size={14} weight="regular" />
+                    </span>
+                  {/if}
+                </button>
+              {/snippet}
+            </Breadcrumb.Link>
           {/if}
           {#if menu === "session"}
             <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
@@ -606,8 +600,8 @@
                     >
                       <span
                         class="{menuLabel} {child.tabId === tabId
-                          ? 'font-medium'
-                          : ''}">{child.label}</span
+ ? 'font-medium'
+ : ''}">{child.label}</span
                       >
                       {#if status === "running"}
                         <span
@@ -617,7 +611,7 @@
                           title="Running"
                         >
                           <SpinnerGapIcon
-                            size={13}
+                            size={14}
                             class="animate-spin motion-reduce:animate-none"
                           />
                         </span>
@@ -635,7 +629,7 @@
                         aria-label="Close {child.label}"
                         onclick={() => closeSession(child.tabId!)}
                       >
-                        <XIcon size={11} weight="bold" />
+                        <XIcon size={14} weight="bold" />
                       </button>
                     {/if}
                   </div>
@@ -652,7 +646,7 @@
                   <span class="flex-1 text-[0.8125rem]"
                     >New session in this task</span
                   >
-                  <span class="font-mono text-[0.65625rem] opacity-60"
+                  <span class="font-mono text-xs opacity-60"
                     >{comboHint("global.new-session")}</span
                   >
                 </button>
@@ -665,21 +659,6 @@
 
     <span class="min-w-4 flex-1"></span>
 
-    <!-- Where this session runs — the one fact about it the crumb's own path
-         cannot state, and the reason the old capsule carried a host chip. -->
-    {#if hostAffinity}
-      {@const HostIcon = hostAffinity.icon}
-      <span
-        class="mr-2 flex shrink-0 items-center gap-1.5 {hostAffinity.className}"
-        title={hostAffinity.tooltip}
-      >
-        <HostIcon size={12} />
-        <span class="font-mono text-[0.65625rem] whitespace-nowrap"
-          >{hostLabel}</span
-        >
-      </span>
-    {/if}
-
     <!-- The task's own controls, right of the crumb and before the session
          cluster: the code is a menu of everything you can do to the task, with
          the two moves you make most — mark done, open the task page — also
@@ -689,22 +668,22 @@
       <button
         type="button"
         class="flex h-[1.875rem] shrink-0 cursor-pointer items-center gap-1.5 rounded px-[0.4375rem] transition-[background] duration-150 hover:bg-accent {taskDone
-          ? 'bg-[color-mix(in_oklch,var(--chart-3)_12%,transparent)]'
-          : ''}"
+ ? 'bg-[color-mix(in_oklch,var(--chart-3)_12%,transparent)]'
+ : ''}"
         title="Task actions"
         aria-haspopup="menu"
         onclick={(event) => openTaskActions(event, task)}
       >
         {#if taskDone}
-          <CheckIcon size={12} weight="bold" class="shrink-0 text-chart-3" />
+          <CheckIcon size={14} weight="bold" class="shrink-0 text-chart-3" />
         {/if}
         <span
-          class="font-mono text-[0.65625rem] whitespace-nowrap {taskDone
-            ? 'text-chart-3'
-            : 'opacity-75'}">{taskRef(record)}</span
+          class="font-mono text-xs whitespace-nowrap {taskDone
+ ? 'text-chart-3'
+ : 'opacity-75'}">{taskRef(record)}</span
         >
         <CaretDownIcon
-          size={9}
+          size={14}
           weight="bold"
           class="shrink-0 text-muted-foreground opacity-60"
         />
@@ -713,8 +692,8 @@
       <button
         type="button"
         class="{bandAction} @max-[36rem]:hidden {taskDone
-          ? 'text-chart-3 hover:text-chart-3'
-          : ''}"
+ ? 'text-chart-3 hover:text-chart-3'
+ : ''}"
         title={taskDone ? "Reopen task" : "Mark done"}
         aria-label={taskDone ? "Reopen task" : "Mark done"}
         onclick={() => {
@@ -723,9 +702,9 @@
         }}
       >
         {#if taskDone}
-          <ArrowUUpLeftIcon size={13} weight="bold" />
+          <ArrowUUpLeftIcon size={14} weight="bold" />
         {:else}
-          <CheckIcon size={13} weight="bold" />
+          <CheckIcon size={14} weight="bold" />
         {/if}
       </button>
 
@@ -736,11 +715,10 @@
         aria-label="Open task page"
         onclick={() => session.goToTask(record.id)}
       >
-        <ArrowSquareOutIcon size={13} />
+        <ArrowSquareOutIcon size={14} />
       </button>
 
-      {#if showNewSessionAction ||
-        (showProjectPanelAction && !frameChrome.projectPanelOpen)}
+      {#if showNewSessionAction || (showProjectPanelAction && !frameChrome.projectPanelOpen)}
         <span
           class="mx-[0.4375rem] h-4 w-px shrink-0 bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)]"
           aria-hidden="true"
@@ -757,7 +735,7 @@
         aria-label="New session in this task"
         onclick={newSession}
       >
-        <PlusIcon size={13} class="text-muted-foreground" />
+        <PlusIcon size={14} class="text-muted-foreground" />
         <span
           class="text-[0.8125rem] font-medium whitespace-nowrap @max-[36rem]:hidden"
           >New Task</span
@@ -776,7 +754,7 @@
           requestInputFocus();
         }}
       >
-        <SidebarSimpleIcon size={13} mirrored />
+        <SidebarSimpleIcon size={14} mirrored />
       </button>
     {/if}
   </div>

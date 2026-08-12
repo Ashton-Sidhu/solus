@@ -5,6 +5,7 @@ import { Readable } from 'stream'
 import { randomBytes } from 'crypto'
 import { Hono, type Context } from 'hono'
 import { cors } from 'hono/cors'
+import { compress } from 'hono/compress'
 import { getMimeType } from 'hono/utils/mime'
 import { getRequestListener } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
@@ -284,6 +285,9 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
   // SPA fallback that serves index.html for any unmatched client-side route.
   if (opts.staticDir && existsSync(opts.staticDir)) {
     const root = opts.staticDir
+    // Registered after every dynamic/range route, so only the static fallback
+    // reaches compression. Hono preserves streaming and skips 206 responses.
+    app.use('*', compress())
     app.get('*', serveStatic({ root }))
     app.get('*', serveStatic({ root, path: 'index.html' }))
   }

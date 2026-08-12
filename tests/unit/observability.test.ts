@@ -11,6 +11,25 @@ type MetricsDbModule = typeof import('../../src/main/observability/metrics-db')
 type RolloverModule = typeof import('../../src/main/observability/rollover')
 type RegistriesModule = typeof import('../../src/main/observability/registries')
 
+interface PersistedSpanRow {
+  span_id: string
+  parent_span_id: string | null
+  trace_id: string
+  kind: string
+  name: string
+  service: string
+  session_id: string | null
+  provider: string | null
+  model: string | null
+  project_root: string | null
+  origin: string | null
+  started_at: number
+  ended_at: number
+  duration_ms: number
+  status: string
+  attrs: string
+}
+
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
 let facade: FacadeModule
@@ -58,7 +77,7 @@ describe.serial('observability facade', () => {
     })
     facade.endSpan(spanId, { endedAt: 1_250, status: 'ok', attrs: { exitCode: 0 } })
 
-    const row = metricsDb.getMetricsDb().prepare('SELECT * FROM spans WHERE span_id = ?').get(spanId) as Record<string, unknown>
+    const row = metricsDb.getMetricsDb().prepare('SELECT * FROM spans WHERE span_id = ?').get(spanId) as PersistedSpanRow
     expect(row).toMatchObject({
       span_id: 'span-1',
       parent_span_id: 'parent-1',
@@ -76,7 +95,7 @@ describe.serial('observability facade', () => {
       duration_ms: 250,
       status: 'ok',
     })
-    expect(JSON.parse(row.attrs as string)).toEqual({ command: 'bun test', isSubagent: false, exitCode: 0 })
+    expect(JSON.parse(row.attrs)).toEqual({ command: 'bun test', isSubagent: false, exitCode: 0 })
   })
 
   test('removes only spans older than the rollover cutoff', () => {

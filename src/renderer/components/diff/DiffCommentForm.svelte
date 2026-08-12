@@ -63,12 +63,12 @@
 <!-- Defined by an accent ring rather than a border, so the composer reads as a
      card floating over the code rather than another row in it. -->
 <div
-  class="diff-comment-form flex flex-col gap-1.5 rounded-xl bg-(--solus-popover-bg) px-3 py-2.5 font-(family-name:--solus-font-family)"
+  class="diff-comment-form flex flex-col gap-1.5 rounded-2xl bg-(--solus-popover-bg) px-3 py-2.5 font-(family-name:--solus-font-family)"
   style="box-shadow:0 0 0 0.0625rem color-mix(in oklab, var(--solus-accent) 30%, transparent), 0 1rem 2.25rem -1.375rem rgba(0, 0, 0, 0.5)"
 >
   {#if rangeLabel}
     <span
-      class="inline-block text-[0.625rem] text-(--solus-text-tertiary) tabular-nums"
+      class="inline-block text-xs text-(--solus-text-tertiary) tabular-nums"
       style="font-family:{MONO_FONT}"
     >
       {rangeLabel}
@@ -88,7 +88,7 @@
   />
   <div class="flex items-center justify-end gap-1.5">
     <span
-      class="mr-auto text-[0.625rem] text-(--solus-text-tertiary)"
+      class="mr-auto text-xs text-(--solus-text-tertiary)"
       style="font-family:{MONO_FONT}"
     >
       ⌘↵ to save

@@ -18,6 +18,54 @@ const {
 afterEach(() => connections.reset())
 
 describe('session transcript rehydration', () => {
+  test('keeps projected nested tool status without restoring its output', async () => {
+    connections.registerPrimary('transcript-host', {
+      loadSession: async () => [
+        {
+          role: 'tool' as const,
+          content: '',
+          toolName: 'Agent',
+          toolId: 'agent-1',
+          toolInput: '{}',
+          isSubagent: true,
+          timestamp: 1,
+        },
+        {
+          role: 'tool' as const,
+          content: '',
+          toolName: 'Bash',
+          toolId: 'bash-1',
+          toolInput: '{"command":"false"}',
+          parentToolUseId: 'agent-1',
+          status: 'error' as const,
+          errorHead: 'command failed',
+          contentBytes: 4096,
+          timestamp: 2,
+        },
+      ],
+    })
+    const ctx = {
+      apiForSession: () => connections.apiFor('transcript-host'),
+      automationsStore: { loaded: true },
+    } as unknown as WorkspaceContext
+
+    const transcript = await loadSessionTranscript(ctx, {
+      sessionId: 'session-1',
+      loadPath: '/repo',
+      displayCwd: '/repo',
+      provider: 'claude-code',
+      ctx: { session: { sessionId: 'tab-1' } } as IpcContext,
+    })
+
+    const child = transcript.messages[0]?.subMessages?.[0]
+    expect(child).toMatchObject({
+      content: '',
+      toolStatus: 'error',
+      errorHead: 'command failed',
+      contentBytes: 4096,
+    })
+  })
+
   test('preserves the full transcript when startup does not request a window', async () => {
     const history = Array.from({ length: 150 }, (_, index) => ({
       role: index % 2 === 0 ? 'user' as const : 'assistant' as const,

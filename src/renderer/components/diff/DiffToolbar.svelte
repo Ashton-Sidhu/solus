@@ -124,33 +124,33 @@
   <div class="toolbar-section toolbar-left">
     <div class="flex items-center gap-1 min-w-0 shrink desktop-only">
       <GitBranchIcon
-        size={10}
+        size={14}
         class="text-(--solus-accent) flex-shrink-0"
         weight="bold"
       />
       {#if mode === "working-tree"}
         <span
-          class="text-[0.6875rem] font-medium truncate text-(--solus-text-primary)"
+          class="text-xs font-medium truncate text-(--solus-text-primary)"
           style="font-family:{MONO_FONT}"
         >
           Working tree
         </span>
       {:else if isWorktree}
         <span
-          class="text-[0.6875rem] font-medium truncate text-(--solus-text-primary)"
+          class="text-xs font-medium truncate text-(--solus-text-primary)"
           style="font-family:{MONO_FONT}"
         >
           {worktreeBranch}
         </span>
         <span
-          class="text-[0.625rem] text-(--solus-text-tertiary) flex-shrink-0"
+          class="text-xs text-(--solus-text-tertiary) flex-shrink-0"
           style="font-family:{MONO_FONT}"
         >
           →&nbsp;{targetBranch}
         </span>
       {:else if fallbackBranch}
         <span
-          class="text-[0.6875rem] font-medium text-(--solus-text-primary) truncate"
+          class="text-xs font-medium text-(--solus-text-primary) truncate"
           style="font-family:{MONO_FONT}"
         >
           {fallbackBranch}
@@ -164,7 +164,7 @@
            The counts use the same sage/red as the diff rows themselves, so the
            header summary and the stream read as one palette. -->
       <span
-        class="shrink-0 rounded-full border border-(--solus-container-border) px-1.5 py-px text-[0.5625rem] text-(--solus-text-tertiary)"
+        class="shrink-0 rounded-full border border-(--solus-container-border) px-1.5 py-px text-xs text-(--solus-text-tertiary)"
         style="font-family:{MONO_FONT}"
       >
         {headerStats.files}
@@ -197,7 +197,7 @@
             aria-label="Show all changes"
             aria-pressed={selectedTurnIndex === null}
           >
-            <StackIcon size={11} weight="bold" />
+            <StackIcon size={14} weight="bold" />
           </button>
               {/snippet}
             </TooltipUI.Trigger>
@@ -212,7 +212,7 @@
             onclick={() => onStepTurn(-1)}
             aria-label="Previous turn"
           >
-            <CaretLeftIcon size={10} weight="bold" />
+            <CaretLeftIcon size={14} weight="bold" />
           </button>
               {/snippet}
             </TooltipUI.Trigger>
@@ -228,7 +228,7 @@
             aria-expanded={turnMenuOpen}
           >
             <span>{selectedTurnLabel}</span>
-            <CaretDownIcon size={9} weight="bold" />
+            <CaretDownIcon size={14} weight="bold" />
           </button>
           <TooltipUI.Root>
             <TooltipUI.Trigger>
@@ -239,7 +239,7 @@
             onclick={() => onStepTurn(1)}
             aria-label="Next turn"
           >
-            <CaretRightIcon size={10} weight="bold" />
+            <CaretRightIcon size={14} weight="bold" />
           </button>
               {/snippet}
             </TooltipUI.Trigger>
@@ -250,25 +250,25 @@
             <DropdownMenu.Content customAnchor={turnTriggerEl} side="top" align="start" sideOffset={6} class="w-[176px]">
             <div class="turn-menu-scroll">
               <DropdownMenu.Item
-                class={selectedTurnIndex === null ? "font-semibold" : undefined}
+                class={selectedTurnIndex === null ? "font-medium" : undefined}
                 onSelect={() => {
                   turnMenuOpen = false;
                   onTurnSelect(null);
                 }}
               >
-                <StackIcon size={11} weight="bold" />
+                <StackIcon size={14} weight="bold" />
                 All changes
               </DropdownMenu.Item>
               {#each turns as turn (turn.index)}
                 <DropdownMenu.Item
-                  class={selectedTurnIndex === turn.index ? "font-semibold" : undefined}
+                  class={selectedTurnIndex === turn.index ? "font-medium" : undefined}
                   onSelect={() => {
                     turnMenuOpen = false;
                     onTurnSelect(turn.index);
                   }}
                 >
                   <GitCommitIcon
-                    size={11}
+                    size={14}
                     weight={turnRunning && turn.index === lastTurnIndex
                       ? "fill"
                       : "regular"}
@@ -298,7 +298,7 @@
             aria-label="Show all changes"
             aria-pressed={selectedTurnIndex === null}
           >
-            <StackIcon size={11} weight="bold" />
+            <StackIcon size={14} weight="bold" />
           </button>
               {/snippet}
             </TooltipUI.Trigger>
@@ -318,7 +318,7 @@
               aria-pressed={selectedTurnIndex === turn.index}
             >
               <GitCommitIcon
-                size={11}
+                size={14}
                 weight={turnRunning && turn.index === lastTurnIndex
                   ? "fill"
                   : "regular"}
@@ -533,7 +533,7 @@
           <ChatCircleTextIcon size={14} weight="fill" />
           <span
             style="font-family:{MONO_FONT};font-size:var(--solus-font-ui-sm)"
-            class="font-semibold tabular-nums"
+            class="font-medium tabular-nums"
           >
             {commentsCount}
           </span>
@@ -651,7 +651,7 @@
     border-radius: 0.375rem;
     background: transparent;
     color: var(--solus-text-tertiary);
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     font-weight: 500;
     white-space: nowrap;
     cursor: pointer;
@@ -708,7 +708,7 @@
     padding: 0 0.375rem;
     border-radius: 0.3125rem;
     color: var(--solus-text-tertiary);
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     font-weight: 500;
     cursor: pointer;
     white-space: nowrap;
@@ -783,8 +783,8 @@
     padding: 0 0.375rem;
     border-radius: 0.3125rem;
     color: var(--solus-text-secondary);
-    font-size: 0.625rem;
-    font-weight: 600;
+    font-size: 0.75rem;
+    font-weight: 500;
     white-space: nowrap;
     cursor: pointer;
     transition:
@@ -811,7 +811,7 @@
   }
   .turn-menu-stats {
     color: var(--solus-text-tertiary);
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
   }
 </style>

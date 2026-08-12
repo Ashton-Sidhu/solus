@@ -61,7 +61,7 @@
           <div class="flex flex-col gap-[0.1875rem]">
             <!-- The window and what's left of it read as one phrase; when it
                  refills is the qualifier, so it sits out at the right. -->
-            <div class="flex items-baseline gap-1.5 text-[0.71875rem]">
+            <div class="flex items-baseline gap-1.5 text-xs">
               <span class="shrink-0 text-(--solus-text-secondary)"
                 >{meter.label}</span
               >

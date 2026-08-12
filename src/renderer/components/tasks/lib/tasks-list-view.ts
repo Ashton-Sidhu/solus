@@ -68,9 +68,20 @@ function identFor(task: Task): string {
  *  id. Local (native) tasks read as a quiet dot; upstream tickets say they sync
  *  back so the mark isn't mistaken for a decoration. */
 function sourceFor(task: Task): ListRowSource {
-  return task.providerId === 'local'
-    ? { id: 'local', title: 'Local task · lives in Solus' }
-    : { id: task.providerId, title: 'GitHub · status and comments sync back' }
+  if (task.providerId !== 'local') {
+    return { id: task.providerId, title: 'GitHub · status and comments sync back' }
+  }
+  // A published or imported task is filed upstream even though Solus still owns
+  // the row, and where other people can see the work is the more useful fact —
+  // so the ticket's provider wins over "local" here.
+  const mirrored = task.mirroredTicket
+  if (mirrored) {
+    return {
+      id: mirrored.provider,
+      title: `GitHub · synced with #${mirrored.externalId}`,
+    }
+  }
+  return { id: 'local', title: 'Local task · lives in Solus' }
 }
 
 /**

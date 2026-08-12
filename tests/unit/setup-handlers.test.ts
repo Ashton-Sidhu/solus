@@ -376,6 +376,38 @@ describe('server setup clone dispatch', () => {
     expect(calls).toEqual([])
   })
 
+  test('reuses an existing checkout without pulling before the isolated worktree is created', async () => {
+    // WHY: worktree creation fetches its exact base branch next. Pulling the base
+    // checkout here duplicates the network wait and can reject an otherwise safe
+    // isolated dispatch because the unattended base checkout is dirty.
+    const checkout = await gitCheckout('https://github.com/solus-sh/solus.git')
+    const server = new SolusServer()
+    registerSetupHandlers(server, {
+      findProjectCheckout: async () => checkout,
+      registerProject: async (path) => resolveTestProjectKey(path),
+    })
+    const handle = server.handle.bind(server)
+    const handledMethods: string[] = []
+    server.handle = (async (method, args, ctx) => {
+      handledMethods.push(method)
+      if (method === 'setupSyncProject') {
+        return { path: checkout, projectKey: resolveTestProjectKey(checkout) }
+      }
+      return handle(method, args, ctx)
+    }) as SolusServer['handle']
+
+    const result = await server.handle('setupPrepareProject', [{
+      cloneUrl: 'https://github.com/solus-sh/solus.git',
+    }], { deviceId: 'test-device' }) as SetupPrepareProjectResult
+
+    expect(result).toEqual({
+      path: checkout,
+      projectKey: resolveTestProjectKey(checkout),
+      action: 'updated',
+    })
+    expect(handledMethods).toEqual(['setupPrepareProject', 'setupAdoptProject'])
+  })
+
   test('derives SSH from the repository, cleans its partial checkout, then falls back to anonymous HTTPS', async () => {
     const root = await temporaryDirectory()
     const destination = join(root, 'solus')

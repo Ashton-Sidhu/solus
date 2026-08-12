@@ -1,4 +1,4 @@
-import type { AuthStatus, DeviceCodePrompt, IpcContext, ServerCapabilities } from '../../../shared/types'
+import type { AgentTaskLifecyclePolicy, AuthStatus, DeviceCodePrompt, IpcContext, ServerCapabilities } from '../../../shared/types'
 import { TransportDisconnectedError } from '@client-core/ws-transport'
 import { serverConnections } from '@client-core/server-connections'
 
@@ -41,6 +41,7 @@ export class ConnectionsStore {
   activePair = $state<PairToken | null>(null)
   refreshing = $state(false)
   remoteAccessUpdating = $state(false)
+  agentTaskLifecyclePolicyUpdating = $state(false)
   capabilities = $state<ServerCapabilities | null>(null)
 
   providerStatus = $state<AuthStatus | null>(null)
@@ -117,6 +118,22 @@ export class ConnectionsStore {
   async setProjectsBaseDirectory(path: string): Promise<void> {
     const result = await serverConnections.primaryApi().setProjectsBaseDirectory(path)
     if (this.capabilities) this.capabilities.projectsBaseDirectory = result.projectsBaseDirectory
+  }
+
+  async setAgentTaskLifecyclePolicy(policy: AgentTaskLifecyclePolicy): Promise<void> {
+    if (!this.capabilities || this.agentTaskLifecyclePolicyUpdating) return
+    const previousPolicy = this.capabilities.agentTaskLifecyclePolicy
+    this.capabilities.agentTaskLifecyclePolicy = policy
+    this.agentTaskLifecyclePolicyUpdating = true
+    try {
+      const result = await serverConnections.primaryApi().setAgentTaskLifecyclePolicy(policy)
+      this.capabilities.agentTaskLifecyclePolicy = result.agentTaskLifecyclePolicy
+    } catch (e) {
+      this.capabilities.agentTaskLifecyclePolicy = previousPolicy
+      console.error('set agent task lifecycle policy failed', e)
+    } finally {
+      this.agentTaskLifecyclePolicyUpdating = false
+    }
   }
 
   async revokeDevice(deviceId: string): Promise<void> {

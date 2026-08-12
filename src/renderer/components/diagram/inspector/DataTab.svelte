@@ -194,8 +194,8 @@
     border-radius: 0.375rem;
     background: var(--solus-surface-hover);
     color: var(--solus-text-tertiary);
-    font-size: 0.625rem;
-    font-weight: 700;
+    font-size: 0.75rem;
+    font-weight: 500;
     font-variant-numeric: tabular-nums;
     cursor: pointer;
     transition:
@@ -222,7 +222,7 @@
     flex-shrink: 0;
     align-items: center;
     gap: 0.25rem;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--solus-text-secondary);
     cursor: pointer;
     user-select: none;
@@ -235,7 +235,7 @@
 
   .note {
     margin: 0;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     line-height: 1.5;
     color: var(--solus-text-tertiary);
   }

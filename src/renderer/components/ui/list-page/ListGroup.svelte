@@ -40,33 +40,33 @@
     this={collapsible ? "button" : "div"}
     type={collapsible ? "button" : undefined}
     class="flex h-[30px] w-full items-center gap-2.5 border-0 bg-transparent px-1.5 {collapsible
-      ? 'cursor-pointer'
-      : ''}"
+ ? 'cursor-pointer'
+ : ''}"
     onclick={collapsible ? onToggle : undefined}
     aria-expanded={collapsible ? open : undefined}
     role={collapsible ? undefined : "presentation"}
   >
     {#if collapsible}
       <CaretRightIcon
-        size={11}
+        size={14}
         class="shrink-0 text-muted-foreground opacity-60 transition-transform duration-200 {open
-          ? 'rotate-90'
-          : ''}"
+ ? 'rotate-90'
+ : ''}"
       />
     {/if}
     <span
-      class="text-[10px] font-[450] tracking-[.09em] uppercase {accent
-        ? 'text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
-        : 'text-muted-foreground'}"
+      class="text-xs font-normal uppercase {accent
+ ? 'text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
+ : 'text-muted-foreground'}"
     >
       {label}
     </span>
-    <span class="font-mono text-[11px] tabular-nums text-muted-foreground opacity-70">
+    <span class="font-mono text-xs tabular-nums text-muted-foreground opacity-70">
       {count}
     </span>
     <span class="h-px flex-1 bg-[var(--hairline)]"></span>
     {#if note}
-      <span class="text-[12px] text-muted-foreground opacity-80">{note}</span>
+      <span class="text-xs text-muted-foreground opacity-80">{note}</span>
     {/if}
   </svelte:element>
 

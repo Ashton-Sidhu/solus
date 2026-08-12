@@ -108,6 +108,14 @@ describe('tab persistence server scoping', () => {
     expect(storage.getItem('solus-open-tabs:editor')).not.toBeNull()
   })
 
+  test('recovers the prior tab when a partial snapshot omitted its active selection', () => {
+    const snapshot = sampleSnapshot()
+    const { activeTabId: _activeTabId, tabOrder: _tabOrder, ...partialSnapshot } = snapshot
+    storage.setItem('solus-open-tabs:editor', JSON.stringify(partialSnapshot))
+
+    expect(loadPersistedTabs()).toEqual(snapshot)
+  })
+
   test('writes drafts under the active installation key so servers do not share input text', () => {
     setTabPersistenceServerInstallationId('local-install', { migrateLegacy: true })
     initDraftState(loadDrafts())

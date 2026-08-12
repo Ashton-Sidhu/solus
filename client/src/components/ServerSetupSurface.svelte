@@ -153,7 +153,7 @@
 
 {#snippet sectionLabel(text: string)}
   <span
-    class="mb-1 block px-1 text-[0.6875rem] font-semibold uppercase tracking-[0.03em] text-(--solus-text-tertiary)"
+    class="mb-1 block px-1 text-xs font-semibold uppercase tracking-[0.03em] text-(--solus-text-tertiary)"
     >{text}</span
   >
 {/snippet}
@@ -161,7 +161,7 @@
 {#snippet hostRow(host: ServerItem)}
   <button
     type="button"
-    class="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors duration-[var(--duration-quick)] hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-surface-hover) focus-visible:outline-none"
+    class="group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors duration-[var(--duration-quick)] hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-surface-hover) focus-visible:outline-none"
     onclick={() => chooseHost(host)}
   >
     <span
@@ -174,7 +174,7 @@
         >{host.label}</span
       >
       <span
-        class="truncate font-mono text-[0.6875rem] text-(--solus-text-tertiary)"
+        class="truncate font-mono text-xs text-(--solus-text-tertiary)"
       >
         {urlHost(host.url)} · {hostStatusLabel(host.status)}
       </span>
@@ -183,7 +183,7 @@
       <CheckIcon size={14} class="shrink-0 text-(--solus-accent)" />
     {:else}
       <ArrowRightIcon
-        size={13}
+        size={14}
         class="shrink-0 text-(--solus-text-quaternary) opacity-0 transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 group-focus-visible:opacity-100"
       />
     {/if}
@@ -193,11 +193,11 @@
 {#snippet nearbyRow(host: NearbyHost)}
   <button
     type="button"
-    class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors duration-[var(--duration-quick)] hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-surface-hover) focus-visible:outline-none"
+    class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors duration-[var(--duration-quick)] hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-surface-hover) focus-visible:outline-none"
     onclick={() => pairNearby(host)}
   >
     <WifiHighIcon
-      size={16}
+      size={14}
       class="shrink-0 text-(--solus-text-tertiary)"
     />
     <span class="flex min-w-0 flex-1 flex-col">
@@ -206,11 +206,11 @@
         >{host.server.name}</span
       >
       <span
-        class="truncate font-mono text-[0.6875rem] text-(--solus-text-tertiary)"
+        class="truncate font-mono text-xs text-(--solus-text-tertiary)"
         >{urlHost(discoveredServerUrl(host.server))}</span
       >
     </span>
-    <span class="shrink-0 text-[0.75rem] font-medium text-(--solus-accent)"
+    <span class="shrink-0 text-xs font-medium text-(--solus-accent)"
       >Connect</span
     >
   </button>
@@ -222,15 +222,15 @@
       <section>
         {@render sectionLabel("On this address")}
         <div
-          class="flex flex-col overflow-hidden rounded-xl border border-(--solus-container-border) bg-(--solus-surface-hover)/40 p-1"
+          class="flex flex-col overflow-hidden rounded-2xl border border-(--solus-container-border) bg-(--solus-surface-hover)/40 p-1"
         >
           <button
             type="button"
-            class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors duration-[var(--duration-quick)] hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-surface-hover) focus-visible:outline-none"
+            class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors duration-[var(--duration-quick)] hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-surface-hover) focus-visible:outline-none"
             onclick={() => selectHost(servingHost!)}
           >
             <HardDrivesIcon
-              size={16}
+              size={14}
               class="shrink-0 text-(--solus-text-tertiary)"
             />
             <span class="flex min-w-0 flex-1 flex-col">
@@ -239,12 +239,12 @@
                 >{servingHost.name}</span
               >
               <span
-                class="truncate font-mono text-[0.6875rem] text-(--solus-text-tertiary)"
+                class="truncate font-mono text-xs text-(--solus-text-tertiary)"
                 >{urlHost(servingHost.url)}</span
               >
             </span>
             <span
-              class="shrink-0 text-[0.75rem] font-medium text-(--solus-accent)"
+              class="shrink-0 text-xs font-medium text-(--solus-accent)"
               >Connect</span
             >
           </button>
@@ -256,7 +256,7 @@
       <section>
         {@render sectionLabel("Your hosts")}
         <div
-          class="flex flex-col overflow-hidden rounded-xl border border-(--solus-container-border) bg-(--solus-surface-hover)/40 p-1"
+          class="flex flex-col overflow-hidden rounded-2xl border border-(--solus-container-border) bg-(--solus-surface-hover)/40 p-1"
         >
           {#each savedHosts as host (host.id)}
             {@render hostRow(host)}
@@ -269,7 +269,7 @@
       <section>
         {@render sectionLabel("Nearby")}
         <div
-          class="flex flex-col overflow-hidden rounded-xl border border-(--solus-container-border) bg-(--solus-surface-hover)/40 p-1"
+          class="flex flex-col overflow-hidden rounded-2xl border border-(--solus-container-border) bg-(--solus-surface-hover)/40 p-1"
         >
           {#each serversStore.nearbyHosts as host (host.server.installationId)}
             {@render nearbyRow(host)}
@@ -279,7 +279,7 @@
     {:else if !hasHost && savedHosts.length > 0}
       <!-- Discovery runs on the connected host's own network, so there is
            nothing to scan with until one of these answers. -->
-      <p class="px-1 text-[0.75rem] leading-snug text-(--solus-text-tertiary)">
+      <p class="px-1 text-xs leading-snug text-(--solus-text-tertiary)">
         Hosts on your network appear here once you're connected to one.
       </p>
     {/if}
@@ -291,7 +291,7 @@
       <form class="flex flex-col gap-2.5" onsubmit={submit}>
         {#if selectedHost}
           <p
-            class="rounded-lg bg-(--solus-surface-hover) px-3 py-2 text-[0.75rem] leading-relaxed text-(--solus-text-tertiary)"
+            class="rounded-lg bg-(--solus-surface-hover) px-3 py-2 text-xs leading-relaxed text-(--solus-text-tertiary)"
           >
             On {selectedHost.name}, open Solus and go to <strong
               class="font-medium text-(--solus-text-secondary)"
@@ -305,7 +305,7 @@
             class="flex items-center gap-3 rounded-lg border border-(--solus-container-border) bg-(--solus-accent-light) px-3 py-2.5"
           >
             <HardDrivesIcon
-              size={16}
+              size={14}
               class="shrink-0 text-(--solus-accent)"
             />
             <span class="flex min-w-0 flex-1 flex-col">
@@ -314,13 +314,13 @@
                 >{selectedHost.name}</span
               >
               <span
-                class="truncate font-mono text-[0.6875rem] text-(--solus-text-tertiary)"
+                class="truncate font-mono text-xs text-(--solus-text-tertiary)"
                 >{urlHost(selectedHost.url)}</span
               >
             </span>
             <button
               type="button"
-              class="shrink-0 rounded-md px-1.5 py-1 text-[0.75rem] font-medium text-(--solus-text-tertiary) transition-colors hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
+              class="shrink-0 rounded-md px-1.5 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
               onclick={clearSelectedHost}
             >
               Change
@@ -328,7 +328,7 @@
           </div>
         {:else}
           <p
-            class="rounded-lg bg-(--solus-surface-hover) px-3 py-2 text-[0.75rem] leading-relaxed text-(--solus-text-tertiary)"
+            class="rounded-lg bg-(--solus-surface-hover) px-3 py-2 text-xs leading-relaxed text-(--solus-text-tertiary)"
           >
             On your computer, open Solus and go to <strong
               class="font-medium text-(--solus-text-secondary)"
@@ -338,7 +338,7 @@
 
           <label class="block">
             <span
-              class="text-[0.75rem] font-medium text-(--solus-text-secondary)"
+              class="text-xs font-medium text-(--solus-text-secondary)"
               >Pairing link or address</span
             >
             <input
@@ -357,7 +357,7 @@
         {#if needsCode}
           <label class="block">
             <span
-              class="text-[0.75rem] font-medium text-(--solus-text-secondary)"
+              class="text-xs font-medium text-(--solus-text-secondary)"
               >Code</span
             >
             <input
@@ -374,7 +374,7 @@
         {/if}
 
         <label class="block">
-          <span class="text-[0.75rem] font-medium text-(--solus-text-secondary)">
+          <span class="text-xs font-medium text-(--solus-text-secondary)">
             Device name
             <span class="font-normal text-(--solus-text-tertiary)">optional</span
             >
@@ -426,11 +426,11 @@
         <div class="min-w-0">
           <h2
             id="server-setup-title"
-            class="truncate text-[0.9375rem] font-semibold text-(--solus-text-primary)"
+            class="truncate text-sm font-semibold text-(--solus-text-primary)"
           >
             Connect a host
           </h2>
-          <p class="mt-0.5 text-[0.75rem] text-(--solus-text-tertiary)">
+          <p class="mt-0.5 text-xs text-(--solus-text-tertiary)">
             Choose the machine your sessions run on.
           </p>
         </div>
@@ -440,7 +440,7 @@
           aria-label="Close"
           onclick={close}
         >
-          <XIcon size={16} />
+          <XIcon size={14} />
         </button>
       </header>
       <div class="px-4 py-4">{@render body()}</div>

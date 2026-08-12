@@ -4,6 +4,11 @@ interface SessionTitleWorkspace {
   sessions: Record<string, Session>
 }
 
+export interface ChangedSessionTitle {
+  sessionId: string
+  taskServerId: string
+}
+
 /**
  * Apply a host-authoritative name to the session it belongs to.
  *
@@ -15,13 +20,13 @@ export function applySessionTitleChange(
   workspace: SessionTitleWorkspace,
   serverId: string,
   event: SessionTitleChangedEvent,
-): string[] {
-  const changed: string[] = []
+): ChangedSessionTitle[] {
+  const changed: ChangedSessionTitle[] = []
   for (const [sessionId, session] of Object.entries(workspace.sessions)) {
     if (session.run.serverId !== serverId || session.agentSessionId !== event.sessionId) continue
     session.title = event.title ?? 'New Tab'
     session.titleCustom = event.title !== null
-    changed.push(sessionId)
+    changed.push({ sessionId, taskServerId: session.run.taskServerId })
   }
   return changed
 }

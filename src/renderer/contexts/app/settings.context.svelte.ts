@@ -9,6 +9,7 @@ import { setAnalyticsEnabled } from '../../lib/analytics'
 import { MOBILE_QUERY } from './runtime.svelte'
 import { localApi } from '@client-core/local-api'
 import { serverConnections } from '@client-core/server-connections'
+import { clampZoomFactor, stepZoomFactor, ZOOM_FACTOR_DEFAULT } from '../../../shared/zoom'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 
@@ -28,11 +29,6 @@ const DEFAULT_PROJECT_PANEL_COLLAPSED: Record<ProjectPanelSectionId, boolean> = 
 
 export const TAB_GROUP_MODES = ['flat', 'status', 'unread'] as const
 export type TabGroupMode = (typeof TAB_GROUP_MODES)[number]
-
-/** Two views over the same task list: `flat` sorts across every project on
- *  state, `grouped` sorts inside project headings. */
-export const SIDEBAR_VIEW_MODES = ['flat', 'grouped'] as const
-export type SidebarViewMode = (typeof SIDEBAR_VIEW_MODES)[number]
 
 export type SettingsFields = {
   themeMode: ThemeMode
@@ -56,6 +52,7 @@ export type SettingsFields = {
   showDiffSummaryAfterTurn: boolean
   fontFamily: AppFontFamily
   fontSize: number
+  zoomFactor: number
   codeFontFamily: AppCodeFontFamily
   codeFontSize: number
   extraInstructions: string
@@ -67,7 +64,10 @@ export type SettingsFields = {
   projectPanelCollapsed: Record<ProjectPanelSectionId, boolean>
   splitProjectPanelCollapsed: Record<ProjectPanelSectionId, boolean>
   tabGroupMode: TabGroupMode
-  sidebarViewMode: SidebarViewMode
+  /** The project the task list is scoped to, by `projectKey`. Null is the whole
+   *  list — the sidebar is flat across every open project either way, so this
+   *  narrows what is in it rather than changing its shape. */
+  sidebarProjectFilter: string | null
   /**
    * First-run onboarding has already been through, or skipped. A client that
    * has never persisted settings is a fresh install, so the absence of the whole
@@ -106,38 +106,39 @@ function applyFontSize(size: number): void {
   document.documentElement.style.setProperty('--solus-font-scale', String(size / BASE_FONT_SIZE))
 }
 
+/** Desktop-only: the web client leans on native browser zoom instead, so the
+ *  bridge method is absent there and this is a no-op. */
+function applyZoomFactor(factor: number): void {
+  localApi.setZoomFactor?.(factor)
+}
+
 const IS_MAC_OS = typeof navigator !== 'undefined' && /Macintosh|Mac OS X/.test(navigator.userAgent)
+const DEFAULT_APP_FONT_FAMILY: AppFontFamily = IS_MAC_OS ? 'sf-pro-text' : 'inter'
 
 // `weight` is the body weight tuned for crispest rendering of each typeface at
 // ~13px under grayscale antialiasing (-webkit-font-smoothing: antialiased).
 // Grayscale AA thins glyphs, so Inter/DM Sans need the 500 (Medium named
 // instance) bump or they look washed out. Grotesque, system and serif faces
 // render heavier — at 500 their strokes muddy and counters fill, so they're
-// crispest at their native 400 (Regular). SF Pro Text is the exception: addressed
-// by name (not -apple-system) it loses macOS's optical-size tuning and renders
-// heavy under grayscale AA, so it's taken to 300 (Light) to read as Regular. All
-// values are named instances on the variable fonts, which are hinted and therefore
-// a touch sharper.
+// crispest at their native 400 (Regular). Keep every option on a named Regular or
+// Medium instance so the type policy has only those two weights.
 export const APP_FONT_FAMILIES: { id: AppFontFamily; label: string; stack: string; weight: number }[] = [
+  ...(IS_MAC_OS ? [{ id: 'sf-pro-text' as const, label: 'SF Pro Text', stack: "'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif", weight: 400 }] : []),
   { id: 'inter', label: 'Inter', stack: "'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif", weight: 500 },
   { id: 'dm-sans', label: 'DM Sans', stack: "'DM Sans', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif", weight: 500 },
   { id: 'system', label: 'System', stack: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif", weight: 400 },
   { id: 'geist', label: 'Geist Sans', stack: "'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif", weight: 400 },
   { id: 'lora', label: 'Lora', stack: "'Lora', Georgia, 'Times New Roman', serif", weight: 400 },
-  ...(IS_MAC_OS ? [{ id: 'sf-pro-text' as const, label: 'SF Pro Text', stack: "'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif", weight: 300 }] : []),
   { id: 'sf-mono', label: 'SF Mono', stack: "'SF Mono', SFMono-Regular, ui-monospace, Menlo, monospace", weight: 400 },
 ]
 
 function applyFontFamily(fontFamily: AppFontFamily): void {
   const family = APP_FONT_FAMILIES.find((option) => option.id === fontFamily) ?? APP_FONT_FAMILIES[0]
-  const userContentWeight = family.id === 'sf-pro-text' ? 400 : family.weight
   document.documentElement.style.setProperty('--solus-font-family', family.stack)
-  // Each typeface has its own crisp body weight — drive both the body and the
-  // (currently matched) secondary-label weight from it. SF Pro's authored text
-  // stays at Regular so the composer and user messages retain enough presence.
+  // Each selectable face uses only its Regular or Medium named instance.
   document.documentElement.style.setProperty('--solus-font-weight-body', String(family.weight))
   document.documentElement.style.setProperty('--solus-font-weight-secondary', String(family.weight))
-  document.documentElement.style.setProperty('--solus-font-weight-user-content', String(userContentWeight))
+  document.documentElement.style.setProperty('--solus-font-weight-user-content', String(family.weight))
 }
 
 export const APP_CODE_FONT_FAMILIES: { id: AppCodeFontFamily; label: string; stack: string }[] = [
@@ -180,14 +181,14 @@ function sanitizeKeybindings(value: unknown): Record<string, KeyCombo> {
   const out: Record<string, KeyCombo> = {}
   if (!value || typeof value !== 'object') return out
   const MOD_KEYS = ['alt', 'shift', 'meta', 'ctrl', 'mod'] as const
-  for (const [id, raw] of Object.entries(value as Record<string, unknown>)) {
+  for (const [id, raw] of Object.entries(value)) {
     if (!(id in KEYBINDINGS)) continue
     if (!raw || typeof raw !== 'object') continue
-    const r = raw as Record<string, unknown>
+    const r = raw as { code?: unknown; alt?: unknown; shift?: unknown; meta?: unknown; ctrl?: unknown; mod?: unknown }
     if (typeof r.code !== 'string' || !r.code) continue
-    if (MOD_KEYS.some((k) => r[k] !== undefined && typeof r[k] !== 'boolean')) continue
+    if (MOD_KEYS.some((k) => Reflect.get(r, k) !== undefined && typeof Reflect.get(r, k) !== 'boolean')) continue
     const combo: KeyCombo = { code: r.code }
-    for (const k of MOD_KEYS) if (r[k] === true) combo[k] = true
+    for (const k of MOD_KEYS) if (Reflect.get(r, k) === true) combo[k] = true
     out[id] = combo
   }
   return out
@@ -199,7 +200,7 @@ function sanitizeKeybindings(value: unknown): Record<string, KeyCombo> {
 function loadStringRecord(value: unknown): Record<string, string> {
   const out: Record<string, string> = {}
   if (!value || typeof value !== 'object') return out
-  for (const [id, text] of Object.entries(value as Record<string, unknown>)) {
+  for (const [id, text] of Object.entries(value)) {
     if (typeof text === 'string') out[id] = text
   }
   return out
@@ -208,7 +209,7 @@ function loadStringRecord(value: unknown): Record<string, string> {
 function loadBooleanRecord(value: unknown): Record<string, boolean> {
   const out: Record<string, boolean> = {}
   if (!value || typeof value !== 'object') return out
-  for (const [key, enabled] of Object.entries(value as Record<string, unknown>)) {
+  for (const [key, enabled] of Object.entries(value)) {
     if (typeof enabled === 'boolean') out[key] = enabled
   }
   return out
@@ -218,7 +219,7 @@ function loadProjectPanelCollapsed(value: unknown): Record<ProjectPanelSectionId
   const collapsed = { ...DEFAULT_PROJECT_PANEL_COLLAPSED }
   if (!value || typeof value !== 'object') return collapsed
   for (const id of Object.keys(DEFAULT_PROJECT_PANEL_COLLAPSED) as ProjectPanelSectionId[]) {
-    const next = (value as Record<string, unknown>)[id]
+    const next = Reflect.get(value, id)
     if (typeof next === 'boolean') collapsed[id] = next
   }
   return collapsed
@@ -249,8 +250,9 @@ function loadSettings(): SettingsFields {
         worktreeEnabled: typeof parsed.worktreeEnabled === 'boolean' ? parsed.worktreeEnabled : false,
         autoRenameSessions: typeof parsed.autoRenameSessions === 'boolean' ? parsed.autoRenameSessions : true,
         showDiffSummaryAfterTurn: typeof parsed.showDiffSummaryAfterTurn === 'boolean' ? parsed.showDiffSummaryAfterTurn : true,
-        fontFamily: VALID_FONT_FAMILIES.includes(parsed.fontFamily) ? parsed.fontFamily : 'inter',
+        fontFamily: VALID_FONT_FAMILIES.includes(parsed.fontFamily) ? parsed.fontFamily : DEFAULT_APP_FONT_FAMILY,
         fontSize: typeof parsed.fontSize === 'number' && parsed.fontSize >= 8 ? parsed.fontSize : DEFAULT_FONT_SIZE,
+        zoomFactor: typeof parsed.zoomFactor === 'number' ? clampZoomFactor(parsed.zoomFactor) : ZOOM_FACTOR_DEFAULT,
         codeFontFamily: VALID_CODE_FONT_FAMILIES.includes(parsed.codeFontFamily) ? parsed.codeFontFamily : 'jetbrains-mono',
         codeFontSize: typeof parsed.codeFontSize === 'number' && parsed.codeFontSize >= 8 ? parsed.codeFontSize : DEFAULT_CODE_FONT_SIZE,
         extraInstructions: typeof parsed.extraInstructions === 'string' ? parsed.extraInstructions : '',
@@ -263,7 +265,7 @@ function loadSettings(): SettingsFields {
         projectPanelCollapsed: loadProjectPanelCollapsed(parsed.projectPanelCollapsed),
         splitProjectPanelCollapsed: loadProjectPanelCollapsed(parsed.splitProjectPanelCollapsed),
         tabGroupMode: ((TAB_GROUP_MODES as readonly string[]).includes(parsed.tabGroupMode) ? parsed.tabGroupMode : 'flat') as TabGroupMode,
-        sidebarViewMode: ((SIDEBAR_VIEW_MODES as readonly string[]).includes(parsed.sidebarViewMode) ? parsed.sidebarViewMode : 'flat') as SidebarViewMode,
+        sidebarProjectFilter: typeof parsed.sidebarProjectFilter === 'string' ? parsed.sidebarProjectFilter : null,
         onboardingCompleted: typeof parsed.onboardingCompleted === 'boolean' ? parsed.onboardingCompleted : true,
       }
     }
@@ -288,8 +290,9 @@ function loadSettings(): SettingsFields {
     worktreeEnabled: false,
     autoRenameSessions: true,
     showDiffSummaryAfterTurn: true,
-    fontFamily: 'inter',
+    fontFamily: DEFAULT_APP_FONT_FAMILY,
     fontSize: DEFAULT_FONT_SIZE,
+    zoomFactor: ZOOM_FACTOR_DEFAULT,
     codeFontFamily: 'jetbrains-mono',
     codeFontSize: DEFAULT_CODE_FONT_SIZE,
     extraInstructions: '',
@@ -301,7 +304,7 @@ function loadSettings(): SettingsFields {
     projectPanelCollapsed: { ...DEFAULT_PROJECT_PANEL_COLLAPSED },
     splitProjectPanelCollapsed: { ...DEFAULT_PROJECT_PANEL_COLLAPSED },
     tabGroupMode: 'flat',
-    sidebarViewMode: 'flat',
+    sidebarProjectFilter: null,
     onboardingCompleted: false,
   }
 }
@@ -326,8 +329,9 @@ export class SettingsContext {
   worktreeEnabled = $state(false)
   autoRenameSessions = $state(true)
   showDiffSummaryAfterTurn = $state(true)
-  fontFamily = $state<AppFontFamily>('inter')
+  fontFamily = $state<AppFontFamily>(DEFAULT_APP_FONT_FAMILY)
   fontSize = $state(13)
+  zoomFactor = $state(ZOOM_FACTOR_DEFAULT)
   codeFontFamily = $state<AppCodeFontFamily>('jetbrains-mono')
   codeFontSize = $state(DEFAULT_CODE_FONT_SIZE)
   extraInstructions = $state('')
@@ -339,7 +343,7 @@ export class SettingsContext {
   projectPanelCollapsed = $state<Record<ProjectPanelSectionId, boolean>>({ ...DEFAULT_PROJECT_PANEL_COLLAPSED })
   splitProjectPanelCollapsed = $state<Record<ProjectPanelSectionId, boolean>>({ ...DEFAULT_PROJECT_PANEL_COLLAPSED })
   tabGroupMode = $state<TabGroupMode>('flat')
-  sidebarViewMode = $state<SidebarViewMode>('flat')
+  sidebarProjectFilter = $state<string | null>(null)
   onboardingCompleted = $state(true)
   // Seeded from the media query so 'system' paints correctly before the main
   // process answers; `setSystemTheme` takes over from there.
@@ -368,6 +372,7 @@ export class SettingsContext {
     this.showDiffSummaryAfterTurn = saved.showDiffSummaryAfterTurn
     this.fontFamily = saved.fontFamily
     this.fontSize = saved.fontSize
+    this.zoomFactor = saved.zoomFactor
     this.codeFontFamily = saved.codeFontFamily
     this.codeFontSize = saved.codeFontSize
     this.extraInstructions = saved.extraInstructions
@@ -379,15 +384,32 @@ export class SettingsContext {
     this.projectPanelCollapsed = saved.projectPanelCollapsed
     this.splitProjectPanelCollapsed = saved.splitProjectPanelCollapsed
     this.tabGroupMode = saved.tabGroupMode
-    this.sidebarViewMode = saved.sidebarViewMode
+    this.sidebarProjectFilter = saved.sidebarProjectFilter
     this.onboardingCompleted = saved.onboardingCompleted
 
     // Must run before first paint so CSS variables resolve to the saved palette.
     applyTheme(this.isDark)
     applyFontFamily(saved.fontFamily)
     applyFontSize(saved.fontSize)
+    applyZoomFactor(saved.zoomFactor)
     applyCodeFontFamily(saved.codeFontFamily)
     applyCodeFontSize(saved.codeFontSize)
+
+    // Zoom applies per-webContents but is one user preference. The pill and
+    // editor windows share this origin's localStorage, so when the other
+    // window changes zoom, re-apply here rather than showing a stale scale
+    // until the next boot.
+    window.addEventListener('storage', (e) => {
+      if (e.key !== SETTINGS_KEY || !e.newValue) return
+      try {
+        const parsed = JSON.parse(e.newValue)
+        if (typeof parsed.zoomFactor !== 'number') return
+        const next = clampZoomFactor(parsed.zoomFactor)
+        if (next === this.zoomFactor) return
+        this.zoomFactor = next
+        applyZoomFactor(next)
+      } catch {}
+    })
   }
 
   get isDark(): boolean {
@@ -470,6 +492,10 @@ export class SettingsContext {
       this.fontSize = Math.max(8, patch.fontSize)
       applyFontSize(this.fontSize)
     }
+    if (patch.zoomFactor !== undefined) {
+      this.zoomFactor = clampZoomFactor(patch.zoomFactor)
+      applyZoomFactor(this.zoomFactor)
+    }
     if (patch.codeFontFamily !== undefined) {
       this.codeFontFamily = patch.codeFontFamily
       applyCodeFontFamily(this.codeFontFamily)
@@ -495,12 +521,31 @@ export class SettingsContext {
     if (patch.splitProjectPanelCollapsed !== undefined)
       this.splitProjectPanelCollapsed = patch.splitProjectPanelCollapsed
     if (patch.tabGroupMode !== undefined) this.tabGroupMode = patch.tabGroupMode
-    if (patch.sidebarViewMode !== undefined) this.sidebarViewMode = patch.sidebarViewMode
+    if (patch.sidebarProjectFilter !== undefined)
+      this.sidebarProjectFilter = patch.sidebarProjectFilter
     if (patch.onboardingCompleted !== undefined) this.onboardingCompleted = patch.onboardingCompleted
     this.saveSettings()
   }
 
   // OS-supplied system theme; not persisted.
+  zoomIn(): void {
+    this.setZoomFactor(stepZoomFactor(this.zoomFactor, 1))
+  }
+
+  zoomOut(): void {
+    this.setZoomFactor(stepZoomFactor(this.zoomFactor, -1))
+  }
+
+  resetZoom(): void {
+    this.setZoomFactor(ZOOM_FACTOR_DEFAULT)
+  }
+
+  setZoomFactor(factor: number): void {
+    this.zoomFactor = clampZoomFactor(factor)
+    applyZoomFactor(this.zoomFactor)
+    this.saveSettings()
+  }
+
   setSystemTheme(isDark: boolean): void {
     this._systemIsDark = isDark
     if (this.themeMode === 'system') {
@@ -532,6 +577,7 @@ export class SettingsContext {
         showDiffSummaryAfterTurn: this.showDiffSummaryAfterTurn,
         fontFamily: this.fontFamily,
         fontSize: this.fontSize,
+        zoomFactor: this.zoomFactor,
         codeFontFamily: this.codeFontFamily,
         codeFontSize: this.codeFontSize,
         extraInstructions: this.extraInstructions,
@@ -543,7 +589,7 @@ export class SettingsContext {
         projectPanelCollapsed: this.projectPanelCollapsed,
         splitProjectPanelCollapsed: this.splitProjectPanelCollapsed,
         tabGroupMode: this.tabGroupMode,
-        sidebarViewMode: this.sidebarViewMode,
+        sidebarProjectFilter: this.sidebarProjectFilter,
         onboardingCompleted: this.onboardingCompleted,
       }))
     } catch {}

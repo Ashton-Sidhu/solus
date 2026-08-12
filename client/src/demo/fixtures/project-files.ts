@@ -95,13 +95,13 @@ export interface MiddlewareRequest {
   context: { apiKey: ApiKey }
   response: { headers: Headers }
   id: string
-  log: { warn(fields: Record<string, unknown>, message: string): void }
+  log: { warn(fields: { error: unknown; apiKeyId: string }, message: string): void }
   json(body: unknown, status?: number): Response
 }
 
 interface Database {
-  insert(table: string): { values(row: Record<string, unknown>): Promise<void> }
-  query(table: string): { where(match: Record<string, unknown>): { first(): Promise<unknown> } }
+  insert(table: 'links'): { values(row: { slug: string; url: string; accountId: string }): Promise<void> }
+  query(table: 'links'): { where(match: { slug: string }): { first(): Promise<{ url: string } | undefined> } }
 }
 `,
 

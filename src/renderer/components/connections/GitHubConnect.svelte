@@ -156,7 +156,7 @@
     >
       <div class="flex flex-col items-center gap-2 text-center">
         <div
-          class="size-11 rounded-xl bg-(--solus-surface-hover) flex items-center justify-center"
+          class="size-11 rounded-lg bg-(--solus-surface-hover) flex items-center justify-center"
         >
           <GithubLogoIcon
             size={22}
@@ -164,17 +164,17 @@
             class="text-(--solus-text-primary)"
           />
         </div>
-        <p class="text-[0.9375rem] font-semibold text-(--solus-text-primary)">
+        <p class="text-sm font-medium text-(--solus-text-primary)">
           Authorize Solus on GitHub
         </p>
-        <p class="text-[0.75rem] text-(--solus-text-tertiary)">
+        <p class="text-xs text-(--solus-text-tertiary)">
           Enter this code at github.com/login/device
         </p>
       </div>
 
       <div class="flex items-center justify-center gap-2">
         <code
-          class="text-[1.625rem] font-semibold tracking-[0.18em] text-(--solus-text-primary) tabular-nums"
+          class="text-[1.5rem] font-medium text-(--solus-text-primary) tabular-nums"
           style="font-family: 'Geist Mono', ui-monospace, monospace"
           >{connections.providerPrompt.userCode}</code
         >

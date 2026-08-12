@@ -106,17 +106,17 @@
 <div
   use:portal={document.body}
   bind:clientHeight={height}
-  class="fixed z-50 flex flex-col gap-2 rounded-[14px] border border-[var(--solus-popover-border)] bg-[var(--solus-popover-bg)] p-[12px_14px_11px] text-left shadow-[shadow:var(--solus-popover-shadow)] backdrop-blur-[14px] {placed
-    ? 'peek-in'
-    : 'invisible'} {pinned ? '' : 'pointer-events-none'}"
+  class="fixed z-50 flex flex-col gap-2 rounded-2xl border border-[var(--solus-popover-border)] bg-[var(--solus-popover-bg)] p-[12px_14px_11px] text-left shadow-[shadow:var(--solus-popover-shadow)] backdrop-blur-[14px] {placed
+ ? 'peek-in'
+ : 'invisible'} {pinned ? '' : 'pointer-events-none'}"
   style="left:{box.left}px; top:{box.top}px; width:{box.width}px"
   role="tooltip"
   data-testid="workspace-peek"
 >
   <!-- Kind · origin · age, then the plan's status word in its own colour. The
        title is not repeated — it is two pixels above, in the row. -->
-  <div class="flex items-center gap-2 text-[11px] text-muted-foreground">
-    <span class="text-[10px] font-[450] tracking-[.09em] uppercase">
+  <div class="flex items-center gap-2 text-xs text-muted-foreground">
+    <span class="text-xs font-normal uppercase">
       {KIND_LABELS[item.type]}
     </span>
     <span class="opacity-35" aria-hidden="true">·</span>
@@ -129,8 +129,8 @@
       <span class="opacity-35" aria-hidden="true">·</span>
       <span
         class="shrink-0 {item.status === 'pending'
-          ? 'font-medium text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]'
-          : ''}"
+ ? 'font-medium text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]'
+ : ''}"
       >
         {statusLabel}
       </span>
@@ -146,7 +146,7 @@
          place of the body. The frame is reserved at rest rather than inserted
          when the JSON lands, so the card does not jump its own height — and it
          holds an empty wash, never a spinner. -->
-    <div class="h-[240px] overflow-hidden rounded-[10px] bg-[var(--wash-1)]">
+    <div class="h-[240px] overflow-hidden rounded-lg bg-[var(--wash-1)]">
       {#if content}
         {#await import("../diagram/DiagramThumbnail.svelte") then thumbModule}
           {@const DiagramThumbnail = thumbModule.default}
@@ -155,9 +155,9 @@
       {/if}
     </div>
   {:else if body}
-    <div class="peek-body text-[12px] leading-[1.6] text-muted-foreground text-pretty">
+    <div class="peek-body text-xs leading-[1.6] text-muted-foreground text-pretty">
       {#each bodyRuns as run, i (i)}{#if run.hit}<mark
-            class="rounded-[3px] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
+            class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
             >{run.text}</mark
           >{:else}{run.text}{/if}{/each}
     </div>
@@ -168,9 +168,9 @@
   <div class="flex gap-[22px]">
     <div class="flex flex-1 flex-col gap-[5px]">
       {#each outline.lines as line (line.n)}
-        <span class="flex items-baseline gap-2 text-[11px] leading-[1.4]">
+        <span class="flex items-baseline gap-2 text-xs leading-[1.4]">
           <span
-            class="font-mono text-[10px] tabular-nums text-muted-foreground opacity-70"
+            class="font-mono text-xs tabular-nums text-muted-foreground opacity-70"
             >{line.n}</span
           >
           <span
@@ -180,7 +180,7 @@
         </span>
       {/each}
       {#if outline.more > 0}
-        <span class="pl-[26px] text-[11px] leading-[1.4] text-muted-foreground">
+        <span class="pl-[26px] text-xs leading-[1.4] text-muted-foreground">
           +{outline.more} more
         </span>
       {/if}
@@ -188,7 +188,7 @@
     <!-- Text, not keycaps: keycaps at this size in a transient card read as
          clickable, and nothing in here is. -->
     <span
-      class="shrink-0 self-end text-[10.5px] text-muted-foreground opacity-75"
+      class="shrink-0 self-end text-xs text-muted-foreground opacity-75"
     >
       ⏎ open · ⇧ hold to pin open
     </span>

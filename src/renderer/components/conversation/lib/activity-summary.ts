@@ -52,6 +52,28 @@ const CHANGE_PATH_KEYS = [
   'newPath',
 ]
 
+export interface ParsedToolInput {
+  file_path?: unknown
+  filePath?: unknown
+  path?: unknown
+  file?: unknown
+  fileName?: unknown
+  filename?: unknown
+  old_path?: unknown
+  new_path?: unknown
+  oldPath?: unknown
+  newPath?: unknown
+  changes?: unknown
+  pattern?: unknown
+  command?: unknown
+  query?: unknown
+  search_query?: unknown
+  url?: unknown
+  prompt?: unknown
+  description?: unknown
+  skill?: unknown
+}
+
 export function activityKind(toolName: string | undefined): ActivityKind {
   if (!toolName) return 'other'
   return KIND_FOR_TOOL[toolName] ?? 'other'
@@ -114,16 +136,15 @@ function addToolPath(paths: Set<string>, value: unknown): void {
   paths.add(path)
 }
 
-export function toolPathsFromParsed(parsed: Record<string, unknown>): string[] {
+export function toolPathsFromParsed(parsed: object): string[] {
   const paths = new Set<string>()
-  for (const key of CHANGE_PATH_KEYS) addToolPath(paths, parsed[key])
+  for (const key of CHANGE_PATH_KEYS) addToolPath(paths, Reflect.get(parsed, key))
 
-  const changes = parsed.changes
+  const changes = Reflect.get(parsed, 'changes')
   if (Array.isArray(changes)) {
     for (const change of changes) {
       if (!change || typeof change !== 'object') continue
-      const record = change as Record<string, unknown>
-      for (const key of CHANGE_PATH_KEYS) addToolPath(paths, record[key])
+      for (const key of CHANGE_PATH_KEYS) addToolPath(paths, Reflect.get(change, key))
     }
   }
 
@@ -138,7 +159,7 @@ function describeFilePaths(action: string, paths: string[]): string {
 
 function describeSolusTool(
   name: string,
-  parsed: Record<string, unknown>,
+  parsed: object,
   truncate: boolean,
 ): string {
   const label = prettyToolName(name)
@@ -152,7 +173,7 @@ function describeSolusTool(
 
 export function getToolDescriptionFromParsed(
   name: string,
-  parsed: Record<string, unknown>,
+  parsed: ParsedToolInput,
   options: { truncate?: boolean } = {},
 ): string {
   const truncate = options.truncate ?? true

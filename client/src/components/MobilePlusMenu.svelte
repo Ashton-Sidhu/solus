@@ -196,19 +196,19 @@
   // Solus grouped bottom-sheet utilities — frosted surfaces, hairline borders,
   // terracotta accent on press (matches Dropdown / popover language).
   const heroCard =
-    "relative flex flex-col items-center justify-center gap-2 py-4 rounded-xl border border-(--solus-container-border) cursor-pointer bg-(--solus-surface-hover) text-(--solus-text-primary) transition-[background-color,transform] duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.96] active:bg-(--solus-accent-light) active:border-(--solus-accent-border) disabled:opacity-40 disabled:active:scale-100 disabled:active:bg-(--solus-surface-hover) [-webkit-tap-highlight-color:transparent]";
+    "relative flex flex-col items-center justify-center gap-2 py-4 rounded-2xl border border-(--solus-container-border) cursor-pointer bg-(--solus-surface-hover) text-(--solus-text-primary) transition-[background-color,transform] duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.96] active:bg-(--solus-accent-light) active:border-(--solus-accent-border) disabled:opacity-40 disabled:active:scale-100 disabled:active:bg-(--solus-surface-hover) [-webkit-tap-highlight-color:transparent]";
   const heroIcon = "text-(--solus-accent)";
   const heroLabel = "text-[0.8125rem] font-medium leading-tight text-center text-(--solus-text-primary)";
-  const groupCard = "flex flex-col rounded-xl overflow-hidden border border-(--solus-container-border) bg-(--solus-surface-hover)";
+  const groupCard = "flex flex-col rounded-2xl overflow-hidden border border-(--solus-container-border) bg-(--solus-surface-hover)";
   const listRow =
     "flex items-center gap-3.5 w-full min-h-12 px-3.5 py-3 border-0 bg-transparent text-left cursor-pointer transition-colors duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:bg-(--solus-accent-light) disabled:opacity-40 disabled:cursor-default disabled:active:bg-transparent [-webkit-tap-highlight-color:transparent]";
   const listIcon = "w-5 flex items-center justify-center shrink-0 font-secondary text-(--solus-text-secondary)";
-  const listLabel = "flex-1 min-w-0 truncate text-[0.9375rem] font-medium text-(--solus-text-primary)";
+  const listLabel = "flex-1 min-w-0 truncate text-sm font-medium text-(--solus-text-primary)";
   const listValue = "shrink-0 max-w-[8rem] truncate text-[0.8125rem] text-(--solus-text-tertiary)";
   const rowDivider = "h-px bg-(--solus-container-border) opacity-60 ml-12";
   const chevronClass = "shrink-0 text-(--solus-text-tertiary)";
 
-  const controlRow = "flex items-center gap-3 py-2 pr-2.5 pl-3.5 rounded-xl border border-(--solus-container-border) bg-(--solus-surface-hover)";
+  const controlRow = "flex items-center gap-3 py-2 pr-2.5 pl-3.5 rounded-2xl border border-(--solus-container-border) bg-(--solus-surface-hover)";
   const controlLabel = "shrink-0 min-w-[4.25rem] text-xs font-medium text-(--solus-text-tertiary)";
   const segmented = "flex-1 flex gap-1 min-w-0";
   const segBtnBase =
@@ -232,7 +232,7 @@
        The sheet doesn't scroll; touch-none claims vertical drags for swipe-to-dismiss. -->
   <div
     bind:this={sheetEl}
-    class="fixed bottom-0 inset-x-0 z-[41] select-none rounded-t-[1.25rem] border-t border-(--solus-popover-border) bg-(--solus-popover-bg) backdrop-blur-[1.25rem] backdrop-saturate-[1.1] shadow-(--solus-popover-shadow) px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] touch-none will-change-transform [-webkit-user-select:none]"
+    class="fixed bottom-0 inset-x-0 z-[41] select-none rounded-t-2xl border-t border-(--solus-popover-border) bg-(--solus-popover-bg) backdrop-blur-[1.25rem] backdrop-saturate-[1.1] shadow-(--solus-popover-shadow) px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] touch-none will-change-transform [-webkit-user-select:none]"
     class:invisible={!visible}
     class:pointer-events-none={!visible}
     use:swipeDismiss={{ axis: "y", sign: 1, onDismiss: onClose, backdrop: () => backdropEl }}
@@ -246,9 +246,9 @@
         aria-label="Close menu"
         onclick={onClose}
       >
-        <XIcon size={18} weight="bold" />
+        <XIcon size={14} weight="bold" />
       </button>
-      <h2 class="text-[0.9375rem] font-semibold text-(--solus-text-primary)">Add to Chat</h2>
+      <h2 class="text-sm font-semibold text-(--solus-text-primary)">Add to Chat</h2>
     </div>
 
     <div class="flex flex-col gap-3">
@@ -260,10 +260,10 @@
           disabled={!canAttachFiles}
           title={!canAttachFiles ? `File attachments are not supported on ${attachmentHostLabel}.` : undefined}
         >
-          <span class={heroIcon}><PaperclipIcon size={22} /></span>
+          <span class={heroIcon}><PaperclipIcon size={20} /></span>
           <span class={heroLabel}>{canAttachFiles ? "Attach file" : "Files unavailable"}</span>
           {#if attachmentCapabilities !== undefined && !canAttachFiles}
-            <span class="text-[0.625rem] leading-tight text-muted-foreground">
+            <span class="text-xs leading-tight text-muted-foreground">
               Not supported on {attachmentHostLabel}
             </span>
           {/if}
@@ -273,12 +273,12 @@
           class={heroCard}
           onclick={() => handleAction(() => window.dispatchEvent(new CustomEvent("solus:open-directory-picker")))}
         >
-          <span class={heroIcon}><FolderOpenIcon size={22} /></span>
+          <span class={heroIcon}><FolderOpenIcon size={20} /></span>
           <span class={heroLabel}>Project</span>
         </button>
 
         <button class={heroCard} onclick={() => handleAction(onToggleWorkspace)}>
-          <span class={heroIcon}><BooksIcon size={22} /></span>
+          <span class={heroIcon}><BooksIcon size={20} /></span>
           <span class={heroLabel}>Workspace</span>
         </button>
         <div class={rowDivider}></div>
@@ -291,26 +291,26 @@
           class={listRow}
           onclick={() => handleAction(() => window.dispatchEvent(new CustomEvent("solus:open-directory-picker")))}
         >
-          <span class={listIcon}><FolderOpenIcon size={18} /></span>
+          <span class={listIcon}><FolderOpenIcon size={14} /></span>
           <span class={listLabel}>Project</span>
           <span class={listValue}>{projectName}</span>
-          <CaretRightIcon size={16} class={chevronClass} />
+          <CaretRightIcon size={14} class={chevronClass} />
         </button>
         <div class={rowDivider}></div>
         <button class={listRow} onclick={() => handleAction(onOpenServers)}>
-          <span class={listIcon}><HardDrivesIcon size={18} /></span>
+          <span class={listIcon}><HardDrivesIcon size={14} /></span>
           <span class={listLabel}>Server</span>
           <span class={listValue}>{serversStore.activeServer?.label ?? ""}</span>
-          <CaretRightIcon size={16} class={chevronClass} />
+          <CaretRightIcon size={14} class={chevronClass} />
         </button>
         <div class={rowDivider}></div>
         <button class={listRow} disabled={!canShowDiffPanel} onclick={() => handleAction(onToggleDiff)}>
-          <span class={listIcon}><GitDiffIcon size={18} /></span>
+          <span class={listIcon}><GitDiffIcon size={14} /></span>
           <span class={listLabel}>Changes</span>
           {#if changedFilesCount > 0}
-            <span class="shrink-0 min-w-[1.125rem] h-[1.125rem] px-1.5 rounded-[0.5625rem] bg-(--solus-accent) text-(--solus-text-on-accent) text-[0.6875rem] font-semibold flex items-center justify-center leading-none tabular-nums">{changedFilesCount}</span>
+            <span class="shrink-0 min-w-[1.125rem] h-[1.125rem] px-1.5 rounded-[0.5625rem] bg-(--solus-accent) text-(--solus-text-on-accent) text-xs font-semibold flex items-center justify-center leading-none tabular-nums">{changedFilesCount}</span>
           {/if}
-          <CaretRightIcon size={16} class={chevronClass} />
+          <CaretRightIcon size={14} class={chevronClass} />
         </button>
         <div class={rowDivider}></div>
         <button
@@ -320,9 +320,9 @@
             else session.showSettings();
           })}
         >
-          <span class={listIcon}><GearIcon size={18} /></span>
+          <span class={listIcon}><GearIcon size={14} /></span>
           <span class={listLabel}>Settings</span>
-          <CaretRightIcon size={16} class={chevronClass} />
+          <CaretRightIcon size={14} class={chevronClass} />
         </button>
       </div>
 
@@ -334,11 +334,11 @@
               {#key actions.syncing ? "busy" : actions.synced ? "done" : "idle"}
                 <span class="icon-swap">
                   {#if actions.syncing}
-                    <SpinnerIcon size={18} class="animate-spin" />
+                    <SpinnerIcon size={14} class="animate-spin" />
                   {:else if actions.synced}
-                    <CheckIcon size={18} />
+                    <CheckIcon size={14} />
                   {:else}
-                    <ArrowsClockwiseIcon size={18} />
+                    <ArrowsClockwiseIcon size={14} />
                   {/if}
                 </span>
               {/key}
@@ -351,11 +351,11 @@
               {#key actions.commitPushing ? "busy" : actions.commitPushed ? "done" : "idle"}
                 <span class="icon-swap">
                   {#if actions.commitPushing}
-                    <SpinnerIcon size={18} class="animate-spin" />
+                    <SpinnerIcon size={14} class="animate-spin" />
                   {:else if actions.commitPushed}
-                    <CheckIcon size={18} />
+                    <CheckIcon size={14} />
                   {:else}
-                    <GitCommitIcon size={18} />
+                    <GitCommitIcon size={14} />
                   {/if}
                 </span>
               {/key}
@@ -365,7 +365,7 @@
           <div class={rowDivider}></div>
           <button class={listRow} onclick={() => void actions.commitPush()} disabled={actions.commitPushing}>
             <span class={listIcon}>
-              <ArrowSquareUpIcon size={18} />
+              <ArrowSquareUpIcon size={14} />
             </span>
             <span class={listLabel}>Commit & Push</span>
           </button>
@@ -399,9 +399,9 @@
               >
                 <span class={listIcon}>
                   {#if actions.discarding}
-                    <SpinnerIcon size={18} class="animate-spin" />
+                    <SpinnerIcon size={14} class="animate-spin" />
                   {:else}
-                    <ArrowCounterClockwiseIcon size={18} />
+                    <ArrowCounterClockwiseIcon size={14} />
                   {/if}
                 </span>
                 <span class={listLabel}>Discard changes</span>
@@ -413,7 +413,7 @@
     </div>
 
     <div class="mt-3 flex flex-col gap-1">
-      <span class="block px-1 mb-0.5 text-[0.6875rem] font-semibold tracking-[0.03em] uppercase text-(--solus-text-tertiary)">Session</span>
+      <span class="block px-1 mb-0.5 text-xs font-semibold tracking-[0.03em] uppercase text-(--solus-text-tertiary)">Session</span>
       <div class={controlRow}>
         <span class={controlLabel}>Reasoning</span>
         <div class={segmented}>

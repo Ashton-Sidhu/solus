@@ -39,8 +39,8 @@
 {#snippet shellInner()}
   <div
     class="relative flex flex-col overflow-hidden bg-(--solus-container-bg) @container {inline
-      ? 'h-full'
-      : 'h-[min(86vh,90vh)] w-[min(100rem,96vw)] rounded-2xl border border-(--solus-tool-border) shadow-[shadow:var(--solus-popover-shadow)]'}"
+ ? 'h-full'
+ : 'h-[min(86vh,90vh)] w-[min(100rem,96vw)] rounded-2xl border border-(--solus-tool-border) shadow-[shadow:var(--solus-popover-shadow)]'}"
     role="status"
     aria-label="Loading document"
   >
@@ -51,7 +51,7 @@
       {/if}
       {#if title}
         <span
-          class="min-w-0 truncate text-[0.78125rem] font-semibold tracking-[-0.01em] text-(--solus-text-primary)"
+          class="min-w-0 truncate text-[0.8125rem] font-medium text-(--solus-text-primary)"
         >
           {title}
         </span>
@@ -63,10 +63,10 @@
         class="flex shrink-0 items-center gap-0.75 pr-[max(0.875rem,var(--solus-pane-chrome-inset,3.25rem))]"
         aria-hidden="true"
       >
-        <Skeleton class="h-7 w-[5.25rem] rounded-[0.4375rem]" />
-        <Skeleton class="size-7 rounded-[0.4375rem]" />
-        <Skeleton class="size-7 rounded-[0.4375rem]" />
-        <Skeleton class="size-7 rounded-[0.4375rem]" />
+        <Skeleton class="h-7 w-[5.25rem] rounded-lg" />
+        <Skeleton class="size-7 rounded-lg" />
+        <Skeleton class="size-7 rounded-lg" />
+        <Skeleton class="size-7 rounded-lg" />
       </div>
     </header>
 
@@ -144,8 +144,8 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.6875rem;
-    letter-spacing: 0.02em;
+    font-size: 0.75rem;
+
     color: var(--solus-text-tertiary);
   }
 
@@ -154,7 +154,7 @@
      container, which is what makes a split pane narrow the column instead of
      the window doing it. */
   .doc-skeleton-column {
-    --solus-doc-size: calc(0.96875rem * var(--solus-font-scale, 1));
+    --solus-doc-size: calc(0.875rem * var(--solus-font-scale, 1));
     --solus-doc-measure: clamp(66ch, 68cqi, 112ch);
   }
   .doc-skeleton-page {
@@ -197,7 +197,7 @@
   }
   @container (max-width: 45rem) {
     .doc-skeleton-column {
-      --solus-doc-size: calc(0.9375rem * var(--solus-font-scale, 1));
+      --solus-doc-size: calc(0.875rem * var(--solus-font-scale, 1));
     }
     .doc-skeleton-prose {
       --doc-pad-x: 1.375rem;
@@ -205,7 +205,7 @@
   }
   @media (max-width: 767px) {
     .doc-skeleton-column {
-      --solus-doc-size: calc(1.0625rem * var(--solus-font-scale, 1));
+      --solus-doc-size: calc(0.875rem * var(--solus-font-scale, 1));
     }
     .doc-skeleton-prose {
       padding-top: 1.25rem;

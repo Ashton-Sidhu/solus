@@ -10,6 +10,15 @@ import type { AgentId } from '../../shared/types'
 import { createLogger } from '../logger'
 import type { AgentTool } from '../agents/tools/agent-tool'
 import { Task } from '../tasks/task'
+import { randomUUID } from 'node:crypto'
+import {
+  applyWorkOpToForeignTask,
+  foreignLinkedItemFor,
+  foreignLinkedItemsFor,
+  foreignTaskIdFor,
+} from '../tasks/foreign-tasks'
+import { recordOutboxOp } from '../outbox/outbox-store'
+import type { WorkCreateOpPayload, WorkUpdateOpPayload } from '../../shared/outbox-types'
 
 const log = createLogger('folio', 'work-tools.ts')
 
@@ -40,6 +49,9 @@ export interface WorkCreateCtx {
   sessionId: string | undefined
   agentProvider: AgentId
   cwd: string
+  /** Solus session id — keys the dispatched session's shipped task snapshot,
+   *  whose linked works answer reads this host's own store cannot. */
+  solusSessionId?: string
 }
 
 /** Side-effects + creation context threaded into the executor per call. */
@@ -108,18 +120,38 @@ export interface WorkToolResult {
   text: string
 }
 
+interface WorkToolArgs {
+  work_id?: unknown
+  query?: unknown
+  type?: unknown
+  limit?: unknown
+  title?: unknown
+  doc_type?: unknown
+  content?: unknown
+}
+
 export async function executeWorkTool(
   name: string,
-  args: Record<string, unknown>,
+  args: WorkToolArgs,
   deps: WorkToolDeps = {},
 ): Promise<WorkToolResult> {
   try {
     if (name === 'list_works') {
       const works = await listWorks(deps.ctx?.cwd)
-      if (works.length === 0) return { ok: true, text: 'No works are currently open.' }
-      const lines = works.map(
-        (w) => `- ${w.id} — "${w.title}" (${w.type}, ${w.storage?.kind ?? 'local'}), updated ${w.updatedAt}`,
-      )
+      // A dispatched session's linked works live on the task's host; the
+      // shipped copies are the only view of them this host has.
+      const foreignWorks = foreignLinkedItemsFor(deps.ctx?.solusSessionId).filter((item) => item.kind === 'work')
+      if (works.length === 0 && foreignWorks.length === 0) {
+        return { ok: true, text: 'No works are currently open.' }
+      }
+      const lines = [
+        ...works.map(
+          (w) => `- ${w.id} — "${w.title}" (${w.type}, ${w.storage?.kind ?? 'local'}), updated ${w.updatedAt}`,
+        ),
+        ...foreignWorks.map(
+          (w) => `- ${w.key} — "${w.title}" (${w.workType ?? 'doc'}, shipped from the task's host, read-only), updated ${w.updatedAt ?? 'unknown'}`,
+        ),
+      ]
       return { ok: true, text: `Open works:\n${lines.join('\n')}` }
     }
 
@@ -144,7 +176,16 @@ export async function executeWorkTool(
       const workId = String(args.work_id ?? '')
       if (!workId) return { ok: false, text: 'read_work requires a work_id.' }
       const work = await loadWork(workId, deps.ctx?.cwd)
-      if (!work) return { ok: false, text: `No work found with id "${workId}".` }
+      if (!work) {
+        const foreign = foreignLinkedItemFor(deps.ctx?.solusSessionId, 'work', workId)
+        if (foreign) {
+          return {
+            ok: true,
+            text: `Work "${foreign.title}" (${foreign.workType ?? 'doc'}, id: ${foreign.key}) — a read-only copy shipped from the task's host; update_work cannot change it from here:\n\n${foreign.content}`,
+          }
+        }
+        return { ok: false, text: `No work found with id "${workId}".` }
+      }
       // Surface the open threads alongside the content so the agent sees
       // feedback without the user having to paste it into chat. Rendered by the
       // same formatter as read_plan, so both read identically.
@@ -175,6 +216,28 @@ export async function executeWorkTool(
             text: `Invalid diagram content: ${String(err?.message ?? err)}. The content must be JSON shaped like {"nodes":[...],"edges":[...]}.`,
           }
         }
+      }
+
+      // A dispatched session's work belongs to its task's host, not this
+      // borrowed machine: record an outbox op the client couriers there. The
+      // overlay makes the agent's own reads see it before delivery, and the
+      // owner-side link brings it back with the next snapshot re-ship.
+      const foreignTaskId = foreignTaskIdFor(deps.ctx?.solusSessionId)
+      if (foreignTaskId) {
+        const workId = randomUUID()
+        const payload: WorkCreateOpPayload = {
+          taskId: foreignTaskId,
+          title,
+          docType,
+          content,
+          agentProvider: deps.ctx?.agentProvider ?? 'claude-code',
+          originSessionId: deps.ctx?.sessionId,
+          cwd: deps.ctx?.cwd,
+        }
+        const op = recordOutboxOp({ domain: 'works', resourceId: workId, name: 'create', payload, sessionId: deps.ctx?.sessionId })
+        applyWorkOpToForeignTask(deps.ctx?.solusSessionId, op)
+        deps.onWorkCreated?.({ workId, title, docType, content })
+        return { ok: true, text: `Created "${title}" (id: ${workId}). It syncs to the task's host and links to task ${foreignTaskId}.` }
       }
 
       const preview = workPreview(docType, content)
@@ -219,7 +282,40 @@ export async function executeWorkTool(
       const title = typeof args.title === 'string' ? args.title : undefined
 
       const existing = await loadWork(workId, deps.ctx?.cwd)
-      if (!existing) return { ok: false, text: `No work found with id "${workId}".` }
+      if (!existing) {
+        // A shipped (or op-created) work on a dispatched session: the row
+        // lives on the task's host, so the update travels as an outbox op.
+        const foreign = foreignLinkedItemFor(deps.ctx?.solusSessionId, 'work', workId)
+        const foreignTaskId = foreignTaskIdFor(deps.ctx?.solusSessionId)
+        if (foreign && foreignTaskId) {
+          if (foreign.workType === 'diagram') {
+            try {
+              parseDiagram(content)
+            } catch (err: any) {
+              return {
+                ok: false,
+                text: `Invalid diagram content: ${String(err?.message ?? err)}. The content must be JSON shaped like {"nodes":[...],"edges":[...]}.`,
+              }
+            }
+          }
+          const payload: WorkUpdateOpPayload = {
+            taskId: foreignTaskId,
+            content,
+            ...(title !== undefined ? { title } : {}),
+          }
+          const op = recordOutboxOp({ domain: 'works', resourceId: workId, name: 'update', payload, sessionId: deps.ctx?.sessionId })
+          applyWorkOpToForeignTask(deps.ctx?.solusSessionId, op)
+          deps.onWorkUpdated?.({
+            workId,
+            title: title ?? foreign.title,
+            docType: foreign.workType ?? 'doc',
+            content,
+            updatedAt: new Date().toISOString(),
+          })
+          return { ok: true, text: `Updated "${title ?? foreign.title}". The change syncs to the task's host.` }
+        }
+        return { ok: false, text: `No work found with id "${workId}".` }
+      }
 
       // Same guard as create_work: a malformed diagram update would otherwise
       // overwrite good content and render as a silently blank canvas.
@@ -284,6 +380,7 @@ function workAgentTool(
         sessionId: context.sessionId(),
         agentProvider: context.provider,
         cwd: context.cwd,
+        solusSessionId: context.solusSessionId(),
       },
       onWorkCreated: (work) => context.emit({
         type: 'work_created',

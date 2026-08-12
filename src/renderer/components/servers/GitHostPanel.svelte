@@ -39,7 +39,7 @@
     </Button>
   {/if}
   {#if setup.stepError?.step === "github"}
-    <p class="mt-3 cursor-text select-text text-pretty text-[0.75rem] text-(--solus-status-error)">
+    <p class="mt-3 cursor-text select-text text-pretty text-xs text-(--solus-status-error)">
       {setup.stepError.message}
     </p>
   {/if}

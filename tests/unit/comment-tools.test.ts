@@ -94,7 +94,7 @@ async function seedPlan(): Promise<void> {
   await planAnnotations.saveAnnotations(annotations)
 }
 
-function run(name: string, args: Record<string, unknown>) {
+function run(name: string, args: Parameters<CommentToolsModule['executeCommentTool']>[1]) {
   return commentTools.executeCommentTool(name, args, {
     ctx: { agentProvider: 'codex', cwd: CWD, sessionId: 'caller-1' },
   })

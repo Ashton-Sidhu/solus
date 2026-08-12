@@ -112,7 +112,7 @@
            micro-caps so the header line stays one rhythm, and takes the status
            colour rather than trailing a separate indicator. -->
       <span
-        class="mr-1 min-w-0 truncate text-[0.625rem] font-medium tracking-[0.07em] uppercase"
+        class="mr-1 min-w-0 truncate text-xs font-medium uppercase"
         style:color={goalStatusColor(goalStatus ?? goal.status)}
       >
         {goalStatusLabel(goalStatus ?? goal.status)}
@@ -194,7 +194,7 @@
             class="w-full resize-y rounded-md border border-[color-mix(in_srgb,var(--solus-text-primary)_12%,transparent)] bg-transparent px-1.5 py-1 text-[0.8125rem] leading-5 text-(--solus-text-primary) outline-none focus:border-[color-mix(in_srgb,var(--solus-accent)_55%,transparent)]"
           ></textarea>
           <div class="flex items-center justify-between gap-2">
-            <span class="text-[0.6875rem] tabular-nums text-(--solus-text-tertiary)">
+            <span class="text-xs tabular-nums text-(--solus-text-tertiary)">
               {objectiveDraft.length} / 4,000
             </span>
             <span class="flex gap-1">
@@ -208,14 +208,14 @@
              ink; every reading below it steps down from here. -->
         <p
           class="m-0 text-[0.8125rem] leading-5 text-pretty whitespace-pre-wrap text-(--solus-text-primary) {objectiveExpanded
-            ? 'max-h-56 overflow-y-auto overscroll-contain'
-            : 'line-clamp-6'}"
+ ? 'max-h-56 overflow-y-auto overscroll-contain'
+ : 'line-clamp-6'}"
         >
           {goal.objective}
         </p>
         {#if isLongObjective}
           <button
-            class="-mt-0.5 cursor-pointer self-start border-none bg-transparent p-0 text-[0.6875rem] text-(--solus-text-tertiary) transition-colors duration-150 hover:text-(--solus-text-primary)"
+            class="-mt-0.5 cursor-pointer self-start border-none bg-transparent p-0 text-xs text-(--solus-text-tertiary) transition-colors duration-150 hover:text-(--solus-text-primary)"
             type="button"
             onclick={() => (objectiveExpanded = !objectiveExpanded)}
           >
@@ -227,7 +227,7 @@
       <!-- Cost and elapsed are footnotes to the objective, not readings worth a
            grid of their own — one tertiary line, the same weight the rail gives
            any other trailing value. -->
-      <div class="text-[0.6875rem] tabular-nums text-(--solus-text-tertiary)">{goalMetaLine(goal)}</div>
+      <div class="text-xs tabular-nums text-(--solus-text-tertiary)">{goalMetaLine(goal)}</div>
 
       {#if goal.tokenBudget !== undefined}
         <div
@@ -249,7 +249,7 @@
         <!-- Deleting a goal drops its whole record, so it arms in place and
              waits for a second, deliberate click — same as discarding changes. -->
         <div class="flex flex-col gap-1 rounded-md border border-destructive/20 p-1.5">
-          <p class="m-0 text-[0.6875rem] leading-4 text-(--solus-text-tertiary)">
+          <p class="m-0 text-xs leading-4 text-(--solus-text-tertiary)">
             Deletes this goal and its progress. This can't be undone.
           </p>
           <div class="flex justify-end gap-1">

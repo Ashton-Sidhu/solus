@@ -27,7 +27,7 @@
       <!-- Group header — the hairline is real, only the label is a placeholder -->
       <div class="flex h-[30px] w-full items-center gap-2.5 px-1.5">
         <span class="size-[11px] shrink-0"></span>
-        <Skeleton class="h-2 w-14 rounded-[3px]" />
+        <Skeleton class="h-2 w-14 rounded-[0.1875rem]" />
         <span class="h-px flex-1 bg-[var(--hairline)]"></span>
       </div>
 
@@ -37,10 +37,10 @@
           style="--stagger: {(groupIndex * 4 + rowIndex) * 90}ms"
         >
           <Skeleton class="size-5 shrink-0 rounded-full" />
-          <Skeleton class="h-2.5 shrink-0 rounded-[3px] w-(--ident-w)" style="--ident-w: {identWidth}px" />
-          <Skeleton class="h-2.5 max-w-[520px] shrink-0 rounded-[3px] w-(--title-w)" style="--title-w: {width}%" />
+          <Skeleton class="h-2.5 shrink-0 rounded-[0.1875rem] w-(--ident-w)" style="--ident-w: {identWidth}px" />
+          <Skeleton class="h-2.5 max-w-[520px] shrink-0 rounded-[0.1875rem] w-(--title-w)" style="--title-w: {width}%" />
           <span class="flex-1"></span>
-          <Skeleton class="h-2.5 w-8 shrink-0 rounded-[3px]" />
+          <Skeleton class="h-2.5 w-8 shrink-0 rounded-[0.1875rem]" />
         </div>
       {/each}
     </div>

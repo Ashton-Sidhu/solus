@@ -151,7 +151,7 @@ export function segmentStyle(segment: LineSegment): string | undefined {
   const parts = [
     segment.color ? `color:${segment.color}` : '',
     style & 1 ? 'font-style:italic' : '',
-    style & 2 ? 'font-weight:700' : '',
+    style & 2 ? 'font-weight: 500' : '',
     style & 4 ? 'text-decoration:underline' : '',
   ].filter(Boolean)
   return parts.length > 0 ? parts.join(';') : undefined

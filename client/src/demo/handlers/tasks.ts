@@ -68,7 +68,43 @@ export function registerTasksHandlers(backend: DemoServer, store: DemoStore): vo
   })
   backend.register('tasksUpdate', (args) => {
     const [id, patch] = args as [string, TaskUpdatePatch]
-    const task = store.updateTask(id, patch as Partial<Task>)
+    const task = store.updateTask(id, {
+      ...patch,
+      ...(patch.status === 'done'
+        ? { snoozedUntil: undefined, snoozedAt: undefined, snoozeNote: undefined }
+        : {}),
+    } as Partial<Task>)
+    backend.broadcast('tasks.invalidated', {})
+    return task
+  })
+  backend.register('tasksSnooze', (args) => {
+    const [id, input] = args as [string, { until: number | null; note?: string | null }]
+    const task = store.updateTask(id, {
+      snoozedUntil: input.until ?? undefined,
+      snoozedAt: input.until === null ? undefined : Date.now(),
+      snoozeNote: input.note?.trim() || undefined,
+    })
+    backend.broadcast('tasks.invalidated', {})
+    return task
+  })
+  backend.register('tasksMarkRead', (args) => {
+    const [id, read] = args as [string, boolean]
+    const task = store.updateTask(id, { lastReadAt: read ? Date.now() : undefined })
+    backend.broadcast('tasks.invalidated', {})
+    return task
+  })
+
+  backend.register('tasksRecordActivity', (args) => {
+    const [id] = args as [string]
+    const existing = store.getTask(id)
+    const task = store.updateTask(id, {
+      ...(existing?.status === 'done' || existing?.status === 'dropped'
+        ? { status: 'in_progress' as const, doneAt: undefined }
+        : {}),
+      snoozedUntil: undefined,
+      snoozedAt: undefined,
+      snoozeNote: undefined,
+    })
     backend.broadcast('tasks.invalidated', {})
     return task
   })

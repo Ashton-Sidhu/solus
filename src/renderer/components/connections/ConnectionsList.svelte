@@ -147,14 +147,14 @@
   {#if connections.sessions.length === 0}
     <div class="flex flex-col items-center justify-center gap-2 py-8">
       <div
-        class="flex size-10 items-center justify-center rounded-xl bg-(--solus-surface-hover)"
+        class="flex size-10 items-center justify-center rounded-lg bg-(--solus-surface-hover)"
       >
         <MonitorIcon size={20} class="text-(--solus-text-tertiary)" />
       </div>
       <p class="text-[0.8125rem] text-(--solus-text-tertiary)">
         No devices connected
       </p>
-      <p class="text-[0.6875rem] text-(--solus-text-tertiary) opacity-70">
+      <p class="text-xs text-(--solus-text-tertiary) opacity-70">
         Pair a device to get started
       </p>
     </div>
@@ -172,7 +172,7 @@
           <p class="truncate text-[0.8125rem] font-medium text-(--solus-text-primary)">
             {session.deviceLabel}
           </p>
-          <p class="text-[0.6875rem] text-(--solus-text-tertiary)">
+          <p class="text-xs text-(--solus-text-tertiary)">
             {relativeTime(session.connectedAt)}
             {#if session.connectionCount > 1}
               &middot; {session.connectionCount} connections

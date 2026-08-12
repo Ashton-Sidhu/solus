@@ -62,7 +62,7 @@
          agent didn't write. Collapsed it states what it asked for and what the
          run cost the checkout; opened it is the prompt, verbatim. -->
     <div
-      class="mb-5 w-full rounded-xl bg-[color-mix(in_oklch,var(--foreground)_2.5%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
+      class="mb-5 w-full rounded-2xl bg-[color-mix(in_oklch,var(--foreground)_2.5%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
     >
       <button
         type="button"
@@ -75,13 +75,13 @@
             size={10}
             aria-hidden="true"
             class="text-(--muted-foreground) transition-transform duration-150 {briefOpen
-              ? 'rotate-90'
-              : ''}"
+ ? 'rotate-90'
+ : ''}"
           />
         </span>
         <span class="min-w-0 flex-1">
           <span
-            class="mb-1 block text-[0.59375rem] font-medium tracking-[0.12em] text-(--muted-foreground) uppercase opacity-70"
+            class="mb-1 block text-xs font-medium text-(--muted-foreground) uppercase opacity-70"
             >Dispatch brief · from you</span
           >
           <!-- The title is the brief's own first line, so it is a stand-in for
@@ -92,7 +92,7 @@
           {/if}
           {#if meta.length > 0}
             <span
-              class="mt-[0.1875rem] flex items-center gap-[0.4375rem] text-[0.71875rem] text-(--muted-foreground)"
+              class="mt-[0.1875rem] flex items-center gap-[0.4375rem] text-xs text-(--muted-foreground)"
             >
               {#each meta as clause, i (clause)}
                 {#if i > 0}<span class="opacity-35" aria-hidden="true">·</span>{/if}
@@ -102,9 +102,9 @@
           {/if}
         </span>
         <span
-          class="flex shrink-0 items-center gap-1.5 rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] py-0.5 pr-2 pl-1.5 text-[0.65625rem] font-medium text-(--muted-foreground) {briefOpen
-            ? ''
-            : 'mt-[0.875rem]'}"
+          class="flex shrink-0 items-center gap-1.5 rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] py-0.5 pr-2 pl-1.5 text-xs font-medium text-(--muted-foreground) {briefOpen
+ ? ''
+ : 'mt-[0.875rem]'}"
         >
           <LockIcon size={9} aria-hidden="true" />
           {writesClause(message)}
@@ -167,24 +167,24 @@
         <!-- The numeral clears the rule by matching the body cell's own offset,
              plus enough to sit on the kicker's baseline rather than above it. -->
         <div
-          class="font-mono text-[0.65625rem] tabular-nums text-(--muted-foreground) opacity-50 {section.n ===
-          1
-            ? 'pt-5'
-            : 'pt-7'}"
+          class="font-mono text-xs tabular-nums text-(--muted-foreground) opacity-50 {section.n ===
+ 1
+ ? 'pt-5'
+ : 'pt-7'}"
         >
           {String(section.n).padStart(2, "0")}
         </div>
         <div
           class="min-w-0 border-t border-[color-mix(in_oklch,var(--foreground)_8%,transparent)] {section.n ===
-          1
-            ? 'pt-4'
-            : 'mt-2 pt-6'}"
+ 1
+ ? 'pt-4'
+ : 'mt-2 pt-6'}"
         >
           <!-- The kicker stays a kicker, but on the secondary step rather than
                the tertiary one: at this size a label the reader scans for can't
                also be the faintest thing on the tab. -->
           <div
-            class="mb-1.5 text-[0.59375rem] font-medium tracking-[0.12em] text-(--solus-text-secondary) uppercase"
+            class="mb-1.5 text-xs font-medium text-(--solus-text-secondary) uppercase"
           >
             {section.heading}
           </div>

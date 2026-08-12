@@ -15,7 +15,7 @@
        a fill, it only travels: a 10% accent highlight sweeping the bones plus a
        2px indeterminate hairline along the bottom edge. -->
   <div
-    class="work-skeleton mx-auto flex w-[88%] flex-col overflow-hidden rounded-xl"
+    class="work-skeleton mx-auto flex w-[88%] flex-col overflow-hidden rounded-2xl"
     role="status"
     aria-label="Generating {kicker.toLowerCase()}"
   >
@@ -46,16 +46,16 @@
   }
 
   .work-skeleton__kicker {
-    font-size: 0.59375rem;
+    font-size: 0.75rem;
     font-weight: 500;
-    letter-spacing: 0.12em;
+
     text-transform: uppercase;
     color: var(--muted-foreground);
     opacity: 0.7;
   }
 
   .work-skeleton__status {
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     animation: work-sk-breathe 2.6s ease-in-out infinite;
   }

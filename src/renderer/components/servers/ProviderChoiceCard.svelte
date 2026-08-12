@@ -14,7 +14,7 @@
 </script>
 
 <div
-  class="mt-3.5 overflow-hidden rounded-xl border border-(--solus-container-border) bg-card shadow-[0_0.0625rem_0.125rem_rgba(0,0,0,0.04)]"
+  class="mt-3.5 overflow-hidden rounded-2xl border border-(--solus-container-border) bg-card shadow-[0_0.0625rem_0.125rem_rgba(0,0,0,0.04)]"
   role="list"
   aria-label={label}
 >
@@ -28,12 +28,12 @@
       <ProviderLogo provider={row.id} />
       <span class="flex min-w-0 flex-1 flex-col">
         <span
-          class="truncate text-[0.78125rem] font-medium leading-[1.3] text-(--solus-text-primary)"
+          class="truncate text-[0.8125rem] font-medium leading-[1.3] text-(--solus-text-primary)"
         >
           {row.label}
         </span>
         <span
-          class="truncate text-[0.65625rem] leading-[1.35] text-(--solus-text-tertiary)"
+          class="truncate text-xs leading-[1.35] text-(--solus-text-tertiary)"
           style="font-family: 'Geist Mono', ui-monospace, monospace"
         >
           {row.detail}
@@ -47,7 +47,7 @@
           <Button
             variant="ghost"
             size="sm"
-            class="h-[1.625rem] shrink-0 px-[0.5rem] text-[0.71875rem] text-[color:var(--solus-text-tertiary)]"
+            class="h-[1.625rem] shrink-0 px-[0.5rem] text-xs text-[color:var(--solus-text-tertiary)]"
             aria-label="{row.secondary.label} to {row.label}"
             onclick={row.secondary.run}
           >
@@ -63,7 +63,7 @@
         <Button
           variant="outline"
           size="sm"
-          class="h-[1.625rem] shrink-0 px-[0.6875rem] text-[0.71875rem]"
+          class="h-[1.625rem] shrink-0 px-[0.6875rem] text-xs"
           disabled={row.disabled}
           onclick={row.run}
         >

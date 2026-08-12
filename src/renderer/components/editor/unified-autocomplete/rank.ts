@@ -28,6 +28,13 @@ export interface Ranked<T> {
   parts: TitlePart[];
 }
 
+/** Keep source titles searchable as written, but never let embedded line breaks
+ *  or tabs make a fixed-height menu row spill into its neighbours. Replacing
+ *  one character with one space also keeps highlight ranges aligned. */
+function singleLine(text: string): string {
+  return text.replace(/[\r\n\t]/g, " ");
+}
+
 const WORD_BOUNDARY = /[\s_\-/.:#(]/;
 
 export function fuzzy(text: string, query: string): Match | null {
@@ -64,15 +71,17 @@ export function highlightParts(
   text: string,
   ranges: readonly [number, number][],
 ): TitlePart[] {
-  if (ranges.length === 0) return [{ text, hit: false }];
+  if (ranges.length === 0) return [{ text: singleLine(text), hit: false }];
   const parts: TitlePart[] = [];
   let at = 0;
   for (const [from, to] of ranges) {
-    if (from > at) parts.push({ text: text.slice(at, from), hit: false });
-    parts.push({ text: text.slice(from, to), hit: true });
+    if (from > at)
+      parts.push({ text: singleLine(text.slice(at, from)), hit: false });
+    parts.push({ text: singleLine(text.slice(from, to)), hit: true });
     at = to;
   }
-  if (at < text.length) parts.push({ text: text.slice(at), hit: false });
+  if (at < text.length)
+    parts.push({ text: singleLine(text.slice(at)), hit: false });
   return parts;
 }
 

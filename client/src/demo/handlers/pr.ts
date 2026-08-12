@@ -33,6 +33,36 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
   })
   backend.register('prListCommits', () => store.prOverview().commits)
   backend.register('prListReviewers', () => store.prOverview().reviewers)
+  backend.register('prListReviewerCandidates', () => [
+    { login: 'marisol' },
+    { login: 'niko' },
+    { login: 'rowan' },
+  ])
+  backend.register('prRequestReviewers', (args) => {
+    const reviewers = store.prOverview().reviewers
+    for (const login of args[2] as string[]) {
+      if (!reviewers.some((reviewer) => reviewer.login === login)) reviewers.push({ login, state: null })
+    }
+    return reviewers
+  })
+  backend.register('prRemoveRequestedReviewer', (args) => {
+    const login = args[2] as string
+    const reviewers = store.prOverview().reviewers
+    const index = reviewers.findIndex((reviewer) => reviewer.login === login && reviewer.state === null)
+    if (index >= 0) reviewers.splice(index, 1)
+    return reviewers
+  })
+  backend.register('prUpdateLifecycle', (args) => {
+    const ctx = args[0] as IpcContext
+    const action = args[2] as 'close' | 'reopen' | 'ready' | 'draft'
+    const detail = store.prOverview().detail
+    if (action === 'close') detail.state = 'closed'
+    if (action === 'reopen') detail.state = 'open'
+    if (action === 'ready') detail.draft = false
+    if (action === 'draft') detail.draft = true
+    backend.broadcast('pr.lifecycleChanged', { projectRoot: projectCwd(ctx), detail })
+    return detail
+  })
   backend.register('prChangedFiles', () => store.prChangedFiles())
   backend.register('prListThreads', () => store.prThreads())
   backend.register('prReplyThread', (args) => {
@@ -60,7 +90,26 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
   backend.register('readGuide', () => store.prGuide())
   backend.register('getReviewContext', (args) => store.reviewContext(args[0] as IpcContext))
   backend.register('prOpenReview', (args) => store.prReviewContext(args[1] as number))
-  backend.register('prMerge', () => ({ merged: true }))
+  backend.register('prGetDiff', (args) => ({
+    patch: store.diff(args[0] as IpcContext, { scope: { kind: 'pr', baseSha: store.prOverview().detail.baseSha } }).patch,
+    truncated: false,
+    nextCursor: null,
+  }))
+  backend.register('prGetDiffFileContents', () => ({ oldContents: '', newContents: '' }))
+  backend.register('prPrepareCheckout', (args) => {
+    const review = store.prReviewContext((args[1] as { number: number }).number)
+    return {
+      worktreePath: review.worktreePath,
+      branch: review.branch,
+      baseSha: review.baseSha,
+      headSha: review.headSha,
+    }
+  })
+  backend.register('prMerge', () => {
+    const detail = store.prOverview().detail
+    detail.state = 'merged'
+    return { merged: true, detail }
+  })
   backend.register('prPrepareConflictResolution', (args) => ({
     success: true,
     review: store.prReviewContext(args[1] as number),

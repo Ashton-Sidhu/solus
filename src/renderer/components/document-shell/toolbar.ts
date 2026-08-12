@@ -1,10 +1,10 @@
-import type { Editor } from "@tiptap/core";
+import type { Attributes, Editor } from "@tiptap/core";
 
 export function isActive(
   editor: Editor | null,
   _stateVersion: number,
   name: string,
-  attrs?: Record<string, unknown>,
+  attrs?: Attributes,
 ): boolean {
   if (!editor) return false;
   return editor.isActive(name, attrs);

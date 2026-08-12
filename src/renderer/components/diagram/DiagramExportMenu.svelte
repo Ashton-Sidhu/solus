@@ -1,6 +1,6 @@
 <script lang="ts">
   import { useSvelteFlow, getNodesBounds, getViewportForBounds } from '@xyflow/svelte'
-  import { toPng, toSvg } from 'html-to-image'
+  import { toPng, toSvg, type Options } from 'html-to-image'
   import { serializeDiagram } from '../../../shared/diagram-types'
   import { serializeMermaid } from '../../../shared/diagram-mermaid'
   import type { DiagramDoc } from '../../../shared/diagram-types'
@@ -33,7 +33,7 @@
   // viewport contains only nodes + edges, so minimap/controls/background chrome
   // is naturally excluded from the capture.
   async function renderViewport(
-    encode: (el: HTMLElement, opts: Record<string, unknown>) => Promise<string>,
+    encode: (el: HTMLElement, opts: Options) => Promise<string>,
     transparent = false,
   ): Promise<string | null> {
     const nodes = flow.getNodes()

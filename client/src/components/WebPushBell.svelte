@@ -44,14 +44,14 @@
     >
       <span class="flex w-5 shrink-0 items-center justify-center font-secondary text-(--solus-text-secondary)">
         {#if webPushState.busy}
-          <SpinnerIcon size={18} class="animate-spin" />
+          <SpinnerIcon size={14} class="animate-spin" />
         {:else if webPushState.subscribed}
-          <BellIcon size={18} weight="fill" />
+          <BellIcon size={14} weight="fill" />
         {:else}
-          <BellSlashIcon size={18} />
+          <BellSlashIcon size={14} />
         {/if}
       </span>
-      <span class="min-w-0 flex-1 truncate text-[0.9375rem] font-medium text-(--solus-text-primary)">
+      <span class="min-w-0 flex-1 truncate text-sm font-medium text-(--solus-text-primary)">
         Notifications
       </span>
       <span class="shrink-0 text-[0.8125rem] text-(--solus-text-tertiary)">
@@ -72,11 +72,11 @@
       aria-pressed={webPushState.subscribed}
     >
       {#if webPushState.busy}
-        <SpinnerIcon size={13} class="animate-spin" />
+        <SpinnerIcon size={14} class="animate-spin" />
       {:else if webPushState.subscribed}
-        <BellIcon size={13} weight="fill" />
+        <BellIcon size={14} weight="fill" />
       {:else}
-        <BellSlashIcon size={13} />
+        <BellSlashIcon size={14} />
       {/if}
     </button>
         {/snippet}

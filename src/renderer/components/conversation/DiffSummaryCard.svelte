@@ -112,7 +112,7 @@
 {#if tree.total > 0}
   <div
     bind:this={cardEl}
-    class="diff-summary px-[0.8125rem] py-[0.6875rem] {embedded ? 'diff-summary-embedded' : 'rounded-xl'}"
+    class="diff-summary px-[0.8125rem] py-[0.6875rem] {embedded ? 'diff-summary-embedded' : 'rounded-2xl'}"
     data-testid="diff-summary"
   >
     <div class="flex items-center gap-2">
@@ -129,7 +129,7 @@
             ? 'rotate-90'
             : ''}"
         />
-        <span class="truncate text-[0.71875rem] text-(--muted-foreground)">
+        <span class="truncate text-xs text-(--muted-foreground)">
           {tree.total} file{tree.total === 1 ? "" : "s"} changed
           {#if tree.folderCount > 1}<span class="opacity-55">in {tree.folderCount} folders</span>{/if}
         </span>
@@ -169,7 +169,7 @@
                 <path d={FOLDER_ICON_PATH} />
               </svg>
               <span class="diff-path font-mono truncate">{row.node.label}</span>
-              <span class="shrink-0 font-mono text-[0.65625rem] text-(--muted-foreground) opacity-55">
+              <span class="shrink-0 font-mono text-xs text-(--muted-foreground) opacity-55">
                 {row.node.fileCount}
               </span>
               <span class="flex-1"></span>
@@ -228,11 +228,11 @@
               <!-- Stands in for the disclosure and icon columns, so the text
                    starts on the same axis as the filenames it stands for. -->
               <span class="diff-label-offset shrink-0"></span>
-              <span class="font-mono text-[0.6875rem] text-(--muted-foreground) opacity-55">
+              <span class="font-mono text-xs text-(--muted-foreground) opacity-55">
                 {row.hidden} more in this folder
               </span>
               <span class="flex-1"></span>
-              <span class="text-[0.6875rem] font-medium">Show</span>
+              <span class="text-xs font-medium">Show</span>
             </button>
           {/if}
         {/each}
@@ -312,7 +312,7 @@
   /* Exactly the caret's width, because it stands in the caret's column. */
   .diff-status {
     width: 0.5625rem;
-    font-size: 0.625rem;
+    font-size: 0.75rem;
   }
 
   /* Disclosure column + gap + icon column: what a row with neither has to skip
@@ -343,7 +343,7 @@
   .diff-add,
   .diff-del {
     flex-shrink: 0;
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
   }
   .diff-add {
@@ -378,7 +378,7 @@
     background: transparent;
     padding: 0;
     color: var(--solus-text-primary);
-    font-size: 0.71875rem;
+    font-size: 0.75rem;
     font-weight: 500;
     cursor: pointer;
   }

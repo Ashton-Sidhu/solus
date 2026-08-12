@@ -495,6 +495,44 @@ INSERT INTO pinned_sessions(session_id, server_id, provider, title, cwd, pinned_
   FROM pinned_sessions_unscoped;
 DROP TABLE pinned_sessions_unscoped;
 `,
+  // Durable task-sidebar presentation state. Snooze preserves the task's
+  // workflow status; reminders can be projected into a linked session when
+  // the wake time passes.
+  `
+ALTER TABLE tasks ADD COLUMN snoozed_until INTEGER;
+ALTER TABLE tasks ADD COLUMN snoozed_at INTEGER;
+ALTER TABLE tasks ADD COLUMN snooze_note TEXT;
+ALTER TABLE tasks ADD COLUMN last_read_at INTEGER;
+CREATE INDEX tasks_by_snooze ON tasks(snoozed_until) WHERE snoozed_until IS NOT NULL;
+`,
+  // Native tasks own their state. An external ticket is an optional sync edge,
+  // separate from the generic task_links table that points at workspace
+  // artifacts. Dirty fields are coalesced because SQLite and the main process
+  // are the durable queue; there is no second outbox to reconcile.
+  `
+CREATE TABLE task_external_links (
+  task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  external_key TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  url TEXT NOT NULL,
+  external_updated_at TEXT,
+  snapshot TEXT,
+  dirty_fields TEXT NOT NULL DEFAULT '[]',
+  sync_state TEXT NOT NULL DEFAULT 'ok',
+  sync_error TEXT,
+  last_synced_at INTEGER,
+  retry_at INTEGER,
+  failure_count INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX task_external_links_external
+  ON task_external_links(provider, external_key, external_id);
+
+ALTER TABLE task_comments ADD COLUMN dirty INTEGER NOT NULL DEFAULT 0;
+CREATE UNIQUE INDEX task_comments_external
+  ON task_comments(task_id, external_id)
+  WHERE external_id IS NOT NULL;
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

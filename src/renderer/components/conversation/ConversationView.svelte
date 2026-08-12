@@ -8,6 +8,7 @@
     GitForkIcon,
     PlusCircleIcon,
     TreeStructureIcon,
+    BellRingingIcon,
   } from "phosphor-svelte";
   import { computeCurrentActivity } from "../../contexts/workspace/session.utils";
   import {
@@ -73,6 +74,7 @@
   import ConversationSkeleton from "./ConversationSkeleton.svelte";
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
   import NewTabHome from "../layout/NewTabHome.svelte";
+  import { isHomeVisible } from "../layout/lib/workspace-body";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
@@ -123,6 +125,9 @@
 
   const tab = $derived(session.tabs[tabId]);
   const sess = $derived(session.sessionFor(tabId));
+  const snoozeReminder = $derived(
+    session.tasksStore.snoozeReminderForSession(sess?.agentSessionId),
+  );
   setMarkdownImageContext({
     cwd: () => sess?.run.workingDirectory,
     serverId: () => sess?.run.serverId,
@@ -948,7 +953,7 @@
         <DesktopTowerIcon size={13} />
       {/snippet}
       {remoteStatus === "connecting" ? "Reconnecting to" : "Can’t reach"}
-      <span class="font-mono text-[0.75rem]"
+      <span class="font-mono text-xs"
         >{remoteServer?.label ?? "remote host"}</span
       >
       {#snippet actions()}
@@ -975,7 +980,7 @@
 
 {#if tab && sess && sess.loadingHistory}
   <ConversationSkeleton />
-{:else if tab && sess && sess.messages.length === 0 && !sess.statusCard}
+{:else if tab && sess && isHomeVisible(sess, !!snoozeReminder)}
   <NewTabHome {tab} />
 {:else if tab && sess}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -1037,7 +1042,7 @@
           {/if}
           {#if expandingHistory}
             <div
-              class="flex justify-center py-2 text-[0.6875rem] text-(--solus-text-tertiary)"
+              class="flex justify-center py-2 text-xs text-(--solus-text-tertiary)"
             >
               Loading earlier messages…
             </div>
@@ -1162,6 +1167,20 @@
                   />
                 {/if}
               {/each}
+              {#if snoozeReminder}
+                <TranscriptDivider
+                  glyphClass="text-(--solus-accent)"
+                  titleClass="text-(--solus-accent)"
+                  timestamp={snoozeReminder.wokeAt}
+                  testid="snooze-reminder-divider"
+                  emphasized
+                  skipMotion
+                >
+                  {#snippet glyph()}<BellRingingIcon size={14} />{/snippet}
+                  Snooze reminder
+                  {#snippet title()}{snoozeReminder.detail}{/snippet}
+                </TranscriptDivider>
+              {/if}
             </div>
           {/if}
 
@@ -1415,7 +1434,7 @@
         >
           <div
             bind:clientWidth={activityReservedWidth}
-            class="flex items-center gap-1.5 text-[0.6875rem] pointer-events-auto"
+            class="flex items-center gap-1.5 text-xs pointer-events-auto"
             class:pl-4={isEditorMode}
             class:pr-2={isEditorMode}
           >

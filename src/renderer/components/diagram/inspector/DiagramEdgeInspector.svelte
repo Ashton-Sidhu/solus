@@ -240,7 +240,7 @@
 
   .edge-title__end {
     font-size: 0.875rem;
-    font-weight: 600;
+    font-weight: 500;
     line-height: 1.3;
     color: var(--solus-text-primary);
     overflow: hidden;

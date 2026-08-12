@@ -4,7 +4,7 @@ import { issueSessionToken, resetAuthStateForTests, revokeDevice, verifySessionT
 import { SolusServer } from '../../src/main/server/server'
 import { ClientEventRegistry } from '../../src/main/events/client-event-registry'
 import { HostEventPublisher } from '../../src/main/events/host-event-publisher'
-import { attachWebSocketTransport } from '../../src/main/transports/websocket'
+import { attachWebSocketTransport, FRAME_COMPRESSION_OPTIONS, isLoopbackAddress } from '../../src/main/transports/websocket'
 import { WsTransport, type ConnectionStatus } from '../../src/client-core/ws-transport'
 
 interface Harness {
@@ -23,6 +23,27 @@ afterEach(() => {
 })
 
 describe('Socket.IO transport', () => {
+  test('does not negotiate frame compression for a loopback client', async () => {
+    const harness = await createHarness(false)
+    const client = createClient(harness.url)
+    client.start()
+    await waitForStatus(client, 'connected')
+
+    expect(hasServerFrameCompression(harness)).toBe(false)
+  })
+
+  test('enables frame compression above the remote payload threshold', () => {
+    expect(FRAME_COMPRESSION_OPTIONS).toEqual({ threshold: 1024 })
+    expect(isLoopbackAddress('10.10.1.219')).toBe(false)
+  })
+
+  test('recognizes IPv4, mapped IPv4, and IPv6 loopback addresses', () => {
+    expect(isLoopbackAddress('127.0.0.1')).toBe(true)
+    expect(isLoopbackAddress('::ffff:127.0.0.1')).toBe(true)
+    expect(isLoopbackAddress('::1')).toBe(true)
+    expect(isLoopbackAddress('192.168.1.10')).toBe(false)
+  })
+
   test('requeues an unanswered RPC across reconnect and runs its handler once', async () => {
     const harness = await createHarness(false)
     let calls = 0
@@ -129,16 +150,16 @@ describe('Socket.IO transport', () => {
   })
 })
 
-async function createHarness(requireAuth: boolean): Promise<Harness> {
+async function createHarness(requireAuth: boolean, bindHost = '127.0.0.1', urlHost = bindHost): Promise<Harness> {
   const http = createServer()
   const server = new SolusServer()
   const clientEvents = new ClientEventRegistry()
   const events = new HostEventPublisher(clientEvents)
   const transport = attachWebSocketTransport(http, server, { clientEvents, requireAuth })
-  await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve))
+  await new Promise<void>((resolve) => http.listen(0, bindHost, resolve))
   const address = http.address()
   if (!address || typeof address === 'string') throw new Error('expected TCP address')
-  const harness = { server, http, events, transport, url: `http://127.0.0.1:${address.port}` }
+  const harness = { server, http, events, transport, url: `http://${urlHost}:${address.port}` }
   cleanups.push(() => transport.close())
   return harness
 }
@@ -162,6 +183,16 @@ function closeClientEngine(client: WsTransport, discardRecovery = false): void {
 function getClientInstanceId(client: WsTransport): string {
   return (client as unknown as { clientInstanceId: string }).clientInstanceId
 }
+
+function hasServerFrameCompression(harness: Harness): boolean {
+  const session = [...harness.transport.sessions.values()][0]
+  const raw = (session.socket.conn.transport as unknown as {
+    socket?: { extensions?: unknown; _extensions?: { 'permessage-deflate'?: unknown } }
+  }).socket
+  if (typeof raw?.extensions === 'string') return raw.extensions.includes('permessage-deflate')
+  return !!raw?._extensions?.['permessage-deflate']
+}
+
 
 function waitForStatus(client: WsTransport, expected: ConnectionStatus): Promise<void> {
   return waitFor(() => (client as unknown as { status: ConnectionStatus }).status === expected)

@@ -46,6 +46,26 @@ describe('providerUsage', () => {
     expect(row.meters[0].resetText).toBe('3h 30m')
   })
 
+  test('counts down from a remote Claude weekday in UTC', () => {
+    const wednesdayNoon = Date.UTC(2025, 6, 30, 12, 0, 0, 0)
+    const claude = limits('claude-code', {
+      fiveHour: { usedPercent: 43, resetsAt: null, resetsLabel: 'Wednesday at 3:30pm (UTC)' },
+      weekly: { usedPercent: 48, resetsAt: null, resetsLabel: 'Monday at 10am (UTC)' },
+    })
+    const [row] = providerUsage([agent('claude-code')], { 'claude-code': claude }, wednesdayNoon)
+    expect(row.meters.map((meter) => meter.resetText)).toEqual(['3h 30m', '4d 22h'])
+  })
+
+  test('counts down from the comma-separated UTC date returned by a remote host', () => {
+    const sixUtc = Date.UTC(2026, 7, 12, 6, 0, 0, 0)
+    const claude = limits('claude-code', {
+      fiveHour: { usedPercent: 20, resetsAt: null, resetsLabel: 'Aug 12, 9:40am (UTC)' },
+      weekly: { usedPercent: 49, resetsAt: null, resetsLabel: 'Aug 13, 9pm (UTC)' },
+    })
+    const [row] = providerUsage([agent('claude-code')], { 'claude-code': claude }, sixUtc)
+    expect(row.meters.map((meter) => meter.resetText)).toEqual(['3h 40m', '1d 15h'])
+  })
+
   test('falls back to the provider wording when the label is unreadable', () => {
     const claude = limits('claude-code', {
       fiveHour: { usedPercent: 10, resetsAt: null, resetsLabel: 'soon-ish' },

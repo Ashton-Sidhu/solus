@@ -58,7 +58,10 @@ export interface RunTarget {
 
 export function runTarget(input: RunTargetInput): RunTarget {
   const { run, hostLabel, taskHostLabel, stayLabel, hostIsLocal, isolated, canBranchWorktree } = input
-  const dispatched = isDispatch(run)
+  // A picker choice is already the next run target even though the host move
+  // waits for Send. Render that pending dispatch with the same worktree and task
+  // ownership semantics as a dispatch that has finished preparation.
+  const dispatched = run.pendingHostDispatch?.intent === 'dispatch' || isDispatch(run)
   const onOwnRemoteHost = !dispatched && !hostIsLocal
 
   const kind: RunTargetKind = dispatched

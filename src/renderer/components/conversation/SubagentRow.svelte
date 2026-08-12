@@ -134,7 +134,7 @@
      truncates — the activity beside it gives way instead. */
   .subagent-row__name {
     flex-shrink: 0;
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     font-weight: 500;
     color: var(--solus-text-primary);
   }
@@ -156,7 +156,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     opacity: 0.7;
   }
@@ -165,7 +165,7 @@
      reads what the agent is doing before what it was dispatched with. */
   .subagent-row__meta {
     flex-shrink: 0;
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     opacity: 0.5;
     white-space: nowrap;
@@ -173,7 +173,7 @@
 
   .subagent-row__rail {
     flex-shrink: 0;
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     opacity: 0.55;
     font-variant-numeric: tabular-nums;
@@ -211,7 +211,7 @@
   .subagent-row__spinner {
     width: 0.75rem;
     height: 0.75rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     border: 0.09375rem solid color-mix(in oklch, var(--foreground) 14%, transparent);
     border-top-color: var(--muted-foreground);
     animation: subagent-spin 0.8s linear infinite;

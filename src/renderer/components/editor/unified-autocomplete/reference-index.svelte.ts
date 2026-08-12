@@ -141,7 +141,13 @@ export class ReferenceIndex {
       ? this.deps.session.sessionFor(tabId)?.agentSessionId
       : undefined
     return this.#sessionCandidates
-      .filter((session) => session.sessionId !== currentSessionId)
+      // An incomplete provider record cannot be targeted and would render as a
+      // blank row because its short-id fallback is blank too.
+      .filter(
+        (session) =>
+          session.sessionId.trim().length > 0 &&
+          session.sessionId !== currentSessionId,
+      )
       .slice(0, PER_KIND_LIMIT)
       .map((session) => ({
         id: `session:${session.sessionId}`,

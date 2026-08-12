@@ -1,19 +1,28 @@
 import { writeFile } from 'fs/promises'
 import type { ControlPlane } from '../../control-plane'
 import { gitCheckoutFromState, type IpcContext, type DiffFileContentsRequest, type DiffRequest, type GitCheckoutBranchResult, type GitStateOptions } from '../../../shared/types'
-import { createPR, commitAndPushChanges, commitChanges, discardChanges, syncWithOrigin, listBranches, listProjectWorktrees, getWorkingBranch, getDefaultBranch, restoreWorktree, createWorktree, buildBranchNamePrompt, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT } from '../../git/worktree-manager'
+import { createPR, commitAndPushChanges, commitChanges, discardChanges, syncWithOrigin, listBranches, listProjectWorktrees, getWorkingBranch, getDefaultBranch, restoreWorktree, createWorktree, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT } from '../../git/worktree-manager'
 import { runAsync } from '../../git/exec'
 import { computeGitIdentity, computeGitState, resolveRepoRoot } from '../../git/git-helpers'
 import { getDiff, getDiffFileContents, getDiffStats, listTurnSnapshots } from '../../git/session-snapshots'
 import { TextGenerator } from '../../agents/text-generator'
 import { createLogger } from '../../logger'
 import { Task } from '../../tasks/task'
-import type { SolusServer } from '../server'
+import { loadGitHubAccessToken } from '../../providers/github/git-credential'
+import { LOCAL_DEVICE_LABEL, type HandlerCtx, type SolusServer } from '../server'
 
 const log = createLogger('main', 'worktree-handlers')
 
 export interface WorktreeDeps {
   controlPlane: ControlPlane
+}
+
+/** A remote caller may use only its delegated credential, never the host owner's token. */
+export function githubTokenForWorktreeRequest(ctx: HandlerCtx): string | null {
+  if (ctx.deviceLabel === LOCAL_DEVICE_LABEL || (!ctx.clientId && !ctx.deviceId)) {
+    return loadGitHubAccessToken()
+  }
+  return ctx.deviceId ? loadGitHubAccessToken(ctx.deviceId) : null
 }
 
 async function resolveGitCheckout(ctx: IpcContext) {
@@ -44,8 +53,9 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   const { controlPlane } = deps
   const textGenerator = new TextGenerator(controlPlane)
 
-  /** Every path that writes a commit — commit, commit & push, open a PR —
-   *  generates its subject the same way, off the session's own provider/model. */
+  /** Explicit commit actions generate their subject from the session's own
+   * provider/model. Pull-request creation uses GitHub's commit-derived fill so
+   * that the user does not wait for text generation before the network work. */
   const commitMessageOptions = (ctx: IpcContext) => ({
     generateCommitMessage: async (cwd: string) => textGenerator.generate({
       provider: ctx.session.provider ?? ctx.settings.activeAgent,
@@ -105,22 +115,12 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     return await listTurnSnapshots(repoRoot, sid)
   })
 
-  server.register('worktreePR', async (args) => {
+  server.register('worktreePR', async (args, handlerCtx) => {
     const [ctx] = args as [IpcContext]
     log.info('rpc_worktree_pr', { sessionId: ctx.session.sessionId })
     if (!ctx.session.gitContext) return { success: false, error: 'No active git branch for this tab' }
-    const cwd = ctx.session.gitContext.worktreePath || ctx.session.workingDirectory
     const result = await createPR(ctx.session.gitContext, ctx.session.workingDirectory, {
-      ...commitMessageOptions(ctx),
-      generatePRText: (prompt) => textGenerator.generate({
-        provider: ctx.session.provider ?? ctx.settings.activeAgent,
-        model: ctx.statusBar.model,
-        cwd,
-        prompt,
-        disableReasoning: true,
-        maxTurns: 1,
-        timeoutMs: 30_000,
-      }),
+      githubToken: githubTokenForWorktreeRequest(handlerCtx),
     })
     const sessionId = ctx.session.agentSessionId
     const match = result.success ? result.url?.match(/\/pull\/(\d+)(?:[/?#]|$)/) : null
@@ -228,18 +228,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const repoRoot = await resolveRepoRoot(cwd)
     if (!repoRoot) return { success: false, error: 'Not a git repository' }
     try {
-      const branchModel = ctx.session.provider === 'codex' ? 'gpt-5.4-mini' : 'claude-haiku-4-5-20251001'
-      const gitContext = await createWorktree(repoRoot, namePrompt || '', ctx.session.gitContext?.targetBranch, {
-        generateName: (prompt) => textGenerator.generate({
-          provider: ctx.session.provider ?? ctx.settings.activeAgent,
-          cwd: repoRoot,
-          prompt: buildBranchNamePrompt(prompt),
-          model: branchModel,
-          reasoningEffort: 'none',
-          maxTurns: 1,
-          timeoutMs: 30_000,
-        }),
-      })
+      const gitContext = await createWorktree(repoRoot, namePrompt || '', ctx.session.gitContext?.targetBranch)
       controlPlane.setSessionGitEnvironment(ctx.session.sessionId, gitContext.worktreePath ?? cwd, gitContext)
       return { success: true, gitContext }
     } catch (err: any) {

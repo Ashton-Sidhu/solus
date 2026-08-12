@@ -65,10 +65,10 @@ export const STATUS_META: Record<
 > = {
   inbox: { label: 'Inbox', dotClass: 'border border-(--solus-text-tertiary)', token: '--idle', glyph: STATUS_GLYPHS.idle },
   todo: { label: 'To do', dotClass: 'border border-(--solus-text-tertiary)', token: '--idle', glyph: STATUS_GLYPHS.idle },
-  in_progress: { label: 'In progress', dotClass: 'bg-(--solus-accent)', token: '--running', glyph: STATUS_GLYPHS.clock },
-  in_review: { label: 'In review', dotClass: 'bg-[#8250df]', token: '--warning', glyph: STATUS_GLYPHS.eye },
-  done: { label: 'Done', dotClass: 'bg-(--solus-text-secondary)', token: '--success', glyph: STATUS_GLYPHS.check },
-  dropped: { label: 'Dropped', dotClass: 'bg-(--solus-text-tertiary)', token: '--failure', glyph: STATUS_GLYPHS.slash },
+  in_progress: { label: 'In progress', dotClass: 'bg-(--running)', token: '--running', glyph: STATUS_GLYPHS.clock },
+  in_review: { label: 'In review', dotClass: 'bg-(--review)', token: '--review', glyph: STATUS_GLYPHS.eye },
+  done: { label: 'Done', dotClass: 'bg-(--success)', token: '--success', glyph: STATUS_GLYPHS.check },
+  dropped: { label: 'Dropped', dotClass: 'bg-(--idle)', token: '--idle', glyph: STATUS_GLYPHS.slash },
 }
 
 export function statusLabel(status: TaskStatus): string {

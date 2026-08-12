@@ -473,11 +473,11 @@
       <button
         onclick={() => (activeTool = activeTool === tool.id ? null : tool.id)}
         title="{tool.label} ({tool.key})"
-        style="position:relative;display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.625rem;border:none;cursor:pointer;transition:background 0.12s,color 0.12s;background:{activeTool === tool.id ? 'var(--solus-accent-soft)' : 'transparent'};color:{activeTool === tool.id ? 'var(--solus-accent)' : 'var(--solus-text-tertiary)'};"
+        style="position:relative;display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.5rem;border:none;cursor:pointer;transition:background 0.12s,color 0.12s;background:{activeTool === tool.id ? 'var(--solus-accent-soft)' : 'transparent'};color:{activeTool === tool.id ? 'var(--solus-accent)' : 'var(--solus-text-tertiary)'};"
       >
         <tool.icon size={16} />
         <span
-          style="position:absolute;bottom:0.1875rem;right:0.25rem;font-size:0.5rem;font-family:ui-monospace,monospace;font-weight:500;line-height:1;color:{activeTool === tool.id ? 'var(--solus-accent)' : 'var(--solus-text-tertiary)'};opacity:0.55">{tool.key}</span
+          style="position:absolute;bottom:0.1875rem;right:0.25rem;font-size:0.75rem;font-family:ui-monospace,monospace;font-weight:500;line-height:1;color:{activeTool === tool.id ? 'var(--solus-accent)' : 'var(--solus-text-tertiary)'};opacity:0.55">{tool.key}</span
         >
       </button>
     {/each}
@@ -490,11 +490,11 @@
       onclick={undo}
       disabled={undoStack.length === 0}
       title="Undo (U)"
-      style="position:relative;display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.625rem;border:none;cursor:{undoStack.length === 0 ? 'default' : 'pointer'};background:transparent;color:var(--solus-text-tertiary);opacity:{undoStack.length === 0 ? 0.55 : 1};"
+      style="position:relative;display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.5rem;border:none;cursor:{undoStack.length === 0 ? 'default' : 'pointer'};background:transparent;color:var(--solus-text-tertiary);opacity:{undoStack.length === 0 ? 0.55 : 1};"
     >
       <ArrowCounterClockwiseIcon size={16} />
       <span
-        style="position:absolute;bottom:0.1875rem;right:0.25rem;font-size:0.5rem;font-family:ui-monospace,monospace;font-weight:500;line-height:1;color:var(--solus-text-tertiary);opacity:0.55"
+        style="position:absolute;bottom:0.1875rem;right:0.25rem;font-size:0.75rem;font-family:ui-monospace,monospace;font-weight:500;line-height:1;color:var(--solus-text-tertiary);opacity:0.55"
         >U</span
       >
     </button>
@@ -503,11 +503,11 @@
       onclick={redo}
       disabled={redoStack.length === 0}
       title="Redo (R)"
-      style="position:relative;display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.625rem;border:none;cursor:{redoStack.length === 0 ? 'default' : 'pointer'};background:transparent;color:var(--solus-text-tertiary);opacity:{redoStack.length === 0 ? 0.55 : 1};"
+      style="position:relative;display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.5rem;border:none;cursor:{redoStack.length === 0 ? 'default' : 'pointer'};background:transparent;color:var(--solus-text-tertiary);opacity:{redoStack.length === 0 ? 0.55 : 1};"
     >
       <ArrowClockwiseIcon size={16} />
       <span
-        style="position:absolute;bottom:0.1875rem;right:0.25rem;font-size:0.5rem;font-family:ui-monospace,monospace;font-weight:500;line-height:1;color:var(--solus-text-tertiary);opacity:0.55"
+        style="position:absolute;bottom:0.1875rem;right:0.25rem;font-size:0.75rem;font-family:ui-monospace,monospace;font-weight:500;line-height:1;color:var(--solus-text-tertiary);opacity:0.55"
         >R</span
       >
     </button>
@@ -519,7 +519,7 @@
     {#if annotations.length > 0}
       <span
         class="text-(--solus-text-tertiary)"
-        style="font-size:0.6875rem;font-weight:600;font-family:-apple-system,sans-serif;padding:0.125rem 0"
+        style="font-size:0.75rem;font-weight: 500;font-family:-apple-system,sans-serif;padding:0.125rem 0"
         >{annotations.length}</span
       >
       <div
@@ -531,7 +531,7 @@
       onclick={handleConfirm}
       title="Add to chat (⌘↩)"
       class="bg-(--solus-send-bg) text-(--solus-text-on-accent)"
-      style="display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.625rem;border:none;cursor:pointer;"
+      style="display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.5rem;border:none;cursor:pointer;"
     >
       <CheckIcon size={16} />
     </button>
@@ -540,7 +540,7 @@
       onclick={onCancel}
       title="Cancel (Esc)"
       class="font-secondary text-(--solus-text-secondary)"
-      style="display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.625rem;border:none;cursor:pointer;background:transparent;"
+      style="display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.5rem;border:none;cursor:pointer;background:transparent;"
     >
       <XIcon size={16} />
     </button>
@@ -696,7 +696,7 @@
       bind:value={textInputValue}
       onpointerdown={(e) => e.stopPropagation()}
       class="h-auto focus-visible:ring-0"
-      style="position:fixed;left:{textInputPos.x}px;top:{textInputPos.y}px;background:var(--solus-container-bg);backdrop-filter:blur(1.25rem);-webkit-backdrop-filter:blur(1.25rem);color:var(--solus-text-primary);border:0.0625rem solid var(--solus-tool-border);border-left:0.1875rem solid var(--solus-accent);border-radius:0.5rem;padding:0.5rem 0.875rem 0.5rem 0.75rem;font-size:0.9375rem;outline:none;z-index:10001;min-width:28.125rem;box-shadow:var(--solus-container-shadow)"
+      style="position:fixed;left:{textInputPos.x}px;top:{textInputPos.y}px;background:var(--solus-container-bg);backdrop-filter:blur(1.25rem);-webkit-backdrop-filter:blur(1.25rem);color:var(--solus-text-primary);border:0.0625rem solid var(--solus-tool-border);border-left:0.1875rem solid var(--solus-accent);border-radius:0.5rem;padding:0.5rem 0.875rem 0.5rem 0.75rem;font-size:0.875rem;outline:none;z-index:10001;min-width:28.125rem;box-shadow:var(--solus-container-shadow)"
       placeholder="Type annotation…"
       onkeydown={(e) => {
         if (e.key === "Enter") {

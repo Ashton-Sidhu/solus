@@ -70,7 +70,7 @@
             <button {...tooltipProps}
         {...props}
         type="button"
-        class="flex h-[1.875rem] items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-[0.78125rem] text-(--solus-text-secondary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) {open ? 'bg-(--solus-surface-hover)' : ''}"
+        class="flex h-[1.875rem] items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-[0.8125rem] text-(--solus-text-secondary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) {open ? 'bg-(--solus-surface-hover)' : ''}"
         style="cursor:{supportsPermissions ? 'pointer' : 'not-allowed'};opacity:{supportsPermissions ? 1 : 0.5}"
       >
         {#if isPlan}<PencilIcon size={12} weight="fill" class="text-(--solus-accent)" />{:else}<ShieldCheckIcon size={12} weight={isAuto ? 'fill' : 'regular'} class="text-(--solus-accent)" />{/if}
@@ -89,7 +89,7 @@
         {@const Icon = opt.icon}
         {@const isChecked = permissionMode === opt.id}
         <DropdownMenu.RadioItem value={opt.id} class="gap-2.5 pl-1.5" onSelect={() => selectPermissionMode(opt.id as 'ask' | 'auto' | 'plan')}>
-          <span class="flex size-6 shrink-0 items-center justify-center rounded-[7px] transition-colors {isChecked ? 'bg-[color-mix(in_srgb,var(--solus-accent)_16%,transparent)] text-(--solus-accent)' : 'bg-(--solus-surface-hover)'}">
+          <span class="flex size-6 shrink-0 items-center justify-center rounded-lg transition-colors {isChecked ? 'bg-[color-mix(in_srgb,var(--solus-accent)_16%,transparent)] text-(--solus-accent)' : 'bg-(--solus-surface-hover)'}">
             <Icon size={13} weight={opt.weight} class="size-3.5" />
           </span>
           <span>{opt.label}</span>

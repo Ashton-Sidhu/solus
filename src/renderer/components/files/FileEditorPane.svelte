@@ -131,7 +131,7 @@
       <Icon icon={headerIcon} width="14" height="14" class="shrink-0" />
     {:else}
       <span
-        class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 font-mono text-[0.625rem] font-semibold text-(--solus-text-tertiary)"
+        class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 font-mono text-xs font-medium text-(--solus-text-tertiary)"
       >
         {ext(headerPath)}
       </span>
@@ -144,7 +144,7 @@
       <span class="text-(--solus-text-primary)">{fileName(headerPath)}</span>
     </div>
     {#if statusLabel}
-      <div class="flex shrink-0 items-center gap-1 text-[0.625rem] font-medium {statusClass}" role="status">
+      <div class="flex shrink-0 items-center gap-1 text-xs font-medium {statusClass}" role="status">
         {#if isReadOnly}
           <LockSimpleIcon size={11} class="shrink-0" />
         {:else}
@@ -156,7 +156,7 @@
     {#if saveState === "conflict"}
       <button
         type="button"
-        class="shrink-0 rounded-md px-2 py-1 text-[0.6875rem] font-medium text-(--solus-text-primary) ring-1 ring-(--solus-container-border) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
+        class="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-primary) ring-1 ring-(--solus-container-border) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
         onclick={() => void loadFile(file.path)}
       >
         Reload
@@ -170,7 +170,7 @@
       <span class="sr-only">Opening file...</span>
     </div>
   {:else if fileError}
-    <div class="flex flex-1 items-center justify-center gap-2 p-6 text-center text-[0.75rem] text-(--solus-status-error)">
+    <div class="flex flex-1 items-center justify-center gap-2 p-6 text-center text-xs text-(--solus-status-error)">
       <WarningCircleIcon size={14} weight="fill" class="shrink-0" />
       <span>{fileError}</span>
     </div>

@@ -288,7 +288,7 @@
     >
       {#if artifactError}
         <div
-          class="flex min-h-28 items-center justify-center rounded-xl border border-(--solus-status-error)/20 bg-(--solus-status-error)/5 px-5 text-center text-[0.8125rem] text-(--solus-text-secondary)"
+          class="flex min-h-28 items-center justify-center rounded-2xl border border-(--solus-status-error)/20 bg-(--solus-status-error)/5 px-5 text-center text-[0.8125rem] text-(--solus-text-secondary)"
           role="alert"
           data-testid="artifact-error"
         >
@@ -382,7 +382,7 @@
     position: relative;
     min-width: 0;
     max-width: 100%;
-    border-radius: 0.75rem;
+    border-radius: 1rem;
     overflow: hidden;
     /* No border, no fill: the frame itself is invisible. The injected Solus
        palette lets the artifact's own markup match the chat, so it reads as
@@ -524,7 +524,7 @@
     justify-content: center;
     width: 1.875rem;
     height: 1.875rem;
-    border-radius: 0.625rem;
+    border-radius: 0.5rem;
     border: 0.0625rem solid
       color-mix(in srgb, var(--solus-tool-border) 65%, transparent);
     background: color-mix(in srgb, var(--solus-container-bg) 70%, transparent);
@@ -643,7 +643,7 @@
        device, bounded so it never gets cramped on short windows or oversized on
        tall displays. */
     min-height: clamp(11rem, 24svh, 15rem);
-    border-radius: 0.75rem;
+    border-radius: 1rem;
     background: color-mix(in srgb, var(--solus-art-surface) 60%, transparent);
     border: 0.0625rem solid var(--solus-art-border);
   }
@@ -656,9 +656,9 @@
   }
 
   .artifact-skeleton__kicker {
-    font-size: 0.59375rem;
+    font-size: 0.75rem;
     font-weight: 500;
-    letter-spacing: 0.12em;
+
     text-transform: uppercase;
     color: var(--muted-foreground);
     opacity: 0.7;
@@ -666,7 +666,7 @@
 
   .artifact-skeleton__status {
     margin-left: auto;
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     animation: artifact-sk-breathe 2.6s ease-in-out infinite;
   }

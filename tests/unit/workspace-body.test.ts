@@ -9,24 +9,47 @@ import {
 import { hasSessionStarted } from '../../src/renderer/lib/sessionUtils'
 
 describe('restored conversation loading', () => {
-  test('stops showing a loading surface after an empty history load completes', () => {
-    // WHY: an indexed/provider session can legitimately return no transcript
-    // (deleted history, stale index, or a newly-created session). Once the
-    // explicit loading gate clears, agentSessionId alone must not spin forever.
+  test('never replaces a restored provider session with the new-session home', () => {
+    // WHY: an empty or failed history read must not turn the tab selected before
+    // reload into a composer. The provider id is durable proof that it started.
     expect(isHomeVisible({
       agentSessionId: 'provider-session',
+      handoffFrom: undefined,
       messages: [],
       statusCard: null,
       loadingHistory: false,
-    })).toBe(true)
+    })).toBe(false)
   })
 
   test('keeps the home hidden while restored history is actually loading', () => {
     expect(isHomeVisible({
       agentSessionId: 'provider-session',
+      handoffFrom: undefined,
       messages: [],
       statusCard: null,
       loadingHistory: true,
+    })).toBe(false)
+  })
+
+  test('keeps the conversation open when an empty session has a snooze reminder', () => {
+    // WHY: the reminder is transcript content. Treating this state as a fresh
+    // tab closes the Pill body and hides the only item the user needs to see.
+    expect(isHomeVisible({
+      agentSessionId: 'provider-session',
+      handoffFrom: undefined,
+      messages: [],
+      statusCard: null,
+      loadingHistory: false,
+    }, true)).toBe(false)
+  })
+
+  test('never replaces a restored handoff session with the new-session home', () => {
+    expect(isHomeVisible({
+      agentSessionId: null,
+      handoffFrom: { provider: 'claude', sessionId: 'previous-session' },
+      messages: [],
+      statusCard: null,
+      loadingHistory: false,
     })).toBe(false)
   })
 })

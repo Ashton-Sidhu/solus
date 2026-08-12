@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { TaskStatus } from "../../../shared/task-types";
+  import { STATUS_META } from "./lib/tasks-api";
 
   /** The board's status mark ("Tasks page" spec, board layout): one ring that
    *  fills clockwise as work advances — empty for Todo, half for In progress,
@@ -27,14 +28,11 @@
 
   // Mixed toward the foreground so the mark stays legible at 12px against both
   // the card and the column wash, in either theme.
-  const COLOR: Record<TaskStatus, string> = {
-    inbox: "var(--muted-foreground)",
-    todo: "var(--muted-foreground)",
-    in_progress: "color-mix(in oklch, var(--running) 70%, var(--foreground))",
-    in_review: "color-mix(in oklch, var(--chart-2) 74%, var(--foreground))",
-    done: "color-mix(in oklch, var(--chart-3) 68%, var(--foreground))",
-    dropped: "var(--muted-foreground)",
-  };
+  const color = $derived(
+    status === "inbox" || status === "todo" || status === "dropped"
+      ? "var(--muted-foreground)"
+      : `color-mix(in oklch, var(${STATUS_META[status].token}) 70%, var(--foreground))`,
+  );
 </script>
 
 <svg
@@ -42,7 +40,7 @@
   height={size}
   viewBox="0 0 12 12"
   class="shrink-0"
-  style:color={COLOR[status]}
+  style:color={color}
   aria-hidden="true"
 >
   <circle cx="6" cy="6" r="4.3" fill="none" stroke="currentColor" stroke-width="1.3" opacity=".8" />

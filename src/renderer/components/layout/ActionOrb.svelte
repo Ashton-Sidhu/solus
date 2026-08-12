@@ -619,7 +619,7 @@
     <SparkleIcon size={13} weight="regular" />
     {#if orbBadge}
       <span
-        class="orb-badge orb-badge-{orbBadge.kind} absolute inline-flex items-center justify-center rounded-full font-bold leading-none tabular-nums"
+        class="orb-badge orb-badge-{orbBadge.kind} absolute inline-flex items-center justify-center rounded-full font-medium leading-none tabular-nums"
         aria-hidden="true"
       >
         {orbBadge.label}

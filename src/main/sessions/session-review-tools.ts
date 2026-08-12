@@ -176,9 +176,23 @@ export interface SessionReviewToolResult {
   text: string
 }
 
+interface SessionAnswerInput {
+  key?: unknown
+  choice?: unknown
+  comment?: unknown
+}
+
+interface SessionReviewToolArgs {
+  session_id?: unknown
+  answers?: SessionAnswerInput[]
+  decision?: unknown
+  comment?: unknown
+  revised_plan?: unknown
+}
+
 export async function executeSessionReviewTool(
   name: string,
-  args: Record<string, unknown>,
+  args: SessionReviewToolArgs,
   deps: SessionToolDeps = {},
 ): Promise<SessionReviewToolResult> {
   try {
@@ -191,7 +205,7 @@ export async function executeSessionReviewTool(
   }
 }
 
-async function answerSession(args: Record<string, unknown>, deps: SessionToolDeps): Promise<SessionReviewToolResult> {
+async function answerSession(args: SessionReviewToolArgs, deps: SessionToolDeps): Promise<SessionReviewToolResult> {
   const sessionId = String(args.session_id ?? '').trim()
   const resolved = await resolvePeer('answer_session', sessionId, deps)
   if (!resolved.ok) return resolved
@@ -203,7 +217,7 @@ async function answerSession(args: Record<string, unknown>, deps: SessionToolDep
     return { ok: false, text: `Session ${sessionLink(meta)} is waiting on plan approval, not a question. Use review_plan.` }
   }
 
-  const raw = Array.isArray(args.answers) ? (args.answers as Array<Record<string, unknown>>) : null
+  const raw = Array.isArray(args.answers) ? args.answers : null
   if (!raw) {
     const block = pending.questions.map((q, i) => {
       const options = q.options.length ? q.options.map((o) => `    - ${o}`).join('\n') : '    (free text — any answer)'
@@ -270,7 +284,7 @@ async function answerSession(args: Record<string, unknown>, deps: SessionToolDep
   return { ok: true, text: `Answered ${sessionLink(meta)}. It is continuing; its reply will arrive in this conversation.` }
 }
 
-async function reviewPlan(args: Record<string, unknown>, deps: SessionToolDeps): Promise<SessionReviewToolResult> {
+async function reviewPlan(args: SessionReviewToolArgs, deps: SessionToolDeps): Promise<SessionReviewToolResult> {
   const sessionId = String(args.session_id ?? '').trim()
   const resolved = await resolvePeer('review_plan', sessionId, deps)
   if (!resolved.ok) return resolved

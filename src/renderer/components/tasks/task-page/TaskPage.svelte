@@ -5,7 +5,11 @@
     TaskLinkInput,
     TaskUpdatePatch,
   } from "../../../../shared/task-types";
-  import { getWindowContext, getWorkspaceContext } from "../../../contexts";
+  import {
+    getProjectConfigStore,
+    getWindowContext,
+    getWorkspaceContext,
+  } from "../../../contexts";
   import { findOpenTabForSession } from "../../../lib/sessionUtils";
   import { toasts } from "../../../lib/toasts";
   import { localApi } from "@client-core/local-api";
@@ -21,7 +25,16 @@
   import type { RouteSurfaceProps } from "../../ui/lib/pane-surface";
   import { sortTasks } from "../lib/tasks-api";
   import { taskPageCapabilities } from "./lib/task-page";
+  import {
+    heldBackCommentIds,
+    taskPublishTarget,
+    taskUpstreamState,
+  } from "./lib/task-upstream";
+  import { taskPrRows } from "./lib/task-prs";
+  import { LinkedPrsStore } from "./lib/linked-prs.store.svelte";
+  import { linkedPrNavigationTarget } from "./lib/linked-pr-navigation";
   import TaskActivityFeed from "./TaskActivityFeed.svelte";
+  import TaskPrList from "./TaskPrList.svelte";
   import TaskChromeBar from "./TaskChromeBar.svelte";
   import TaskCommentComposer from "./TaskCommentComposer.svelte";
   import TaskHeader from "./TaskHeader.svelte";
@@ -35,6 +48,7 @@
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
   const store = session.tasksStore;
+  const projectConfig = getProjectConfigStore();
   const outbox = session.outboxStore;
   const pane = paneActions(paneId);
 
@@ -64,9 +78,80 @@
     projectCwd ? (projectCwd.split("/").pop() ?? projectCwd) : "Inbox",
   );
   const capabilities = $derived(task ? taskPageCapabilities(task) : null);
+  const upstream = $derived(
+    task
+      ? taskUpstreamState({
+          task,
+          externalLink: details?.externalLink,
+          comments: details?.comments ?? [],
+        })
+      : null,
+  );
+
+  // PR state is a provider round trip the host deliberately keeps off the task
+  // read, so the page overlays it here — from the shared PR caches, never from
+  // the PRs page's own list, which belongs to whichever project it is showing.
+  const linkedPrs = new LinkedPrsStore(session.prsStore);
+  const taskServerId = $derived(store.hostFor(taskId));
+  const prRows = $derived(
+    taskPrRows(links, (number) =>
+      linkedPrs.lifecycleFor(taskServerId, projectCwd, number),
+    ),
+  );
+  $effect(() => {
+    const serverId = taskServerId;
+    const root = projectCwd;
+    const numbers = prRows.map((row) => row.number);
+    if (!serverId || !root || !numbers.length) return;
+    linkedPrs.ensure(
+      {
+        api: serverConnections.apiFor(serverId),
+        serverId,
+        projectRoot: root,
+        ctx: session.ctxForDirectory(root),
+      },
+      numbers,
+    );
+  });
+
+  // Auto-post is a project decision, not a per-task one: it is the same choice
+  // for every ticket filed against this repo, and it already lives in the
+  // project config the Tasks page writes.
+  const configHost = $derived(
+    taskServerId
+      ? { serverId: taskServerId, api: serverConnections.apiFor(taskServerId) }
+      : null,
+  );
+  const autoPost = $derived(
+    upstream?.canSync && taskServerId && projectCwd
+      ? (projectConfig.configFor(taskServerId, projectCwd)?.tasksAutoPushComments ?? false)
+      : null,
+  );
+  const heldBack = $derived(
+    heldBackCommentIds(details?.comments ?? [], !!upstream?.canSync),
+  );
+  const providerStatus = $derived(store.providerStatus(projectCwd));
+  const publishTarget = $derived(
+    task ? taskPublishTarget({ task, upstream, status: providerStatus }) : null,
+  );
+
+  // Both reads answer "where could this task be filed, and what happens to a
+  // comment when it is": the page cannot draw its sync controls without them.
+  $effect(() => {
+    const host = configHost;
+    const cwd = projectCwd;
+    if (!host || !cwd) return;
+    if (projectConfig.configFor(host.serverId, cwd) === undefined) {
+      void projectConfig.load(host, cwd).catch(() => {});
+    }
+    if (!store.providerStatus(cwd)) {
+      void store.loadProviderStatus(cwd, { serverId: host.serverId }).catch(() => {});
+    }
+  });
 
   let picking = $state(false);
   let refreshing = $state(false);
+  let syncing = $state(false);
 
   // The route param is the request: whenever it names a task we haven't read the
   // detail of, fetch it. A $derived can't express "go do IO", so this is one of
@@ -123,14 +208,57 @@
     }
   }
 
-  async function comment(body: string) {
+  /** Exchange with the ticket now rather than on the engine's own debounce. */
+  async function syncNow() {
+    if (!taskId || syncing) return;
+    syncing = true;
+    try {
+      await store.syncNow(taskId);
+    } catch (err) {
+      toastError("sync with the provider", err);
+    } finally {
+      syncing = false;
+    }
+  }
+
+  async function comment(body: string, alsoPost: boolean) {
     if (!taskId) return;
     try {
-      await store.comment(taskId, body);
+      await store.comment(taskId, body, { pushToExternal: alsoPost });
     } catch (err) {
       toastError("post comment", err);
       throw err;
     }
+  }
+
+  async function publishComments(commentIds: string[]) {
+    if (!taskId || !commentIds.length) return;
+    try {
+      await store.publishComments(taskId, commentIds);
+    } catch (err) {
+      toastError("publish that comment", err);
+    }
+  }
+
+  /** File this task with the project's provider for the first time. */
+  async function publishTask() {
+    if (!taskId || !projectCwd || syncing) return;
+    syncing = true;
+    try {
+      await store.publishUpstream(taskId, projectCwd);
+    } catch (err) {
+      toastError("publish this task", err);
+    } finally {
+      syncing = false;
+    }
+  }
+
+  function setAutoPost(next: boolean) {
+    const host = configHost;
+    if (!host || !projectCwd) return;
+    void projectConfig
+      .save(host, projectCwd, { tasksAutoPushComments: next })
+      .catch((err) => toastError("save the auto-post setting", err));
   }
 
   function addLink(input: TaskLinkInput) {
@@ -167,10 +295,16 @@
       case "pr": {
         const number = Number(link.targetKey);
         if (Number.isFinite(number)) {
+          const target = linkedPrNavigationTarget({
+            taskServerId: store.hostFor(taskId),
+            taskProjectDirectory: projectCwd,
+            linkProjectDirectory: link.targetScope,
+          });
           void session.enterPrReview(number, link.title, {
-            ctx: link.targetScope
-              ? session.ctxForDirectory(link.targetScope)
+            ctx: target.projectDirectory
+              ? session.ctxForDirectory(target.projectDirectory)
               : session.ctx,
+            serverId: target.serverId,
           });
         }
         break;
@@ -229,7 +363,7 @@
 </script>
 
 <div
-  class="@container relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background text-[13px]"
+  class="@container relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background text-[0.8125rem]"
   role="dialog"
   aria-label="Task"
   tabindex="-1"
@@ -238,6 +372,14 @@
     <TaskChromeBar
       {task}
       {projectLabel}
+      projectRoot={projectCwd}
+      {upstream}
+      syncing={syncing || refreshing}
+      onSync={upstream?.canSync
+        ? syncNow
+        : task.providerId === "github"
+          ? refresh
+          : null}
       onPrevious={previous
         ? () => session.goToTask(previous.id, "click")
         : null}
@@ -245,8 +387,6 @@
       onOpenSource={task.url
         ? () => void localApi.openExternal(task.url!)
         : null}
-      onRefresh={task.providerId === "github" ? refresh : null}
-      {refreshing}
       onOpenList={() => session.openTasks("click")}
       onClose={() => pane.close()}
     />
@@ -257,7 +397,7 @@
       {#if syncOps.length}
         <div class="mx-auto w-full max-w-[1420px] px-[52px] pt-4">
           <div
-            class="flex items-center gap-2 rounded-md border-[.5px] border-[var(--hairline)] bg-[var(--wash-1)] px-3 py-2 text-[12px] text-muted-foreground"
+            class="flex items-center gap-2 rounded-md border-[.5px] border-[var(--hairline)] bg-[var(--wash-1)] px-3 py-2 text-xs text-muted-foreground"
             role="status"
           >
             <span
@@ -292,6 +432,16 @@
             onSaveBody={(body) => save({ body })}
           />
 
+          {#if prRows.length}
+            <TaskPrList
+              rows={prRows}
+              onOpen={openLink}
+              onOpenExternal={(url) => void localApi.openExternal(url)}
+              onUnlink={removeLink}
+              onAdd={() => (picking = true)}
+            />
+          {/if}
+
           <TaskLinkedTable
             {links}
             onOpen={openLink}
@@ -313,25 +463,41 @@
           <TaskActivityFeed
             comments={details?.comments ?? []}
             events={details?.events ?? []}
+            provider={upstream?.canSync ? upstream.provider : null}
+            onPublish={(commentId) => publishComments([commentId])}
           />
 
           {#if capabilities?.canComment}
-            <TaskCommentComposer onSubmit={comment} />
+            <TaskCommentComposer
+              onSubmit={comment}
+              provider={upstream?.canSync ? upstream.provider : null}
+              autoPost={autoPost ?? false}
+            />
           {/if}
         </div>
 
         <TaskSidebar
           {task}
           {projectLabel}
+          projectRoot={projectCwd}
           canEdit={capabilities?.canEditContent ?? false}
           canEditPlanningFields={capabilities?.canEditPlanningFields ?? false}
+          {upstream}
+          {publishTarget}
+          {syncing}
+          {autoPost}
+          onSyncNow={syncNow}
+          onSetAutoPost={setAutoPost}
+          onPublishAll={() => void publishComments(heldBack)}
+          onPublishTask={publishTask}
+          onOpenUpstream={(url) => void localApi.openExternal(url)}
           onSave={save}
         />
       </div>
     </div>
   {:else}
     <div
-      class="flex flex-1 items-center justify-center text-[13px] text-muted-foreground"
+      class="flex flex-1 items-center justify-center text-[0.8125rem] text-muted-foreground"
     >
       {store.loaded ? "That task no longer exists." : "Loading…"}
     </div>

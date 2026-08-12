@@ -295,7 +295,7 @@
     padding: 0 0.625rem;
     border-radius: 0.4375rem;
     font-family: inherit;
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     font-weight: 400;
     color: var(--solus-text-tertiary);
     background: transparent;
@@ -322,7 +322,7 @@
     align-items: stretch;
     height: 1.75rem;
     margin-left: 0.3125rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--solus-accent);
     color: var(--solus-text-on-accent);
     overflow: hidden;
@@ -338,7 +338,7 @@
     gap: 0.4375rem;
     padding: 0 0.4375rem 0 0.6875rem;
     font-family: inherit;
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     font-weight: 500;
     background: transparent;
     color: inherit;
@@ -440,7 +440,7 @@
   }
   .wha-diff-title {
     font-size: 0.8125rem;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--solus-text-primary);
   }
   .wha-diff-header__actions {
@@ -454,8 +454,8 @@
     gap: 0.3125rem;
     padding: 0.25rem 0.625rem;
     border-radius: 0.4375rem;
-    font-size: 0.6875rem;
-    font-weight: 600;
+    font-size: 0.75rem;
+    font-weight: 500;
     color: var(--solus-accent);
     background: var(--solus-accent-light);
     border: 0.0625rem solid var(--solus-accent-border);

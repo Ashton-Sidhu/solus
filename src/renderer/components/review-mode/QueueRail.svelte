@@ -16,8 +16,8 @@
 </script>
 
 <aside class="flex min-h-0 w-64 shrink-0 flex-col border-r border-(--solus-container-border)">
-  <div class="flex shrink-0 items-center justify-between gap-2 px-3 pt-3 pb-2 text-[0.6875rem] text-(--solus-text-tertiary)">
-    <span class="font-semibold tracking-[0.04em] uppercase">Queue</span>
+  <div class="flex shrink-0 items-center justify-between gap-2 px-3 pt-3 pb-2 text-xs text-(--solus-text-tertiary)">
+    <span class="font-medium uppercase">Queue</span>
     {#if remainingMinutes !== null && totalMinutes !== null}
       <span class="tabular-nums">{remainingMinutes}m left · {totalMinutes}m total</span>
     {/if}
@@ -28,22 +28,22 @@
       <button
         type="button"
         class="group relative grid min-h-14 w-full grid-cols-[1.25rem_minmax(0,1fr)] gap-2 overflow-hidden rounded-lg px-2 py-2 text-left transition-[background-color,box-shadow,opacity] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent-border) {row.active
-          ? 'bg-(--solus-accent-light) shadow-[inset_0_0_0_1px_var(--solus-accent-border)]'
-          : 'hover:bg-(--solus-surface-hover)'} {row.outcome && !row.active ? 'opacity-65 hover:opacity-100' : ''}"
+ ? 'bg-(--solus-accent-light) shadow-[inset_0_0_0_1px_var(--solus-accent-border)]'
+ : 'hover:bg-(--solus-surface-hover)'} {row.outcome && !row.active ? 'opacity-65 hover:opacity-100' : ''}"
         aria-current={row.active ? "true" : undefined}
         aria-label={`Review #${row.number}: ${row.title}`}
         onclick={() => onSelect(index)}
       >
-        <span class="flex h-5 items-center justify-center text-[0.6875rem] text-(--solus-text-tertiary) tabular-nums">
+        <span class="flex h-5 items-center justify-center text-xs text-(--solus-text-tertiary) tabular-nums">
           {#if row.outcome}
             <span
               class="size-2 rounded-full {row.outcome === 'approved'
-                ? 'bg-(--solus-art-positive)'
-                : row.outcome === 'changes_requested'
-                  ? 'bg-(--solus-art-negative)'
-                  : row.outcome === 'commented'
-                    ? 'bg-(--solus-art-5)'
-                    : 'bg-(--solus-text-tertiary)'}"
+ ? 'bg-(--solus-art-positive)'
+ : row.outcome === 'changes_requested'
+ ? 'bg-(--solus-art-negative)'
+ : row.outcome === 'commented'
+ ? 'bg-(--solus-art-5)'
+ : 'bg-(--solus-text-tertiary)'}"
               title={reviewOutcomeLabel(row.outcome)}
             ></span>
           {:else}
@@ -53,15 +53,15 @@
 
         <span class="min-w-0">
           <span class="block truncate text-xs font-medium text-(--solus-text-primary)">{row.title}</span>
-          <span class="mt-1 flex min-w-0 items-center gap-1.5 text-[0.625rem] text-(--solus-text-tertiary)">
+          <span class="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-(--solus-text-tertiary)">
             <span class="shrink-0 tabular-nums">#{row.number}</span>
             {#if row.band}
               <span
                 class="shrink-0 rounded px-1.5 py-px font-medium ring-1 ring-inset {row.band === 'quick'
-                  ? 'text-(--solus-art-positive) ring-[color:color-mix(in_srgb,var(--solus-art-positive)_28%,transparent)]'
-                  : row.band === 'involved'
-                    ? 'text-(--solus-art-negative) ring-[color:color-mix(in_srgb,var(--solus-art-negative)_24%,transparent)]'
-                    : 'text-(--solus-accent) ring-(--solus-accent-border)'}"
+ ? 'text-(--solus-art-positive) ring-[color:color-mix(in_srgb,var(--solus-art-positive)_28%,transparent)]'
+ : row.band === 'involved'
+ ? 'text-(--solus-art-negative) ring-[color:color-mix(in_srgb,var(--solus-art-negative)_24%,transparent)]'
+ : 'text-(--solus-accent) ring-(--solus-accent-border)'}"
               >
                 {row.band}
               </span>
@@ -71,7 +71,7 @@
             {/if}
             {#if row.unresolvedThreads !== null && row.unresolvedThreads > 0}
               <span
-                class="ml-auto inline-flex min-w-4 shrink-0 items-center justify-center rounded-full bg-(--solus-status-error-bg) px-1 text-[0.5625rem] font-semibold text-(--solus-status-error) tabular-nums"
+                class="ml-auto inline-flex min-w-4 shrink-0 items-center justify-center rounded-full bg-(--solus-status-error-bg) px-1 text-xs font-medium text-(--solus-status-error) tabular-nums"
                 title={`${row.unresolvedThreads} unresolved ${row.unresolvedThreads === 1 ? "thread" : "threads"}`}
               >
                 {row.unresolvedThreads}
@@ -81,7 +81,7 @@
 
           {#if row.pending}
             <span
-              class="mt-1.5 flex items-center gap-1.5 text-[0.625rem] {row.flushError ? 'text-(--solus-status-error)' : 'text-(--solus-accent)'}"
+              class="mt-1.5 flex items-center gap-1.5 text-xs {row.flushError ? 'text-(--solus-status-error)' : 'text-(--solus-accent)'}"
               title={row.flushError ?? undefined}
             >
               <span>{row.flushError ? "post failed" : "posting shortly…"}</span>

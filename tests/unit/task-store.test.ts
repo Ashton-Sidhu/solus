@@ -11,6 +11,7 @@ type MigrationsModule = typeof import('../../src/main/db/migrations')
 type TaskStoreModule = typeof import('../../src/main/tasks/task-store')
 type TaskModule = typeof import('../../src/main/tasks/task')
 type TaskSessionsModule = typeof import('../../src/main/tasks/task-sessions')
+type TaskLinksModule = typeof import('../../src/main/tasks/task-links')
 type UlidModule = typeof import('../../src/main/tasks/ulid')
 
 let dataDir: string
@@ -19,6 +20,7 @@ let migrations: MigrationsModule
 let taskStore: TaskStoreModule
 let tasks: TaskModule
 let taskSessions: TaskSessionsModule
+let taskLinks: TaskLinksModule
 let ids: UlidModule
 const previousDataDir = process.env.SOLUS_DATA_DIR
 
@@ -30,6 +32,7 @@ beforeAll(async () => {
   taskStore = await import('../../src/main/tasks/task-store')
   tasks = await import('../../src/main/tasks/task')
   taskSessions = await import('../../src/main/tasks/task-sessions')
+  taskLinks = await import('../../src/main/tasks/task-links')
   ids = await import('../../src/main/tasks/ulid')
 })
 
@@ -76,7 +79,7 @@ describe('native task migration', () => {
 
     migrations.runMigrations(legacy as never)
 
-    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 16 })
+    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 18 })
     expect(legacy.query('SELECT COUNT(*) AS count FROM tasks').get()).toEqual({ count: 0 })
     expect(legacy.query('SELECT COUNT(*) AS count FROM task_session_links').get()).toEqual({ count: 0 })
     expect(legacy.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_cache'").get()).toBeNull()
@@ -84,6 +87,8 @@ describe('native task migration', () => {
       .toEqual({ name: 'upstream_task_cache' })
     expect(legacy.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('task_comments', 'task_events', 'task_links') ORDER BY name").all())
       .toEqual([{ name: 'task_comments' }, { name: 'task_events' }, { name: 'task_links' }])
+    expect(legacy.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_external_links'").get())
+      .toEqual({ name: 'task_external_links' })
     // task_links is the generic linked-anything edge now, not the external-sync
     // mirror it briefly named.
     expect(legacy.query('SELECT name FROM pragma_table_info(?)').all('task_links').map((c: { name: string }) => c.name))
@@ -93,6 +98,25 @@ describe('native task migration', () => {
 })
 
 describe('native task CRUD', () => {
+  test('restores a number-only PR link for the sidebar after restart', async () => {
+    // WHY: agent link_task calls can identify a PR by number without a URL.
+    // The durable edge, not the renderer PR list, must restore the chip.
+    const task = await taskStore.createTask({
+      title: 'Keep linked PR visible',
+      projectKey: '/workspace/solus',
+    })
+    await (await tasks.Task.byId(task.id)).link({
+      kind: 'pr',
+      targetScope: '/workspace/solus',
+      targetKey: '43',
+      createdBy: 'agent',
+    })
+
+    expect(taskLinks.readLatestTaskPrLinks(db.getDb())).toEqual({
+      [task.id]: { number: 43 },
+    })
+  })
+
   test('publishes a session-born task only after its provider session is linked', async () => {
     // WHY: a pre-launch task without a session link appears beside the loose
     // renderer session as a duplicate row until session_init links the two.

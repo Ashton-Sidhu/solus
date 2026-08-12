@@ -60,12 +60,12 @@
       bind:value={query}
       oninput={runSearch}
       onkeydown={handleKeydown}
-      class="h-auto w-36 rounded-none border-0 bg-transparent p-0 text-[0.75rem] font-medium text-(--solus-text-primary) shadow-none placeholder:text-(--solus-text-tertiary) focus-visible:ring-0 dark:bg-transparent"
+      class="h-auto w-36 rounded-none border-0 bg-transparent p-0 text-xs font-medium text-(--solus-text-primary) shadow-none placeholder:text-(--solus-text-tertiary) focus-visible:ring-0 dark:bg-transparent"
       placeholder="Search nodes…"
       aria-label="Search nodes"
     />
     {#if count !== null}
-      <span class="text-[0.625rem] font-semibold text-(--solus-text-tertiary) tabular-nums">{count}</span>
+      <span class="text-xs font-medium text-(--solus-text-tertiary) tabular-nums">{count}</span>
     {/if}
     <button type="button" class="grid size-[1.125rem] cursor-pointer place-items-center rounded-md border-0 bg-transparent text-(--solus-text-tertiary) transition-[background,color] duration-120 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)" onclick={onClose} title="Close (Esc)" aria-label="Close search">
       <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">

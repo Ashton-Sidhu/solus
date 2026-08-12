@@ -66,14 +66,14 @@
 <!-- The field takes the focus ring every other Solus field takes: 45% primary,
      no glow, no offset. -->
 <div
-  class="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-[10px] px-[9px] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
+  class="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-lg px-[9px] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
 >
   <MagnifyingGlassIcon size={12} class="shrink-0 text-muted-foreground opacity-70" />
 
   {#each chips as chip (chip.key)}
     <button
       type="button"
-      class="flex h-[19px] shrink-0 cursor-pointer items-center gap-1 rounded-md border-0 bg-[color-mix(in_oklch,var(--primary)_13%,transparent)] pr-[5px] pl-[7px] font-mono text-[11px] font-medium tracking-[.03em] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))] transition-colors duration-150 hover:bg-[color-mix(in_oklch,var(--primary)_20%,transparent)]"
+      class="flex h-[19px] shrink-0 cursor-pointer items-center gap-1 rounded-md border-0 bg-[color-mix(in_oklch,var(--primary)_13%,transparent)] pr-[5px] pl-[7px] font-mono text-xs font-medium text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))] transition-colors duration-150 hover:bg-[color-mix(in_oklch,var(--primary)_20%,transparent)]"
       onclick={() => clearChip(filter, chip.key)}
       aria-label={`Remove filter ${chip.token}`}
       title="Remove filter"
@@ -87,7 +87,7 @@
     bind:this={ref}
     value={filter.text}
     type="text"
-    class="w-full min-w-16 border-0 bg-transparent text-[13px] caret-[var(--primary)] outline-none placeholder:text-muted-foreground [@media(pointer:coarse)]:text-base"
+    class="w-full min-w-16 border-0 bg-transparent text-[0.8125rem] caret-[var(--primary)] outline-none placeholder:text-muted-foreground [@media(pointer:coarse)]:text-sm"
     placeholder={chips.length > 0
       ? "Filter…"
       : `Search ${totalCount > 0 ? `${totalCount} ` : ""}artifacts in ${scopeLabel}…`}
@@ -97,12 +97,12 @@
   />
 
   {#if matches !== null}
-    <span class="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground opacity-75">
+    <span class="shrink-0 font-mono text-xs tabular-nums text-muted-foreground opacity-75">
       {matches} {matches === 1 ? "match" : "matches"}
     </span>
   {:else}
     <span
-      class="shrink-0 rounded-md bg-[var(--wash-2)] px-[7px] py-[3px] font-mono text-[11px] tracking-[.04em] text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent),inset_0_-1px_0_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
+      class="shrink-0 rounded-md bg-[var(--wash-2)] px-[7px] py-[3px] font-mono text-xs text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent),inset_0_-1px_0_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
       aria-hidden="true">/</span
     >
   {/if}

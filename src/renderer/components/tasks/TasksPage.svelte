@@ -13,6 +13,8 @@
     PulseIcon,
     TrashIcon,
     WarningCircleIcon,
+    MoonIcon,
+    DotOutlineIcon,
   } from "phosphor-svelte";
   import {
     TASKS_AUTH_ERROR_PREFIX,
@@ -38,6 +40,7 @@
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import SnoozeTaskMenu from "../session/SnoozeTaskMenu.svelte";
   import {
     STATUS_META,
     BOARD_COLUMNS,
@@ -528,12 +531,13 @@
 
   function deleteTasks(ids: string[], label: string) {
     const localIds = ids.filter((id) => taskById(id)?.providerId === "local");
-    if (!store.softRemove(localIds)) return;
-    toasts.undo(label, () => store.restorePending(), {
+    const pending = store.softRemove(localIds);
+    if (!pending.length) return;
+    toasts.undo(label, () => store.restorePending(pending), {
       // commitPending restores any rows whose delete failed; surface why.
       onDismiss: () =>
         store
-          .commitPending()
+          .commitPending(pending)
           .catch((err) => toastTaskError("delete task", err)),
     });
   }
@@ -559,6 +563,53 @@
       ids,
       `${ids.length} task${ids.length === 1 ? "" : "s"} deleted`,
     );
+  }
+
+  let bulkSnoozeTargets = $state<Task[]>([]);
+  /** The bulk bar's own button; the menu drops from it, so the selection can
+   *  only be cleared once the menu is done with it. */
+  let bulkSnoozeAnchor = $state<HTMLElement | null>(null);
+
+  async function bulkComplete() {
+    const tasks = [...selection.ids].map((id) => taskById(id)).filter((task): task is Task => !!task);
+    selection.clear();
+    for (const task of tasks) {
+      try {
+        await store.setStatus(task.id, "done");
+      } catch (error) {
+        toastTaskError(`complete “${task.title}”`, error);
+        break;
+      }
+    }
+  }
+
+  async function bulkMarkUnread() {
+    const tasks = [...selection.ids].map((id) => taskById(id)).filter((task): task is Task => !!task);
+    selection.clear();
+    for (const task of tasks) await store.markRead(task.id, false);
+  }
+
+  async function confirmBulkSnooze(until: number, note: string) {
+    const tasks = bulkSnoozeTargets;
+    bulkSnoozeTargets = [];
+    bulkSnoozeAnchor = null;
+    selection.clear();
+    const snoozed: Task[] = [];
+    for (const task of tasks) {
+      try {
+        await store.snooze(task.id, { until, note });
+        snoozed.push(task);
+      } catch (error) {
+        toastTaskError(`snooze “${task.title}”`, error);
+        break;
+      }
+    }
+    if (snoozed.length > 0) {
+      toasts.undo(`${snoozed.length === 1 ? "Task" : `${snoozed.length} tasks`} snoozed`, () => {
+        void Promise.all(snoozed.map((task) => store.snooze(task.id, { until: null })))
+          .catch((error) => toastTaskError("undo snooze", error));
+      });
+    }
   }
 
   // Selection is a global-list concept: drop it on the board, in the inbox, and
@@ -636,7 +687,7 @@
         aria-label="List layout"
         title="List"
       >
-        <ListIcon size={13} weight="bold" />
+        <ListIcon size={14} weight="bold" />
       </button>
       <button
         type="button"
@@ -649,7 +700,7 @@
         aria-label="Board layout"
         title="Board"
       >
-        <KanbanIcon size={13} weight="bold" />
+        <KanbanIcon size={14} weight="bold" />
       </button>
     </div>
   {/if}
@@ -680,7 +731,7 @@
           bind:value={sort}
           options={SORT_OPTIONS}
           ariaLabel="Sort tasks"
-          class="h-7 gap-1.5 rounded-[10px] px-2.5 text-[13px] font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
+          class="h-7 gap-1.5 rounded-lg px-2.5 text-[0.8125rem] font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
         />
       {/if}
     {/snippet}
@@ -692,7 +743,7 @@
   {#if task}
     <button
       type="button"
-      class="mr-2 grid size-4 shrink-0 cursor-pointer place-items-center rounded border-0 text-[11px] transition-opacity {selection.has(
+      class="mr-2 grid size-4 shrink-0 cursor-pointer place-items-center rounded border-0 text-xs transition-opacity {selection.has(
         taskId,
       )
         ? 'bg-primary text-primary-foreground opacity-100'
@@ -774,7 +825,7 @@
                 class={PAGE_SECONDARY_BTN}
                 onclick={refresh}
               >
-                <ArrowClockwiseIcon size={13} />
+                <ArrowClockwiseIcon size={14} />
                 Retry
               </button>
             {/snippet}
@@ -790,7 +841,7 @@
                   class={PAGE_PRIMARY_BTN}
                   onclick={() => beginComposing()}
                 >
-                  <PlusIcon size={13} weight="bold" />
+                  <PlusIcon size={14} weight="bold" />
                   <span>New task</span>
                 </button>
                 <button
@@ -798,7 +849,7 @@
                   class={PAGE_SECONDARY_BTN}
                   onclick={() => void switchTaskProvider("github")}
                 >
-                  <GithubLogoIcon size={13} weight="fill" />
+                  <GithubLogoIcon size={14} weight="fill" />
                   <span>Connect a task provider</span>
                 </button>
               {/if}
@@ -944,17 +995,38 @@
           role="toolbar"
           aria-label="Bulk actions"
         >
-          <span class="px-1.5 text-[13px] font-medium tabular-nums">
+          <span class="px-1.5 text-[0.8125rem] font-medium tabular-nums">
             {selection.size} selected
           </span>
           <span
             class="h-4 w-px bg-(--solus-container-border)"
             aria-hidden="true"
           ></span>
+          <button
+            type="button"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
+            onclick={() => void bulkComplete()}
+          ><CheckIcon size={14} />Complete</button>
+          <button
+            type="button"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
+            onclick={(event) => {
+              bulkSnoozeAnchor = event.currentTarget;
+              bulkSnoozeTargets = [...selection.ids]
+                .map((id) => taskById(id))
+                .filter((task): task is Task => !!task);
+            }}
+          ><MoonIcon size={14} />Snooze</button>
+          <button
+            type="button"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
+            onclick={() => void bulkMarkUnread()}
+          ><DotOutlineIcon size={14} weight="fill" />Unread</button>
+          <span class="h-4 w-px bg-(--solus-container-border)" aria-hidden="true"></span>
           {#each BOARD_COLUMNS as col (col.status)}
             <button
               type="button"
-              class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-[12px] font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
+              class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
               onclick={() => bulkSetStatus(col.status)}
               title={`Set ${col.label}`}
             >
@@ -971,11 +1043,11 @@
           ></span>
           <button
             type="button"
-            class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-[12px] font-medium text-[#cf222e] transition-colors duration-100 hover:bg-[#cf222e]/10 [.dark_&]:text-[#f85149] [.dark_&]:hover:bg-[#f85149]/10"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium text-[#cf222e] transition-colors duration-100 hover:bg-[#cf222e]/10 [.dark_&]:text-[#f85149] [.dark_&]:hover:bg-[#f85149]/10"
             onclick={bulkDelete}
             title="Delete selected"
           >
-            <TrashIcon size={12} />
+            <TrashIcon size={14} />
             Delete
           </button>
           <span
@@ -984,7 +1056,7 @@
           ></span>
           <button
             type="button"
-            class="cursor-pointer rounded-full border-0 bg-transparent px-2 py-1 text-[12px] font-medium text-(--solus-text-tertiary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
+            class="cursor-pointer rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
             onclick={() => selection.clear()}
             title="Clear selection (Esc)"
           >
@@ -992,6 +1064,18 @@
           </button>
         </div>
       </div>
+    {/if}
+
+    {#if bulkSnoozeTargets.length > 0 && bulkSnoozeAnchor}
+      <SnoozeTaskMenu
+        anchor={bulkSnoozeAnchor}
+        taskTitle={bulkSnoozeTargets.length === 1 ? bulkSnoozeTargets[0].title : `${bulkSnoozeTargets.length} selected tasks`}
+        onConfirm={(until, note) => void confirmBulkSnooze(until, note)}
+        onClose={() => {
+          bulkSnoozeTargets = [];
+          bulkSnoozeAnchor = null;
+        }}
+      />
     {/if}
 
     {#if composing}

@@ -3,7 +3,7 @@ import type { AgentId, IpcContext, PlanAnnotations, SessionMeta, SessionScanEven
 import type { SearchSessionsRequest } from '../../../shared/rpc'
 import { loadAnnotations, saveAnnotations, toggleBookmarkAnnotations } from '../../plans/annotations'
 import { listRecentProjects, trackRecentProject } from '../../recent-projects'
-import { createLogger } from '../../logger'
+import { createLogger, isDebugEnabled } from '../../logger'
 import type { SolusServer } from '../server'
 import { getIndexedSession, searchIndexedSessions, setSessionCustomTitle } from '../../db/session-indexer'
 import { renamePinnedSession } from '../../sessions/pinned-sessions'
@@ -11,8 +11,10 @@ import { generateSessionMetadata } from '../../sessions/session-title'
 import { updateGeneratedMetadataForSession } from '../../tasks/task-sessions'
 import { Task } from '../../tasks/task'
 import { tasksForSession } from '../../tasks/task-sessions'
+import { emitChanged } from '../../tasks/task-store'
 import { takeSessionScanBatch } from '../session-scan'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
+import { projectSessionHistory, serializedBytes } from '../result-projection'
 
 const log = createLogger('main', 'history-handlers')
 
@@ -117,7 +119,19 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const agentId = provider ?? agentIdFromContext(ctx)
     log.info('rpc_load_session', { sessionId, projectPath, limit })
     try {
-      return await controlPlane.loadSession(agentId, sessionId, projectPath, limit)
+      const messages = await controlPlane.loadSession(agentId, sessionId, projectPath, limit)
+      if (isDebugEnabled) {
+        log.debug('session_load_bytes', { sessionId, bytes: serializedBytes(messages), messageCount: messages.length })
+        for (const message of messages) {
+          log.debug('session_event_bytes', {
+            sessionId,
+            eventType: message.role,
+            ...(message.toolName ? { toolName: message.toolName } : {}),
+            bytes: serializedBytes(message),
+          })
+        }
+      }
+      return projectSessionHistory(messages)
     } catch (err) {
       log.error('load_session_failed', { error: String(err), sessionId, projectPath })
       return []
@@ -152,24 +166,29 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   })
 
   server.register('setSessionTitle', async (args) => {
-    const [sessionId, title, source = 'manual', generatedDescription] = args as [
+    const [sessionId, title, source = 'manual', generatedDescription, publishEvent = true] = args as [
       string,
       string | null,
       'generated' | 'manual' | undefined,
       string | undefined,
+      boolean | undefined,
     ]
     const trimmed = title?.trim()
     const customTitle = trimmed || null
     setSessionCustomTitle(sessionId, customTitle)
+    let taskChanged = false
     if (trimmed) {
       try {
         if (source === 'generated') {
           if (generatedDescription) {
-            await updateGeneratedMetadataForSession(sessionId, trimmed, generatedDescription)
+            taskChanged = !!await updateGeneratedMetadataForSession(sessionId, trimmed, generatedDescription)
           }
         } else {
           const task = await tasksForSession(sessionId)
-          if (task) await (await Task.byId(task.task.id)).update({ title: trimmed }, { actor: 'agent' })
+          if (task) {
+            await (await Task.byId(task.task.id)).update({ title: trimmed }, { actor: 'agent' })
+            taskChanged = true
+          }
         }
       } catch (error) {
         log.warn('task_session_metadata_update_failed', { sessionId, error: String(error) })
@@ -179,10 +198,18 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     // there is one, otherwise back to what the session derives its title from.
     const pinLabel = trimmed || getIndexedSession(sessionId)?.firstMessage?.replace(/\s+/g, ' ').slice(0, 80)
     if (pinLabel) renamePinnedSession(sessionId, pinLabel)
-    events.broadcast('session.titleChanged', {
-      sessionId,
-      title: customTitle,
-    } satisfies SessionTitleChangedEvent)
+    if (publishEvent) {
+      events.broadcast('session.titleChanged', {
+        sessionId,
+        title: customTitle,
+        source,
+        ...(generatedDescription ? { generatedDescription } : {}),
+      } satisfies SessionTitleChangedEvent)
+    } else if (!taskChanged) {
+      // The proxy row changed even when a generated task name lost a race to a
+      // manual edit. Other clients of the task host still need to reload it.
+      emitChanged()
+    }
     log.info('session_renamed', { sessionId, cleared: !trimmed })
   })
 

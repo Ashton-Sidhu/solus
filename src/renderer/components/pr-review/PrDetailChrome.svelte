@@ -89,14 +89,14 @@
   }
 
   const crumbButton =
-    "flex h-7 cursor-pointer items-center rounded px-[7px] text-[13px] text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-1)] hover:text-foreground";
+    "flex h-7 cursor-pointer items-center rounded px-[7px] text-[0.8125rem] text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-1)] hover:text-foreground";
   const stepButton =
     "flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30";
 </script>
 
 <div class="relative flex min-w-0 items-center gap-1.5">
   <Breadcrumb.Root aria-label="Location" class="flex min-w-0 shrink items-center">
-    <Breadcrumb.List class="min-w-0 flex-nowrap gap-px text-[13px] text-foreground">
+    <Breadcrumb.List class="min-w-0 flex-nowrap gap-px text-[0.8125rem] text-foreground">
       {#if project}
         <Breadcrumb.Item class="shrink-0">
           <Breadcrumb.Link class="{crumbButton} gap-[7px]">
@@ -111,7 +111,7 @@
             {/snippet}
           </Breadcrumb.Link>
         </Breadcrumb.Item>
-        <Breadcrumb.Separator class="px-[3px] text-[13px] opacity-30" />
+        <Breadcrumb.Separator class="px-[3px] text-[0.8125rem] opacity-30" />
       {/if}
 
       <Breadcrumb.Item class="shrink-0">
@@ -123,15 +123,15 @@
           {/snippet}
         </Breadcrumb.Link>
       </Breadcrumb.Item>
-      <Breadcrumb.Separator class="px-[3px] text-[13px] opacity-30" />
+      <Breadcrumb.Separator class="px-[3px] text-[0.8125rem] opacity-30" />
 
       <!-- The leaf is the switcher. -->
       <Breadcrumb.Item class="shrink-0">
         <button
           type="button"
-          class="flex h-7 cursor-pointer items-center gap-[7px] rounded pr-1.5 pl-2 text-[13px] text-foreground transition-colors duration-150 hover:bg-[var(--wash-1)] {menuOpen
-            ? 'bg-[var(--wash-2)]'
-            : ''}"
+          class="flex h-7 cursor-pointer items-center gap-[7px] rounded pr-1.5 pl-2 text-[0.8125rem] text-foreground transition-colors duration-150 hover:bg-[var(--wash-1)] {menuOpen
+ ? 'bg-[var(--wash-2)]'
+ : ''}"
           aria-expanded={menuOpen}
           aria-label="Switch pull request"
           onclick={() => (menuOpen = !menuOpen)}
@@ -141,7 +141,7 @@
             style="background:{statusDot}"
             aria-hidden="true"
           ></span>
-          <span class="font-mono text-[12.5px] tabular-nums">#{number}</span>
+          <span class="font-mono text-[0.8125rem] tabular-nums">#{number}</span>
           <CaretDownIcon
             size={11}
             class="opacity-45 transition-transform duration-150 {menuOpen ? 'rotate-180' : ''}"
@@ -164,7 +164,7 @@
       <CaretLeftIcon size={11} />
     </button>
     <span
-      class="min-w-[44px] text-center font-mono text-[10.5px] tabular-nums text-muted-foreground opacity-75"
+      class="min-w-[44px] text-center font-mono text-xs tabular-nums text-muted-foreground opacity-75"
     >
       {positionLabel}
     </span>
@@ -199,11 +199,11 @@
         {#each menuGroups as group (group.key)}
           <div class="flex items-center gap-2 px-[9px] pt-1.5 pb-1">
             <span
-              class="text-[9px] font-medium tracking-[.09em] text-muted-foreground uppercase"
+              class="text-xs font-medium text-muted-foreground uppercase"
               >{group.label}</span
             >
             <span class="h-px flex-1 bg-[var(--hairline)]"></span>
-            <span class="font-mono text-[10px] text-muted-foreground opacity-50"
+            <span class="font-mono text-xs text-muted-foreground opacity-50"
               >{group.rows.length}</span
             >
           </div>
@@ -215,8 +215,8 @@
               role="option"
               aria-selected={active}
               class="flex h-[34px] w-full cursor-pointer items-center gap-[9px] rounded-md px-[9px] transition-colors duration-150 hover:bg-[var(--wash-2)] {active
-                ? 'bg-[var(--wash-2)]'
-                : ''}"
+ ? 'bg-[var(--wash-2)]'
+ : ''}"
               onclick={() => open(rowNumber)}
             >
               <span
@@ -225,13 +225,13 @@
                 aria-hidden="true"
               ></span>
               <span
-                class="w-[34px] shrink-0 font-mono text-[10.5px] tabular-nums text-muted-foreground"
+                class="w-[34px] shrink-0 font-mono text-xs tabular-nums text-muted-foreground"
                 >{row.ident}</span
               >
               <span
-                class="min-w-0 flex-1 truncate text-left text-[13px] tracking-[-.005em] {active
-                  ? 'font-medium'
-                  : ''}">{row.title}</span
+                class="min-w-0 flex-1 truncate text-left text-[0.8125rem] {active
+ ? 'font-medium'
+ : ''}">{row.title}</span
               >
               {#if active}
                 <CheckIcon size={12} weight="bold" class="shrink-0 text-primary" />
@@ -243,9 +243,9 @@
       <div
         class="mt-[3px] flex items-center gap-2.5 border-t border-[var(--hairline)] px-[9px] pt-2 pb-[5px]"
       >
-        <span class="text-[11px] text-muted-foreground">Same order as the list behind it</span>
+        <span class="text-xs text-muted-foreground">Same order as the list behind it</span>
         <span class="flex-1"></span>
-        <span class="font-mono text-[10px] text-muted-foreground opacity-70">↑↓ move · ⏎ open</span>
+        <span class="font-mono text-xs text-muted-foreground opacity-70">↑↓ move · ⏎ open</span>
       </div>
     </div>
   {/if}

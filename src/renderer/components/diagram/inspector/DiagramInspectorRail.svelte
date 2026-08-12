@@ -169,9 +169,9 @@
   .diagram-rail__kind {
     max-width: 100%;
     padding: 0 0.125rem;
-    font-size: 0.5rem;
-    font-weight: 650;
-    letter-spacing: 0.09em;
+    font-size: 0.75rem;
+    font-weight: 500;
+
     text-transform: uppercase;
     color: var(--solus-text-tertiary);
     opacity: 0.85;
@@ -226,7 +226,7 @@
     right: 0.1875rem;
     width: 0.3125rem;
     height: 0.3125rem;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: var(--solus-art-2);
   }
 
@@ -239,9 +239,8 @@
   .diagram-rail__label {
     writing-mode: vertical-rl;
     max-height: 7rem;
-    font-size: 0.65625rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
+    font-size: 0.75rem;
+    font-weight: 500;
     color: var(--solus-text-tertiary);
     overflow: hidden;
     text-overflow: ellipsis;

@@ -114,7 +114,7 @@
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
         <DropdownMenu.Trigger disabled={modelRows.length === 0}>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" aria-label="Model" class="min-w-44 justify-between text-[0.75rem] shadow-xs">
+            <Button {...props} variant="outline" size="sm" aria-label="Model" class="min-w-44 justify-between text-xs shadow-xs">
               <span class="flex min-w-0 items-center gap-1.5">
                 {#if theme.modelInstructions[selectedModelId]?.trim()}
                   <span class="size-1.5 shrink-0 rounded-full bg-(--solus-accent)"></span>

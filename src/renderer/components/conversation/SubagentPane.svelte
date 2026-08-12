@@ -101,12 +101,12 @@
   {#each clauses as clause, i (i)}
     {#if i > 0}
       <span
-        class="shrink-0 text-[0.6875rem] text-(--muted-foreground) opacity-40"
+        class="shrink-0 text-xs text-(--muted-foreground) opacity-40"
         aria-hidden="true">·</span
       >
     {/if}
     <span
-      class="shrink-0 font-mono text-[0.6875rem] text-(--muted-foreground) tabular-nums opacity-75"
+      class="shrink-0 font-mono text-xs text-(--muted-foreground) tabular-nums opacity-75"
       >{clause}</span
     >
   {/each}
@@ -122,7 +122,7 @@
     class="flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <h2
-      class="m-0 text-[1.03rem] leading-tight font-semibold tracking-[-0.021em]"
+      class="m-0 text-sm leading-tight font-medium "
     >
       {#if message && header}
         {header.title}
@@ -154,7 +154,7 @@
             <CheckIcon size={11} weight="bold" />
           {/if}
         </span>
-        <span class="text-[0.78125rem] font-medium">{progress.label}</span>
+        <span class="text-[0.8125rem] font-medium">{progress.label}</span>
       </span>
 
       {#if progress.segments.length > 0}
@@ -185,7 +185,7 @@
       {/if}
 
       {#if progress.current}
-        <span class="min-w-0 truncate text-[0.78125rem] text-(--muted-foreground)"
+        <span class="min-w-0 truncate text-[0.8125rem] text-(--muted-foreground)"
           >{progress.current}</span
         >
       {/if}
@@ -205,7 +205,7 @@
         type="button"
         role="tab"
         aria-selected={view === "report"}
-        class="flex cursor-pointer items-baseline gap-1.5 border-none bg-transparent px-0 pt-0 pb-[0.5625rem] text-[0.78rem] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-(--solus-accent-border) focus-visible:outline-none {view ===
+        class="flex cursor-pointer items-baseline gap-1.5 border-none bg-transparent px-0 pt-0 pb-[0.5625rem] text-[0.8125rem] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-(--solus-accent-border) focus-visible:outline-none {view ===
         'report'
           ? 'shadow-[shadow:inset_0_-1.5px_0_0_var(--foreground)]'
           : 'text-(--muted-foreground) hover:text-(--foreground)'}"
@@ -216,7 +216,7 @@
           <!-- The same fraction the progress line carries, so the count stays
                visible from the Transcript tab. -->
           <span
-            class="font-mono text-[0.6875rem] text-(--muted-foreground) tabular-nums"
+            class="font-mono text-xs text-(--muted-foreground) tabular-nums"
             >{progress.fraction}</span
           >
         {/if}
@@ -225,7 +225,7 @@
         type="button"
         role="tab"
         aria-selected={view === "transcript"}
-        class="flex cursor-pointer items-baseline gap-1.5 border-none bg-transparent px-0 pt-0 pb-[0.5625rem] text-[0.78rem] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-(--solus-accent-border) focus-visible:outline-none {view ===
+        class="flex cursor-pointer items-baseline gap-1.5 border-none bg-transparent px-0 pt-0 pb-[0.5625rem] text-[0.8125rem] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-(--solus-accent-border) focus-visible:outline-none {view ===
         'transcript'
           ? 'shadow-[shadow:inset_0_-1.5px_0_0_var(--foreground)]'
           : 'text-(--muted-foreground) hover:text-(--foreground)'}"
@@ -233,7 +233,7 @@
       >
         <span>Transcript</span>
         {#if blocks > 0}
-          <span class="font-mono text-[0.6875rem] tabular-nums">{blocks}</span>
+          <span class="font-mono text-xs tabular-nums">{blocks}</span>
         {/if}
       </button>
       <span class="flex-1"></span>
@@ -268,12 +268,12 @@
       <div
         class="flex shrink-0 items-center gap-2.5 border-t border-[color-mix(in_oklch,var(--foreground)_12%,transparent)] px-[1.125rem] py-2"
       >
-        <span class="activity-shimmer shrink-0 text-[0.78125rem]"
+        <span class="activity-shimmer shrink-0 text-[0.8125rem]"
           >{footer.activity}</span
         >
         {#if footer.target}
           <span
-            class="min-w-0 truncate font-mono text-[0.71875rem] text-(--muted-foreground) opacity-75"
+            class="min-w-0 truncate font-mono text-xs text-(--muted-foreground) opacity-75"
             >{footer.target}</span
           >
         {/if}

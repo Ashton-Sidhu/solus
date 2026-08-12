@@ -20,14 +20,14 @@
     {#if label || action}
       <div class="flex min-h-6 items-center justify-between gap-3 px-0.5">
         <h2
-          class="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground"
+          class="text-xs font-medium uppercase r text-muted-foreground"
         >
           {label}
         </h2>
         {@render action?.()}
       </div>
     {/if}
-    <div class="overflow-hidden rounded-xl border border-border bg-card shadow-xs">
+    <div class="overflow-hidden rounded-2xl border border-border bg-card shadow-xs">
       {@render children()}
     </div>
   </section>

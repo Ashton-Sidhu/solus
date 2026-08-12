@@ -39,12 +39,12 @@
 <div class="flex flex-col gap-6">
   <div class="min-w-0">
     <h2
-      class="text-[clamp(1.25rem,1.15rem+0.35vw,1.5rem)] font-semibold tracking-tight text-foreground"
+      class="text-[1.5rem] font-medium text-foreground"
     >
       {host.label}
     </h2>
     <p
-      class="mt-1 truncate text-[0.75rem] text-muted-foreground"
+      class="mt-1 truncate text-xs text-muted-foreground"
       style="font-family: 'Geist Mono', ui-monospace, monospace"
     >
       {meta}

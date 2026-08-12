@@ -237,6 +237,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       provider: 'codex',
       cwd: request.cwd,
       sessionId: () => handle?.agentSessionId ?? undefined,
+      solusSessionId: () => handle?.sessionId,
       abortSignal: abortController.signal,
       parentToolUseId: () => undefined,
       emit: (event) => this.emit('normalized', handle?.agentSessionId ?? null, event),
@@ -906,7 +907,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         questionId,
         toolName: selectedTool.name,
         toolDescription: selectedTool.description,
-        toolInput: args && typeof args === 'object' ? args as Record<string, unknown> : {},
+        toolInput: args && typeof args === 'object' ? args : {},
         options: [
           { id: 'accept', label: 'Allow', kind: 'allow' },
           { id: 'decline', label: 'Deny', kind: 'deny' },
@@ -975,11 +976,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       kind,
       sessionId: params?.threadId || handle?.agentSessionId || handle?.threadId || sessionId || null,
       turnId: params?.turnId || params?.turn?.id || handle?.turnId || null,
-      event: msg as unknown as Record<string, unknown>,
+      event: msg,
     })
   }
 
-  private permissionToolInput(method: string, params: any): Record<string, unknown> {
+  private permissionToolInput(method: string, params: any): object {
     if (method !== 'item/fileChange/requestApproval') return params
     const changes = typeof params?.itemId === 'string' ? this.fileChangesByItem.get(params.itemId) : undefined
     return changes?.length ? { ...params, changes } : params

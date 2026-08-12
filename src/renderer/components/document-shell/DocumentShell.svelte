@@ -619,7 +619,7 @@
 {#snippet renameField()}
   <!-- svelte-ignore a11y_autofocus -->
   <input
-    class="doc-shell-title-input min-w-24 max-w-96 flex-1 rounded-md border border-(--solus-accent-border) bg-(--solus-surface-hover) px-1.5 py-0.5 text-[0.8125rem] font-semibold text-(--solus-text-primary) tracking-[-0.01em] outline-none"
+    class="doc-shell-title-input min-w-24 max-w-96 flex-1 rounded-md border border-(--solus-accent-border) bg-(--solus-surface-hover) px-1.5 py-0.5 text-[0.8125rem] font-medium text-(--solus-text-primary) outline-none"
     bind:value={renameValue}
     onblur={commitRename}
     onkeydown={renameKeydown}
@@ -630,7 +630,7 @@
 {/snippet}
 
 {#snippet saveStatusChip()}
-  <div class="doc-shell-save-status ml-1 inline-flex min-w-0 shrink-0 items-center gap-1.5 whitespace-nowrap text-[0.71875rem] text-(--solus-text-tertiary) transition-opacity duration-(--duration-base)">
+  <div class="doc-shell-save-status ml-1 inline-flex min-w-0 shrink-0 items-center gap-1.5 whitespace-nowrap text-xs text-(--solus-text-tertiary) transition-opacity duration-(--duration-base)">
     {#if showSaving}
       <span class="size-[0.3125rem] shrink-0 rounded-full bg-(--solus-accent)" aria-hidden="true"></span>
       <span>Saving…</span>
@@ -676,10 +676,10 @@
     tabindex="-1"
     onkeydown={handleSectionJump}
     class="doc-shell-root {rootClass} relative [container:doc-shell/inline-size] flex flex-col {inline
-      ? 'h-full'
-      : 'doc-shell-root--floating h-[min(86vh,90vh)] w-[min(100rem,96vw)] rounded-2xl'} overflow-hidden bg-(--solus-container-bg) {inline
-      ? ''
-      : 'border border-(--solus-tool-border)'}"
+ ? 'h-full'
+ : 'doc-shell-root--floating h-[min(86vh,90vh)] w-[min(100rem,96vw)] rounded-2xl'} overflow-hidden bg-(--solus-container-bg) {inline
+ ? ''
+ : 'border border-(--solus-tool-border)'}"
     class:doc-shell-root--inline={inline}
   >
     <!-- Pane-level chrome lives in the floating PaneChrome cluster; the floating
@@ -693,7 +693,7 @@
         aria-label="Close"
         title="Close"
       >
-        <XIcon size={16} />
+        <XIcon size={14} />
       </button>
     {/if}
 
@@ -739,9 +739,9 @@
         {#if renaming}
         {@render renameField()}
         {:else}
-        <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "bold")} aria-pressed={isActive(tiptapEditor, stateVersion, "bold")} onclick={() => cmd(tiptapEditor, (c) => c.toggleBold())} title="Bold" aria-label="Bold"><TextBIcon size={18} weight="bold" /></button>
-        <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "italic")} aria-pressed={isActive(tiptapEditor, stateVersion, "italic")} onclick={() => cmd(tiptapEditor, (c) => c.toggleItalic())} title="Italic" aria-label="Italic"><TextItalicIcon size={18} /></button>
-        <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "link")} aria-pressed={isActive(tiptapEditor, stateVersion, "link")} onclick={() => editorRef?.openLinkPopover()} title="Link" aria-label="Link"><LinkSimpleIcon size={18} /></button>
+        <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "bold")} aria-pressed={isActive(tiptapEditor, stateVersion, "bold")} onclick={() => cmd(tiptapEditor, (c) => c.toggleBold())} title="Bold" aria-label="Bold"><TextBIcon size={14} weight="bold" /></button>
+        <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "italic")} aria-pressed={isActive(tiptapEditor, stateVersion, "italic")} onclick={() => cmd(tiptapEditor, (c) => c.toggleItalic())} title="Italic" aria-label="Italic"><TextItalicIcon size={14} /></button>
+        <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "link")} aria-pressed={isActive(tiptapEditor, stateVersion, "link")} onclick={() => editorRef?.openLinkPopover()} title="Link" aria-label="Link"><LinkSimpleIcon size={14} /></button>
 
         <div class="doc-shell-toolbar-sep"></div>
 
@@ -750,15 +750,15 @@
 
         <div class="doc-shell-toolbar-sep"></div>
 
-        <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "bulletList")} aria-pressed={isActive(tiptapEditor, stateVersion, "bulletList")} onclick={() => cmd(tiptapEditor, (c) => c.toggleBulletList())} title="Bullet list" aria-label="Bullet list"><ListBulletsIcon size={18} /></button>
-        <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "taskList")} aria-pressed={isActive(tiptapEditor, stateVersion, "taskList")} onclick={() => cmd(tiptapEditor, (c) => c.toggleTaskList())} title="Task list" aria-label="Task list"><ListBulletsIcon size={18} /></button>
+        <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "bulletList")} aria-pressed={isActive(tiptapEditor, stateVersion, "bulletList")} onclick={() => cmd(tiptapEditor, (c) => c.toggleBulletList())} title="Bullet list" aria-label="Bullet list"><ListBulletsIcon size={14} /></button>
+        <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "taskList")} aria-pressed={isActive(tiptapEditor, stateVersion, "taskList")} onclick={() => cmd(tiptapEditor, (c) => c.toggleTaskList())} title="Task list" aria-label="Task list"><ListBulletsIcon size={14} /></button>
 
-        <button type="button" class="doc-shell-toolbar-btn" class:active={overflowOpen} aria-pressed={overflowOpen} onclick={() => (overflowOpen = !overflowOpen)} title="More formatting" aria-label="More formatting"><DotsThreeIcon size={20} weight="bold" /></button>
+        <button type="button" class="doc-shell-toolbar-btn" class:active={overflowOpen} aria-pressed={overflowOpen} onclick={() => (overflowOpen = !overflowOpen)} title="More formatting" aria-label="More formatting"><DotsThreeIcon size={14} weight="bold" /></button>
 
         <div class="min-w-2 flex-auto"></div>
 
         <button type="button" class="doc-shell-toolbar-btn" onclick={() => editorRef?.toggleMode()} title={editorMode === "rich" ? "View raw markdown" : "View rendered editor"} aria-label="Toggle markdown view">
-          {#if editorMode === "rich"}<MarkdownLogoIcon size={17} />{:else}<TextAaIcon size={17} />{/if}
+          {#if editorMode === "rich"}<MarkdownLogoIcon size={14} />{:else}<TextAaIcon size={14} />{/if}
         </button>
         {/if}
         {@render documentMeta?.()}
@@ -768,17 +768,17 @@
       {#if overflowOpen}
         <button type="button" class="doc-shell-overflow-backdrop" aria-label="Close menu" onclick={() => (overflowOpen = false)}></button>
         <div class="doc-shell-overflow-menu menu-surface" transition:fly={{ y: -6, duration: 130, opacity: 0 }}>
-          <button type="button" class="doc-shell-toolbar-btn" disabled={!canUndo} onclick={() => { cmd(tiptapEditor, (c) => c.undo()); overflowOpen = false; }} title="Undo" aria-label="Undo"><ArrowUUpLeftIcon size={18} /></button>
-          <button type="button" class="doc-shell-toolbar-btn" disabled={!canRedo} onclick={() => { cmd(tiptapEditor, (c) => c.redo()); overflowOpen = false; }} title="Redo" aria-label="Redo"><ArrowUUpRightIcon size={18} /></button>
-          <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "strike")} onclick={() => { cmd(tiptapEditor, (c) => c.toggleStrike()); overflowOpen = false; }} title="Strikethrough" aria-label="Strikethrough"><TextStrikethroughIcon size={18} /></button>
-          <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "code")} onclick={() => { cmd(tiptapEditor, (c) => c.toggleCode()); overflowOpen = false; }} title="Inline code" aria-label="Inline code"><CodeIcon size={18} /></button>
+          <button type="button" class="doc-shell-toolbar-btn" disabled={!canUndo} onclick={() => { cmd(tiptapEditor, (c) => c.undo()); overflowOpen = false; }} title="Undo" aria-label="Undo"><ArrowUUpLeftIcon size={14} /></button>
+          <button type="button" class="doc-shell-toolbar-btn" disabled={!canRedo} onclick={() => { cmd(tiptapEditor, (c) => c.redo()); overflowOpen = false; }} title="Redo" aria-label="Redo"><ArrowUUpRightIcon size={14} /></button>
+          <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "strike")} onclick={() => { cmd(tiptapEditor, (c) => c.toggleStrike()); overflowOpen = false; }} title="Strikethrough" aria-label="Strikethrough"><TextStrikethroughIcon size={14} /></button>
+          <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "code")} onclick={() => { cmd(tiptapEditor, (c) => c.toggleCode()); overflowOpen = false; }} title="Inline code" aria-label="Inline code"><CodeIcon size={14} /></button>
           <button type="button" class="doc-shell-toolbar-btn doc-shell-toolbar-text" class:active={isActive(tiptapEditor, stateVersion, "heading", { level: 3 })} onclick={() => { cmd(tiptapEditor, (c) => c.toggleHeading({ level: 3 })); overflowOpen = false; }} title="Heading 3">H<sub>3</sub></button>
-          <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "orderedList")} onclick={() => { cmd(tiptapEditor, (c) => c.toggleOrderedList()); overflowOpen = false; }} title="Numbered list" aria-label="Numbered list"><ListNumbersIcon size={18} /></button>
-          <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "blockquote")} onclick={() => { cmd(tiptapEditor, (c) => c.toggleBlockquote()); overflowOpen = false; }} title="Blockquote" aria-label="Blockquote"><QuotesIcon size={18} /></button>
-          <button type="button" class="doc-shell-toolbar-btn" onclick={() => { cmd(tiptapEditor, (c) => c.setHorizontalRule()); overflowOpen = false; }} title="Divider" aria-label="Divider"><MinusIcon size={18} /></button>
-          <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "table")} onclick={() => { cmd(tiptapEditor, (c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true })); overflowOpen = false; }} title="Insert table" aria-label="Insert table"><TableIcon size={18} /></button>
+          <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "orderedList")} onclick={() => { cmd(tiptapEditor, (c) => c.toggleOrderedList()); overflowOpen = false; }} title="Numbered list" aria-label="Numbered list"><ListNumbersIcon size={14} /></button>
+          <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "blockquote")} onclick={() => { cmd(tiptapEditor, (c) => c.toggleBlockquote()); overflowOpen = false; }} title="Blockquote" aria-label="Blockquote"><QuotesIcon size={14} /></button>
+          <button type="button" class="doc-shell-toolbar-btn" onclick={() => { cmd(tiptapEditor, (c) => c.setHorizontalRule()); overflowOpen = false; }} title="Divider" aria-label="Divider"><MinusIcon size={14} /></button>
+          <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "table")} onclick={() => { cmd(tiptapEditor, (c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true })); overflowOpen = false; }} title="Insert table" aria-label="Insert table"><TableIcon size={14} /></button>
           {#if bindings.find}
-            <button type="button" class="doc-shell-toolbar-btn" class:active={findOpen} onclick={() => { findOpen = !findOpen; overflowOpen = false; }} title="Find & replace" aria-label="Find and replace"><MagnifyingGlassIcon size={18} /></button>
+            <button type="button" class="doc-shell-toolbar-btn" class:active={findOpen} onclick={() => { findOpen = !findOpen; overflowOpen = false; }} title="Find & replace" aria-label="Find and replace"><MagnifyingGlassIcon size={14} /></button>
           {/if}
         </div>
       {/if}
@@ -948,8 +948,8 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.6875rem;
-    letter-spacing: 0.02em;
+    font-size: 0.75rem;
+
     color: var(--solus-text-tertiary);
   }
   .doc-shell-title {
@@ -957,9 +957,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.78125rem;
-    font-weight: 600;
-    letter-spacing: -0.01em;
+    font-size: 0.8125rem;
+    font-weight: 500;
     color: var(--solus-text-primary);
     background: transparent;
     border: none;
@@ -984,7 +983,7 @@
     height: 1.75rem;
     padding: 0 0.625rem;
     border-radius: 0.4375rem;
-    font-size: 0.78125rem;
+    font-size: 0.8125rem;
     font-weight: 400;
     color: var(--solus-text-tertiary);
     background: transparent;
@@ -1083,11 +1082,10 @@
   }
   .doc-shell-toolbar-text {
     font-size: 0.8125rem;
-    font-weight: 600;
-    letter-spacing: -0.01em;
+    font-weight: 500;
   }
   .doc-shell-toolbar-text sub {
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     vertical-align: baseline;
     position: relative;
     top: 0.0625rem;
@@ -1163,7 +1161,7 @@
       height: 1.1875rem;
     }
     .doc-shell-toolbar-text {
-      font-size: 1rem;
+      font-size: 0.875rem;
     }
     .doc-shell-toolbar-sep {
       height: 1.375rem;
