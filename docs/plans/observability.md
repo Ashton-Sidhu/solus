@@ -25,8 +25,9 @@ both-providers exit-ordering hazard — folded throughout).
   `internal.worktree_op`, …). Registered constants, never free strings.
 - **Service** — which subsystem owns the span: `solus.sessions`,
   `solus.text-generation`, `solus.review-guide`, `solus.subagents`,
-  `solus.automations`, `solus.indexer`, `solus.rpc`, `solus.git`. Registered
-  constants. Every span has exactly one.
+  `solus.automations`, `solus.indexer`, `solus.rpc`, `solus.git`,
+  `solus.insights` (the NL→SQL compile agent). Registered constants. Every span has
+  exactly one.
 - **Trace** — one turn (or one internal operation) and all its child spans, sharing a
   `traceId`. Each turn is bounded and carries `sessionId`; session views group root
   turns by `sessionId` and order them by `(startedAt, spanId)`. Child spans record
@@ -39,9 +40,20 @@ both-providers exit-ordering hazard — folded throughout).
 - **QuerySpec** — the serializable query contract: table-less (always `spans`),
   `timeRange`, `filters` (columns or `attrs` JSON paths), `groupBy` (columns or time
   buckets), `aggregates` (`count | avg | min | max | sum | p50 | p95`), `orderBy`,
-  `limit`. What the builder edits, saved queries store, and the engine compiles to SQL.
+  `limit`. What the builder edits and the engine compiles to SQL.
+- **Field registry** — the registered catalog of queryable fields per kind: name, type
+  (`string | number | boolean | duration`), a one-line description, and the storage
+  mapping (promoted column or `attrs` JSON path). Single source of truth for the
+  per-kind views, the NL agent's schema prompt, and editor completion and hover docs.
+- **View** — a read-only SQL view over `spans` for one kind (`turns`, `tool_calls`,
+  `permission_waits`, `agent_runs`, …), generated from the field registry. Views lift
+  registry attrs into typed columns via `json_extract`, so SQL authors and the NL
+  agent never write JSON paths for cataloged fields. The stable SQL contract: an attr
+  can be promoted to a real column later without breaking a saved query.
 - **Preset** — a QuerySpec shipped in code, shown as a one-click card. Not a DB row.
-- **Saved query** — a user-authored QuerySpec persisted in `solus.db`.
+- **Saved query** — a user-authored query persisted in `solus.db`, storing either a
+  QuerySpec (builder-editable) or SQL text (editor-editable). Each row records which
+  form owns it; SQL does not round-trip into the builder.
 - **Insights** — the renderer surface (`src/renderer/components/insights/`). Peer of
   Git/Run/Tasks/Works/Automations in the project panel.
 - **Internals toggle** — the Insights setting that reveals `internal.*` kinds and the
@@ -83,8 +95,10 @@ emitters (session, rpc, indexer, git, automations, ephemeral agent runs)
   → facade (src/main/observability/) — spans + active-span context for log correlation
       ├─→ metrics store  (metrics.db, spans table, rollover)      — always
       └─→ OTel exporter  (OTLP traces/metrics/logs, per-service resources) — when configured
-query: QuerySpec → compiler → parameterized SQL over spans
-  → RPC handlers (observability-handlers.ts) → Insights UI (desktop/web; mobile read-only)
+query: builder/presets → QuerySpec → compiler → parameterized SQL ┐
+       SQL editor / NL agent → guarded SQL text                   ┴→ read-only executor
+  → spans + per-kind views → RPC handlers (observability-handlers.ts)
+  → Insights UI (desktop/web; mobile read-only)
 ```
 
 ### Call stack flow
@@ -369,16 +383,57 @@ Tool-call attrs: size-capped input fields (~8 KB, truncation-flagged),
 
 ### Query engine and RPC
 
-QuerySpec compiles server-side to parameterized SQL. Attribute filters/groups use
+One executor, two front doors. The builder and presets produce a QuerySpec, which
+compiles server-side to parameterized SQL. The SQL editor and the NL agent produce
+SQL text directly. Both paths run through the same guarded read-only executor over
+`spans` and the per-kind views. Attribute filters/groups on uncataloged fields use
 `json_extract(attrs, ?)`; percentiles use an ordered-window pass (SQLite has no
-native percentile). Raw SQL is deliberately **not** exposed over RPC — there is no
-read-only SQLite handle, and saved queries need a serializable definition anyway.
+native percentile).
+
+**Per-kind views.** WP3 generates one view per kind from the field registry and
+creates them in `metrics.db` at boot (idempotent `CREATE VIEW IF NOT EXISTS` after
+migrations; regenerated when the registry changes):
+
+```sql
+CREATE VIEW tool_calls AS
+SELECT span_id, trace_id, session_id, provider, model, project_root, origin,
+       name AS tool, started_at, ended_at, duration_ms, status,
+       json_extract(attrs, '$.input.command')  AS command,
+       json_extract(attrs, '$.input.filePath') AS file_path,
+       json_extract(attrs, '$.exitCode')       AS exit_code,
+       json_extract(attrs, '$.isSubagent')     AS is_subagent
+FROM spans WHERE kind = 'tool_call';
+```
+
+**Guarded SQL executor.** User- and agent-authored SQL runs on a dedicated
+`DatabaseSync` opened read-only on `metrics.db` with `PRAGMA query_only` set. The
+handler additionally enforces: exactly one statement; it must begin with `SELECT` or
+`WITH`; `ATTACH` and `PRAGMA` are rejected; a hard row `LIMIT` cap is injected; a
+busy timeout bounds lock waits. Because `metrics.db` is a separate file from
+`solus.db` by design, the blast radius of arbitrary read-only SQL is telemetry data
+only — that separation is what makes this exposure safe.
+
+**NL → SQL.** The natural-language option compiles a user question to SQLite SQL —
+an existing, deeply-trained language — never to a bespoke grammar. An ephemeral
+agent run (`AgentRunner` seam, service `solus.insights`) receives the view DDL and
+field-registry descriptions plus a few example queries, and returns SQL only. The
+handler runs an execute-and-retry loop: generate → run against the guarded executor
+→ on SQLite error, retry with the error text (bounded retries). The result lands in
+the SQL editor visible, editable, runnable, and savable — not behind a curtain.
 
 Methods (add to `RPC_INVOKE_METHODS` in `src/shared/rpc.ts`; handler module
 `src/main/server/handlers/observability-handlers.ts`, wired in `server/index.ts`;
 clients bind automatically via `ws-transport.ts` / the preload):
 
-- `metricsQuery(spec)` — grouped rows.
+- `metricsQuery(spec)` — grouped rows from a QuerySpec.
+- `metricsRunSql(sql)` — rows from guarded SQL (editor and NL paths).
+- `metricsValidateSql(sql)` — `prepare()`-only on the read-only connection; returns
+  the SQLite error (with `sqlite3_error_offset` position when the binding exposes
+  it), guard violations, and on success the result column names. Never executes.
+- `metricsCompileNl(question)` — the NL→SQL agent flow; returns the generated SQL.
+- `metricsSchema()` — the field registry: views, columns, types, descriptions.
+- `metricsDistinctValues(column)` — distinct values for a registered
+  low-cardinality column (tool, model, provider, status, service).
 - `metricsListSavedQueries()` / `metricsSaveQuery(q)` / `metricsDeleteQuery(id)`.
 - `metricsSessionSummary(sessionId)` — rollup for session surfaces.
 - `metricsTurnTrace(traceId)` — one turn's full span tree (waterfall).
@@ -401,6 +456,30 @@ Components never call `window.solus.*` directly.
 - **Query builder:** kind picker, filter chips (columns + `attrs` paths), group-by /
   time-bucket, aggregates; chart + table; save. Row drill-through opens the session;
   turn rows open the waterfall (`metricsTurnTrace`).
+- **SQL editor** (desktop + web): CodeMirror 6 with `@codemirror/lang-sql` (SQLite
+  dialect — the only new package; `@codemirror/view/state/language/commands` are
+  already dependencies). No language server process; the LSP-like experience is
+  assembled from extensions:
+  - *Schema completion* — the dialect's `schema` config fed from `metricsSchema()`,
+    cached in the insights store. Views after `FROM`, columns after `view.` and in
+    `WHERE`. Completion reads the cache synchronously — never an RPC per keystroke.
+  - *Value completion* — a custom source: when the cursor is in a string literal
+    compared against a registered low-cardinality column, suggest
+    `metricsDistinctValues(column)` results (debounced, TTL-cached in the store).
+    The same mechanism suggests observed `attrs` JSON paths per kind for the
+    long tail.
+  - *Diagnostics* — debounced `metricsValidateSql` mapped onto `@codemirror/lint`:
+    SQLite-authoritative errors (anchored by error offset when available, else the
+    statement), guard violations shown before the run button is pressed, and a
+    result-column preview from the successful prepare.
+  - *Hover docs* — a `hoverTooltip` extension resolving identifiers against the
+    field registry (description, type, units), reusing the same one-liners the NL
+    agent's prompt uses. Snippet completions cover `strftime` time buckets and the
+    p95 window pattern.
+  - Extension setup is pure logic in `src/renderer/components/insights/lib/`;
+    schema and value caches live in `insights.store.svelte.ts`.
+- **NL option:** a prompt input beside the editor; `metricsCompileNl` fills the SQL
+  editor with the generated query for inspection, tweaks, execution, and saving.
 - **Internals toggle** ("Show Solus internals", persisted per user): adds
   `internal.*` kinds to the builder and reveals the Solus-health preset pack (RPC p95
   by method, indexer sweeps, worktree ops). Saved queries against internal kinds
@@ -456,7 +535,20 @@ the natural cross-host aggregation point for dispatch.
   automation takes); only scheduler plumbing is `internal.*`.
 - No transcript backfill in v1; metrics start at ship time. (Phase-2 option: indexer
   extension approximating historical durations from Claude transcript timestamps.)
-- No raw-SQL RPC escape hatch.
+- **Amended 2026-08-13 — guarded read-only SQL replaces "no raw-SQL RPC escape
+  hatch".** Both original premises are resolved: the executor opens a dedicated
+  read-only connection (`query_only`, single `SELECT`/`WITH` statement, no
+  `ATTACH`/`PRAGMA`, injected row cap, busy timeout), and SQL text is serializable
+  for saved queries. Exposure is scoped to `metrics.db` only. Motivation: NL→query
+  must target an existing language the model compiles reliably — SQLite SQL over
+  per-kind views — not a bespoke grammar with zero training data.
+- SQL does not round-trip into the chip builder; a saved query is owned by either
+  the builder (QuerySpec) or the editor (SQL) and the UI shows which. Decompiling
+  arbitrary SQL to QuerySpec is not worth building.
+- No LSP server for the SQL editor. Completion, diagnostics, and hover are
+  CodeMirror extensions over the field registry, and SQLite `prepare()` is the
+  validator. Rename/go-to-definition-class features are meaningless for
+  single-statement queries over half a dozen views.
 - `metricsRetentionDays` default 30; prune at boot + daily.
 - Mobile v1 read-only (approved exception, documented here).
 
@@ -484,12 +576,19 @@ Each WP lands green (`bun run build`, focused unit tests) before the next starts
   including interrupt, failure, parallel tools, queue drain, and Codex
   usage-delta cases.
 - **WP3 — Query engine + RPC + saved queries.** QuerySpec compiler (with percentile
-  pass, interval-union rollups, and derived uninstrumented time),
-  `observability-handlers.ts`, RPC registration
-  **plus the hand-maintained typed `SolusAPI` surface in `src/preload/index.ts`**,
-  `saved_queries` in `solus.db`. Tests: compiler golden cases incl. attrs paths and
-  time buckets.
-- **WP4 — Insights UI.** Store, presets, builder, waterfall, internals toggle;
+  pass, interval-union rollups, and derived uninstrumented time); the field
+  registry and generated per-kind views; the guarded read-only SQL executor;
+  the NL→SQL compile flow (`metricsCompileNl` → ephemeral agent, service
+  `solus.insights`, execute-and-retry); `observability-handlers.ts`, RPC
+  registration **plus the hand-maintained typed `SolusAPI` surface in
+  `src/preload/index.ts`**, `saved_queries` in `solus.db` (QuerySpec or SQL, with
+  owner form). Tests: compiler golden cases incl. attrs paths and time buckets;
+  guard rejection cases (multi-statement, write attempts, `ATTACH`/`PRAGMA`, row-cap
+  injection); view columns match the field registry; `metricsValidateSql` error and
+  result-column cases.
+- **WP4 — Insights UI.** Store, presets, builder, SQL editor (CodeMirror extensions:
+  schema/value completion, lint diagnostics, hover docs, snippets — adds
+  `@codemirror/lang-sql`), NL prompt input, waterfall, internals toggle;
   desktop + web; mobile read-only presets. One integrated pass after developer
   agreement, per house rules.
 - **WP5 — OTel + app emitters.** Settings-driven exporter (traces/metrics/logs,
