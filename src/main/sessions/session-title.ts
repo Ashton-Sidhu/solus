@@ -5,6 +5,7 @@ import type { AgentTool } from '../agents/tools/agent-tool'
 import { findOnPath, getCliPath } from '../cli-env'
 import { createLogger } from '../logger'
 import { AGENT_BIN, type AgentId, type ReasoningEffort, type SessionGeneratedMetadata } from '../../shared/types'
+import { resolveTextGenerationModel } from '../server/settings'
 
 const log = createLogger('main', 'session-title')
 
@@ -13,10 +14,15 @@ const MAX_DESCRIPTION_LENGTH = 1_000
 
 /** The cheapest model each backend has that still writes useful metadata, at
  * its lowest reasoning setting — scaffolding a thread must never cost a real turn. */
-const METADATA_MODELS: Record<'codex' | 'claude-code', { model: string; reasoningEffort: ReasoningEffort }> = {
+const METADATA_MODELS = {
   codex: { model: 'gpt-5.6-luna', reasoningEffort: 'low' },
   'claude-code': { model: 'claude-haiku-4-5-20251001', reasoningEffort: 'low' },
-}
+} satisfies { codex: { model: string; reasoningEffort: ReasoningEffort }; 'claude-code': { model: string; reasoningEffort: ReasoningEffort } }
+
+const sessionMetadataSchema = z.object({
+  title: z.string(),
+  description: z.string(),
+})
 
 function buildSessionMetadataPrompt(promptText: string): string {
   return [
@@ -45,14 +51,14 @@ function createSessionMetadataTool(capture: (metadata: SessionGeneratedMetadata)
       'Submit the name and ticket description for this chat thread. Call this EXACTLY ONCE,',
       'as your only action — the arguments ARE the answer, so do not also write prose.',
     ].join('\n'),
-    inputShape: {
+    inputFields: {
       title: z.string().describe('2-5 words in Title Case naming the task, e.g. "Auth Redirect Loop".'),
       description: z.string().describe('A concise Markdown ticket description of the requested outcome and context.'),
     },
     requiresApproval: false,
     execute: async (args) => {
-      const title = typeof args.title === 'string' ? args.title : ''
-      const description = typeof args.description === 'string' ? args.description : ''
+      const parsed = sessionMetadataSchema.parse(args)
+      const { title, description } = parsed
       if (!title.trim()) return { ok: false, text: 'title must be a non-empty string' }
       if (!description.trim()) return { ok: false, text: 'description must be a non-empty string' }
       capture({ title, description })
@@ -93,14 +99,6 @@ function isInstalled(agentId: AgentId): boolean {
 
 export type MetadataBackend = keyof typeof METADATA_MODELS
 
-/** Codex wins when it's installed — its small model is the cheapest of the two
- *  — and Claude's Haiku is the fallback. Null when neither CLI is present. */
-function metadataBackend(): MetadataBackend | null {
-  if (isInstalled('codex')) return 'codex'
-  if (isInstalled('claude-code')) return 'claude-code'
-  return null
-}
-
 /**
  * Name a session and describe its task from the opening prompt. Returns null
  * when no backend is available or the model omits either required field;
@@ -113,12 +111,12 @@ export async function generateSessionMetadata(
 ): Promise<SessionGeneratedMetadata | null> {
   const trimmed = promptText.trim()
   if (!trimmed) return null
-  const provider = metadataBackend()
-  if (!provider) {
+  const selection = resolveTextGenerationModel()
+  if (!isInstalled(selection.provider)) {
     log.warn('session_title_no_backend')
     return null
   }
-  return generateMetadataWith(dispatcher, provider, trimmed, cwd)
+  return generateMetadataWith(dispatcher, selection.provider, trimmed, cwd, selection.model)
 }
 
 /** The metadata run itself, against an already-chosen backend. */
@@ -127,8 +125,10 @@ export async function generateMetadataWith(
   provider: MetadataBackend,
   trimmed: string,
   cwd: string,
+  selectedModel?: string,
 ): Promise<SessionGeneratedMetadata | null> {
-  const { model, reasoningEffort } = METADATA_MODELS[provider]
+  const { model: defaultModel, reasoningEffort } = METADATA_MODELS[provider]
+  const model = selectedModel ?? defaultModel
   let submitted: SessionGeneratedMetadata | null = null
   let output = ''
   try {

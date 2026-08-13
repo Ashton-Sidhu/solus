@@ -6,11 +6,31 @@ import { createLogger } from '../logger'
 import { runAsync } from './exec'
 import { getWorkingTreeStats } from './session-snapshots'
 import { getDefaultBranchLocal, getExistingPR } from './worktree-manager'
+import { z } from 'zod'
+
+const gitCommandErrorSchema = z.object({
+  message: z.string().optional(),
+  stderr: z.string().optional(),
+  code: z.union([z.string(), z.number()]).optional(),
+  signal: z.string().nullable().optional(),
+})
 
 const log = createLogger('main', 'git-helpers')
 
-export function parseStatus(raw: string): { branch: string | null; files: UncommittedFile[]; hasMoreFiles: boolean } {
+export interface ParsedGitStatus {
+  branch: string | null
+  upstreamRef: string | null
+  aheadCount: number
+  behindCount: number
+  files: UncommittedFile[]
+  hasMoreFiles: boolean
+}
+
+export function parseStatus(raw: string): ParsedGitStatus {
   let branch: string | null = null
+  let upstreamRef: string | null = null
+  let aheadCount = 0
+  let behindCount = 0
   const files: UncommittedFile[] = []
   let hasMoreFiles = false
 
@@ -19,6 +39,18 @@ export function parseStatus(raw: string): { branch: string | null; files: Uncomm
     if (line.startsWith('# branch.head ')) {
       const value = line.slice('# branch.head '.length).trim()
       branch = value === '(detached)' ? null : value
+      continue
+    }
+    if (line.startsWith('# branch.upstream ')) {
+      upstreamRef = line.slice('# branch.upstream '.length).trim() || null
+      continue
+    }
+    if (line.startsWith('# branch.ab ')) {
+      const match = line.match(/^# branch\.ab \+(\d+) -(\d+)$/)
+      if (match) {
+        aheadCount = Number(match[1])
+        behindCount = Number(match[2])
+      }
       continue
     }
     if (line.startsWith('#')) continue
@@ -45,7 +77,7 @@ export function parseStatus(raw: string): { branch: string | null; files: Uncomm
     files.push({ path: filePath, conflicted })
   }
 
-  return { branch, files, hasMoreFiles }
+  return { branch, upstreamRef, aheadCount, behindCount, files, hasMoreFiles }
 }
 
 const statusInflight = new Map<string, Promise<GitState | null>>()
@@ -84,11 +116,16 @@ async function computeGitStateUncached(
     // a second status pipeline when the visible panel asks for details.
     const status = await computeGitState(cwd)
     if (!status) return null
-    const [workingTreeStats, prUrl] = await Promise.all([
+    const [workingTreeStats, prUrl, targetAheadCount] = await Promise.all([
       getWorkingTreeStats(cwd, status.repoRoot).catch(() => ({ additions: 0, deletions: 0 })),
       status.branch && status.branch !== status.targetBranch
         ? getExistingPR(status.branch, cwd, options.bypassCache === true)
         : Promise.resolve(null),
+      status.branch && status.branch !== status.targetBranch
+        ? runAsync('git', ['rev-list', '--count', `${status.targetBranch}..HEAD`], cwd)
+          .then((value) => Number(value) || 0)
+          .catch(() => 0)
+        : Promise.resolve(0),
     ])
     return {
       ...status,
@@ -97,6 +134,7 @@ async function computeGitStateUncached(
         insertions: workingTreeStats.additions,
         deletions: workingTreeStats.deletions,
       },
+      targetAheadCount,
       prUrl: prUrl ?? undefined,
     }
   }
@@ -126,6 +164,9 @@ async function computeGitStateUncached(
     // `--branch` reports the branch as of this scan; prefer it over identity's
     // separate read so branch and files always describe the same instant.
     branch: status.branch,
+    upstreamRef: status.upstreamRef,
+    aheadCount: status.aheadCount,
+    behindCount: status.behindCount,
     uncommittedChanges: {
       files: status.files,
       hasMoreFiles: status.hasMoreFiles,
@@ -181,12 +222,14 @@ export async function resolveRepoRoot(workTree: string): Promise<string | null> 
     const absolute = path.isAbsolute(commonDir) ? commonDir : path.resolve(workTree, commonDir)
     return path.dirname(absolute)
   } catch (err: any) {
+    const parsedError = gitCommandErrorSchema.safeParse(err)
+    const commandError = parsedError.success ? parsedError.data : {}
     log.warn('resolve_repo_root_failed', {
       cwd: workTree,
-      error: err?.message ?? String(err),
-      stderr: typeof err?.stderr === 'string' ? err.stderr.trim() : undefined,
-      code: err?.code,
-      signal: err?.signal,
+      error: commandError.message ?? String(err),
+      stderr: commandError.stderr?.trim(),
+      code: commandError.code,
+      signal: commandError.signal,
     })
     return null
   }

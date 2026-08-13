@@ -158,7 +158,7 @@ export class GitWatcher {
       entry.retry = null
       if (this.entries.get(checkoutCwd) === entry) void this._attach(checkoutCwd, entry)
     }, 500)
-    ;(entry.retry as unknown as { unref?: () => void }).unref?.()
+    entry.retry.unref()
   }
 
   private _schedule(checkoutCwd: string): void {
@@ -169,7 +169,7 @@ export class GitWatcher {
       entry.debounce = null
       this.onChange(checkoutCwd)
     }, DEBOUNCE_MS)
-    ;(entry.debounce as unknown as { unref?: () => void }).unref?.()
+    entry.debounce.unref()
   }
 
   private async _resolveGitPaths(checkoutCwd: string): Promise<GitWatchPaths | null> {

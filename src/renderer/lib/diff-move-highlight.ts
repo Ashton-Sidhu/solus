@@ -14,18 +14,18 @@ function resolveLine(
   const sideColumn = side === 'old' ? '[data-deletions]' : '[data-additions]'
   if (diffStyle === 'split') {
     const column = shadow.querySelector(sideColumn) ?? shadow.querySelector('[data-unified]')
-    return column?.querySelector(`[data-content] [data-line="${lineNumber}"]`) as HTMLElement | null
+    return column?.querySelector<HTMLElement>(`[data-content] [data-line="${lineNumber}"]`) ?? null
   }
 
   const column = shadow.querySelector('[data-unified]') ?? shadow.querySelector(sideColumn)
   const candidates = Array.from(
-    column?.querySelectorAll(`[data-content] [data-line="${lineNumber}"]`) ?? [],
+    column?.querySelectorAll<HTMLElement>(`[data-content] [data-line="${lineNumber}"]`) ?? [],
   )
   for (const candidate of candidates) {
     const deletion = candidate.getAttribute('data-line-type') === 'change-deletion'
-    if (side === 'old' ? deletion : !deletion) return candidate as HTMLElement
+    if (side === 'old' ? deletion : !deletion) return candidate
   }
-  return (candidates[0] as HTMLElement | undefined) ?? null
+  return candidates[0] ?? null
 }
 
 function clearDecorations(shadow: ShadowRoot): void {
@@ -43,11 +43,13 @@ function wrapRange(line: HTMLElement, side: 'old' | 'new', start: number, length
   const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT)
   const nodes: Array<{ node: Text; start: number; end: number }> = []
   let offset = 0
-  let node = walker.nextNode() as Text | null
+  let node = walker.nextNode()
   while (node) {
-    nodes.push({ node, start: offset, end: offset + node.data.length })
-    offset += node.data.length
-    node = walker.nextNode() as Text | null
+    if (node instanceof Text) {
+      nodes.push({ node, start: offset, end: offset + node.data.length })
+      offset += node.data.length
+    }
+    node = walker.nextNode()
   }
 
   for (let index = nodes.length - 1; index >= 0; index--) {

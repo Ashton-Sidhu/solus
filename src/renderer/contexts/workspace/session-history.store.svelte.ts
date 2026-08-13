@@ -1,15 +1,15 @@
 import type { AgentId, IpcContext, SessionMeta, SessionStatus } from '../../../shared/types'
 import { serverConnections } from '@client-core/server-connections'
 import {
+  HistorySessionOrder,
   SessionHistoryLoader,
-  sortedDedupedHistorySessions,
   type SessionHistoryLoaderOptions,
   type SessionHistorySource,
 } from '../../lib/sessionPickerHistory'
 
 interface SessionHistoryStoreLoadOptions {
   sources: SessionHistorySource[]
-  deferredSources?: Promise<SessionHistorySource[]>
+  deferredSources?: Promise<SessionHistorySource[]> | Array<Promise<SessionHistorySource[]>>
   ctx: IpcContext
   scopeKey?: string
   onBatch?: (sessions: SessionMeta[]) => void
@@ -55,6 +55,7 @@ export class SessionHistoryStore {
   sessions = $state<SessionMeta[]>([])
   loading = $state(false)
 
+  #order = new HistorySessionOrder()
   #loader: SessionHistoryLoader
   #loadSeq = 0
   #scopeKey: string | null = null
@@ -68,15 +69,16 @@ export class SessionHistoryStore {
     this.#loader.cancel()
     this.loading = false
     this.#scopeKey = null
-    if (options.clear) this.sessions = []
+    if (options.clear) this.clear()
   }
 
   clear(): void {
-    this.sessions = []
+    this.#replaceAll([])
   }
 
+  /** Fold a scan batch into the list, newest first and one row per session. */
   merge(sessions: SessionMeta[]): void {
-    this.sessions = sortedDedupedHistorySessions([...this.sessions, ...sessions])
+    this.#order.insert(this.sessions, sessions)
   }
 
   /** Keep an unmounted session's picker row live without rebuilding history. */
@@ -109,10 +111,13 @@ export class SessionHistoryStore {
         },
       })
       if (!this.#isCurrent(seq, scopeKey)) return []
-      this.sessions = sessions
+      // The request's own result is authoritative: it is the only thing that
+      // can drop a row the stream already showed (a deleted session), so it
+      // replaces the list rather than merging into it.
+      this.#replaceAll(sessions)
       return sessions
     } catch {
-      if (this.#isCurrent(seq, scopeKey)) this.sessions = []
+      if (this.#isCurrent(seq, scopeKey)) this.clear()
       return []
     } finally {
       if (this.#isCurrent(seq, scopeKey)) this.loading = false
@@ -136,6 +141,12 @@ export class SessionHistoryStore {
       scopeKey: `find:${source.provider ?? 'any'}:${source.projectPath}:${sessionId}`,
     })
     return sessions.find((meta) => meta.sessionId === sessionId) ?? null
+  }
+
+  /** Take an already-ordered list wholesale. */
+  #replaceAll(sessions: SessionMeta[]): void {
+    this.sessions = sessions
+    this.#order.reset(sessions)
   }
 
   #isCurrent(seq: number, scopeKey: string | undefined): boolean {

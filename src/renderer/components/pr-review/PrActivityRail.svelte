@@ -133,7 +133,9 @@
   const statusColor = $derived(
     !detail
       ? null
-      : readyToMerge || detail.state === "merged"
+      : detail.state === "merged"
+        ? "var(--review)"
+        : readyToMerge
         ? "var(--solus-art-positive)"
         : blocked
           ? "var(--solus-art-negative)"

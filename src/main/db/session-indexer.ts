@@ -2,6 +2,7 @@ import { watch, type FSWatcher } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, relative } from 'node:path'
+import { z } from 'zod'
 import type { SessionLoadMessage } from '../../shared/session-history'
 import type { AgentId, ReasoningEffort, SessionMeta, SessionSearchResult } from '../../shared/types'
 import {
@@ -22,29 +23,67 @@ const LINES_PER_TRANSACTION = 300
 const READ_CHUNK_BYTES = 256 * 1024
 export const MAX_INDEXED_SESSION_LINE_BYTES = 4 * 1024 * 1024
 const CODEX_SESSION_WATERMARK_KEY = 'codex-session-index-watermark'
+const CLAUDE_SWEEP_COMPLETED_KEY = 'claude-session-index-swept-at'
 
-interface SessionRow {
-  session_id: string
-  provider: string
-  cwd: string | null
-  project_path: string | null
-  is_worktree: number | null
-  slug: string | null
-  first_message: string | null
-  custom_title: string | null
-  last_timestamp: number | null
-  size: number | null
-  model: string | null
-  reasoning_effort: string | null
-  project_root: string | null
-  server_id: string | null
-  parent_session_id: string | null
-  root_session_id: string | null
-  delegation_exchange_id: string | null
-  delegation_depth: number | null
-  delegation_intent: string | null
-  delegation_created_at: number | null
-}
+const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode'])
+const storedProviderSchema = z.enum(['claude', 'claude-code', 'codex', 'opencode'])
+const reasoningEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'])
+const transcriptContentPartSchema = z.object({
+  type: z.string(),
+  text: z.string().optional(),
+})
+const transcriptLineSchema = z.object({
+  type: z.enum(['user', 'assistant']),
+  message: z.object({
+    content: z.union([z.string(), z.array(transcriptContentPartSchema)]),
+    role: z.string().optional(),
+  }),
+  timestamp: z.union([z.string(), z.number()]),
+  uuid: z.string().nullable().optional(),
+})
+const sessionRowSchema = z.object({
+  session_id: z.string(),
+  provider: storedProviderSchema,
+  cwd: z.string().nullable(),
+  project_path: z.string().nullable(),
+  is_worktree: z.number().nullable(),
+  slug: z.string().nullable(),
+  first_message: z.string().nullable(),
+  custom_title: z.string().nullable().optional(),
+  last_timestamp: z.number().nullable(),
+  size: z.number().nullable(),
+  model: z.string().nullable(),
+  reasoning_effort: reasoningEffortSchema.nullable(),
+  project_root: z.string().nullable(),
+  server_id: z.string().nullable().optional(),
+  parent_session_id: z.string().nullable(),
+  root_session_id: z.string().nullable(),
+  delegation_exchange_id: z.string().nullable(),
+  delegation_depth: z.number().nullable(),
+  delegation_intent: z.string().nullable(),
+  delegation_created_at: z.number().nullable(),
+})
+const countRowSchema = z.object({ count: z.number() })
+const offsetRowSchema = z.object({ last_offset: z.number() })
+const pathRowSchema = z.object({ path: z.string() })
+const storedMessageRowSchema = z.object({
+  role: z.string(),
+  ts: z.number().nullable(),
+  text: z.string(),
+})
+const valueRowSchema = z.object({ value: z.string() })
+const timestampRowSchema = z.object({
+  session_id: z.string(),
+  last_timestamp: z.number().nullable(),
+})
+const sessionIdRowSchema = z.object({ session_id: z.string() })
+const searchResultRowSchema = sessionRowSchema.extend({
+  snippet: z.string(),
+  hit_ts: z.number().nullable(),
+})
+const projectRootRowSchema = z.object({ project_root: z.string(), count: z.number() })
+
+type SessionRow = z.infer<typeof sessionRowSchema>
 
 /** The git-root that groups a repo with all its worktrees. Pure path op:
  *  Solus worktrees collapse to their originating project; everything else is
@@ -67,9 +106,10 @@ type StoredMessage = Omit<IndexedMessage, 'endOffset'>
 let watcher: FSWatcher | null = null
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let ready = false
+let sweptInEarlierRun: boolean | null = null
 let generation = 0
 let fullSweepPending = false
-let sweepQueue = Promise.resolve()
+let sweepQueue: Promise<unknown> = Promise.resolve()
 const changedPaths = new Set<string>()
 
 function yieldToMain(): Promise<void> {
@@ -115,25 +155,24 @@ export function resetSession(filePath: string, sessionId: string, size: number, 
 
 function extractMessage(line: string, endOffset: number): IndexedMessage | null {
   try {
-    const obj = JSON.parse(line)
-    if ((obj.type !== 'user' && obj.type !== 'assistant') || !obj.message) return null
+    const parsed = transcriptLineSchema.safeParse(JSON.parse(line))
+    if (!parsed.success) return null
+    const obj = parsed.data
 
     const content = obj.message.content
-    const text = typeof content === 'string'
+    const text = Array.isArray(content)
       ? content
-      : Array.isArray(content)
-        ? content
-          .filter((item: any) => item?.type === 'text' && typeof item.text === 'string')
-          .map((item: any) => item.text)
-          .join('\n')
-        : ''
+        .filter((item) => item.type === 'text')
+        .map((item) => item.text ?? '')
+        .join('\n')
+      : content
     if (!text.trim()) return null
 
     const parsedTs = new Date(obj.timestamp).getTime()
     return {
       endOffset,
-      uuid: typeof obj.uuid === 'string' ? obj.uuid : null,
-      role: typeof obj.message.role === 'string' ? obj.message.role : obj.type,
+      uuid: obj.uuid ?? null,
+      role: obj.message.role ?? obj.type,
       ts: Number.isFinite(parsedTs) ? parsedTs : null,
       text,
     }
@@ -325,8 +364,9 @@ function upsertSession(
   size: number,
 ): void {
   const db = getDb()
-  const count = db.prepare('SELECT COUNT(*) AS count FROM session_messages WHERE session_id = ?')
-    .get(sessionId) as { count: number }
+  const count = countRowSchema.parse(
+    db.prepare('SELECT COUNT(*) AS count FROM session_messages WHERE session_id = ?').get(sessionId),
+  )
   db.prepare(`
     INSERT INTO sessions(
       session_id, provider, cwd, project_path, project_key, project_root, is_worktree,
@@ -359,37 +399,41 @@ function upsertSession(
   )
 }
 
-async function indexFile(filePath: string, activeGeneration: number): Promise<void> {
+/** Resolves true when the file needed work, so a sweep can report how much of
+ *  the store it actually had to read. */
+async function indexFile(filePath: string, activeGeneration: number): Promise<boolean> {
   let fileStat
   try {
     fileStat = await stat(filePath)
   } catch (error: any) {
     if (error?.code === 'ENOENT') {
-      if (activeGeneration === generation) deleteSessionFile(filePath)
-      return
+      if (activeGeneration !== generation) return false
+      deleteSessionFile(filePath)
+      return true
     }
     throw error
   }
-  if (activeGeneration !== generation || !fileStat.isFile()) return
+  if (activeGeneration !== generation || !fileStat.isFile()) return false
 
   const db = getDb()
-  const tracked = db.prepare('SELECT last_offset FROM session_files WHERE path = ?')
-    .get(filePath) as { last_offset: number } | undefined
+  const tracked = offsetRowSchema.nullish().parse(
+    db.prepare('SELECT last_offset FROM session_files WHERE path = ?').get(filePath),
+  )
   const lastOffset = tracked?.last_offset ?? 0
-  if (fileStat.size === lastOffset) return
+  if (fileStat.size === lastOffset) return false
 
   const sessionId = basename(filePath, '.jsonl')
   const mtime = Math.trunc(fileStat.mtimeMs)
   if (fileStat.size < 100) {
     resetSession(filePath, sessionId, fileStat.size, mtime)
-    return
+    return true
   }
   if (!tracked || fileStat.size < lastOffset) {
     resetSession(filePath, sessionId, fileStat.size, mtime)
   }
   const readOffset = !tracked || fileStat.size < lastOffset ? 0 : lastOffset
   const meta = await readSessionHeadMeta(filePath)
-  if (activeGeneration !== generation) return
+  if (activeGeneration !== generation) return false
   if (!meta.validated || meta.isSidechain) {
     resetSession(filePath, sessionId, fileStat.size, mtime)
     // De-list sidechain/unparseable files — but a session file mid-write can
@@ -404,7 +448,7 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<vo
       SET last_offset = ?, indexed_at = ?
       WHERE path = ?
     `).run(fileStat.size, Date.now(), filePath)
-    return
+    return true
   }
 
   const projectPath = relative(PROJECTS_ROOT, filePath).split(/[\\/]/)[0] || basename(dirname(filePath))
@@ -412,7 +456,7 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<vo
   let lastIndexedOffset = readOffset
 
   for await (const records of readTailRecordBatches(filePath, readOffset, fileStat.size)) {
-    if (activeGeneration !== generation) return
+    if (activeGeneration !== generation) return false
     lastIndexedOffset = records.at(-1)!.endOffset
     withTx(() => {
       const openedDb = getDb()
@@ -425,7 +469,7 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<vo
     })
     await yieldToMain()
   }
-  if (activeGeneration !== generation) return
+  if (activeGeneration !== generation) return false
 
   withTx(() => {
     upsertSession(
@@ -444,6 +488,7 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<vo
       WHERE path = ?
     `).run(fileStat.size, mtime, lastIndexedOffset, Date.now(), filePath)
   })
+  return true
 }
 
 async function listTranscriptFiles(activeGeneration: number): Promise<string[]> {
@@ -471,24 +516,35 @@ async function listTranscriptFiles(activeGeneration: number): Promise<string[]> 
   return files
 }
 
-async function sweepAll(activeGeneration: number): Promise<void> {
+interface SweepResult {
+  /** Transcripts the store holds. */
+  files: number
+  /** Of those, the ones that had changed and had to be read. */
+  indexed: number
+}
+
+async function sweepAll(activeGeneration: number): Promise<SweepResult> {
   const files = await listTranscriptFiles(activeGeneration)
-  if (activeGeneration !== generation) return
+  const result: SweepResult = { files: files.length, indexed: 0 }
+  if (activeGeneration !== generation) return result
   const seen = new Set(files)
   for (const filePath of files) {
     try {
-      await indexFile(filePath, activeGeneration)
+      if (await indexFile(filePath, activeGeneration)) result.indexed++
     } catch (error) {
       log.warn('session_index_file_failed', { filePath, error: error instanceof Error ? error.message : String(error) })
     }
     await yieldToMain()
   }
-  if (activeGeneration !== generation) return
+  if (activeGeneration !== generation) return result
 
-  const tracked = getDb().prepare("SELECT path FROM session_files WHERE provider = 'claude'").all() as Array<{ path: string }>
+  const tracked = pathRowSchema.array().parse(
+    getDb().prepare("SELECT path FROM session_files WHERE provider = 'claude'").all(),
+  )
   for (const { path } of tracked) {
     if (!seen.has(path)) deleteSessionFile(path)
   }
+  return result
 }
 
 function scheduleSweep(filename: string | Buffer | null): void {
@@ -517,7 +573,7 @@ function scheduleSweep(filename: string | Buffer | null): void {
       .then(() => runFullSweep
         ? sweepAll(activeGeneration)
         : paths.reduce(
-          (promise, filePath) => promise.then(() => indexFile(filePath, activeGeneration)),
+          (promise, filePath) => promise.then(async () => { await indexFile(filePath, activeGeneration) }),
           Promise.resolve(),
         ))
     void sweepQueue.catch((error) => log.warn('session_index_sweep_failed', { error: error instanceof Error ? error.message : String(error) }))
@@ -537,7 +593,14 @@ export function startSessionIndexer(): void {
   stopSessionIndexer()
   const activeGeneration = generation
   ready = false
+  const startedAt = Date.now()
+  log.info('session_index_sweep_started', { servingListsFromIndex: sweptInAnEarlierRun() })
   void sweepAll(activeGeneration)
+    .then(({ files, indexed }) => {
+      if (activeGeneration !== generation) return
+      markSweepCompleted()
+      log.info('session_index_sweep_completed', { durationMs: Date.now() - startedAt, files, indexed })
+    })
     .catch((error) => log.warn('session_index_initial_sweep_failed', { error: error instanceof Error ? error.message : String(error) }))
     .finally(() => {
       if (activeGeneration !== generation) return
@@ -549,6 +612,7 @@ export function startSessionIndexer(): void {
 export function stopSessionIndexer(): void {
   generation++
   ready = false
+  sweptInEarlierRun = null
   watcher?.close()
   watcher = null
   if (debounceTimer) clearTimeout(debounceTimer)
@@ -557,11 +621,43 @@ export function stopSessionIndexer(): void {
   fullSweepPending = false
 }
 
-export function sessionIndexReady(): boolean {
-  return ready
+/** Whether some earlier run of this app finished a sweep of the whole store.
+ *  Cached after the first read: every session list asks, and it changes at most
+ *  once in a process. */
+function sweptInAnEarlierRun(): boolean {
+  if (sweptInEarlierRun === null) {
+    sweptInEarlierRun = Boolean(getDb().prepare('SELECT 1 FROM kv WHERE key = ?').get(CLAUDE_SWEEP_COMPLETED_KEY))
+  }
+  return sweptInEarlierRun
+}
+
+function markSweepCompleted(): void {
+  getDb().prepare(`
+    INSERT INTO kv(key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(CLAUDE_SWEEP_COMPLETED_KEY, String(Date.now()))
+  sweptInEarlierRun = true
+}
+
+/**
+ * Whether a session list can be answered from the index instead of reading
+ * every transcript off disk.
+ *
+ * True once this run's sweep finishes — and from the first moment of every run
+ * after the first, because an earlier sweep already indexed the whole store and
+ * this run's sweep only catches up on what changed while the app was closed.
+ * Waiting for the sweep instead made each launch open its first picker against
+ * the filesystem: for one busy project that is a head-read of ~600 transcripts.
+ *
+ * Before any sweep has ever completed the index is still filling, so a list
+ * read would return a project that looks complete and is not.
+ */
+export function sessionIndexComplete(): boolean {
+  return ready || sweptInAnEarlierRun()
 }
 
 function rowToSession(row: SessionRow): SessionMeta {
+  const provider = agentIdSchema.parse(row.provider === 'claude' ? 'claude-code' : row.provider)
   const delegation = row.parent_session_id
     && row.root_session_id
     && row.delegation_exchange_id
@@ -578,7 +674,7 @@ function rowToSession(row: SessionRow): SessionMeta {
       }
     : undefined
   return {
-    provider: row.provider === 'claude' ? 'claude-code' : (row.provider as AgentId),
+    provider,
     sessionId: row.session_id,
     slug: row.slug,
     firstMessage: row.first_message,
@@ -589,7 +685,7 @@ function rowToSession(row: SessionRow): SessionMeta {
     projectPath: row.project_path ?? '',
     isWorktree: row.is_worktree === 1,
     model: row.model ?? undefined,
-    reasoningEffort: (row.reasoning_effort as SessionMeta['reasoningEffort']) ?? undefined,
+    reasoningEffort: row.reasoning_effort ?? undefined,
     projectRoot: row.project_root ?? undefined,
     serverId: row.server_id ?? undefined,
     delegation,
@@ -604,17 +700,19 @@ const SESSION_SELECT = `
 `
 
 export function getIndexedSession(sessionId: string): SessionMeta | null {
-  const row = getDb().prepare(`SELECT ${SESSION_SELECT} FROM sessions WHERE session_id = ?`).get(sessionId) as SessionRow | undefined
+  const row = sessionRowSchema.nullish().parse(
+    getDb().prepare(`SELECT ${SESSION_SELECT} FROM sessions WHERE session_id = ?`).get(sessionId),
+  )
   return row ? rowToSession(row) : null
 }
 
 export function getSessionMessages(sessionId: string): Array<{ role: string; ts: number | null; text: string }> {
-  return getDb().prepare(`
+  return storedMessageRowSchema.array().parse(getDb().prepare(`
     SELECT role, ts, text
     FROM session_messages
     WHERE session_id = ?
     ORDER BY ts ASC, id ASC
-  `).all(sessionId) as Array<{ role: string; ts: number | null; text: string }>
+  `).all(sessionId))
 }
 
 export function persistIndexedSessionStart(
@@ -699,13 +797,13 @@ export function setSessionCustomTitle(sessionId: string, title: string | null): 
 export function listIndexedSessions(projectPaths: string[], limit?: number): SessionMeta[] {
   if (projectPaths.length === 0) return []
   const placeholders = projectPaths.map(() => '?').join(', ')
-  const rows = getDb().prepare(`
+  const rows = sessionRowSchema.array().parse(getDb().prepare(`
     SELECT ${SESSION_SELECT}
     FROM sessions
     WHERE provider = 'claude' AND project_path IN (${placeholders})
     ORDER BY last_timestamp DESC
     ${limit === undefined ? '' : 'LIMIT ?'}
-  `).all(...projectPaths, ...(limit === undefined ? [] : [limit])) as unknown as SessionRow[]
+  `).all(...projectPaths, ...(limit === undefined ? [] : [limit])))
   return rows.map(rowToSession)
 }
 
@@ -713,7 +811,7 @@ export function listIndexedCodexSessions(projectPath: string, limit?: number): S
   const normalizedPath = projectPath.replace(/\/$/, '')
   const encodedPath = encodePathAsFolder(normalizedPath)
   const includeWorktrees = !isSolusWorktreePath(normalizedPath)
-  const rows = getDb().prepare(`
+  const rows = sessionRowSchema.array().parse(getDb().prepare(`
     SELECT ${SESSION_SELECT}
     FROM sessions
     WHERE provider = 'codex'
@@ -724,7 +822,7 @@ export function listIndexedCodexSessions(projectPath: string, limit?: number): S
     encodedPath,
     ...(includeWorktrees ? [`${encodedPath}${SOLUS_WORKTREE_ENCODED_MARKER}%`] : []),
     ...(limit === undefined ? [] : [limit]),
-  ) as unknown as SessionRow[]
+  ))
   return rows.map(rowToSession)
 }
 
@@ -766,8 +864,9 @@ export function cacheIndexedSessions(sessions: SessionMeta[]): void {
 }
 
 export function getCodexSessionIndexWatermark(): number | null {
-  const row = getDb().prepare('SELECT value FROM kv WHERE key = ?')
-    .get(CODEX_SESSION_WATERMARK_KEY) as { value: string } | undefined
+  const row = valueRowSchema.nullish().parse(
+    getDb().prepare('SELECT value FROM kv WHERE key = ?').get(CODEX_SESSION_WATERMARK_KEY),
+  )
   if (!row) return null
   const value = Number(row.value)
   return Number.isFinite(value) ? value : null
@@ -785,11 +884,11 @@ export function getIndexedCodexSessionTimestamps(sessionIds: string[]): Map<stri
   for (let offset = 0; offset < sessionIds.length; offset += 500) {
     const batch = sessionIds.slice(offset, offset + 500)
     const placeholders = batch.map(() => '?').join(', ')
-    const rows = getDb().prepare(`
+    const rows = timestampRowSchema.array().parse(getDb().prepare(`
       SELECT session_id, last_timestamp
       FROM sessions
       WHERE provider = 'codex' AND session_id IN (${placeholders})
-    `).all(...batch) as unknown as Array<{ session_id: string; last_timestamp: number | null }>
+    `).all(...batch))
     for (const row of rows) timestamps.set(row.session_id, row.last_timestamp ?? 0)
   }
   return timestamps
@@ -804,11 +903,11 @@ export function getCodexSessionsWithMessages(sessionIds: string[]): Set<string> 
   for (let offset = 0; offset < sessionIds.length; offset += 500) {
     const batch = sessionIds.slice(offset, offset + 500)
     const placeholders = batch.map(() => '?').join(', ')
-    const rows = getDb().prepare(`
+    const rows = sessionIdRowSchema.array().parse(getDb().prepare(`
       SELECT DISTINCT session_id
       FROM session_messages
       WHERE session_id IN (${placeholders})
-    `).all(...batch) as unknown as Array<{ session_id: string }>
+    `).all(...batch))
     for (const row of rows) withMessages.add(row.session_id)
   }
   return withMessages
@@ -847,7 +946,7 @@ export function searchIndexedSessions(
   if (filters.untilTs !== undefined) params.push(filters.untilTs)
   params.push(limit)
 
-  const rows = getDb().prepare(`
+  const rows = searchResultRowSchema.array().parse(getDb().prepare(`
     WITH hits AS MATERIALIZED (
       SELECT
         s.session_id,
@@ -893,7 +992,7 @@ export function searchIndexedSessions(
     )
     ORDER BY rank ASC
     LIMIT ?
-  `).all(...params) as unknown as Array<SessionRow & { snippet: string; hit_ts: number | null }>
+  `).all(...params))
 
   return rows.map((row) => ({
     session: rowToSession(row),
@@ -905,13 +1004,13 @@ export function searchIndexedSessions(
 /** Every distinct project (git-root) that has indexed sessions, most-recent
  *  first. `name` is the root's folder name — the label an agent matches against. */
 export function listProjectRoots(): Array<{ projectRoot: string; name: string; count: number }> {
-  const rows = getDb().prepare(`
+  const rows = projectRootRowSchema.array().parse(getDb().prepare(`
     SELECT project_root, COUNT(*) AS count
     FROM sessions
     WHERE project_root IS NOT NULL AND project_root <> ''
     GROUP BY project_root
     ORDER BY MAX(last_timestamp) DESC
-  `).all() as Array<{ project_root: string; count: number }>
+  `).all())
   return rows.map((row) => ({
     projectRoot: row.project_root,
     name: basename(row.project_root),

@@ -1,6 +1,24 @@
 import { uuid } from '../shared/uuid'
+import { z } from 'zod'
 import type { SavedServer } from './server-registry'
-import type { SshBootstrapCredential } from '../shared/types'
+import type { HostOperatingSystem, SshBootstrapCredential } from '../shared/types'
+import { localApi } from './local-api'
+
+const serverErrorSchema = z.object({ error: z.string().optional() })
+const pairResponseSchema = z.object({
+  sessionToken: z.string().optional(),
+  installationId: z.string().optional(),
+  os: z.enum(['macos', 'windows', 'linux']).optional(),
+})
+const claimResponseSchema = z.object({
+  ok: z.boolean().optional(),
+  sessionToken: z.string().optional(),
+  ownerDeviceId: z.string().optional(),
+  claimedAt: z.number().optional(),
+  installationId: z.string().optional(),
+  fingerprint: z.string().optional(),
+  os: z.enum(['macos', 'windows', 'linux']).optional(),
+})
 
 export interface ParsedPairLink {
   url: string
@@ -69,10 +87,7 @@ export function urlHost(url: string): string {
  * device list distinguishes a phone from the desktop that paired it.
  */
 export function defaultDeviceLabel(): string {
-  const isBrowser = typeof navigator !== 'undefined'
-    && typeof window !== 'undefined'
-    && !(window as { solusNative?: unknown }).solusNative
-  if (!isBrowser) return 'Solus desktop'
+  if (localApi.getPlatform() !== 'web') return 'Solus desktop'
   const ua = navigator.userAgent
   const os = /iPhone|iPad/.test(ua) ? 'iOS'
     : /Android/.test(ua) ? 'Android'
@@ -99,11 +114,11 @@ export async function pairServer(input: PairServerInput): Promise<PairServerResu
     }),
   })
   if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as { error?: string }
+    const body = serverErrorSchema.parse(await res.json().catch(() => ({})))
     throw new Error(body.error ?? `Pair failed (${res.status})`)
   }
 
-  const body = await res.json() as { sessionToken?: string; installationId?: string }
+  const body = pairResponseSchema.parse(await res.json())
   if (!body.sessionToken) throw new Error('Pair response did not include a session token')
 
   const server: SavedServer = {
@@ -112,6 +127,7 @@ export async function pairServer(input: PairServerInput): Promise<PairServerResu
     url,
     sessionToken: body.sessionToken,
     installationId: body.installationId,
+    os: body.os,
     lastConnected: Date.now(),
   }
 
@@ -129,24 +145,17 @@ export async function claimServer(input: ClaimServerInput): Promise<ClaimServerR
     }),
   })
   if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as { error?: string }
+    const body = serverErrorSchema.parse(await res.json().catch(() => ({})))
     throw new Error(body.error ?? `Claim failed (${res.status})`)
   }
 
-  const body = await res.json() as {
-    ok?: boolean
-    sessionToken?: string
-    ownerDeviceId?: string
-    claimedAt?: number
-    installationId?: string
-    fingerprint?: string
-  }
+  const body = claimResponseSchema.parse(await res.json())
   if (body.ok !== true) throw new Error('Claim response did not confirm ownership')
   if (!body.sessionToken) throw new Error('Claim response did not include a session token')
   if (!body.ownerDeviceId) throw new Error('Claim response did not include an owner device id')
   if (!body.installationId) throw new Error('Claim response did not include an installation id')
   if (!body.fingerprint) throw new Error('Claim response did not include a fingerprint')
-  if (typeof body.claimedAt !== 'number') throw new Error('Claim response did not include a claim timestamp')
+  if (body.claimedAt === undefined) throw new Error('Claim response did not include a claim timestamp')
 
   const server: SavedServer = {
     id: body.installationId,
@@ -154,6 +163,7 @@ export async function claimServer(input: ClaimServerInput): Promise<ClaimServerR
     url,
     sessionToken: body.sessionToken,
     installationId: body.installationId,
+    os: body.os,
     lastConnected: Date.now(),
   }
 
@@ -171,6 +181,7 @@ export function saveBootstrappedServer(
   urlInput: string,
   credential: SshBootstrapCredential,
   serverLabel?: string,
+  os?: HostOperatingSystem,
 ): SavedServer {
   const url = normalizeServerUrl(urlInput)
   return {
@@ -179,6 +190,7 @@ export function saveBootstrappedServer(
     url,
     sessionToken: credential.sessionToken,
     installationId: credential.installationId,
+    os,
     lastConnected: Date.now(),
   }
 }

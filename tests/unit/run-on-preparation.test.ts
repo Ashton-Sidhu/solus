@@ -57,6 +57,50 @@ describe('automatic Run on repository preparation', () => {
     expect(args).toEqual([{ cloneUrl: 'https://github.com/solus-sh/solus.git' }])
   })
 
+  test('asks the target host to use the exact selected worktree', async () => {
+    const requests: unknown[] = []
+    await prepareHostCheckout({
+      target: {
+        setupPrepareProject: async (request: unknown) => {
+          requests.push(request)
+          return { path: '/srv/projects/solus', projectKey: 'project', action: 'updated' as const }
+        },
+      },
+      local: {
+        githubExportCredential: async () => { throw new Error('not used for the resolved local host') },
+      },
+    }, serverConnections.resolveId(LOCAL_SERVER_ID), 'github.com/solus-sh/solus', '/srv/projects/solus/.solus-worktrees/release')
+
+    // WHY: the selected worktree is a target-host path. Preparation validates
+    // and returns it without trying to use that path on the source host.
+    expect(requests).toEqual([{
+      cloneUrl: 'https://github.com/solus-sh/solus.git',
+      worktreePath: '/srv/projects/solus/.solus-worktrees/release',
+    }])
+  })
+
+  test('asks the target host to materialize the selected origin branch', async () => {
+    const requests: unknown[] = []
+    await prepareHostCheckout({
+      target: {
+        setupPrepareProject: async (request: unknown) => {
+          requests.push(request)
+          return { path: '/srv/projects/solus', projectKey: 'project', action: 'updated' as const }
+        },
+      },
+      local: {
+        githubExportCredential: async () => { throw new Error('not used for the resolved local host') },
+      },
+    }, serverConnections.resolveId(LOCAL_SERVER_ID), 'github.com/solus-sh/solus', undefined, 'release')
+
+    // WHY: the destination must materialize the chosen origin branch as the
+    // worktree where the session runs. The source checkout remains untouched.
+    expect(requests).toEqual([{
+      cloneUrl: 'https://github.com/solus-sh/solus.git',
+      baseBranch: 'release',
+    }])
+  })
+
   test('rejects an identity that cannot name a clone remote', () => {
     expect(cloneUrlForRepoKey('local-only')).toBeNull()
   })

@@ -10,6 +10,11 @@ export interface FlagSpec {
   missingValueMessage?: string
 }
 
+export interface GitCredentialAction<T> {
+  action: T
+  args: string[]
+}
+
 const GIT_CREDENTIAL_VALUE_FLAGS = new Set(['--data-dir', '--delegation'])
 
 /**
@@ -20,7 +25,7 @@ const GIT_CREDENTIAL_VALUE_FLAGS = new Set(['--data-dir', '--delegation'])
 export function extractGitCredentialAction<T>(
   args: string[],
   coerceAction: (value: string | undefined) => T,
-): { action: T; args: string[] } {
+): GitCredentialAction<T> {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
     const equalsAt = arg.indexOf('=')
@@ -66,7 +71,7 @@ export function hostForUrl(host: string): string {
 }
 
 export function bestEndpoint<T extends Endpoint>(endpoints: T[]): T | null {
-  const valid = endpoints.filter((endpoint) => typeof endpoint.host === 'string' && Number.isInteger(endpoint.port))
+  const valid = endpoints.filter((endpoint) => endpoint.host.trim().length > 0 && Number.isInteger(endpoint.port))
   return valid.find((endpoint) => endpoint.kind === 'tailnet') ??
     valid.find((endpoint) => endpoint.kind === 'lan') ??
     valid[0] ??

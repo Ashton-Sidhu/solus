@@ -1,16 +1,25 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentTool, AgentToolContext } from '../tools/agent-tool'
 import { assertUniqueAgentTools, executeAgentTool } from '../tools/agent-tool'
+import { z } from 'zod'
 
 /** The CLI stamps every MCP tools/call request with the streamed tool-use id
  *  under this `_meta` key. Undocumented, so treat it as best-effort: absent id
  *  → subagent events render un-nested, nothing else degrades. */
 const TOOL_USE_ID_META_KEY = 'claudecode/toolUseId'
+const claudeToolExtraSchema = z.object({
+  _meta: z.object({ 'claudecode/toolUseId': z.string().optional() }).optional(),
+})
 
-export function claudeParentToolUseId(extra: unknown): string | undefined {
-  const meta = (extra as { _meta?: { 'claudecode/toolUseId'?: unknown } } | undefined)?._meta
-  const id = meta?.[TOOL_USE_ID_META_KEY]
-  return typeof id === 'string' && id ? id : undefined
+interface ClaudeToolResponse {
+  content: Array<{ type: 'text'; text: string }>
+  isError?: true
+}
+
+export function claudeParentToolUseId(extra: z.input<typeof claudeToolExtraSchema>): string | undefined {
+  const parsed = claudeToolExtraSchema.safeParse(extra)
+  const id = parsed.success ? parsed.data._meta?.[TOOL_USE_ID_META_KEY] : undefined
+  return id || undefined
 }
 
 export function adaptClaudeTools(
@@ -23,7 +32,7 @@ export function adaptClaudeTools(
     name: 'solus',
     version: '1.0.0',
     tools: tools.map((agentTool) =>
-      tool(agentTool.name, agentTool.description, agentTool.inputShape, async (input, extra) => {
+      tool(agentTool.name, agentTool.description, agentTool.inputFields, async (input, extra) => {
         const parentToolUseId = claudeParentToolUseId(extra)
         const result = permissionMode === 'plan' && agentTool.requiresApproval
           ? {
@@ -34,10 +43,11 @@ export function adaptClaudeTools(
               ...context,
               parentToolUseId: () => parentToolUseId,
             })
-        return {
+        const response: ClaudeToolResponse = {
           content: [{ type: 'text' as const, text: result.text }],
-          ...(result.ok ? {} : { isError: true as const }),
         }
+        if (!result.ok) response.isError = true
+        return response
       }),
     ),
   })

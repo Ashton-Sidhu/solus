@@ -90,7 +90,7 @@
     draftingCwd = cwd;
     draftingServerId = serverConnections.connectionFor()?.serverId ?? null;
     if (!draftingServerId) {
-      toasts.error("Couldn't start a session: no host is connected");
+      toasts.error("Couldn't start a session", { description: "No host is connected" });
       dismissDraft();
       return;
     }
@@ -134,7 +134,7 @@
     if (seedingId) return;
     const serverId = serverConnections.connectionFor()?.serverId;
     if (!serverId) {
-      toasts.error("Couldn't create that automation: no host is connected");
+      toasts.error("Couldn't create that automation", { description: "No host is connected" });
       return;
     }
     seedingId = template.id;

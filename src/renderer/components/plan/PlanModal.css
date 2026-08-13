@@ -87,8 +87,10 @@
     }
   }
 
-  @media (max-width: 1800px) and (min-width: 768px) {
-    .plan-shell:not(.h-full) {
+  /* Runtime owns the laptop threshold and publishes it on <html>, so the plan
+     surface cannot drift from Pill mode or the web client. */
+  @media (min-width: 768px) {
+    html.is-laptop-viewport .plan-shell:not(.h-full) {
       width: 100dvw !important;
       max-width: none !important;
       border-inline: none !important;

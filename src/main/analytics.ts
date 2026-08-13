@@ -13,7 +13,7 @@ type BridgedLogEvent = Extract<keyof ServerEventMap,
   'worktree_created' | 'automation_run_succeeded' | 'automation_run_failed' |
   'skill_installed' | 'pair_token_generated' | 'model_installed'>
 
-export const BRIDGED_LOG_EVENTS = new Set<BridgedLogEvent>([
+export const BRIDGED_LOG_EVENTS = new Set<string>([
   'worktree_created',
   'automation_run_succeeded',
   'automation_run_failed',
@@ -21,6 +21,10 @@ export const BRIDGED_LOG_EVENTS = new Set<BridgedLogEvent>([
   'pair_token_generated',
   'model_installed',
 ])
+
+function isBridgedLogEvent(message: string): message is BridgedLogEvent {
+  return BRIDGED_LOG_EVENTS.has(message)
+}
 
 function getClient(): PostHog | null {
   const apiKey = process.env.SOLUS_POSTHOG_KEY
@@ -56,8 +60,8 @@ export function captureBridgedLogEvent(
   msg: string,
   capture: (event: BridgedLogEvent, props: ServerEventMap[BridgedLogEvent]) => void = captureServerEvent,
 ): void {
-  if (BRIDGED_LOG_EVENTS.has(msg as BridgedLogEvent)) {
-    capture(msg as BridgedLogEvent, {})
+  if (isBridgedLogEvent(msg)) {
+    capture(msg, {})
   }
 }
 

@@ -28,11 +28,13 @@
   import {
     repoKeyForPath,
     returnsToProjectHome,
+    isNewWorktreeStartSelected,
     shouldShowRunOnPicker,
     withLocalStart,
     withRemoteDispatch,
   } from "./run-on";
   import {
+    withDispatchWorktree,
     withPendingHost,
     withProjectHost,
   } from "../../contexts/workspace/run-config";
@@ -60,6 +62,8 @@
      * mind free.
      */
     onRun: (next: RunConfig) => void;
+    /** Return focus to the composer once the menu closes. */
+    onDismiss?: () => void;
     /**
      * `chip` is the standalone "Run on: X" pill the pill-mode status row uses.
      * `header` is the input bar's "Start in" chip, which answers where the next
@@ -78,6 +82,7 @@
     requesterId,
     locked = false,
     onRun,
+    onDismiss,
     variant = "chip",
     paneId,
   }: Props = $props();
@@ -91,6 +96,11 @@
     localApi.getPlatform() === "web" && !serverConnections.connectionFor();
   const selectedHostId = $derived(
     run.pendingHostDispatch?.serverId ?? run.serverId,
+  );
+  const pendingDispatch = $derived(
+    run.pendingHostDispatch?.intent === "dispatch"
+      ? run.pendingHostDispatch
+      : null,
   );
   // Every worktree answer follows from the run, so this picker reads them itself
   // rather than having four booleans handed down and kept in sync.
@@ -153,6 +163,9 @@
   );
   const startInLabel = $derived(target.label);
   const startsNewWorktree = $derived(target.startsWorktree);
+  const newWorktreeStartSelected = $derived(
+    isNewWorktreeStartSelected(onRemoteHost, startsNewWorktree),
+  );
   // A disabled row with no reason is the worst of both worlds, so say why the
   // choice is off the table.
   const worktreeBlockedNote = $derived(target.worktreeBlockedNote);
@@ -210,7 +223,7 @@
   // keeps mounted, so the same keystroke never opens a menu off-screen.
   $effect(() => {
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ paneId: string | null }>).detail;
+      const detail = event instanceof CustomEvent ? event.detail : undefined;
       if ((detail?.paneId ?? null) !== (paneId ?? null)) return;
       if (!showPicker || locked) return;
       if (triggerEl && triggerEl.offsetParent === null) return;
@@ -337,14 +350,29 @@
     open = false;
   }
 
+  /** Keep the selected remote host and return its checkout choice to a fresh
+   * isolated worktree. Local runs continue through the normal local toggle. */
+  function chooseNewWorktree() {
+    if (pendingDispatch) {
+      onRun(withDispatchWorktree(run, null));
+      open = false;
+      return;
+    }
+    chooseLocalStart(true);
+  }
+
   function handleOpenChange(next: boolean) {
     open = next;
     if (next) {
       triggerTooltipOpen = false;
       void serversStore.probeHosts();
-      return;
     }
-    requestInputFocus();
+  }
+
+  function handleCloseAutoFocus(event: Event) {
+    event.preventDefault();
+    if (onDismiss) onDismiss();
+    else requestInputFocus();
   }
 
   function getTriggerTooltipOpen() {
@@ -534,6 +562,7 @@
         align="start"
         sideOffset={6}
         collisionPadding={8}
+        onCloseAutoFocus={handleCloseAutoFocus}
         class="w-[300px] p-0"
       >
         <!-- The footer spans the surface, so the rows scroll inside their own
@@ -541,9 +570,7 @@
         <div class="max-h-[288px] overflow-y-auto p-1.5">
           {#if variant === "header" && isGitRepo}
             <DropdownMenu.Label>Start in</DropdownMenu.Label>
-            <!-- Never disabled: a dispatch forces a worktree *on the remote*, but
-                 this row is the way back to the local checkout, which is the one
-                 gesture that escapes that forcing. -->
+            <!-- This row returns to the project host and its direct checkout. -->
             <DropdownMenu.Item
               data-menu-current={!onRemoteHost && !startsNewWorktree
                 ? ""
@@ -576,7 +603,7 @@
                   class="shrink-0 text-(--solus-text-tertiary)"
                 />
                 <span class="min-w-0 flex-1 truncate">New worktree</span>
-                {#if !onRemoteHost && startsNewWorktree}<CheckIcon
+                {#if newWorktreeStartSelected}<CheckIcon
                     size={14}
                     class="shrink-0 text-(--solus-accent)"
                   />{/if}
@@ -592,12 +619,12 @@
                 </p>
               {:else}
                 <DropdownMenu.Item
-                  data-menu-current={!onRemoteHost && startsNewWorktree
+                  data-menu-current={newWorktreeStartSelected
                     ? ""
                     : undefined}
                   onSelect={(event) => {
                     event.preventDefault();
-                    chooseLocalStart(true);
+                    chooseNewWorktree();
                   }}
                 >
                   {@render newWorktreeItemContent()}

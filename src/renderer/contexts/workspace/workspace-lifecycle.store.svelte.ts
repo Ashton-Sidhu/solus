@@ -223,7 +223,7 @@ export class WorkspaceLifecycleStore {
     const requestSequence = ++this.pluginCommandRequestSequence
     this.pluginCommandRequests.set(requestKey, requestSequence)
     const ctx = this.deps.ctxFor(targetTabId)
-    ctx.session.provider = (targetSession?.run.provider ?? this.deps.settings.activeAgent) as AgentId
+    ctx.session.provider = targetSession?.run.provider ?? this.deps.settings.activeAgent
     const result = await (this.deps.apiFor?.(targetTabId) ?? serverConnections.primaryApi())
       .getPluginCommands(workingDirectory, $state.snapshot(ctx))
     if (this.pluginCommandRequests.get(requestKey) !== requestSequence) return
@@ -296,7 +296,7 @@ export class WorkspaceLifecycleStore {
     const handoffFrom = session.handoffFrom ? { ...session.handoffFrom } : undefined
     const displayCwd = session.run.workingDirectory
     const loadPath = session.run.gitContext?.worktreePath || displayCwd
-    const provider = (session.run.provider ?? this.deps.settings.activeAgent) as AgentId
+    const provider = session.run.provider ?? this.deps.settings.activeAgent
     const predecessorTranscript = handoffFrom
       ? await this.deps.loadTranscript({
           sessionId: handoffFrom.sessionId,

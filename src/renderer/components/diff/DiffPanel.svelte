@@ -9,6 +9,7 @@
   import DiffLoadingSkeleton from "./DiffLoadingSkeleton.svelte";
   import DiffMobileFileSheet from "./DiffMobileFileSheet.svelte";
   import DiffCommentsPopover from "./DiffCommentsPopover.svelte";
+  import DiffHeatMap from "./DiffHeatMap.svelte";
   import DiffStream from "./DiffStream.svelte";
   import { FindBar } from "../ui/find-bar";
   import DiffResizableContent from "./DiffResizableContent.svelte";
@@ -73,6 +74,7 @@
     initialFilePath,
     navigationRequestId,
     embedded = false,
+    hasHostHeaderRow = false,
     externalComments = null,
     onExternalCommentSave,
     onExternalCommentDelete,
@@ -101,6 +103,11 @@
      *  navigation) and the session turn stepper (turn scopes would silently
      *  replace the host's PR scope with no way back). */
     embedded?: boolean;
+    /** The host draws its own header row directly above this panel, so the diff
+     *  toolbar drops the branch identity it would repeat and the gutters it
+     *  reserves for window and pane chrome. Separate from `embedded`: a pane
+     *  hosting the diff still floats its chrome over the toolbar's own row. */
+    hasHostHeaderRow?: boolean;
     /** Optional externally-owned comment list for surfaces that persist comments
      *  outside the active tab while still reusing the diff UI. */
     externalComments?: DiffComment[] | null;
@@ -207,10 +214,46 @@
   let findOpen = $state(false);
   let findQuery = $state("");
   let findIndex = $state(0);
+  const savedDiffStyle = localStorage.getItem("solus-diff-style");
   let diffStyleState = $state<"unified" | "split">(
-    (localStorage.getItem("solus-diff-style") as "unified" | "split") ||
-      "unified",
+    savedDiffStyle === "split" ? "split" : "unified",
   );
+  // The 10,000-foot view: a drillable heat map of where the change landed.
+  // The stream stays mounted underneath (display:none) so scroll position,
+  // collapse state, and loaded file contents survive toggling.
+  //
+  // The map leads by default — reading a change starts with where it landed.
+  // Two openings skip it: an embedded panel (the PR review's Diff tab, whose
+  // host has its own Map tab) and a file-targeted open, where the caller asked
+  // for one file's lines, not an overview.
+  let panelView = $state<"diff" | "map">(
+    embedded || initialFilePath ? "diff" : "map",
+  );
+  let hasMountedMap = $state(!(embedded || initialFilePath));
+  $effect(() => {
+    if (panelView === "map") hasMountedMap = true;
+  });
+
+  /** Every file- or line-targeted navigation lands in the diff view. */
+  function showDiffView() {
+    if (panelView !== "diff") panelView = "diff";
+  }
+
+  async function openFileFromMap(displayPath: string) {
+    const fullPath = toFullPath(displayPath);
+    panelView = "diff";
+    await tick();
+    draft.clear();
+    streamRef?.scrollToFile(fullPath);
+    syncTreeTo(fullPath);
+  }
+
+  async function loadRepoFilesForMap(repoRoot: string): Promise<readonly string[] | null> {
+    const result = await getApi().listProjectFiles(getCtx?.() ?? session.ctxFor(tabId), {
+      cwd: repoRoot,
+    });
+    return result.ok ? result.files : null;
+  }
   // Token (word-level) highlighting inside changed lines. Defaults on; only an
   // explicit "off" stored value disables it.
   let tokenHighlightState = $state<boolean>(
@@ -442,6 +485,7 @@
     const stream = streamRef;
     if (!nav || !stream || !diff) return;
     pendingNavigate = null;
+    showDiffView();
     void tick().then(() => {
       stream.ensureExpanded(nav.path);
       if (nav.line != null) stream.scrollToLine(nav.path, nav.line, nav.side);
@@ -599,7 +643,8 @@
       endLine: c.endLine,
       side: c.side,
     };
-    streamRef?.scrollToLine(c.filePath, c.endLine, c.side);
+    showDiffView();
+    void tick().then(() => streamRef?.scrollToLine(c.filePath, c.endLine, c.side));
   }
 
   // Only line-anchored threads can be scrolled to; outdated ones (line === null)
@@ -608,9 +653,11 @@
 
   function navigateToThread(t: DiffReviewThread) {
     if (t.line == null) return;
+    const line = t.line;
     const side = t.side === "LEFT" ? "old" : "new";
-    draft.range = { startLine: t.line, endLine: t.line, side };
-    streamRef?.scrollToLine(t.filePath, t.line, side);
+    draft.range = { startLine: line, endLine: line, side };
+    showDiffView();
+    void tick().then(() => streamRef?.scrollToLine(t.filePath, line, side));
   }
 
   // ── Find in diff ───────────────────────────────────────────────────────────
@@ -644,6 +691,8 @@
 
   function openFind() {
     if (treeFiles.length === 0) return;
+    // Find matches live in the stream, which the map view keeps hidden.
+    showDiffView();
     findOpen = true;
     void tick().then(() => findBarRef?.focusInput());
   }
@@ -743,8 +792,11 @@
     const idx = current ? paths.indexOf(current) : -1;
     const next = ((idx === -1 ? 0 : idx + dir) + paths.length) % paths.length;
     draft.clear();
-    streamRef?.scrollToFile(paths[next]);
-    syncTreeTo(paths[next]);
+    showDiffView();
+    void tick().then(() => {
+      streamRef?.scrollToFile(paths[next]);
+      syncTreeTo(paths[next]);
+    });
   }
 
   function cycleTurn(dir: 1 | -1) {
@@ -848,9 +900,13 @@
 
   // Mobile file navigation: the desktop tree is hidden on phones, so a
   // bottom-sheet list is the only way to jump between changed files.
-  function handleMobileFileSelect(path: string) {
+  async function handleMobileFileSelect(path: string) {
     draft.clear();
     mobileTreeOpen = false;
+    if (panelView === "map") {
+      panelView = "diff";
+      await tick();
+    }
     streamRef?.scrollToFile(path);
   }
 
@@ -925,6 +981,9 @@
     onStepTurn={cycleTurn}
     turnRunning={sess?.status === "running" || sess?.status === "connecting"}
     mode={isWorkingTreeScope ? "working-tree" : "session"}
+    {hasHostHeaderRow}
+    {panelView}
+    onSetPanelView={(view) => (panelView = view)}
   />
 
   {#if showLoading}
@@ -950,6 +1009,23 @@
       description={emptyState?.description}
     />
   {:else}
+    {#if hasMountedMap}
+      <div
+        class="min-h-0 flex-1"
+        class:panel-view-hidden={panelView !== "map"}
+      >
+        <DiffHeatMap
+          files={treeFiles}
+          onOpenFile={openFileFromMap}
+          repoRoot={worktreePath ?? projectPath}
+          loadRepoFiles={loadRepoFilesForMap}
+        />
+      </div>
+    {/if}
+    <div
+      class="flex min-h-0 flex-1 flex-col"
+      class:panel-view-hidden={panelView === "map"}
+    >
     <DiffResizableContent
       {panelWidth}
       {treeCollapsed}
@@ -1006,6 +1082,7 @@
         />
         </div>
     </DiffResizableContent>
+    </div>
   {/if}
 
   <DiffCommentsPopover
@@ -1019,16 +1096,20 @@
   />
 
   {#if !hasExternalCommentStore}
-    <DiffActionBar
-      pendingInlineDraft={pendingFormHasContent}
-      filePath={draft.filePath}
-      diffText={diffState.patch}
-      {branchContext}
-      workingTree={isWorkingTreeScope}
-      onSubmitted={onClose}
-      beforeSend={handleBeforeSend}
-      onShowComments={() => (commentsPopoverOpen = true)}
-    />
+    <!-- Feedback targets lines you are reading; the map has none, so the bar
+         hides there — display:none keeps the typed draft alive across toggles. -->
+    <div class="contents" class:panel-view-hidden={panelView === "map"}>
+      <DiffActionBar
+        pendingInlineDraft={pendingFormHasContent}
+        filePath={draft.filePath}
+        diffText={diffState.patch}
+        {branchContext}
+        workingTree={isWorkingTreeScope}
+        onSubmitted={onClose}
+        beforeSend={handleBeforeSend}
+        onShowComments={() => (commentsPopoverOpen = true)}
+      />
+    </div>
   {/if}
 
   {#if mobileTreeOpen && runtime.isMobileViewport}
@@ -1041,6 +1122,12 @@
 </div>
 
 <style>
+  /* Keeps the inactive panel view mounted (stream scroll/collapse state, map
+     drill state) while removing it from layout, paint, and hit testing. */
+  .panel-view-hidden {
+    display: none !important;
+  }
+
   :global(.diff-panel-bordered) {
     border-left: 0.0625rem solid
       color-mix(in srgb, var(--solus-container-border) 45%, transparent);

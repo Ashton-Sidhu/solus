@@ -10,7 +10,6 @@ import type {
   PluginCommandsResult,
   PromptOptions,
   SessionMeta,
-  SessionRunInput,
   ThreadGoal,
   ThreadGoalSetRequest,
 } from '../../shared/types'

@@ -1,25 +1,25 @@
-import type { DiagramNode, DiagramNodeShape } from '../../../shared/diagram-types'
-import { DIAGRAM_NODE_SHAPES } from '../../../shared/diagram-types'
+import type { DiagramNode, DiagramNodeSilhouette } from '../../../shared/diagram-types'
+import { DIAGRAM_NODE_SILHOUETTES } from '../../../shared/diagram-types'
 
-export const DIAGRAM_NODE_SHAPE_OPTIONS: {
-  value: DiagramNodeShape
+export const DIAGRAM_NODE_SILHOUETTE_OPTIONS: {
+  value: DiagramNodeSilhouette
   label: string
   decorative: boolean
-}[] = DIAGRAM_NODE_SHAPES.map((value) => ({
+}[] = DIAGRAM_NODE_SILHOUETTES.map((value) => ({
   value,
   label: value.charAt(0).toUpperCase() + value.slice(1),
   decorative: value === 'circle' || value === 'diamond',
 }))
 
-const DECORATIVE_NODE_SHAPES = new Set<DiagramNodeShape>(
-  DIAGRAM_NODE_SHAPE_OPTIONS.filter((shape) => shape.decorative).map((shape) => shape.value),
+const DECORATIVE_NODE_SILHOUETTES = new Set<DiagramNodeSilhouette>(
+  DIAGRAM_NODE_SILHOUETTE_OPTIONS.filter((option) => option.decorative).map((option) => option.value),
 )
 
-export function isDecorativeNodeShape(shape: DiagramNode['shape']): boolean {
-  return !!shape && DECORATIVE_NODE_SHAPES.has(shape)
+export function isDecorativeNodeSilhouette(silhouette: DiagramNode['silhouette']): boolean {
+  return !!silhouette && DECORATIVE_NODE_SILHOUETTES.has(silhouette)
 }
 
-export function isSimpleShapeNode(
+export function isSimpleDiagramNode(
   node: Pick<DiagramNode, 'badges' | 'body' | 'fields' | 'html' | 'meta' | 'metrics' | 'subtitle' | 'tags'>,
 ): boolean {
   return !(

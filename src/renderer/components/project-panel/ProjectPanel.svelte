@@ -9,12 +9,11 @@
     serversStore,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
+  import { isProjectRailOpen, projectRailWidth } from "./lib/rail-width";
   import {
-    isProjectRailOpen,
-    PROJECT_RAIL_MAX_WIDTH,
-    PROJECT_RAIL_MIN_WIDTH,
-    projectRailWidth,
-  } from "./lib/rail-width";
+    SIDEBAR_MAX_WIDTH,
+    SIDEBAR_MIN_WIDTH,
+  } from "../layout/lib/workspace-body";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
@@ -55,8 +54,13 @@
      *  sections are collapsed — is stored per role, so adjusting the split
      *  chat's rail never moves the leading one's. */
     isSplit?: boolean;
-    /** Width of the hosting conversation view; the rail scales against it. */
+    /** Width of the hosting conversation view. Decides whether there is room for
+     *  the rail at all, and caps it in a split too narrow to give the full
+     *  width away. */
     containerWidth: number;
+    /** Width of the whole workspace body — the same measure the session sidebar
+     *  sizes against, so the two rails match. */
+    workspaceWidth: number;
     /** Temporarily minimize without changing the role's persisted preference. */
     minimized?: boolean;
     /** False while the owning Editor/web surface is mounted but hidden. */
@@ -69,6 +73,7 @@
     sourceId,
     isSplit = false,
     containerWidth,
+    workspaceWidth,
     minimized = false,
     active = true,
     onCollapse,
@@ -152,7 +157,7 @@
   const automationScopeRoots = $derived(
     isUnconfiguredCwd(gitCwd)
       ? []
-      : ([...new Set([gitCwd, cwd].filter(Boolean))] as string[]),
+      : [...new Set([gitCwd, cwd].filter((root): root is string => !!root))],
   );
   // A glanceable status board, not the full catalog: only automations that need
   // attention right now (running, failed, pinned, soonest-scheduled) surface here.
@@ -209,7 +214,7 @@
     "orb.commit-push",
     () => {
       if (gitCtx)
-        void gitActionsFor(sourceId, session, environmentStore).commitPush();
+        void gitActionsFor(sourceId, session, environmentStore).run("commit_push");
     },
     { enabled: () => focused },
   );
@@ -229,9 +234,9 @@
     void session.tasksStore
       .setStatus(task.id, "done")
       .catch((err) =>
-        toasts.error(
-          `Couldn't complete the task: ${err instanceof Error ? err.message : String(err)}`,
-        ),
+        toasts.error("Couldn't complete the task", {
+          description: err instanceof Error ? err.message : String(err),
+        }),
       );
     requestInputFocus();
   }
@@ -284,7 +289,7 @@
     <!-- Read-only: the host is chosen before the session starts and locked
          after, so the chip states a fact rather than offering a picker. -->
     <span
-      class="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--solus-text-primary)_6%,transparent)] px-1.5 py-0.5 text-xs font-medium tracking-normal text-(--solus-text-secondary) normal-case dark:bg-[color-mix(in_srgb,var(--solus-text-primary)_10%,transparent)]"
+      class="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--solus-text-primary)_6%,transparent)] px-1.5 py-0.5 text-menu-meta font-medium tracking-normal text-(--solus-text-secondary) normal-case dark:bg-[color-mix(in_srgb,var(--solus-text-primary)_10%,transparent)]"
       title={remoteHostAffinity.tooltip}
     >
       <HostIcon size={11} class={remoteHostAffinity.className} />
@@ -349,7 +354,7 @@
        Snooze follow it as glyphs, then the section's own disclosure caret. -->
   <span class="header-extra">
     <button
-      class="cursor-pointer font-mono text-xs underline decoration-[color-mix(in_oklch,var(--foreground)_22%,transparent)] underline-offset-[3px] opacity-85 transition-colors hover:text-(--solus-text-primary) hover:opacity-100"
+      class="cursor-pointer font-mono text-menu-meta underline decoration-[color-mix(in_oklch,var(--foreground)_22%,transparent)] underline-offset-[3px] opacity-85 transition-colors hover:text-(--solus-text-primary) hover:opacity-100"
       type="button"
       title={panelTask ? taskRefTooltip(panelTask) : "Open task page"}
       onclick={(e) => {
@@ -410,9 +415,9 @@
   side="right"
   {open}
   flush
-  width={projectRailWidth(containerWidth)}
-  minWidth={PROJECT_RAIL_MIN_WIDTH}
-  maxWidth={PROJECT_RAIL_MAX_WIDTH}
+  width={projectRailWidth(workspaceWidth, containerWidth)}
+  minWidth={SIDEBAR_MIN_WIDTH}
+  maxWidth={SIDEBAR_MAX_WIDTH}
   background="var(--solus-container-bg)"
 >
   <div
@@ -422,6 +427,7 @@
   >
     <PanelSection
       title="Environment"
+      titlebar
       collapsed={collapsedSections.environment}
       onToggle={() => toggleSection("environment")}
       headerBadge={environmentHeaderBadge}
@@ -466,6 +472,7 @@
           task={panelTask}
           projectCwd={panelTask.projectKey ?? cwd}
           currentSessionId={panelSession?.agentSessionId ?? null}
+          active={active && open}
         />
       </PanelSection>
     {/if}

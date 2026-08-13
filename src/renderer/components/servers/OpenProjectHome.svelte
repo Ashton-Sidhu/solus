@@ -35,11 +35,11 @@
   /** Where the recents end — the divider and the action group start there. */
   const firstActionIndex = $derived(rows.findIndex((row) => row.kind === "action"));
 
-  const ACTION_LABELS: Record<"browse" | "github" | "clone-url", string> = {
+  const ACTION_LABELS = {
     browse: "Open a folder…",
     github: "Clone from GitHub…",
     "clone-url": "Clone from a URL…",
-  };
+  } satisfies Record<"browse" | "github" | "clone-url", string>;
   const ACTION_ICONS = {
     browse: FolderIcon,
     github: GithubLogoIcon,

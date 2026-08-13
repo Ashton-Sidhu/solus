@@ -98,6 +98,20 @@ describe('native task migration', () => {
 })
 
 describe('native task CRUD', () => {
+  test('lists more than 99 tasks without truncation', async () => {
+    // WHY: the global task picker consumes this complete native snapshot. A
+    // hidden two-digit boundary would make older work impossible to search.
+    const creations = Array.from({ length: 105 }, (_, index) =>
+      taskStore.createTask({
+        title: `Searchable task ${index + 1}`,
+        projectKey: '/workspace/solus',
+      }),
+    )
+    await Promise.all(creations)
+
+    expect((await taskStore.listTasks()).tasks).toHaveLength(105)
+  })
+
   test('restores a number-only PR link for the sidebar after restart', async () => {
     // WHY: agent link_task calls can identify a PR by number without a URL.
     // The durable edge, not the renderer PR list, must restore the chip.
@@ -140,6 +154,21 @@ describe('native task CRUD', () => {
     } finally {
       unsubscribe()
     }
+  })
+
+  test('files a worktree session under its base project', async () => {
+    // WHY: conflict-resolution sessions execute in a managed PR worktree, but
+    // the project-scoped sidebar must still include their task row.
+    const task = await taskSessions.prepareSessionTask({
+      projectKey: '/workspace/solus/.solus-worktrees/pr-47',
+      worktreeKey: '/workspace/solus::solus/pr-47 (worktree)',
+      prompt: 'Resolve the PR conflicts',
+    })
+
+    expect(task).toMatchObject({
+      projectKey: '/workspace/solus',
+      worktreeKey: '/workspace/solus::solus/pr-47 (worktree)',
+    })
   })
 
   test('stores the six-state lifecycle and global inbox independently of project paths', async () => {
@@ -431,6 +460,39 @@ describe('session minting and durable links', () => {
         lastActivityAt: 1_725_000_000_000,
       }),
     ])
+  })
+
+  test('unlinking a session removes the attempt and records who detached what', async () => {
+    // WHY: linking a session has always had no way out. Unlink must remove
+    // exactly one attempt row, keep the activity feed able to say which
+    // session left by name, and stay silent when there is nothing to remove.
+    const task = await taskSessions.prepareSessionTask({
+      sessionId: 'session-to-unlink',
+      projectKey: '/workspace/solus',
+      prompt: 'Attempt that gets detached',
+    })
+    db.getDb().prepare(`
+      INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp)
+      VALUES (?, ?, ?, ?, ?)
+    `).run('session-to-unlink', 'claude-code', 'First message', 'Detached session', 1_725_000_000_000)
+
+    const bag = await tasks.Task.byId(task!.id)
+    await bag.unlinkSession('session-to-unlink')
+
+    expect((await taskSessions.taskSessions(task!.id))[task!.id]).toBeUndefined()
+    const unlinked = (await bag.details()).events.filter((event) => event.kind === 'unlinked')
+    expect(unlinked).toEqual([
+      expect.objectContaining({
+        targetKind: 'session',
+        targetKey: 'session-to-unlink',
+        targetTitle: 'Detached session',
+        actor: 'user',
+      }),
+    ])
+
+    // A second unlink is a no-op: no error, and no second history entry.
+    await bag.unlinkSession('session-to-unlink')
+    expect((await bag.details()).events.filter((event) => event.kind === 'unlinked')).toHaveLength(1)
   })
 
   test('the detail read carries no session links at all', async () => {

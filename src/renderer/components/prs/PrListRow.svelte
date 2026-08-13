@@ -96,11 +96,11 @@
      already spelled out as text in the meta line). -->
 {#snippet stateIcon()}
   {#if pr.state === "merged"}
-    <GitMergeIcon size={12} class="shrink-0 text-primary" />
+    <GitMergeIcon size={12} class="shrink-0 text-(--review)" />
   {:else if pr.state === "closed"}
     <GitPullRequestIcon
       size={12}
-      class="shrink-0 text-(--solus-art-negative)"
+      class="shrink-0 text-(--failure)"
     />
   {/if}
 {/snippet}

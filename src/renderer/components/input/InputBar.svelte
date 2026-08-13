@@ -474,7 +474,7 @@
       return;
     }
 
-    const active = document.activeElement as HTMLElement | null;
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (
       active &&
       active !== document.body &&
@@ -524,7 +524,7 @@
 
   $effect(() => {
     const handleFocusRequest = (event: Event) => {
-      const detail = (event as CustomEvent<{ tabId?: string }>).detail;
+      const detail = event instanceof CustomEvent ? event.detail : undefined;
       const requestedTabId = detail?.tabId;
       if (
         requestedTabId === undefined
@@ -582,7 +582,9 @@
     const error = voice.error;
     if (error === prevVoiceError) return;
     prevVoiceError = error;
-    if (error && isActiveMode && ownsVoice) toasts.error(error);
+    if (error && isActiveMode && ownsVoice) {
+      toasts.error("Dictation unavailable", { description: error });
+    }
   });
 
   $effect(() => {
@@ -1188,7 +1190,7 @@
         if (!blob) return;
         const reader = new FileReader();
         reader.onload = async () => {
-          const dataUrl = reader.result as string;
+          const dataUrl = String(reader.result ?? "");
           const api = session.apiForRun(run);
           const ctx = targetTabId
             ? session.ctxFor(targetTabId)

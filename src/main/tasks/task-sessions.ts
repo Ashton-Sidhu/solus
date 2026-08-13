@@ -1,7 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { z } from 'zod'
 import { getDb, withTx } from '../db'
 import { persistRemoteSessionStart } from '../db/session-indexer'
-import { appendTaskEvent, diffTaskEvents } from './task-events'
+import { appendTaskEvent, diffTaskEvents, type EventActor } from './task-events'
 import {
   database,
   emitChanged,
@@ -10,15 +11,15 @@ import {
   loadTaskRecord,
   normalizedOptional,
   requireTask,
+  taskPrSchema,
   taskFromRow,
   writeTask,
 } from './task-store'
-import type { AgentId } from '../../shared/types'
+import { worktreeProjectRoot } from '../../shared/types'
 import type {
   SessionExecutionHost,
   Task,
   TaskForSessionResult,
-  TaskPr,
   TaskSessionLink,
   TaskSessionRole,
 } from '../../shared/task-types'
@@ -29,25 +30,42 @@ import type {
 
 const MAX_PROMPT_TITLE_LENGTH = 80
 
-interface TaskSessionLinkRow {
-  task_id: string
-  session_id: string
-  role: TaskSessionRole
-  branch: string | null
+const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode'])
+const taskSessionRoleSchema = z.enum(['working', 'referenced'])
+const taskSessionLinkRowSchema = z.object({
+  task_id: z.string(),
+  session_id: z.string(),
+  role: taskSessionRoleSchema,
+  branch: z.string().nullable(),
   /** Legacy capture — populated by earlier versions, read-only today. */
-  pr: string | null
-  execution_server_id: string | null
-  linked_at: number
+  pr: z.string().nullable(),
+  execution_server_id: z.string().nullable(),
+  linked_at: z.number(),
   /** Joined from `sessions` by `LINK_SELECT`, which is the only way links are
    *  read. Null when the session is not in the index yet. */
-  session_title: string | null
-  session_provider: string | null
-  session_server_id: string | null
-  last_activity_at: number | null
+  session_title: z.string().nullable(),
+  session_provider: z.string().nullable(),
+  session_server_id: z.string().nullable(),
+  last_activity_at: z.number().nullable(),
+})
+const rekeySessionLinkRowSchema = z.object({
+  task_id: z.string(),
+  role: taskSessionRoleSchema,
+  branch: z.string().nullable(),
+  pr: z.string().nullable(),
+  execution_server_id: z.string().nullable(),
+  linked_at: z.number(),
+})
+const taskIdRowSchema = z.object({ task_id: z.string() })
+const idRowSchema = z.object({ id: z.string() })
+
+type TaskSessionLinkRow = z.infer<typeof taskSessionLinkRowSchema>
+interface TaskSessionsByTask {
+  [taskId: string]: TaskSessionLink[]
 }
 
 function linkFromRow(row: TaskSessionLinkRow): TaskSessionLink {
-  return {
+  const link: TaskSessionLink = {
     taskId: row.task_id,
     sessionId: row.session_id,
     sessionTitle: row.session_title ?? null,
@@ -59,10 +77,12 @@ function linkFromRow(row: TaskSessionLinkRow): TaskSessionLink {
     // written before sessions carried a host.
     executionServerId: row.session_server_id ?? row.execution_server_id,
     role: row.role,
-    ...(row.branch === null ? {} : { branch: row.branch }),
-    ...(row.pr === null ? {} : { pr: jsonValue<TaskPr | undefined>(row.pr, undefined) }),
     linkedAt: row.linked_at,
   }
+  if (row.branch !== null) link.branch = row.branch
+  const pr = jsonValue(row.pr, taskPrSchema)
+  if (pr) link.pr = pr
+  return link
 }
 
 export interface SessionLinkDetails {
@@ -94,9 +114,10 @@ export function writeSessionLink(
   // see still gets a row here. It is written before the link so a link is never
   // visible ahead of the session it joins to.
   if (executionServerId) {
+    const parsedProvider = agentIdSchema.safeParse(execution?.provider)
     persistRemoteSessionStart(
       sessionId,
-      (execution?.provider as AgentId | undefined) ?? 'claude-code',
+      parsedProvider.success ? parsedProvider.data : 'claude-code',
       executionServerId,
       normalizedOptional(execution?.projectRoot),
     )
@@ -132,6 +153,38 @@ export function writeSessionLink(
   }
 }
 
+/** Returns false when there was nothing to unlink, so the caller can skip the
+ * change broadcast on a no-op. Removes only the attempt row: the task's
+ * denormalized branch and origin are captures, not joins, and stay put. Runs
+ * inside the caller's transaction; the public write is the `Task` object's
+ * `unlinkSession`. */
+export function deleteSessionLink(
+  db: DatabaseSync,
+  taskId: string,
+  sessionId: string,
+  actor: EventActor = {},
+  now = Date.now(),
+): boolean {
+  requireTask(taskId, db)
+  const removed = db.prepare('DELETE FROM task_session_links WHERE task_id = ? AND session_id = ?')
+    .run(taskId, sessionId).changes > 0
+  if (!removed) return false
+  db.prepare('UPDATE tasks SET updated_at = ? WHERE id = ?').run(now, taskId)
+  // Carries the session's display title so the feed still reads
+  // "unlinked <name>" after the link is gone. Null when it was never indexed.
+  const titleRow = z.object({ title: z.string().nullable() }).nullish().parse(db.prepare(
+    'SELECT COALESCE(custom_title, first_message) AS title FROM sessions WHERE session_id = ?',
+  ).get(sessionId))
+  appendTaskEvent(db, taskId, {
+    ...actor,
+    kind: 'unlinked',
+    targetKind: 'session',
+    targetKey: sessionId,
+    targetTitle: titleRow?.title ?? null,
+  }, now)
+  return true
+}
+
 /** The one way session links are read. Every link the renderer sees comes from
  * here, joined to its session's display metadata: a second reader that skipped
  * the join once already shipped a sidebar full of sessions named after their
@@ -144,20 +197,70 @@ const LINK_SELECT = `
     sessions.server_id AS session_server_id,
     sessions.last_timestamp AS last_activity_at
   FROM task_session_links
-  LEFT JOIN sessions ON sessions.session_id = task_session_links.session_id
+  LEFT JOIN session_handoff_members AS active_handoff
+    ON active_handoff.handoff_id = task_session_links.session_id
+    AND active_handoff.position = (
+      SELECT MAX(position)
+      FROM session_handoff_members
+      WHERE handoff_id = task_session_links.session_id
+    )
+  LEFT JOIN sessions
+    ON sessions.session_id = COALESCE(active_handoff.provider_session_id, task_session_links.session_id)
 `
 
+/** Move the existing task attempt onto the stable Solus id when that session
+ * first enters a new handoff chain. Ordinary and older sessions are untouched. */
+export function rekeyTaskSessionLinks(sourceSessionId: string, targetSessionId: string): void {
+  if (sourceSessionId === targetSessionId) return
+  const changed = withTx(() => {
+    const db = getDb()
+    const rows = rekeySessionLinkRowSchema.array().parse(db.prepare(`
+      SELECT task_id, role, branch, pr, execution_server_id, linked_at
+      FROM task_session_links
+      WHERE session_id = ?
+    `).all(sourceSessionId))
+    for (const row of rows) {
+      db.prepare(`
+        INSERT INTO task_session_links(task_id, session_id, role, branch, pr, execution_server_id, linked_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(task_id, session_id) DO UPDATE SET
+          role = excluded.role,
+          branch = COALESCE(excluded.branch, task_session_links.branch),
+          pr = COALESCE(excluded.pr, task_session_links.pr),
+          execution_server_id = COALESCE(excluded.execution_server_id, task_session_links.execution_server_id),
+          linked_at = MIN(excluded.linked_at, task_session_links.linked_at)
+      `).run(
+        row.task_id,
+        targetSessionId,
+        row.role,
+        row.branch,
+        row.pr,
+        row.execution_server_id,
+        row.linked_at,
+      )
+    }
+    if (rows.length) {
+      db.prepare('DELETE FROM task_session_links WHERE session_id = ?').run(sourceSessionId)
+      db.prepare('UPDATE tasks SET origin_session_id = ? WHERE origin_session_id = ?')
+        .run(targetSessionId, sourceSessionId)
+    }
+    return rows.length > 0
+  })
+  if (changed) emitChanged()
+}
+
 /** Task-keyed attempts for either one task or the complete global store. */
-export function taskSessions(taskId?: string): Record<string, TaskSessionLink[]> {
-  const rows = (taskId
+export function taskSessions(taskId?: string): TaskSessionsByTask {
+  const rowValues = taskId
     ? getDb().prepare(`${LINK_SELECT}
         WHERE task_session_links.task_id = ?
         ORDER BY task_session_links.linked_at, task_session_links.session_id
       `).all(taskId)
     : getDb().prepare(`${LINK_SELECT}
         ORDER BY task_session_links.linked_at, task_session_links.task_id, task_session_links.session_id
-      `).all()) as unknown as TaskSessionLinkRow[]
-  const links: Record<string, TaskSessionLink[]> = {}
+      `).all()
+  const rows = taskSessionLinkRowSchema.array().parse(rowValues)
+  const links: TaskSessionsByTask = {}
   for (const row of rows) (links[row.task_id] ??= []).push(linkFromRow(row))
   return links
 }
@@ -165,12 +268,12 @@ export function taskSessions(taskId?: string): Record<string, TaskSessionLink[]>
 /** Resolve a session into the durable two-level task tree without loading or
  * starting any sibling sessions. */
 export async function tasksForSession(sessionId: string): Promise<TaskForSessionResult | null> {
-  const link = getDb().prepare(`
+  const link = taskIdRowSchema.nullish().parse(getDb().prepare(`
     SELECT * FROM task_session_links
     WHERE session_id = ?
     ORDER BY linked_at DESC
     LIMIT 1
-  `).get(sessionId) as unknown as TaskSessionLinkRow | undefined
+  `).get(sessionId))
   if (!link) return null
 
   const task = loadTaskRecord(link.task_id)
@@ -222,7 +325,10 @@ export async function prepareSessionTask(input: PrepareSessionTaskInput): Promis
     if (existingTaskId && parentTaskId) {
       throw new Error('A session cannot bind an existing task and create a subtask at the same time.')
     }
-    const projectKey = normalizedOptional(input.projectKey)
+    // A session can execute inside a managed worktree, but its task still
+    // belongs to the base project shown by the sidebar and project filters.
+    const rawProjectKey = normalizedOptional(input.projectKey)
+    const projectKey = rawProjectKey ? worktreeProjectRoot(rawProjectKey) : null
     const worktreeKey = normalizedOptional(input.worktreeKey)
     let task: Task
     if (existingTaskId) {
@@ -291,7 +397,7 @@ export async function updateGeneratedMetadataForSession(
   if (!generatedTitle || !generatedDescription) return null
   const task = withTx(() => {
     const db = database()
-    const row = db.prepare(`
+    const row = idRowSchema.nullish().parse(db.prepare(`
       SELECT tasks.id
       FROM tasks
       JOIN task_session_links ON task_session_links.task_id = tasks.id
@@ -300,7 +406,7 @@ export async function updateGeneratedMetadataForSession(
         AND tasks.title_source = 'prompt'
       ORDER BY task_session_links.linked_at DESC
       LIMIT 1
-    `).get(sessionId) as { id: string } | undefined
+    `).get(sessionId))
     if (!row) return null
     db.prepare(`
       UPDATE tasks SET

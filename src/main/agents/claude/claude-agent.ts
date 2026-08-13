@@ -10,8 +10,24 @@ import { parseClaudeUsageReport } from './claude-usage'
 import type { ClaudeUsageWindows } from './claude-usage'
 import type { AgentSlashCommand, ContextUsage, NormalizedEvent, ReasoningEffort } from '../../../shared/types'
 import type { ResultEvent } from '../../../shared/claude-types'
+import { z } from 'zod'
 
 const log = createLogger('ClaudeAgent', 'claude-agent.ts')
+const contextUsageReportSchema = z.object({
+  totalTokens: z.number(),
+  maxTokens: z.number().optional(),
+  isAutoCompactEnabled: z.boolean().optional(),
+  autoCompactThreshold: z.number().optional(),
+})
+const streamingTextEventSchema = z.object({
+  type: z.literal('stream_event'),
+  event: z.object({ type: z.literal('content_block_delta') }),
+})
+const initMessageSchema = z.object({
+  type: z.literal('system'),
+  subtype: z.literal('init'),
+  session_id: z.string(),
+})
 
 /**
  * The SDK's own accounting of the window it is about to send: exact totals, the
@@ -25,12 +41,13 @@ async function readContextUsage(
   cquery: { getContextUsage(): Promise<any> },
 ): Promise<ContextUsage | null> {
   try {
-    const report = await cquery.getContextUsage()
-    if (typeof report?.totalTokens !== 'number') return null
+    const parsed = contextUsageReportSchema.safeParse(await cquery.getContextUsage())
+    if (!parsed.success) return null
+    const report = parsed.data
     return {
       usedTokens: report.totalTokens,
-      windowTokens: typeof report.maxTokens === 'number' ? report.maxTokens : undefined,
-      compactAtTokens: report.isAutoCompactEnabled && typeof report.autoCompactThreshold === 'number'
+      windowTokens: report.maxTokens,
+      compactAtTokens: report.isAutoCompactEnabled && report.autoCompactThreshold !== undefined
         ? report.autoCompactThreshold
         : undefined,
     }
@@ -40,7 +57,7 @@ async function readContextUsage(
   }
 }
 
-function logRawClaudeEvent(sessionId: string | null, msg: unknown): void {
+function logRawClaudeEvent<T>(sessionId: string | null, msg: T): void {
   if (isNormalStreamingTextEvent(msg)) return
 
   log.debug('raw_provider_event', {
@@ -50,17 +67,15 @@ function logRawClaudeEvent(sessionId: string | null, msg: unknown): void {
   })
 }
 
-function isNormalStreamingTextEvent(msg: unknown): boolean {
-  const event = (msg as any)?.event
-  return (msg as any)?.type === 'stream_event' &&
-    event?.type === 'content_block_delta'
+function isNormalStreamingTextEvent<T>(msg: T): boolean {
+  return streamingTextEventSchema.safeParse(msg).success
 }
 
-export const UI_TO_SDK_PERMISSION_MODE: Record<'ask' | 'auto' | 'plan', PermissionMode> = {
+export const UI_TO_SDK_PERMISSION_MODE = {
   ask: 'default',
   auto: 'acceptEdits',
   plan: 'plan',
-}
+} satisfies Record<'ask' | 'auto' | 'plan', PermissionMode>
 
 export const SAFE_TOOLS = [
   'Read', 'Glob', 'Grep', 'LS',
@@ -118,6 +133,11 @@ export interface ClaudeRunResult {
   signal: 'SIGINT' | null
 }
 
+export interface ClaudeRunExecution {
+  events: AsyncIterable<NormalizedEvent>
+  result: Promise<ClaudeRunResult>
+}
+
 const autoAllow: CanUseTool = async (_toolName, input) => ({ behavior: 'allow', updatedInput: input })
 
 /**
@@ -127,18 +147,15 @@ const autoAllow: CanUseTool = async (_toolName, input) => ({ behavior: 'allow', 
  * and composed into `ClaudeBackend` for session-tied runs.
  */
 export class ClaudeAgent {
-  run(opts: ClaudeRunOptions): {
-    events: AsyncIterable<NormalizedEvent>
-    result: Promise<ClaudeRunResult>
-  } {
+  run(opts: ClaudeRunOptions): ClaudeRunExecution {
     const abortController = opts.abortController ?? new AbortController()
     const sdkPermissionMode = UI_TO_SDK_PERMISSION_MODE[opts.permissionMode ?? 'auto']
 
     const systemPrompt: Options['systemPrompt'] = {
       type: 'preset',
       preset: 'claude_code',
-      ...(opts.systemPromptAppend ? { append: opts.systemPromptAppend } : {}),
     }
+    if (opts.systemPromptAppend) systemPrompt.append = opts.systemPromptAppend
 
     const claudeOptions: Options = {
       allowedTools: [...(opts.allowedTools ?? SAFE_TOOLS)],
@@ -148,7 +165,6 @@ export class ClaudeAgent {
       maxTurns: opts.maxTurns,
       maxBudgetUsd: opts.maxBudgetUsd,
       additionalDirectories: opts.additionalDirectories,
-      ...(opts.mcpServers ? { mcpServers: opts.mcpServers } : {}),
       model: opts.model ?? undefined,
       abortController,
       includePartialMessages: true,
@@ -156,13 +172,14 @@ export class ClaudeAgent {
       canUseTool: opts.canUseTool ?? autoAllow,
       pathToClaudeCodeExecutable: claudeExecutablePath,
       permissionMode: sdkPermissionMode,
-      ...(opts.disableReasoning ? {} : { effort: opts.reasoningEffort ?? 'high' }),
       fastMode: opts.fastMode ?? false,
       enableFileCheckpointing: opts.enableFileCheckpointing ?? false,
       persistSession: opts.persistSession ?? true,
-      extraArgs: { 'replay-user-messages': null } as any,
+      extraArgs: { 'replay-user-messages': null },
       env: {...process.env, CLAUDE_CODE_ENABLE_TASKS: '0' },
     }
+    if (opts.mcpServers) claudeOptions.mcpServers = opts.mcpServers
+    if (!opts.disableReasoning) claudeOptions.effort = opts.reasoningEffort ?? 'high'
 
     if (opts.sessionId) {
       claudeOptions.resume = opts.sessionId
@@ -201,8 +218,9 @@ export class ClaudeAgent {
         const cquery = query({ prompt: promptInput, options: claudeOptions })
 
         for await (const msg of cquery) {
-          if (msg.type === 'system' && 'subtype' in msg && msg.subtype === 'init') {
-            const newSid = (msg as any).session_id as string
+          const initMessage = initMessageSchema.safeParse(msg)
+          if (initMessage.success) {
+            const newSid = initMessage.data.session_id
             const firstSeen = state.sessionId !== newSid
             state.sessionId = newSid
             if (firstSeen && opts.onSessionInit) {
@@ -223,11 +241,9 @@ export class ClaudeAgent {
           // stream out from under the restart, and `canUseTool` rides that same
           // stream — every later permission request would fail with
           // "AbortError: Stream closed".
-          if (
-            msg.type === 'result'
-            && !isAbortSeamResult(msg as unknown as ResultEvent)
-            && !isTaskNotificationResult(msg as unknown as ResultEvent)
-          ) {
+          // SAFETY: The SDK message type discriminant identifies its result contract.
+          const resultMessage = msg.type === 'result' ? msg as ResultEvent : null
+          if (resultMessage && !isAbortSeamResult(resultMessage) && !isTaskNotificationResult(resultMessage)) {
             sawResult = true
             // A background task keeps the SDK query and its input loop alive, so
             // Enter must still be able to steer the main agent while that task is
@@ -314,6 +330,7 @@ export class ClaudeAgent {
     async function* emptyInput(): AsyncGenerator<never> {
       await new Promise<void>((resolve) =>
         abortController.signal.addEventListener('abort', () => resolve(), { once: true }))
+      yield* []
     }
 
     const cquery = query({
@@ -360,7 +377,7 @@ export class ClaudeAgent {
         pathToClaudeCodeExecutable: claudeExecutablePath,
         extraArgs: { 'no-session-persistence': null },
         env: { ...process.env, CLAUDE_CODE_ENABLE_TASKS: '0' },
-      } as Options,
+      },
     })
     for await (const message of usageQuery) {
       if (message.type !== 'result') continue
@@ -389,9 +406,9 @@ export class ClaudeAgent {
         resume: sessionId,
         cwd: projectPath,
         pathToClaudeCodeExecutable: claudeExecutablePath,
-        extraArgs: { 'replay-user-messages': null } as any,
+        extraArgs: { 'replay-user-messages': null },
         permissionMode: 'acceptEdits',
-      } as Options,
+      },
     })
     for await (const _ of rewindQuery) {
       await rewindQuery.rewindFiles(checkpointId)

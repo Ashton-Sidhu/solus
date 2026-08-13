@@ -1,5 +1,7 @@
 // Relative (not @client-core) so bun's test runner can resolve it too.
 import { normalizeServerUrl, parsePairLink } from '../../../src/client-core/pairing'
+import { z } from 'zod'
+import type { HostOperatingSystem } from '../../../src/shared/types'
 
 /**
  * The connect form takes one smart field: a full pairing link pairs directly,
@@ -39,6 +41,7 @@ export interface ProbedServer {
   claimable?: boolean
   /** Identifies the host across every address it answers on. */
   installationId?: string
+  os?: HostOperatingSystem
 }
 
 /** One /health dial with a timeout — no registry, usable before a server is saved. */
@@ -46,17 +49,19 @@ export async function probeServer(url: string, timeoutMs = 3_000): Promise<Probe
   try {
     const response = await fetch(`${url}/health`, { signal: AbortSignal.timeout(timeoutMs) })
     if (!response.ok) return { ok: false }
-    const body = await response.json() as {
-      ok?: boolean
-      name?: string
-      claimable?: boolean
-      installationId?: string
-    }
+    const body = z.object({
+      ok: z.boolean().optional(),
+      name: z.string().optional(),
+      claimable: z.boolean().optional(),
+      installationId: z.string().optional(),
+      os: z.enum(['macos', 'windows', 'linux']).optional(),
+    }).parse(await response.json())
     return {
       ok: body.ok === true,
       name: body.name,
       claimable: body.claimable,
       installationId: body.installationId,
+      os: body.os,
     }
   } catch {
     return { ok: false }

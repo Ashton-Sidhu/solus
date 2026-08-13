@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto'
 import { join } from 'path'
 import { OAuth2Client, CodeChallengeMethod } from 'google-auth-library'
+import { z } from 'zod'
 import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
 import { secretStore } from '../platform/secrets'
@@ -24,6 +25,12 @@ interface StoredToken {
   expiresAt: number
 }
 
+const storedTokenSchema = z.object({
+  refreshToken: z.string(),
+  accessToken: z.string(),
+  expiresAt: z.number(),
+})
+
 interface PendingOAuthFlow {
   authUrl: string
   verifier: string
@@ -43,7 +50,7 @@ export interface GoogleOAuthStartResult {
 }
 
 export interface GoogleOAuthCallbackResult {
-  status: number
+  status: 200 | 400 | 500
   html: string
 }
 
@@ -54,7 +61,7 @@ function tokenFile(): string {
 }
 
 function loadStored(): StoredToken | null {
-  return secretStore().loadJson<StoredToken>(TOKEN_KEY, tokenFile())
+  return secretStore().loadJson(TOKEN_KEY, tokenFile(), storedTokenSchema)
 }
 
 function persist(token: StoredToken): void {
@@ -88,7 +95,7 @@ export function validateOAuthStateNonce(
   expiresAt: number | undefined,
   now = Date.now(),
 ): boolean {
-  return !!expectedState && actualState === expectedState && typeof expiresAt === 'number' && now <= expiresAt
+  return !!expectedState && actualState === expectedState && expiresAt !== undefined && now <= expiresAt
 }
 
 function cleanupExpiredPendingFlows(now = Date.now()): void {
@@ -182,7 +189,7 @@ export async function completeGoogleOAuthCallback(params: URLSearchParams): Prom
   }
 }
 
-function callbackPage(status: number, title: string, message: string): GoogleOAuthCallbackResult {
+function callbackPage(status: 200 | 400 | 500, title: string, message: string): GoogleOAuthCallbackResult {
   return {
     status,
     html: `<!doctype html>

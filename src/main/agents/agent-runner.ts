@@ -127,7 +127,7 @@ export class AgentRunner {
         rejectTimeout(new Error(`Agent run timed out after ${request.timeoutMs}ms`))
         cancel()
       }, request.timeoutMs)
-      ;(timeout as unknown as { unref?: () => void }).unref?.()
+      timeout.unref()
     }
 
     const cancel = () => {

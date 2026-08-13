@@ -29,7 +29,7 @@ import {
   autocompleteSelectionAction,
   type AutocompleteEditor,
 } from "./autocomplete-editor";
-import { GLYPH, KIND_NOUN, KINDS, kindFor, type RefKind } from "./unified-autocomplete/kinds";
+import { GLYPH, KINDS, kindFor, type RefKind } from "./unified-autocomplete/kinds";
 import {
   buildRows,
   ghostFor,
@@ -410,15 +410,20 @@ export class UnifiedAutocompleteController {
     if (this.#fileSearchTimer) clearTimeout(this.#fileSearchTimer);
     this.#fileSearchTimer = setTimeout(
       async () => {
+        const workingDirectory = this.deps.workingDirectory();
+        if (!workingDirectory) {
+          this.#fileResults = [];
+          this.#fileTotal = 0;
+          this.#fileSearchTimer = null;
+          return;
+        }
         const serverId = this.deps.serverId?.();
         const api = serverId
           ? serverConnections.apiFor(serverId)
           : this.deps.session.apiFor(this.deps.tabId());
         const result = await api.searchFiles(
           query,
-          // searchFiles' main-process handler tolerates an absent cwd; the
-          // type says string, so pass through the possibly-undefined value.
-          this.deps.workingDirectory() as string,
+          workingDirectory,
         );
         if (searchId !== this.#fileSearchId) return;
         this.#fileResults = result.files;

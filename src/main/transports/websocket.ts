@@ -1,11 +1,12 @@
 import { randomBytes } from 'crypto'
 import type { Server as HttpServer } from 'http'
 import { Server, type Socket } from 'socket.io'
-import type { SolusServer } from '../server/server'
+import type { RpcInvocationArgs, RpcInvocationResult, SolusServer } from '../server/server'
 import type { ClientEventRegistry } from '../events/client-event-registry'
 import { verifySessionToken } from '../server/auth'
 import { createLogger } from '../logger'
 import { ResponseReceiptBudget, ResponseReceiptCache } from './response-receipt-cache'
+import { z } from 'zod'
 
 const log = createLogger('main', 'ws-transport')
 const STREAM_TTL_MS = 6 * 60_000
@@ -15,13 +16,35 @@ export const FRAME_COMPRESSION_OPTIONS = { threshold: 1024 } as const
 interface WsRequest {
   id: string
   method: string
-  args?: unknown[]
+  args: RpcInvocationArgs
 }
 
 interface WsResponse {
-  result?: unknown
+  result?: RpcInvocationResult
   error?: { message: string }
 }
+
+interface WebSocketTransport {
+  close: () => void
+  sessions: Map<string, ClientSession>
+}
+
+const socketAuthSchema = z.object({
+  token: z.string().optional(),
+  clientInstanceId: z.string().regex(/^[a-zA-Z0-9_-]{16,128}$/).optional(),
+})
+
+const clientDataSchema = z.object({
+  clientId: z.string(),
+  deviceId: z.string().nullable(),
+  deviceLabel: z.string(),
+})
+
+const rpcWireSchema = z.object({
+  id: z.string(),
+  method: z.string(),
+  args: z.array(z.any()),
+})
 
 interface ClientSession {
   id: string
@@ -50,8 +73,12 @@ export function attachWebSocketTransport(
     onClientDisconnected?: (client: { clientId: string; deviceId: string | null }) => void
     onClientExpired?: (client: { clientId: string; deviceId: string | null }) => void
   },
-): { close: () => void; sessions: Map<string, ClientSession> } {
-  const requireAuth = () => typeof opts.requireAuth === 'function' ? opts.requireAuth() : (opts.requireAuth ?? true)
+): WebSocketTransport {
+  const requireAuth = (): boolean => {
+    if (opts.requireAuth === false) return false
+    if (opts.requireAuth === true || opts.requireAuth === undefined) return true
+    return opts.requireAuth()
+  }
   const io = new Server(http, {
     path: '/ws',
     transports: ['websocket'],
@@ -93,19 +120,17 @@ export function attachWebSocketTransport(
   let closing = false
 
   io.use((socket, next) => {
-    const auth = socket.handshake.auth as { token?: unknown; clientInstanceId?: unknown }
-    const token = typeof auth.token === 'string' ? auth.token : ''
+    const parsedAuth = socketAuthSchema.safeParse(socket.handshake.auth)
+    const auth = parsedAuth.success ? parsedAuth.data : {}
+    const token = auth.token ?? ''
     const verified = token ? verifySessionToken(token) : null
     if (requireAuth() && !verified) {
-      const error = new Error('unauthorized') as Error & { data?: { code: string } }
-      error.data = { code: 'UNAUTHORIZED' }
+      const error = Object.assign(new Error('unauthorized'), { data: { code: 'UNAUTHORIZED' } })
       next(error)
       return
     }
 
-    const instanceId = typeof auth.clientInstanceId === 'string' && /^[a-zA-Z0-9_-]{16,128}$/.test(auth.clientInstanceId)
-      ? auth.clientInstanceId
-      : randomBytes(16).toString('hex')
+    const instanceId = auth.clientInstanceId ?? randomBytes(16).toString('hex')
     const deviceId = verified?.deviceId ?? null
     const data: ClientData = {
       clientId: `ws:${deviceId ?? 'local'}:${instanceId}`,
@@ -117,7 +142,12 @@ export function attachWebSocketTransport(
   })
 
   io.on('connection', (socket) => {
-    const { clientId, deviceId, deviceLabel } = socket.data as ClientData
+    const parsedClient = clientDataSchema.safeParse(socket.data)
+    if (!parsedClient.success) {
+      socket.disconnect(true)
+      return
+    }
+    const { clientId, deviceId, deviceLabel } = parsedClient.data
     const room = `client:${clientId}`
     void socket.join(room)
 
@@ -139,9 +169,12 @@ export function attachWebSocketTransport(
     opts.onClientConnected?.({ clientId, deviceId })
     socket.emit('hello')
 
-    socket.on('rpc', async (id: unknown, method: unknown, args: unknown, ack: unknown) => {
-      if (typeof id !== 'string' || typeof method !== 'string' || typeof ack !== 'function') return
-      const request: WsRequest = { id, method, args: Array.isArray(args) ? args : [] }
+    socket.on('rpc', async (id, method, args, ack) => {
+      if (!(ack instanceof Function)) return
+      const parsed = rpcWireSchema.safeParse({ id, method, args })
+      if (!parsed.success) return
+      // SAFETY: RPC method validation below pairs this wire array with the registered method's exact tuple.
+      const request: WsRequest = { ...parsed.data, args: parsed.data.args as RpcInvocationArgs }
       const response = await getCachedResponse(responseCaches, responseBudget, clientId, request, server, {
         clientId,
         deviceLabel,
@@ -167,7 +200,7 @@ export function attachWebSocketTransport(
           responseCaches.delete(clientId)
           opts.onClientExpired?.({ clientId, deviceId })
         }, STREAM_TTL_MS)
-        ;(timer as unknown as { unref?: () => void }).unref?.()
+        timer.unref?.()
         cleanupTimers.set(clientId, timer)
       }
       log.info('ws_session_closed', {

@@ -269,12 +269,13 @@ export async function computePrInterdiff(options: {
 }): Promise<PrInterdiffResult> {
   const checkpoint = await readReviewCheckpoint(options.repoRoot, options.prNumber)
   const classification = checkpointState(checkpoint, options.currentHead, options.currentBase)
+  const commentMatches: ReviewThreadHunkMatch[] = []
   const baseResult = {
     checkpoint,
     oldHead: checkpoint?.headSha ?? null,
     currentHead: options.currentHead,
     currentBase: options.currentBase,
-    commentMatches: [] as ReviewThreadHunkMatch[],
+    commentMatches,
   }
   if (!checkpoint || classification.state === 'none' || classification.state === 'unchanged') {
     return { ...baseResult, ...classification, patch: '', isFullDiff: false }

@@ -70,6 +70,7 @@ function ensureSolusDirs(repoRoot: string): void {
 function readSidecar(repoRoot: string, sessionId: string): Sidecar | null {
   try {
     const raw = readFileSync(sidecarPath(repoRoot, sessionId), 'utf-8')
+    // SAFETY: this sidecar is written only by this module from the Sidecar contract.
     return JSON.parse(raw) as Sidecar
   } catch {
     return null

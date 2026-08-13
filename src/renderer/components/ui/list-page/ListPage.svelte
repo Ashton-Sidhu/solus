@@ -110,7 +110,7 @@
 </script>
 
 <div
-  class="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-[0.8125rem] text-foreground"
+  class="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-[0.8125rem] text-foreground"
 >
   <div
     class="mx-auto flex min-h-0 w-full flex-1 flex-col {split
@@ -119,7 +119,7 @@
   >
     <!-- ── Head: title block + action cluster ── -->
     <div
-      class="flex shrink-0 items-end justify-between gap-8 {split
+      class="workspace-titlebar flex shrink-0 items-end justify-between gap-8 {split
  ? 'flex-wrap gap-y-3 pb-[18px]'
  : 'pb-[22px]'}"
       style="padding-top: {headTop}"

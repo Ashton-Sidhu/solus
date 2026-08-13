@@ -21,7 +21,7 @@
   const session = getWorkspaceContext();
   const agentContext = getAgentContext();
   const editorProvider = $derived<AgentId>(
-    (agentContext.activeMetadata?.id as AgentId) ?? "claude-code",
+    agentContext.activeMetadata?.id ?? "claude-code",
   );
   const editorCwd = $derived(session.tasksProjectCwd ?? undefined);
 

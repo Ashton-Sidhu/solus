@@ -30,7 +30,7 @@ export function getDiffThemeName(isDark: boolean): SolusDiffThemeName {
 const TOKEN_HIGHLIGHT_KEY = 'solus-diff-token-highlight'
 
 function storedTokenHighlight(): boolean {
-  return typeof localStorage === 'undefined' || localStorage.getItem(TOKEN_HIGHLIGHT_KEY) !== 'off'
+  return localStorage.getItem(TOKEN_HIGHLIGHT_KEY) !== 'off'
 }
 
 function lineDiffTypeFor(tokenHighlight: boolean): 'word-alt' | 'none' {
@@ -61,7 +61,6 @@ const HIGHLIGHTER_OPTIONS: WorkerInitializationRenderOptions = {
  * workers and degrades to main-thread highlighting if a worker fails to spawn.
  */
 export function getDiffWorkerPool(): WorkerPoolManager | undefined {
-  if (typeof window === 'undefined') return undefined
   return getOrCreateWorkerPoolSingleton({
     poolOptions: POOL_OPTIONS,
     highlighterOptions: HIGHLIGHTER_OPTIONS,
@@ -117,7 +116,7 @@ let warmScheduled = false
  * even if no diff is ever opened this session.
  */
 export function warmDiffWorkerPool(): void {
-  if (typeof window === 'undefined' || warmScheduled) return
+  if (warmScheduled) return
   warmScheduled = true
   const warm = () => void getDiffWorkerPool()
   if ('requestIdleCallback' in window) {

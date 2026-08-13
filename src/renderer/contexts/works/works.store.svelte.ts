@@ -490,15 +490,19 @@ function applyMeta(work: Work, meta: WorkMeta & { id: string }): void {
   work.pinned = meta.pinned
 }
 
-function isMissingWorkError(err: unknown): boolean {
+function isMissingWorkError(err: Parameters<typeof String>[0]): boolean {
   return err instanceof Error && err.message.includes('Work not found:')
 }
 
-function logWorkLoad(level: 'debug' | 'info' | 'warn' | 'error', message: string, data: object): void {
+function logWorkLoad<Data extends object>(
+  level: 'debug' | 'info' | 'warn' | 'error',
+  message: string,
+  data: Data,
+): void {
   console[level](`[Solus][WorksStore] ${message}`, data)
 }
 
-function formatError(err: unknown): string {
+function formatError(err: Parameters<typeof String>[0]): string {
   if (err instanceof Error) return `${err.name}: ${err.message}`
   return String(err)
 }

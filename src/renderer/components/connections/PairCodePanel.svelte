@@ -27,11 +27,11 @@
     tailnet: GlobeIcon,
   } as const;
 
-  const endpointPriority: Record<ConnectionEndpoint["kind"], number> = {
+  const endpointPriority = {
     tailnet: 0,
     lan: 1,
     loopback: 2,
-  };
+  } satisfies Record<ConnectionEndpoint["kind"], number>;
 
   function pairLinkFor(endpoint: ConnectionEndpoint): string {
     const pair = connections.activePair;

@@ -1,27 +1,28 @@
 import type { Task, TaskComment, TaskDetails } from '../../../shared/task-types'
+import { z } from 'zod'
 
-interface UpstreamComment {
-  id?: unknown
-  author?: { login?: unknown } | null
-  body?: unknown
-  createdAt?: unknown
-}
+const upstreamTaskSchema = z.object({
+  comments: z.array(z.object({
+    id: z.string().optional(),
+    author: z.object({ login: z.string().optional() }).nullable().optional(),
+    body: z.string(),
+    createdAt: z.string(),
+  })).optional(),
+})
 
 function upstreamComments(task: Task): TaskComment[] {
-  const raw = task.raw as { comments?: unknown } | null | undefined
-  if (!Array.isArray(raw?.comments)) return []
+  const parsed = upstreamTaskSchema.safeParse(task.raw)
+  if (!parsed.success) return []
 
-  return raw.comments.flatMap((value, index) => {
-    const comment = value as UpstreamComment
-    if (typeof comment.body !== 'string' || typeof comment.createdAt !== 'string') return []
+  return (parsed.data.comments ?? []).flatMap((comment, index) => {
     const createdAt = Date.parse(comment.createdAt)
     if (Number.isNaN(createdAt)) return []
     return [{
-      id: typeof comment.id === 'string' ? comment.id : `${task.providerId}:${task.id}:${index}`,
+      id: comment.id ?? `${task.providerId}:${task.id}:${index}`,
       taskId: task.id,
-      author: typeof comment.author?.login === 'string' ? comment.author.login : null,
+      author: comment.author?.login ?? null,
       source: 'external' as const,
-      externalId: typeof comment.id === 'string' ? comment.id : null,
+      externalId: comment.id ?? null,
       body: comment.body,
       createdAt,
     }]

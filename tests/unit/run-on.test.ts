@@ -3,6 +3,7 @@ import type { Session } from '../../src/shared/types'
 import { LOCAL_SERVER_ID } from '../../src/client-core/server-registry'
 import {
   isRunOnHostLocked,
+  isNewWorktreeStartSelected,
   projectHostId,
   repoKeyForPath,
   returnsToProjectHome,
@@ -12,6 +13,7 @@ import {
 } from '../../src/renderer/components/servers/run-on'
 import type { RunConfig } from '../../src/shared/types'
 import { runTarget } from '../../src/renderer/components/servers/lib/run-target'
+import { withDispatchBaseBranch, withDispatchWorktree } from '../../src/renderer/contexts/workspace/run-config'
 
 type VisibilityInput = Parameters<typeof shouldShowRunOnPicker>[0]
 
@@ -48,6 +50,13 @@ describe('run-on host selection', () => {
     const repoKey = repoKeyForPath(identities, '/work/solus')
 
     expect(repoKey).toBe('github.com/openai/solus')
+  })
+
+  test('marks only the remote host when its default is a new worktree', () => {
+    // WHY: host and checkout shape are shown in one menu. The remote host is the
+    // selected destination, so its default worktree must not show a second check.
+    expect(isNewWorktreeStartSelected(true, true)).toBe(false)
+    expect(isNewWorktreeStartSelected(false, true)).toBe(true)
   })
 })
 
@@ -213,6 +222,83 @@ describe('choosing a remote host', () => {
     expect(target.kind).toBe('dispatched')
     expect(target.startsWorktree).toBeTrue()
     expect(target.worktreeForced).toBeTrue()
+  })
+
+  test('records an exact remote worktree without changing the local checkout', () => {
+    const run = {
+      serverId: 'local',
+      taskServerId: 'local',
+      workingDirectory: '/home/dev/solus',
+      gitContext: { repoRoot: '/home/dev/solus', branch: 'main', targetBranch: 'main' },
+      worktree: { baseBranch: 'main' },
+      pendingHostDispatch: {
+        serverId: 'studio',
+        intent: 'dispatch',
+        repoKey: 'github.com/openai/solus',
+      },
+    } as RunConfig
+
+    const next = withDispatchWorktree(run, {
+      path: '/srv/projects/solus/.solus-worktrees/release',
+      branch: 'release',
+    })
+
+    // WHY: a target worktree path belongs to the target host. The source
+    // checkout must not move before the dispatch is sent.
+    expect(next.gitContext).toEqual(run.gitContext)
+    expect(next.workingDirectory).toBe(run.workingDirectory)
+    expect(next.worktree).toBeNull()
+    expect(next.pendingHostDispatch).toEqual({
+      serverId: 'studio',
+      intent: 'dispatch',
+      repoKey: 'github.com/openai/solus',
+      worktree: {
+        path: '/srv/projects/solus/.solus-worktrees/release',
+        branch: 'release',
+      },
+    })
+    const target = runTarget({
+      run: next,
+      hostLabel: 'Studio',
+      taskHostLabel: 'Local',
+      stayLabel: 'Local',
+      hostIsLocal: false,
+      isolated: false,
+      canBranchWorktree: true,
+    })
+    expect(target.startsWorktree).toBeFalse()
+    expect(target.worktreeForced).toBeFalse()
+
+    expect(withDispatchWorktree(next, null).worktree).toEqual({ baseBranch: null })
+  })
+
+  test('records an origin branch as a new target worktree without switching locally', () => {
+    const run = {
+      serverId: 'local',
+      taskServerId: 'local',
+      workingDirectory: '/home/dev/solus',
+      gitContext: { repoRoot: '/home/dev/solus', branch: 'main', targetBranch: 'main' },
+      worktree: { baseBranch: null },
+      pendingHostDispatch: {
+        serverId: 'studio',
+        intent: 'dispatch',
+        repoKey: 'github.com/openai/solus',
+      },
+    } as RunConfig
+
+    const next = withDispatchBaseBranch(run, 'release')
+
+    // WHY: an origin branch is only the start point for an isolated target-host
+    // worktree. The source checkout must remain on its current branch.
+    expect(next.gitContext).toEqual(run.gitContext)
+    expect(next.workingDirectory).toBe(run.workingDirectory)
+    expect(next.worktree).toEqual({ baseBranch: 'release' })
+    expect(next.pendingHostDispatch).toEqual({
+      serverId: 'studio',
+      intent: 'dispatch',
+      repoKey: 'github.com/openai/solus',
+      baseBranch: 'release',
+    })
   })
 })
 

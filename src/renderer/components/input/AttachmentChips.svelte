@@ -21,7 +21,7 @@
   useScope('attachment-preview', { exclusive: true, active: () => !!previewSrc });
   useKeybinding('attachment.close-preview', () => { previewSrc = null; }, { enabled: () => !!previewSrc });
 
-  const FILE_ICON_COMPONENTS: Record<string, Component> = {
+  const FILE_ICON_COMPONENTS = {
     'image/png': ImageIcon,
     'image/jpeg': ImageIcon,
     'image/gif': ImageIcon,
@@ -32,7 +32,7 @@
     'application/json': FileCodeIcon,
     'text/yaml': FileCodeIcon,
     'text/toml': FileCodeIcon,
-  }
+  } satisfies Record<string, Component>
 
 </script>
 

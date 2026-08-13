@@ -3,18 +3,8 @@ import { join } from 'path'
 import packageJson from '../../../package.json'
 import { getElectronModule } from './electron'
 
-type ElectronApp = {
-  getPath(name: string): string
-  getVersion(): string
-  isPackaged?: boolean
-}
-
-function electronApp(): ElectronApp | null {
-  const app = getElectronModule()?.app
-  if (!app || typeof app !== 'object') return null
-  const candidate = app as Partial<ElectronApp>
-  if (typeof candidate.getPath !== 'function') return null
-  return candidate as ElectronApp
+function electronApp(): Electron.App | null {
+  return getElectronModule()?.app ?? null
 }
 
 export function dataDir(): string {

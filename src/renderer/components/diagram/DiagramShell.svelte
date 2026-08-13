@@ -1,6 +1,7 @@
 <script lang="ts">
   import "./DiagramShell.css";
 
+  import { localApi } from "@client-core/local-api";
   import { onDestroy, tick } from "svelte";
   import {
     SvelteFlow,
@@ -9,6 +10,7 @@
     MiniMap,
     Panel,
     MarkerType,
+    type Connection,
     type Edge,
     type Node,
   } from "@xyflow/svelte";
@@ -128,6 +130,22 @@
     onRename?: (title: string) => void;
   }
 
+  interface DiagramFlowNodeData extends DiagramNode {
+    expanded?: boolean;
+    dimmed?: boolean;
+    commentPin?: ReturnType<typeof pinSummary>;
+  }
+
+  function diagramNodeData(node: Node): DiagramFlowNodeData {
+    // SAFETY: All flow nodes in this component are created from DiagramNode values by toFlowNodes.
+    return node.data as DiagramFlowNodeData;
+  }
+
+  function diagramEdgeData(edge: Edge): Partial<DiagramEdge> {
+    // SAFETY: All flow edges in this component are created from DiagramEdge values by toFlowEdges or buildEdge.
+    return (edge.data ?? {}) as Partial<DiagramEdge>;
+  }
+
   let {
     content,
     title,
@@ -163,7 +181,7 @@
   function renameKeydown(e: KeyboardEvent) {
     if (e.key === "Enter") {
       e.preventDefault();
-      (e.target as HTMLInputElement)?.blur();
+      if (e.currentTarget instanceof HTMLInputElement) e.currentTarget.blur();
     } else if (e.key === "Escape") {
       e.preventDefault();
       renaming = false;
@@ -229,20 +247,21 @@
   }
 
   function nodeLabelFor(nodeId: string): string | null {
-    const label = nodes.find((n) => n.id === nodeId)?.data.label;
-    return typeof label === "string" ? label : null;
+    const node = nodes.find((candidate) => candidate.id === nodeId);
+    return node ? diagramNodeData(node).label : null;
   }
 
   function addComment(text: string) {
     if (!workId) return;
-    session.worksStore.addAnnotationComment(workId, {
+    const comment = {
       id: uuid(),
       selectedText: commentDraftNodeId
         ? (nodeLabelFor(commentDraftNodeId) ?? commentDraftNodeId)
         : title,
       comment: text,
-      ...(commentDraftNodeId ? { nodeId: commentDraftNodeId } : {}),
-    });
+    };
+    if (commentDraftNodeId) Object.assign(comment, { nodeId: commentDraftNodeId });
+    session.worksStore.addAnnotationComment(workId, comment);
     persistComments();
     applyTransientState();
   }
@@ -307,7 +326,7 @@
     if (!anchor.edgeId) return null;
     const edge = edges.find((e) => e.id === anchor.edgeId);
     if (!edge) return null;
-    const label = typeof edge.label === "string" ? edge.label : "";
+    const label = edge.label ?? "";
     return label || `${nodeLabelFor(edge.source) ?? edge.source} → ${nodeLabelFor(edge.target) ?? edge.target}`;
   }
 
@@ -365,7 +384,7 @@
   // DocumentModal): they're cleared here because the agent now owns them.
   async function sendCommentsToAgent() {
     if (!workId || comments.length === 0) return;
-    const body = formatInlineComments($state.snapshot(comments) as PlanComment[]);
+    const body = formatInlineComments($state.snapshot(comments));
     const msg = `Please address these comments on the diagram "${title}" (work_id: ${workId}):\n${body}`;
     session.worksStore.clearAnnotationComments(workId);
     persistComments();
@@ -497,9 +516,10 @@
 
   const activeDrawerNode = $derived(
     activeDrawerNodeId !== null
-      ? ((nodes.find((n) => n.id === activeDrawerNodeId)?.data as
-          | DiagramNode
-          | undefined) ?? null)
+      ? (() => {
+          const node = nodes.find((candidate) => candidate.id === activeDrawerNodeId);
+          return node ? diagramNodeData(node) : null;
+        })()
       : null,
   );
 
@@ -509,12 +529,8 @@
     if (!e) return null;
     return {
       ...flowEdgeToDiagram(e),
-      sourceLabel:
-        (nodes.find((n) => n.id === e.source)?.data.label as string) ??
-        e.source,
-      targetLabel:
-        (nodes.find((n) => n.id === e.target)?.data.label as string) ??
-        e.target,
+      sourceLabel: nodeLabelFor(e.source) ?? e.source,
+      targetLabel: nodeLabelFor(e.target) ?? e.target,
     };
   });
 
@@ -526,9 +542,7 @@
       : nodeLinks(
           activeDrawerNodeId,
           edges,
-          (id) =>
-            (nodes.find((n) => n.id === id)?.data.label as string | undefined) ??
-            id,
+          (id) => nodeLabelFor(id) ?? id,
         ),
   );
 
@@ -671,7 +685,7 @@
     width: handleEdgeWidthChange,
     dash: handleEdgeDashChange,
     arrows: handleEdgeArrowsChange,
-    shape: handleEdgeShapeChange,
+    route: handleEdgeRouteChange,
     cardinality: handleEdgeCardinalityChange,
   };
 
@@ -786,7 +800,7 @@
       const searchDimmed = matchedNodeIds !== null && !matchedNodeIds.has(n.id);
       const dimmed = focusDimmed || searchDimmed;
       const pin = pinSummary(threads.get(n.id) ?? [], showResolvedThreads);
-      const current = n.data.commentPin as ReturnType<typeof pinSummary>;
+      const current = diagramNodeData(n).commentPin;
       if (
         n.data.expanded === expanded &&
         n.data.dimmed === dimmed &&
@@ -833,8 +847,8 @@
     const target = nodes.find((n) => n.id === groupId);
     if (!target?.data.group) return;
     const collapsed = !target.data.collapsed;
-    const expandedH = (target.data.height as number | undefined) ?? GROUP_H;
-    const w = (target.width as number | undefined) ?? GROUP_W;
+    const expandedH = diagramNodeData(target).height ?? GROUP_H;
+    const w = target.width ?? GROUP_W;
     const renderH = collapsed ? COLLAPSED_H : expandedH;
     nodes = nodes.map((n) =>
       n.id === groupId
@@ -873,7 +887,7 @@
       }
       case "openUrl": {
         if (isSafeUrl(action.url)) {
-          (window as any).solus?.openExternal(action.url);
+          void localApi.openExternal(action.url);
         }
         break;
       }
@@ -979,7 +993,7 @@
   function drillInto(nodeId: string) {
     if (drillPath.length > 0) return;
     const node = nodes.find((n) => n.id === nodeId);
-    const detail = node?.data.detail as DiagramDoc | undefined;
+    const detail = node ? diagramNodeData(node).detail : undefined;
     if (!detail || !node) return;
     persistView(); // capture root edits before swapping away
     const laid = applyLayout(detail);
@@ -987,7 +1001,7 @@
     if (owner) owner.detail = laid; // keep dagre's positions on the backing doc
     drillPath = [
       ...drillPath,
-      { id: nodeId, label: (node.data.label as string) || "Detail" },
+      { id: nodeId, label: diagramNodeData(node).label || "Detail" },
     ];
     loadView(laid, anchorNodeId(laid));
     scheduleSave(); // persist any freshly assigned detail positions
@@ -1079,17 +1093,11 @@
   // completed handle drops and let the following connectend no-op.
   let completedHandleConnectAt = 0;
 
-  function buildEdge(connection: any): Edge {
-    return {
+  function buildEdge(connection: Connection): Edge {
+    const edge: Edge = {
       id: `e-${connection.source}-${connection.target}-${Date.now()}`,
       source: connection.source,
       target: connection.target,
-      ...(connection.sourceHandle
-        ? { sourceHandle: connection.sourceHandle }
-        : {}),
-      ...(connection.targetHandle
-        ? { targetHandle: connection.targetHandle }
-        : {}),
       type: "default",
       data: {
         // An end without an explicit handle (dropped on a node body, not a
@@ -1102,6 +1110,9 @@
         onContextMenu: handleContextMenuOpen,
       },
     };
+    if (connection.sourceHandle) edge.sourceHandle = connection.sourceHandle;
+    if (connection.targetHandle) edge.targetHandle = connection.targetHandle;
+    return edge;
   }
 
   // xyflow adds the edge we return here on a valid handle drop, so we shape it
@@ -1433,7 +1444,7 @@
   // already stop propagation, so a contextmenu reaching the board came from the
   // bare pane surface. Screen point places the menu; flow point seeds new nodes.
   function handleBoardContextMenu(e: MouseEvent) {
-    const t = e.target as HTMLElement | null;
+    const t = e.target instanceof HTMLElement ? e.target : null;
     if (!t?.closest(".svelte-flow__pane")) return;
     e.preventDefault();
     contextMenu = null;
@@ -1684,9 +1695,11 @@
   const contextTargetHasDetail = $derived(
     contextMenu?.type === "node" &&
       !!(
-        nodes.find((n) => n.id === contextMenu!.targetId)?.data
-          .detail as DiagramDoc | undefined
-      )?.nodes?.length,
+        (() => {
+          const node = nodes.find((candidate) => candidate.id === contextMenu!.targetId);
+          return node ? diagramNodeData(node).detail : undefined;
+        })()
+      )?.nodes.length,
   );
 
   // Open a node's detail sub-diagram, creating an empty one to fill in if it
@@ -1695,7 +1708,7 @@
     if (drillPath.length > 0) return; // one level only
     const node = nodes.find((n) => n.id === id);
     if (!node || node.data.group) return;
-    if (!((node.data.detail as DiagramDoc | undefined)?.nodes?.length)) {
+    if (!diagramNodeData(node).detail?.nodes.length) {
       nodes = nodes.map((n) =>
         n.id === id
           ? { ...n, data: { ...n.data, detail: { nodes: [], edges: [] } } }
@@ -1738,7 +1751,7 @@
       e.id === id
         ? {
             ...e,
-            animated: (e.data?.animated as boolean | undefined) ?? false,
+            animated: e.animated ?? false,
             className: isAsync
               ? "edge--async"
               : isData
@@ -1767,16 +1780,14 @@
   ) {
     edges = edges.map((e) => {
       if (e.id !== id) return e;
-      const color =
-        "color" in patch ? patch.color : (e.data?.color as string | undefined);
-      const width =
-        "width" in patch ? patch.width : (e.data?.width as number | undefined);
-      const dash =
-        "dash" in patch ? patch.dash : (e.data?.dash as DiagramEdge["dash"]);
+      const data = diagramEdgeData(e);
+      const color = "color" in patch ? patch.color : data.color;
+      const width = "width" in patch ? patch.width : data.width;
+      const dash = "dash" in patch ? patch.dash : data.dash;
       const arrows =
         "arrows" in patch
           ? patch.arrows
-          : (e.data?.arrows as DiagramEdge["arrows"]);
+          : data.arrows;
       return {
         ...e,
         ...edgeRenderProps(color, width, arrows, dash),
@@ -1816,14 +1827,14 @@
     scheduleSave();
   }
 
-  // Set an edge's routing style (smooth / step / straight). Purely a path-shape
+  // Set an edge's routing style (smooth / step / straight). Only the path route
   // change, so only the data flag moves — the renderer (DiagramEdge) redraws.
-  function handleEdgeShapeChange(
+  function handleEdgeRouteChange(
     id: string,
-    shape: NonNullable<DiagramEdge["shape"]>,
+    route: NonNullable<DiagramEdge["route"]>,
   ) {
     edges = edges.map((e) =>
-      e.id === id ? { ...e, data: { ...e.data, shape } } : e,
+      e.id === id ? { ...e, data: { ...e.data, route } } : e,
     );
     scheduleSave();
   }
@@ -1837,10 +1848,11 @@
   ) {
     edges = edges.map((e) => {
       if (e.id !== id) return e;
-      const color = e.data?.color as string | undefined;
-      const width = e.data?.width as number | undefined;
-      const dash = e.data?.dash as DiagramEdge["dash"];
-      const arrows = e.data?.arrows as DiagramEdge["arrows"];
+      const data = diagramEdgeData(e);
+      const color = data.color;
+      const width = data.width;
+      const dash = data.dash;
+      const arrows = data.arrows;
       return {
         ...e,
         // The render props are rebuilt from scratch here, so `dash` has to be
@@ -1855,7 +1867,7 @@
   // Centre of existing top-level content, so a new node lands near the graph
   // rather than off-screen. Children are skipped — their positions are
   // parent-relative and would skew the average.
-  function canvasCentre(): { x: number; y: number } {
+  function canvasCentre(): DiagramNode["position"] {
     const top = nodes.filter((n) => !n.parentId);
     if (!top.length) return { x: 120, y: 120 };
     const xs = top.map((n) => n.position.x);
@@ -1882,18 +1894,20 @@
       id,
       type: "default",
       position,
-      ...(parent ? { parentId: parent.id } : {}),
       selected: true,
       data: {
         id,
         label: "New Node",
         icon: "service",
-        ...(parent ? { parentId: parent.id } : {}),
         expanded: false,
         dimmed: false,
         ...NODE_HANDLERS,
       },
     };
+    if (parent) {
+      newNode.parentId = parent.id;
+      newNode.data.parentId = parent.id;
+    }
     // Deselect everything else, select the new node, and open its drawer so its
     // details are immediately settable. Keep parents ahead of children, then
     // gently centre and enlarge the new node without disturbing input focus.
@@ -2114,8 +2128,8 @@
       (e) => selIds.has(e.source) && selIds.has(e.target),
     );
     setDiagramClipboard(
-      sel.map((n) => $state.snapshot(n) as Node),
-      internal.map((e) => $state.snapshot(e) as Edge),
+      sel.map((n) => $state.snapshot(n)),
+      internal.map((e) => $state.snapshot(e)),
     );
   }
 
@@ -2251,7 +2265,7 @@
   }
 
   function isTextEntryFocused(): boolean {
-    const el = document.activeElement as HTMLElement | null;
+    const el = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     return !!el?.closest?.("input,textarea,[contenteditable]");
   }
 
@@ -2323,7 +2337,7 @@
        title) lives in the tab label and the drill crumb on the canvas; the pane's
        close / split / maximize live in the floating PaneChrome cluster, which
        this row reserves room for on its right. -->
-  <div class="diagram-shell__toolbar">
+  <div class="diagram-shell__toolbar workspace-titlebar">
     {#if renaming}
       <!-- svelte-ignore a11y_autofocus -->
       <input

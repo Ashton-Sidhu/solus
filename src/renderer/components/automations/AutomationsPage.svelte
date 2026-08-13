@@ -128,25 +128,28 @@
   const counts = $derived.by(() => {
     let active = 0;
     let paused = 0;
-    for (const a of scoped) a.enabled ? active++ : paused++;
+    for (const automation of scoped) {
+      if (automation.enabled) active++;
+      else paused++;
+    }
     return { all: scoped.length, active, paused };
   });
 
-  const statusSegments = $derived([
-    { value: "all" as StatusFilter, label: "All", count: counts.all },
+  const statusSegments = $derived(([
+    { value: "all", label: "All", count: counts.all },
     {
-      value: "active" as StatusFilter,
+      value: "active",
       label: "Active",
       short: "On",
       count: counts.active,
     },
     {
-      value: "paused" as StatusFilter,
+      value: "paused",
       label: "Paused",
       short: "Off",
       count: counts.paused,
     },
-  ]);
+  ] satisfies Array<{ value: StatusFilter; label: string; short?: string; count: number }>));
 
   const isInitialLoading = $derived(
     !store.hasLoadedHost(selectedServerId) && store.isLoadingHost(selectedServerId),

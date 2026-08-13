@@ -90,18 +90,18 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
 
   server.register('connectionsBootstrapDiscoveredServer', (args, ctx) => {
     if (!ctx.deviceId) throw new Error('SSH bootstrap requires an authenticated device.')
-    const [input] = args as [Parameters<typeof bootstrapDiscoveredServerOverSsh>[0]]
+    const [input] = args
     return bootstrapDiscoveredServerOverSsh(input)
   })
 
   server.register('connectionsRevokeDevice', (args) => {
-    const [{ deviceId }] = args as [{ deviceId: string }]
+    const [{ deviceId }] = args
     revokeDevice(deviceId)
     return { ok: true, revoked: listRevokedDevices() }
   })
 
   server.register('connectionsSetRemoteAccess', async (args) => {
-    const [{ remoteAccess }] = args as [{ remoteAccess: boolean }]
+    const [{ remoteAccess }] = args
     return deps.setRemoteAccess(remoteAccess === true)
   })
 }

@@ -3,7 +3,8 @@ import { existsSync, readdirSync } from 'fs'
 import { mkdir, readdir, rm } from 'fs/promises'
 import { homedir } from 'os'
 import { basename, dirname, join } from 'path'
-import { AGENT_BIN, SOLUS_REMOTE_DISPATCH_DIR, type AgentId, type CloneAuth, type CloneProtocol, type GitCommitIdentity, type GithubDelegatedCredential, type HostReadiness, type ServerCapabilities, type SetupAdoptProjectResult, type SetupAgent, type SetupAgentAuthCheckResult, type SetupCloneProjectResult, type SetupGithubRepo, type SetupGithubReposResult, type SetupLogEvent, type SetupPrepareProjectResult, type SetupSshAccessResult, type SetupStatusEvent, type SetupStepResult, type SetupStreamStep, type SetupVerification } from '../../../shared/types'
+import { z } from 'zod'
+import { AGENT_BIN, type AgentId, type CloneAuth, type CloneProtocol, type DispatchHistoryRoot, type GitCommitIdentity, type GithubDelegatedCredential, type HostReadiness, type ServerCapabilities, type SetupAdoptProjectResult, type SetupAgent, type SetupAgentAuthCheckResult, type SetupCloneProjectResult, type SetupGithubRepo, type SetupGithubReposResult, type SetupLogEvent, type SetupPrepareProjectResult, type SetupSshAccessResult, type SetupStatusEvent, type SetupStepResult, type SetupStreamStep, type SetupVerification } from '../../../shared/types'
 import type { SolusServer, HandlerCtx } from '../server'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { getCliEnv } from '../../cli-env'
@@ -31,8 +32,10 @@ import {
   resolveCloneDestination,
   validateCloneUrl,
 } from './setup-commands'
+import { dispatchCheckoutPath, resolveDispatchHistoryRoots, resolveDispatchWorktree } from '../../project-config/dispatch-checkouts'
+import { ensureBranchWorktree } from '../../git/worktree-manager'
 
-const ANSI_RE = /\x1b\[[0-9;]*m/g
+const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g')
 const MAX_SETUP_LOG_LINES = 1_000
 /** Probes must never hang the readiness rail; nothing here talks to the network. */
 const PROBE_TIMEOUT_MS = 2_000
@@ -40,6 +43,50 @@ const SSH_COMMAND_TIMEOUT_MS = 10_000
 const GH_AUTH_TIMEOUT_MS = 10_000
 /** The git config key whose helper answers github.com HTTPS credentials. */
 const GITHUB_CREDENTIAL_KEY = 'credential.https://github.com.helper'
+const MAX_DISPATCH_HISTORY_REPO_KEYS = 32
+
+const setupAgentSchema = z.enum(['claude', 'codex'])
+const delegatedCredentialSchema = z.object({
+  accessToken: z.string(),
+  login: z.string(),
+}).strict()
+const setupAgentRequestSchema = z.object({ agent: setupAgentSchema }).strict()
+const setupAgentSignInCodeSchema = z.object({
+  agent: setupAgentSchema,
+  code: z.string(),
+}).strict()
+const setupPrepareProjectSchema = z.object({
+  cloneUrl: z.string(),
+  credential: delegatedCredentialSchema.optional(),
+  worktreePath: z.string().trim().min(1).optional(),
+  baseBranch: z.string().trim().min(1).optional(),
+}).strict()
+const setupCloneProjectSchema = z.object({
+  cloneUrl: z.string(),
+  name: z.string().optional(),
+  destination: z.string().optional(),
+  protocol: z.enum(['https', 'ssh']).optional(),
+  clean: z.boolean().optional(),
+  credential: delegatedCredentialSchema.optional(),
+}).strict()
+const setupSyncProjectSchema = z.object({
+  path: z.string(),
+  cloneUrl: z.string(),
+}).strict()
+const setupAdoptProjectSchema = z.object({
+  path: z.string(),
+  cloneUrl: z.string().optional(),
+}).strict()
+
+interface ActiveAgentSignIn {
+  child: ChildProcess | null
+  completion: Promise<void>
+}
+
+interface LineBuffer {
+  write(chunk: Buffer | string): void
+  flush(): void
+}
 
 /**
  * `GIT_ASKPASS` is called once per prompt with the prompt text as argv[1]; the
@@ -71,7 +118,6 @@ export interface SetupHandlerDeps extends AgentAuthProbeDeps {
   hasCommand?: (command: string) => boolean
   loadGithubToken?: typeof loadGithubToken
   registerProject?: (path: string) => Promise<string>
-  findProjectCheckout?: (repoKey: string) => Promise<string | null>
   projectsRoot?: () => string
 }
 
@@ -192,8 +238,9 @@ export function probeHostReadiness(
   }
 }
 
-export function coerceSetupAgent(value: unknown): SetupAgent {
-  if (value === 'claude' || value === 'codex') return value
+export function coerceSetupAgent(value: string): SetupAgent {
+  const parsed = setupAgentSchema.safeParse(value)
+  if (parsed.success) return parsed.data
   throw new Error('Unsupported setup agent.')
 }
 
@@ -218,22 +265,6 @@ export function setupProjectsRoot(
   return homeDirectory
 }
 
-export function delegatedCheckoutPath(root: string, login: string, cloneUrl: string): string {
-  const parsed = validateCloneUrl(cloneUrl)
-  const parts = parseCloneUrlParts(parsed.cloneUrl)
-  const repositoryParts = parts?.repoPath.replace(/\.git$/i, '').split('/').filter(Boolean) ?? []
-  if (repositoryParts.length < 2) throw new Error('The clone URL must name both an owner and repository.')
-  const owner = repositoryParts.at(-2)!
-  const repo = repositoryParts.at(-1)!
-  // Reject traversal-shaped names so delegated identities can never choose a path outside the host's projects root.
-  for (const [label, value] of [['login', login], ['owner', owner], ['repository', repo]] as const) {
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value) || value.includes('..')) {
-      throw new Error(`The delegated ${label} cannot be used as a checkout path.`)
-    }
-  }
-  return join(root, SOLUS_REMOTE_DISPATCH_DIR, login, owner, repo)
-}
-
 export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDeps = {}): void {
   const spawnProcess = deps.spawnProcess ?? nodeSpawn
   const hasCommand = deps.hasCommand ?? commandExists
@@ -247,12 +278,6 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     ])
     await recordProject(path)
     return resolveProjectKey(path)
-  })
-  const findProjectCheckout = deps.findProjectCheckout ?? (async (repoKey: string) => {
-    const { listProjectIdentities } = await import('../../project-config/project-identities')
-    const identities = await listProjectIdentities()
-    const normalizedRepoKey = repoKey.toLowerCase()
-    return identities.find((identity) => identity.repoKey.toLowerCase() === normalizedRepoKey)?.path ?? null
   })
   const activeSteps = new Set<SetupStreamStep>()
   const activeAgentSignIns = new Map<SetupAgent, {
@@ -271,25 +296,35 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     },
   })
 
+  server.register('resolveDispatchHistoryRoots', async (args, ctx): Promise<DispatchHistoryRoot[]> => {
+    requireAuthenticatedSetupContext(ctx)
+    const [requestRepoKeys] = args
+    const repoKeys = z.array(z.string()).parse(requestRepoKeys)
+    if (repoKeys.length > MAX_DISPATCH_HISTORY_REPO_KEYS) {
+      throw new Error(`Dispatch history is limited to ${MAX_DISPATCH_HISTORY_REPO_KEYS} repositories per request.`)
+    }
+    return resolveDispatchHistoryRoots(projectsRoot(), ctx.deviceId!, repoKeys)
+  })
+
   server.register('setServerName', (args, ctx) => {
     requireAuthenticatedSetupContext(ctx)
-    const [name] = args as [string]
-    const next = setServerName(String(name ?? ''))
+    const [name] = args
+    const next = setServerName(z.string().parse(name))
     return { name: next.name }
   })
 
   server.register('setProjectsBaseDirectory', (args, ctx) => {
     requireAuthenticatedSetupContext(ctx)
-    const [path] = args as [string]
-    const next = setProjectsBaseDirectory(String(path ?? ''))
+    const [path] = args
+    const next = setProjectsBaseDirectory(z.string().parse(path))
     return { projectsBaseDirectory: next.projectsBaseDirectory }
   })
 
   server.register('setupInstallAgentCli', async (args, ctx) => {
     requireAuthenticatedSetupContext(ctx)
     const { emitStatus, emitLog } = eventSink(ctx.clientId)
-    const [{ agent }] = args as [{ agent: unknown }]
-    const setupAgent = coerceSetupAgent(agent)
+    const [request] = args
+    const { agent: setupAgent } = setupAgentRequestSchema.parse(request)
     const step = installStepForAgent(setupAgent)
 
     return runExclusive(step, async () => {
@@ -309,16 +344,16 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
 
   server.register('setupCheckAgentAuth', (args, ctx): SetupAgentAuthCheckResult => {
     requireAuthenticatedSetupContext(ctx)
-    const [{ agent }] = args as [{ agent: unknown }]
-    const setupAgent = coerceSetupAgent(agent)
+    const [request] = args
+    const { agent: setupAgent } = setupAgentRequestSchema.parse(request)
     return checkAgentAuth(setupAgent, deps)
   })
 
   server.register('setupAgentSignIn', async (args, ctx): Promise<SetupStepResult> => {
     requireAuthenticatedSetupContext(ctx)
     const { emitStatus, emitLog } = eventSink(ctx.clientId)
-    const [{ agent }] = args as [{ agent: unknown }]
-    const setupAgent = coerceSetupAgent(agent)
+    const [request] = args
+    const { agent: setupAgent } = setupAgentRequestSchema.parse(request)
     const step = signInStepForAgent(setupAgent)
     const spec = agentSignInCommand(setupAgent)
     let stdout = ''
@@ -331,10 +366,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     const completion = new Promise<void>((resolve) => {
       settleCompletion = resolve
     })
-    const signInState: {
-      child: ChildProcess | null
-      completion: Promise<void>
-    } = {
+    const signInState: ActiveAgentSignIn = {
       child: null,
       completion,
     }
@@ -388,8 +420,8 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
 
   server.register('setupSubmitAgentSignInCode', (args, ctx) => {
     requireAuthenticatedSetupContext(ctx)
-    const [{ agent, code }] = args as [{ agent: unknown; code: unknown }]
-    const setupAgent = coerceSetupAgent(agent)
+    const [request] = args
+    const { agent: setupAgent, code } = setupAgentSignInCodeSchema.parse(request)
     const submittedCode = coerceAgentSignInCode(code)
     const stdin = activeAgentSignIns.get(setupAgent)?.child.stdin
     if (!stdin?.writable) throw new Error(`${setupAgent === 'claude' ? 'Claude' : 'Codex'} sign-in is not waiting for a code.`)
@@ -466,7 +498,8 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
 
   server.register('setupSetGitIdentity', (args, ctx): GitCommitIdentity => {
     requireAuthenticatedSetupContext(ctx)
-    const [{ name, email }] = args as [{ name: unknown; email: unknown }]
+    const [request] = args
+    const { name, email } = z.object({ name: z.string(), email: z.string() }).strict().parse(request)
     const identity = {
       name: coerceConfigValue(name, 'Name'),
       email: coerceConfigValue(email, 'Email'),
@@ -478,8 +511,9 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
 
   server.register('setupCheckSshAccess', (args, ctx): SetupSshAccessResult => {
     requireAuthenticatedSetupContext(ctx)
-    const [{ host }] = args as [{ host?: unknown }]
-    const target = typeof host === 'string' && host.trim() ? host.trim() : 'github.com'
+    const [request] = args
+    const { host } = z.object({ host: z.string().optional() }).strict().parse(request)
+    const target = host?.trim() || 'github.com'
     if (!isValidCloneHost(target)) throw new Error('That is not a valid host name.')
 
     // A code host answers the shell request with a greeting and a non-zero exit,
@@ -492,6 +526,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
       ], { encoding: 'utf8', env: getCliEnv(), timeout: SSH_COMMAND_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] })
       return { host: target, ok: true, message: output.trim() || `Connected to ${target}.` }
     } catch (err) {
+      // SAFETY: Node adds captured stdout and stderr to the Error thrown by execFileSync.
       const failure = err as { stdout?: string | Buffer; stderr?: string | Buffer; message?: string }
       output = [failure.stdout, failure.stderr].map((part) => part?.toString() ?? '').join('\n').trim()
       const ok = /successfully authenticated/i.test(output)
@@ -533,50 +568,53 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
 
   server.register('setupPrepareProject', async (args, ctx): Promise<SetupPrepareProjectResult> => {
     requireAuthenticatedSetupContext(ctx)
-    const [{ cloneUrl, credential: rawCredential }] = args as [{ cloneUrl: unknown; credential?: unknown }]
+    const [request] = args
+    const { cloneUrl, credential: rawCredential, worktreePath, baseBranch } = setupPrepareProjectSchema.parse(request)
     // `requireAuthenticatedSetupContext` already guarantees `ctx.deviceId`, which
     // is the key the delegated token is stored and read back under.
     const credential = coerceDelegatedCredential(rawCredential)
-    const parsed = validateCloneUrl(String(cloneUrl ?? ''))
+    const parsed = validateCloneUrl(cloneUrl)
     const repoKey = cloneRepoKey(parsed.cloneUrl)
     if (!repoKey) throw new Error('The clone URL must name both an owner and repository.')
 
-    if (credential) {
-      const checkoutPath = delegatedCheckoutPath(projectsRoot(), credential.login, parsed.cloneUrl)
-      if (runProbe('git', ['-C', checkoutPath, 'rev-parse', '--show-toplevel'])) {
-        const result = await server.handle('setupAdoptProject', [{ path: checkoutPath, cloneUrl: parsed.cloneUrl }], ctx) as SetupAdoptProjectResult
+    const checkoutPath = dispatchCheckoutPath(projectsRoot(), ctx.deviceId!, repoKey)
+    if (runProbe('git', ['-C', checkoutPath, 'rev-parse', '--show-toplevel'])) {
+      const result = await server.handle('setupAdoptProject', [{ path: checkoutPath, cloneUrl: parsed.cloneUrl }], ctx)
+      if (credential) {
         configureDelegatedCheckout(checkoutPath, ctx.deviceId!, credential)
-        return { ...result, action: 'updated' }
       }
+      const path = baseBranch
+        ? (await ensureBranchWorktree(checkoutPath, baseBranch)).worktreePath!
+        : resolveDispatchWorktree(checkoutPath, worktreePath)
+      return { ...result, path, action: 'updated' }
+    }
 
-      const result = await server.handle('setupCloneProject', [{ cloneUrl: parsed.cloneUrl, destination: checkoutPath, credential }], ctx) as SetupCloneProjectResult
+    const cloneRequest = {
+      cloneUrl: parsed.cloneUrl,
+      destination: checkoutPath,
+    }
+    if (credential) Object.assign(cloneRequest, { credential })
+    const result = await server.handle('setupCloneProject', [cloneRequest], ctx)
+    if (credential) {
       configureDelegatedCheckout(result.path, ctx.deviceId!, credential)
-      return { path: result.path, projectKey: result.projectKey, action: 'cloned' }
     }
-
-    const checkoutPath = await findProjectCheckout(repoKey)
-    if (checkoutPath) {
-      const result = await server.handle('setupAdoptProject', [{ path: checkoutPath, cloneUrl: parsed.cloneUrl }], ctx) as SetupAdoptProjectResult
-      return { ...result, action: 'updated' }
+    const path = baseBranch
+      ? (await ensureBranchWorktree(result.path, baseBranch)).worktreePath!
+      : resolveDispatchWorktree(result.path, worktreePath)
+    return {
+      path,
+      projectKey: result.projectKey,
+      action: 'cloned',
     }
-
-    const result = await server.handle('setupCloneProject', [{ cloneUrl: parsed.cloneUrl }], ctx) as SetupCloneProjectResult
-    return { path: result.path, projectKey: result.projectKey, action: 'cloned' }
   })
 
   server.register('setupCloneProject', async (args, ctx): Promise<SetupCloneProjectResult> => {
     requireAuthenticatedSetupContext(ctx)
     const { emitStatus, emitLog } = eventSink(ctx.clientId)
-    const [{ cloneUrl, name, destination, protocol, clean, credential: rawCredential }] = args as [{
-      cloneUrl: unknown
-      name?: unknown
-      destination?: unknown
-      protocol?: unknown
-      clean?: unknown
-      credential?: unknown
-    }]
+    const [request] = args
+    const { cloneUrl, name, destination, protocol, clean, credential: rawCredential } = setupCloneProjectSchema.parse(request)
     const credential = coerceDelegatedCredential(rawCredential)
-    const parsed = validateCloneUrl(String(cloneUrl ?? ''))
+    const parsed = validateCloneUrl(cloneUrl)
     const selectedProtocol = coerceCloneProtocol(protocol)
     const cloneUrls = credential
       ? [applyCloneProtocol(parsed.cloneUrl, 'https')]
@@ -599,8 +637,8 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
         lastFailedCloneDestination = null
       }
       const targetPath = resolveCloneDestination({
-        destination: typeof destination === 'string' && destination.trim() ? expandHome(destination.trim()) : undefined,
-        name: typeof name === 'string' ? name : undefined,
+        destination: destination?.trim() ? expandHome(destination.trim()) : undefined,
+        name,
         repoName: parsed.repoName,
         projectsRoot: hostProjectsRoot,
       })
@@ -686,11 +724,12 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
 
   server.register('setupSyncProject', async (args, ctx): Promise<SetupAdoptProjectResult> => {
     requireAuthenticatedSetupContext(ctx)
-    const [{ path, cloneUrl }] = args as [{ path: unknown; cloneUrl: unknown }]
-    const rawPath = typeof path === 'string' ? path.trim() : ''
+    const [request] = args
+    const { path, cloneUrl } = setupSyncProjectSchema.parse(request)
+    const rawPath = path.trim()
     if (!rawPath) throw new Error('A checkout path is required.')
     const checkoutPath = expandHome(rawPath)
-    const expected = cloneRepoKey(validateCloneUrl(String(cloneUrl ?? '')).cloneUrl)
+    const expected = cloneRepoKey(validateCloneUrl(cloneUrl).cloneUrl)
     const origin = runProbe('git', ['-C', checkoutPath, 'config', '--get', 'remote.origin.url'])
     const actual = origin ? cloneRepoKey(origin) : null
     if (!runProbe('git', ['-C', checkoutPath, 'rev-parse', '--show-toplevel'])) {
@@ -717,14 +756,15 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
 
   server.register('setupAdoptProject', async (args, ctx): Promise<SetupAdoptProjectResult> => {
     requireAuthenticatedSetupContext(ctx)
-    const [{ path, cloneUrl }] = args as [{ path: unknown; cloneUrl?: unknown }]
-    const rawPath = typeof path === 'string' ? path.trim() : ''
+    const [request] = args
+    const { path, cloneUrl } = setupAdoptProjectSchema.parse(request)
+    const rawPath = path.trim()
     if (!rawPath) throw new Error('A checkout path is required.')
     const checkoutPath = expandHome(rawPath)
     const checkoutRoot = runProbe('git', ['-C', checkoutPath, 'rev-parse', '--show-toplevel'])
     if (!checkoutRoot) throw new Error(`There’s no git checkout at ${checkoutPath}.`)
 
-    if (typeof cloneUrl === 'string' && cloneUrl.trim()) {
+    if (cloneUrl?.trim()) {
       const expected = cloneRepoKey(validateCloneUrl(cloneUrl).cloneUrl)
       if (!expected) throw new Error('The clone URL must name both an owner and repository.')
       const origin = runProbe('git', ['-C', checkoutPath, 'config', '--get', 'remote.origin.url'])
@@ -777,7 +817,7 @@ function agentSignInCommand(agent: SetupAgent): ProcessCommandSpec {
 }
 
 /** Readiness cares only about "can this host run the agent", so an unknown auth probe reads as not signed in. */
-function agentReadiness(agent: SetupAgent, deps: AgentAuthProbeDeps = {}): { installed: boolean; signedIn: boolean } {
+function agentReadiness(agent: SetupAgent, deps: AgentAuthProbeDeps = {}): HostReadiness['agents'][SetupAgent] {
   const check = checkAgentAuth(agent, deps)
   return { installed: check.installed, signedIn: check.installed && check.authenticated === true }
 }
@@ -826,32 +866,34 @@ function requireAuthenticatedSetupContext(ctx: HandlerCtx): void {
   if (!ctx.deviceId) throw new Error('Setup actions require an authenticated device.')
 }
 
-function coerceCloneProtocol(value: unknown): CloneProtocol | undefined {
-  if (value === 'https' || value === 'ssh') return value
-  return undefined
+function coerceCloneProtocol(value: CloneProtocol | undefined): CloneProtocol | undefined {
+  return value
 }
 
-function coerceDelegatedCredential(value: unknown): GithubDelegatedCredential | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
-  const { accessToken, login } = value as { accessToken?: unknown; login?: unknown }
-  if (typeof accessToken !== 'string' || typeof login !== 'string') return undefined
+function coerceDelegatedCredential(value: GithubDelegatedCredential | undefined): GithubDelegatedCredential | undefined {
+  if (!value) return undefined
+  const { accessToken, login } = value
   const normalized = { accessToken: accessToken.trim(), login: login.trim() }
   return normalized.accessToken && normalized.login ? normalized : undefined
 }
 
 /** Git config values reach a shell-free execFile, but newlines would still corrupt the config file. */
-function coerceConfigValue(value: unknown, label: string): string {
-  const trimmed = typeof value === 'string' ? value.trim() : ''
+function coerceConfigValue(value: string, label: string): string {
+  const trimmed = value.trim()
   if (!trimmed) throw new Error(`${label} is required.`)
-  if (trimmed.length > 200 || /[\r\n\x00]/.test(trimmed)) throw new Error(`${label} contains characters git can’t store.`)
+  if (trimmed.length > 200 || [...trimmed].some((character) => character === '\r' || character === '\n' || character === '\0')) {
+    throw new Error(`${label} contains characters git can’t store.`)
+  }
   return trimmed
 }
 
 /** The CLI reads one response line; reject extra control characters and oversized input. */
-function coerceAgentSignInCode(value: unknown): string {
-  const code = typeof value === 'string' ? value.trim() : ''
+function coerceAgentSignInCode(value: string): string {
+  const code = value.trim()
   if (!code) throw new Error('Sign-in code is required.')
-  if (code.length > 4_096 || /[\r\n\x00]/.test(code)) throw new Error('Sign-in code is invalid.')
+  if (code.length > 4_096 || [...code].some((character) => character === '\r' || character === '\n' || character === '\0')) {
+    throw new Error('Sign-in code is invalid.')
+  }
   return code
 }
 
@@ -951,6 +993,19 @@ async function attemptClone(opts: {
     args: ['clone', '--progress', attemptUrl, basename(targetPath)],
     display: `git clone --progress ${attemptUrl} ${basename(targetPath)}`,
   }
+  const env = askpass && token
+    ? {
+        GIT_ASKPASS: askpass.path,
+        GIT_TERMINAL_PROMPT: '0',
+        SOLUS_GIT_USERNAME: 'x-access-token',
+        SOLUS_GIT_PASSWORD: token.accessToken,
+      }
+    : isHttps
+      ? { GIT_TERMINAL_PROMPT: '0' }
+      : {
+          GIT_TERMINAL_PROMPT: '0',
+          GIT_SSH_COMMAND: `ssh ${sshConnectionOptions().join(' ')}`,
+        }
   emitLog({ step, line: `Cloning ${attemptUrl} into ${targetPath}` })
   await runSetupProcess({
     step,
@@ -960,17 +1015,7 @@ async function attemptClone(opts: {
     emitLog,
     cwd: parent,
     emitFailureStatus,
-    env: askpass && token
-      ? {
-          GIT_ASKPASS: askpass.path,
-          GIT_TERMINAL_PROMPT: '0',
-          SOLUS_GIT_USERNAME: 'x-access-token',
-          SOLUS_GIT_PASSWORD: token.accessToken,
-        }
-      : {
-          GIT_TERMINAL_PROMPT: '0',
-          ...(isHttps ? {} : { GIT_SSH_COMMAND: `ssh ${sshConnectionOptions().join(' ')}` }),
-        },
+    env,
   })
   return isHttps ? (token ? 'token' : 'anonymous') : 'ssh'
 }
@@ -1116,7 +1161,7 @@ function terminateProcessTree(child: ChildProcess, signal: NodeJS.Signals): void
   child.kill(signal)
 }
 
-function createLineBuffer(onLine: (line: string) => void): { write(chunk: Buffer | string): void; flush(): void } {
+function createLineBuffer(onLine: (line: string) => void): LineBuffer {
   let buffered = ''
   let emitted = 0
   const emit = (value: string) => {

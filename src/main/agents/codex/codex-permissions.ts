@@ -1,7 +1,90 @@
+import { z } from 'zod'
 import { CodexAppServerClient } from './codex-agent'
 import type { CodexPendingServerRequest } from './codex-event-normalizer'
 import type { PermissionResponder } from '../agent-backend'
 import type { PermissionOption, QuestionItem } from '../../../shared/types'
+import type {
+  GrantedPermissionProfile,
+  McpServerElicitationRequestResponse,
+  PermissionsRequestApprovalParams,
+  PermissionsRequestApprovalResponse,
+} from './generated/v2'
+
+const stringValueSchema = z.string()
+const availableDecisionSchema = z.union([
+  z.string(),
+  z.object({
+    accept: z.json().optional(),
+    acceptForSession: z.json().optional(),
+    accept_for_session: z.json().optional(),
+    acceptWithExecpolicyAmendment: z.json().optional(),
+    accept_with_execpolicy_amendment: z.json().optional(),
+    decline: z.json().optional(),
+    deny: z.json().optional(),
+    cancel: z.json().optional(),
+  }),
+])
+const networkApprovalContextSchema = z.object({
+  host: z.string().min(1),
+  protocol: z.string().optional(),
+  port: z.union([z.string(), z.number()]).optional(),
+})
+const mcpVariantSchema = z.object({
+  const: z.json().optional(),
+  enum: z.array(z.json()).optional(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+})
+const mcpPropertySchema = z.object({
+  type: z.union([z.string(), z.array(z.string())]).optional(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  enum: z.array(z.json()).optional(),
+  oneOf: z.array(mcpVariantSchema).optional(),
+  anyOf: z.array(mcpVariantSchema).optional(),
+})
+const mcpSchemaSchema = z.object({
+  properties: z.record(z.string(), mcpPropertySchema).optional(),
+  required: z.array(z.string()).optional(),
+})
+const mcpPayloadSchema = z.object({
+  mode: z.enum(['url', 'form']).optional(),
+  message: z.string().optional(),
+  url: z.string().optional(),
+  elicitationId: z.string().optional(),
+  requestedSchema: mcpSchemaSchema.optional(),
+  schema: mcpSchemaSchema.optional(),
+})
+const questionOptionSchema = z.object({
+  label: z.string().optional(),
+  value: z.string().optional(),
+  description: z.string().optional(),
+  preview: z.string().optional(),
+})
+const questionSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().optional(),
+  question: z.string().optional(),
+  label: z.string().optional(),
+  header: z.string().optional(),
+  options: z.array(questionOptionSchema).optional(),
+  multiSelect: z.boolean().optional(),
+})
+
+type McpProperty = z.infer<typeof mcpPropertySchema>
+type McpAnswerValue = string | number | boolean | null
+type RequestedPermissions = PermissionsRequestApprovalParams['permissions']
+type CommandOrFileApprovalResponse =
+  | CodexApprovalDecision
+  | { acceptWithExecpolicyAmendment: { execpolicy_amendment: string[] } }
+type ElicitationResponse = Omit<McpServerElicitationRequestResponse, '_meta'>
+type PermissionResponse = PermissionsRequestApprovalResponse
+type ApprovalResponse = CommandOrFileApprovalResponse | ElicitationResponse | PermissionResponse
+
+function parsedString<Value>(value: Value): string | undefined {
+  const parsed = stringValueSchema.safeParse(value)
+  return parsed.success ? parsed.data : undefined
+}
 
 export class CodexPermissionResponder implements PermissionResponder {
   private client: CodexAppServerClient
@@ -20,7 +103,7 @@ export class CodexPermissionResponder implements PermissionResponder {
     return req ? { toolName: req.method, sessionId: req.sessionId } : undefined
   }
 
-  resolveServerRequest(serverRequestId: unknown): { questionId: string; sessionId: string | null } | null {
+  resolveServerRequest<RequestId>(serverRequestId: RequestId): { questionId: string; sessionId: string | null } | null {
     for (const [questionId, req] of this.pending) {
       if (req.id === serverRequestId || String(req.id) === String(serverRequestId)) {
         this.pending.delete(questionId)
@@ -113,8 +196,8 @@ export function permissionOptions(method: string, params: any): PermissionOption
   if (available?.length) {
     const seen = new Set<string>()
     const options: PermissionOption[] = []
-    for (const d of available) {
-      const rawId = typeof d === 'string' ? d : Object.keys(d)[0] || 'accept'
+    for (const decision of availableDecisionSchema.array().catch([]).parse(available)) {
+      const rawId = availableDecisionId(decision)
       const id = normalizeDecision(rawId)
       if (seen.has(id)) continue
       seen.add(id)
@@ -153,7 +236,7 @@ export function permissionOptions(method: string, params: any): PermissionOption
   ]
 }
 
-export function autoApprovalResponse(method: string, params: any): unknown {
+export function autoApprovalResponse(method: string, params: any): ApprovalResponse {
   if (method === 'item/permissions/requestApproval') {
     return {
       permissions: grantedRequestedPermissions(params?.permissions),
@@ -163,7 +246,7 @@ export function autoApprovalResponse(method: string, params: any): unknown {
   return commandOrFileApprovalResponse(autoApprovalDecision(params), params)
 }
 
-export function denialResponse(method: string): unknown {
+export function denialResponse(method: string): ApprovalResponse {
   if (method === 'mcpServer/elicitation/request') {
     return { action: 'decline', content: null }
   }
@@ -185,11 +268,11 @@ export function normalizeMcpElicitationRequest(params: any): {
   questions: QuestionItem[]
 } | null {
   const payload = mcpElicitationPayload(params)
-  const serverName = typeof params?.serverName === 'string' ? params.serverName : undefined
-  const message = typeof payload?.message === 'string' ? payload.message : undefined
+  const serverName = parsedString(params?.serverName)
+  const message = payload?.message
 
   if (payload?.mode === 'url') {
-    const url = typeof payload.url === 'string' ? payload.url : undefined
+    const url = payload.url
     return {
       request: {
         kind: 'mcp_url',
@@ -211,13 +294,12 @@ export function normalizeMcpElicitationRequest(params: any): {
 
   if (payload?.mode !== 'form') return null
 
-  const schema = payload.requestedSchema || payload.schema || {}
-  const properties = schema && typeof schema.properties === 'object' ? schema.properties : {}
-  const required = new Set(Array.isArray(schema.required) ? schema.required.map(String) : [])
+  const schema = payload.requestedSchema || payload.schema
+  const properties = schema?.properties ?? {}
+  const required = new Set(schema?.required ?? [])
   const entries = Object.entries(properties)
   const questions = entries.length > 0
-    ? entries.map(([key, raw]) => {
-      const prop = raw && typeof raw === 'object' ? raw as any : {}
+    ? entries.map(([key, prop]) => {
       return {
         id: key,
         question: prop.title || prop.description || key,
@@ -250,17 +332,18 @@ export function normalizeMcpElicitationRequest(params: any): {
 }
 
 export function normalizeQuestionItems(params: any): QuestionItem[] {
-  const questions = Array.isArray(params?.questions) ? params.questions : []
+  const parsed = z.array(questionSchema).safeParse(params?.questions)
+  const questions = parsed.success ? parsed.data : []
   if (questions.length > 0) {
-    return questions.map((q: any) => ({
+    return questions.map((q) => ({
       id: q.id || q.name,
       question: q.question || q.label || q.id || 'Input',
       header: q.header,
-      options: Array.isArray(q.options) ? q.options.map((o: any) => ({
-        label: o.label || o.value || String(o),
-        description: o.description,
-        preview: o.preview,
-      })) : [],
+      options: (q.options ?? []).map((option) => ({
+        label: option.label || option.value || 'Option',
+        description: option.description,
+        preview: option.preview,
+      })),
       multiSelect: !!q.multiSelect,
     }))
   }
@@ -287,6 +370,12 @@ function normalizeDecision(id: string): CodexApprovalDecision {
   return 'accept'
 }
 
+function availableDecisionId(decision: z.infer<typeof availableDecisionSchema>): string {
+  const direct = parsedString(decision)
+  if (direct) return direct
+  return Object.keys(decision)[0] || 'accept'
+}
+
 function isAllowDecision(id: string): id is 'accept' | 'acceptForSession' | 'acceptWithExecpolicyAmendment' {
   return id === 'accept' || id === 'acceptForSession' || id === 'acceptWithExecpolicyAmendment'
 }
@@ -303,12 +392,15 @@ function labelForDecision(id: string): string {
   return 'Allow'
 }
 
-function grantedRequestedPermissions(permissions: any): object {
-  if (!permissions || typeof permissions !== 'object') return {}
-  return { ...permissions }
+function grantedRequestedPermissions(permissions: RequestedPermissions | null | undefined): GrantedPermissionProfile {
+  if (!permissions) return {}
+  const granted: GrantedPermissionProfile = {}
+  if (permissions.network) granted.network = permissions.network
+  if (permissions.fileSystem) granted.fileSystem = permissions.fileSystem
+  return granted
 }
 
-function commandOrFileApprovalResponse(decision: CodexApprovalDecision, params: any): unknown {
+function commandOrFileApprovalResponse(decision: CodexApprovalDecision, params: any): CommandOrFileApprovalResponse {
   if (decision === 'acceptWithExecpolicyAmendment') {
     return {
       acceptWithExecpolicyAmendment: {
@@ -322,7 +414,7 @@ function commandOrFileApprovalResponse(decision: CodexApprovalDecision, params: 
   return 'decline'
 }
 
-function cancellationResponse(method: string): unknown {
+function cancellationResponse(method: string): ApprovalResponse {
   if (method === 'mcpServer/elicitation/request') {
     return { action: 'cancel', content: null }
   }
@@ -334,21 +426,22 @@ function cancellationResponse(method: string): unknown {
 
 function execpolicyAmendment(params: any): string[] {
   const amendment = params?.proposedExecpolicyAmendment
-  if (Array.isArray(amendment)) return amendment.map(String)
-  const nested = amendment?.execpolicy_amendment
-  if (Array.isArray(nested)) return nested.map(String)
+  const direct = z.array(z.string()).safeParse(amendment)
+  if (direct.success) return direct.data
+  const nested = z.object({ execpolicy_amendment: z.array(z.string()) }).safeParse(amendment)
+  if (nested.success) return nested.data.execpolicy_amendment
   return []
 }
 
 function autoApprovalDecision(params: any): 'accept' | 'acceptForSession' {
   const available = Array.isArray(params?.availableDecisions) ? params.availableDecisions : []
-  for (const decision of available) {
-    const rawId = typeof decision === 'string' ? decision : Object.keys(decision)[0] || ''
+  for (const decision of availableDecisionSchema.array().catch([]).parse(available)) {
+    const rawId = availableDecisionId(decision)
     const normalized = normalizeDecision(rawId)
     if (normalized === 'accept') return 'accept'
   }
-  for (const decision of available) {
-    const rawId = typeof decision === 'string' ? decision : Object.keys(decision)[0] || ''
+  for (const decision of availableDecisionSchema.array().catch([]).parse(available)) {
+    const rawId = availableDecisionId(decision)
     const normalized = normalizeDecision(rawId)
     if (normalized === 'acceptForSession') return 'acceptForSession'
   }
@@ -356,36 +449,33 @@ function autoApprovalDecision(params: any): 'accept' | 'acceptForSession' {
 }
 
 function networkApprovalContext(params: any): { host: string; protocol?: string; port?: string | number } | null {
-  const ctx = params?.networkApprovalContext
-  if (!ctx || typeof ctx !== 'object' || typeof ctx.host !== 'string' || !ctx.host) return null
-  return {
-    host: ctx.host,
-    protocol: typeof ctx.protocol === 'string' ? ctx.protocol : undefined,
-    port: typeof ctx.port === 'string' || typeof ctx.port === 'number' ? ctx.port : undefined,
+  const parsed = networkApprovalContextSchema.safeParse(params?.networkApprovalContext)
+  return parsed.success ? parsed.data : null
+}
+
+function mcpElicitationPayload(params: any): z.infer<typeof mcpPayloadSchema> | null {
+  for (const candidate of [params?.request, params?.elicitation, params]) {
+    const parsed = mcpPayloadSchema.safeParse(candidate)
+    if (parsed.success) return parsed.data
   }
+  return null
 }
 
-function mcpElicitationPayload(params: any): any {
-  if (params?.request && typeof params.request === 'object') return params.request
-  if (params?.elicitation && typeof params.elicitation === 'object') return params.elicitation
-  return params
-}
-
-function mcpElicitationResponse(params: any, answers: Record<string, string>): unknown {
+function mcpElicitationResponse(params: any, answers: Record<string, string>): ElicitationResponse {
   const action = mcpAction(answers.__action)
   if (action !== 'accept') return { action, content: null }
 
   const payload = mcpElicitationPayload(params)
   if (payload?.mode === 'url') {
-    const content = typeof payload?.elicitationId === 'string'
+    const content = payload?.elicitationId
       ? { elicitationId: payload.elicitationId }
       : null
     return { action: 'accept', content }
   }
 
-  const schema = payload?.requestedSchema || payload?.schema || {}
-  const properties = schema && typeof schema.properties === 'object' ? schema.properties : {}
-  const required = new Set(Array.isArray(schema.required) ? schema.required.map(String) : [])
+  const schema = payload?.requestedSchema || payload?.schema
+  const properties = schema?.properties ?? {}
+  const required = new Set(schema?.required ?? [])
   const content = Object.fromEntries(Object.entries(answers).flatMap(([key, rawValue]) => {
     if (key === '__action') return []
     if (rawValue === '' && !required.has(key)) return []
@@ -400,17 +490,14 @@ function mcpAction(value: string | undefined): 'accept' | 'decline' | 'cancel' {
   return 'accept'
 }
 
-function questionOptionsForSchema(prop: any): Array<{ label: string; description?: string; preview?: string }> {
-  const enumValues = Array.isArray(prop?.enum)
-    ? prop.enum
-    : Array.isArray(prop?.oneOf)
-      ? prop.oneOf.map((item: any) => item?.const ?? item?.enum?.[0]).filter((value: unknown) => value !== undefined)
-      : Array.isArray(prop?.anyOf)
-        ? prop.anyOf.map((item: any) => item?.const ?? item?.enum?.[0]).filter((value: unknown) => value !== undefined)
-        : []
+function questionOptionsForSchema(prop: McpProperty): Array<{ label: string; description?: string; preview?: string }> {
+  const variants = prop.oneOf ?? prop.anyOf ?? []
+  const enumValues = prop.enum ?? variants
+    .map((item) => item.const ?? item.enum?.[0])
+    .filter((value) => value !== undefined)
 
   if (enumValues.length > 0) {
-    return enumValues.map((value: unknown) => ({
+    return enumValues.map((value) => ({
       label: String(value),
       description: optionDescriptionForSchemaValue(prop, value),
     }))
@@ -426,17 +513,16 @@ function questionOptionsForSchema(prop: any): Array<{ label: string; description
   return []
 }
 
-function optionDescriptionForSchemaValue(prop: any, value: unknown): string | undefined {
-  const variants = Array.isArray(prop?.oneOf) ? prop.oneOf : Array.isArray(prop?.anyOf) ? prop.anyOf : []
-  const match = variants.find((item: any) => item?.const === value || item?.enum?.[0] === value)
+function optionDescriptionForSchemaValue<Value>(prop: McpProperty, value: Value): string | undefined {
+  const variants = prop.oneOf ?? prop.anyOf ?? []
+  const match = variants.find((item) => item.const === value || item.enum?.[0] === value)
   return match?.title || match?.description
 }
 
-function coerceMcpValue(value: unknown, prop: any): unknown {
+function coerceMcpValue(value: string, prop: McpProperty | undefined): McpAnswerValue {
   const type = schemaType(prop)
   if (type === 'boolean') {
-    if (value === true || value === false) return value
-    const normalized = String(value).trim().toLowerCase()
+    const normalized = value.trim().toLowerCase()
     return normalized === 'true' || normalized === 'yes' || normalized === '1'
   }
   if (type === 'number' || type === 'integer') {
@@ -447,8 +533,8 @@ function coerceMcpValue(value: unknown, prop: any): unknown {
   return value
 }
 
-function schemaType(prop: any): string | undefined {
+function schemaType(prop: McpProperty | undefined): string | undefined {
   const type = prop?.type
   if (Array.isArray(type)) return type.find((item) => item !== 'null')
-  return typeof type === 'string' ? type : undefined
+  return type
 }

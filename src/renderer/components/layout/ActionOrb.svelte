@@ -356,7 +356,7 @@
     if (!rootEl || !observeLayout) return;
     const updateDensity = () => {
       // The root tracks the conversation reading column (capped at
-      // --solus-reading-max, ≤~1152px), so width is our proxy for "how big is
+      // --solus-reading-max, ≤1088px), so width is our proxy for "how big is
       // the conversation view": wide in editor mode, narrow in the pill window.
       const w = rootEl?.clientWidth ?? 0;
       // Measure the labeled row while it is visible, then retain that width
@@ -394,7 +394,7 @@
 
   $effect(() => {
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ tabId?: string }>).detail;
+      const detail = event instanceof CustomEvent ? event.detail : undefined;
       if (detail?.tabId && detail.tabId !== tabId) return;
       if (tabId !== session.focusedChatTabId || !showOpenFiles) return;
       openExpanded();
@@ -439,9 +439,9 @@
         scope: "session",
       });
     } catch (error) {
-      toasts.error(
-        `Couldn't start review: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      toasts.error("Couldn't start review", {
+        description: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       requestInputFocus();
     }
@@ -520,8 +520,8 @@
     const ids = visibleActionIds;
     if (ids.length === 0) return;
 
-    const activeEl = document.activeElement as HTMLElement | null;
-    const activeId = activeEl?.dataset.orbAction as ActionId | undefined;
+    const activeEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const activeId = ids.find((id) => id === activeEl?.dataset.orbAction);
     const current =
       activeId && ids.includes(activeId) ? activeId : activeAction;
     const currentIndex = current ? ids.indexOf(current) : -1;

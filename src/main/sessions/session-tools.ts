@@ -152,7 +152,7 @@ interface SessionToolArgs {
 
 // ─── Schema ───
 
-const createSessionShape = {
+const createSessionFields = {
   prompt: z.string().describe('The prompt the new session starts running immediately.'),
   agent_provider: z
     .string()
@@ -187,15 +187,15 @@ const createSessionShape = {
     .describe("Required intent — there is no default; choose deliberately. 'delegate': you need the new session's reply to continue your own work — finish your turn and its first reply arrives here later as a [session report]. 'fire_and_forget': the user just wants the task started ('kick off', 'launch', 'in the background', 'don't wait') — no report will arrive and you must not wait or poll for one; if you genuinely need to catch up later, use read_session."),
 }
 
-const listAgentTargetsShape = {}
+const listAgentTargetsFields = {}
 
-const listSessionsShape = {
+const listSessionsFields = {
   project_path: z.string().optional().describe('Project path to list sessions for. Defaults to the calling session cwd.'),
   status: z.enum(['active', 'all']).optional().describe("Default 'active' lists only busy/rate-limited sessions; 'all' includes historical sessions."),
   limit: z.number().int().min(1).max(50).optional().describe('Maximum sessions to return. Defaults to 15.'),
 }
 
-const readSessionShape = {
+const readSessionFields = {
   session_id: z.string().describe('The session id to inspect.'),
   tail: z.number().int().min(1).max(50).optional().describe('Number of tail messages to return. Defaults to 10.'),
   match: z
@@ -204,7 +204,7 @@ const readSessionShape = {
     .describe('Optional text to locate inside the session (e.g. the query you searched for). Returns the matching messages with surrounding context instead of the latest tail — use it to jump straight to the relevant passage of a long session.'),
 }
 
-const searchSessionsShape = {
+const searchSessionsFields = {
   query: z.string().describe('Full-text query to search for in session messages.'),
   project: z.string().optional().describe("Optional project to scope to (a project name like 'solus' or a path). Scopes to sessions that RAN IN that repo (its git root + worktrees) — NOT sessions that merely mention it; a discussion about repo X held from inside repo Y is filed under Y. Omit it (the default) to search everything by content — that's the reliable way to find a past discussion. A partial name is fine; if nothing matches, the search falls back to all projects."),
   role: z.enum(['user', 'assistant', 'any']).default('any').describe("Message role to search. Defaults to 'any'."),
@@ -219,7 +219,7 @@ const searchSessionsShape = {
   limit: z.number().int().min(1).max(20).default(10).describe('Maximum results to return. Defaults to 10.'),
 }
 
-const promptSessionShape = {
+const promptSessionFields = {
   session_id: z.string().describe('The target session id. Cannot be your own session.'),
   prompt: z.string().describe('Prompt to send into the target session.'),
   delivery: z
@@ -229,11 +229,11 @@ const promptSessionShape = {
   notify_on_completion: z.boolean().default(true).describe("When true, this conversation receives the target session's reply later as a [session report]. Defaults to true."),
 }
 
-const waitForSessionShape = {
+const waitForSessionFields = {
   session_id: z.string().describe('The running target session id to watch. Cannot be your own session.'),
 }
 
-const stopSessionShape = {
+const stopSessionFields = {
   session_id: z.string().describe('The target session id. Cannot be your own session.'),
 }
 
@@ -256,8 +256,8 @@ const STOP_SESSION_DESC =
 
 // ─── Helpers ───
 
-function reasoning(value: unknown, fallback: ReasoningEffort): ReasoningEffort {
-  return (REASONING_VALUES as readonly string[]).includes(String(value)) ? (value as ReasoningEffort) : fallback
+function reasoning(value: ReasoningEffort | undefined, fallback: ReasoningEffort): ReasoningEffort {
+  return value ?? fallback
 }
 
 function fallbackAgentTargets(): AgentTarget[] {
@@ -427,16 +427,21 @@ export async function executeSessionTool(
 
     if (name === 'list_sessions') {
       if (!sessionController) return { ok: false, text: 'list_sessions is unavailable — no session controller is wired.' }
-      const projectPath = typeof args.project_path === 'string' && args.project_path.trim()
-        ? args.project_path.trim()
+      const parsed = z.object(listSessionsFields).safeParse(args)
+      if (!parsed.success) return { ok: false, text: 'list_sessions received invalid arguments.' }
+      const projectPath = parsed.data.project_path?.trim()
+        ? parsed.data.project_path.trim()
         : (deps.ctx?.cwd ?? '~')
-      const status = String(args.status ?? 'active')
-      if (status !== 'active' && status !== 'all') return { ok: false, text: "list_sessions status must be 'active' or 'all'." }
-      const limit = typeof args.limit === 'number' ? Math.min(50, Math.max(1, Math.floor(args.limit))) : 15
+      const status = parsed.data.status ?? 'active'
+      const limit = parsed.data.limit ?? 15
       const sessions = await sessionController.listSessions([...AGENT_PROVIDER_VALUES], projectPath)
       const calling = deps.ctx?.sessionId
+      const controller = sessionController
       const filtered = sessions
-        .map((meta) => ({ ...meta, status: sessionController!.liveStatus(meta.sessionId) ?? meta.status ?? 'idle' as SessionStatus }))
+        .map((meta) => {
+          const liveStatus: SessionStatus = controller.liveStatus(meta.sessionId) ?? meta.status ?? 'idle'
+          return { ...meta, status: liveStatus }
+        })
         .filter((meta) => status === 'all' || (meta.sessionId !== calling && isBusy(meta.status)))
         .slice(0, limit)
       if (!filtered.length) return { ok: true, text: 'No matching sessions.' }
@@ -451,15 +456,17 @@ export async function executeSessionTool(
 
     if (name === 'read_session') {
       if (!sessionController) return { ok: false, text: 'read_session is unavailable — no session controller is wired.' }
-      const sessionId = String(args.session_id ?? '').trim()
-      if (!sessionId) return { ok: false, text: 'read_session requires session_id.' }
-      const tail = typeof args.tail === 'number' ? Math.min(50, Math.max(1, Math.floor(args.tail))) : 10
-      const match = typeof args.match === 'string' ? args.match.trim() : ''
+      const parsed = z.object(readSessionFields).safeParse(args)
+      if (!parsed.success) return { ok: false, text: 'read_session requires a valid session_id.' }
+      const sessionId = parsed.data.session_id.trim()
+      const tail = parsed.data.tail ?? 10
+      const match = parsed.data.match?.trim() ?? ''
       const meta = await findSession(sessionId)
       if (!meta) return { ok: false, text: `Session ${sessionId} not found.` }
       const status = sessionController.liveStatus(sessionId) ?? meta.status ?? 'idle'
+      const controller = sessionController
       const loadTail = async () =>
-        formatTail(await sessionController!.loadSessionTail(meta.provider, sessionId, meta.projectPath || deps.ctx?.cwd, tail))
+        formatTail(await controller.loadSessionTail(meta.provider, sessionId, meta.projectPath || deps.ctx?.cwd, tail))
 
       // With `match`, jump to the relevant passage from the indexed message
       // bodies; fall back to the latest tail when nothing matches or the body
@@ -505,12 +512,11 @@ export async function executeSessionTool(
     }
 
     if (name === 'search_sessions') {
-      const query = typeof args.query === 'string' ? args.query.trim() : ''
+      const parsed = z.object(searchSessionsFields).safeParse(args)
+      if (!parsed.success) return { ok: false, text: 'search_sessions received invalid arguments.' }
+      const query = parsed.data.query.trim()
       if (!query) return { ok: false, text: 'search_sessions requires a non-empty query.' }
-      const role = String(args.role ?? 'any')
-      if (role !== 'user' && role !== 'assistant' && role !== 'any') {
-        return { ok: false, text: "search_sessions role must be 'user', 'assistant', or 'any'." }
-      }
+      const role = parsed.data.role
       // Absolute time bounds. A date-only `before` covers through the end of
       // that day; both omitted → search all of time.
       const parseBound = (value: string, endOfDay: boolean): number | null => {
@@ -518,8 +524,8 @@ export async function executeSessionTool(
         if (!Number.isFinite(base)) return null
         return endOfDay && /^\d{4}-\d{2}-\d{2}$/.test(value) ? base + 86_399_999 : base
       }
-      const afterArg = typeof args.after === 'string' ? args.after.trim() : ''
-      const beforeArg = typeof args.before === 'string' ? args.before.trim() : ''
+      const afterArg = parsed.data.after?.trim() ?? ''
+      const beforeArg = parsed.data.before?.trim() ?? ''
       let sinceTs: number | undefined
       let untilTs: number | undefined
       if (afterArg) {
@@ -547,12 +553,12 @@ export async function executeSessionTool(
       const rangeNote = defaultedRange
         ? 'No time range given — searched the last 2 weeks. Pass after="YYYY-MM-DD" (optionally with before) to search a different window.\n\n'
         : ''
-      const limit = typeof args.limit === 'number' ? Math.min(20, Math.max(1, Math.floor(args.limit))) : 10
+      const limit = parsed.data.limit
 
       // Resolve the optional project scope. No project → search all projects.
       let projectRoot: string | undefined
       let scopeNote = ''
-      const projectArg = typeof args.project === 'string' ? args.project.trim() : ''
+      const projectArg = parsed.data.project?.trim() ?? ''
       if (projectArg) {
         const resolved = resolveProject(projectArg)
         if (resolved.kind === 'one') {
@@ -587,17 +593,18 @@ export async function executeSessionTool(
 
     if (name === 'prompt_session') {
       if (!sessionController) return { ok: false, text: 'prompt_session is unavailable — no session controller is wired.' }
-      const sessionId = String(args.session_id ?? '').trim()
-      if (!sessionId) return { ok: false, text: 'prompt_session requires session_id.' }
+      const parsed = z.object(promptSessionFields).safeParse(args)
+      if (!parsed.success) return { ok: false, text: 'prompt_session received invalid arguments.' }
+      const sessionId = parsed.data.session_id.trim()
       if (sessionId === deps.ctx?.sessionId) return { ok: false, text: 'Cannot prompt your own session.' }
-      const notifyOnCompletion = args.notify_on_completion !== false
+      const notifyOnCompletion = parsed.data.notify_on_completion
       const callerSessionId = deps.ctx?.sessionId
       if (notifyOnCompletion && !callerSessionId) {
         return { ok: false, text: 'prompt_session cannot notify on completion before the calling session is initialized.' }
       }
-      const prompt = typeof args.prompt === 'string' ? args.prompt : ''
+      const prompt = parsed.data.prompt
       if (!prompt.trim()) return { ok: false, text: 'prompt_session requires a non-empty prompt.' }
-      const delivery: PromptDelivery = args.delivery === 'steer' ? 'steer' : 'queue'
+      const delivery: PromptDelivery = parsed.data.delivery
       const meta = await findSession(sessionId)
       if (!meta) return { ok: false, text: `Session ${sessionId} not found.` }
       const result = await sessionController.promptSession(sessionId, prompt, delivery)
@@ -642,8 +649,9 @@ export async function executeSessionTool(
 
     if (name === 'wait_for_session') {
       if (!sessionController) return { ok: false, text: 'wait_for_session is unavailable — no session controller is wired.' }
-      const sessionId = String(args.session_id ?? '').trim()
-      if (!sessionId) return { ok: false, text: 'wait_for_session requires session_id.' }
+      const parsed = z.object(waitForSessionFields).safeParse(args)
+      if (!parsed.success) return { ok: false, text: 'wait_for_session requires session_id.' }
+      const sessionId = parsed.data.session_id.trim()
       const callerSessionId = deps.ctx?.sessionId
       if (!callerSessionId) return { ok: false, text: 'wait_for_session is unavailable before the calling session is initialized.' }
       if (sessionId === callerSessionId) return { ok: false, text: 'Cannot watch your own session.' }
@@ -681,8 +689,9 @@ export async function executeSessionTool(
 
     if (name === 'stop_session') {
       if (!sessionController) return { ok: false, text: 'stop_session is unavailable — no session controller is wired.' }
-      const sessionId = String(args.session_id ?? '').trim()
-      if (!sessionId) return { ok: false, text: 'stop_session requires session_id.' }
+      const parsed = z.object(stopSessionFields).safeParse(args)
+      if (!parsed.success) return { ok: false, text: 'stop_session requires session_id.' }
+      const sessionId = parsed.data.session_id.trim()
       if (sessionId === deps.ctx?.sessionId) return { ok: false, text: 'Cannot stop your own session.' }
       const meta = await findSession(sessionId)
       if (!meta) return { ok: false, text: `Session ${sessionId} not found.` }
@@ -695,18 +704,18 @@ export async function executeSessionTool(
 
     if (name !== 'create_session') return { ok: false, text: `Unknown session tool: ${name}` }
 
-    const prompt = typeof args.prompt === 'string' ? args.prompt : ''
+    const parsed = z.object(createSessionFields).safeParse(args)
+    if (!parsed.success) return { ok: false, text: 'create_session received invalid arguments.' }
+    const input = parsed.data
+    const prompt = input.prompt
     if (!prompt.trim()) return { ok: false, text: 'create_session requires a non-empty prompt.' }
     // Required so the caller commits to an intent instead of inheriting a default.
-    const mode = args.mode === 'delegate' || args.mode === 'fire_and_forget' ? args.mode : null
-    if (!mode) {
-      return { ok: false, text: "create_session requires mode: 'delegate' (you need the reply — it arrives later as a [session report]) or 'fire_and_forget' (just start the task; no report, do not wait or poll)." }
-    }
+    const mode = input.mode
     if (!sessionCreator) {
       return { ok: false, text: 'create_session is unavailable — it requires the app to be running with an active control plane.' }
     }
 
-    const requestedProvider = String(args.agent_provider ?? deps.ctx?.agentProvider ?? 'claude-code')
+    const requestedProvider = input.agent_provider ?? deps.ctx?.agentProvider ?? 'claude-code'
     const targets = await listAgentTargets()
     const target = targets.find((candidate) => candidate.provider === requestedProvider)
     if (!target) {
@@ -717,28 +726,28 @@ export async function executeSessionTool(
     }
     const p = target.provider
 
-    const modelId = typeof args.model_id === 'string' ? args.model_id.trim() : ''
+    const modelId = input.model_id.trim()
     if (!modelId) return { ok: false, text: 'create_session requires model_id.' }
     const profile = target.models.find((model) => model.id === modelId)
     if (!profile) {
       return { ok: false, text: `Unknown model "${modelId}" for ${p}. Valid models: ${target.models.map((model) => model.id).join(', ') || '(none)'}.` }
     }
 
-    const reasoningEffort = reasoning(args.reasoning_effort, profile.defaultReasoningEffort)
+    const reasoningEffort = reasoning(input.reasoning_effort, profile.defaultReasoningEffort)
     if (profile.reasoningLevels.length > 0 && !profile.reasoningLevels.includes(reasoningEffort)) {
       return { ok: false, text: `Model "${modelId}" does not support reasoning level "${reasoningEffort}". Supported: ${profile.reasoningLevels.join(', ')}.` }
     }
 
     const contextWindow = profile.defaultContextWindow
-    const cwd = typeof args.cwd === 'string' && args.cwd.trim() ? args.cwd : (deps.ctx?.cwd ?? '~')
+    const cwd = input.cwd?.trim() ? input.cwd : (deps.ctx?.cwd ?? '~')
     const title = prompt.length > 80 ? prompt.slice(0, 80) : prompt
 
-    const worktreeBaseBranch = typeof args.worktree_base_branch === 'string' && args.worktree_base_branch.trim()
-      ? args.worktree_base_branch.trim()
+    const worktreeBaseBranch = input.worktree_base_branch?.trim()
+      ? input.worktree_base_branch.trim()
       : null
-    const taskId = typeof args.task_id === 'string' && args.task_id.trim() ? args.task_id.trim() : null
-    const parentTaskId = typeof args.parent_task_id === 'string' && args.parent_task_id.trim()
-      ? args.parent_task_id.trim()
+    const taskId = input.task_id?.trim() ? input.task_id.trim() : null
+    const parentTaskId = input.parent_task_id?.trim()
+      ? input.parent_task_id.trim()
       : null
     if (taskId && parentTaskId) {
       return { ok: false, text: 'create_session accepts either task_id or parent_task_id, not both.' }
@@ -843,13 +852,13 @@ export async function executeSessionTool(
 function sessionAgentTool(
   name: string,
   description: string,
-  inputShape: z.ZodRawShape,
+  inputFields: AgentTool['inputFields'],
   requiresApproval: boolean,
 ): AgentTool {
   return {
     name,
     description,
-    inputShape,
+    inputFields,
     requiresApproval,
     execute: async (args, context) => executeSessionTool(name, args, {
       ctx: {
@@ -862,14 +871,14 @@ function sessionAgentTool(
   }
 }
 
-export const listSessionsAgentTool = sessionAgentTool('list_sessions', LIST_SESSIONS_DESC, listSessionsShape, false)
-export const listAgentTargetsAgentTool = sessionAgentTool('list_agent_targets', LIST_AGENT_TARGETS_DESC, listAgentTargetsShape, false)
-export const readSessionAgentTool = sessionAgentTool('read_session', READ_SESSION_DESC, readSessionShape, false)
-export const searchSessionsAgentTool = sessionAgentTool('search_sessions', SEARCH_SESSIONS_DESC, searchSessionsShape, false)
-export const createSessionAgentTool = sessionAgentTool('create_session', CREATE_SESSION_DESC, createSessionShape, false)
-export const promptSessionAgentTool = sessionAgentTool('prompt_session', PROMPT_SESSION_DESC, promptSessionShape, false)
-export const waitForSessionAgentTool = sessionAgentTool('wait_for_session', WAIT_FOR_SESSION_DESC, waitForSessionShape, false)
-export const stopSessionAgentTool = sessionAgentTool('stop_session', STOP_SESSION_DESC, stopSessionShape, false)
+export const listSessionsAgentTool = sessionAgentTool('list_sessions', LIST_SESSIONS_DESC, listSessionsFields, false)
+export const listAgentTargetsAgentTool = sessionAgentTool('list_agent_targets', LIST_AGENT_TARGETS_DESC, listAgentTargetsFields, false)
+export const readSessionAgentTool = sessionAgentTool('read_session', READ_SESSION_DESC, readSessionFields, false)
+export const searchSessionsAgentTool = sessionAgentTool('search_sessions', SEARCH_SESSIONS_DESC, searchSessionsFields, false)
+export const createSessionAgentTool = sessionAgentTool('create_session', CREATE_SESSION_DESC, createSessionFields, false)
+export const promptSessionAgentTool = sessionAgentTool('prompt_session', PROMPT_SESSION_DESC, promptSessionFields, false)
+export const waitForSessionAgentTool = sessionAgentTool('wait_for_session', WAIT_FOR_SESSION_DESC, waitForSessionFields, false)
+export const stopSessionAgentTool = sessionAgentTool('stop_session', STOP_SESSION_DESC, stopSessionFields, false)
 
 export const sessionAgentTools: AgentTool[] = [
   listAgentTargetsAgentTool,

@@ -18,7 +18,7 @@
   // "more" appears only when the clamp is actually cutting something off, so a
   // three-line comment doesn't grow an affordance it has no use for.
   $effect(() => {
-    blocks
+    void blocks
     if (!clamp || !bodyEl || expanded) return
     clamped = bodyEl.scrollHeight - bodyEl.clientHeight > 1
   })

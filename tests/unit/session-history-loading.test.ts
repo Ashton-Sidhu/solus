@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { SessionHistoryLoader } from '../../src/renderer/lib/sessionPickerHistory'
+import {
+  HistorySessionOrder,
+  SessionHistoryLoader,
+  sortedDedupedHistorySessions,
+} from '../../src/renderer/lib/sessionPickerHistory'
 import { updateSessionHistoryStatus } from '../../src/renderer/contexts/workspace/session-history.store.svelte'
 import { takeSessionScanBatch } from '../../src/main/server/session-scan'
 import type { SessionMeta, SessionScanEvent } from '../../src/shared/types'
@@ -176,6 +180,52 @@ describe('session history loading', () => {
     })
 
     expect(batches.map((meta) => meta.serverId)).toEqual(['laptop'])
+  })
+
+  test('a streamed scan lands the same list a single sorted result would', () => {
+    // WHY: the picker reads this list directly, so folding batches in one at a
+    // time must not change what it shows.
+    const batches = [[session(3), session(7)], [session(5)], [session(1), session(9)]]
+    const streamed: SessionMeta[] = []
+    const order = new HistorySessionOrder()
+    for (const batch of batches) order.insert(streamed, batch)
+
+    expect(streamed).toEqual(sortedDedupedHistorySessions(batches.flat()))
+  })
+
+  test('a batch is spliced into the live list rather than rebuilding it', () => {
+    // WHY: a project with thousands of sessions arrives in a hundred-odd
+    // batches, into reactive state the picker's whole derived chain reads.
+    // Handing it a new array per batch re-sorts and re-proxies every row.
+    const streamed: SessionMeta[] = [session(2)]
+    const order = new HistorySessionOrder()
+    order.reset(streamed)
+
+    order.insert(streamed, [session(4)])
+    order.insert(streamed, [session(1)])
+
+    expect(streamed.map((meta) => meta.sessionId)).toEqual(
+      ['session-4', 'session-2', 'session-1'],
+    )
+  })
+
+  test('a newer row for a listed session moves it, an older restream is ignored', () => {
+    // WHY: two hosts can answer for the same session, and a scan can restream a
+    // row that has since been used. It must show once, where its newest
+    // timestamp puts it — a stale copy must not drag it back down the list.
+    const streamed: SessionMeta[] = []
+    const order = new HistorySessionOrder()
+
+    order.insert(streamed, [session(4), session(2), session(1)])
+    order.insert(streamed, [{ ...session(1), lastTimestamp: new Date(9_000).toISOString() }])
+    order.insert(streamed, [{ ...session(4), lastTimestamp: new Date(1_000).toISOString() }])
+
+    expect(streamed.map((meta) => meta.sessionId)).toEqual(
+      ['session-1', 'session-4', 'session-2'],
+    )
+    expect(streamed.map((meta) => meta.lastTimestamp)).toEqual(
+      [new Date(9_000).toISOString(), new Date(4_000).toISOString(), new Date(2_000).toISOString()],
+    )
   })
 
   test('a full scan splits an oversized provider result into bounded batches', () => {

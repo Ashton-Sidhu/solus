@@ -1,6 +1,7 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { Via } from '../../../../shared/analytics-events'
 import type { IpcContext } from '../../../../shared/types'
+import type { PrReviewTarget } from '../../../../shared/providers'
 import type { HostApi } from '@client-core/host-api'
 import { track } from '../../../lib/analytics'
 import { parseLocation, serializeLocation } from './codec'
@@ -66,8 +67,8 @@ export class RouterStore {
 
   private history: RouteHistory
   private detachHistory: (() => void) | null = null
-  private resolved = new SvelteMap<string, unknown>()
-  private resolving = new Map<string, Promise<unknown>>()
+  private resolved = new SvelteMap<string, PrReviewTarget>()
+  private resolving = new Map<string, Promise<PrReviewTarget>>()
 
   constructor(history: RouteHistory = new MemoryRouteHistory('/chat', MAX_HISTORY_ENTRIES)) {
     this.history = history
@@ -109,10 +110,12 @@ export class RouterStore {
 
   /** The live ref for a destination, so a surface can read its params. */
   ref<K extends RouteName>(name: K): RouteRef<K> | null {
+    // SAFETY: refFor returns a reference only after matching this exact route name.
     return refFor(this.location, name) as RouteRef<K> | null
   }
 
   params<K extends RouteName>(name: K): RouteParams[K] | null {
+    // SAFETY: ref(name) couples the requested name to its declared parameter type.
     return (this.ref(name)?.params ?? null) as RouteParams[K] | null
   }
 
@@ -175,9 +178,21 @@ export class RouterStore {
     this.commit(null, {})
   }
 
+  /** Bring a destination that is already open into the leading pane, so a
+   *  second surface can then open beside it. `aside` means "the pane after the
+   *  focused one", which at the pane cap resolves back to the leading pane —
+   *  so a companion asking for a companion of its own would be answered with
+   *  its own neighbour's slot. Leading with it first is what makes the next
+   *  `aside` a real second pane. No-op when it already leads or is not open. */
+  leadWith(name: RouteName): void {
+    const index = this.location.panes.findIndex((pane) => pane.base?.name === name)
+    if (index <= 0) return
+    this.movePane(this.location.panes[index].id, -index)
+  }
+
   /** Close every pane showing this destination, wherever it lives. */
   close(name: RouteName): void {
-    for (const pane of [...this.location.panes]) {
+    for (const pane of this.location.panes.slice()) {
       if (pane.overlay?.name === name) closePaneOverlay(this.location, pane.id)
       else if (pane.base?.name === name) closeLocationPane(this.location, pane.id)
     }
@@ -187,7 +202,7 @@ export class RouterStore {
   /** Close whatever route of this group is open — pages and artifacts are each
    *  single-instance, so this needs no id. */
   closeGroup(group: 'page' | 'artifact'): void {
-    for (const pane of [...this.location.panes]) {
+    for (const pane of this.location.panes.slice()) {
       if (pane.base && ROUTES[pane.base.name].exclusiveGroup === group) {
         closeLocationPane(this.location, pane.id)
       }
@@ -227,13 +242,13 @@ export class RouterStore {
   // ─── Resolved payloads ───
 
   /** The live payload for a route, once its `resolve` has landed. */
-  resolvedFor<T>(ref: RouteRef | null | undefined): T | null {
+  resolvedFor(ref: RouteRef | null | undefined): PrReviewTarget | null {
     if (!ref) return null
-    return (this.resolved.get(serializeRef(ref)) as T | undefined) ?? null
+    return this.resolved.get(serializeRef(ref)) ?? null
   }
 
   /** Seed a payload the caller already has (or is filling in place). */
-  setResolved(ref: RouteRef, payload: unknown): void {
+  setResolved(ref: RouteRef<'prReview'>, payload: PrReviewTarget): void {
     const key = serializeRef(ref)
     // Re-set to refresh recency; Map preserves insertion order, so deleting
     // first is what makes eviction below LRU rather than FIFO.
@@ -256,19 +271,20 @@ export class RouterStore {
    * destination reuses the payload instead of refetching, which is where the
    * repeated `prOpenReview` on every PR reopen goes.
    */
-  async resolve<T>(
+  async resolve(
     ref: RouteRef,
     ctx: { api: HostApi; ipc: (cwd?: string) => IpcContext },
-  ): Promise<T | null> {
-    const descriptor = ROUTES[ref.name]
+  ): Promise<PrReviewTarget | null> {
+    if (ref.name !== 'prReview') return null
+    const descriptor = ROUTES.prReview
     if (!descriptor.resolve) return null
     const key = serializeRef(ref)
     const cached = this.resolved.get(key)
-    if (cached !== undefined) return cached as T
+    if (cached !== undefined) return cached
     const inflight = this.resolving.get(key)
-    if (inflight) return inflight as Promise<T>
+    if (inflight) return inflight
 
-    const promise = (descriptor.resolve as (p: unknown, c: typeof ctx) => Promise<T>)(ref.params, ctx)
+    const promise = descriptor.resolve(ref.params, ctx)
       .then((payload) => {
         this.setResolved(ref, payload)
         return payload
@@ -287,7 +303,7 @@ export class RouterStore {
    * no URL, so it runs on the in-memory history above and nothing else changes.
    */
   bindAddressBar(): void {
-    if (typeof window === 'undefined' || this.history instanceof BrowserRouteHistory) return
+    if (this.history instanceof BrowserRouteHistory) return
     const browserHistory = new BrowserRouteHistory(window)
     this.attachHistory(browserHistory)
 

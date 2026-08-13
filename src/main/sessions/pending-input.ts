@@ -46,17 +46,21 @@ export function describePendingInput(events: readonly NormalizedEvent[]): Pendin
     const event = events[i]
 
     if (event.type === 'question_request') {
+      const questions = event.questions.map((question) => {
+        const pendingQuestion: PendingQuestion = {
+          key: questionKey(question),
+          question: question.question,
+          options: question.options.map((option) => option.label),
+          multiSelect: question.multiSelect,
+        }
+        if (question.header) pendingQuestion.header = question.header
+        return pendingQuestion
+      })
       return {
         kind: 'question',
         questionId: event.questionId,
         isMcpElicitation: event.kind === 'mcp_form' || event.kind === 'mcp_url',
-        questions: event.questions.map((q) => ({
-          key: questionKey(q),
-          question: q.question,
-          ...(q.header ? { header: q.header } : {}),
-          options: q.options.map((o) => o.label),
-          multiSelect: q.multiSelect,
-        })),
+        questions,
       }
     }
 
@@ -65,14 +69,15 @@ export function describePendingInput(events: readonly NormalizedEvent[]): Pendin
     }
 
     if (event.type === 'plan') {
-      return {
+      const plan: Extract<PendingInputDescription, { kind: 'plan' }> = {
         kind: 'plan',
         questionId: event.questionId,
-        ...(event.planToolUseId ? { planToolUseId: event.planToolUseId } : {}),
         planContent: event.planContent,
         blocking: event.options.length > 0,
-        ...pickOptionIds(event.options),
       }
+      if (event.planToolUseId) plan.planToolUseId = event.planToolUseId
+      Object.assign(plan, pickOptionIds(event.options))
+      return plan
     }
   }
   return null
@@ -80,11 +85,16 @@ export function describePendingInput(events: readonly NormalizedEvent[]): Pendin
 
 /** `allow`/`deny` for Claude, `accept`/`decline` for Codex — read off the event
  *  so neither vocabulary is ever spelled out in a tool. */
-function pickOptionIds(options: readonly PermissionOption[]): { allowOptionId?: string; denyOptionId?: string } {
+interface PendingOptionIds {
+  allowOptionId?: string
+  denyOptionId?: string
+}
+
+function pickOptionIds(options: readonly PermissionOption[]): PendingOptionIds {
   const allow = options.find((o) => o.kind === 'allow')
   const deny = options.find((o) => o.kind === 'deny')
-  return {
-    ...(allow ? { allowOptionId: allow.id } : {}),
-    ...(deny ? { denyOptionId: deny.id } : {}),
-  }
+  const ids: PendingOptionIds = {}
+  if (allow) ids.allowOptionId = allow.id
+  if (deny) ids.denyOptionId = deny.id
+  return ids
 }

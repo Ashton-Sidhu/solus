@@ -17,14 +17,14 @@
 
   // The wedge, drawn from the centre clockwise from 12 o'clock inside the r=4.3
   // ring. Todo is deliberately pathless — an empty ring *is* the state.
-  const FILL: Record<TaskStatus, string> = {
+  const FILL = {
     inbox: "",
     todo: "",
     in_progress: "M6 6L6 2.2A3.8 3.8 0 0 1 6 9.8Z",
     in_review: "M6 6L6 2.2A3.8 3.8 0 1 1 2.2 6Z",
     done: "M6 2.2A3.8 3.8 0 1 1 5.99 2.2Z",
     dropped: "M6 2.2A3.8 3.8 0 1 1 5.99 2.2Z",
-  };
+  } satisfies Record<TaskStatus, string>;
 
   // Mixed toward the foreground so the mark stays legible at 12px against both
   // the card and the column wash, in either theme.

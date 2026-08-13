@@ -34,7 +34,7 @@
   import { createSessionPreviewStore } from "../../lib/preview.svelte";
   import { sessionHistorySourcesFromRoots } from "../../lib/sessionPickerHistory";
   import {
-    remoteHistorySources,
+    remoteHistorySourceBatches,
     savedRemoteHistoryHosts,
   } from "./lib/remote-history-sources";
   import {
@@ -226,7 +226,7 @@
 
   $effect(() => {
     // Reset selection when filter changes
-    query;
+    void query;
     selectedIndex = 0;
   });
 
@@ -318,7 +318,7 @@
         sources,
         // Other machines take a round trip to resolve, so they join the scan
         // when they answer rather than holding back this host's rows.
-        deferredSources: remoteHistorySources(
+        deferredSources: remoteHistorySourceBatches(
           savedRemoteHistoryHosts(),
           scopeRootPaths,
         ),

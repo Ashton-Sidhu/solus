@@ -41,10 +41,10 @@ export function previousStage(stage: OnboardingStage): OnboardingStage | null {
 }
 
 /** The two coding agents, with the marks the rows draw them with. */
-export const AGENT_PRESENTATION: Record<SetupAgent, { abbr: string; tint: string }> = {
+export const AGENT_PRESENTATION = {
   claude: { abbr: 'CC', tint: 'var(--chart-1)' },
   codex: { abbr: 'CX', tint: 'var(--chart-4)' },
-}
+} satisfies Record<SetupAgent, { abbr: string; tint: string }>
 
 /**
  * The six bindings worth learning on day one, in the order they are taught.

@@ -1,22 +1,23 @@
-import type { AgentId, PinnedSession } from '../../shared/types'
+import type { PinnedSession } from '../../shared/types'
 import { getDb, withTx } from '../db'
+import { z } from 'zod'
 
-interface PinnedSessionRow {
-  session_id: string
-  server_id: string
-  provider: AgentId
-  title: string
-  cwd: string
-  pinned_at: number
-}
+const pinnedSessionRowsSchema = z.array(z.object({
+  session_id: z.string(),
+  server_id: z.string(),
+  provider: z.enum(['claude-code', 'codex', 'opencode']),
+  title: z.string(),
+  cwd: z.string(),
+  pinned_at: z.number(),
+}))
 
 /** Pinned sessions, most-recently-pinned first. */
 export async function readManifest(): Promise<PinnedSession[]> {
-  const rows = getDb().prepare(`
+  const rows = pinnedSessionRowsSchema.parse(getDb().prepare(`
     SELECT session_id, server_id, provider, title, cwd, pinned_at
     FROM pinned_sessions
     ORDER BY pinned_at DESC
-  `).all() as unknown as PinnedSessionRow[]
+  `).all())
   return rows.map((row) => ({
     sessionId: row.session_id,
     serverId: row.server_id || undefined,

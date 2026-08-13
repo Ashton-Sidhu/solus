@@ -1,10 +1,9 @@
 import { createHmac, randomBytes } from 'crypto'
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
+import { z } from 'zod'
 
-interface ServerKeysFile {
-  signingKey?: unknown
-}
+const serverKeysFileSchema = z.object({ signingKey: z.string().min(1) })
 
 export interface AdminHeaders {
   'x-solus-admin-timestamp': string
@@ -16,8 +15,8 @@ export function readSigningKey(dataDir: string): string | null {
   const file = join(dataDir, 'server-keys.json')
   if (!existsSync(file)) return null
   try {
-    const parsed = JSON.parse(readFileSync(file, 'utf-8')) as ServerKeysFile
-    return typeof parsed.signingKey === 'string' && parsed.signingKey ? parsed.signingKey : null
+    const parsed = serverKeysFileSchema.safeParse(JSON.parse(readFileSync(file, 'utf-8')))
+    return parsed.success ? parsed.data.signingKey : null
   } catch {
     return null
   }

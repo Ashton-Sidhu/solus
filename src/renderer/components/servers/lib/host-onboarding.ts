@@ -394,7 +394,12 @@ export function hostCarriedOverFacts(
  * Only the choices that stop the intended hosted workflow count as blocking.
  * Git and identity failures are repaired where the user first needs them.
  */
-export function hostReadinessSummary(steps: OnboardingStep[]): { ready: boolean; remaining: number } {
+export interface HostReadinessSummary {
+  ready: boolean
+  remaining: number
+}
+
+export function hostReadinessSummary(steps: OnboardingStep[]): HostReadinessSummary {
   const remaining = steps.filter((step) => !step.done).length
   const blocking = steps.filter((step) => !step.done && BLOCKING_STEPS.has(step.id)).length
   return { ready: blocking === 0, remaining }

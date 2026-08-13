@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import { isWorkspacePath } from '../../workspace'
 import { buildSystemPrompt } from '../system-hint'
-import type { ReasoningEffort } from '../../../shared/types'
 import { MODEL_PROFILES } from '../../../shared/types'
 import type { AgentDispatcher } from '../agent-runner'
 import type { AgentTool } from '../tools/agent-tool'
@@ -17,7 +16,7 @@ const DEFAULT_CLAUDE_MODEL =
   Object.keys(claudeProfiles)[0] ??
   'claude-sonnet-5'
 
-const claudeSubagentInputSchema = z.object({
+const claudeSubagentFields = {
   prompt: z
     .string()
     .describe(
@@ -45,7 +44,8 @@ const claudeSubagentInputSchema = z.object({
     .describe(
       'Run with write-capable tools denied — the subagent can explore but not modify files. Use for research/review tasks.',
     ),
-})
+}
+const claudeSubagentInputSchema = z.object(claudeSubagentFields)
 
 const CLAUDE_SUBAGENT_DESC =
   "Delegate a task to a Claude subagent that runs headlessly in this session's working directory and returns its final answer. Runs unattended (no permission prompts); set read_only for tasks that must not modify files. The result is the subagent's final text — it has no memory between calls."
@@ -54,15 +54,14 @@ export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher): Agen
   return {
     name: CLAUDE_SUBAGENT_TOOL_NAME,
     description: CLAUDE_SUBAGENT_DESC,
-    inputShape: claudeSubagentInputSchema.shape,
+    inputFields: claudeSubagentFields,
     requiresApproval: false,
     execute: async (rawArgs, context) => {
       const args = claudeSubagentInputSchema.parse(rawArgs)
       const readOnly = args.read_only === true
       const model = args.model && claudeProfiles[args.model] ? args.model : DEFAULT_CLAUDE_MODEL
-      const reasoningEffort = (
+      const reasoningEffort =
         args.reasoning_effort ?? claudeProfiles[model]?.defaultReasoningEffort ?? 'medium'
-      ) as ReasoningEffort
       const parentToolUseId = context.parentToolUseId()
       const run = dispatcher.runAgent({
         provider: 'claude-code',

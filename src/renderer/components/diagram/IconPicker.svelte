@@ -19,12 +19,12 @@
   const DEBOUNCE_MS = 220
   // Bring full-colour brand logos and clean monochrome glyphs to the front of
   // mixed Iconify search results; everything else keeps its relevance order.
-  const PREFIX_RANK: Record<string, number> = {
-    logos: 0,
-    'simple-icons': 1,
-    'skill-icons': 2,
-    devicon: 3,
-  }
+  const PREFIX_RANK = new Map([
+    ['logos', 0],
+    ['simple-icons', 1],
+    ['skill-icons', 2],
+    ['devicon', 3],
+  ])
 
   let query = $state('')
   let results = $state<string[]>([])
@@ -53,7 +53,7 @@
   }
 
   function rank(name: string): number {
-    return PREFIX_RANK[name.split(':')[0]] ?? 9
+    return PREFIX_RANK.get(name.split(':')[0] ?? '') ?? 9
   }
 
   /** `logos:aws-s3` → `aws s3` for tooltips/aria. */
@@ -199,7 +199,7 @@
       {#each CURATED_ICONS as item}
         {@const isSelected = value === item.icon}
         {@const iconifySrc = isIconifyName(item.icon) ? item.icon : null}
-        {@const svgPath = ICON_SVG[item.icon] ?? null}
+        {@const svgPath = ICON_SVG.get(item.icon) ?? null}
         <button
           type="button"
           class="icon-picker__item"

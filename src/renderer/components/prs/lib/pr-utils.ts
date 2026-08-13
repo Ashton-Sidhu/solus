@@ -23,12 +23,12 @@ export function prStatusBadge(
     return { label: 'Merge conflicts', Icon: WarningCircleIcon, tone: 'var(--solus-art-negative)' }
   }
   if (detail.state === 'merged') {
-    return { label: 'Merged', Icon: GitMergeIcon, tone: 'var(--success)' }
+    return { label: 'Merged', Icon: GitMergeIcon, tone: 'var(--review)' }
   }
   if (detail.state === 'closed') {
-    return { label: 'Closed', Icon: GitPullRequestIcon, tone: 'var(--idle)' }
+    return { label: 'Closed', Icon: GitPullRequestIcon, tone: 'var(--failure)' }
   }
-  return { label: 'Open', Icon: GitPullRequestIcon, tone: 'var(--running)' }
+  return { label: 'Open', Icon: GitPullRequestIcon, tone: 'var(--success)' }
 }
 
 export function filterPrs(
@@ -121,7 +121,7 @@ export function reviewEffortTooltip(pr: PullRequestSummary): string | undefined 
 }
 
 export function relativeTime(at: string | number, now = Date.now()): string {
-  const ms = now - (typeof at === 'number' ? at : new Date(at).getTime())
+  const ms = now - (Number.isFinite(at) ? Number(at) : new Date(String(at)).getTime())
   const sec = Math.floor(ms / 1000)
   if (sec < 60) return 'just now'
   const min = Math.floor(sec / 60)

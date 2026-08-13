@@ -26,6 +26,11 @@ interface RepositorySettings {
   allowRebaseMerge: boolean
 }
 
+interface PullRequestAccess {
+  capabilities: PrReviewCapabilities
+  viewerPermissions: PrViewerPermissions
+}
+
 const repositorySettingsByClient = new WeakMap<GitHubClient, Map<string, Promise<RepositorySettings>>>()
 
 export async function githubPullRequestAccessFor(
@@ -58,10 +63,7 @@ export async function githubPullRequestAccessFor(
   return githubPullRequestAccess({ viewer, author, ...(await settings) })
 }
 
-export function githubPullRequestAccess(access: RepositoryAccess): {
-  capabilities: PrReviewCapabilities
-  viewerPermissions: PrViewerPermissions
-} {
+export function githubPullRequestAccess(access: RepositoryAccess): PullRequestAccess {
   const isAuthor = access.viewer.toLowerCase() === access.author.toLowerCase()
   const lifecycle: PrLifecycleAction[] = access.canWrite || isAuthor
     ? ['close', 'reopen', 'ready', 'draft']
@@ -132,7 +134,7 @@ export async function updateGithubPullRequestLifecycle(
       state: action === 'close' ? 'closed' : 'open',
     })
     return {
-      state: data.merged_at ? 'merged' : data.state as 'open' | 'closed',
+      state: data.merged_at ? 'merged' : data.state === 'closed' ? 'closed' : 'open',
       draft: data.draft ?? pullRequest.draft,
       updatedAt: data.updated_at,
     }
@@ -148,8 +150,11 @@ export async function updateGithubPullRequestLifecycle(
     ? result.markPullRequestReadyForReview?.pullRequest
     : result.convertPullRequestToDraft?.pullRequest
   if (!updated) throw new Error('GitHub did not return the updated pull request state.')
+  const state: PrLifecycleUpdate['state'] = updated.state === 'MERGED'
+    ? 'merged'
+    : updated.state === 'CLOSED' ? 'closed' : 'open'
   return {
-    state: updated.state.toLowerCase() as PrLifecycleUpdate['state'],
+    state,
     draft: updated.isDraft,
     updatedAt: updated.updatedAt,
   }

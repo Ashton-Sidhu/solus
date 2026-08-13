@@ -616,10 +616,14 @@
       setSaveState("saved");
     } else if (result.conflict) {
       setSaveState("conflict");
-      toasts.error(`${displayPath || filePath} changed on disk. Reload before saving.`);
+      toasts.error("File changed on disk", {
+        description: `${displayPath || filePath} — Reload before saving.`,
+      });
     } else {
       setSaveState("error");
-      toasts.error(`Save failed: ${displayPath || filePath} — ${result.error}`);
+      toasts.error("Save failed", {
+        description: `${displayPath || filePath} — ${result.error}`,
+      });
     }
   }
 
@@ -680,6 +684,7 @@
             onAttach: installFileEditorFindStyles,
             onChange: (file, annotations) => {
               scheduleSave(file.contents);
+              // SAFETY: Pierre returns the same annotation metadata array supplied to this editor instance.
               applyRemappedAnnotations(
                 file.contents,
                 annotations as LineAnnotation<AnnotationMeta>[] | undefined,

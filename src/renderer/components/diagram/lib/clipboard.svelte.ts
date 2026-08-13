@@ -25,19 +25,16 @@ export function buildClipboardPaste<TNodeHandlers extends object, TEdgeHandlers 
   const nodes: Node[] = diagramClipboard.nodes.map((n) => {
     const newId = idMap.get(n.id)!;
     const parentCopied = !!(n.parentId && idMap.has(n.parentId));
-    const newParentId = parentCopied
-      ? idMap.get(n.parentId!)
-      : ((n.parentId ?? undefined) as string | undefined);
+    const newParentId = n.parentId ? (idMap.get(n.parentId) ?? n.parentId) : undefined;
     const position = parentCopied
       ? n.position
       : { x: (n.position?.x ?? 0) + 24, y: (n.position?.y ?? 0) + 24 };
 
-    return {
+    const copiedNode: Node = {
       ...n,
       id: newId,
       selected: true,
       position,
-      ...(newParentId ? { parentId: newParentId } : {}),
       data: {
         ...n.data,
         id: newId,
@@ -45,6 +42,8 @@ export function buildClipboardPaste<TNodeHandlers extends object, TEdgeHandlers 
         ...nodeHandlers,
       },
     };
+    if (newParentId) copiedNode.parentId = newParentId;
+    return copiedNode;
   });
 
   const edges: Edge[] = diagramClipboard.edges.map((e, i) => ({

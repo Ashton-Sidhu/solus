@@ -26,11 +26,11 @@
 
   type Status = "pending" | "accepted" | "rejected";
 
-  const VARIANT_FOR: Record<Status, "plan-pending" | "plan-accepted" | "plan-rejected"> = {
+  const VARIANT_FOR = {
     pending: "plan-pending",
     accepted: "plan-accepted",
     rejected: "plan-rejected",
-  };
+  } satisfies Record<Status, "plan-pending" | "plan-accepted" | "plan-rejected">;
 
   const session = getWorkspaceContext();
   const sessionLinkContext = getSessionLinkContext();
@@ -46,7 +46,8 @@
   const linkRoute = $derived(routeForHref(href, { title }));
   const planStatus = $derived.by<Status>(() => {
     try {
-      return (new URL(href).searchParams.get("status") || "pending") as Status;
+      const status = new URL(href).searchParams.get("status");
+      return status === "accepted" || status === "rejected" ? status : "pending";
     } catch {
       return "pending";
     }

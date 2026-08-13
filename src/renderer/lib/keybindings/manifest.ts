@@ -40,6 +40,8 @@ export const KEYBINDINGS = {
   'global.history-forward':   { combo: { mod: true, code: 'BracketRight' },             scope: 'global',             label: 'Forward',                  group: 'Navigation' },
   'global.session-picker':    { combo: { mod: true, code: 'KeyP' }, web: { alt: true, shift: true, code: 'KeyR' }, scope: 'global', label: 'Session picker',           group: 'Navigation' },
   'global.session-picker-j': { combo: { alt: true, shift: true, code: 'KeyJ' },          scope: 'global',             label: 'Session picker (alt)',     group: 'Navigation' },
+  'global.task-picker':       { combo: { alt: true, shift: true, code: 'KeyF' },          scope: 'global',             label: 'Task picker',              group: 'Navigation' },
+  'global.focus-sidebar-task-search': { combo: { ctrl: true, code: 'Slash' },             scope: 'global',             label: 'Focus sidebar task search', group: 'Tasks' },
   'global.cycle-perm-mode':   { combo: { alt: true, shift: true, code: 'Tab' },           scope: 'global',             label: 'Cycle permission mode',    group: 'Agent' },
   'global.cycle-model':       { combo: { alt: true, shift: true, code: 'KeyM' },          scope: 'global',             label: 'Cycle model',              group: 'Agent' },
   'global.cycle-agent':       { combo: { alt: true, shift: true, code: 'KeyG' },          scope: 'global',             label: 'Cycle agent',              group: 'Agent' },
@@ -225,6 +227,7 @@ export type BindingId = keyof typeof KEYBINDINGS
 
 /** All bindings for a given scope, preserving declaration order. */
 export function bindingsForScope(scope: string): Array<[BindingId, BindingDef]> {
+  // SAFETY: KEYBINDINGS is a closed declaration whose keys define BindingId.
   return (Object.entries(KEYBINDINGS) as Array<[BindingId, BindingDef]>)
     .filter(([, def]) => def.scope === scope)
 }

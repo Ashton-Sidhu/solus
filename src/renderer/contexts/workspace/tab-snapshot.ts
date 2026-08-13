@@ -38,7 +38,9 @@ export function snapshotPersistedTabs(session: WorkspaceContext): PersistedTab[]
         permissionMode:
           restoredSession?.run.permissionMode ?? session.globalDefaults.permissionMode,
         hasUnread: tab.hasUnread ?? false,
-        ...(restoredSession ? taskTargetFields(restoredSession.task) : {}),
+        pendingTaskId: restoredSession ? taskTargetFields(restoredSession.task).pendingTaskId : null,
+        pendingParentTaskId: restoredSession ? taskTargetFields(restoredSession.task).pendingParentTaskId : null,
+        taskCreationDisabled: restoredSession ? taskTargetFields(restoredSession.task).taskCreationDisabled : false,
         terminalFailure: restoredSession?.terminalFailure
           ? { ...restoredSession.terminalFailure }
           : null,

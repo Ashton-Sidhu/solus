@@ -34,7 +34,15 @@ interface CacheEntry<T> {
   inFlight?: Promise<T>
 }
 
-export type PrReviewTab = 'activity' | 'guide' | 'diff'
+interface CachedPrActivity {
+  detail?: PullRequestDetail
+  commits?: PrCommit[]
+  reviewers?: PrReviewer[]
+  comments?: PrConversationItem[]
+  changedFiles?: ChangedFileStat[]
+}
+
+export type PrReviewTab = 'activity' | 'map' | 'guide' | 'diff'
 
 /** Everything about how the list was left, so returning from a review restores
  *  the reading position and not merely the query. */
@@ -267,8 +275,8 @@ export class PrsStore {
     filter: PrFilter,
     opts: { force?: boolean; page?: number } = {},
   ): Promise<PrListPage> {
-    const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
-    const safeFilter = JSON.parse(JSON.stringify(filter)) as PrFilter
+    const safeCtx = snapshotCtx(ctx)
+    const safeFilter = structuredClone(filter)
     const page = opts.page ?? 1
     return this.readCached(
       this.listCache,
@@ -279,7 +287,7 @@ export class PrsStore {
   }
 
   async loadAll(api: HostApi, serverId: string, ctx: IpcContext, opts: { force?: boolean } = {}): Promise<void> {
-    const filter = JSON.parse(JSON.stringify(this.filter)) as PrFilter
+    const filter = structuredClone($state.snapshot(this.filter))
     const key = this.listKey(serverId, ctx, filter, 1)
     if (opts.force) {
       const prefix = key.slice(0, key.lastIndexOf('::') + 2)
@@ -308,7 +316,7 @@ export class PrsStore {
 
   async loadMore(api: HostApi, serverId: string, ctx: IpcContext): Promise<void> {
     if (!this.hasMore || this.loadingMore) return
-    const filter = JSON.parse(JSON.stringify(this.filter)) as PrFilter
+    const filter = structuredClone($state.snapshot(this.filter))
     const key = this.listKey(serverId, ctx, filter, 1)
     const page = this.nextPage
     this.loadingMore = true
@@ -363,7 +371,7 @@ export class PrsStore {
   }
 
   async loadOverview(api: HostApi, serverId: string, ctx: IpcContext, number: number, opts: { force?: boolean } = {}): Promise<PullRequestOverview> {
-    const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
+    const safeCtx = snapshotCtx(ctx)
     const overview = await this.readCached(
       this.overviewCache,
       this.prKey(serverId, ctx, number),
@@ -396,13 +404,7 @@ export class PrsStore {
    * even on a pure cache hit, so the view seeds its state from this first and
    * only marks the misses as loading.
    */
-  cachedActivity(serverId: string, ctx: IpcContext, number: number): {
-    detail?: PullRequestDetail
-    commits?: PrCommit[]
-    reviewers?: PrReviewer[]
-    comments?: PrConversationItem[]
-    changedFiles?: ChangedFileStat[]
-  } {
+  cachedActivity(serverId: string, ctx: IpcContext, number: number): CachedPrActivity {
     const key = this.prKey(serverId, ctx, number)
     const overview = this.cached(this.overviewCache, key)
     return {
@@ -421,7 +423,7 @@ export class PrsStore {
       if (this.isFresh(overview)) return overview.value.detail
       if (overview?.inFlight) return (await overview.inFlight).detail
     }
-    const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
+    const safeCtx = snapshotCtx(ctx)
     return this.readCached(this.detailCache, key, !!opts.force, () => api.prGetDetail(safeCtx, number))
   }
 
@@ -432,7 +434,7 @@ export class PrsStore {
     number: number,
     patch: PullRequestUpdate,
   ): Promise<PullRequestDetail> {
-    const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
+    const safeCtx = snapshotCtx(ctx)
     const updated = await api.prUpdate(safeCtx, number, patch)
     const key = this.prKey(serverId, ctx, number)
     this.seed(this.detailCache, key, updated)
@@ -461,7 +463,7 @@ export class PrsStore {
       if (this.isFresh(overview)) return overview.value.commits
       if (overview?.inFlight) return (await overview.inFlight).commits
     }
-    const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
+    const safeCtx = snapshotCtx(ctx)
     return this.readCached(this.commitsCache, key, !!opts.force, () => api.prListCommits(safeCtx, number))
   }
 
@@ -472,7 +474,7 @@ export class PrsStore {
       if (this.isFresh(overview)) return overview.value.reviewers
       if (overview?.inFlight) return (await overview.inFlight).reviewers
     }
-    const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
+    const safeCtx = snapshotCtx(ctx)
     return this.readCached(this.reviewersCache, key, !!opts.force, () => api.prListReviewers(safeCtx, number))
   }
 
@@ -483,7 +485,7 @@ export class PrsStore {
     number: number,
     opts: { force?: boolean } = {},
   ): Promise<PrReviewerCandidate[]> {
-    const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
+    const safeCtx = snapshotCtx(ctx)
     return this.readCached(
       this.reviewerCandidatesCache,
       this.prKey(serverId, ctx, number),
@@ -581,12 +583,12 @@ export class PrsStore {
    *  composers post as. Stable per project, so the short PR TTL only costs an
    *  occasional refetch of a value the provider caches per token anyway. */
   async loadViewer(api: HostApi, serverId: string, ctx: IpcContext): Promise<string> {
-    const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
+    const safeCtx = snapshotCtx(ctx)
     return this.readCached(this.viewerCache, this.contextHostKey(serverId, ctx), false, () => api.providerViewer(safeCtx))
   }
 
   async loadThreads(api: HostApi, serverId: string, ctx: IpcContext, number: number, opts: { force?: boolean } = {}): Promise<ReviewThread[]> {
-    const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
+    const safeCtx = snapshotCtx(ctx)
     return this.readCached(
       this.threadsCache,
       this.prKey(serverId, ctx, number),
@@ -596,7 +598,7 @@ export class PrsStore {
   }
 
   async loadComments(api: HostApi, serverId: string, ctx: IpcContext, number: number, opts: { force?: boolean } = {}): Promise<PrConversationItem[]> {
-    const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
+    const safeCtx = snapshotCtx(ctx)
     return this.readCached(
       this.commentsCache,
       this.prKey(serverId, ctx, number),
@@ -612,7 +614,7 @@ export class PrsStore {
     number: number,
     opts: { force?: boolean } = {},
   ): Promise<ChangedFileStat[]> {
-    const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
+    const safeCtx = snapshotCtx(ctx)
     return this.readCached(
       this.changedFilesCache,
       this.prKey(serverId, ctx, number),
@@ -628,8 +630,8 @@ export class PrsStore {
     pr: PrReviewContext,
     opts: { force?: boolean } = {},
   ): Promise<PrInterdiffResult> {
-    const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
-    const safePr = JSON.parse(JSON.stringify(pr)) as PrReviewContext
+    const safeCtx = snapshotCtx(ctx)
+    const safePr = structuredClone(pr)
     const key = `${this.prKey(serverId, ctx, pr.number)}::${pr.baseSha}::${pr.headSha}`
     return this.readCached(
       this.interdiffCache,
@@ -813,7 +815,7 @@ export class PrsStore {
   }
 
   async loadChecks(api: HostApi, serverId: string, ctx: IpcContext, numbers: number[] = []): Promise<void> {
-    const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
+    const safeCtx = snapshotCtx(ctx)
     this.applyChecks(serverId, await api.prChecks(safeCtx, numbers), this.contextHostKey(serverId, ctx))
   }
 
@@ -890,5 +892,5 @@ function checksRepoKey(snapshot: PrChecksSnapshot): string {
 }
 
 function snapshotCtx(ctx: IpcContext): IpcContext {
-  return JSON.parse(JSON.stringify(ctx)) as IpcContext
+  return structuredClone($state.snapshot(ctx))
 }

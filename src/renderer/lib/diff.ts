@@ -50,7 +50,9 @@ export function clearPatchMetadataCache(): void {
   patchCacheSourceBytes = 0
 }
 
-export function patchMetadataCacheStats(): { entries: number; sourceBytes: number } {
+export interface PatchMetadataCacheStats { entries: number; sourceBytes: number }
+
+export function patchMetadataCacheStats(): PatchMetadataCacheStats {
   return { entries: patchCache.size, sourceBytes: patchCacheSourceBytes }
 }
 

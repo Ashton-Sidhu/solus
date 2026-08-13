@@ -4,22 +4,33 @@ import { join } from 'path'
 
 const root = join(import.meta.dir, '../..')
 
-describe('createPR GitHub authentication', () => {
-  test('uses the dispatching device token as GH_TOKEN', () => {
-    // Run module mocks in a child process so they cannot replace git execution
-    // for unrelated unit tests in Bun's shared test process.
+describe('Git action GitHub authentication', () => {
+  test('uses the delegated token only for GitHub CLI calls and authors the PR explicitly', () => {
     const script = String.raw`
       import { mock } from 'bun:test'
       import { Database } from 'bun:sqlite'
+      import { readFileSync } from 'fs'
 
       const calls = []
+      const events = []
+      let submittedBody = ''
       mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
       mock.module('./src/main/git/exec', () => ({
         git: () => '',
         runAsync: async (bin, args, _cwd, options = {}) => {
           calls.push({ bin, args, env: options.env })
           if (bin === 'gh' && args[1] === 'view') throw new Error('No pull request exists')
-          if (bin === 'gh' && args[1] === 'create') return 'https://github.com/solus-sh/solus/pull/42'
+          if (bin === 'gh' && args[1] === 'create') {
+            submittedBody = readFileSync(args[args.indexOf('--body-file') + 1], 'utf8')
+            return 'https://github.com/solus-sh/solus/pull/42'
+          }
+          if (args[0] === 'status') return ''
+          if (args[0] === 'rev-parse' && args.includes('@{upstream}')) throw new Error('No upstream')
+          if (args[0] === 'rev-list') return '1'
+          if (args[0] === 'log') return 'feat(git): author complete pull requests'
+          if (args[0] === 'diff' && args.includes('--stat')) return 'src/git.ts | 5 +++++'
+          if (args[0] === 'diff') return 'diff --git a/src/git.ts b/src/git.ts'
+          if (args[0] === 'show') return ''
           return ''
         },
       }))
@@ -28,18 +39,37 @@ describe('createPR GitHub authentication', () => {
       }))
 
       const { githubTokenForWorktreeRequest } = await import('./src/main/server/handlers/worktree-handlers')
-      const { createPR } = await import('./src/main/git/worktree-manager')
+      const { runGitAction } = await import('./src/main/git/git-action-manager')
       const token = githubTokenForWorktreeRequest({
         clientId: 'ws:remote',
         deviceId: 'dispatching-device',
         deviceLabel: 'Sidhu’s MacBook',
       })
-      const result = await createPR(
+      const result = await runGitAction(
+        { actionId: 'action-1', action: 'create_pull_request' },
         { branch: 'solus/dispatched-fix', targetBranch: 'main' },
         '/tmp/solus-dispatched-fix',
-        { githubToken: token },
+        {
+          githubToken: token,
+          generateCommitSubject: async () => 'unused',
+          publish: (event) => events.push(event),
+          writer: {
+            provider: 'codex',
+            instructions: 'Use Conventional Commits.',
+            followPullRequestTemplate: true,
+            textGenerator: {
+              generate: async (options) => {
+                await options.tools[0].execute({
+                  title: 'feat(git): author complete pull requests',
+                  body: '## Summary\n\n- Author the pull request from the branch diff.\n\n## Testing\n\n- Not run',
+                })
+                return ''
+              },
+            },
+          },
+        },
       )
-      console.log(JSON.stringify({ calls, result, token }))
+      console.log(JSON.stringify({ calls, events, result, submittedBody, token }))
     `
     const run = spawnSync(process.execPath, ['-e', script], {
       cwd: root,
@@ -50,21 +80,32 @@ describe('createPR GitHub authentication', () => {
     expect(run.status).toBe(0)
     const output = JSON.parse(run.stdout) as {
       calls: Array<{ bin: string; args: string[]; env?: NodeJS.ProcessEnv }>
-      result: { success: boolean; url?: string }
+      events: Array<{ kind: string; phase?: string }>
+      result: { pullRequest: { status: string; url: string; title: string } }
+      submittedBody: string
       token: string
     }
     expect(output.token).toBe('delegated-token')
-    expect(output.result).toEqual({
-      success: true,
+    expect(output.result.pullRequest).toEqual({
+      status: 'created',
       url: 'https://github.com/solus-sh/solus/pull/42',
+      number: 42,
+      title: 'feat(git): author complete pull requests',
     })
+    expect(output.submittedBody).toContain('Author the pull request from the branch diff.')
+    expect(output.events.filter((event) => event.kind === 'phase_started').map((event) => event.phase)).toEqual([
+      'push',
+      'author_pull_request',
+      'create_pull_request',
+    ])
     expect(output.calls.find((call) => call.bin === 'gh' && call.args[1] === 'view')?.env).toEqual({
       GH_TOKEN: 'delegated-token',
     })
-    expect(output.calls.find((call) => call.bin === 'gh' && call.args[1] === 'create')?.env).toEqual({
-      GH_TOKEN: 'delegated-token',
-    })
-    expect(output.calls.find((call) => call.bin === 'gh' && call.args[1] === 'create')?.args).toContain('--fill')
+    const createCall = output.calls.find((call) => call.bin === 'gh' && call.args[1] === 'create')
+    expect(createCall?.env).toEqual({ GH_TOKEN: 'delegated-token' })
+    expect(createCall?.args).toContain('--title')
+    expect(createCall?.args).toContain('--body-file')
+    expect(createCall?.args).not.toContain('--fill')
     expect(output.calls.find((call) => call.bin === 'git' && call.args[0] === 'push')?.env).toBeUndefined()
   })
 })

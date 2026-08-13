@@ -50,7 +50,7 @@
   // is the card's; the conversation's own Escape bindings keep it otherwise.
   function handleKeydown(event: KeyboardEvent) {
     if (event.key !== "Escape") return;
-    if (!cardEl?.contains(event.target as Node)) return;
+    if (!(event.target instanceof Node) || !cardEl?.contains(event.target)) return;
     event.preventDefault();
     dismiss();
   }

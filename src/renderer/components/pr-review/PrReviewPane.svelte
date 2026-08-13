@@ -32,6 +32,8 @@
   import GuideSurface from "../review/GuideSurface.svelte";
   import { GuideLoader } from "../review/lib/guide-loader.svelte";
   import DiffPanel from "../diff/DiffPanel.svelte";
+  import DiffHeatMap from "../diff/DiffHeatMap.svelte";
+  import { parsePatchFiles } from "@pierre/diffs";
   import ActivityFeed from "./ActivityFeed.svelte";
   import type { PrActivityTarget } from "./lib/activity-data";
   import SubmitReviewModal from "./SubmitReviewModal.svelte";
@@ -315,20 +317,20 @@
       await session.prsStore.requestGuides(api, serverId, prCtx(), [target.number], {
         onSettled: ({ failed }) => {
           if (failed > 0) {
-            toasts.error(
-              `Review guide generation failed for PR #${target.number}. Try again from Activity or Guide.`,
-            );
+            toasts.error(`Review guide generation failed for PR #${target.number}`, {
+              description: "Try again from Activity or Guide.",
+            });
           } else {
-            toasts.success(
-              `Review guide for PR #${target.number} is ready in the Guide tab.`,
-            );
+            toasts.success(`Review guide ready for PR #${target.number}`, {
+              description: "Open the Guide tab to review it.",
+            });
           }
         },
       });
     } catch (error) {
-      toasts.error(
-        `Couldn't prepare the review guide: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      toasts.error("Couldn't prepare the review guide", {
+        description: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       preparingGuide = false;
     }
@@ -347,7 +349,7 @@
 
   // The active content tab lives in the PR store so chrome outside this
   // component can react to it (see PrsStore.prReviewTab).
-  type ContentTab = "activity" | "guide" | "diff";
+  type ContentTab = "activity" | "map" | "guide" | "diff";
   // The host target enables Activity and Diff together. A cached guide can also
   // load then; only generation and other source actions need checkout.
   const sub = $derived(
@@ -355,6 +357,20 @@
   );
 
   const diffScope = $derived(review.diffScope);
+
+  // The Map tab reads the same effective patch as the Diff tab, so a
+  // since-review checkpoint narrows both views together.
+  const mapPatch = $derived(
+    isSinceReviewMode ? (interdiff?.patch ?? "") : (review.diffPatch ?? ""),
+  );
+  const mapFiles = $derived(
+    mapPatch ? parsePatchFiles(mapPatch).flatMap((part) => part.files) : [],
+  );
+
+  async function loadRepoFilesForMap(repoRoot: string): Promise<readonly string[] | null> {
+    const result = await getApi().listProjectFiles(prCtx(), { cwd: repoRoot });
+    return result.ok ? result.files : null;
+  }
 
   $effect(() => {
     void review.ownDeltaBase?.headSha;
@@ -467,9 +483,9 @@
       loadInterdiff(true);
       review.loadDiff(true);
     } catch (error) {
-      toasts.error(
-        `Couldn't refresh PR #${target.number}: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      toasts.error(`Couldn't refresh PR #${target.number}`, {
+        description: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       refreshingPr = false;
       requestInputFocus();
@@ -510,17 +526,13 @@
   let mountedGuide = $state(untrack(() => sub === "guide"));
   let mountedDiff = $state(untrack(() => sub === "diff"));
   let mountedActivity = $state(untrack(() => sub === "activity"));
+  let mountedMap = $state(untrack(() => sub === "map"));
   $effect(() => {
     if (sub === "guide") mountedGuide = true;
     else if (sub === "diff") mountedDiff = true;
     else if (sub === "activity") mountedActivity = true;
+    else if (sub === "map") mountedMap = true;
   });
-
-  const TABS: { id: ContentTab; label: string }[] = [
-    { id: "activity", label: "Activity" },
-    { id: "guide", label: "Guide" },
-    { id: "diff", label: "Diff" },
-  ];
 
   // The diff is a pane, not a tab. Reading a change is a two-handed job — the
   // conversation on one side, the code on the other — so Diff pops out beside
@@ -621,10 +633,26 @@
     if (!pr || openingChat) return;
     openingChat = true;
     try {
+      // Reveal a blocked conversation first. Checkout preparation can fetch and
+      // create a worktree, so making the pane wait for it makes the click feel
+      // broken even though useful progress is under way.
+      activeChatTabId = await session.openPrReviewChat(pr, {
+        existingTabId: activeChatTabId,
+        projectCtx: projectCtx(),
+        serverId,
+      });
       const sourceContext = await review.ensureCheckout();
-      activeChatTabId = await session.openPrReviewChat(sourceContext, activeChatTabId);
+      await session.openPrReviewChat(sourceContext, {
+        existingTabId: activeChatTabId,
+        projectCtx: projectCtx(),
+        serverId,
+      });
     } catch (error) {
-      toasts.error(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      if (activeChatTabId) {
+        session.failPrReviewChatCheckout(activeChatTabId, pr.number, message);
+      }
+      toasts.error("Couldn't open review chat", { description: message });
     } finally {
       openingChat = false;
     }
@@ -664,7 +692,7 @@
   function onWindowKeydown(e: KeyboardEvent) {
     if (headless || e.defaultPrevented || showSubmit) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    const el = e.target as HTMLElement | null;
+    const el = e.target instanceof HTMLElement ? e.target : null;
     if (el && (el.isContentEditable || el.closest("input, textarea"))) return;
     if (e.key === "Escape") {
       e.preventDefault();
@@ -704,7 +732,7 @@
   <PrDetailMasthead
     headRef={pr?.headRef ?? summary?.headRef}
     baseRef={pr?.baseRef ?? summary?.baseRef}
-    tab={sub === "guide" ? "guide" : "activity"}
+    tab={sub === "guide" || sub === "map" ? sub : "activity"}
     diffOpen={diffPoppedOut}
     guideDisabled={showingFullDiff}
     guideDisabledReason="Guides cover the stacked view"
@@ -808,7 +836,7 @@
          toolbar beside it, the conversation's own strip), so the two panes'
          headers share one baseline. -->
     <div
-      class="@container h-(--solus-chrome-row-h,2.5rem) shrink-0 border-b border-[var(--hairline)]"
+      class="workspace-titlebar @container h-(--solus-chrome-row-h,2.5rem) shrink-0 border-b border-[var(--hairline)]"
     >
       <div
         class="flex h-full w-full items-center justify-between gap-2 pr-3.5 pl-[max(1rem,var(--solus-chrome-lead-inset,0px))]"
@@ -962,6 +990,44 @@
         {/if}
       </div>
     {/if}
+    {#if mountedMap && pr}
+      <div class="absolute inset-0 flex flex-col" class:hidden={sub !== "map"}>
+        {#if !headless && !embedded}
+          <!-- Same measure and gutters as the Guide masthead so the chrome row
+               doesn't shift when switching tabs. -->
+          <div
+            class="mx-auto w-full max-w-[92rem] pt-[clamp(20px,1.8vw,32px)] pr-8 pl-14 2xl:max-w-[104rem]"
+          >
+            {@render detailMasthead()}
+          </div>
+        {/if}
+        <div class="min-h-0 flex-1">
+          {#if review.diffLoading && review.diffPatch === null}
+            <div class="grid h-full place-items-center text-xs text-muted-foreground" role="status">
+              Loading pull request diff…
+            </div>
+          {:else if review.diffError}
+            <div class="grid h-full place-items-center px-6 text-center text-xs text-destructive" role="alert">
+              {review.diffError}
+            </div>
+          {:else}
+            <!-- Same root fallback as the Diff tab's projectPath: the PR
+                 checkout when one exists, else the open project's checkout —
+                 an approximation of the PR head's tree, but the repo shape is
+                 what the overview needs. -->
+            <DiffHeatMap
+              files={mapFiles}
+              onOpenFile={(path) => jumpToDiff(path)}
+              repoRoot={checkout?.worktreePath ??
+                projectCtx().session.projectPath ??
+                projectCtx().session.workingDirectory ??
+                null}
+              loadRepoFiles={loadRepoFilesForMap}
+            />
+          {/if}
+        </div>
+      </div>
+    {/if}
     {#if mountedDiff && pr}
       <div class="absolute inset-0 flex flex-col" class:hidden={sub !== "diff"}>
         {#if ownDeltaBase}
@@ -1004,6 +1070,7 @@
             isWorktree={!!checkout}
             onClose={() => select(showingFullDiff ? "activity" : "guide")}
             embedded
+            hasHostHeaderRow={!headless}
             {onToggleMaximize}
             initialScope={diffScope}
             patchOverride={isSinceReviewMode ? (interdiff?.patch ?? "") : (review.diffPatch ?? "")}
@@ -1039,6 +1106,7 @@
           getCtx={prCtx}
           {getApi}
           {serverId}
+          showIdentity={!embedded}
           addressCommentsReady={!!pr && review.checkoutStatus !== "preparing"}
           onAddressComments={async () => {
             if (!pr) return;

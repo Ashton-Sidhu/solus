@@ -130,9 +130,9 @@
         },
       });
     } catch (error) {
-      toasts.error(
-        `Couldn't start a feedback session: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      toasts.error("Couldn't start a feedback session", {
+        description: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       submitting = false;
     }
@@ -167,6 +167,11 @@
       {/if}
     {/snippet}
   </PaneChrome>
+
+  <div
+    class="workspace-titlebar h-(--solus-chrome-row-h) shrink-0"
+    aria-hidden="true"
+  ></div>
 
   <GuideSurface
     {loader}

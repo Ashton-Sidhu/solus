@@ -1,10 +1,10 @@
-const HTML_ENTITIES: Record<string, string> = {
+const HTML_ENTITIES = {
   "&amp;": "&",
   "&lt;": "<",
   "&gt;": ">",
   "&quot;": '"',
   "&#39;": "'",
-};
+} satisfies Record<string, string>;
 
 export function decodeHtmlEntities(text: string): string {
   return text.replace(

@@ -11,7 +11,7 @@ export function extractHeadings(editor: Editor): PlanHeading[] {
   editor.state.doc.descendants((node, pos) => {
     if (node.type.name === "heading") {
       result.push({
-        level: node.attrs.level as number,
+        level: Number(node.attrs.level),
         text: node.textContent,
         pos,
       });

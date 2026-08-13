@@ -54,7 +54,7 @@ export function registerUsageHandlers(server: SolusServer, deps: { controlPlane:
   const schedule = (): void => {
     if (timer) clearTimeout(timer)
     timer = setTimeout(() => void tick(), REFRESH_MS)
-    ;(timer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.()
+    timer.unref()
   }
 
   const refreshAndBroadcast = (): Promise<void> => {

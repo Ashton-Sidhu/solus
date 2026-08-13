@@ -10,6 +10,7 @@ import type { TaskCreationContext } from '../../components/tasks/lib/task-creati
 export class WorkspaceUiStore {
   isExpanded = $state(false)
   sessionPickerOpen = $state(false)
+  taskPickerOpen = $state(false)
   /** The standalone create-task modal: the captured environment it targets. `null` = closed.
    *  Lives here (not in App) so the command palette can open it. */
   taskComposer = $state<TaskCreationContext | null>(null)

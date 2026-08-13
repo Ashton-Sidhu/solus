@@ -5,7 +5,7 @@ import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
 import { serverConnections } from '@client-core/server-connections'
 
 /** Ignore expected connection gaps while still surfacing unrelated read failures. */
-export function logConnectionReadError(operation: string, error: unknown): void {
+export function logConnectionReadError(operation: string, error: Parameters<typeof String>[0]): void {
   if (error instanceof TransportDisconnectedError) return
   console.error(`${operation} failed`, error)
 }

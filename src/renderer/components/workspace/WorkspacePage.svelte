@@ -353,12 +353,12 @@
 
   // ── Selection bookkeeping ──
   $effect(() => {
-    filter.type;
-    filter.status;
-    filter.pinnedOnly;
-    filter.time;
-    filter.text;
-    sort;
+    void filter.type;
+    void filter.status;
+    void filter.pinnedOnly;
+    void filter.time;
+    void filter.text;
+    void sort;
     // Project changes reset explicitly in `selectProject`. The implicit scope
     // can be reconstructed as sessions hydrate, which must not move selection.
     resetLedgerSelection();
@@ -370,9 +370,9 @@
 
   $effect(() => {
     if (!open) return;
-    selectedIndex;
-    flat.length;
-    tick().then(() => {
+    void selectedIndex;
+    void flat.length;
+    void tick().then(() => {
       const el = scrollEl?.querySelector<HTMLElement>('[data-selected="true"]');
       el?.scrollIntoView({ block: "nearest" });
     });
@@ -404,9 +404,9 @@
   // An open peek follows the cursor: the same card, new contents, no delay and
   // no second animation.
   $effect(() => {
-    selectedIndex;
+    void selectedIndex;
     if (!untrack(() => peek.open)) return;
-    tick().then(() => {
+    void tick().then(() => {
       const item = untrack(() => selectedItem);
       if (item) peek.follow(item, selectedRowEl());
     });
@@ -573,7 +573,8 @@
   let importInput: HTMLInputElement | null = $state(null);
 
   async function onImportFile(e: Event) {
-    const input = e.target as HTMLInputElement;
+    if (!(e.target instanceof HTMLInputElement)) return;
+    const input = e.target;
     const file = input.files?.[0];
     input.value = "";
     if (!file) return;
@@ -672,7 +673,7 @@
         <!-- ── Head: title block + the two actions. It keeps one fixed top
              measure when the session sidebar opens or closes. ── -->
         <div
-          class="flex shrink-0 items-end justify-between gap-6 pt-[42px] pb-3.5 mx-auto w-full max-w-[72rem] @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] px-8 @max-[44rem]:px-5 @max-[34rem]:px-4"
+          class="workspace-titlebar flex shrink-0 items-end justify-between gap-6 pt-[42px] pb-3.5 mx-auto w-full max-w-[72rem] @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] px-8 @max-[44rem]:px-5 @max-[34rem]:px-4"
         >
           <div class="flex min-w-0 flex-col gap-[7px]">
             <h1 class="m-0 text-[1.5rem] font-medium ">

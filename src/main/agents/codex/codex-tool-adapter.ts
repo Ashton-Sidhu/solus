@@ -9,11 +9,12 @@ export function bareAgentToolName(name: string): string {
 
 export function adaptCodexTools(tools: AgentTool[]): CodexDynamicTool[] {
   assertUniqueAgentTools(tools)
-  return tools.map((agentTool) => ({
-    name: agentTool.name,
-    description: agentTool.description,
-    inputSchema: z.toJSONSchema(z.object(agentTool.inputShape)) as unknown as CodexDynamicTool['inputSchema'],
-  }))
+  return tools.map((agentTool) => {
+    const generatedSchema = z.toJSONSchema(z.object(agentTool.inputFields))
+    // SAFETY: Zod emits a JSON Schema object, which is the exact protocol value Codex accepts for a dynamic tool.
+    const inputSchema = generatedSchema as CodexDynamicTool['inputSchema']
+    return { name: agentTool.name, description: agentTool.description, inputSchema }
+  })
 }
 
 export class CodexToolDispatcher {
@@ -28,7 +29,7 @@ export class CodexToolDispatcher {
     return this.tools.get(bareAgentToolName(name))
   }
 
-  async execute(name: string, input: unknown, parentToolUseId?: string): Promise<AgentToolResult> {
+  async execute(name: string, input: Parameters<typeof executeAgentTool>[1], parentToolUseId?: string): Promise<AgentToolResult> {
     const normalizedName = bareAgentToolName(name)
     const agentTool = this.tools.get(normalizedName)
     if (!agentTool) {

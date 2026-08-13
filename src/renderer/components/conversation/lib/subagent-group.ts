@@ -1,6 +1,7 @@
-import { MODEL_PROFILES, REASONING_EFFORT_LABELS, type Message, type ReasoningEffort } from '../../../../shared/types'
+import { MODEL_PROFILES, REASONING_EFFORT_LABELS, type Message } from '../../../../shared/types'
 import { getToolDescription, participleFor } from './activity-summary'
 import { parseSubagentInput, subagentTodos } from './subagent'
+import { z } from 'zod'
 
 /**
  * §18 — a fan-out is one object, not n cards. Everything the group card and its
@@ -57,6 +58,13 @@ export interface SubagentModelFallback {
   effort: string
 }
 
+export interface SubagentLiveStep {
+  activity: string
+  target: string
+}
+
+const reasoningEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'])
+
 export function subagentState(message: Message): SubagentRowState {
   // toolStatus tracks the agent, not its tool call: a backgrounded agent's
   // tool_result lands at launch, so only toolStatus says "still working".
@@ -94,7 +102,7 @@ function lastRunningTool(subs: Message[]): Message | undefined {
  * the target that call names. A backgrounded agent describes its own step, and
  * that description wins — it is the agent's word for the work, not ours.
  */
-export function subagentLiveStep(message: Message): { activity: string; target: string } {
+export function subagentLiveStep(message: Message): SubagentLiveStep {
   const progress = message.backgroundTaskProgress
   const description = progress?.description?.trim() ?? ''
   if (description) return { activity: description, target: '' }
@@ -172,7 +180,8 @@ export function subagentModelMeta(message: Message, fallback: SubagentModelFallb
 
   const model = (parsed.model || defaultModel || fallback.model).trim()
   const effort = (parsed.reasoning_effort || (backend ? 'high' : fallback.effort) || '').trim()
-  const effortLabel = REASONING_EFFORT_LABELS[effort as ReasoningEffort] ?? effort
+  const parsedEffort = reasoningEffortSchema.safeParse(effort)
+  const effortLabel = parsedEffort.success ? REASONING_EFFORT_LABELS[parsedEffort.data] : effort
 
   return [model, effortLabel].filter(Boolean)
 }

@@ -1,5 +1,5 @@
 export async function runBounded<T>(tasks: (() => Promise<T>)[], concurrency: number, onResult?: (result: T, index: number) => void): Promise<T[]> {
-  const results: T[] = new Array(tasks.length)
+  const results: T[] = []
   let idx = 0
 
   async function worker() {

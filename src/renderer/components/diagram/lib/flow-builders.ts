@@ -34,14 +34,11 @@ export function toFlowNodes<TNodeHandlers extends object>(
       const dataHeight = n.height ?? (n.group ? GROUP_H : undefined);
       const collapsedGroup = !!n.group && !!n.collapsed;
       const height = collapsedGroup ? COLLAPSED_H : dataHeight;
-      return {
+      const node: Node = {
         id: n.id,
         type: n.group ? "group" : "default",
         position: n.position ?? { x: 0, y: 0 },
         hidden: hiddenByCollapse(n),
-        ...(n.parentId ? { parentId: n.parentId } : {}),
-        ...(width ? { width } : {}),
-        ...(height ? { height } : {}),
         style:
           [
             width ? `width:${width}px` : "",
@@ -57,6 +54,10 @@ export function toFlowNodes<TNodeHandlers extends object>(
           ...nodeHandlers,
         },
       };
+      if (n.parentId) node.parentId = n.parentId;
+      if (width) node.width = width;
+      if (height) node.height = height;
+      return node;
     }),
   );
 }
@@ -68,12 +69,10 @@ export function toFlowEdges<TEdgeHandlers extends object>(
   return diagEdges.map((e) => {
     const isAsync = e.kind === "async";
     const isData = e.kind === "data";
-    return {
+    const edge: Edge = {
       id: e.id,
       source: e.source,
       target: e.target,
-      ...(e.sourceHandle ? { sourceHandle: e.sourceHandle } : {}),
-      ...(e.targetHandle ? { targetHandle: e.targetHandle } : {}),
       label: e.label,
       type: "default",
       animated: e.animated ?? false,
@@ -87,7 +86,7 @@ export function toFlowEdges<TEdgeHandlers extends object>(
         width: e.width,
         dash: e.dash,
         arrows: e.arrows,
-        shape: e.shape,
+        route: e.route,
         bendOffset: e.bendOffset,
         cardinality: e.cardinality,
         floatingSource: !e.sourceHandle,
@@ -95,6 +94,9 @@ export function toFlowEdges<TEdgeHandlers extends object>(
         ...edgeHandlers,
       },
     };
+    if (e.sourceHandle) edge.sourceHandle = e.sourceHandle;
+    if (e.targetHandle) edge.targetHandle = e.targetHandle;
+    return edge;
   });
 }
 

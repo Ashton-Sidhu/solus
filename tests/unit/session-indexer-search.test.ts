@@ -17,6 +17,7 @@ type IndexerModule = typeof import('../../src/main/db/session-indexer')
 type DbModule = typeof import('../../src/main/db')
 let indexer: IndexerModule
 let closeDb: DbModule['closeDb']
+let getDb: DbModule['getDb']
 
 const PROJECT = encodePathAsFolder('/Users/test/proj')
 const OTHER_PROJECT = encodePathAsFolder('/Users/test/other')
@@ -26,7 +27,7 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-idx-'))
   process.env.SOLUS_DATA_DIR = dataDir
   indexer = await import('../../src/main/db/session-indexer')
-  ;({ closeDb } = await import('../../src/main/db'))
+  ;({ closeDb, getDb } = await import('../../src/main/db'))
 })
 afterAll(() => {
   closeDb?.()
@@ -210,6 +211,30 @@ describe('getSessionMessages', () => {
       msg('user', 'first', 100),
     ])
     expect(indexer.getSessionMessages('s-order').map((r) => r.text)).toEqual(['first', 'second'])
+  })
+})
+
+describe('sessionIndexComplete', () => {
+  // A session list served from the index costs one query; the fallback reads the
+  // head of every transcript in the project and its worktrees — for one busy
+  // project here, 82 MB. Which of the two a launch gets is this answer.
+  const SWEEP_MARKER = 'claude-session-index-swept-at'
+
+  test('a first-ever launch reads the transcripts instead of a half-filled index', () => {
+    // WHY: mid-first-sweep the index holds an arbitrary prefix of the store.
+    // Answering from it would show a project that looks complete and is not.
+    indexer.stopSessionIndexer()
+    expect(indexer.sessionIndexComplete()).toBe(false)
+  })
+
+  test('a later launch serves lists from the index before its own sweep runs', () => {
+    // WHY: the sweep only catches up on what changed while the app was closed,
+    // so making the picker wait for it bought nothing and cost the whole scan.
+    getDb().prepare('INSERT INTO kv(key, value) VALUES (?, ?)').run(SWEEP_MARKER, String(Date.now()))
+    // A new process starts with no cached answer and no sweep of its own.
+    indexer.stopSessionIndexer()
+
+    expect(indexer.sessionIndexComplete()).toBe(true)
   })
 })
 

@@ -65,6 +65,12 @@
     return side === "deletions" ? "old" : "new";
   }
 
+  function selectionSide(
+    side: "old" | "new" | "LEFT" | "RIGHT",
+  ): SelectionSide {
+    return side === "old" || side === "LEFT" ? "deletions" : "additions";
+  }
+
   interface Props {
     fileDiffs: FileDiffMetadata[];
     loadDiffFiles?: FileDiffContentsLoader;
@@ -216,34 +222,33 @@
     const fileComments = (commentsByPath.get(filePath) ?? []).filter(
       (c) => c.id !== draft.editingCommentId,
     );
-    const out = fileComments.map((c) => ({
-      side: (c.side === "old" ? "deletions" : "additions") as SelectionSide,
-      lineNumber: c.endLine,
-      metadata: { kind: "comment", comment: c } as AnnotationMeta,
-    })) as DiffLineAnnotation<AnnotationMeta>[];
+    const out: DiffLineAnnotation<AnnotationMeta>[] = fileComments.map(
+      (comment): DiffLineAnnotation<AnnotationMeta> => ({
+        side: selectionSide(comment.side),
+        lineNumber: comment.endLine,
+        metadata: { kind: "comment", comment },
+      }),
+    );
     for (const thread of threadsByPath.get(filePath) ?? []) {
+      if (thread.line == null) continue;
       out.push({
-        side: (thread.side === "LEFT"
-          ? "deletions"
-          : "additions") as SelectionSide,
-        lineNumber: thread.line as number,
-        metadata: { kind: "thread", thread } as AnnotationMeta,
-      } as DiffLineAnnotation<AnnotationMeta>);
+        side: selectionSide(thread.side),
+        lineNumber: thread.line,
+        metadata: { kind: "thread", thread },
+      });
     }
     if (draft.filePath === filePath && draft.range) {
       out.push({
-        side: (draft.range.side === "old"
-          ? "deletions"
-          : "additions") as SelectionSide,
+        side: selectionSide(draft.range.side),
         lineNumber: draft.range.endLine,
-        metadata: DRAFT_META as AnnotationMeta,
-      } as DiffLineAnnotation<AnnotationMeta>);
+        metadata: DRAFT_META,
+      });
     }
     return out;
   }
 
   function nextVersion(item: CodeViewDiffItem<AnnotationMeta>): number {
-    return typeof item.version === "number" ? item.version + 1 : 1;
+    return (item.version ?? 0) + 1;
   }
 
   // Files with no text hunks still get a stream item because CodeView can render
@@ -465,10 +470,10 @@
     return button;
   }
 
-  const PLACEHOLDER_LABELS: Record<PlaceholderKind, string> = {
+  const PLACEHOLDER_LABELS = {
     binary: "Binary file — no text diff",
     empty: "No text changes",
-  };
+  } satisfies Record<PlaceholderKind, string>;
 
   function buildHeaderMetadata(filePath: string): HTMLElement {
     const wrap = document.createElement("div");
@@ -573,11 +578,11 @@
         scheduleFindRepaint();
       },
       renderHeaderPrefix: (
-        _props: unknown,
+        _fileDiff: FileDiffMetadata,
         context: { item: { id: string } },
       ) => buildHeaderPrefix(context.item.id),
       renderHeaderMetadata: (
-        _props: unknown,
+        _fileDiff: FileDiffMetadata,
         context: { item: { id: string } },
       ) => buildHeaderMetadata(context.item.id),
       renderAnnotation: (annotation: { metadata: AnnotationMeta }) => {
@@ -789,7 +794,7 @@
       type: "line",
       id: filePath,
       lineNumber: lineNo,
-      side: (side === "old" ? "deletions" : "additions") as SelectionSide,
+      side: selectionSide(side),
       align: "center",
     });
   }

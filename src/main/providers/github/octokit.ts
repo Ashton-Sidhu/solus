@@ -39,6 +39,7 @@ export async function buildClient(auth: GitHubAuth): Promise<GitHubClient> {
 
   const rest = new Octokit({ auth: token, userAgent: 'Solus' })
   rest.hook.error('request', (error) => {
+    // SAFETY: Octokit's request-error hook supplies RequestError values with a numeric status.
     if ((error as { status?: number }).status === 401) {
       log.warn('github_unauthorized_token_cleared')
       clearToken()

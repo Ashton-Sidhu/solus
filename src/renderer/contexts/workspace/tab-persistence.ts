@@ -1,5 +1,6 @@
 import type { AgentId, ContextUsage, GitCheckout, ModelConfig, SessionHandoffLineage, SessionSpec, SessionStatus, StartInfo } from '../../../shared/types'
 import { localApi } from '@client-core/local-api'
+import { z } from 'zod'
 
 // Tab state is scoped first by server installation, then by Electron window
 // mode. The web client has one window, so it only gets the server scope.
@@ -131,34 +132,37 @@ export interface PersistedTabs {
   location?: string
 }
 
+const persistedTabsSchema = z.object({
+  version: z.literal(1),
+  activeTabId: z.string().optional(),
+  tabOrder: z.array(z.string()).optional(),
+  tabs: z.array(z.object({ tabId: z.string() }).passthrough()),
+  location: z.string().optional(),
+}).passthrough()
+
 export function loadPersistedTabs(): PersistedTabs | null {
   try {
     const raw = readStorageWithMigration(LEGACY_TABS_KEY)
     if (!raw) return null
-    const parsed = JSON.parse(raw)
-    if (parsed?.version !== 1 || !Array.isArray(parsed.tabs)) return null
+    const result = persistedTabsSchema.safeParse(JSON.parse(raw))
+    if (!result.success) return null
+    const parsed = result.data
 
     // Keep recoverable tabs even when an older or interrupted writer omitted
     // the selection fields. Rejecting the whole snapshot here makes startup
     // treat a real prior session as an empty workspace and open a composer.
-    const persistedTabIds = parsed.tabs
-      .map((tab: unknown) => (typeof (tab as { tabId?: unknown })?.tabId === 'string'
-        ? (tab as { tabId: string }).tabId
-        : null))
-      .filter((tabId: string | null): tabId is string => !!tabId)
+    const persistedTabIds = parsed.tabs.map((tab) => tab.tabId)
     const persistedTabIdSet = new Set(persistedTabIds)
-    const tabOrder = Array.isArray(parsed.tabOrder)
-      ? parsed.tabOrder.filter((tabId: unknown): tabId is string =>
-          typeof tabId === 'string' && persistedTabIdSet.has(tabId))
-      : []
+    const tabOrder = (parsed.tabOrder ?? []).filter((tabId) => persistedTabIdSet.has(tabId))
     for (const tabId of persistedTabIds) {
       if (!tabOrder.includes(tabId)) tabOrder.push(tabId)
     }
-    const activeTabId = typeof parsed.activeTabId === 'string'
+    const activeTabId = parsed.activeTabId
       && persistedTabIdSet.has(parsed.activeTabId)
       ? parsed.activeTabId
       : tabOrder[0] ?? ''
 
+    // SAFETY: The versioned snapshot was written from PersistedTabs; the schema verifies its routing fields before recovery.
     return { ...parsed, activeTabId, tabOrder } as PersistedTabs
   } catch {
     return null
@@ -183,13 +187,20 @@ export interface PersistedSessionDrafts {
   drafts: Record<string, SessionSpec>
 }
 
+const persistedSessionDraftsSchema = z.object({
+  version: z.literal(1),
+  order: z.array(z.string()),
+  drafts: z.record(z.string(), z.object({}).passthrough()),
+})
+
 export function loadPersistedSessionDrafts(): PersistedSessionDrafts | null {
   try {
     const raw = localStorage.getItem(storageKey(SESSION_DRAFTS_KEY))
     if (!raw) return null
-    const parsed = JSON.parse(raw)
-    if (parsed?.version !== 1 || !Array.isArray(parsed.order) || !parsed.drafts) return null
-    return parsed as PersistedSessionDrafts
+    const parsed = persistedSessionDraftsSchema.safeParse(JSON.parse(raw))
+    if (!parsed.success) return null
+    // SAFETY: Session drafts are app-authored SessionSpec snapshots; the versioned envelope and keyed objects were validated.
+    return parsed.data as PersistedSessionDrafts
   } catch {
     return null
   }
@@ -231,10 +242,10 @@ export function loadCachedStart(): StartInfo | null {
   try {
     const raw = localStorage.getItem(storageKey(START_CACHE_KEY))
     if (!raw) return null
-    const parsed = JSON.parse(raw)
-    // Minimal shape guard — enough to trust it as a StartInfo before applying.
-    if (typeof parsed?.version !== 'string' || !Array.isArray(parsed.agents)) return null
-    return parsed as StartInfo
+    const parsed = z.object({ version: z.string(), agents: z.array(z.object({}).passthrough()) }).passthrough().safeParse(JSON.parse(raw))
+    if (!parsed.success) return null
+    // SAFETY: This app-authored cache is consumed only after its StartInfo version and agent collection are validated.
+    return parsed.data as StartInfo
   } catch {
     return null
   }
@@ -296,8 +307,10 @@ export function removePersistedTab(tabId: string, activeTabId: string): void {
   try {
     const raw = localStorage.getItem(key)
     if (!raw) return
-    const snapshot = JSON.parse(raw) as PersistedTabs
-    if (snapshot?.version !== 1 || !Array.isArray(snapshot.tabs) || !Array.isArray(snapshot.tabOrder)) return
+    const parsed = persistedTabsSchema.safeParse(JSON.parse(raw))
+    if (!parsed.success) return
+    // SAFETY: The versioned persisted-tab envelope has the routing fields required by remove().
+    const snapshot = parsed.data as PersistedTabs
     localStorage.setItem(key, JSON.stringify(remove(snapshot)))
   } catch {}
 }
@@ -308,9 +321,8 @@ export function loadDismissedSidebarRowKeys(): string[] {
   try {
     const raw = localStorage.getItem(storageKey(DISMISSED_SIDEBAR_TASKS_KEY))
     if (!raw) return []
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter((taskId): taskId is string => typeof taskId === 'string')
+    const parsed = z.array(z.string()).safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : []
   } catch {
     return []
   }
@@ -323,6 +335,15 @@ export function persistDismissedSidebarRow(rowKey: string): void {
     const rowKeys = new Set(loadDismissedSidebarRowKeys())
     rowKeys.add(rowKey)
     localStorage.setItem(storageKey(DISMISSED_SIDEBAR_TASKS_KEY), JSON.stringify([...rowKeys]))
+  } catch {}
+}
+
+/** Restore selected rows without clearing unrelated sidebar dismissals. */
+export function removeDismissedSidebarRows(rowKeys: Iterable<string>): void {
+  try {
+    const dismissed = new Set(loadDismissedSidebarRowKeys())
+    for (const rowKey of rowKeys) dismissed.delete(rowKey)
+    localStorage.setItem(storageKey(DISMISSED_SIDEBAR_TASKS_KEY), JSON.stringify([...dismissed]))
   } catch {}
 }
 
@@ -340,13 +361,17 @@ export interface TabDrafts {
   tabs: Record<string, string>
 }
 
+const tabDraftsSchema = z.object({
+  activeInputText: z.string(),
+  tabs: z.record(z.string(), z.string()),
+})
+
 export function loadDrafts(): TabDrafts | null {
   try {
     const raw = readStorageWithMigration(LEGACY_DRAFTS_KEY)
     if (!raw) return null
-    const parsed = JSON.parse(raw)
-    if (typeof parsed?.activeInputText !== 'string' || typeof parsed?.tabs !== 'object') return null
-    return parsed as TabDrafts
+    const parsed = tabDraftsSchema.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : null
   } catch {
     return null
   }
@@ -355,19 +380,19 @@ export function loadDrafts(): TabDrafts | null {
 // Internal mutable map populated from loadDrafts() so the persist effect only
 // needs to update the active tab's entry per keystroke rather than re-reading
 // every tab's input text each time.
-let liveDraftTabs: Record<string, string> = {}
+let liveDraftTabs = new Map<string, string>()
 let liveActiveInputText = ''
 let draftsDirty = false
 let liveDraftsKey: string | null = null
 
 export function initDraftState(initial: TabDrafts | null): void {
   liveDraftsKey = storageKey(LEGACY_DRAFTS_KEY)
-  liveDraftTabs = { ...initial?.tabs ?? {} }
+  liveDraftTabs = new Map(Object.entries(initial?.tabs ?? {}))
   liveActiveInputText = initial?.activeInputText ?? ''
 }
 
 export function patchActiveDraft(activeTabId: string, tabText: string, activeInputText: string): void {
-  liveDraftTabs[activeTabId] = tabText
+  liveDraftTabs.set(activeTabId, tabText)
   liveActiveInputText = activeInputText
   draftsDirty = true
   scheduleDraftFlush()
@@ -378,8 +403,7 @@ export function patchActiveDraft(activeTabId: string, tabText: string, activeInp
  *  the per-keystroke `patchActiveDraft` only ever touches the active tab, so
  *  without this a closed tab's text would be re-persisted on every later flush. */
 export function removeDraft(tabId: string): void {
-  if (!(tabId in liveDraftTabs)) return
-  delete liveDraftTabs[tabId]
+  if (!liveDraftTabs.delete(tabId)) return
   draftsDirty = true
   scheduleDraftFlush()
 }
@@ -395,7 +419,7 @@ function scheduleDraftFlush() {
 // prefer patchActiveDraft for per-keystroke updates.
 export function saveDraftsDebounced(drafts: TabDrafts): void {
   liveDraftsKey = storageKey(LEGACY_DRAFTS_KEY)
-  liveDraftTabs = { ...drafts.tabs }
+  liveDraftTabs = new Map(Object.entries(drafts.tabs))
   liveActiveInputText = drafts.activeInputText
   draftsDirty = true
   scheduleDraftFlush()
@@ -409,7 +433,10 @@ export function flushDrafts(): void {
   }
   if (!draftsDirty) return
   try {
-    localStorage.setItem(liveDraftsKey ?? storageKey(LEGACY_DRAFTS_KEY), JSON.stringify({ activeInputText: liveActiveInputText, tabs: liveDraftTabs }))
+    localStorage.setItem(liveDraftsKey ?? storageKey(LEGACY_DRAFTS_KEY), JSON.stringify({
+      activeInputText: liveActiveInputText,
+      tabs: Object.fromEntries(liveDraftTabs),
+    }))
   } catch {}
   draftsDirty = false
 }

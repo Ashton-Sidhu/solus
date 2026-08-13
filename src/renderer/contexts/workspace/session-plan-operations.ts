@@ -1,6 +1,5 @@
 import type { AgentId, Plan, PlanDescriptor, PermissionOption, PlanReference, ReasoningEffort, SessionMeta, WorkReference } from '../../../shared/types'
 import { MODEL_PROFILES, planKey, encodePathAsFolder } from '../../../shared/types'
-import type { ModelProfile } from '../../../shared/types'
 import { findOpenTabForSession } from '../../lib/sessionUtils'
 import { formatInlineComments, nextMsgId } from './session.utils'
 import { track } from '../../lib/analytics'
@@ -171,8 +170,8 @@ export async function approvePlanWithModel(
       session.run.provider = opts.provider
       ctx.config.followActiveSessionAgent(opts.provider)
     }
-    const profile = MODEL_PROFILES[opts.provider as keyof typeof MODEL_PROFILES]?.[opts.modelId]
-    session.run.modelConfig = { modelId: opts.modelId, reasoningEffort: opts.reasoningEffort ?? (profile as ModelProfile)?.defaultReasoningEffort ?? 'high', contextWindow: (profile as ModelProfile)?.defaultContextWindow ?? null, fastMode: false }
+    const profile = MODEL_PROFILES[opts.provider]?.[opts.modelId]
+    session.run.modelConfig = { modelId: opts.modelId, reasoningEffort: opts.reasoningEffort ?? profile?.defaultReasoningEffort ?? 'high', contextWindow: profile?.defaultContextWindow ?? null, fastMode: false }
     session.sessionModel = null
   } else if (opts.reasoningEffort) {
     session.run.modelConfig.reasoningEffort = opts.reasoningEffort
@@ -193,7 +192,7 @@ export async function approvePlanWithModel(
     planToolUseId: plan.planToolUseId,
     status: 'accepted',
   })
-  const safeTitle = plan.title.replace(/[\[\]]/g, '\\$&')
+  const safeTitle = plan.title.replaceAll('[', '\\[').replaceAll(']', '\\]')
   const planLink = `[${safeTitle}](plan://ref?${params})`
 
   let message = `Implement this plan: ${planLink}`
@@ -269,7 +268,7 @@ async function loadOrFindTab(ctx: WorkspaceContext, sessionId: string, cwd: stri
   }
   const meta: SessionMeta = {
     sessionId,
-    provider: provider ?? ctx.settings.activeAgent as AgentId,
+    provider: provider ?? ctx.settings.activeAgent,
     cwd,
     projectPath,
     serverId,

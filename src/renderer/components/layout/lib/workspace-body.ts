@@ -89,18 +89,25 @@ export function retainedConversationTabIds(
  * of room and the column just gets emptier, and under 300px the row's trailing
  * slot starts eating the title.
  */
-export const SIDEBAR_MIN_WIDTH = 280
-export const SIDEBAR_DEFAULT_WIDTH = 320
+export const SIDEBAR_MIN_WIDTH = 200
+export const SIDEBAR_DEFAULT_WIDTH = 380
 export const SIDEBAR_MAX_WIDTH = 400
 
 /**
- * clamp(280px, 19%, 320px) of the window it sits in. A laptop lands near the
- * floor so the conversation keeps the room, and a wide display stops at 320px
- * rather than widening a column that holds one line of text per row.
+ * The width of a workspace rail: clamp(200px, 17%, 380px) of the window it sits
+ * in, so a rail is a share of the display rather than one fixed width — ~200px
+ * on an iPad, ~245px on a 15" MacBook Pro, ~294px on a 16", 380px on a 5K. The
+ * floor keeps a session title readable on the smallest tablet; the cap stops an
+ * ultrawide from widening a column that holds one line of text per row.
+ *
+ * Both rails read this: the session sidebar on the left and the project rail on
+ * the right are the same furniture on the same window, so they are the same
+ * width. `projectRailWidth` only narrows the result when the conversation view
+ * beside it is too small to give the full measure away.
  */
 export function defaultWorkspaceRailWidth(viewportWidth: number): number {
   return Math.round(
-    Math.min(SIDEBAR_DEFAULT_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, viewportWidth * 0.19)),
+    Math.min(SIDEBAR_DEFAULT_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, viewportWidth * 0.17)),
   )
 }
 
@@ -118,10 +125,15 @@ export function clampSecondaryPaneWidth(
   )
 }
 
+export interface SecondaryPaneBounds {
+  min: number
+  max: number
+}
+
 export function secondaryPaneBounds(
   containerWidth: number,
   minPrimaryWidth = MIN_PRIMARY_PANE_WIDTH,
-): { min: number; max: number } {
+): SecondaryPaneBounds {
   if (containerWidth < minPrimaryWidth + MIN_SECONDARY_PANE_WIDTH) {
     return { min: 50, max: 50 }
   }

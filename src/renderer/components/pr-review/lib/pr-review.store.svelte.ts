@@ -2,7 +2,7 @@ import { untrack } from 'svelte'
 import type { PrDiffSlice, PrReviewTarget, ReviewComment, ReviewThread } from '../../../../shared/providers'
 import type { DiffScope, IpcContext, PrCheckoutContext, PrInterdiffResult, PrReviewContext } from '../../../../shared/types'
 import { worktreeProjectRoot } from '../../../../shared/types'
-import type { DiffBase } from '../../../../shared/stack-types'
+import type { DiffBase, StackGraph } from '../../../../shared/stack-types'
 import { reviewGuideKeyForBase } from '../../../../shared/review'
 import { ReviewDrafts } from '../../review/lib/review-drafts.svelte'
 import { interdiffReviewThreads } from '../../diff/lib/interdiff-annotations'
@@ -285,12 +285,13 @@ export class PrReviewState {
       const patches: string[] = []
       let cursor: string | undefined
       do {
-        const slice: PrDiffSlice = await this.#deps.loadDiff(context, {
+        const request: import('../../../../shared/providers').PrDiffRequest = {
           number: target.number,
           baseSha: target.baseSha,
           headSha: target.headSha,
-          ...(cursor ? { cursor } : {}),
-        })
+        }
+        if (cursor) request.cursor = cursor
+        const slice: PrDiffSlice = await this.#deps.loadDiff(context, request)
         if (`${this.pr?.host}/${this.pr?.owner}/${this.pr?.repo}:${this.pr?.number}:${this.pr?.baseSha}:${this.pr?.headSha}` !== key) return
         if (slice.patch) patches.push(slice.patch)
         this.diffTruncated ||= slice.truncated
@@ -386,7 +387,7 @@ export interface PrReviewDeps {
   ctxForDirectory: (path: string) => IpcContext
   stackedPrsEnabled: () => boolean
   resolveDiffBase: (number: number, baseRef: string) => DiffBase
-  loadStacks: (ctx: IpcContext) => Promise<unknown>
+  loadStacks: (ctx: IpcContext) => Promise<StackGraph>
   loadThreads: (ctx: IpcContext, number: number, force: boolean) => Promise<ReviewThread[]>
   loadDiff: (ctx: IpcContext, request: import('../../../../shared/providers').PrDiffRequest) => Promise<PrDiffSlice>
   prepareCheckout: (ctx: IpcContext, target: PrReviewTarget) => Promise<PrCheckoutContext>

@@ -9,9 +9,9 @@ type MarkdownRenderer =
   | typeof MarkdownListItem
   | typeof MarkdownRawText;
 
-export const githubMarkdownRenderers: Record<string, MarkdownRenderer> = {
+export const githubMarkdownRenderers = {
   codespan: CodeSpan,
   alert: MarkdownAlert,
   listitem: MarkdownListItem,
   rawtext: MarkdownRawText,
-};
+} satisfies Record<string, MarkdownRenderer>;

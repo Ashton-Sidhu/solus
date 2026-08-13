@@ -1,7 +1,5 @@
 <script lang="ts">
   import {
-    CaretDownIcon,
-    CaretRightIcon,
     BookOpenTextIcon,
     ArrowUUpLeftIcon,
     AlarmIcon,
@@ -246,7 +244,7 @@
 -->
 <div class="group/task">
   <div
-    class="group/row relative -mr-1 flex cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 transition-[background] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] {bulkSelected ? 'bg-[color-mix(in_oklch,var(--primary)_9%,transparent)]' : ''} pl-[0.125rem] {showsBottomRow ? 'h-[3.25rem]' : 'h-[2.125rem]'}"
+    class="group/row relative -mx-2 flex cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.625rem] transition-[background] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] {bulkSelected ? 'bg-[color-mix(in_oklch,var(--primary)_9%,transparent)]' : ''} {showsBottomRow ? 'h-[3.5rem]' : 'h-[2.125rem]'}"
     role="treeitem"
     tabindex="0"
     data-task-key={task.key}
@@ -280,16 +278,10 @@
       }
     }}
   >
-    <!-- The disclosure column, spent only by a row that has a mark to put in it
-         — a completed row's project mark, or an open row's count. A row that
-         opens onto nothing spends nothing, so its title starts at the pane's
-         left edge rather than behind an empty column. It sits directly over the
-         spine that drops out of it when the row is open. Collapsed it states the
-         count, because how many rows are under here is the question you have
-         while scanning; on hover it swaps (CSS only, so it lands on the
-         pointer's frame) to the caret, which is the answer to what to do about
-         it. -->
-    {#if isCompleted || disclosable}
+    <!-- Completed tasks keep their project mark. Open task titles all start on
+         the same left edge; row activation and the tree keyboard controls still
+         expand subtasks without a standing count or disclosure chevron. -->
+    {#if isCompleted}
       <span
         class="-mr-[0.375rem] flex size-4 shrink-0 items-center justify-center text-(--solus-text-tertiary) {showsBottomRow
  ? 'mt-2 self-start'
@@ -309,18 +301,6 @@
               class="text-(--solus-text-tertiary)"
             />
           {/if}
-        {:else if expanded}
-          <CaretDownIcon size={14} weight="bold" />
-        {:else}
-          <span
-            class="font-mono text-xs tabular-nums group-hover/row:hidden"
-            >{sessions.length}</span
-          >
-          <CaretRightIcon
-            size={14}
-            weight="bold"
-            class="hidden group-hover/row:block"
-          />
         {/if}
       </span>
     {/if}
@@ -358,7 +338,7 @@
 
         <!-- The margin carries live task state, not standing navigation. -->
         {#if showsMargin}
-          <span class="flex shrink-0 items-center gap-[0.5625rem]">
+          <span class="ml-auto flex shrink-0 items-center gap-[0.5625rem]">
             {#if completedAge}
               <span
                 class="shrink-0 font-mono text-xs text-muted-foreground tabular-nums"
@@ -510,7 +490,7 @@
       </span>
       {#if showsBottomRow}
         <span
-          class="mt-1 flex min-w-0 max-w-full items-center gap-[0.375rem] text-xs text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]"
+          class="mt-[0.625rem] flex h-5 min-w-0 max-w-full items-center gap-[0.375rem] text-xs text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]"
         >
           <!-- The project's own mark identifies it faster than its name does.
                The band above already names the project while the list is

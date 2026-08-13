@@ -6,10 +6,12 @@ import type { IpcContext } from '../../../../shared/types'
  * directory is passed deliberately: the handler then falls back to GitHub.
  */
 export function hostProviderContext(): IpcContext {
-  return { session: { projectPath: '', workingDirectory: '' } } as unknown as IpcContext
+  const context = { session: { projectPath: '', workingDirectory: '' } }
+  // SAFETY: providerConnect reads only these two session directory fields; its handler deliberately accepts this host-setup context before a session exists.
+  return context as IpcContext
 }
 
 /** A host RPC failure as the one line a setup surface shows for it. */
-export function messageFor(err: unknown): string {
+export function messageFor(err: Parameters<typeof String>[0]): string {
   return err instanceof Error ? err.message : String(err)
 }

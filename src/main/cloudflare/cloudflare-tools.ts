@@ -10,7 +10,7 @@ export function setCloudflareConnectNeededListener(listener: (reason: 'deploy') 
 export const cloudflareStatusAgentTool: AgentTool = {
   name: 'cloudflare_status',
   description: 'Check whether Cloudflare deployment credentials are connected. Returns connection metadata only, never the API token.',
-  inputShape: {} as const,
+  inputFields: {} as const,
   requiresApproval: false,
   execute: async () => {
     const envToken = process.env.CLOUDFLARE_API_TOKEN

@@ -12,12 +12,7 @@ import type { TaskCommentOpPayload, TaskSetStatusOpPayload } from '../../shared/
 import type {
   Task as TaskRecord,
   TaskCreateInput,
-  TaskKind,
   TaskLink as TaskLinkRecord,
-  TaskLinkKind,
-  TaskPriority,
-  TaskSessionRole,
-  TaskStatus,
 } from '../../shared/task-types'
 
 const log = createLogger('main', 'task-tools.ts')
@@ -39,20 +34,20 @@ const LINK_KIND_VALUES = ['work', 'plan', 'pr', 'automation'] as const
 
 // ─── Schemas ───
 
-const readTaskShape = {
+const readTaskFields = {
   task_id: z
     .string()
     .describe('Local task id. The bound task id is in the session\'s task context.'),
 }
 
-const updateStatusShape = {
+const updateStatusFields = {
   task_id: z.string().describe('The id of the task to move (the bound task, or one from its context).'),
   status: z
     .enum(STATUS_VALUES)
     .describe(`New local lifecycle status: ${STATUS_VALUES.join(', ')}.`),
 }
 
-const listTasksShape = {
+const listTasksFields = {
   status: z
     .enum(LIST_STATUS_VALUES)
     .optional()
@@ -63,7 +58,7 @@ const listTasksShape = {
     .describe("Defaults to this project; use 'all', 'inbox', or 'up_next' to change scope."),
 }
 
-const createTaskShape = {
+const createTaskFields = {
   title: z.string().describe('Task title.'),
   body: z.string().optional().describe('Task body/description in markdown.'),
   kind: z.enum(KIND_VALUES).optional().describe("Task kind. Defaults to 'task'."),
@@ -75,18 +70,18 @@ const createTaskShape = {
   inbox: z.boolean().optional().describe('When true, file this task in the global inbox instead of the calling project.'),
 }
 
-const commentTaskShape = {
+const commentTaskFields = {
   task_id: z.string().describe('The id of the task to comment on.'),
   body: z.string().describe('Comment body in markdown.'),
 }
 
-const linkTaskSessionShape = {
+const linkTaskSessionFields = {
   task_id: z.string().describe('The id of the task to link.'),
   session_id: z.string().optional().describe('The Solus agent session id to link. Defaults to the calling session.'),
   role: z.enum(['working', 'referenced']).optional().describe("Link role. Defaults to 'working'."),
 }
 
-const linkTaskShape = {
+const linkTaskFields = {
   task_id: z.string().describe('The id of the task to link.'),
   kind: z
     .enum(LINK_KIND_VALUES)
@@ -100,6 +95,14 @@ const linkTaskShape = {
     .describe('Required for kind=plan: the session the plan belongs to. Defaults to the calling session.'),
   title: z.string().optional().describe('Optional label; resolved from the target when omitted.'),
 }
+
+const listTasksInputSchema = z.object(listTasksFields)
+const readTaskInputSchema = z.object(readTaskFields)
+const updateStatusInputSchema = z.object(updateStatusFields)
+const createTaskInputSchema = z.object(createTaskFields)
+const commentTaskInputSchema = z.object(commentTaskFields)
+const linkTaskSessionInputSchema = z.object(linkTaskSessionFields)
+const linkTaskInputSchema = z.object(linkTaskFields)
 
 // ─── Descriptions ───
 
@@ -166,15 +169,13 @@ async function executeTaskTool(
   const projectKey = await resolveRepoRoot(cwd) ?? cwd
   try {
     if (name === 'list_tasks') {
-      const status = String(args.status ?? 'all')
-      if (!(LIST_STATUS_VALUES as readonly string[]).includes(status)) {
-        return { ok: false, text: `list_tasks: status must be one of ${LIST_STATUS_VALUES.join(', ')}.` }
-      }
-      const requestedScope = typeof args.scope === 'string' ? args.scope : 'project'
+      const input = listTasksInputSchema.parse(args)
+      const status = input.status ?? 'all'
+      const requestedScope = input.scope ?? 'project'
       const result = await listTasks({
         projectKey: requestedScope === 'project' ? projectKey : undefined,
-        scope: requestedScope as 'project' | 'all' | 'inbox' | 'up_next',
-        status: status === 'all' ? undefined : status as TaskStatus,
+        scope: requestedScope,
+        status: status === 'all' ? undefined : status,
       })
       const filtered = result.tasks
       const shown = filtered.slice(0, 50)
@@ -189,7 +190,8 @@ async function executeTaskTool(
     }
 
     if (name === 'read_task') {
-      const id = String(args.task_id ?? '').trim()
+      const input = readTaskInputSchema.parse(args)
+      const id = input.task_id.trim()
       if (!id) return { ok: false, text: 'read_task requires a task_id.' }
       // A foreign task (dispatched session) answers from the shipped snapshot,
       // overlaid with this session's own not-yet-delivered writes.
@@ -206,12 +208,10 @@ async function executeTaskTool(
     }
 
     if (name === 'update_task_status') {
-      const id = String(args.task_id ?? '').trim()
+      const input = updateStatusInputSchema.parse(args)
+      const id = input.task_id.trim()
       if (!id) return { ok: false, text: 'update_task_status requires a task_id.' }
-      const status = String(args.status ?? '')
-      if (!(STATUS_VALUES as readonly string[]).includes(status)) {
-        return { ok: false, text: `update_task_status: status must be one of ${STATUS_VALUES.join(', ')}.` }
-      }
+      const status = input.status
       const lifecyclePolicy = getServerSettings().agentTaskLifecyclePolicy
       if (lifecyclePolicy === 'none') {
         return {
@@ -232,35 +232,32 @@ async function executeTaskTool(
         return { ok: true, text: `Task ${id} is now "${status}".` }
       }
       const updated = await (await Task.byId(id)).update(
-        { status: status as TaskStatus },
+        { status },
         { actor: 'agent', actorLabel: deps.ctx.sessionId },
       )
       return { ok: true, text: `Task ${updated.id} is now "${updated.status}".` }
     }
 
     if (name === 'create_task') {
-      const title = typeof args.title === 'string' ? args.title.trim() : ''
+      const parsed = createTaskInputSchema.parse(args)
+      const title = parsed.title.trim()
       if (!title) return { ok: false, text: 'create_task requires a non-empty title.' }
-      const requestedParentId = typeof args.parent_id === 'string' ? args.parent_id.trim() : ''
+      const requestedParentId = parsed.parent_id?.trim() ?? ''
       if (requestedParentId && foreignTaskFor(deps.ctx.solusSessionId, requestedParentId)) {
         return { ok: false, text: foreignWriteUnsupported('create_task under a parent', requestedParentId) }
       }
-      const labels = Array.isArray(args.labels)
-        ? args.labels.map((label) => String(label).trim()).filter(Boolean)
-        : undefined
-      const isInbox = args.inbox === true
+      const labels = parsed.labels?.map((label) => label.trim()).filter(Boolean)
+      const isInbox = parsed.inbox === true
       const input: TaskCreateInput = {
         title,
         projectKey: isInbox ? null : projectKey,
-        body: typeof args.body === 'string' ? args.body : '',
-        kind: (KIND_VALUES as readonly string[]).includes(String(args.kind)) ? args.kind as TaskKind : 'task',
-        parentId: typeof args.parent_id === 'string' && args.parent_id.trim() ? args.parent_id.trim() : null,
-        priority: (PRIORITY_VALUES as readonly string[]).includes(String(args.priority)) ? args.priority as TaskPriority : null,
+        body: parsed.body ?? '',
+        kind: parsed.kind ?? 'task',
+        parentId: requestedParentId || null,
+        priority: parsed.priority ?? null,
         labels,
-        dueDate: typeof args.due_date === 'string' && args.due_date.trim() ? args.due_date.trim() : null,
-        status: (STATUS_VALUES as readonly string[]).includes(String(args.status))
-          ? args.status as TaskStatus
-          : isInbox ? 'inbox' : 'todo',
+        dueDate: parsed.due_date?.trim() || null,
+        status: parsed.status ?? (isInbox ? 'inbox' : 'todo'),
         source: 'agent',
         originSessionId: deps.ctx.sessionId ?? null,
       }
@@ -273,9 +270,10 @@ async function executeTaskTool(
     }
 
     if (name === 'comment_task') {
-      const id = String(args.task_id ?? '').trim()
+      const input = commentTaskInputSchema.parse(args)
+      const id = input.task_id.trim()
       if (!id) return { ok: false, text: 'comment_task requires a task_id.' }
-      const body = typeof args.body === 'string' ? args.body.trim() : ''
+      const body = input.body.trim()
       if (!body) return { ok: false, text: 'comment_task requires a non-empty body.' }
       if (foreignTaskFor(deps.ctx.solusSessionId, id)) {
         const payload: TaskCommentOpPayload = { body, author: 'agent', originSessionId: deps.ctx.sessionId }
@@ -291,39 +289,36 @@ async function executeTaskTool(
     }
 
     if (name === 'link_task_session') {
-      const taskId = String(args.task_id ?? '').trim()
+      const input = linkTaskSessionInputSchema.parse(args)
+      const taskId = input.task_id.trim()
       if (!taskId) return { ok: false, text: 'link_task_session requires a task_id.' }
       if (foreignTaskFor(deps.ctx.solusSessionId, taskId)) {
         return { ok: false, text: foreignWriteUnsupported('link_task_session', taskId) }
       }
-      const sessionId = typeof args.session_id === 'string' && args.session_id.trim()
-        ? args.session_id.trim()
-        : deps.ctx.sessionId
+      const sessionId = input.session_id?.trim() || deps.ctx.sessionId
       if (!sessionId) return { ok: false, text: 'link_task_session requires session_id when no calling session id is available.' }
-      const role = (args.role === 'referenced' ? 'referenced' : 'working') as TaskSessionRole
+      const role = input.role ?? 'working'
       await (await Task.byId(taskId)).linkSession(sessionId, role)
       return { ok: true, text: `Linked task ${taskId} to session ${sessionId}.` }
     }
 
     if (name === 'link_task') {
-      const taskId = String(args.task_id ?? '').trim()
+      const input = linkTaskInputSchema.parse(args)
+      const taskId = input.task_id.trim()
       if (!taskId) return { ok: false, text: 'link_task requires a task_id.' }
       if (foreignTaskFor(deps.ctx.solusSessionId, taskId)) {
         return { ok: false, text: foreignWriteUnsupported('link_task', taskId) }
       }
-      const kind = String(args.kind ?? '') as TaskLinkKind
-      if (!(LINK_KIND_VALUES as readonly string[]).includes(kind)) {
-        return { ok: false, text: `link_task: kind must be one of ${LINK_KIND_VALUES.join(', ')}.` }
-      }
-      const targetKey = String(args.target_id ?? '').trim()
+      const kind = input.kind
+      const targetKey = input.target_id.trim()
       if (!targetKey) return { ok: false, text: 'link_task requires a target_id.' }
 
       // Only plans and PRs need a qualifier: a plan is identified by the session
       // it belongs to, and a PR number is only unique within a repo.
       let targetScope = ''
       if (kind === 'plan') {
-        targetScope = (typeof args.session_id === 'string' && args.session_id.trim())
-          ? args.session_id.trim()
+        targetScope = input.session_id?.trim()
+          ? input.session_id.trim()
           : deps.ctx.sessionId ?? ''
         if (!targetScope) return { ok: false, text: 'link_task requires session_id for kind=plan.' }
       } else if (kind === 'pr') {
@@ -334,7 +329,7 @@ async function executeTaskTool(
         kind,
         targetScope,
         targetKey,
-        title: typeof args.title === 'string' ? args.title : undefined,
+        title: input.title,
         createdBy: 'agent',
         originSessionId: deps.ctx.sessionId ?? null,
       }, { actor: 'agent', actorLabel: deps.ctx.sessionId })
@@ -386,13 +381,13 @@ function formatTaskForAgent(
 function taskAgentTool(
   name: string,
   description: string,
-  inputShape: z.ZodRawShape,
+  inputFields: AgentTool['inputFields'],
   requiresApproval: boolean,
 ): AgentTool {
   return {
     name,
     description,
-    inputShape,
+    inputFields,
     requiresApproval,
     execute: async (args, context) => executeTaskTool(name, args, {
       ctx: { cwd: context.cwd, sessionId: context.sessionId(), solusSessionId: context.solusSessionId() },
@@ -406,10 +401,10 @@ function taskAgentTool(
   }
 }
 
-export const listTasksAgentTool = taskAgentTool('list_tasks', LIST_TASKS_DESC, listTasksShape, false)
-export const readTaskAgentTool = taskAgentTool('read_task', READ_TASK_DESC, readTaskShape, false)
-export const updateTaskStatusAgentTool = taskAgentTool('update_task_status', UPDATE_DESC, updateStatusShape, true)
-export const createTaskAgentTool = taskAgentTool('create_task', CREATE_TASK_DESC, createTaskShape, true)
-export const commentTaskAgentTool = taskAgentTool('comment_task', COMMENT_TASK_DESC, commentTaskShape, true)
-export const linkTaskSessionAgentTool = taskAgentTool('link_task_session', LINK_TASK_SESSION_DESC, linkTaskSessionShape, true)
-export const linkTaskAgentTool = taskAgentTool('link_task', LINK_TASK_DESC, linkTaskShape, true)
+export const listTasksAgentTool = taskAgentTool('list_tasks', LIST_TASKS_DESC, listTasksFields, false)
+export const readTaskAgentTool = taskAgentTool('read_task', READ_TASK_DESC, readTaskFields, false)
+export const updateTaskStatusAgentTool = taskAgentTool('update_task_status', UPDATE_DESC, updateStatusFields, true)
+export const createTaskAgentTool = taskAgentTool('create_task', CREATE_TASK_DESC, createTaskFields, true)
+export const commentTaskAgentTool = taskAgentTool('comment_task', COMMENT_TASK_DESC, commentTaskFields, true)
+export const linkTaskSessionAgentTool = taskAgentTool('link_task_session', LINK_TASK_SESSION_DESC, linkTaskSessionFields, true)
+export const linkTaskAgentTool = taskAgentTool('link_task', LINK_TASK_DESC, linkTaskFields, true)

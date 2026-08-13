@@ -3,12 +3,15 @@ import { RPC_INVOKE_METHODS } from '../shared/rpc'
 import type { RpcInvokeMethod } from '../shared/rpc'
 import { MAX_ATTACHMENT_UPLOAD_BYTES, MAX_ATTACHMENT_UPLOAD_COUNT } from '../shared/rpc'
 import type { Attachment, IpcContext } from '../shared/types'
+import type { SolusAPI } from '../preload'
 import { HostEventSubscriber } from './host-event-subscriber'
+import { isHostEvent, type HostEvent } from '../shared/host-events'
 import {
   encodePcm16Wav,
   MAX_VOICE_RECORDING_MINUTES,
   MAX_VOICE_SAMPLES,
 } from '../shared/voice-audio'
+import { z } from 'zod'
 
 /** WebSocket transport shared by the browser client and Electron renderer. */
 
@@ -49,7 +52,7 @@ interface RequestEntry {
   method: RpcInvokeMethod
   args: unknown[]
   state: 'queued' | 'sent'
-  resolve?: (value: unknown) => void
+  resolve?: (value: RpcInvocationResult) => void
   reject?: (err: Error) => void
   queuedAt: number
   /** Boot work must survive arbitrarily slow first startup. */
@@ -57,9 +60,11 @@ interface RequestEntry {
 }
 
 interface RpcResponse {
-  result?: unknown
+  result?: RpcInvocationResult
   error?: { message: string }
 }
+
+type RpcInvocationResult = Awaited<ReturnType<SolusAPI[RpcInvokeMethod]>>
 
 const RECONNECT_QUEUE_MAX_AGE_MS = 15_000
 const WAKE_PROBE_TIMEOUT_MS = 5_000
@@ -76,9 +81,9 @@ export function shouldRejectQueuedRequest(
 function readFileDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = () => typeof reader.result === 'string'
-      ? resolve(reader.result)
-      : reject(new Error('Unable to read attachment.'))
+    reader.onload = () => reader.result instanceof ArrayBuffer
+      ? reject(new Error('Unable to read attachment.'))
+      : resolve(reader.result ?? '')
     reader.onerror = () => reject(reader.error ?? new Error('Unable to read attachment.'))
     reader.readAsDataURL(file)
   })
@@ -103,7 +108,7 @@ export class WsTransport {
   private wakeProbeInFlight = false
   private connectedGeneration = 0
   private isAcceptedConnection = false
-  private pendingHostEvents: unknown[] = []
+  private pendingHostEvents: HostEvent[] = []
 
   constructor(private opts: WsTransportOptions) {
     this.socket = io(opts.serverUrl, {
@@ -147,7 +152,7 @@ export class WsTransport {
   }
 
   /** Builds a `window.solus`-compatible API surface backed by this transport. */
-  buildSolusApi(): object {
+  buildSolusApi() {
     const api = {
       getPlatform: () => 'web',
       getPathForFile: () => '',
@@ -176,7 +181,7 @@ export class WsTransport {
     })
 
     if (!this.opts.useHostFileDialog) {
-      Reflect.set(api, 'attachFiles', (ctx?: IpcContext): Promise<unknown> => {
+      Reflect.set(api, 'attachFiles', (ctx?: IpcContext): Promise<Attachment[] | null> => {
         if (!ctx) return Promise.resolve(null)
         return new Promise((resolve) => {
           const input = document.createElement('input')
@@ -192,7 +197,7 @@ export class WsTransport {
         })
       })
     }
-    Reflect.set(api, 'uploadFiles', (files: File[], ctx: IpcContext): Promise<unknown> => this.uploadFiles(files, ctx))
+    Reflect.set(api, 'uploadFiles', (files: File[], ctx: IpcContext): Promise<Attachment[] | null> => this.uploadFiles(files, ctx))
 
     return api
   }
@@ -229,7 +234,8 @@ export class WsTransport {
       this.authRefreshAttempted = true
       void this.recoverAuthentication()
     })
-    this.socket.on('host-event', (event: unknown) => {
+    this.socket.on('host-event', (event) => {
+      if (!isHostEvent(event)) return
       if (this.isAcceptedConnection) this.events.receive(event)
       else this.pendingHostEvents.push(event)
     })
@@ -283,19 +289,20 @@ export class WsTransport {
         if (file.size > MAX_ATTACHMENT_UPLOAD_BYTES) return null
         const mime = file.type || 'application/octet-stream'
         const dataUrl = await readFileDataUrl(file)
-        const hostPath = await this.invoke('attachUpload', [ctx, { name: file.name, mime, dataUrl }]) as string
+        const hostPath = await this.invoke('attachUpload', [ctx, { name: file.name, mime, dataUrl }])
         const isImage = mime.startsWith('image/')
-        attachments.push({
+        const attachment: Attachment = {
           id: crypto.randomUUID(),
           type: isImage ? 'image' : 'file',
           name: file.name,
           path: hostPath,
           hostPath,
-          ...(this.opts.serverId ? { hostServerId: this.opts.serverId } : {}),
           mimeType: mime,
-          ...(isImage ? { dataUrl } : {}),
           size: file.size,
-        })
+        }
+        if (this.opts.serverId) attachment.hostServerId = this.opts.serverId
+        if (isImage) attachment.dataUrl = dataUrl
+        attachments.push(attachment)
       }
       return attachments
     } catch {
@@ -317,8 +324,15 @@ export class WsTransport {
       response = await this.postVoiceRecording(wav)
     }
 
-    let body: { error?: string | null; transcript?: string | null } = {}
-    try { body = await response.json() as typeof body } catch {}
+    const bodySchema = z.object({
+      error: z.string().nullable().optional(),
+      transcript: z.string().nullable().optional(),
+    })
+    let body: z.infer<typeof bodySchema> = {}
+    try {
+      const parsed = bodySchema.safeParse(await response.json())
+      if (parsed.success) body = parsed.data
+    } catch {}
     if (!response.ok) {
       return { error: body.error || `Voice upload failed (${response.status})`, transcript: null }
     }
@@ -329,25 +343,25 @@ export class WsTransport {
   }
 
   private postVoiceRecording(wav: ArrayBuffer): Promise<Response> {
+    const headers = { 'content-type': 'audio/wav' }
+    if (this.opts.sessionToken) Object.assign(headers, { authorization: `Bearer ${this.opts.sessionToken}` })
     return fetch(`${this.opts.serverUrl}/voice/transcribe`, {
       method: 'POST',
-      headers: {
-        ...(this.opts.sessionToken ? { authorization: `Bearer ${this.opts.sessionToken}` } : {}),
-        'content-type': 'audio/wav',
-      },
+      headers,
       body: wav,
     })
   }
 
-  private invoke(method: RpcInvokeMethod, args: unknown[]): Promise<unknown> {
+  private invoke<M extends RpcInvokeMethod>(method: M, args: Parameters<SolusAPI[M]>): Promise<Awaited<ReturnType<SolusAPI[M]>>> {
     if (this.destroyed || this.blocked) return Promise.reject(new TransportDisconnectedError())
     const id = String(this.nextId++)
-    return new Promise((resolve, reject) => {
+    return new Promise<Awaited<ReturnType<SolusAPI[M]>>>((resolve, reject) => {
       const entry: RequestEntry = {
         method,
         args,
         state: 'queued',
-        resolve,
+        // SAFETY: This request keeps the resolver with the same method whose result type parameterized it.
+        resolve: resolve as (value: RpcInvocationResult) => void,
         reject,
         queuedAt: Date.now(),
         queuedBeforeFirstConnect: !this.hasOpened,
@@ -445,7 +459,7 @@ export class WsTransport {
     }))
   }
 
-  private logConnection(message: string, data: object): void {
+  private logConnection<Data extends object>(message: string, data: Data): void {
     console.info(`[solus:ws] ${message}`, {
       clientInstanceId: this.clientInstanceId,
       status: this.status,
@@ -454,22 +468,22 @@ export class WsTransport {
   }
 
   private installLifecycleListeners(): void {
-    if (typeof window === 'undefined') return
+    if (!('window' in globalThis)) return
     const onOnline = () => {
       if (this.status === 'connected') void this.probeConnectedSocket()
       else this.reconnectNow()
     }
     const onVisibilityChange = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible' && this.status === 'connected') {
+      if ('document' in globalThis && document.visibilityState === 'visible' && this.status === 'connected') {
         void this.probeConnectedSocket()
       }
     }
 
     window.addEventListener('online', onOnline)
-    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange)
+    if ('document' in globalThis) document.addEventListener('visibilitychange', onVisibilityChange)
     this.removeLifecycleListeners = () => {
       window.removeEventListener('online', onOnline)
-      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibilityChange)
+      if ('document' in globalThis) document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   }
 
@@ -491,9 +505,9 @@ export class WsTransport {
 }
 
 function createClientInstanceId(): string {
-  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID()
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
   const bytes = new Uint8Array(16)
-  if (typeof globalThis.crypto?.getRandomValues === 'function') globalThis.crypto.getRandomValues(bytes)
+  if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes)
   else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256)
   return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
 }
@@ -508,8 +522,10 @@ async function refreshSessionToken(serverUrl: string, sessionToken: string): Pro
     })
     if (res.status === 401) return { result: 'unauthorized' }
     if (!res.ok) return { result: 'unavailable' }
-    const body = await res.json() as { sessionToken?: string }
-    return body.sessionToken ? { result: 'refreshed', sessionToken: body.sessionToken } : { result: 'unavailable' }
+    const body = z.object({ sessionToken: z.string().optional() }).safeParse(await res.json())
+    return body.success && body.data.sessionToken
+      ? { result: 'refreshed', sessionToken: body.data.sessionToken }
+      : { result: 'unavailable' }
   } catch {
     return { result: 'unavailable' }
   }

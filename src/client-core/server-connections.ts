@@ -5,11 +5,13 @@ import {
   loadServers,
   LOCAL_SERVER_ID,
   stampInstallationId,
+  stampHostOperatingSystem,
 } from './server-registry'
 import type { WsTransport, ConnectionStatus } from './ws-transport'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import { asHostApi, type HostApi } from './host-api'
-import type { HostCapabilities } from '../shared/types'
+import type { HostCapabilities, HostOperatingSystem } from '../shared/types'
+import { z } from 'zod'
 import {
   normalizeHostCapabilities,
   type HostBooleanCapability,
@@ -25,7 +27,16 @@ export interface ServerHealth {
   installationId: string
   name: string
   claimable?: boolean
+  os?: HostOperatingSystem
 }
+
+const serverHealthSchema = z.object({
+  ok: z.literal(true),
+  installationId: z.string().min(1),
+  name: z.string().min(1),
+  claimable: z.boolean().optional(),
+  os: z.enum(['macos', 'windows', 'linux']).optional(),
+})
 
 export interface ManagedConnection {
   serverId: string
@@ -323,8 +334,11 @@ export class ServerConnections {
     try {
       const response = await fetch(`${target.url}/health`, { signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) })
       if (response.ok) {
-        const body = await response.json() as Partial<ServerHealth>
-        if (body.ok && body.installationId && body.name) value = body as ServerHealth
+        const body = serverHealthSchema.safeParse(await response.json())
+        if (body.success) {
+          value = body.data
+          if (body.data.os) stampHostOperatingSystem(serverId, body.data.os)
+        }
       }
     } catch {}
     this.healthCache.set(serverId, { value, expiresAt: Date.now() + CACHE_TTL_MS })

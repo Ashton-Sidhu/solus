@@ -265,7 +265,7 @@
           value: a.id,
           label: agentLabel(a.id, agentContext.metadata),
         }))
-      : [{ value: "claude-code" as AgentId, label: "Claude" }],
+      : [{ value: "claude-code", label: "Claude" }],
   );
   const modelSelectOptions = $derived(
     models.map((m) => ({ value: m.id, label: m.label })),
@@ -465,7 +465,7 @@
       lastSavedAt = Date.now();
       savedStatusNow = lastSavedAt;
     } catch (e: any) {
-      toasts.error(`Couldn't save automation: ${String(e?.message ?? e)}`);
+      toasts.error("Couldn't save automation", { description: String(e?.message ?? e) });
     } finally {
       isSaving = false;
     }
@@ -480,7 +480,7 @@
   function commitTrigger() {
     const t = schedule.build();
     if ("error" in t) {
-      toasts.error(t.error);
+      toasts.error("Couldn't schedule automation", { description: t.error });
       return;
     }
     void persist({ trigger: t });
@@ -525,7 +525,7 @@
     try {
       await store.runNow(id);
     } catch (e: any) {
-      toasts.error(`Couldn't run automation: ${String(e?.message ?? e)}`);
+      toasts.error("Couldn't run automation", { description: String(e?.message ?? e) });
     } finally {
       running = false;
     }
@@ -539,7 +539,7 @@
     try {
       await store.cancel(id);
     } catch (e: any) {
-      toasts.error(`Couldn't stop automation: ${String(e?.message ?? e)}`);
+      toasts.error("Couldn't stop automation", { description: String(e?.message ?? e) });
     } finally {
       cancelling = false;
     }
@@ -606,7 +606,7 @@
      right inset reserves room for. -->
 {#snippet chromeBar()}
   <div
-    class="flex h-(--solus-chrome-row-h) shrink-0 items-center justify-between gap-3 border-b border-border/45 pr-[max(0.875rem,var(--solus-pane-chrome-inset,0px))] pl-[max(1.25rem,var(--solus-chrome-lead-inset,0px))]"
+    class="workspace-titlebar flex h-(--solus-chrome-row-h) shrink-0 items-center justify-between gap-3 border-b border-border/45 pr-[max(0.875rem,var(--solus-pane-chrome-inset,0px))] pl-[max(1.25rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <Breadcrumb.Root class="min-w-0">
       <Breadcrumb.List class="min-w-0 flex-nowrap gap-[0.4375rem] text-[0.8125rem]">

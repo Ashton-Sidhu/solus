@@ -6,7 +6,7 @@ import type {
 import type { ReviewSessionCoreEntry } from './review-session-core'
 import { HOLD_MS } from './review-session-core'
 
-export type ReviewModeView = 'activity' | 'guide' | 'diff'
+export type ReviewModeView = 'activity' | 'map' | 'guide' | 'diff'
 
 export interface ReviewModeQueueItem {
   number: number

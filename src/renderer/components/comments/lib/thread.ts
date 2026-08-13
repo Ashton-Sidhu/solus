@@ -7,7 +7,7 @@ export function commentAuthor(c: Pick<PlanComment, 'author'>): CommentAuthor {
 }
 
 export function isResolved(c: Pick<PlanComment, 'resolvedAt'>): boolean {
-  return typeof c.resolvedAt === 'number'
+  return c.resolvedAt !== undefined
 }
 
 /**
@@ -36,10 +36,12 @@ export function resolvedThreads(comments: PlanComment[]): PlanComment[] {
  * Two replies are shown, then "n earlier replies" — a thread in the margin is
  * a summary of a conversation, not the conversation.
  */
-export function visibleReplies(c: PlanComment): {
+export interface VisibleReplies {
   earlierCount: number
   shown: PlanCommentReply[]
-} {
+}
+
+export function visibleReplies(c: PlanComment): VisibleReplies {
   const replies = c.replies ?? []
   if (replies.length <= 2) return { earlierCount: 0, shown: replies }
   return { earlierCount: replies.length - 2, shown: replies.slice(-2) }

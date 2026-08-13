@@ -97,16 +97,16 @@
   });
 
   function buildDiffOptions() {
+    const themeType = theme.isDark ? "dark" as const : "light" as const;
+    const hunkSeparators = hasFileContents ? "line-info-basic" as const : "metadata" as const;
     return {
       theme: getDiffThemeName(theme.isDark),
-      themeType: (theme.isDark ? "dark" : "light") as "dark" | "light",
+      themeType,
       diffStyle: "unified" as const,
       diffIndicators: "none" as const,
       lineDiffType: "word-alt" as const,
       overflow: "wrap" as const,
-      hunkSeparators: (hasFileContents ? "line-info-basic" : "metadata") as
-        | "line-info-basic"
-        | "metadata",
+      hunkSeparators,
       disableFileHeader: true,
       disableErrorHandling: true,
       unsafeCSS: DIFFS_THEME_CSS,
@@ -123,12 +123,13 @@
 
   function renderDiff() {
     if (!diffInstance || !container) return;
-    const payload = patch
-      ? { fileDiff: displayFileDiffMeta, containerWrapper: container }
-      : { oldFile, newFile, containerWrapper: container };
-    if ("fileDiff" in payload && !payload.fileDiff) return;
     try {
-      diffInstance.render(payload as never);
+      if (patch) {
+        if (!displayFileDiffMeta) return;
+        diffInstance.render({ fileDiff: displayFileDiffMeta, containerWrapper: container });
+      } else if (oldFile && newFile) {
+        diffInstance.render({ oldFile, newFile, containerWrapper: container });
+      }
     } catch {
       /* leave the container empty rather than crash. */
     }
@@ -165,18 +166,19 @@
     }
 
     if (mode === "file-only") {
+      if (!newFile) return;
       diffInstance?.cleanUp();
       diffInstance = null;
       const opts = {
         theme: getDiffThemeName(theme.isDark),
-        themeType: (theme.isDark ? "dark" : "light") as "dark" | "light",
+        themeType: theme.isDark ? "dark" as const : "light" as const,
         overflow: "wrap" as const,
         disableFileHeader: true,
         unsafeCSS: DIFFS_THEME_CSS,
       };
       fileInstance ??= new PierreFile(opts, getDiffWorkerPool());
       fileInstance.setOptions(opts);
-      fileInstance.render({ file: newFile!, containerWrapper: container });
+      fileInstance.render({ file: newFile, containerWrapper: container });
       return;
     }
 

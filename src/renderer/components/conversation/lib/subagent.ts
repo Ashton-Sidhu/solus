@@ -1,5 +1,6 @@
 import type { Message, TodoItem } from '../../../../shared/types'
 import { progressFromMessages, progressTodosFromTool } from '../../../contexts/workspace/session.utils'
+import { z } from 'zod'
 
 export type SubagentInput = {
   subagent_type?: string
@@ -13,14 +14,24 @@ export type SubagentInput = {
   agent_path?: string
 }
 
+const subagentInputSchema = z.object({
+  subagent_type: z.string().optional(),
+  description: z.string().optional(),
+  prompt: z.string().optional(),
+  task: z.string().optional(),
+  instructions: z.string().optional(),
+  model: z.string().optional(),
+  reasoning_effort: z.string().optional(),
+  agent_thread_id: z.string().optional(),
+  agent_path: z.string().optional(),
+})
+
 export function parseSubagentInput(toolInput: string | undefined): SubagentInput {
   const input = toolInput?.trim()
   if (!input) return {}
   try {
-    const parsed = JSON.parse(input)
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as SubagentInput
-      : { prompt: input }
+    const parsed = subagentInputSchema.safeParse(JSON.parse(input))
+    return parsed.success ? parsed.data : { prompt: input }
   } catch {
     return { prompt: input }
   }
@@ -28,29 +39,9 @@ export function parseSubagentInput(toolInput: string | undefined): SubagentInput
 
 export function subagentInputText(input: SubagentInput): string {
   for (const value of [input.prompt, input.task, input.instructions]) {
-    if (typeof value === 'string' && value.trim()) return value.trim()
+    if (value?.trim()) return value.trim()
   }
   return ''
-}
-
-// A sub-tool's toolInput carries whole file bodies (Write/Edit) and can still
-// change while running (Codex patch updates replace it). Parse each sub message
-// at most once, cached on the message object, and never while it's running —
-// the cache would otherwise pin a stale parse. Module-scoped WeakMap so every
-// reader of a sub-transcript shares one parse per message.
-const subParseCache = new WeakMap<Message, object | null>()
-
-export function parseSubInput(m: Message): object | null {
-  if (!m.toolInput || m.toolStatus === 'running') return null
-  const cached = subParseCache.get(m)
-  if (cached !== undefined) return cached
-  let parsed: object | null = null
-  try {
-    const value: unknown = JSON.parse(m.toolInput)
-    parsed = value !== null && typeof value === 'object' ? value : null
-  } catch {}
-  subParseCache.set(m, parsed)
-  return parsed
 }
 
 /**

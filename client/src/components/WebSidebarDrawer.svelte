@@ -89,7 +89,7 @@
     class:drawer-hidden={!visible}
     use:swipeDismiss={{ axis: "x", sign: -1, onDismiss: onClose, backdrop: () => backdropEl }}
   >
-    <MobileSessionList onSessionSelect={onClose} {onOpenServers} />
+    <MobileSessionList active={open} onSessionSelect={onClose} {onOpenServers} />
   </div>
 {/if}
 

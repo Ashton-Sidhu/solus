@@ -62,10 +62,12 @@ export const COMMIT_PREVIEW_COUNT = 3
  * Collapse a long commit run to its first few entries. Never hides a single
  * commit behind an expander — a run of 4 shows all 4 rather than "Show 1 more".
  */
+export interface CommitRunPreview { visible: PrCommit[]; hidden: number }
+
 export function commitRunPreview(
   commits: PrCommit[],
   expanded: boolean,
-): { visible: PrCommit[]; hidden: number } {
+): CommitRunPreview {
   if (expanded || commits.length <= COMMIT_PREVIEW_COUNT + 1) return { visible: commits, hidden: 0 }
   return {
     visible: commits.slice(0, COMMIT_PREVIEW_COUNT),

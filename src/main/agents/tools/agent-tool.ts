@@ -20,13 +20,15 @@ export interface AgentToolContext {
   emit: (event: NormalizedEvent) => void
 }
 
-export interface AgentTool<TShape extends z.ZodRawShape = z.ZodRawShape> {
+type ZodFieldMap = Parameters<typeof z.object>[0]
+
+export interface AgentTool<TFields extends ZodFieldMap = ZodFieldMap> {
   name: string
   description: string
-  inputShape: TShape
+  inputFields: TFields
   requiresApproval: boolean
   execute(
-    input: z.output<z.ZodObject<TShape>>,
+    input: z.output<z.ZodObject<TFields>>,
     context: AgentToolContext,
   ): Promise<AgentToolResult>
 }
@@ -41,12 +43,12 @@ export function assertUniqueAgentTools(tools: AgentTool[]): void {
   }
 }
 
-export async function executeAgentTool(
+export async function executeAgentTool<Input>(
   agentTool: AgentTool,
-  input: unknown,
+  input: Input,
   context: AgentToolContext,
 ): Promise<AgentToolResult> {
-  const parsed = z.object(agentTool.inputShape).safeParse(input)
+  const parsed = z.object(agentTool.inputFields).safeParse(input)
   if (!parsed.success) {
     return { ok: false, text: `Invalid arguments for ${agentTool.name}: ${z.prettifyError(parsed.error)}` }
   }

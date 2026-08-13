@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from "svelte";
+  import type { HostApi } from "@client-core/host-api";
   import { Input } from "../ui/input";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import {
@@ -18,6 +20,7 @@
     connectionsStore,
     getAgentContext,
     getSettingsContext,
+    getTextGenerationSettingsStore,
     getWorkspaceContext,
   } from "../../contexts";
   import { agentLabel, buildAgentAvailabilityRows } from "../../lib/agentAvailability";
@@ -26,19 +29,65 @@
   import { Switch } from "../ui/switch";
   import { Button } from "../ui/button";
   import SegmentedControl from "../ui/SegmentedControl.svelte";
+  import SessionChip from "../pickers/SessionChip.svelte";
+  import type { PickerSelection } from "../pickers/lib/picker-selection";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
-  import type { AgentTaskLifecyclePolicy } from "../../../shared/types";
+  import type {
+    AgentTaskLifecyclePolicy,
+    TextGenerationModelSelection,
+  } from "../../../shared/types";
 
   interface Props {
     searchQuery?: string;
+    serverId: string;
+    api: HostApi;
+    hostLabel: string;
   }
 
-  let { searchQuery = "" }: Props = $props();
+  let { searchQuery = "", serverId, api, hostLabel }: Props = $props();
 
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
   const session = getWorkspaceContext();
+  const textGenerationSettingsStore = getTextGenerationSettingsStore();
+
+  const textGenerationSnapshot = $derived(
+    textGenerationSettingsStore.snapshotFor(serverId),
+  );
+  const textGenerationError = $derived(
+    textGenerationSettingsStore.errorFor(serverId),
+  );
+  let textGenerationPickerSelection = $state<PickerSelection>();
+
+  $effect(() => {
+    const targetServerId = serverId;
+    const targetApi = api;
+    untrack(() => {
+      void connectionsStore.refreshCapabilities({
+        serverId: targetServerId,
+        api: targetApi,
+      });
+      void textGenerationSettingsStore
+        .load({ serverId: targetServerId, api: targetApi })
+        .catch(() => {});
+    });
+  });
+
+  $effect(() => {
+    const selection = textGenerationSnapshot?.textGenerationModel;
+    if (!selection) return;
+    if (!textGenerationPickerSelection) {
+      textGenerationPickerSelection = {
+        provider: selection.provider,
+        modelId: selection.model,
+        reasoningEffort: "high",
+      };
+      return;
+    }
+    textGenerationPickerSelection.provider = selection.provider;
+    textGenerationPickerSelection.modelId = selection.model;
+  });
 
   const themeModes = [
     { value: "light" as const, label: "Light" },
@@ -96,9 +145,11 @@
   const rateLimitLabel = $derived(
     theme.rateLimitBehavior.at(0)?.toUpperCase() + theme.rateLimitBehavior.slice(1),
   );
-  const taskLifecyclePolicy = $derived(connectionsStore.capabilities?.agentTaskLifecyclePolicy);
+  const taskLifecyclePolicy = $derived(
+    connectionsStore.capabilitiesFor(serverId)?.agentTaskLifecyclePolicy,
+  );
   const taskLifecyclePolicyLabel = $derived(
-    taskLifecyclePolicies.find((option) => option.value === taskLifecyclePolicy)?.label ?? "Moderate",
+    taskLifecyclePolicies.find((option) => option.value === taskLifecyclePolicy)?.label ?? "Unavailable",
   );
 
   function selectAgent(agentId: string) {
@@ -109,6 +160,32 @@
   function selectDefaultModel(modelId: string) {
     session.setDefaultModel(theme.activeAgent, modelId);
     requestInputFocus();
+  }
+
+  function textGenerationModelLabel(
+    selection: TextGenerationModelSelection | null | undefined,
+  ): string {
+    if (!selection) return "Loading…";
+    const agent = textGenerationSnapshot?.agents.find(
+      (candidate) => candidate.id === selection.provider,
+    );
+    const model = agent?.models.find((candidate) => candidate.id === selection.model);
+    return `${agent?.label ?? selection.provider} · ${model?.label ?? selection.model}`;
+  }
+
+  function isSameTextGenerationModel(
+    left: TextGenerationModelSelection | null | undefined,
+    right: TextGenerationModelSelection | null | undefined,
+  ): boolean {
+    return !!left && !!right && left.provider === right.provider && left.model === right.model;
+  }
+
+  async function selectTextGenerationModel(selection: PickerSelection): Promise<void> {
+    if (!selection.modelId) return;
+    await textGenerationSettingsStore.update(
+      { serverId, api },
+      { textGenerationModel: { provider: selection.provider, model: selection.modelId } },
+    ).catch(() => {});
   }
 
   function selectAppFont(value: typeof theme.fontFamily) {
@@ -129,7 +206,7 @@
   }
 
   async function selectTaskLifecyclePolicy(value: AgentTaskLifecyclePolicy) {
-    await connectionsStore.setAgentTaskLifecyclePolicy(value);
+    await connectionsStore.setAgentTaskLifecyclePolicy(value, { serverId, api });
     requestInputFocus();
   }
 
@@ -142,6 +219,7 @@
     { id: "theme", keywords: ["dark", "theme", "light", "appearance", "mode", "system"] },
     { id: "agent", keywords: ["agent", "default", "claude", "ai", "model"] },
     { id: "model", keywords: ["model", "default", "opus", "sonnet", "haiku", "gpt", "codex"] },
+    { id: "text-generation-model", keywords: ["model", "text", "generation", "background", "session", "name", "metadata", "writing"] },
     { id: "notification", keywords: ["notification", "sound", "alert", "bell", "audio"] },
     { id: "font-family", keywords: ["font", "family", "typeface", "inter", "dm sans", "system", "geist", "lora", "serif"] },
     { id: "font-size", keywords: ["font", "size", "text", "zoom"] },
@@ -358,7 +436,7 @@
   <SettingsRow
     label="Task lifecycle control"
     description="None blocks status changes. Moderate reserves Done for you. Autonomous gives agents full control."
-    visible={isVisible("task-lifecycle") && taskLifecyclePolicy !== undefined}
+    visible={isVisible("task-lifecycle")}
   >
     {#snippet control()}
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
@@ -370,7 +448,7 @@
               size="sm"
               aria-label="Task lifecycle control"
               class="min-w-28 justify-between text-xs shadow-xs"
-              disabled={connectionsStore.agentTaskLifecyclePolicyUpdating}
+              disabled={taskLifecyclePolicy === undefined || connectionsStore.agentTaskLifecyclePolicyUpdating}
             >
               <span>{taskLifecyclePolicyLabel}</span>
               <CaretDownIcon size={11} style="opacity:0.6" />
@@ -391,6 +469,13 @@
         </DropdownMenu.Content>
       </DropdownMenu.Root>
     {/snippet}
+    {#if taskLifecyclePolicy === undefined}
+      {#snippet body()}
+        <p class="text-xs text-muted-foreground">
+          This host does not expose task lifecycle controls. Reconnect it after updating Solus.
+        </p>
+      {/snippet}
+    {/if}
   </SettingsRow>
 
   <SettingsRow
@@ -468,6 +553,47 @@
       />
     {/snippet}
   </SettingsRow>
+</SettingsSection>
+
+<SettingsSection
+  label="Text generation"
+  visible={isVisible("text-generation-model")}
+>
+  <SettingsRow
+    label="Text-generation model"
+    description="The {hostLabel} host uses this model for session names and short background writing."
+    visible={isVisible("text-generation-model")}
+  >
+    {#snippet control()}
+      {#if textGenerationPickerSelection && textGenerationSnapshot}
+        <SessionChip
+          selection={textGenerationPickerSelection}
+          agents={textGenerationSnapshot.agents}
+          modelOnly
+          menuSide="bottom"
+          ariaLabel="Text-generation model"
+          returnFocusOnClose
+          onSelectionChange={(selection) => void selectTextGenerationModel(selection)}
+        />
+      {:else}
+        <Button variant="outline" size="sm" disabled class="min-w-32 text-xs shadow-xs">
+          Loading…
+        </Button>
+      {/if}
+    {/snippet}
+    {#if textGenerationError || (textGenerationSnapshot && !isSameTextGenerationModel(textGenerationSnapshot.textGenerationModel, textGenerationSnapshot.effectiveTextGenerationModel))}
+      {#snippet body()}
+        {#if textGenerationError}
+          <p class="text-xs text-destructive" role="alert">{textGenerationError}</p>
+        {:else if textGenerationSnapshot}
+          <p class="text-xs text-muted-foreground">
+            The saved model is not available on this host. Solus currently uses {textGenerationModelLabel(textGenerationSnapshot.effectiveTextGenerationModel)}.
+          </p>
+        {/if}
+      {/snippet}
+    {/if}
+  </SettingsRow>
+
 </SettingsSection>
 
 <SettingsSection

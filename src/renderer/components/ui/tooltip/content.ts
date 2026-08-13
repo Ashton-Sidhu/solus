@@ -16,7 +16,7 @@ const SHORTCUT_TOKEN =
 
 export function tooltipDisplay(value: TooltipValue): TooltipDisplay | null {
   if (!value) return null;
-  if (typeof value !== "string") {
+  if (value instanceof Object) {
     const label = value.label.trim();
     if (!label) return null;
     const shortcut = value.shortcut?.trim();

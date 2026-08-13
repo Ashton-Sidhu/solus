@@ -1,12 +1,11 @@
 class VirtualKeyboardState {
   keyboardHeight = $state(0)
   isKeyboardVisible = $state(false)
-  viewportHeight = $state(typeof window !== 'undefined' ? (window.visualViewport?.height ?? window.innerHeight) : 0)
+  viewportHeight = $state(window.visualViewport?.height ?? window.innerHeight)
 
   private cleanup: (() => void) | null = null
 
   constructor() {
-    if (typeof window === 'undefined') return
     if (!window.visualViewport) return
 
     const vv = window.visualViewport

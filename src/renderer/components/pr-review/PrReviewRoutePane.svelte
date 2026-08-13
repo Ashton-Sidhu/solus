@@ -21,7 +21,7 @@
   const embedded = $derived(!pane.isLeading);
 
   const ref = $derived({ name: "prReview" as const, params });
-  const pr = $derived(session.router.resolvedFor<PrReviewTarget>(ref));
+  const pr = $derived(session.router.resolvedFor(ref));
   const api = $derived(
     params.serverId
       ? serverConnections.apiFor(params.serverId)

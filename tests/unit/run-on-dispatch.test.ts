@@ -103,8 +103,8 @@ describe('choosing which host a tab will run on', () => {
     // hands another machine a clone, so the project — and every task it files —
     // stays here. Opening a folder on a host makes it that host's project
     // outright. `serverId !== taskServerId` is what later reads back as
-    // "dispatched", and it is the only thing that forces an isolated worktree.
-    const dispatched = workspaceWith({})
+    // "dispatched"; checkout shape remains an independent choice.
+    const dispatched = workspaceWith({ worktree: { baseBranch: 'main' } })
     moveTabToHost({
       workspace: dispatched.workspace,
       tabId: 'tab-1',
@@ -155,6 +155,80 @@ describe('choosing which host a tab will run on', () => {
 
     expect(session.run.gitContext).toBeNull()
     expect(session.run.worktree).toEqual({ baseBranch: null })
+  })
+
+  test('a materialized origin branch moves as an exact target worktree', () => {
+    let refreshRequest: [string, string, boolean] | null = null
+    const { workspace, session } = workspaceWith({
+      gitContext: { branch: 'main', targetBranch: 'main', repoRoot: '/home/dev/solus' },
+      worktree: { baseBranch: 'release' },
+      pendingHostDispatch: {
+        serverId: 'studio',
+        intent: 'dispatch',
+        repoKey: 'github.com/solus-sh/solus',
+        baseBranch: 'release',
+      },
+    })
+    workspace.refreshStartTarget = (tabId, path, createWorktree) => {
+      refreshRequest = [tabId, path, createWorktree]
+    }
+
+    moveTabToHost({
+      workspace,
+      tabId: 'tab-1',
+      serverId: 'studio',
+      isLocalHost: false,
+      path: '/srv/projects/solus/.solus-worktrees/release',
+      intent: 'dispatch',
+    })
+
+    // WHY: host preparation has already materialized origin/release as the
+    // release worktree. Session start must use it rather than branch again.
+    expect(refreshRequest).toEqual([
+      'tab-1',
+      '/srv/projects/solus/.solus-worktrees/release',
+      false,
+    ])
+    expect(session.run.worktree).toBeNull()
+    expect(session.run.gitContext).toEqual({
+      repoRoot: '/srv/projects/solus',
+      branch: 'release',
+      targetBranch: 'release',
+      worktreePath: '/srv/projects/solus/.solus-worktrees/release',
+    })
+  })
+
+  test('an existing remote worktree stays an exact worktree after the host move', () => {
+    const selectedPath = '/srv/projects/solus/.solus-worktrees/release'
+    let refreshRequest: [string, string, boolean] | null = null
+    const { workspace, session } = workspaceWith({
+      gitContext: { branch: 'main', targetBranch: 'main', repoRoot: '/home/dev/solus' },
+      worktree: null,
+      pendingHostDispatch: {
+        serverId: 'studio',
+        intent: 'dispatch',
+        repoKey: 'github.com/solus-sh/solus',
+        worktree: { path: selectedPath, branch: 'release' },
+      },
+    })
+    workspace.refreshStartTarget = (tabId, path, createWorktree) => {
+      refreshRequest = [tabId, path, createWorktree]
+    }
+
+    moveTabToHost({
+      workspace,
+      tabId: 'tab-1',
+      serverId: 'studio',
+      isLocalHost: false,
+      path: selectedPath,
+      intent: 'dispatch',
+    })
+
+    // WHY: reusing an existing worktree must not create another one, and the Git
+    // environment must retain the selected target-host worktree path.
+    expect(refreshRequest).toEqual(['tab-1', selectedPath, false])
+    expect(session.run.workingDirectory).toBe(selectedPath)
+    expect(session.run.gitContext?.worktreePath).toBe(selectedPath)
   })
 
   test('staying on the same host is not a dispatch', () => {

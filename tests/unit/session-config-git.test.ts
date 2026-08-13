@@ -56,15 +56,28 @@ describe('SessionConfigController provider switching', () => {
         switchSessionAgent: async () => {
           switchCount++
           return switchCount === 1
-            ? { fromProvider: 'codex', fromSessionId: 'codex-session' }
+            ? {
+                fromProvider: 'codex',
+                fromSessionId: 'codex-session',
+                handoffId: 'tab-1',
+                taskSessionMove: {
+                  sourceSessionId: 'codex-session',
+                  targetSessionId: 'tab-1',
+                },
+              }
             : {
                 fromProvider: 'claude-code',
                 fromSessionId: 'codex-session',
                 restoredSessionId: 'codex-session',
+                taskSessionMove: {
+                  sourceSessionId: 'tab-1',
+                  targetSessionId: 'codex-session',
+                },
               }
         },
       }) as any,
       refreshPluginCommands: () => {},
+      rekeyTaskSessionBinding: () => {},
       draftFor: () => undefined,
       apiForRun: () => (window as any).solus,
       refreshGitRefs: () => {},
@@ -81,7 +94,8 @@ describe('SessionConfigController provider switching', () => {
       content: 'Switched to Claude Code',
       agentChangedTo: 'Claude Code',
     })
-    expect(session.handoffFrom).toEqual({ provider: 'codex', sessionId: 'codex-session' })
+    expect(session.handoffId).toBe('tab-1')
+    expect(session.handoffFrom).toBeUndefined()
 
     await controller.switchActiveAgent('codex')
 
@@ -90,11 +104,7 @@ describe('SessionConfigController provider switching', () => {
     expect(session.agentSessionId).toBe('codex-session')
     expect(session.handoffFrom).toBeUndefined()
     expect(session.messages).toBe(messages)
-    expect(session.messages.at(-1)).toMatchObject({
-      role: 'system',
-      content: 'Switched to Codex',
-      agentChangedTo: 'Codex',
-    })
+    expect(session.messages.at(-1)).toMatchObject({ id: 'answer-1', role: 'assistant' })
   })
 
   test('changing the default agent leaves the open session on its own provider', async () => {
@@ -287,6 +297,68 @@ describe('SessionConfigController worktree selection', () => {
 })
 
 describe('SessionConfigController branch switching', () => {
+  test('rejects a branch for dispatch and accepts an exact remote worktree', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    let checkoutCalls = 0
+    const draft = {
+      run: {
+        serverId: 'local',
+        taskServerId: 'local',
+        workingDirectory: '/repo',
+        gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
+        worktree: { baseBranch: 'main' },
+        pendingHostDispatch: {
+          serverId: 'studio',
+          intent: 'dispatch',
+          repoKey: 'github.com/openai/solus',
+        },
+      } as Session['run'],
+    }
+    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const controller = new SessionConfigController({
+      settings: { activeAgent: 'codex', defaultModels: {}, tabGroupMode: 'flat', worktreeEnabled: false } as any,
+      registry: { activeSession: undefined, activeTabId: '', sessionFor: () => undefined } as any,
+      statusBar: { ctx: { workingDirectory: '/repo' } } as any,
+      setPluginCommands: () => {},
+      openSessionDraft: () => {},
+      ctx: () => ({ session: { sessionId: '' } }) as IpcContext,
+      ctxForDirectory: () => ({ session: { sessionId: '' } }) as IpcContext,
+      refreshPluginCommands: () => {},
+      draftFor: (sourceId) => sourceId === 'draft-1' ? draft as any : undefined,
+      apiForRun: () => ({
+        gitCheckoutBranch: async () => {
+          checkoutCalls++
+          throw new Error('must not check out the local branch')
+        },
+      }) as any,
+      refreshGitRefs: () => {},
+      refreshGitState: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
+    })
+
+    expect(await controller.switchToBranch('release', 'draft-1')).toBe(false)
+    expect(checkoutCalls).toBe(0)
+    expect(draft.run.gitContext?.branch).toBe('main')
+
+    controller.setDispatchWorktree({
+      path: '/srv/projects/solus/.solus-worktrees/release',
+      branch: 'release',
+    }, 'draft-1')
+
+    expect(draft.run.worktree).toBeNull()
+    expect(draft.run.pendingHostDispatch).toEqual({
+      serverId: 'studio',
+      intent: 'dispatch',
+      repoKey: 'github.com/openai/solus',
+      worktree: {
+        path: '/srv/projects/solus/.solus-worktrees/release',
+        branch: 'release',
+      },
+    })
+  })
+
   test('leaves a started session alone and opens a draft in the selected worktree', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,

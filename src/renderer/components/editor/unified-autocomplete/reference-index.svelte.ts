@@ -23,7 +23,7 @@ export const PER_KIND_LIMIT = 20
 
 export function timestamp(value: string | number | undefined | null): number {
   if (value === undefined || value === null) return 0
-  const parsed = typeof value === 'number' ? value : Date.parse(value)
+  const parsed = Number.isFinite(value) ? Number(value) : Date.parse(String(value))
   return Number.isNaN(parsed) ? 0 : parsed
 }
 

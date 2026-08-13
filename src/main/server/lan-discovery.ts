@@ -3,6 +3,8 @@ import { randomBytes } from 'crypto'
 import { hostname, networkInterfaces } from 'os'
 import { createLogger } from '../logger'
 import type { DiscoveredServer } from '../../shared/types'
+import { z } from 'zod'
+import { hostOperatingSystem } from '../platform/host-operating-system'
 
 export function isLanDiscoveryDisabled(
   env: { SOLUS_TEST_MODE?: string; SOLUS_NO_LAN_DISCOVERY?: string } = process.env,
@@ -24,6 +26,27 @@ interface DiscoveryQuery {
   nonce: string
 }
 
+const discoveryNonceSchema = z.string().regex(/^[a-f0-9]{24}$/)
+const discoveryMessageSchema = z.discriminatedUnion('type', [
+  z.object({
+    protocol: z.literal(DISCOVERY_PROTOCOL),
+    version: z.literal(DISCOVERY_VERSION),
+    type: z.literal('query'),
+    nonce: discoveryNonceSchema,
+  }).strict(),
+  z.object({
+    protocol: z.literal(DISCOVERY_PROTOCOL),
+    version: z.literal(DISCOVERY_VERSION),
+    type: z.literal('response'),
+    nonce: discoveryNonceSchema,
+    port: z.number().int().min(1).max(65_535),
+    installationId: z.string().min(1),
+    name: z.string().min(1),
+    claimable: z.boolean(),
+    os: z.enum(['macos', 'windows', 'linux']).optional(),
+  }).strict(),
+])
+
 interface DiscoveryResponse {
   protocol: typeof DISCOVERY_PROTOCOL
   version: typeof DISCOVERY_VERSION
@@ -33,6 +56,7 @@ interface DiscoveryResponse {
   name: string
   installationId: string
   claimable: boolean
+  os?: DiscoveredServer['os']
 }
 
 type DiscoveryMessage = DiscoveryQuery | DiscoveryResponse
@@ -73,6 +97,7 @@ export async function startLanDiscoveryService(
       name: message.name,
       installationId: message.installationId,
       claimable: message.claimable,
+      os: message.os,
       source: 'lan',
     }
     if (!found.has(server.installationId)) found.set(server.installationId, server)
@@ -108,16 +133,7 @@ export async function startLanDiscoveryService(
 
 export function parseLanDiscoveryMessage(packet: Buffer): DiscoveryMessage | null {
   try {
-    const value = JSON.parse(packet.toString('utf8')) as Partial<DiscoveryMessage>
-    if (value.protocol !== DISCOVERY_PROTOCOL || value.version !== DISCOVERY_VERSION) return null
-    if (typeof value.nonce !== 'string' || !/^[a-f0-9]{24}$/.test(value.nonce)) return null
-    if (value.type === 'query') return value as DiscoveryQuery
-    if (value.type !== 'response') return null
-    if (!Number.isInteger(value.port) || (value.port as number) < 1 || (value.port as number) > 65_535) return null
-    if (typeof value.installationId !== 'string' || !value.installationId) return null
-    if (typeof value.name !== 'string' || !value.name) return null
-    if (typeof value.claimable !== 'boolean') return null
-    return value as DiscoveryResponse
+    return discoveryMessageSchema.parse(JSON.parse(packet.toString('utf8')))
   } catch {
     return null
   }
@@ -139,6 +155,7 @@ function respondToQuery(
     name: hostname() || 'Solus Server',
     installationId: advertisement.installationId,
     claimable: advertisement.claimable,
+    os: hostOperatingSystem(),
   }
   void send(socket, Buffer.from(JSON.stringify(response)), remote.address, remote.port).catch((err) => {
     log.debug('lan_discovery_response_failed', { error: err instanceof Error ? err.message : String(err) })

@@ -67,9 +67,7 @@
   const sessionSidebar = getSessionSidebarStore();
   const store = session.prsStore;
   const stacks = session.stacksStore;
-  const reduceMotion =
-    typeof window !== "undefined" &&
-    !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const open = $derived(session.router.at("prs"));
 
@@ -211,8 +209,7 @@
   const stackParents = $derived(
     new Map(
       groupedRows
-        .filter((row) => row.parent !== null)
-        .map((row) => [row.pr.number, row.parent as number]),
+        .flatMap((row) => row.parent === null ? [] : [[row.pr.number, row.parent] as const]),
     ),
   );
 
@@ -592,9 +589,9 @@
         },
       })
       .catch((error) => {
-        toasts.error(
-          `Couldn't queue review guides: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        toasts.error("Couldn't queue review guides", {
+          description: error instanceof Error ? error.message : String(error),
+        });
       });
   }
 

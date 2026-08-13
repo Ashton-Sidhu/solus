@@ -164,16 +164,24 @@ export function executeSlashCommand(editor: Editor, cmd: EditorBlockCommand, fro
   cmd.action(editor)
 }
 
+interface SlashCommandStorage {
+  onArrowDown: (() => boolean) | null
+  onArrowUp: (() => boolean) | null
+  onEnter: (() => boolean) | null
+  onEscape: (() => boolean) | null
+}
+
 export const SlashCommandExtension = Extension.create({
   name: 'slashCommand',
 
   addStorage() {
-    return {
-      onArrowDown: null as (() => boolean) | null,
-      onArrowUp: null as (() => boolean) | null,
-      onEnter: null as (() => boolean) | null,
-      onEscape: null as (() => boolean) | null,
+    const storage: SlashCommandStorage = {
+      onArrowDown: null,
+      onArrowUp: null,
+      onEnter: null,
+      onEscape: null,
     }
+    return storage
   },
 
   addKeyboardShortcuts() {

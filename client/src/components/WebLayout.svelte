@@ -3,6 +3,7 @@
   import ConversationView from "@renderer/components/conversation/ConversationView.svelte";
   import SessionBreadcrumb from "@renderer/components/conversation/SessionBreadcrumb.svelte";
   import SessionPicker from "@renderer/components/session/SessionPicker.svelte";
+  import TaskPicker from "@renderer/components/session/TaskPicker.svelte";
   // Eager, unlike the lazy surfaces below: it is what covers an async boundary,
   // so it cannot sit behind one itself.
   import DocumentModalSkeleton from "@renderer/components/document-modal/DocumentModalSkeleton.svelte";
@@ -175,7 +176,7 @@
 
   $effect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ tabId?: string; scope?: DiffScope }>).detail;
+      const detail = e instanceof CustomEvent ? e.detail : undefined;
       const sourceTabId =
         detail?.tabId ?? session.focusedChatTabId ?? session.activeTabId;
       const canShowSourceDiff = !!session.sessionFor(sourceTabId)?.run.workingDirectory;
@@ -216,7 +217,7 @@
 
   $effect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent<FilePreviewRequest>).detail;
+      const detail = e instanceof CustomEvent ? e.detail : undefined;
       if (!detail?.path) return;
       const sourceTabId =
         detail.tabId ?? session.focusedChatTabId ?? session.activeTabId;
@@ -425,6 +426,10 @@
 <SessionPicker
   open={isMobile && session.sessionPickerOpen}
   onClose={() => { session.sessionPickerOpen = false; }}
+/>
+<TaskPicker
+  open={isMobile && session.taskPickerOpen}
+  onClose={() => { session.taskPickerOpen = false; }}
 />
 
 <style>

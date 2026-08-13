@@ -31,9 +31,9 @@ export function measureAnchors(
   const containerRect = scrollContainer.getBoundingClientRect()
   const measured: MeasuredAnchor[] = []
   for (const comment of comments) {
-    const mark = scrollContainer.querySelector(
+    const mark = scrollContainer.querySelector<HTMLElement>(
       `mark[data-plan-comment="${comment.id}"]`,
-    ) as HTMLElement | null
+    )
     if (!mark) continue
     // A highlight that wraps has several rects; the first is its opening line
     // (where the card wants to sit) and the last is where a connector leaves.
@@ -69,7 +69,7 @@ export function commentMarkPositions(editor: Editor | null): { id: string; pos: 
     if (!node.isText) return
     for (const mark of node.marks) {
       if (mark.type !== markType) continue
-      const id = mark.attrs.commentId as string | null
+      const id = String(mark.attrs.commentId ?? '')
       if (!id || seen.has(id)) continue
       seen.add(id)
       positions.push({ id, pos })

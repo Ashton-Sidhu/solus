@@ -1,5 +1,6 @@
 import type { Component } from 'svelte'
 import type { DiffScope } from '../../../../shared/types'
+import type { PrReviewTarget } from '../../../../shared/providers'
 import type { HostApi } from '@client-core/host-api'
 import { serverConnections } from '@client-core/server-connections'
 
@@ -22,6 +23,7 @@ import { serverConnections } from '@client-core/server-connections'
 export type SettingsTab =
   | 'general'
   | 'instructions'
+  | 'source-control'
   | 'review'
   | 'providers'
   | 'api-access'
@@ -35,6 +37,7 @@ export type SettingsTab =
 const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
   'general',
   'instructions',
+  'source-control',
   'review',
   'providers',
   'api-access',
@@ -137,7 +140,7 @@ export interface RouteDescriptor<K extends RouteName> {
    *  itself (`chat`, whose pool is hoisted out of the pane loop). */
   component?: () => Promise<{ default: Component<any> }>
   /** Params → live payload, fetched on entry and held in the router's LRU. */
-  resolve?: (params: RouteParams[K], ctx: RouteResolveContext) => Promise<unknown>
+  resolve?: (params: RouteParams[K], ctx: RouteResolveContext) => Promise<PrReviewTarget>
 }
 
 /** What a descriptor's `resolve` is handed: the IPC surface plus the caller's
@@ -172,12 +175,13 @@ function parseDiffScope(segment: string | undefined): DiffScope {
   if (kind === 'working-tree') return { kind: 'working-tree' }
   if (kind === 'turn' && /^\d+$/.test(fields[0] ?? '')) return { kind: 'turn', index: Number(fields[0]) }
   if (kind === 'pr' && fields[0]) {
-    return {
+    const scope: DiffScope = {
       kind: 'pr',
       baseSha: fields[0],
-      ...(fields[1] ? { ownDeltaBaseSha: fields[1] } : {}),
-      ...(/^\d+$/.test(fields[2] ?? '') ? { parentPr: Number(fields[2]) } : {}),
     }
+    if (fields[1]) scope.ownDeltaBaseSha = fields[1]
+    if (/^\d+$/.test(fields[2] ?? '')) scope.parentPr = Number(fields[2])
+    return scope
   }
   return { kind: 'session' }
 }
@@ -242,7 +246,7 @@ export const ROUTES = defineRoutes({
     component: () => import('../../../components/prs/PrsPage.svelte'),
   },
   reviewMode: {
-    parse: () => ({}) as Record<string, never>,
+    parse: () => ({}),
     serialize: () => '',
     placement: 'any',
     exclusiveGroup: 'page',
@@ -271,7 +275,7 @@ export const ROUTES = defineRoutes({
     component: () => import('../../../components/settings/SettingsPage.svelte'),
   },
   folio: {
-    parse: () => ({}) as Record<string, never>,
+    parse: () => ({}),
     serialize: () => '',
     placement: 'any',
     exclusiveGroup: 'page',
@@ -352,11 +356,12 @@ export const ROUTES = defineRoutes({
       const hostSegment = rest[0]?.startsWith('host~') ? rest.shift() : undefined
       const serverId = optional(hostSegment?.slice('host~'.length) ?? '')
       const cwd = optional(rest.join('/'))
-      return {
+      const params: RouteParams['prReview'] = {
         number: Number(number),
-        ...(serverId ? { serverId } : {}),
-        ...(cwd ? { cwd } : {}),
       }
+      if (serverId) params.serverId = serverId
+      if (cwd) params.cwd = cwd
+      return params
     },
     // The title is display-only: it is superseded by the resolved review, so it
     // stays out of the URL rather than becoming a stale thing to keep in sync.
@@ -452,7 +457,11 @@ export const ROUTES = defineRoutes({
   },
 })
 
-export const ROUTE_NAMES = Object.keys(ROUTES) as RouteName[]
+function isRouteName(value: string): value is RouteName {
+  return Object.prototype.hasOwnProperty.call(ROUTES, value)
+}
+
+export const ROUTE_NAMES = Object.keys(ROUTES).filter(isRouteName)
 
 export function descriptorFor<K extends RouteName>(name: K): RouteDescriptor<K> {
   return ROUTES[name]
@@ -466,16 +475,18 @@ export function sameRoute(a: RouteRef | null, b: RouteRef | null): boolean {
 }
 
 export function serializeRef(ref: RouteRef): string {
-  const segment = (ROUTES[ref.name].serialize as (p: unknown) => string)(ref.params)
+  // SAFETY: A RouteRef couples each route name to the matching parameter type.
+  const segment = (ROUTES[ref.name].serialize as (params: RouteParams[RouteName]) => string)(ref.params)
   return segment ? `${ref.name}/${segment}` : ref.name
 }
 
 /** Total: unparseable input yields null so the caller can drop one pane. */
 export function parseRef(text: string): RouteRef | null {
   const slash = text.indexOf('/')
-  const name = (slash === -1 ? text : text.slice(0, slash)) as RouteName
-  if (!Object.prototype.hasOwnProperty.call(ROUTES, name)) return null
+  const name = slash === -1 ? text : text.slice(0, slash)
+  if (!isRouteName(name)) return null
   const params = ROUTES[name].parse(slash === -1 ? '' : text.slice(slash + 1))
+  // SAFETY: The selected descriptor parses the parameter type paired with name.
   return params ? ({ name, params } as RouteRef) : null
 }
 
@@ -497,5 +508,8 @@ export function isArtifactRoute(ref: RouteRef | null | undefined): boolean {
 export const CHAT_ROUTE: RouteRef<'chat'> = { name: 'chat', params: {} }
 
 export function chatRoute(sessionId?: string, serverId?: string): RouteRef<'chat'> {
-  return { name: 'chat', params: sessionId ? { sessionId, ...(serverId ? { serverId } : {}) } : {} }
+  const params: RouteParams['chat'] = {}
+  if (sessionId) params.sessionId = sessionId
+  if (serverId) params.serverId = serverId
+  return { name: 'chat', params }
 }

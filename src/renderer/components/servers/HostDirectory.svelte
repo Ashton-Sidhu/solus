@@ -4,7 +4,6 @@
     ArrowsClockwiseIcon,
     CaretRightIcon,
     DesktopTowerIcon,
-    GlobeSimpleIcon,
     PlusIcon,
     WifiHighIcon,
   } from "phosphor-svelte";
@@ -16,6 +15,7 @@
   import { hostReadinessSummary } from "./lib/host-onboarding";
   import { hostSetupStore } from "./host-setup.store.svelte";
   import { hostOnboardingStore } from "./host-onboarding.store.svelte";
+  import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
 
   // The registry can point at a host that is no longer saved, so trust the
   // resolved active server rather than the stored id.
@@ -64,10 +64,12 @@
         <span
           class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary)"
         >
-          {#if server.local}
+          {#if server.os}
+            <HostOperatingSystemIcon os={server.os} size={15} />
+          {:else if server.local}
             <DesktopTowerIcon size={15} />
           {:else}
-            <GlobeSimpleIcon size={15} />
+            <HostOperatingSystemIcon size={15} />
           {/if}
         </span>
         <span class="min-w-0 flex-1">

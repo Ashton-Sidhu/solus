@@ -6,8 +6,14 @@
   import InputBar from "../input/InputBar.svelte";
   import InputToolbar from "../input/InputToolbar.svelte";
   import SessionPicker from "../session/SessionPicker.svelte";
+  import TaskPicker from "../session/TaskPicker.svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import { getWorkspaceContext, getPlanStore, getWindowContext } from "../../contexts";
+  import {
+    getWorkspaceContext,
+    getPlanStore,
+    getWindowContext,
+    runtime,
+  } from "../../contexts";
   import PaneChrome from "../ui/PaneChrome.svelte";
   // Eager, unlike the surfaces below: these are what cover an async boundary,
   // so they cannot sit behind one themselves.
@@ -15,6 +21,7 @@
   import DocumentModalSkeleton from "../document-modal/DocumentModalSkeleton.svelte";
   import DiagramShellSkeleton from "../diagram/DiagramShellSkeleton.svelte";
   import SettingsPageSkeleton from "../settings/SettingsPageSkeleton.svelte";
+  import PrsPageSkeleton from "../prs/PrsPageSkeleton.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { isHomeVisible, retainedConversationTabIds } from "./lib/workspace-body";
 
@@ -33,14 +40,13 @@
   const clamp = (v: number, min: number, max: number) =>
     Math.round(Math.min(max, Math.max(min, v)));
 
-  const isLaptop = $derived(windowCtx.workAreaWidth < 1800);
-	  const pillWidth = $derived(
-	    isLaptop
-	      ? clamp(windowCtx.workAreaWidth * 0.67, 620, 960)
-	      : clamp(windowCtx.workAreaWidth * 0.82, 900, 1440),
-	  );
+  const pillWidth = $derived(
+    runtime.isLaptopViewport
+      ? clamp(windowCtx.workAreaWidth * 0.67, 620, 960)
+      : clamp(windowCtx.workAreaWidth * 0.82, 900, 1440),
+  );
   const pillBodyMax = $derived(
-    isLaptop
+    runtime.isLaptopViewport
       ? clamp(windowCtx.workAreaHeight * 0.55, 400, 580)
       : clamp(windowCtx.workAreaHeight * 0.68, 540, 740),
   );
@@ -68,6 +74,7 @@
   let pillGoalCollapsed = $state(false);
   let inputFocused = $state(false);
   const pickerOpen = $derived(!isEditorMode && session.sessionPickerOpen);
+  const taskPickerOpen = $derived(!isEditorMode && session.taskPickerOpen);
 
   // A tab that has not started a conversation has nothing above the bar to
   // show, so a new tab leaves the pill as just the bar rather than opening onto
@@ -86,6 +93,7 @@
       router.at("tasks") ||
       router.at("prs") ||
       pickerOpen ||
+      taskPickerOpen ||
       !!pillGoalSessionId ||
       showPillDiagram ||
       !!pillWorkModal ||
@@ -238,7 +246,7 @@
           {#if router.at("prs")}
             <div class="flex flex-col overflow-hidden h-[var(--pill-body-max)]">
               {#await import("../prs/PrsPage.svelte")}
-                {@render loadingSurface("Loading pull requests…")}
+                <PrsPageSkeleton />
               {:then prsModule}
                 {@const PrsPage = prsModule.default}
                 <PrsPage />
@@ -256,6 +264,19 @@
                   bind:open={session.sessionPickerOpen}
                   onClose={() => {
                     session.sessionPickerOpen = false;
+                  }}
+                />
+              </div>
+            {:else if taskPickerOpen}
+              <div
+                class="flex flex-col"
+                style="height:var(--pill-body-max);overflow:hidden"
+              >
+                <TaskPicker
+                  inline
+                  bind:open={session.taskPickerOpen}
+                  onClose={() => {
+                    session.taskPickerOpen = false;
                   }}
                 />
               </div>

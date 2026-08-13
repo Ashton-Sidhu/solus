@@ -19,8 +19,7 @@
   $effect(() => {
     if (autoFocus && inputEl) {
       inputEl.focus()
-      const ta = inputEl as HTMLTextAreaElement
-      ta.setSelectionRange(value.length, value.length)
+      inputEl.setSelectionRange(value.length, value.length)
     }
   })
 

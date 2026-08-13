@@ -63,25 +63,25 @@ export interface WorkToolDeps {
 
 // ─── Schemas (raw zod shapes, reused by every shape we export) ───
 
-const listWorksShape = {} as const
+const listWorksFields = {} as const
 
-const readWorkShape = {
+const readWorkFields = {
   work_id: z.string().describe('The id of the work to read (from list_works).'),
 }
 
-const searchWorksShape = {
+const searchWorksFields = {
   query: z.string().describe('Full-text query to match against work titles and content.'),
   type: z.enum(['doc', 'slides', 'diagram', 'any']).default('any').describe("Restrict to one kind of work. Defaults to 'any'."),
   limit: z.number().int().min(1).max(20).default(10).describe('Maximum results to return. Defaults to 10.'),
 }
 
-const updateWorkShape = {
+const updateWorkFields = {
   work_id: z.string().describe('The id of the work to update (from list_works).'),
   content: z.string().describe('The full new content of the work. Replaces the existing content entirely.'),
   title: z.string().optional().describe('Optional new title for the work.'),
 }
 
-const createWorkShape = {
+const createWorkFields = {
   title: z.string().describe('A short, human-readable title for the work.'),
   doc_type: z.enum(['doc', 'slides', 'diagram']).describe(
     "The kind of work: 'doc' (markdown document), 'slides' (slide deck), or 'diagram' (architecture diagram).",
@@ -121,13 +121,13 @@ export interface WorkToolResult {
 }
 
 interface WorkToolArgs {
-  work_id?: unknown
-  query?: unknown
-  type?: unknown
-  limit?: unknown
-  title?: unknown
-  doc_type?: unknown
-  content?: unknown
+  work_id?: string
+  query?: string
+  type?: 'doc' | 'slides' | 'diagram' | 'any'
+  limit?: number
+  title?: string
+  doc_type?: 'doc' | 'slides' | 'diagram'
+  content?: string
 }
 
 export async function executeWorkTool(
@@ -156,11 +156,11 @@ export async function executeWorkTool(
     }
 
     if (name === 'search_works') {
-      const query = typeof args.query === 'string' ? args.query.trim() : ''
+      const query = args.query?.trim() ?? ''
       if (!query) return { ok: false, text: 'search_works requires a non-empty query.' }
-      const rawType = String(args.type ?? 'any')
+      const rawType = args.type ?? 'any'
       const type = rawType === 'doc' || rawType === 'slides' || rawType === 'diagram' ? rawType : undefined
-      const limit = typeof args.limit === 'number' ? Math.min(20, Math.max(1, Math.floor(args.limit))) : 10
+      const limit = args.limit === undefined ? 10 : Math.min(20, Math.max(1, Math.floor(args.limit)))
 
       const hits = await searchWorks(query, { type, cwd: deps.ctx?.cwd, limit })
       if (!hits.length) return { ok: true, text: `No works match "${query}".` }
@@ -197,11 +197,11 @@ export async function executeWorkTool(
     }
 
     if (name === 'create_work') {
-      const title = typeof args.title === 'string' && args.title.trim() ? args.title : 'Untitled'
-      const rawType = String(args.doc_type ?? 'doc')
+      const title = args.title?.trim() ? args.title : 'Untitled'
+      const rawType = args.doc_type ?? 'doc'
       const docType: 'doc' | 'slides' | 'diagram' =
         rawType === 'slides' || rawType === 'diagram' ? rawType : 'doc'
-      let content = typeof args.content === 'string' ? args.content : ''
+      let content = args.content ?? ''
       if (!content.trim()) return { ok: false, text: 'create_work requires non-empty content.' }
 
       if (docType === 'diagram') {
@@ -277,9 +277,9 @@ export async function executeWorkTool(
     if (name === 'update_work') {
       const workId = String(args.work_id ?? '')
       if (!workId) return { ok: false, text: 'update_work requires a work_id.' }
-      const content = typeof args.content === 'string' ? args.content : ''
+      const content = args.content ?? ''
       if (!content.trim()) return { ok: false, text: 'update_work requires non-empty content.' }
-      const title = typeof args.title === 'string' ? args.title : undefined
+      const title = args.title
 
       const existing = await loadWork(workId, deps.ctx?.cwd)
       if (!existing) {
@@ -301,8 +301,8 @@ export async function executeWorkTool(
           const payload: WorkUpdateOpPayload = {
             taskId: foreignTaskId,
             content,
-            ...(title !== undefined ? { title } : {}),
           }
+          if (title !== undefined) payload.title = title
           const op = recordOutboxOp({ domain: 'works', resourceId: workId, name: 'update', payload, sessionId: deps.ctx?.sessionId })
           applyWorkOpToForeignTask(deps.ctx?.solusSessionId, op)
           deps.onWorkUpdated?.({
@@ -331,7 +331,8 @@ export async function executeWorkTool(
       }
 
       const preview = workPreview(existing.type, content)
-      const saved = await agentSaveWork(workId, { content, preview, ...(title !== undefined ? { title } : {}) }, deps.ctx?.cwd)
+      const update = { content, preview, title }
+      const saved = await agentSaveWork(workId, update, deps.ctx?.cwd)
 
       if (deps.ctx?.sessionId) {
         await Task.linkArtifactForSession(deps.ctx.sessionId, {
@@ -367,13 +368,13 @@ export async function executeWorkTool(
 function workAgentTool(
   name: string,
   description: string,
-  inputShape: z.ZodRawShape,
+  inputFields: AgentTool['inputFields'],
   requiresApproval: boolean,
 ): AgentTool {
   return {
     name,
     description,
-    inputShape,
+    inputFields,
     requiresApproval,
     execute: async (args, context) => executeWorkTool(name, args, {
       ctx: {
@@ -401,11 +402,11 @@ function workAgentTool(
   }
 }
 
-export const listWorksAgentTool = workAgentTool('list_works', LIST_DESC, listWorksShape, false)
-export const searchWorksAgentTool = workAgentTool('search_works', SEARCH_DESC, searchWorksShape, false)
-export const readWorkAgentTool = workAgentTool('read_work', READ_DESC, readWorkShape, false)
-export const createWorkAgentTool = workAgentTool('create_work', CREATE_DESC, createWorkShape, false)
-export const updateWorkAgentTool = workAgentTool('update_work', UPDATE_DESC, updateWorkShape, true)
+export const listWorksAgentTool = workAgentTool('list_works', LIST_DESC, listWorksFields, false)
+export const searchWorksAgentTool = workAgentTool('search_works', SEARCH_DESC, searchWorksFields, false)
+export const readWorkAgentTool = workAgentTool('read_work', READ_DESC, readWorkFields, false)
+export const createWorkAgentTool = workAgentTool('create_work', CREATE_DESC, createWorkFields, false)
+export const updateWorkAgentTool = workAgentTool('update_work', UPDATE_DESC, updateWorkFields, true)
 
 export const workAgentTools: AgentTool[] = [
   listWorksAgentTool,

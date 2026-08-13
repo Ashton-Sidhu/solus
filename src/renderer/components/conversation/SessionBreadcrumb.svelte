@@ -14,6 +14,7 @@
   import { getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
   import { frameChrome } from "../layout/frame-chrome.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { toasts } from "../../lib/toasts";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { getAttentionIcon, hasSessionStarted } from "../../lib/sessionUtils";
   import { homeGitDetails } from "../../lib/git-context";
@@ -25,6 +26,8 @@
   } from "../../contexts/workspace/session-draft.svelte";
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import * as Breadcrumb from "../ui/breadcrumb";
+  import * as Command from "../ui/command";
+  import { MenuSearch } from "../ui/menu";
   import ProjectMark from "../session/ProjectMark.svelte";
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
   import SessionNameInput from "../session/SessionNameInput.svelte";
@@ -37,6 +40,8 @@
   import { taskRef } from "../tasks/task-page/lib/task-page";
   import {
     breadcrumbLeafLabels,
+    breadcrumbTaskGroups,
+    breadcrumbTaskMatches,
     projectNote,
     statusColor,
     statusNote,
@@ -57,6 +62,12 @@
     variant?: "floating" | "inline";
     /** Split panes own a separate project-panel toggle beside the breadcrumb. */
     showProjectPanelAction?: boolean;
+    /** Explicit rail state and command for a pane whose rail is not frame-owned. */
+    projectPanelOpen?: boolean;
+    onProjectPanelToggle?: () => void;
+    /** Optional pane-close control in the shared header action cluster. */
+    onClose?: () => void;
+    closeLabel?: string;
   }
   let {
     tabId,
@@ -64,10 +75,15 @@
     showNewSessionAction = true,
     variant = "floating",
     showProjectPanelAction = true,
+    projectPanelOpen,
+    onProjectPanelToggle,
+    onClose,
+    closeLabel = "Close pane",
   }: Props = $props();
 
   const session = getWorkspaceContext();
   const sidebarStore = getSessionSidebarStore();
+  let taskQuery = $state("");
 
   // A draft is in no list, so its task crumb is the record it names — nothing
   // when it will mint its own — and its session crumb has no siblings to offer.
@@ -99,6 +115,16 @@
       : (task?.projectLabel ?? "~"),
   );
   const tasksInProject = $derived(sidebarStore.tasksForProject(projectKey));
+  const filteredTasksInProject = $derived(
+    tasksInProject.filter((item) =>
+      breadcrumbTaskMatches(item.title, taskQuery),
+    ),
+  );
+  const taskGroups = $derived(breadcrumbTaskGroups(filteredTasksInProject));
+  const taskSections = $derived([
+    { heading: "Open tasks", items: taskGroups.open },
+    { heading: "Completed", items: taskGroups.completed },
+  ]);
   const current = $derived(sessions.find((child) => child.tabId === tabId));
   const displayedSession = $derived(session.sessionFor(tabId));
   const draftMode = $derived.by((): BreadcrumbDraftMode => {
@@ -183,7 +209,8 @@
   /** The task code is a click menu, and it drops from the button rather than
    *  from the pointer so it opens in the same place every time. */
   function openTaskActions(event: MouseEvent, item: SidebarTask) {
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    if (!(event.currentTarget instanceof HTMLElement)) return;
+    const rect = event.currentTarget.getBoundingClientRect();
     menu = null;
     contextMenu = { kind: "task", item, x: rect.left, y: rect.bottom + 4 };
   }
@@ -202,6 +229,16 @@
     requestInputFocus();
   }
 
+  function openTaskPicker() {
+    if (menu !== "task") taskQuery = "";
+    menu = "task";
+  }
+
+  function toggleTaskPicker() {
+    if (menu === "task") menu = null;
+    else openTaskPicker();
+  }
+
   function selectSession(next: SidebarSessionChild) {
     menu = null;
     void sidebarStore.selectChild(next);
@@ -215,6 +252,20 @@
     if (item.key === task?.key) menu = null;
     sidebarStore.closeTask(item);
     requestInputFocus();
+  }
+
+  /** Completing from the band clears the mounted conversation too, the same
+   *  way the sidebar checkmark and the row's close control do. */
+  async function completeTask(item: SidebarTask) {
+    try {
+      await sidebarStore.completeTask(item);
+    } catch (error) {
+      toasts.error("Couldn't complete task", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      requestInputFocus();
+    }
   }
 
   function closeSession(childTabId: string) {
@@ -272,6 +323,23 @@
     "absolute top-1/2 right-[0.4375rem] flex size-[1.125rem] -translate-y-1/2 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-[opacity,background,color] duration-150 hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100";
   const bandAction =
     "flex size-[1.875rem] shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-[background,color] duration-150 hover:bg-accent hover:text-foreground";
+  const isProjectPanelOpen = $derived(
+    projectPanelOpen ?? frameChrome.projectPanelOpen,
+  );
+  const hasTrailingActions = $derived(
+    showNewSessionAction ||
+      (showProjectPanelAction && !isProjectPanelOpen) ||
+      !!onClose,
+  );
+
+  function toggleProjectPanel() {
+    if (onProjectPanelToggle) {
+      onProjectPanelToggle();
+      return;
+    }
+    frameChrome.toggleProjectPanelFromFrame?.();
+    requestInputFocus();
+  }
 </script>
 
 {#if task || draft}
@@ -291,7 +359,7 @@
        a centreline. The crumb has no container of its own — it is plain text on
        the band, and the only affordance is the hover wash under each part. -->
   <div
-    class="crumb-band @container z-[3] flex items-center gap-px text-sm {variant ===
+    class="workspace-titlebar crumb-band @container z-[3] flex items-center gap-px text-sm {variant ===
  'inline'
  ? 'crumb-band--inline relative h-full min-w-0 flex-1 px-1'
  : 'absolute inset-x-0 top-1 h-[2.875rem] pr-3.5'}"
@@ -407,7 +475,7 @@
                pointer is inside it, so switching is hover, read, click. -->
           <Breadcrumb.Item
             class="relative min-w-0 max-w-[12rem] shrink @max-[68rem]:max-w-[8rem] @max-[52rem]:max-w-[6rem]"
-            onmouseenter={() => (menu = "task")}
+            onmouseenter={openTaskPicker}
             onmouseleave={() => (menu = null)}
           >
             <!-- Hover opens it, but the click and the focus have to as well: a menu
@@ -419,8 +487,8 @@
                   type="button"
                   aria-expanded={menu === "task"}
                   title={leafLabels.task}
-                  onclick={() => (menu = menu === "task" ? null : "task")}
-                  onfocus={() => (menu = "task")}
+                  onclick={toggleTaskPicker}
+                  onfocus={openTaskPicker}
                   oncontextmenu={(event) =>
                     task && openTaskContextMenu(event, task)}
                 >
@@ -446,66 +514,90 @@
             </Breadcrumb.Link>
             {#if menu === "task"}
               <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
-                <div class="menu-surface w-[19.75rem] p-[0.3125rem]">
-                  <div class={menuHeading}>Tasks in {projectLabel}</div>
-                  {#each tasksInProject as item (item.id)}
-                    {@const note = statusNote(item.status)}
-                    <div class="group/row relative">
-                      <button
-                        type="button"
-                        class={menuRowClosable}
-                        onclick={() => selectTask(item)}
-                        oncontextmenu={(event) =>
-                          openTaskContextMenu(event, item)}
-                      >
-                        <span
-                          class="{menuLabel} {item.key === task?.key
- ? 'font-medium'
- : ''}">{item.title}</span
-                        >
-                        {#if item.status === "running"}
-                          <span
-                            class={rowStatus}
-                            role="img"
-                            aria-label="Running"
-                            title="Running"
-                          >
-                            <SpinnerGapIcon
-                              size={14}
-                              class="animate-spin motion-reduce:animate-none"
-                            />
-                          </span>
-                        {:else if note}
-                          <span class={rowStatus} style:color={note.color}
-                            >{note.text}</span
-                          >
-                        {/if}
-                      </button>
-                      <button
-                        type="button"
-                        class={rowClose}
-                        title="Close task"
-                        aria-label="Close {item.title}"
-                        onclick={() => closeTask(item)}
-                      >
-                        <XIcon size={14} weight="bold" />
-                      </button>
-                    </div>
-                  {/each}
-                  <div
-                    class="mx-[0.5625rem] my-[0.3125rem] h-px bg-[color-mix(in_oklch,var(--foreground)_10%,transparent)]"
-                  ></div>
-                  <button
-                    type="button"
-                    class="{menuRow} h-8 text-muted-foreground hover:text-foreground"
-                    onclick={newTask}
-                  >
-                    <PlusIcon size={14} class="shrink-0" />
-                    <span class="flex-1 text-[0.8125rem]">New task</span>
-                    <span class="font-mono text-xs opacity-60"
-                      >{comboHint("global.new-task")}</span
+                <div class="menu-surface w-[19.75rem] overflow-hidden p-0">
+                  <Command.Root shouldFilter={false}>
+                    <MenuSearch
+                      bind:value={taskQuery}
+                      placeholder="Search tasks in {projectLabel}"
+                    />
+                    <Command.List
+                      class="max-h-[min(24rem,calc(100vh-8rem))] overflow-y-auto p-[0.3125rem]"
                     >
-                  </button>
+                      {#if filteredTasksInProject.length === 0}
+                        <div
+                          class="px-3 py-6 text-center text-xs text-muted-foreground"
+                        >
+                          No tasks match
+                        </div>
+                      {/if}
+
+                      {#each taskSections as section (section.heading)}
+                        {#if section.items.length > 0}
+                          <Command.Group heading={section.heading}>
+                            {#each section.items as item (item.id)}
+                              {@const note = statusNote(item.status)}
+                              <div class="group/row relative">
+                                <Command.Item
+                                  value="{item.title} {item.taskId ?? item.id}"
+                                  class={menuRowClosable}
+                                  data-menu-current={item.key === task?.key
+                                    ? ""
+                                    : undefined}
+                                  onSelect={() => selectTask(item)}
+                                  oncontextmenu={(event) =>
+                                    openTaskContextMenu(event, item)}
+                                >
+                                  <span class={menuLabel}>{item.title}</span>
+                                  {#if item.status === "running"}
+                                    <span
+                                      class={rowStatus}
+                                      role="img"
+                                      aria-label="Running"
+                                      title="Running"
+                                    >
+                                      <SpinnerGapIcon
+                                        size={14}
+                                        class="animate-spin motion-reduce:animate-none"
+                                      />
+                                    </span>
+                                  {:else if note}
+                                    <span
+                                      class={rowStatus}
+                                      style:color={note.color}>{note.text}</span
+                                    >
+                                  {/if}
+                                </Command.Item>
+                                <button
+                                  type="button"
+                                  class={rowClose}
+                                  title="Close task"
+                                  aria-label="Close {item.title}"
+                                  onclick={() => closeTask(item)}
+                                >
+                                  <XIcon size={14} weight="bold" />
+                                </button>
+                              </div>
+                            {/each}
+                          </Command.Group>
+                        {/if}
+                      {/each}
+
+                      <div
+                        class="mx-[0.5625rem] my-[0.3125rem] h-px bg-[color-mix(in_oklch,var(--foreground)_10%,transparent)]"
+                      ></div>
+                      <Command.Item
+                        value="new task create"
+                        class="h-8 text-muted-foreground hover:text-foreground"
+                        onSelect={newTask}
+                      >
+                        <PlusIcon size={14} class="shrink-0" />
+                        <span class="flex-1 text-[0.8125rem]">New task</span>
+                        <span class="font-mono text-xs opacity-60"
+                          >{comboHint("global.new-task")}</span
+                        >
+                      </Command.Item>
+                    </Command.List>
+                  </Command.Root>
                 </div>
               </div>
             {/if}
@@ -657,7 +749,7 @@
       </Breadcrumb.List>
     </Breadcrumb.Root>
 
-    <span class="min-w-4 flex-1"></span>
+    <span class="min-w-4 flex-1 self-stretch" aria-hidden="true"></span>
 
     <!-- The task's own controls, right of the crumb and before the session
          cluster: the code is a menu of everything you can do to the task, with
@@ -696,10 +788,7 @@
  : ''}"
         title={taskDone ? "Reopen task" : "Mark done"}
         aria-label={taskDone ? "Reopen task" : "Mark done"}
-        onclick={() => {
-          sidebarStore.toggleTaskDone(record.id);
-          requestInputFocus();
-        }}
+        onclick={() => void completeTask(task)}
       >
         {#if taskDone}
           <ArrowUUpLeftIcon size={14} weight="bold" />
@@ -718,7 +807,7 @@
         <ArrowSquareOutIcon size={14} />
       </button>
 
-      {#if showNewSessionAction || (showProjectPanelAction && !frameChrome.projectPanelOpen)}
+      {#if hasTrailingActions}
         <span
           class="mx-[0.4375rem] h-4 w-px shrink-0 bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)]"
           aria-hidden="true"
@@ -743,18 +832,27 @@
       </button>
     {/if}
 
-    {#if showProjectPanelAction && !frameChrome.projectPanelOpen}
+    {#if showProjectPanelAction && !isProjectPanelOpen}
       <button
         type="button"
         class={bandAction}
         title="Expand project panel"
         aria-label="Expand project panel"
-        onclick={() => {
-          frameChrome.toggleProjectPanelFromFrame?.();
-          requestInputFocus();
-        }}
+        onclick={toggleProjectPanel}
       >
         <SidebarSimpleIcon size={14} mirrored />
+      </button>
+    {/if}
+
+    {#if onClose}
+      <button
+        type="button"
+        class={bandAction}
+        title={closeLabel}
+        aria-label={closeLabel}
+        onclick={onClose}
+      >
+        <XIcon size={16} />
       </button>
     {/if}
   </div>
@@ -814,7 +912,7 @@
         onOpenSource={menuTask.url
           ? () => void localApi.openExternal(menuTask.url!)
           : undefined}
-        onToggleDone={() => sidebarStore.toggleTaskDone(menuTask.id)}
+        onToggleDone={() => void completeTask(menuSidebarTask)}
         onRemove={() => closeTask(menuSidebarTask)}
         onClose={() => (contextMenu = null)}
       />
@@ -828,8 +926,6 @@
   }
 
   :global(html.is-mac-editor) .crumb-band:not(.crumb-band--inline) {
-    /* Match the native 52px titlebar band. Its 26px geometric centre sits one
-       pixel below the stoplights' optical centre, matching the macOS chrome. */
     top: 0;
     height: var(--solus-titlebar-height);
   }

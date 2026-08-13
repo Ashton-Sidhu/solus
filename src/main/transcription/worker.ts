@@ -34,10 +34,21 @@ type WorkerResponse =
   | { id: number; type: 'result'; transcript: string; phaseMs: PhaseMetrics }
   | { id: number; type: 'error'; message: string; phaseMs: PhaseMetrics }
 
+interface WorkerParentPort {
+  postMessage(message: WorkerResponse): void
+  on(event: 'message', listener: (event: { data: WorkerRequest } | WorkerRequest) => void): void
+}
+
+interface VocabData {
+  vocab: string[]
+  blankIndex: number
+}
+
 let modelPromise: Promise<ParakeetModel> | null = null
 
 function post(message: WorkerResponse): void {
-  const parentPort = (process as any).parentPort
+  // SAFETY: Electron exposes a Node worker parentPort on this dedicated worker process.
+  const parentPort = (process as NodeJS.Process & { parentPort?: WorkerParentPort }).parentPort
   parentPort?.postMessage(message)
 }
 
@@ -49,7 +60,7 @@ function findModel(int8Name: string, fp32Name: string): string {
   throw new Error(`Missing ${int8Name} or ${fp32Name} in ${PARAKEET_MODEL_DIR}`)
 }
 
-function loadVocab(): { vocab: string[]; blankIndex: number } {
+function loadVocab(): VocabData {
   const vocab: string[] = []
   for (const line of readFileSync(join(PARAKEET_MODEL_DIR, 'vocab.txt'), 'utf8').trim().split('\n')) {
     const separator = line.lastIndexOf(' ')
@@ -123,17 +134,18 @@ async function transcribe(samples: Float32Array, phaseMs: PhaseMetrics): Promise
     if (!state1Metadata || state1Metadata.isTensor !== true || !state2Metadata || state2Metadata.isTensor !== true) {
       throw new Error('Decoder state metadata is missing')
     }
-    const state1Shape = state1Metadata.shape.map((size) => typeof size === 'number' ? size : 1)
-    const state2Shape = state2Metadata.shape.map((size) => typeof size === 'number' ? size : 1)
+    const state1Dimensions = state1Metadata['shape'].map((size) => Number(size) || 1)
+    const state2Dimensions = state2Metadata['shape'].map((size) => Number(size) || 1)
     const [, encoderWidth, encoderSteps] = encoderOutputs.dims
+    // SAFETY: The type check above proves encoded_lengths carries int64 data.
     const validSteps = Number((encodedLengths.data as BigInt64Array)[0])
     const frame = new Float32Array(encoderWidth)
     const target = Int32Array.of(blankIndex)
     const encoderFrame = new ort.Tensor('float32', frame, [1, encoderWidth, 1])
     const targetTensor = new ort.Tensor('int32', target, [1, 1])
     const targetLength = new ort.Tensor('int32', Int32Array.of(1), [1])
-    let state1 = new ort.Tensor('float32', new Float32Array(state1Shape.reduce((a, b) => a * b)), state1Shape)
-    let state2 = new ort.Tensor('float32', new Float32Array(state2Shape.reduce((a, b) => a * b)), state2Shape)
+    let state1 = new ort.Tensor('float32', new Float32Array(state1Dimensions.reduce((a, b) => a * b)), state1Dimensions)
+    let state2 = new ort.Tensor('float32', new Float32Array(state2Dimensions.reduce((a, b) => a * b)), state2Dimensions)
     const emitted: number[] = []
     let step = 0
     let emittedThisStep = 0
@@ -141,7 +153,8 @@ async function transcribe(samples: Float32Array, phaseMs: PhaseMetrics): Promise
     phaseStartedAt = performance.now()
     try {
       while (step < validSteps) {
-        for (let i = 0; i < encoderWidth; i++) frame[i] = encoderOutputs.data[i * encoderSteps + step] as number
+        // SAFETY: The encoder model contract declares float output frames.
+        for (let i = 0; i < encoderWidth; i++) frame[i] = Number(encoderOutputs.data[i * encoderSteps + step])
         target[0] = emitted.length ? emitted[emitted.length - 1] : blankIndex
         const decoded = await decoder.run({
           encoder_outputs: encoderFrame,
@@ -160,7 +173,9 @@ async function transcribe(samples: Float32Array, phaseMs: PhaseMetrics): Promise
             if (logits[i] > logits[vocab.length + duration]) duration = i - vocab.length
           }
           if (token !== blankIndex) {
+            // SAFETY: The decoder model contract declares both recurrent state outputs as float32 tensors.
             const nextState1 = decoded.output_states_1 as ort.TypedTensor<'float32'>
+            // SAFETY: The decoder model contract declares both recurrent state outputs as float32 tensors.
             const nextState2 = decoded.output_states_2 as ort.TypedTensor<'float32'>
             disposeTensors(state1, state2)
             state1 = nextState1
@@ -214,7 +229,8 @@ async function handleTranscribe(request: Extract<WorkerRequest, { type: 'transcr
   }
 }
 
-const parentPort = (process as any).parentPort
+// SAFETY: Electron exposes a Node worker parentPort on this dedicated worker process.
+const parentPort = (process as NodeJS.Process & { parentPort?: WorkerParentPort }).parentPort
 parentPort?.on('message', (event: { data: WorkerRequest } | WorkerRequest) => {
   const request = 'data' in event ? event.data : event
   if (request.type === 'warm') {

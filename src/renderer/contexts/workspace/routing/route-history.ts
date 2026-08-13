@@ -81,8 +81,8 @@ export class MemoryRouteHistory implements RouteHistory {
 }
 
 interface BrowserHistoryLike {
-  pushState(data: unknown, unused: string, url?: string | URL | null): void
-  replaceState(data: unknown, unused: string, url?: string | URL | null): void
+  pushState(data: Parameters<History['pushState']>[0], unused: string, url?: string | URL | null): void
+  replaceState(data: Parameters<History['replaceState']>[0], unused: string, url?: string | URL | null): void
   back(): void
   forward(): void
 }

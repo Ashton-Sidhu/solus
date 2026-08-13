@@ -5,15 +5,13 @@ import {
 } from '../../src/renderer/components/pr-review/lib/pr-status'
 
 describe('pull request lifecycle tones', () => {
-  test('uses the task status semantics in review surfaces', () => {
-    // WHY: list, detail, and session chips must give the same status the same
-    // color instead of reverting to the brown brand accent or old PR palette.
-    expect(statusDotColor('open')).toContain('var(--running)')
+  test('uses conventional Git host semantics in review surfaces', () => {
+    // WHY: list and detail surfaces must keep open green, merged purple, and
+    // closed red instead of borrowing the task lifecycle palette.
+    expect(statusDotColor('open')).toContain('var(--success)')
     expect(statusDotColor('review')).toContain('var(--review)')
-    expect(statusDotColor('merged')).toContain('var(--success)')
-    expect(statusPillColors('closed')).toEqual({
-      background: 'var(--wash-3)',
-      color: 'var(--muted-foreground)',
-    })
+    expect(statusDotColor('merged')).toContain('var(--review)')
+    expect(statusDotColor('closed')).toContain('var(--failure)')
+    expect(statusPillColors('closed').color).toContain('var(--failure)')
   })
 })

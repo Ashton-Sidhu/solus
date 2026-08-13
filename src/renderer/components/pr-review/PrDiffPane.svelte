@@ -127,7 +127,7 @@
        line breaks in half while the diff is on its way. -->
   <div class="flex h-full min-h-0 flex-col">
     <div
-      class="h-(--solus-chrome-row-h,2.5rem) shrink-0 border-b border-[var(--solus-container-border)]"
+      class="workspace-titlebar h-(--solus-chrome-row-h,2.5rem) shrink-0 border-b border-[var(--solus-container-border)]"
       aria-hidden="true"
     ></div>
     <div class="grid min-h-0 flex-1 place-items-center text-xs text-muted-foreground" role="status">

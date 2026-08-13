@@ -9,6 +9,7 @@
  */
 
 import type { CaretRightIcon } from 'phosphor-svelte'
+import { z } from 'zod'
 
 /** The two views every list page has: the grouped global list, and the personal inbox. */
 export type ListPageView = 'global' | 'inbox'
@@ -217,7 +218,8 @@ export function updateListStatusSelection(
  * belongs in the tooltip (`absoluteTime`).
  */
 export function compactRelativeTime(at: number | string | undefined, now: number): string {
-  const ms = typeof at === 'number' ? at : at ? Date.parse(at) : NaN
+  const numericAt = z.number().safeParse(at)
+  const ms = numericAt.success ? numericAt.data : at ? Date.parse(at) : NaN
   if (!Number.isFinite(ms)) return ''
   const seconds = Math.max(0, Math.round((now - ms) / 1000))
   if (seconds < 60) return 'now'
@@ -243,7 +245,8 @@ export function compactCount(value: number): string {
 
 /** The timestamp the time slot's tooltip carries. */
 export function absoluteTime(at: number | string | undefined): string | undefined {
-  const ms = typeof at === 'number' ? at : at ? Date.parse(at) : NaN
+  const numericAt = z.number().safeParse(at)
+  const ms = numericAt.success ? numericAt.data : at ? Date.parse(at) : NaN
   if (!Number.isFinite(ms)) return undefined
   return new Date(ms).toLocaleString()
 }
@@ -288,10 +291,12 @@ export function personFrom(login: string, name?: string, avatarUrl?: string): Li
  * tile. Returns the tile count as a number so the row can render it as its own
  * wash-3 chip rather than a person.
  */
-export function participantsAfterLead(people: ListPerson[]): {
+export interface ListParticipants {
   shown: ListPerson[]
   overflow: number
-} {
+}
+
+export function participantsAfterLead(people: ListPerson[]): ListParticipants {
   const rest = people.slice(1)
   if (rest.length <= 3) return { shown: rest, overflow: 0 }
   return { shown: rest.slice(0, 3), overflow: rest.length - 3 }
@@ -302,11 +307,13 @@ export function participantsAfterLead(people: ListPerson[]): {
  * whether it rings. Components take one tint and read this, so no component
  * hand-picks a fill and a text colour separately and drifts.
  */
-export function chipSkin(tint: ListTint | undefined): {
+export interface ListChipSkin {
   background: string
   color: string
   boxShadow: string
-} {
+}
+
+export function chipSkin(tint: ListTint | undefined): ListChipSkin {
   switch (tint) {
     case 'primary':
     case 'running':

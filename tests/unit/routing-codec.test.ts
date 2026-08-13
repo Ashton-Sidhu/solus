@@ -211,6 +211,10 @@ describe('untrusted input', () => {
       name: 'settings',
       params: { tab: 'keybindings' },
     })
+    expect(parseLocation('#/settings/source-control').panes[0].base).toEqual({
+      name: 'settings',
+      params: { tab: 'source-control' },
+    })
   })
 
   test('reserved characters survive one path decode', () => {

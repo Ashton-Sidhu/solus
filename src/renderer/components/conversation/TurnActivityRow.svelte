@@ -7,6 +7,7 @@
     formatActivityDuration,
     getToolDescription,
     liveActivityLabel,
+    parseToolInput,
     participleFor,
     toolPathsFromParsed,
   } from "./lib/activity-summary";
@@ -116,9 +117,9 @@
     const paths = new Set<string>();
     for (const tool of turn.tools) {
       if (!tool.toolInput) continue;
-      try {
-        for (const path of toolPathsFromParsed(JSON.parse(tool.toolInput))) paths.add(path);
-      } catch {}
+      const parsed = parseToolInput(tool.toolInput);
+      if (!parsed) continue;
+      for (const path of toolPathsFromParsed(parsed)) paths.add(path);
     }
     return paths.size;
   });

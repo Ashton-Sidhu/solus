@@ -21,8 +21,8 @@ export function linkedPrNavigationTarget(
   const projectDirectory = input.taskProjectDirectory?.trim()
     || input.linkProjectDirectory.trim()
     || undefined
-  return {
-    ...(input.taskServerId ? { serverId: input.taskServerId } : {}),
-    ...(projectDirectory ? { projectDirectory } : {}),
-  }
+  const target: LinkedPrNavigationTarget = {}
+  if (input.taskServerId) target.serverId = input.taskServerId
+  if (projectDirectory) target.projectDirectory = projectDirectory
+  return target
 }

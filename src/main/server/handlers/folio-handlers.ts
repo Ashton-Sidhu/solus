@@ -1,7 +1,7 @@
 import type { SolusServer } from '../server'
 import { createWork, duplicateWork, saveWork, loadWork, listWorks, deleteWork, agentSaveWork, loadWorkPrevious, revertWork, setWorkPinned, promoteWorkToProject, linkWorkSession } from '../../folio/works'
 import { loadWorkAnnotations, saveWorkAnnotations } from '../../folio/work-annotations'
-import type { AgentId, Work, WorkAnnotations } from '../../../shared/types'
+import type { Work } from '../../../shared/types'
 import { Task } from '../../tasks/task'
 import { createLogger } from '../../logger'
 
@@ -24,82 +24,82 @@ async function linkWorkToSessionTasks(work: Work): Promise<void> {
 
 export function registerFolioHandlers(server: SolusServer): void {
   server.register('createWork', async (args) => {
-    const [title, type, content, preview, sessionId, agentProvider, cwd, id] = args as [string, 'doc' | 'slides' | 'diagram', string | undefined, string | undefined, string | undefined, AgentId, string | undefined, string | undefined]
+    const [title, type, content, preview, sessionId, agentProvider, cwd, id] = args
     const work = await createWork(title, type, content, preview, sessionId, agentProvider, cwd, id)
     await linkWorkToSessionTasks(work)
     return work
   })
 
   server.register('saveWork', async (args) => {
-    const [id, updates, cwd] = args as [string, Partial<Pick<Work, 'title' | 'preview' | 'content'>>, string | undefined]
+    const [id, updates, cwd] = args
     const work = await saveWork(id, updates, cwd)
     await linkWorkToSessionTasks(work)
     return work
   })
 
   server.register('loadWork', async (args) => {
-    const [id, cwd] = args as [string, string | undefined]
+    const [id, cwd] = args
     return loadWork(id, cwd)
   })
 
   server.register('listWorks', async (args) => {
-    const [cwd] = args as [string | undefined]
+    const [cwd] = args
     return listWorks(cwd)
   })
 
   server.register('deleteWork', async (args) => {
-    const [id, cwd] = args as [string, string | undefined]
+    const [id, cwd] = args
     await deleteWork(id, cwd)
   })
 
   server.register('duplicateWork', async (args) => {
-    const [id, cwd] = args as [string, string | undefined]
+    const [id, cwd] = args
     return duplicateWork(id, cwd)
   })
 
   server.register('linkWorkSession', async (args) => {
-    const [id, sessionId, cwd] = args as [string, string, string | undefined]
+    const [id, sessionId, cwd] = args
     await linkWorkSession(id, sessionId, cwd)
     const work = await loadWork(id, cwd)
     if (work) await linkWorkToSessionTasks(work)
   })
 
   server.register('loadWorkAnnotations', async (args) => {
-    const [workId] = args as [string]
+    const [workId] = args
     return loadWorkAnnotations(workId)
   })
 
   server.register('saveWorkAnnotations', async (args) => {
-    const [ann] = args as [WorkAnnotations]
+    const [ann] = args
     return saveWorkAnnotations(ann)
   })
 
   server.register('agentSaveWork', async (args) => {
-    const [id, updates, cwd] = args as [string, Partial<Pick<Work, 'title' | 'preview' | 'content'>>, string | undefined]
+    const [id, updates, cwd] = args
     const work = await agentSaveWork(id, updates, cwd)
     await linkWorkToSessionTasks(work)
     return work
   })
 
   server.register('loadWorkPrevious', async (args) => {
-    const [id, cwd] = args as [string, string | undefined]
+    const [id, cwd] = args
     return loadWorkPrevious(id, cwd)
   })
 
   server.register('revertWork', async (args) => {
-    const [id, cwd] = args as [string, string | undefined]
+    const [id, cwd] = args
     const work = await revertWork(id, cwd)
     if (work) await linkWorkToSessionTasks(work)
     return work
   })
 
   server.register('setWorkPinned', async (args) => {
-    const [id, pinned, cwd] = args as [string, boolean, string | undefined]
+    const [id, pinned, cwd] = args
     return setWorkPinned(id, pinned, cwd)
   })
 
   server.register('promoteWorkToProject', async (args) => {
-    const [id, projectRoot] = args as [string, string]
+    const [id, projectRoot] = args
     return promoteWorkToProject(id, projectRoot)
   })
 }

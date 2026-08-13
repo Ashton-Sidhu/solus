@@ -125,7 +125,7 @@
        lives in the floating PaneChrome cluster, which the right gutter reserves
        room for. -->
   <div
-    class="flex h-(--solus-chrome-row-h) shrink-0 items-center gap-2 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
+    class="workspace-titlebar flex h-(--solus-chrome-row-h) shrink-0 items-center gap-2 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
     {#if headerIcon}
       <Icon icon={headerIcon} width="14" height="14" class="shrink-0" />

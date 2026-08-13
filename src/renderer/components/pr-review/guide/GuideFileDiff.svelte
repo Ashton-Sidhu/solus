@@ -165,15 +165,15 @@
           ({
             side: annotationSide(c.side),
             lineNumber: c.endLine,
-            metadata: { kind: "comment", comment: c } as AnnotationMeta,
-          }) as DiffLineAnnotation<AnnotationMeta>,
+            metadata: { kind: "comment", comment: c } satisfies AnnotationMeta,
+          } satisfies DiffLineAnnotation<AnnotationMeta>),
       );
     if (draft.range) {
       out.push({
         side: annotationSide(draft.range.side),
         lineNumber: draft.range.endLine,
         metadata: DRAFT_META,
-      } as DiffLineAnnotation<AnnotationMeta>);
+      });
     }
     return out;
   }
@@ -207,7 +207,7 @@
   function buildDiffOptions() {
     const base = {
       theme: getDiffThemeName(theme.isDark),
-      themeType: (theme.isDark ? "dark" : "light") as "dark" | "light",
+      themeType: theme.isDark ? "dark" as const : "light" as const,
       diffStyle: "unified" as const,
       diffIndicators: "none" as const,
       lineDiffType: "word-alt" as const,

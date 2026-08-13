@@ -87,7 +87,7 @@
   );
   let previewSrc = $state<string | null>(null);
 
-  const FILE_ICON_COMPONENTS: Record<string, Component> = {
+  const FILE_ICON_COMPONENTS = {
     'image/png': ImageIcon,
     'image/jpeg': ImageIcon,
     'image/gif': ImageIcon,
@@ -98,7 +98,7 @@
     'application/json': FileCodeIcon,
     'text/yaml': FileCodeIcon,
     'text/toml': FileCodeIcon,
-  }
+  } satisfies Record<string, Component>
 
   // Only register the window listener while a preview is open — avoids
   // hundreds of global keydown handlers across all user messages and tabs.

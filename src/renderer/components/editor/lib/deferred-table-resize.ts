@@ -43,8 +43,8 @@ export function deferTableResizeReflow(
   let isDisposed = false
 
   const begin = (event: MouseEvent) => {
-    const target = event.target as Element | null
-    const table = target?.closest('table') as HTMLTableElement | null
+    const target = event.target instanceof Element ? event.target : null
+    const table = target?.closest('table')
     if (!table) return
 
     // ProseMirror owns the mousedown first. Waiting for the microtask means its

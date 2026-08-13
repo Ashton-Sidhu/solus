@@ -11,15 +11,19 @@ export type TaskSort = 'updated' | 'priority' | 'due'
 // emits them. `chipClass` = badge bg+text, `flagClass` = icon text colour.
 // Each colour pairs a darker light-mode value with a brighter dark-mode one —
 // the dark-palette hexes alone fall below readable contrast on light surfaces.
-export const PRIORITY_META: Record<
-  TaskPriority,
-  { label: string; rank: number; chipClass: string; flagClass: string }
-> = {
+interface PriorityMeta {
+  label: string
+  rank: number
+  chipClass: string
+  flagClass: string
+}
+
+export const PRIORITY_META = {
   urgent: { label: 'Urgent', rank: 0, chipClass: 'text-[#cf222e] bg-[#cf222e]/10 [.dark_&]:text-[#f85149] [.dark_&]:bg-[#f85149]/10', flagClass: 'text-[#cf222e] [.dark_&]:text-[#f85149]' },
   high: { label: 'High', rank: 1, chipClass: 'text-[#bc4c00] bg-[#bc4c00]/10 [.dark_&]:text-[#db6d28] [.dark_&]:bg-[#db6d28]/10', flagClass: 'text-[#bc4c00] [.dark_&]:text-[#db6d28]' },
   medium: { label: 'Medium', rank: 2, chipClass: 'text-[#9a6700] bg-[#9a6700]/10 [.dark_&]:text-[#d29922] [.dark_&]:bg-[#d29922]/10', flagClass: 'text-[#9a6700] [.dark_&]:text-[#d29922]' },
   low: { label: 'Low', rank: 3, chipClass: 'text-(--solus-text-tertiary) bg-(--solus-surface-hover)', flagClass: 'text-(--solus-text-tertiary)' },
-}
+} satisfies Record<TaskPriority, PriorityMeta>
 
 function priorityRank(t: Task): number {
   return t.priority ? PRIORITY_META[t.priority].rank : 4
@@ -59,17 +63,21 @@ const STATUS_GLYPHS = {
 
 /** Display metadata for a normalized status — label, the theme token its dot
  *  and glyph use, the dot class, and the SVG path for the glyph form. */
-export const STATUS_META: Record<
-  TaskStatus,
-  { label: string; dotClass: string; token: string; glyph: string }
-> = {
+interface StatusMeta {
+  label: string
+  dotClass: string
+  token: string
+  glyph: string
+}
+
+export const STATUS_META = {
   inbox: { label: 'Inbox', dotClass: 'border border-(--solus-text-tertiary)', token: '--idle', glyph: STATUS_GLYPHS.idle },
   todo: { label: 'To do', dotClass: 'border border-(--solus-text-tertiary)', token: '--idle', glyph: STATUS_GLYPHS.idle },
   in_progress: { label: 'In progress', dotClass: 'bg-(--running)', token: '--running', glyph: STATUS_GLYPHS.clock },
   in_review: { label: 'In review', dotClass: 'bg-(--review)', token: '--review', glyph: STATUS_GLYPHS.eye },
   done: { label: 'Done', dotClass: 'bg-(--success)', token: '--success', glyph: STATUS_GLYPHS.check },
   dropped: { label: 'Dropped', dotClass: 'bg-(--idle)', token: '--idle', glyph: STATUS_GLYPHS.slash },
-}
+} satisfies Record<TaskStatus, StatusMeta>
 
 export function statusLabel(status: TaskStatus): string {
   return STATUS_META[status]?.label ?? status
@@ -101,7 +109,7 @@ export function authorInitials(login: string | null | undefined): string {
  *  comment timestamps. Falls back to the raw string if it won't parse. Pass
  *  `now` from a ticking $state so the label re-renders as time passes. */
 export function relativeTime(iso: string | number, now = Date.now()): string {
-  const then = typeof iso === 'number' ? iso : Date.parse(iso)
+  const then = Number.isFinite(iso) ? Number(iso) : Date.parse(String(iso))
   if (Number.isNaN(then)) return String(iso)
   const secs = Math.round((now - then) / 1000)
   if (secs < 45) return 'just now'

@@ -81,10 +81,14 @@ export function taskRefTooltip(task: Task, now = Date.now()): string {
  *  same Phosphor glyph `getAttentionIcon` gives the sidebar and the tab strip,
  *  so a running session looks the same wherever it is reported. The colour is
  *  the card's, from the spec's status tokens. */
-const SESSION_STATES: Record<
-  string,
-  { label: string; color: string; icon: RailIcon; spin?: boolean }
-> = {
+interface RailSessionState {
+  label: string
+  color: string
+  icon: RailIcon
+  spin?: boolean
+}
+
+const SESSION_STATES = new Map<string, RailSessionState>(Object.entries({
   // Running takes the sidebar's cool tone, not terracotta: work in flight only
   // wants a glance, and the warm family stays reserved for states that want you.
   running: { label: 'Running', color: 'var(--chart-5)', icon: SpinnerGapIcon, spin: true },
@@ -96,9 +100,9 @@ const SESSION_STATES: Record<
     icon: XCircleIcon,
   },
   queued: { label: 'Queued', color: 'var(--idle)', icon: ClockIcon },
-}
+}))
 
-const DONE: { label: string; icon: RailIcon } = { label: 'Done', icon: CheckCircleIcon }
+const DONE = { label: 'Done', icon: CheckCircleIcon }
 
 export interface RailSessionRow {
   sessionId: string
@@ -134,7 +138,7 @@ export function railSessionRow(
   now: number,
   taskTitle?: string | null,
 ): RailSessionRow {
-  const state = attention ? SESSION_STATES[attention] : undefined
+  const state = attention ? SESSION_STATES.get(attention) : undefined
   const running = attention === 'running'
   return {
     sessionId: link.sessionId,
@@ -168,19 +172,19 @@ export function orderSessionLinks(
 /** Type glyphs, again the app's own rather than the mock's: a PR reads as it
  *  does on the PRs page, a doc as it does in Folio, and an automation as it
  *  does one card down in this same rail. */
-const LINK_ICONS: Record<TaskLinkKind, RailIcon> = {
+const LINK_ICONS = {
   pr: GitPullRequestIcon,
   plan: ClipboardTextIcon,
   work: FileTextIcon,
   automation: ArrowsClockwiseIcon,
-}
+} satisfies Record<TaskLinkKind, RailIcon>
 
-const LINK_KIND_LABELS: Record<TaskLinkKind, { one: string; many: string }> = {
+const LINK_KIND_LABELS = {
   work: { one: 'doc', many: 'docs' },
   plan: { one: 'plan', many: 'plans' },
   pr: { one: 'PR', many: 'PRs' },
   automation: { one: 'automation', many: 'automations' },
-}
+} satisfies Record<TaskLinkKind, { one: string; many: string }>
 
 /** PR states that mean the work is over, so the row can sit back. */
 const CLOSED_PR_STATES = new Set(['merged', 'closed'])
@@ -203,11 +207,17 @@ export interface RailLinkList {
 /** Every link kind resolves to the same row shape, so a new kind needs a glyph
  *  and a value formatter and nothing else. A doc reports when it was attached,
  *  an automation when it next fires, and a PR or plan its state as a word. */
+interface RailLinkValue {
+  value: string
+  valueMono: boolean
+  dimmed: boolean
+}
+
 function linkValue(
   link: TaskLink,
   automationFor: (id: string) => Automation | undefined,
   now: number,
-): { value: string; valueMono: boolean; dimmed: boolean } {
+): RailLinkValue {
   const status = (link.liveStatus ?? '').toLowerCase()
   switch (link.kind) {
     case 'pr':

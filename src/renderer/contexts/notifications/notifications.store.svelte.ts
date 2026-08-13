@@ -38,7 +38,8 @@ class NotificationsStore {
     })
     const stopRemoval = onServerRemoving((server) => this.tracker.dropHost(server.id))
     const pushDelivered = (event: Event) => {
-      const detail = (event as CustomEvent<{ serverId?: string; entryKey?: string }>).detail
+      if (!(event instanceof CustomEvent)) return
+      const detail: { serverId?: string; entryKey?: string } | undefined = event.detail
       if (detail?.serverId && detail.entryKey) {
         this.tracker.markPushDelivered(detail.serverId, detail.entryKey)
       }
@@ -86,10 +87,10 @@ class NotificationsStore {
   ): Promise<void> {
     const host = deps.hostDisplay(serverId)
     const hostId = host.installationId ?? serverId
-    const payload = payloadForAttentionEntry(entry, {
-      ...(host.installationId ? { installationId: host.installationId } : {}),
-      ...(!host.isPrimary ? { hostLabel: host.label } : {}),
-    })
+    const payloadOptions: NonNullable<Parameters<typeof payloadForAttentionEntry>[1]> = {}
+    if (host.installationId) payloadOptions.installationId = host.installationId
+    if (!host.isPrimary) payloadOptions.hostLabel = host.label
+    const payload = payloadForAttentionEntry(entry, payloadOptions)
     const route = notificationSessionRoute(entry.sessionId, serverId)
     const request: ClientNotificationRequest = {
       ...payload,
@@ -98,7 +99,7 @@ class NotificationsStore {
     }
 
     let displayed = false
-    if (typeof localApi.showNotification === 'function') {
+    if (localApi.showNotification !== undefined) {
       displayed = await localApi.showNotification(request)
     } else {
       displayed = await showBrowserNotification(request, () => deps.openRoute(route))
@@ -121,9 +122,9 @@ async function showBrowserNotification(
   request: ClientNotificationRequest,
   onClick: () => void,
 ): Promise<boolean> {
-  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false
+  if (!globalThis.Notification || globalThis.Notification.permission !== 'granted') return false
   try {
-    const notification = new Notification(request.title, {
+    const notification = new globalThis.Notification(request.title, {
       body: request.body,
       tag: request.dedupKey,
       data: request,

@@ -28,24 +28,23 @@ const CLIENT_LOCAL_RPC_METHODS = new Set<string>(['openExternal'])
 
 export type NativeOnlySolusMethod = (typeof NATIVE_ONLY_SOLUS_METHODS)[number]
 
-export function mergeNativeOnlySolusApi(
-  transportApi: object,
-  nativeApi: object,
+export function mergeNativeOnlySolusApi<TransportApi extends object, NativeApi extends object>(
+  transportApi: TransportApi,
+  nativeApi: NativeApi,
   nativeMethods: readonly string[] = NATIVE_ONLY_SOLUS_METHODS,
-): object {
-  const merged = { ...transportApi }
+): TransportApi & Partial<NativeApi> {
+  const nativeEntries = Object.entries(nativeApi).filter(([method]) =>
+    nativeMethods.includes(method)
+    && (!RPC_METHODS.has(method) || CLIENT_LOCAL_RPC_METHODS.has(method)))
 
-  for (const method of nativeMethods) {
-    if (RPC_METHODS.has(method) && !CLIENT_LOCAL_RPC_METHODS.has(method)) continue
-    const value = Reflect.get(nativeApi, method)
-    if (typeof value === 'function') Reflect.set(merged, method, value)
-  }
-
-  return merged
+  // SAFETY: Every selected entry comes directly from `nativeApi`; the filter only narrows its keys.
+  const nativeMethodsApi = Object.fromEntries(nativeEntries) as Partial<NativeApi>
+  return { ...transportApi, ...nativeMethodsApi }
 }
 
-export function installWindowSolusApi(api: object): void {
-  const target = window as unknown as { solus?: object }
+export function installWindowSolusApi<Api extends object>(api: Api): void {
+  // SAFETY: This function owns installation of the `solus` global and checks each write below.
+  const target = window as Window & { solus?: Api }
   try {
     target.solus = api
     if (target.solus === api) return
@@ -61,7 +60,7 @@ export function installWindowSolusApi(api: object): void {
   } catch {}
 
   const existing = target.solus
-  if (existing && typeof existing === 'object') {
+  if (existing) {
     for (const [key, value] of Object.entries(api)) {
       try {
         Object.defineProperty(existing, key, {
@@ -71,7 +70,9 @@ export function installWindowSolusApi(api: object): void {
         })
       } catch {}
     }
-    if (Reflect.get(existing, 'start') === Reflect.get(api, 'start')) return
+    const installedStart = Object.entries(existing).find(([key]) => key === 'start')?.[1]
+    const apiStart = Object.entries(api).find(([key]) => key === 'start')?.[1]
+    if (installedStart === apiStart) return
   }
 
   throw new Error('Unable to install WS-backed Solus API')

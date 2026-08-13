@@ -70,13 +70,21 @@ describe('which host owns a run’s tasks', () => {
     expect(isDispatch(opened)).toBe(false)
   })
 
-  test('only a dispatch forces its own worktree', () => {
-    // WHY: a dispatched session's base checkout sits on a machine nobody is
-    // watching, so a collision there has no one to untangle it. A project that
-    // merely lives on another host is no different from a local one.
+  test('dispatch creates a worktree unless it already points at one', () => {
+    // WHY: the target base checkout is unattended. A plain dispatch must create
+    // isolation, while an exact existing worktree must not create another one.
     expect(startsWorktree(withHost(local, 'studio', { path: '/p' }))).toBe(true)
+    expect(startsWorktree({
+      ...withHost(local, 'studio', { path: '/p/.solus-worktrees/existing' }),
+      gitContext: {
+        repoRoot: '/p',
+        branch: 'existing',
+        targetBranch: 'main',
+        worktreePath: '/p/.solus-worktrees/existing',
+      },
+    })).toBe(false)
     expect(startsWorktree(withProjectHost(local, 'studio', { path: '/p' }))).toBe(false)
-    // The user's own choice still stands on both.
+    // An explicit isolation choice still stands on both.
     expect(startsWorktree({ ...local, worktree: { baseBranch: null } })).toBe(true)
   })
 

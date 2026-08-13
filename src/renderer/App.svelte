@@ -573,19 +573,18 @@
     initializeRuntime(session, sessionSidebarStore);
   });
 
-  $effect(() => {
-    void connectionsStore.refreshCapabilities();
-  });
-
   const detectReconnect = createReconnectDetector(
     serversStore.connectionStatus,
   );
   $effect(() => {
     const connectionStatus = serversStore.connectionStatus;
-    if (detectReconnect(connectionStatus)) {
+    const reconnected = detectReconnect(connectionStatus);
+    if (connectionStatus === "connected") {
+      void connectionsStore.refreshCapabilities();
+    }
+    if (reconnected) {
       refreshTheme(settings.setSystemTheme.bind(settings));
       initializeRuntime(session, sessionSidebarStore);
-      void connectionsStore.refreshCapabilities();
       const scope = activePrScope();
       session.prsStore.reportChecksActivity(scope.api, scope.ctx);
     }
@@ -715,13 +714,14 @@
     return untrack(() => notificationsStore.start({
       hostDisplay: (serverId) => {
         const host = serversStore.hostFor(serverId);
-        return {
+        const display: import("./contexts/notifications/notifications.store.svelte").NotificationHostDisplay = {
           label: host?.label ?? "this host",
-          ...(host && "installationId" in host && host.installationId
-            ? { installationId: host.installationId }
-            : {}),
           isPrimary: serverConnections.connectionFor()?.serverId === serverId,
         };
+        if (host && "installationId" in host && host.installationId) {
+          display.installationId = host.installationId;
+        }
+        return display;
       },
       isSessionFocused: (serverId, sessionId) =>
         document.visibilityState === "visible" &&
@@ -862,10 +862,7 @@
         sel.toString().trim()
       ) {
         const node = sel.getRangeAt(0).commonAncestorContainer;
-        const el =
-          node.nodeType === Node.ELEMENT_NODE
-            ? (node as Element)
-            : node.parentElement;
+        const el = node instanceof Element ? node : node.parentElement;
         const conversation = el?.closest<HTMLElement>(
           ".conversation-selectable",
         );
@@ -1032,6 +1029,10 @@
   useKeybinding("global.session-picker-j", () =>
     window.dispatchEvent(new CustomEvent("solus:toggle-session-picker")),
   );
+  useKeybinding("global.task-picker", () => {
+    session.sessionPickerOpen = false;
+    session.taskPickerOpen = !session.taskPickerOpen;
+  });
   useKeybinding("global.toggle-expanded", () => session.toggleExpanded(), {
     enabled: () => viewMode === "pill",
   });
@@ -1106,7 +1107,7 @@
   });
   // Desktop-only: on web the browser owns these combos (and its own zoom), so
   // the disabled registration lets the events fall through untouched.
-  const zoomAvailable = typeof localApi.setZoomFactor === "function";
+  const zoomAvailable = localApi.setZoomFactor !== undefined;
   const showZoomToast = () => {
     toasts.info(`Zoom ${Math.round(settings.zoomFactor * 100)}%`, { id: "ui-zoom" });
   };
@@ -1656,26 +1657,6 @@
       const canContinueWorktree =
         !!activeSess?.agentSessionId && !activeSess.run.gitContext?.worktreePath;
       const worktreeCommands: Command[] = [
-        ...(canContinueWorktree
-          ? [
-              {
-                id: "continue-in-worktree",
-                label: "Continue in worktree",
-                group: "General",
-                icon: TreeStructureIcon,
-                keywords: [
-                  "worktree",
-                  "continue",
-                  "move",
-                  "branch",
-                  "isolated",
-                  "fork",
-                ],
-                hint: comboHint("global.continue-worktree"),
-                run: () => void session.continueInWorktree(activeTabId, "palette"),
-              } as Command,
-            ]
-          : []),
         {
           id: "new-session-new-worktree",
           label: "New session in new worktree",
@@ -1739,6 +1720,17 @@
           })),
         },
       ];
+      if (canContinueWorktree) {
+        worktreeCommands.unshift({
+          id: "continue-in-worktree",
+          label: "Continue in worktree",
+          group: "General",
+          icon: TreeStructureIcon,
+          keywords: ["worktree", "continue", "move", "branch", "isolated", "fork"],
+          hint: comboHint("global.continue-worktree"),
+          run: () => void session.continueInWorktree(activeTabId, "palette"),
+        });
+      }
       // Slot the git actions directly beneath "New session" so they stay near
       // session creation instead of drifting to the tail.
       const newTabIdx = commands.findIndex((c) => c.id === "new-tab");
@@ -1858,8 +1850,8 @@
 
   $effect(() => {
     const handler = (event: Event) => {
-      const detail = (
-        event as CustomEvent<{
+      if (!(event instanceof CustomEvent)) return;
+      const detail: {
           tabId?: string;
           draftId?: string;
           /** A tab id or a draft id — the surface that asked, when the emitter
@@ -1867,8 +1859,7 @@
           requesterId?: string;
           serverId?: string;
           intent?: "dispatch" | "open-project";
-        }>
-      ).detail;
+        } | undefined = event.detail;
       const requesterId = detail?.requesterId;
       const requesterDraftId =
         requesterId && session.sessionDrafts.has(requesterId)
@@ -1887,20 +1878,19 @@
       directoryPickerOpen = true;
     };
     const openProjectHandler = (event: Event) => {
-      const detail = (event as CustomEvent<{ tabId?: string } | undefined>)
-        .detail;
+      if (!(event instanceof CustomEvent)) return;
+      const detail: { tabId?: string } | undefined = event.detail;
       startOpenProject({ tabId: detail?.tabId });
     };
     // The git "Review a PR" action reuses the palette's PR list: open the
     // command palette drilled straight into the "Review PR…" sub-page.
     const reviewPrHandler = (event: Event) => {
-      const detail = (
-        event as CustomEvent<{
+      if (!(event instanceof CustomEvent)) return;
+      const detail: {
           tabId?: string;
           cwd?: string;
           checkout?: GitCheckout | null;
-        }>
-      ).detail;
+        } | undefined = event.detail;
       const targetTabId = detail?.tabId ?? activeTabId;
       const targetSession = session.sessionFor(targetTabId);
       const dir =
@@ -2102,7 +2092,8 @@
     // is 25 minutes away at PR time. Say so now, without blocking the session.
     if (pushNote) {
       const onboardingHost = { id: serverId, label: hostLabel || serverId };
-      toasts.info(pushNote, {
+      toasts.info("Git push is not set up", {
+        description: pushNote,
         actions: [
           {
             label: "Set up",
@@ -2450,7 +2441,8 @@
       onOpenProject={(path) =>
         void openProjectAtPath(path, openProjectStore.source !== "local")}
       onBrowse={browseForOpenProject}
-      onBackgroundCloneFailure={(failure) => toasts.error(failure.title)}
+      onBackgroundCloneFailure={(failure) =>
+        toasts.error(failure.title, { description: failure.detail })}
       localIdentity={localGitIdentity}
     />
   {/await}
@@ -2499,7 +2491,7 @@
           toasts.success("Task created");
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          toasts.error(`Couldn't create task: ${message}`);
+          toasts.error("Couldn't create task", { description: message });
           // Rethrow so the composer keeps the modal open; it owns dismissal on
           // success (via onCancel) so "Create more" can stay open.
           throw err;

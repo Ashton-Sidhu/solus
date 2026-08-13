@@ -1,4 +1,7 @@
 import type { DiagramDoc, DiagramEdge, DiagramNode } from '../../../../shared/diagram-types'
+import { z } from 'zod'
+
+const edgeLabelSchema = z.string().catch('')
 
 /**
  * The node inspector's tabs, in the order they always appear. Comments is last
@@ -31,16 +34,16 @@ export const EDGE_KINDS: {
 ]
 
 /** Routing styles, likewise shared by the Route tab and the header's route chip. */
-export const EDGE_SHAPES: {
-  shape: NonNullable<DiagramEdge['shape']>
+export const EDGE_ROUTES: {
+  route: NonNullable<DiagramEdge['route']>
   label: string
   hint: string
   /** Preview glyph for the segmented control, drawn in a 21×12 viewBox. */
   path: string
 }[] = [
-  { shape: 'smooth', label: 'Orthogonal', hint: 'Rounded orthogonal step', path: 'M3 9h12a3 3 0 003-3V3' },
-  { shape: 'step', label: 'Step', hint: 'Sharp orthogonal corners', path: 'M3 9h15V3' },
-  { shape: 'straight', label: 'Straight', hint: 'Direct line', path: 'M3 9L18 3' },
+  { route: 'smooth', label: 'Orthogonal', hint: 'Rounded orthogonal step', path: 'M3 9h12a3 3 0 003-3V3' },
+  { route: 'step', label: 'Step', hint: 'Sharp orthogonal corners', path: 'M3 9h15V3' },
+  { route: 'straight', label: 'Straight', hint: 'Direct line', path: 'M3 9L18 3' },
 ]
 
 /** Display name of an edge's relationship, resolving the `sync` default. */
@@ -49,8 +52,8 @@ export function edgeKindLabel(kind: DiagramEdge['kind']): string {
 }
 
 /** Display name of an edge's routing, resolving the `smooth` default. */
-export function edgeShapeLabel(shape: DiagramEdge['shape']): string {
-  return (EDGE_SHAPES.find((s) => s.shape === shape) ?? EDGE_SHAPES[0]).label
+export function edgeRouteLabel(route: DiagramEdge['route']): string {
+  return (EDGE_ROUTES.find((option) => option.route === route) ?? EDGE_ROUTES[0]).label
 }
 
 /**
@@ -65,7 +68,7 @@ export interface EdgeUpdates {
   width: (id: string, width: number | undefined) => void
   dash: (id: string, dash: DiagramEdge['dash']) => void
   arrows: (id: string, arrows: NonNullable<DiagramEdge['arrows']>) => void
-  shape: (id: string, shape: NonNullable<DiagramEdge['shape']>) => void
+  route: (id: string, route: NonNullable<DiagramEdge['route']>) => void
   cardinality: (id: string, cardinality: DiagramEdge['cardinality']) => void
 }
 
@@ -79,7 +82,7 @@ export interface NodeLink {
   label: string
 }
 
-/** Minimal edge shape the links list needs — satisfied by an xyflow edge. */
+/** Minimal edge data the links list needs — satisfied by an xyflow edge. */
 interface LinkSource {
   id: string
   source: string
@@ -99,7 +102,7 @@ export function nodeLinks(
 ): NodeLink[] {
   const links: NodeLink[] = []
   for (const e of edges) {
-    const label = typeof e.label === 'string' ? e.label : ''
+    const label = edgeLabelSchema.parse(e.label)
     // Not `else if`: a self-edge is genuinely both an outgoing and an incoming
     // connection, so it earns a row and a degree count on each side.
     if (e.source === nodeId) {
@@ -113,7 +116,9 @@ export function nodeLinks(
 }
 
 /** Degree of the node, split by direction. A self-edge counts on both sides. */
-export function nodeDegree(links: NodeLink[]): { in: number; out: number } {
+export interface NodeDegree { in: number; out: number }
+
+export function nodeDegree(links: NodeLink[]): NodeDegree {
   return {
     in: links.filter((l) => l.direction === 'in').length,
     out: links.filter((l) => l.direction === 'out').length,

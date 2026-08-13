@@ -3,11 +3,9 @@
 // icons locally; @iconify/svelte re-renders once that subset registers.
 
 // Full filename matches (no extension) take priority over extension lookup.
-const ICON_BY_FILENAME: Record<string, string> = {
-  dockerfile: "logos:docker-icon",
-};
+const ICON_BY_FILENAME = new Map([["dockerfile", "logos:docker-icon"]]);
 
-const ICON_BY_EXT: Record<string, string> = {
+const ICON_BY_EXT = new Map(Object.entries({
   ts: "logos:typescript-icon",
   mts: "logos:typescript-icon",
   cts: "logos:typescript-icon",
@@ -48,16 +46,17 @@ const ICON_BY_EXT: Record<string, string> = {
   md: "logos:markdown",
   mdx: "logos:markdown",
   sql: "logos:postgresql",
-};
+}));
 
 export const FILE_TYPE_ICON_NAMES = Array.from(
-  new Set([...Object.values(ICON_BY_FILENAME), ...Object.values(ICON_BY_EXT)]),
+  new Set([...ICON_BY_FILENAME.values(), ...ICON_BY_EXT.values()]),
 );
 
 export function fileTypeIcon(path: string): string | null {
   const name = (path.split("/").pop() ?? path).toLowerCase();
-  if (name in ICON_BY_FILENAME) return ICON_BY_FILENAME[name];
+  const filenameIcon = ICON_BY_FILENAME.get(name);
+  if (filenameIcon) return filenameIcon;
   const dot = name.lastIndexOf(".");
   if (dot <= 0) return null;
-  return ICON_BY_EXT[name.slice(dot + 1)] ?? null;
+  return ICON_BY_EXT.get(name.slice(dot + 1)) ?? null;
 }

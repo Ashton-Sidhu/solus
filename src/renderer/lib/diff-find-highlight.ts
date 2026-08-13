@@ -13,10 +13,9 @@ const ACTIVE_HIGHLIGHT = 'solus-diff-find-active'
  * counter + navigation still work, only the span paint is skipped.
  */
 export const CSS_HIGHLIGHT_SUPPORTED =
-  typeof CSS !== 'undefined' &&
   'highlights' in CSS &&
-  typeof Highlight !== 'undefined' &&
-  typeof Range !== 'undefined'
+  'Highlight' in globalThis &&
+  'Range' in globalThis
 
 // `CSS.highlights` is document-global and keyed by name, but split panes can
 // mount more than one DiffStream at once. Share a single pair of Highlight
@@ -26,7 +25,8 @@ export const CSS_HIGHLIGHT_SUPPORTED =
 let registrationCount = 0
 let allHighlight: Highlight | null = null
 let activeHighlight: Highlight | null = null
-let owner: DiffFindHighlighter | null = null
+let ownerId: number | null = null
+let nextOwnerId = 0
 
 function acquireHighlights(): void {
   if (!CSS_HIGHLIGHT_SUPPORTED) return
@@ -49,7 +49,7 @@ function releaseHighlights(): void {
     CSS.highlights.delete(ACTIVE_HIGHLIGHT)
     allHighlight = null
     activeHighlight = null
-    owner = null
+    ownerId = null
   }
 }
 
@@ -81,19 +81,16 @@ function resolveLineEl(
   const sideCol = match.side === 'old' ? '[data-deletions]' : '[data-additions]'
   if (diffStyle === 'split') {
     const col = shadow.querySelector(sideCol) ?? shadow.querySelector('[data-unified]')
-    return (
-      (col?.querySelector(`[data-content] [data-line="${match.lineNo}"]`) as HTMLElement | null) ??
-      null
-    )
+    return col?.querySelector<HTMLElement>(`[data-content] [data-line="${match.lineNo}"]`) ?? null
   }
   const col = shadow.querySelector('[data-unified]') ?? shadow.querySelector(sideCol)
   if (!col) return null
-  const candidates = col.querySelectorAll(`[data-content] [data-line="${match.lineNo}"]`)
+  const candidates = col.querySelectorAll<HTMLElement>(`[data-content] [data-line="${match.lineNo}"]`)
   for (const el of candidates) {
     const isDeletion = el.getAttribute('data-line-type') === 'change-deletion'
-    if (match.side === 'old' ? isDeletion : !isDeletion) return el as HTMLElement
+    if (match.side === 'old' ? isDeletion : !isDeletion) return el
   }
-  return (candidates[0] as HTMLElement | undefined) ?? null
+  return candidates.item(0)
 }
 
 // Map a (matchStart, matchLength) character span onto a DOM Range by walking the
@@ -118,7 +115,8 @@ function buildRange(
   let endNode: Text | null = null
   let endOffset = 0
 
-  let node = walker.nextNode() as Text | null
+  const firstNode = walker.nextNode()
+  let node = firstNode instanceof Text ? firstNode : null
   while (node) {
     const len = node.data.length
     if (startNode === null && start < acc + len) {
@@ -131,7 +129,8 @@ function buildRange(
       break
     }
     acc += len
-    node = walker.nextNode() as Text | null
+    const nextNode = walker.nextNode()
+    node = nextNode instanceof Text ? nextNode : null
   }
 
   if (!startNode || !endNode) return null
@@ -151,6 +150,7 @@ function buildRange(
  * counted by the panel and become paintable once scrolled/expanded into view.
  */
 export class DiffFindHighlighter {
+  private readonly ownerId = ++nextOwnerId
   private matchesByPath = new Map<string, DiffFindMatch[]>()
   private activeMatch: DiffFindMatch | null = null
 
@@ -176,9 +176,9 @@ export class DiffFindHighlighter {
     if (!CSS_HIGHLIGHT_SUPPORTED || !allHighlight || !activeHighlight) return
     // Background/other-pane streams have no matches: don't touch the shared
     // highlights so they can't wipe the panel the user is actually searching in.
-    if (this.matchesByPath.size === 0 && owner !== this) return
+    if (this.matchesByPath.size === 0 && ownerId !== this.ownerId) return
 
-    owner = this
+    ownerId = this.ownerId
     allHighlight.clear()
     activeHighlight.clear()
 
@@ -199,10 +199,10 @@ export class DiffFindHighlighter {
   clear(): void {
     this.matchesByPath = new Map()
     this.activeMatch = null
-    if (owner === this) {
+    if (ownerId === this.ownerId) {
       allHighlight?.clear()
       activeHighlight?.clear()
-      owner = null
+      ownerId = null
     }
   }
 

@@ -143,10 +143,11 @@
         resolvedParentDirectory !== null),
   );
   type Row = { kind: "up" } | { kind: "dir"; entry: DirectoryEntry };
-  const rows: Row[] = $derived([
-    ...(canGoUp ? [{ kind: "up" } as Row] : []),
-    ...dirEntries.map((entry): Row => ({ kind: "dir", entry })),
-  ]);
+  const rows: Row[] = $derived.by(() => {
+    const nextRows: Row[] = dirEntries.map((entry) => ({ kind: "dir", entry }));
+    if (canGoUp) nextRows.unshift({ kind: "up" });
+    return nextRows;
+  });
   const highlightedRow = $derived(rows[highlightedIndex] ?? null);
 
   const exactEntry = $derived(
@@ -420,7 +421,7 @@
     if (focusable.length === 0) return;
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
-    const active = document.activeElement as HTMLElement | null;
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (e.shiftKey && active === first) {
       e.preventDefault();
       last.focus();

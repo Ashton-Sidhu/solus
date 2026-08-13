@@ -34,15 +34,17 @@
   /** Presets take focus on open, so the menu answers ↓/↑/⏎ the way every other
    *  menu does. The note is one Shift+Tab away for the rarer case. */
   function focusRow(step: number, from: HTMLElement) {
-    const rows = [...(rowsEl?.querySelectorAll("button") ?? [])];
-    const next = rows[(rows.indexOf(from as HTMLButtonElement) + step + rows.length) % rows.length];
+    const rows = [...(rowsEl?.querySelectorAll<HTMLButtonElement>("button") ?? [])];
+    const next = rows[(rows.indexOf(from) + step + rows.length) % rows.length];
     next?.focus();
   }
 
   function onRowsKeydown(event: KeyboardEvent) {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     event.preventDefault();
-    focusRow(event.key === "ArrowDown" ? 1 : -1, event.target as HTMLElement);
+    if (event.target instanceof HTMLElement) {
+      focusRow(event.key === "ArrowDown" ? 1 : -1, event.target);
+    }
   }
 </script>
 

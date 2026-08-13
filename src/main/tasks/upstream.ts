@@ -14,6 +14,7 @@ import {
   type TaskProviderStatus,
   type TaskUpdatePatch,
 } from '../../shared/task-types'
+import { z } from 'zod'
 
 const log = createLogger('main', 'tasks-upstream')
 
@@ -26,6 +27,12 @@ interface UpstreamTaskCacheRow {
   tasks: string
 }
 
+const upstreamTaskCacheRowSchema = z.object({
+  fetched_at: z.number(),
+  truncated: z.number().nullable(),
+  tasks: z.string(),
+})
+
 // The cache key's `scope` column predates the removal of assignee-scoped
 // reads; every snapshot is now the complete list.
 const CACHE_SCOPE = 'all'
@@ -34,15 +41,18 @@ function readUpstreamCache(
   projectKey: string,
   provider: string,
 ): { tasks: Task[]; fetchedAt: number; truncated?: boolean } | null {
-  const row = getDb().prepare(`
+  const parsedRow = upstreamTaskCacheRowSchema.safeParse(getDb().prepare(`
     SELECT fetched_at, truncated, tasks
     FROM upstream_task_cache
     WHERE project_key = ? AND provider = ? AND scope = ?
-  `).get(projectKey, provider, CACHE_SCOPE) as UpstreamTaskCacheRow | undefined
-  if (!row) return null
+  `).get(projectKey, provider, CACHE_SCOPE))
+  if (!parsedRow.success) return null
+  const row: UpstreamTaskCacheRow = parsedRow.data
   try {
+    // SAFETY: This cache is written only by writeUpstreamCache from typed Task values.
+    const tasks = JSON.parse(row.tasks) as Task[]
     return {
-      tasks: JSON.parse(row.tasks) as Task[],
+      tasks,
       fetchedAt: row.fetched_at,
       truncated: row.truncated === null ? undefined : row.truncated === 1,
     }
@@ -189,16 +199,17 @@ function configuredRepo(
   return owner && repo ? { host: 'github.com', owner, repo } : undefined
 }
 
-function classifyProviderError(error: unknown): unknown {
-  const message = error instanceof Error ? error.message : String(error)
-  if (message.startsWith(TASKS_AUTH_ERROR_PREFIX)) return error
+function classifyProviderError(error: Parameters<typeof String>[0]): Error {
+  const cause = error instanceof Error ? error : new Error(String(error))
+  const message = cause.message
+  if (message.startsWith(TASKS_AUTH_ERROR_PREFIX)) return cause
   if (
     error instanceof GitHubReauthRequiredError
     || /not connected|bad credentials|reconnect|401|unauthorized/i.test(message)
   ) {
     return new Error(`${TASKS_AUTH_ERROR_PREFIX}${message}`)
   }
-  return error
+  return cause
 }
 
 export async function taskProviderStatus(

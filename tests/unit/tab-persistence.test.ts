@@ -7,6 +7,7 @@ import {
   loadPersistedTabs,
   patchActiveDraft,
   persistDismissedSidebarRow,
+  removeDismissedSidebarRows,
   removePersistedTab,
   savePersistedTabsDebounced,
   setTabPersistenceServerInstallationId,
@@ -178,5 +179,18 @@ describe('tab persistence server scoping', () => {
 
     setTabPersistenceServerInstallationId('remote-install', { migrateLegacy: false })
     expect(loadDismissedSidebarRowKeys()).toEqual([])
+  })
+
+  test('restores selected sidebar rows without restoring unrelated rows', () => {
+    // WHY: the task picker reverses dismissal for one task tree. It must not
+    // reopen other tasks the user deliberately removed from the sidebar.
+    setTabPersistenceServerInstallationId('local-install', { migrateLegacy: true })
+    persistDismissedSidebarRow('root-task')
+    persistDismissedSidebarRow('session:attempt')
+    persistDismissedSidebarRow('unrelated-task')
+
+    removeDismissedSidebarRows(['root-task', 'session:attempt'])
+
+    expect(loadDismissedSidebarRowKeys()).toEqual(['unrelated-task'])
   })
 })

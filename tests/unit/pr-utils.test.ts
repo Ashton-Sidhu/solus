@@ -30,12 +30,12 @@ describe('filterPrs', () => {
 })
 
 describe('pull request status colours', () => {
-  test('matches the task lifecycle palette', () => {
-    // WHY: Tasks and Pull Requests describe the same lifecycle concepts, so
-    // users must not learn a second color meaning when they change pages.
-    expect(prStatusBadge({ state: 'open', draft: false })?.tone).toBe('var(--running)')
-    expect(prStatusBadge({ state: 'merged', draft: false })?.tone).toBe('var(--success)')
-    expect(prStatusBadge({ state: 'closed', draft: false })?.tone).toBe('var(--idle)')
+  test('uses conventional Git host lifecycle colours', () => {
+    // WHY: PR state follows the familiar Git host convention. In particular,
+    // open must read as green rather than the blue used for active task work.
+    expect(prStatusBadge({ state: 'open', draft: false })?.tone).toBe('var(--success)')
+    expect(prStatusBadge({ state: 'merged', draft: false })?.tone).toBe('var(--review)')
+    expect(prStatusBadge({ state: 'closed', draft: false })?.tone).toBe('var(--failure)')
   })
 })
 

@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 const UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart'
 
 export interface DriveDoc {
@@ -35,7 +37,7 @@ export async function uploadMarkdownAsDoc(
   const responseBody = await res.text()
   if (res.status !== 200) throw new Error(`Drive upload failed (${res.status}): ${responseBody}`)
 
-  const data = JSON.parse(responseBody) as { id: string }
+  const data = z.object({ id: z.string().min(1) }).parse(JSON.parse(responseBody))
   return {
     docId: data.id,
     docUrl: `https://docs.google.com/document/d/${data.id}/edit`,

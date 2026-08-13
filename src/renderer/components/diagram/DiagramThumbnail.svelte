@@ -35,6 +35,11 @@
     empty: boolean
   }
 
+  interface DiagramSize {
+    w: number
+    h: number
+  }
+
   let { content }: Props = $props()
 
   const theme = getSettingsContext()
@@ -51,7 +56,7 @@
     return hash.toString(36)
   }
 
-  function estimateSize(node: DiagramNode): { w: number; h: number } {
+  function estimateSize(node: DiagramNode): DiagramSize {
     if (node.width && node.height) return { w: node.width, h: node.height }
     if (node.group) return { w: node.width ?? 320, h: node.height ?? 220 }
 

@@ -6,11 +6,10 @@ import { SOLUS_PLUGINS_DIR } from '../plugins'
 import { createLogger } from '../../logger'
 import type {
   CodexResponseFor,
+  CodexClientParams,
   CodexTypedMethod,
   JsonRpcId,
   JsonRpcMessage,
-  JsonRpcNotification,
-  JsonRpcRequest,
   JsonRpcResponse,
 } from './codex-protocol'
 
@@ -23,11 +22,14 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>
 }
 
+type JsonRpcResult = JsonRpcResponse['result']
+type JsonRpcErrorData = NonNullable<JsonRpcResponse['error']>['data']
+
 export class CodexRpcError extends Error {
   constructor(
     message: string,
     readonly code: number,
-    readonly data?: unknown,
+    readonly data?: JsonRpcErrorData,
   ) {
     super(message)
     this.name = 'CodexRpcError'
@@ -48,15 +50,16 @@ export class CodexAppServerClient extends EventEmitter {
     return !!this.proc || !!this.startPromise
   }
 
-  async request<M extends CodexTypedMethod>(method: M, params?: unknown, timeoutMs?: number): Promise<CodexResponseFor<M>>
-  async request<T = any>(method: string, params?: unknown, timeoutMs?: number): Promise<T>
-  async request<T = any>(method: string, params?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+  async request<M extends CodexTypedMethod>(method: M, params?: CodexClientParams<M>, timeoutMs?: number): Promise<CodexResponseFor<M>>
+  async request<T = any, Params = never>(method: string, params?: Params, timeoutMs?: number): Promise<T>
+  async request<T = any, Params = never>(method: string, params?: Params, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
     await this.ensureStarted()
     const proc = this.proc
     if (!proc || proc.killed || !proc.stdin.writable) throw new Error('Codex app-server is not running')
 
     const id = this.nextId++
-    const payload: JsonRpcRequest = { jsonrpc: '2.0', id, method, ...(params === undefined ? {} : { params }) }
+    const payload = { jsonrpc: '2.0', id, method }
+    if (params !== undefined) Object.assign(payload, { params })
 
     const promise = new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -70,7 +73,7 @@ export class CodexAppServerClient extends EventEmitter {
     return promise
   }
 
-  respond(id: JsonRpcId, result: unknown): void {
+  respond(id: JsonRpcId, result: JsonRpcResult): void {
     const proc = this.proc
     if (!proc || proc.killed || !proc.stdin.writable) return
     proc.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, result })}\n`)
@@ -149,7 +152,7 @@ export class CodexAppServerClient extends EventEmitter {
         capabilities: { experimentalApi: true, optOutNotificationMethods: null },
       }, 15_000)
     } catch (err) {
-      log.warn('app_server_initialize_failed', { error: (err as Error).message })
+      log.warn('app_server_initialize_failed', { error: err instanceof Error ? err.message : String(err) })
     }
 
     // Point Codex at the app-bundled skills via the live API rather than config,
@@ -159,7 +162,7 @@ export class CodexAppServerClient extends EventEmitter {
         extraRoots: [join(SOLUS_PLUGINS_DIR, 'skills')],
       }, 15_000)
     } catch (err) {
-      log.warn('skills_extra_roots_set_failed', { error: (err as Error).message })
+      log.warn('skills_extra_roots_set_failed', { error: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -172,6 +175,7 @@ export class CodexAppServerClient extends EventEmitter {
       this.buffer = this.buffer.slice(idx + 1)
       if (!line) continue
       try {
+        // SAFETY: Codex app-server stdout is the generated JSON-RPC protocol transport.
         this.onMessage(JSON.parse(line) as JsonRpcMessage)
       } catch {
         log.warn('non_json_stdout_ignored', { line })
@@ -181,7 +185,7 @@ export class CodexAppServerClient extends EventEmitter {
 
   private onMessage(message: JsonRpcMessage): void {
     if ('id' in message && ('result' in message || 'error' in message)) {
-      this.onResponse(message as JsonRpcResponse)
+      this.onResponse(message)
       return
     }
     if ('method' in message && 'id' in message) {
@@ -189,7 +193,7 @@ export class CodexAppServerClient extends EventEmitter {
       return
     }
     if ('method' in message) {
-      this.emit('notification', message as JsonRpcNotification)
+      this.emit('notification', message)
     }
   }
 

@@ -322,7 +322,7 @@
        controls sit at its left and the pane's close lives in the floating
        PaneChrome cluster, which the right gutter reserves room for. -->
   <div
-    class="flex h-(--solus-chrome-row-h) shrink-0 items-center gap-2 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
+    class="workspace-titlebar flex h-(--solus-chrome-row-h) shrink-0 items-center gap-2 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <TooltipUI.Root>
       <TooltipUI.Trigger>

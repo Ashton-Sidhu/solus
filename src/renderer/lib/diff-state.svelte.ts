@@ -36,7 +36,9 @@ type ParsedDiffScope = {
 // recompiles it. Mirrors the per-path check isBinaryFile used to build inline.
 const BINARY_FILE_LINE = /^Binary files (?:a\/[^\n]+|\/dev\/null) and b\/(.+) differ$/gm
 
-function collectBinaryFiles(patch: string): { paths: Set<string>; hasGitBinaryPatch: boolean } {
+interface BinaryFiles { paths: Set<string>; hasGitBinaryPatch: boolean }
+
+function collectBinaryFiles(patch: string): BinaryFiles {
   const paths = new Set<string>()
   BINARY_FILE_LINE.lastIndex = 0
   let match: RegExpExecArray | null

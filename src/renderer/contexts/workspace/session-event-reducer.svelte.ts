@@ -1,5 +1,5 @@
-import type { AgentId, EnrichedError, GitState, Message, Session, ThreadGoal, WireNormalizedEvent } from '../../../shared/types'
-import { existingTaskId } from './session-draft.svelte'
+import type { EnrichedError, GitState, Message, Session, ThreadGoal, WireNormalizedEvent } from '../../../shared/types'
+import { existingTaskId, taskBindingSessionId } from './session-draft.svelte'
 import { encodePathAsFolder } from '../../../shared/types'
 import { uuid } from '../../../shared/uuid'
 import type { SettingsContext } from '../app/settings.context.svelte'
@@ -171,6 +171,7 @@ export class SessionEventReducer {
       case 'session_init':
         session.run.provider = session.run.provider ?? this.deps.settings.activeAgent
         session.agentSessionId = event.sessionId
+        const taskSessionId = taskBindingSessionId(session) ?? event.sessionId
         session.currentActivity = session.currentTurnStart === 'fresh'
           ? 'Connecting...'
           : 'Resuming...'
@@ -189,7 +190,7 @@ export class SessionEventReducer {
         const taskServerId = session.run.taskServerId
         const pendingTaskId = existingTaskId(session.task)
         if (pendingTaskId) {
-          this.deps.tasksStore.trackSessionStart(pendingTaskId, event.sessionId)
+          this.deps.tasksStore.trackSessionStart(pendingTaskId, taskSessionId)
           // On a dispatch this client is the only party that can name the
           // execution host, so it says so once and the task's host records the
           // session. The group path travels with it because the agent's own
@@ -198,7 +199,7 @@ export class SessionEventReducer {
           void this.deps.tasksStore.linkSession(
             taskServerId,
             pendingTaskId,
-            event.sessionId,
+              taskSessionId,
             isDispatch
               ? {
                   serverId: session.run.serverId,
@@ -209,7 +210,7 @@ export class SessionEventReducer {
             session.run.gitContext?.branch ?? null,
           )
         }
-        void this.deps.tasksStore.refreshSessionBinding(event.sessionId, taskServerId)
+        void this.deps.tasksStore.refreshSessionBinding(taskSessionId, taskServerId)
           .then((task) => {
             if (!task) return
             if (existingTaskId(session.task) === pendingTaskId) session.task = { kind: 'new' }
@@ -240,7 +241,7 @@ export class SessionEventReducer {
         this.deps.workStreamTracker.beginToolArtifacts(
           session,
           event.toolName,
-          (session.run.provider ?? this.deps.settings.activeAgent) as AgentId,
+          session.run.provider ?? this.deps.settings.activeAgent,
         )
         break
       }
@@ -567,20 +568,22 @@ export class SessionEventReducer {
         // the durable attempt stays branchless and PR discovery cannot recover
         // it after a client refresh.
         if (session.agentSessionId && event.gitContext.branch) {
-          const task = this.deps.tasksStore.taskForSession(session.agentSessionId)
+          const taskSessionId = taskBindingSessionId(session)
+          const task = this.deps.tasksStore.taskForSession(taskSessionId)
           const taskServerId = session.run.taskServerId
           if (
             task
             && taskServerId
-            && this.deps.tasksStore.sessionBranchFor(task.id, session.agentSessionId) !== event.gitContext.branch
+            && taskSessionId
+            && this.deps.tasksStore.sessionBranchFor(task.id, taskSessionId) !== event.gitContext.branch
           ) {
             void this.deps.tasksStore.linkSession(
               taskServerId,
               task.id,
-              session.agentSessionId,
+              taskSessionId,
               null,
               event.gitContext.branch,
-            ).then(() => this.deps.tasksStore.refreshSessionBinding(session.agentSessionId!, taskServerId))
+            ).then(() => this.deps.tasksStore.refreshSessionBinding(taskSessionId, taskServerId))
               .catch(() => null)
           }
         }
@@ -626,28 +629,38 @@ export class SessionEventReducer {
         session.currentTurnStartedAt ??= Date.now()
         session.terminalFailure = null
         this.agentConversations.closeTurn(session)
-        session.messages.push({
+        const message: Message = {
           id: event.clientPromptId ?? nextMsgId(),
-          role: 'user' as const,
+          role: 'user',
           content: event.text,
           timestamp: Date.now(),
           clientPromptId: event.clientPromptId,
           delivery: event.delivery,
-          // A prompt the limit held states its wait once it lands, so the bubble
-          // that was dashed a moment ago closes the loop instead of vanishing.
-          ...(outbound?.reason === 'rate_limit' && outbound.enqueuedAt
-            ? { queuedWaitMs: Date.now() - outbound.enqueuedAt }
-            : {}),
-          ...(outbound?.attachments?.length
-            ? { attachments: outbound.attachments }
-            : event.imageAttachments?.length
-            ? { attachments: event.imageAttachments.map((img) => ({ name: '', dataUrl: img.dataUrl, mimeType: img.mimeType, type: 'image' as const })) }
-            : {}),
-          ...(outbound?.planRefs?.length ? { planRefs: outbound.planRefs } : {}),
-          ...(outbound?.workRefs?.length ? { workRefs: outbound.workRefs } : {}),
-          ...(outbound?.sessionRefs?.length ? { sessionRefs: outbound.sessionRefs } : {}),
-          ...(event.via ? { via: event.via, automationId: event.automationId, automationName: event.automationName } : {}),
-        })
+        }
+        // A prompt the limit held states its wait once it lands, so the bubble
+        // that was dashed a moment ago closes the loop instead of vanishing.
+        if (outbound?.reason === 'rate_limit' && outbound.enqueuedAt) {
+          message.queuedWaitMs = Date.now() - outbound.enqueuedAt
+        }
+        if (outbound?.attachments?.length) {
+          message.attachments = outbound.attachments
+        } else if (event.imageAttachments?.length) {
+          message.attachments = event.imageAttachments.map((image) => ({
+            name: '',
+            dataUrl: image.dataUrl,
+            mimeType: image.mimeType,
+            type: 'image',
+          }))
+        }
+        if (outbound?.planRefs?.length) message.planRefs = outbound.planRefs
+        if (outbound?.workRefs?.length) message.workRefs = outbound.workRefs
+        if (outbound?.sessionRefs?.length) message.sessionRefs = outbound.sessionRefs
+        if (event.via) {
+          message.via = event.via
+          message.automationId = event.automationId
+          message.automationName = event.automationName
+        }
+        session.messages.push(message)
         break
       }
 

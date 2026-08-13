@@ -1,15 +1,25 @@
 import { spawn } from 'child_process'
-import { once } from 'events'
 import { existsSync, readFileSync } from 'fs'
 import { rm } from 'fs/promises'
 import { homedir, userInfo } from 'os'
 import { join } from 'path'
 import { text } from 'node:stream/consumers'
-import type { DiscoveredServer, SshBootstrapCredential, SshBootstrapResult, SshTargetCandidate } from '../../shared/types'
+import { z } from 'zod'
+import type { DiscoveredServer, SshBootstrapResult, SshTargetCandidate } from '../../shared/types'
 import { sshConnectionOptions } from './handlers/lib/ssh-options'
 import { writeTempSecretScript } from './handlers/lib/temp-secret-script'
 
 const MAX_AUTH_PROMPTS = 2
+
+const sshBootstrapCredentialSchema = z
+  .object({
+    sessionToken: z.string(),
+    installationId: z.string(),
+    fingerprint: z.string(),
+    ownerDeviceId: z.string().optional(),
+    claimedAt: z.number().optional(),
+  })
+  .strict()
 
 const ASKPASS_SCRIPT = `#!/bin/sh
 if [ "\${SOLUS_SSH_AUTH_SECRET+x}" = "x" ]; then
@@ -61,13 +71,14 @@ export async function bootstrapDiscoveredServerOverSsh(
   if (resolved.status === 'needs-target') return resolved
 
   const attempt = Math.max(0, input.attempt ?? 0)
-  const hasSecret = typeof input.authSecret === 'string' && input.authSecret.length > 0
-  const result = await runSsh({
+  const hasSecret = !!input.authSecret
+  const runOptions: SshRunOptions = {
     target: resolved.target,
     batchMode: !hasSecret,
-    ...(hasSecret ? { authSecret: input.authSecret } : {}),
     deviceLabel: (input.deviceLabel ?? 'Solus desktop').slice(0, 64),
-  })
+  }
+  if (hasSecret) runOptions.authSecret = input.authSecret
+  const result = await runSsh(runOptions)
 
   if (result.code !== 0) {
     if (isSshAuthFailure(`${result.stderr}\n${result.stdout}`) && attempt < MAX_AUTH_PROMPTS) {
@@ -83,20 +94,16 @@ export async function bootstrapDiscoveredServerOverSsh(
 
   const line = lastNonEmptyLine(result.stdout)
   if (!line) throw new Error('SSH bootstrap did not return a credential.')
-  let credential: Partial<SshBootstrapCredential>
+  let parsedCredential
   try {
-    credential = JSON.parse(line) as Partial<SshBootstrapCredential>
+    parsedCredential = sshBootstrapCredentialSchema.safeParse(JSON.parse(line))
   } catch {
     throw new Error('SSH bootstrap returned an incomplete credential.')
   }
-  if (
-    typeof credential.sessionToken !== 'string' ||
-    typeof credential.installationId !== 'string' ||
-    typeof credential.fingerprint !== 'string'
-  ) {
+  if (!parsedCredential.success) {
     throw new Error('SSH bootstrap returned an incomplete credential.')
   }
-  return { status: 'connected', credential: credential as SshBootstrapCredential }
+  return { status: 'connected', credential: parsedCredential.data }
 }
 
 export type ResolveSshBootstrapTargetResult =
@@ -134,10 +141,9 @@ export function parseSshTarget(input: string): ParsedSshTarget {
   if (!trimmed) throw new Error('SSH target is required.')
   const bracketMatch = trimmed.match(/^(.+@\[[^\]]+\]|\[[^\]]+\])(?::(\d+))?$/)
   if (bracketMatch) {
-    return {
-      destination: bracketMatch[1],
-      ...(bracketMatch[2] ? { port: parseSshPort(bracketMatch[2]) } : {}),
-    }
+    const target: ParsedSshTarget = { destination: bracketMatch[1] }
+    if (bracketMatch[2]) target.port = parseSshPort(bracketMatch[2])
+    return target
   }
   const colon = trimmed.lastIndexOf(':')
   if (colon > -1 && trimmed.indexOf(':') === colon) {
@@ -165,41 +171,33 @@ export function isSshAuthFailure(message: string): boolean {
 export async function runSshCredentialCommand(options: SshRunOptions): Promise<SshRunResult> {
   const askpass = options.authSecret ? await createAskpassHelper() : null
   try {
-    const args = [
-      ...sshConnectionOptions(options.batchMode),
-      '-o', 'NumberOfPasswordPrompts=1',
-      ...(options.target.port ? ['-p', String(options.target.port)] : []),
-      options.target.destination,
-      'sh', '-s', '--', options.deviceLabel,
-    ]
+    const args = [...sshConnectionOptions(options.batchMode), '-o', 'NumberOfPasswordPrompts=1']
+    if (options.target.port) args.push('-p', String(options.target.port))
+    args.push(options.target.destination, 'sh', '-s', '--', options.deviceLabel)
+    const env = { ...process.env }
+    if (askpass) {
+      Object.assign(env, {
+        SSH_ASKPASS: askpass.path,
+        SSH_ASKPASS_REQUIRE: 'force',
+        SOLUS_SSH_AUTH_SECRET: options.authSecret ?? '',
+      })
+      if (!process.env.DISPLAY) env.DISPLAY = 'solus'
+    }
     const child = spawn('ssh', args, {
-      env: {
-        ...process.env,
-        ...(askpass
-          ? {
-              SSH_ASKPASS: askpass.path,
-              SSH_ASKPASS_REQUIRE: 'force',
-              SOLUS_SSH_AUTH_SECRET: options.authSecret ?? '',
-              ...(process.env.DISPLAY ? {} : { DISPLAY: 'solus' }),
-            }
-          : {}),
-      },
+      env,
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     child.stdin.end(REMOTE_CREDENTIAL_SCRIPT)
-    const exitOrError = Promise.race([
-      once(child, 'exit') as Promise<[number | null, NodeJS.Signals | null]>,
-      once(child, 'error').then(([err]) => {
-        throw err
-      }),
-    ])
-    const [stdout, stderr, exit] = await Promise.all([
+    const exitCode = new Promise<number>((resolve, reject) => {
+      child.once('exit', (code) => resolve(code ?? 1))
+      child.once('error', reject)
+    })
+    const [stdout, stderr, code] = await Promise.all([
       text(child.stdout),
       text(child.stderr),
-      exitOrError,
+      exitCode,
     ])
-    const [code] = exit
-    return { stdout, stderr, code: code ?? 1 }
+    return { stdout, stderr, code }
   } finally {
     if (askpass) await rm(askpass.directory, { recursive: true, force: true }).catch(() => {})
   }

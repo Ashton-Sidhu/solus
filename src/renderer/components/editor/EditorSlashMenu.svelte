@@ -19,8 +19,8 @@
 
   $effect(() => {
     if (!listEl) return
-    const buttons = listEl.querySelectorAll('button')
-    const btn = buttons[selectedIndex] as HTMLElement | undefined
+    const buttons = listEl.querySelectorAll<HTMLButtonElement>('button')
+    const btn = buttons[selectedIndex]
     btn?.scrollIntoView({ block: 'nearest' })
   })
 

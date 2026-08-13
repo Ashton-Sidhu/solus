@@ -85,7 +85,7 @@ export function installWsBackedSolusApi(
   nativeApi: NativeSolusAPI,
   options: InstallSolusConnectionOptions = {},
 ): InstalledSolusConnection {
-  const refreshLocalSessionToken = nativeApi.refreshLocalSessionToken as (() => Promise<string>) | undefined
+  const refreshLocalSessionToken = nativeApi.refreshLocalSessionToken
 
   const connection = createSolusConnection(target, {
     ...options,
@@ -132,7 +132,7 @@ export function createSolusConnection(
         lastConnected: Date.now(),
       })
     },
-    useHostFileDialog: target.local && typeof window !== 'undefined' && !!window.solusNative,
+    useHostFileDialog: target.local && !!globalThis.window?.solusNative,
   })
   const api = asHostApi(transport.buildSolusApi())
   return { transport, api, events: transport.events }

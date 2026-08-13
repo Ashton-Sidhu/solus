@@ -5,15 +5,13 @@ export type DictationTarget = HTMLInputElement | HTMLTextAreaElement
 /** True when `el` is a plain text field we can dictate into at the caret. */
 export function isDictationTarget(el: Element | null): el is DictationTarget {
   if (!el) return false
-  if (el.tagName === 'TEXTAREA') {
-    const t = el as HTMLTextAreaElement
-    return !t.disabled && !t.readOnly
+  if (el instanceof HTMLTextAreaElement) {
+    return !el.disabled && !el.readOnly
   }
-  if (el.tagName === 'INPUT') {
-    const t = el as HTMLInputElement
-    if (t.disabled || t.readOnly) return false
+  if (el instanceof HTMLInputElement) {
+    if (el.disabled || el.readOnly) return false
     // Only text-like inputs hold prose and expose a caret selection.
-    return ['text', 'search', 'url', 'email', ''].includes(t.type)
+    return ['text', 'search', 'url', 'email', ''].includes(el.type)
   }
   return false
 }

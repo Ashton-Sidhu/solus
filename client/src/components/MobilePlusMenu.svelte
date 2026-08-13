@@ -7,6 +7,7 @@
     FolderOpenIcon,
     ArrowsClockwiseIcon,
     GitCommitIcon,
+    GitPullRequestIcon,
     ArrowSquareUpIcon,
     ArrowCounterClockwiseIcon,
     CheckIcon,
@@ -25,6 +26,7 @@
     serversStore,
   } from "@renderer/contexts";
   import { gitActionsFor } from "@renderer/lib/git-actions.svelte";
+  import { primaryGitAction } from "@renderer/components/project-panel/lib/git-action-selection";
   import { buildAgentAvailabilityRows } from "@renderer/lib/agentAvailability";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
   import { REASONING_EFFORT_LABELS } from "../../../src/shared/types";
@@ -33,6 +35,7 @@
   import WebPushBell from "./WebPushBell.svelte";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import { serverConnections } from "@client-core/server-connections";
+  import { localApi } from "@client-core/local-api";
 
   interface Props {
     open: boolean;
@@ -127,6 +130,37 @@
   const actions = $derived(
     gitActionsFor(session.activeTabId, session, environmentStore),
   );
+  const gitEnvironment = $derived(
+    environmentStore.environmentFor(session.runFor(session.activeTabId)),
+  );
+  const gitPrimaryAction = $derived(primaryGitAction(gitEnvironment.status));
+  const isCommitActionRunning = $derived(
+    actions.running &&
+      (actions.activeAction === "commit" ||
+        actions.activeAction === "commit_push" ||
+        actions.activeAction === "commit_push_pull_request"),
+  );
+  const isPullRequestActionRunning = $derived(
+    actions.running &&
+      (actions.activeAction === "create_pull_request" ||
+        actions.activeAction === "commit_push_pull_request"),
+  );
+
+  $effect(() => {
+    if (!open || !gitEnvironment.cwd || gitEnvironment.cwd === "~") return;
+    return environmentStore.watchDetails(gitEnvironment.cwd);
+  });
+
+  function runPrimaryGitAction() {
+    if (gitPrimaryAction.kind === "view") {
+      localApi.openExternal(gitPrimaryAction.url);
+      return;
+    }
+    if (gitPrimaryAction.kind !== "run") return;
+    void actions.run(gitPrimaryAction.action, {
+      createFeatureBranch: gitPrimaryAction.createFeatureBranch,
+    });
+  }
 
   // Discard arms in place — the row itself becomes the confirmation, which
   // beats a modal on touch. Re-armed closed every time the sheet opens.
@@ -346,13 +380,13 @@
             <span class={listLabel}>{actions.synced ? "Synced" : "Sync"}</span>
           </button>
           <div class={rowDivider}></div>
-          <button class={listRow} onclick={() => void actions.commit()} disabled={actions.commitPushing}>
-            <span class="{listIcon} {actions.commitPushed ? '!text-(--solus-status-complete)' : ''}">
-              {#key actions.commitPushing ? "busy" : actions.commitPushed ? "done" : "idle"}
+          <button class={listRow} onclick={() => void actions.run("commit")} disabled={actions.running}>
+            <span class="{listIcon} {actions.lastResult?.commit.status === 'created' ? '!text-(--solus-status-complete)' : ''}">
+              {#key isCommitActionRunning ? "busy" : actions.lastResult?.commit.status === "created" ? "done" : "idle"}
                 <span class="icon-swap">
-                  {#if actions.commitPushing}
+                  {#if isCommitActionRunning}
                     <SpinnerIcon size={14} class="animate-spin" />
-                  {:else if actions.commitPushed}
+                  {:else if actions.lastResult?.commit.status === "created"}
                     <CheckIcon size={14} />
                   {:else}
                     <GitCommitIcon size={14} />
@@ -363,11 +397,27 @@
             <span class={listLabel}>Commit</span>
           </button>
           <div class={rowDivider}></div>
-          <button class={listRow} onclick={() => void actions.commitPush()} disabled={actions.commitPushing}>
+          <button class={listRow} onclick={() => void actions.run("commit_push")} disabled={actions.running}>
             <span class={listIcon}>
               <ArrowSquareUpIcon size={14} />
             </span>
             <span class={listLabel}>Commit & Push</span>
+          </button>
+          <div class={rowDivider}></div>
+          <button
+            class={listRow}
+            onclick={() => handleAction(runPrimaryGitAction)}
+            disabled={actions.running || gitPrimaryAction.kind === "disabled"}
+            title={gitPrimaryAction.kind === "disabled" ? gitPrimaryAction.reason : undefined}
+          >
+            <span class={listIcon}>
+              {#if isPullRequestActionRunning}
+                <SpinnerIcon size={14} class="animate-spin" />
+              {:else}
+                <GitPullRequestIcon size={14} />
+              {/if}
+            </span>
+            <span class={listLabel}>{isPullRequestActionRunning ? (actions.activeLabel ?? gitPrimaryAction.label) : gitPrimaryAction.label}</span>
           </button>
           {#if changedFilesCount > 0}
             <div class={rowDivider}></div>

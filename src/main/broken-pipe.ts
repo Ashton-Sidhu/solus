@@ -1,5 +1,9 @@
+import { z } from 'zod'
+
+const errorCodeSchema = z.object({ code: z.string().optional() })
+
 interface ErrorStream {
-  on(event: 'error', listener: (error: unknown) => void): unknown
+  on(event: 'error', listener: (error: z.input<typeof errorCodeSchema>) => void): ErrorStream
 }
 
 export interface BrokenPipeGuard {
@@ -7,8 +11,9 @@ export interface BrokenPipeGuard {
   write(callback: () => void): void
 }
 
-function isBrokenPipeError(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException | null)?.code === 'EPIPE'
+function isBrokenPipeError(error: z.input<typeof errorCodeSchema>): boolean {
+  const parsed = errorCodeSchema.safeParse(error)
+  return parsed.success && parsed.data.code === 'EPIPE'
 }
 
 /**

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
+import { z } from 'zod'
 import { getDb, withTx } from '../db'
 import { createLogger } from '../logger'
 import { nextRunFrom, validateTrigger } from './automation-schedule'
@@ -9,7 +10,6 @@ import type {
   AutomationAction,
   AutomationCreator,
   AutomationRun,
-  AutomationRunStatus,
   AutomationsChangedEvent,
   AutomationTrigger,
 } from '../../shared/types'
@@ -23,27 +23,79 @@ const MAX_RUNS_PER_AUTOMATION = 50
 const MAX_RUN_OUTPUT_CHARS = 20_000
 const RUNNABLE_AGENT_PROVIDERS = new Set<AgentId>(['claude-code', 'codex'])
 
-interface AutomationRow {
-  id: string
-  name: string
-  enabled: number
-  favorite: number | null
-  action: string
-  trigger_config: string
-  next_run_at: number | null
-  last_run: string | null
-  created_at: number
-  updated_at: number
-}
+const agentProviderSchema = z.enum(['claude-code', 'codex', 'opencode'])
+const reasoningEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'])
+const runStatusSchema = z.enum(['running', 'succeeded', 'failed', 'cancelled', 'dispatched'])
+const automationTriggerSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('manual') }),
+  z.object({ type: z.literal('once'), runAt: z.string() }),
+  z.object({ type: z.literal('interval'), everyMinutes: z.number() }),
+  z.object({ type: z.literal('cron'), expr: z.string(), timezone: z.string().optional() }),
+])
+const automationActionSchema = z.object({
+  prompt: z.string(),
+  agentProvider: agentProviderSchema,
+  modelId: z.string().nullable(),
+  reasoningEffort: reasoningEffortSchema,
+  cwd: z.string(),
+  sessionId: z.string().optional(),
+  useWorktree: z.boolean().optional(),
+  planRefs: z.array(z.object({
+    planId: z.string(),
+    title: z.string(),
+    filePath: z.string().optional(),
+    content: z.string().optional(),
+  })).optional(),
+  workRefs: z.array(z.object({
+    workId: z.string(),
+    title: z.string(),
+    type: z.enum(['doc', 'slides', 'diagram']),
+  })).optional(),
+})
+const automationCreatorSchema = z.object({
+  kind: z.enum(['user', 'agent']),
+  agentProvider: agentProviderSchema.optional(),
+  sessionId: z.string().optional(),
+})
+const automationMetadataSchema = z.object({
+  createdBy: automationCreatorSchema.default({ kind: 'user' }),
+  lastRunId: z.string().optional(),
+  lastRunStatus: runStatusSchema.optional(),
+  lastRunAt: z.string().optional(),
+})
+const automationRunDataSchema = z.object({
+  agentSessionId: z.string().nullable().optional(),
+  branch: z.string().optional(),
+  worktreePath: z.string().optional(),
+  error: z.string().optional(),
+})
+const automationRowSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  enabled: z.number(),
+  favorite: z.number().nullable(),
+  action: z.string(),
+  trigger_config: z.string(),
+  next_run_at: z.number().nullable(),
+  last_run: z.string().nullable(),
+  created_at: z.number(),
+  updated_at: z.number(),
+})
+const automationRunRowSchema = z.object({
+  id: z.string(),
+  automation_id: z.string(),
+  started_at: z.number(),
+  finished_at: z.number().nullable(),
+  status: runStatusSchema,
+  output: z.string().nullable(),
+  data: z.string().nullable(),
+})
 
-interface AutomationRunRow {
-  id: string
-  automation_id: string
-  started_at: number
-  finished_at: number | null
-  status: AutomationRunStatus
-  output: string | null
-  data: string | null
+type AutomationRow = z.infer<typeof automationRowSchema>
+type AutomationRunRow = z.infer<typeof automationRunRowSchema>
+
+function parseJson<T>(source: string, schema: z.ZodType<T>): T {
+  return schema.parse(JSON.parse(source))
 }
 
 // Every mutation is announced so the server can broadcast it to all clients —
@@ -76,32 +128,36 @@ function isoTime(value: number): string {
 }
 
 function automationFromRow(row: AutomationRow): Automation {
-  const metadata = row.last_run ? JSON.parse(row.last_run) as Partial<Automation> : {}
-  return {
+  const metadata = row.last_run
+    ? parseJson(row.last_run, automationMetadataSchema)
+    : automationMetadataSchema.parse({})
+  const automation: Automation = {
     ...metadata,
     id: row.id,
     name: row.name,
     enabled: row.enabled === 1,
-    ...(row.favorite === null ? {} : { favorite: row.favorite === 1 }),
-    action: JSON.parse(row.action) as AutomationAction,
-    trigger: JSON.parse(row.trigger_config) as AutomationTrigger,
-    ...(row.next_run_at === null ? {} : { nextRunAt: isoTime(row.next_run_at) }),
+    action: parseJson(row.action, automationActionSchema),
+    trigger: parseJson(row.trigger_config, automationTriggerSchema),
     createdAt: isoTime(row.created_at),
     updatedAt: isoTime(row.updated_at),
-  } as Automation
+  }
+  if (row.favorite !== null) automation.favorite = row.favorite === 1
+  if (row.next_run_at !== null) automation.nextRunAt = isoTime(row.next_run_at)
+  return automation
 }
 
 function runFromRow(row: AutomationRunRow): AutomationRun {
-  const data = row.data ? JSON.parse(row.data) as Partial<AutomationRun> : {}
-  return {
+  const data = row.data ? parseJson(row.data, automationRunDataSchema) : {}
+  const run: AutomationRun = {
     ...data,
     id: row.id,
     automationId: row.automation_id,
     startedAt: isoTime(row.started_at),
-    ...(row.finished_at === null ? {} : { finishedAt: isoTime(row.finished_at) }),
     status: row.status,
-    ...(row.output === null ? {} : { output: row.output }),
-  } as AutomationRun
+  }
+  if (row.finished_at !== null) run.finishedAt = isoTime(row.finished_at)
+  if (row.output !== null) run.output = row.output
+  return run
 }
 
 function writeAutomation(db: DatabaseSync, automation: Automation): void {
@@ -120,12 +176,10 @@ function writeAutomation(db: DatabaseSync, automation: Automation): void {
     lastRunAt,
     ...metadata
   } = automation
-  const lastRun = {
-    ...metadata,
-    ...(lastRunId === undefined ? {} : { lastRunId }),
-    ...(lastRunStatus === undefined ? {} : { lastRunStatus }),
-    ...(lastRunAt === undefined ? {} : { lastRunAt }),
-  }
+  const lastRun: z.input<typeof automationMetadataSchema> = { ...metadata }
+  if (lastRunId !== undefined) lastRun.lastRunId = lastRunId
+  if (lastRunStatus !== undefined) lastRun.lastRunStatus = lastRunStatus
+  if (lastRunAt !== undefined) lastRun.lastRunAt = lastRunAt
   db.prepare(`
     INSERT INTO automations(
       id, name, enabled, favorite, action, trigger_config, next_run_at,
@@ -203,9 +257,7 @@ function pruneRuns(db: DatabaseSync, automationId: string): void {
   `).run(automationId, automationId, MAX_RUNS_PER_AUTOMATION)
 }
 
-function database(): DatabaseSync {
-  return getDb()
-}
+const database = getDb
 
 function assertValidAction(action: AutomationAction): void {
   if (!RUNNABLE_AGENT_PROVIDERS.has(action.agentProvider)) {
@@ -250,16 +302,18 @@ export async function createAutomation(
 }
 
 export async function listAutomations(): Promise<Automation[]> {
-  const rows = database().prepare(`
+  const rows = automationRowSchema.array().parse(database().prepare(`
     SELECT *
     FROM automations
     ORDER BY updated_at DESC
-  `).all() as unknown as AutomationRow[]
+  `).all())
   return rows.map(automationFromRow)
 }
 
 export async function loadAutomation(id: string): Promise<Automation | null> {
-  const row = database().prepare('SELECT * FROM automations WHERE id = ?').get(id) as unknown as AutomationRow | undefined
+  const row = automationRowSchema.nullish().parse(
+    database().prepare('SELECT * FROM automations WHERE id = ?').get(id),
+  )
   return row ? automationFromRow(row) : null
 }
 
@@ -271,7 +325,9 @@ export async function updateAutomation(
   patch: { name?: string; enabled?: boolean; favorite?: boolean; action?: Partial<AutomationAction>; trigger?: AutomationTrigger },
 ): Promise<Automation | null> {
   const db = database()
-  const row = db.prepare('SELECT * FROM automations WHERE id = ?').get(id) as unknown as AutomationRow | undefined
+  const row = automationRowSchema.nullish().parse(
+    db.prepare('SELECT * FROM automations WHERE id = ?').get(id),
+  )
   if (!row) return null
   const existing = automationFromRow(row)
   const nextAction = patch.action ? { ...existing.action, ...patch.action } : existing.action
@@ -327,11 +383,11 @@ export async function claimDueAutomations(
   const nowMs = now.getTime()
   const nowIso = now.toISOString()
   const due = withTx(() => {
-    const rows = db.prepare(`
+    const rows = automationRowSchema.array().parse(db.prepare(`
       SELECT *
       FROM automations
       WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
-    `).all(nowMs) as unknown as AutomationRow[]
+    `).all(nowMs))
     const claimed = rows
       .map(automationFromRow)
       .filter((automation) => automation.trigger.type !== 'manual' && !isRunning?.(automation.id))
@@ -356,12 +412,12 @@ export async function claimDueAutomations(
 
 /** Public accessor: newest first for the UI. */
 export async function listRuns(id: string): Promise<AutomationRun[]> {
-  const rows = database().prepare(`
+  const rows = automationRunRowSchema.array().parse(database().prepare(`
     SELECT *
     FROM automation_runs
     WHERE automation_id = ?
     ORDER BY started_at DESC, rowid DESC
-  `).all(id) as unknown as AutomationRunRow[]
+  `).all(id))
   return rows.map(runFromRow)
 }
 
@@ -378,7 +434,9 @@ export async function startRun(automationId: string): Promise<AutomationRun> {
     writeRun(db, run)
     pruneRuns(db, automationId)
 
-    const row = db.prepare('SELECT * FROM automations WHERE id = ?').get(automationId) as unknown as AutomationRow | undefined
+    const row = automationRowSchema.nullish().parse(
+      db.prepare('SELECT * FROM automations WHERE id = ?').get(automationId),
+    )
     if (!row) return null
     const stored = automationFromRow(row)
     // Running is not an edit, so do not bump updatedAt and reorder the list.
@@ -404,11 +462,11 @@ export async function attachRunSession(
 ): Promise<void> {
   const db = database()
   const result = withTx(() => {
-    const runRow = db.prepare(`
+    const runRow = automationRunRowSchema.nullish().parse(db.prepare(`
       SELECT *
       FROM automation_runs
       WHERE automation_id = ? AND id = ?
-    `).get(automationId, runId) as unknown as AutomationRunRow | undefined
+    `).get(automationId, runId))
     const run = runRow ? runFromRow(runRow) : null
     if (!run || run.status !== 'running') return { automation: null, run: null }
     run.agentSessionId = agentSessionId
@@ -416,7 +474,9 @@ export async function attachRunSession(
     if (worktreePath) run.worktreePath = worktreePath
     writeRun(db, run)
 
-    const automationRow = db.prepare('SELECT * FROM automations WHERE id = ?').get(automationId) as unknown as AutomationRow | undefined
+    const automationRow = automationRowSchema.nullish().parse(
+      db.prepare('SELECT * FROM automations WHERE id = ?').get(automationId),
+    )
     return {
       automation: automationRow ? automationFromRow(automationRow) : null,
       run,
@@ -439,18 +499,20 @@ export async function finishRun(
 
   const db = database()
   const result = withTx(() => {
-    const runRow = db.prepare(`
+    const runRow = automationRunRowSchema.nullish().parse(db.prepare(`
       SELECT *
       FROM automation_runs
       WHERE automation_id = ? AND id = ?
-    `).get(automationId, runId) as unknown as AutomationRunRow | undefined
+    `).get(automationId, runId))
     const finished = runRow ? runFromRow(runRow) : null
     if (finished) {
       Object.assign(finished, outcome, { finishedAt: new Date().toISOString() })
       writeRun(db, finished)
     }
 
-    const automationRow = db.prepare('SELECT * FROM automations WHERE id = ?').get(automationId) as unknown as AutomationRow | undefined
+    const automationRow = automationRowSchema.nullish().parse(
+      db.prepare('SELECT * FROM automations WHERE id = ?').get(automationId),
+    )
     const automation = automationRow ? automationFromRow(automationRow) : null
     if (automation?.lastRunId === runId) {
       automation.lastRunStatus = outcome.status
@@ -464,10 +526,10 @@ export async function finishRun(
 }
 
 export async function loadRun(automationId: string, runId: string): Promise<AutomationRun | null> {
-  const row = database().prepare(`
+  const row = automationRunRowSchema.nullish().parse(database().prepare(`
     SELECT *
     FROM automation_runs
     WHERE automation_id = ? AND id = ?
-  `).get(automationId, runId) as unknown as AutomationRunRow | undefined
+  `).get(automationId, runId))
   return row ? runFromRow(row) : null
 }

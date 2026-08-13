@@ -17,7 +17,6 @@ import {
   personFrom,
   type InboxGroupSpec,
   type ListChecksSpec,
-  type ListChipSpec,
   type ListGroupSpec,
   type ListRevealSpec,
   type ListRowSpec,
@@ -44,13 +43,13 @@ function groupOf(pr: PullRequestSummary, ctx: PrRowContext): PrGroupKey {
   return 'open'
 }
 
-const GROUP_LABELS: Record<PrGroupKey, string> = {
+const GROUP_LABELS = {
   review: 'Awaiting your review',
   open: 'Open',
   draft: 'Draft',
   merged: 'Merged',
   closed: 'Closed',
-}
+} satisfies Record<PrGroupKey, string>
 
 const GROUP_ORDER: PrGroupKey[] = ['review', 'open', 'draft', 'merged', 'closed']
 
@@ -158,7 +157,7 @@ export function prRow(
     title: pr.title,
     // Nothing sits between the number and the trailing metrics at rest, so the
     // title is the only thing competing for the middle of the row.
-    chips: [] as ListChipSpec[],
+    chips: [],
     reveal: revealFor(pr, stackParent),
     checks: checksFor(pr, ctx.checks(pr.number)),
     meta: '',
@@ -294,7 +293,7 @@ function inboxRowBase(pr: PullRequestSummary, now: number) {
     time: compactRelativeTime(pr.updatedAt, now),
     timeTitle: absoluteTime(pr.updatedAt),
     unread: false,
-    chips: [] as ListChipSpec[],
+    chips: [],
   }
 }
 

@@ -42,6 +42,9 @@ describe('git status hot path', () => {
       headSha: 'abc123',
       branch: 'main',
       targetBranch: 'main',
+      upstreamRef: 'origin/main',
+      aheadCount: 0,
+      behindCount: 0,
       uncommittedChanges: { files: [], hasMoreFiles: false, insertions: 0, deletions: 0, mergeInProgress: false },
     }
 
@@ -98,6 +101,18 @@ describe('git status hot path', () => {
     expect(truncated.hasMoreFiles).toBe(true)
   })
 
+  test('parses upstream divergence from porcelain branch headers', () => {
+    const status = parseStatus([
+      '# branch.head feature/git-actions',
+      '# branch.upstream origin/feature/git-actions',
+      '# branch.ab +3 -2',
+    ].join('\n'))
+
+    expect(status.upstreamRef).toBe('origin/feature/git-actions')
+    expect(status.aheadCount).toBe(3)
+    expect(status.behindCount).toBe(2)
+  })
+
   test('a slow detail response cannot overwrite a newer summary', async () => {
     const previousWindow = globalThis.window
     const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -108,6 +123,9 @@ describe('git status hot path', () => {
       headSha: 'abc123',
       branch: 'feature',
       targetBranch: 'main',
+      upstreamRef: 'origin/feature',
+      aheadCount: 0,
+      behindCount: 0,
       uncommittedChanges: { files: [{ path: file, conflicted: false }], hasMoreFiles: false, insertions, deletions: 0, mergeInProgress: false },
     })
 
@@ -158,6 +176,9 @@ describe('git status hot path', () => {
       headSha: 'abc123',
       branch: 'feature',
       targetBranch: 'main',
+      upstreamRef: 'origin/feature',
+      aheadCount: 0,
+      behindCount: 0,
       uncommittedChanges: { files: [{ path: 'changed.ts', conflicted: false }], hasMoreFiles: false, insertions: 1, deletions: 0, mergeInProgress: false },
     }
     let shouldFail = false

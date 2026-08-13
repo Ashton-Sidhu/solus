@@ -1,5 +1,6 @@
 import type { ConnectionStatus } from '@client-core/ws-transport'
 import { connectionState, subscribe } from '@client-core/connection-state'
+import { localApi } from '@client-core/local-api'
 import { serverConnections } from '@client-core/server-connections'
 import type { LocalConnectionInfoLike, SolusServerTarget } from '@client-core/server-connection'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
@@ -13,7 +14,7 @@ import {
   upsertServer,
   type SavedServer,
 } from '@client-core/server-registry'
-import type { DiscoveredServer, ProjectIdentity } from '../../../shared/types'
+import type { DiscoveredServer, HostOperatingSystem, ProjectIdentity } from '../../../shared/types'
 import type { SolusAPI } from '../../../preload'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { toasts } from '../../lib/toasts'
@@ -47,6 +48,7 @@ export interface ServerItem {
   label: string
   url: string
   installationId?: string
+  os?: HostOperatingSystem
   local: boolean
   status: ServerItemStatus
 }
@@ -111,6 +113,7 @@ class ServersStore {
           label: active.label,
           url: active.url,
           installationId: active.installationId,
+          os: active.os,
           local: true,
           status: this.statusFor(LOCAL_SERVER_ID),
         })
@@ -125,6 +128,7 @@ class ServersStore {
           label: server.label,
           url: server.url,
           installationId: server.installationId,
+          os: server.os,
           local: false,
           status: this.statusFor(server.id),
         })),
@@ -143,7 +147,7 @@ class ServersStore {
   /** On web the primary connection plays the local role; see `servers`.
    *  `typeof` guard: unit tests read this store without a `window` at all. */
   private get isWebClient(): boolean {
-    return typeof window !== 'undefined' && window.solus?.getPlatform?.() === 'web'
+    return localApi.getPlatform?.() === 'web'
   }
 
   private get hasPrimaryConnection(): boolean {
@@ -212,7 +216,7 @@ class ServersStore {
     updateAutoDiscovery()
 
     // The browser client has no native bridge and therefore no "This Mac".
-    const nativeApi = (window as { solusNative?: typeof window.solusNative }).solusNative
+    const nativeApi = window.solusNative
     if (nativeApi) {
       void nativeApi.getLocalConnection().then((local) => {
         this.local = local
@@ -373,6 +377,10 @@ class ServersStore {
     try {
       health = await serverConnections.probeHealth(serverId, true)
     } catch {}
+    if (health?.os) {
+      const remote = this.remotes.find((server) => server.id === serverId)
+      if (remote) remote.os = health.os
+    }
     this.connectionStateFor(serverId).probeStatus = health ? 'online' : 'offline'
     return !!health
   }
@@ -552,10 +560,11 @@ class ServersStore {
       this.announcedDiscoveredInstallationIds.add(server.installationId)
     }
     const installationIds = unannounced.map((server) => server.installationId)
-    const message = unannounced.length === 1
-      ? `Solus host found: ${unannounced[0].name}`
+    const title = unannounced.length === 1
+      ? 'Solus host found'
       : `${unannounced.length} Solus hosts found nearby`
-    toasts.info(message, {
+    toasts.info(title, {
+      description: unannounced.length === 1 ? unannounced[0].name : undefined,
       duration: 12_000,
       action: {
         label: 'Show',

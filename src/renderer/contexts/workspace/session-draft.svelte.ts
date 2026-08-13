@@ -1,4 +1,4 @@
-import type { Prompt, RunConfig, SessionSpec, TaskTarget } from '../../../shared/types'
+import type { Prompt, RunConfig, Session, SessionSpec, TaskTarget } from '../../../shared/types'
 import { inheritRunConfig } from './run-config'
 import { uuid } from '../../../shared/uuid'
 import { makePrompt } from './session.factories'
@@ -18,7 +18,7 @@ import { makePrompt } from './session.factories'
 export class SessionDraft {
   readonly id: string = uuid()
   prompt = $state<Prompt>(makePrompt())
-  run = $state<RunConfig>() as RunConfig
+  run: RunConfig
   task = $state<TaskTarget>({ kind: 'new' })
 
   /**
@@ -31,7 +31,7 @@ export class SessionDraft {
    *   is handed in rather than read back off one.
    */
   constructor(defaults: RunConfig, inherit?: RunConfig | null, worktreeEnabled = false) {
-    this.run = inheritRunConfig(defaults, inherit, { worktreeEnabled })
+    this.run = $state(inheritRunConfig(defaults, inherit, { worktreeEnabled }))
   }
 
   /** The plain, serializable shape — what persists and what dispatch consumes. */
@@ -70,6 +70,15 @@ export function existingTaskId(task: TaskTarget): string | null {
   return task.kind === 'existing' ? task.taskId : null
 }
 
+/** The durable identity that owns a session's task attempt. A handoff keeps one
+ * Solus identity while its provider thread changes, so provider ids are only a
+ * fallback for sessions that have never entered a handoff chain. */
+export function taskBindingSessionId(
+  session: Pick<Session, 'handoffId' | 'agentSessionId'>,
+): string | null {
+  return session.handoffId ?? session.agentSessionId
+}
+
 /** The task a newly minted one will hang under, when it has a parent. */
 export function parentTaskId(task: TaskTarget): string | null {
   return task.kind === 'new' ? task.parentTaskId ?? null : null
@@ -89,11 +98,13 @@ export function taskTargetFrom(fields: {
 }
 
 /** The pre-`TaskTarget` encoding, for the persisted tab fields that still carry it. */
-export function taskTargetFields(task: TaskTarget): {
+export interface TaskTargetFields {
   pendingTaskId: string | null
   pendingParentTaskId: string | null
   taskCreationDisabled: boolean
-} {
+}
+
+export function taskTargetFields(task: TaskTarget): TaskTargetFields {
   return {
     pendingTaskId: task.kind === 'existing' ? task.taskId : null,
     pendingParentTaskId: task.kind === 'new' ? task.parentTaskId ?? null : null,

@@ -1,6 +1,7 @@
 import { getDb, withTx } from '../db'
 import { ulid } from '../tasks/ulid'
 import { createLogger } from '../logger'
+import { z } from 'zod'
 import type { OutboxApplyResult, OutboxDomain, OutboxOp } from '../../shared/outbox-types'
 
 const log = createLogger('main', 'outbox-store.ts')
@@ -12,30 +13,33 @@ const log = createLogger('main', 'outbox-store.ts')
  * against resources that live here). Clients ferry ops between the two.
  */
 
-interface OutboxOpRow {
-  id: string
-  domain: OutboxDomain
-  resource_id: string
-  name: string
-  payload: string
-  session_id: string | null
-  recorded_at: number
-  state: 'pending' | 'failed'
-  error: string | null
-}
+const outboxOpRowSchema = z.object({
+  id: z.string(),
+  domain: z.enum(['tasks', 'works']),
+  resource_id: z.string(),
+  name: z.string(),
+  payload: z.string(),
+  session_id: z.string().nullable(),
+  recorded_at: z.number(),
+  state: z.enum(['pending', 'failed']),
+  error: z.string().nullable(),
+})
+
+type OutboxOpRow = z.infer<typeof outboxOpRowSchema>
 
 function opFromRow(row: OutboxOpRow): OutboxOp {
-  return {
+  const op: OutboxOp = {
     id: row.id,
     domain: row.domain,
     resourceId: row.resource_id,
     name: row.name,
-    payload: JSON.parse(row.payload) as unknown,
-    ...(row.session_id === null ? {} : { sessionId: row.session_id }),
+    payload: z.unknown().parse(JSON.parse(row.payload)),
     recordedAt: row.recorded_at,
     state: row.state,
-    ...(row.error === null ? {} : { error: row.error }),
   }
+  if (row.session_id !== null) op.sessionId = row.session_id
+  if (row.error !== null) op.error = row.error
+  return op
 }
 
 type OutboxChangedListener = () => void
@@ -91,10 +95,10 @@ export function recordOutboxOp(input: {
     resourceId: input.resourceId,
     name: input.name,
     payload: input.payload,
-    ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
     recordedAt: now,
     state: 'pending',
   }
+  if (input.sessionId !== undefined) op.sessionId = input.sessionId
   getDb().prepare(`
     INSERT INTO outbox_ops(id, domain, resource_id, name, payload, session_id, recorded_at, state)
     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
@@ -106,9 +110,9 @@ export function recordOutboxOp(input: {
 
 /** Every op still on this host, pending first, in record (id) order. */
 export function listOutboxOps(): OutboxOp[] {
-  const rows = getDb().prepare(`
+  const rows = z.array(outboxOpRowSchema).parse(getDb().prepare(`
     SELECT * FROM outbox_ops ORDER BY id
-  `).all() as unknown as OutboxOpRow[]
+  `).all())
   return rows.map(opFromRow)
 }
 
@@ -116,11 +120,11 @@ export function listOutboxOps(): OutboxOp[] {
  *  surfaces on the recording host (a failed op no longer describes a write that
  *  will happen, so it is excluded). */
 export function pendingOutboxOpsFor(domain: OutboxDomain, resourceId: string): OutboxOp[] {
-  const rows = getDb().prepare(`
+  const rows = z.array(outboxOpRowSchema).parse(getDb().prepare(`
     SELECT * FROM outbox_ops
     WHERE domain = ? AND resource_id = ? AND state = 'pending'
     ORDER BY id
-  `).all(domain, resourceId) as unknown as OutboxOpRow[]
+  `).all(domain, resourceId))
   return rows.map(opFromRow)
 }
 
@@ -128,11 +132,11 @@ export function pendingOutboxOpsFor(domain: OutboxDomain, resourceId: string): O
  *  works ops that must overlay it (they are keyed by work id, not task id, so
  *  the caller filters by payload). */
 export function pendingOutboxOpsForDomain(domain: OutboxDomain): OutboxOp[] {
-  const rows = getDb().prepare(`
+  const rows = z.array(outboxOpRowSchema).parse(getDb().prepare(`
     SELECT * FROM outbox_ops
     WHERE domain = ? AND state = 'pending'
     ORDER BY id
-  `).all(domain) as unknown as OutboxOpRow[]
+  `).all(domain))
   return rows.map(opFromRow)
 }
 

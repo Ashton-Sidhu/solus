@@ -305,12 +305,12 @@
     // ⌥-letter accelerators open the matching picker (e.code is keyboard-layout
     // independent, so opt-S resolves even though macOS maps opt-S to "ß").
     if (e.altKey && !e.metaKey && !e.ctrlKey && !saving) {
-      const map: Record<string, PickerName> = {
+      const map = {
         KeyS: "status",
         KeyP: "priority",
         KeyD: "due",
         KeyL: "labels",
-      };
+      } satisfies Record<string, PickerName>;
       const name = map[e.code];
       const nameAllowed =
         name === "status"

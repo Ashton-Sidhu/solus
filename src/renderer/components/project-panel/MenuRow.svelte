@@ -108,7 +108,7 @@
     border-radius: 0.4375rem;
     background: transparent;
     color: var(--solus-text-secondary);
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
     font-weight: 400;
     text-align: left;
     cursor: pointer;
@@ -184,7 +184,7 @@
   .menu-trail {
     flex-shrink: 0;
     color: var(--solus-text-tertiary);
-    font-size: 0.75rem;
+    font-size: var(--text-menu-meta);
     font-weight: 400;
     font-variant-numeric: tabular-nums;
   }
@@ -216,7 +216,7 @@
     flex-shrink: 0;
     color: var(--solus-text-tertiary);
     font-family: var(--solus-code-font-family);
-    font-size: 0.75rem;
+    font-size: var(--text-menu-meta);
     opacity: 0.7;
   }
 

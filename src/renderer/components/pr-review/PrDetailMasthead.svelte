@@ -28,14 +28,14 @@
     headRef?: string;
     baseRef?: string;
     /** The content tab showing in this column — Diff is never one of them. */
-    tab: "activity" | "guide";
+    tab: "activity" | "map" | "guide";
     /** Whether the change is open in the pane beside this one. */
     diffOpen: boolean;
     guideDisabled?: boolean;
     guideDisabledReason?: string;
     /** The host target is still loading, so revision-backed tabs are not ready. */
     tabsDisabled?: boolean;
-    onSelect: (tab: "activity" | "guide" | "diff") => void;
+    onSelect: (tab: "activity" | "map" | "guide" | "diff") => void;
   } = $props();
 </script>
 

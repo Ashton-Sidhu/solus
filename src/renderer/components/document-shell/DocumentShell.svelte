@@ -193,7 +193,7 @@
   // Track the on-screen keyboard via visualViewport so the editor can scroll the
   // caret clear of it (touch only; a no-op on desktop where the viewport is static).
   $effect(() => {
-    if (!runtime.isTouchDevice || typeof window === "undefined") return;
+    if (!runtime.isTouchDevice) return;
     const vv = window.visualViewport;
     if (!vv) return;
     let prev = 0;
@@ -216,7 +216,7 @@
 
   /** Keep the caret above the soft keyboard while typing near the page bottom. */
   function ensureCaretVisible() {
-    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    const vv = window.visualViewport;
     if (!tiptapEditor || !scrollContainer || !vv || keyboardInset <= 0) return;
     try {
       const caret = tiptapEditor.view.coordsAtPos(tiptapEditor.state.selection.head);
@@ -247,7 +247,7 @@
   function renameKeydown(e: KeyboardEvent) {
     if (e.key === "Enter") {
       e.preventDefault();
-      (e.target as HTMLInputElement)?.blur();
+      if (e.currentTarget instanceof HTMLInputElement) e.currentTarget.blur();
     } else if (e.key === "Escape") {
       e.preventDefault();
       renaming = false;
@@ -269,7 +269,7 @@
   // is bumped once per frame on every edit — so it updates live as you type
   // (a 500ms timer made it lag and never settle during continuous typing).
   const wordCount = $derived.by(() => {
-    stateVersion;
+    void stateVersion;
     const trimmed = tiptapEditor?.state.doc.textContent.trim();
     return trimmed ? trimmed.split(/\s+/).length : 0;
   });
@@ -277,11 +277,11 @@
 
   // Toolbar undo/redo affordance — re-read on each batched stateVersion bump.
   const canUndo = $derived.by(() => {
-    stateVersion;
+    void stateVersion;
     return tiptapEditor?.can().undo() ?? false;
   });
   const canRedo = $derived.by(() => {
-    stateVersion;
+    void stateVersion;
     return tiptapEditor?.can().redo() ?? false;
   });
 
@@ -446,7 +446,7 @@
   // above never fires. Re-extract directly off the content prop so the TOC
   // tracks externally-set content instead of waiting for a manual edit.
   $effect(() => {
-    content;
+    void content;
     const editor = tiptapEditor;
     if (!editor) return;
     // Defer past this flush so DocumentEditor's value-sync effect has applied
@@ -505,18 +505,6 @@
     return window.location.origin;
   }
 
-  function isGoogleAuthUrlResult(result: unknown): result is { authUrl: string; expiresAt?: number } {
-    return typeof (result as { authUrl?: unknown })?.authUrl === "string";
-  }
-
-  function isGoogleUploadError(result: unknown): result is { error: string } {
-    return typeof (result as { error?: unknown })?.error === "string";
-  }
-
-  function isGoogleDocResult(result: unknown): result is { docUrl: string } {
-    return typeof (result as { docUrl?: unknown })?.docUrl === "string";
-  }
-
   async function openUrl(url: string, options?: { hideAppAfterOpen?: boolean }) {
     if (localApi.getPlatform() !== "web") {
       try {
@@ -538,29 +526,33 @@
       const markdown = currentMarkdown();
       const request = { title, markdown, oauthCallbackBaseUrl: googleOAuthCallbackBaseUrl() };
       // primary-host by decision (docs/plans/multi-host-parity.md)
-      let result: unknown = await serverConnections.primaryApi().googleUploadDoc(request);
-      if (isGoogleAuthUrlResult(result)) {
+      let result = await serverConnections.primaryApi().googleUploadDoc(request);
+      if ("authUrl" in result) {
         await openUrl(result.authUrl);
         const deadline = Math.min(result.expiresAt ?? Date.now() + 5 * 60_000, Date.now() + 5 * 60_000);
         while (Date.now() < deadline) {
           await sleep(2000);
           result = await serverConnections.primaryApi().googleUploadDoc(request);
-          if (!isGoogleAuthUrlResult(result)) break;
+          if (!("authUrl" in result)) break;
         }
       }
-      if (isGoogleUploadError(result)) {
-        toasts.error(`Couldn't open in Google Docs: ${result.error}`);
-      } else if (isGoogleAuthUrlResult(result)) {
+      if ("error" in result) {
+        toasts.error("Couldn't open in Google Docs", { description: result.error });
+      } else if ("authUrl" in result) {
         toasts.error("Finish Google sign-in in your browser, then try again.");
-      } else if (isGoogleDocResult(result)) {
+      } else if ("docUrl" in result) {
         await openUrl(result.docUrl, { hideAppAfterOpen: true });
         uploaded = true;
         setTimeout(() => (uploaded = false), 1500);
       } else {
-        toasts.error("Couldn't open in Google Docs: Google returned an unexpected response.");
+        toasts.error("Couldn't open in Google Docs", {
+          description: "Google returned an unexpected response.",
+        });
       }
     } catch (err) {
-      toasts.error(`Couldn't open in Google Docs: ${err instanceof Error ? err.message : String(err)}`);
+      toasts.error("Couldn't open in Google Docs", {
+        description: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       uploading = false;
     }
@@ -580,7 +572,9 @@
       // unsaved edits as clean (and an agent refresh clobber them). The header
       // shows a retry affordance and any further edit re-arms the save.
       saveFailed = true;
-      toasts.error(`Couldn't save document: ${err instanceof Error ? err.message : String(err)}`);
+      toasts.error("Couldn't save document", {
+        description: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       isSaving = false;
     }
@@ -701,7 +695,7 @@
          overlays the reading measure. It holds only what stays visible at every
          width: where you are, whether it saved, and the surface's own actions.
          Formatting is not here — it lives at the selection. -->
-    <header class="doc-shell-toolbar relative flex shrink-0 items-center">
+    <header class="workspace-titlebar doc-shell-toolbar relative flex shrink-0 items-center">
       {#if !isMobile}
       <!-- Left: where you are, and whether it saved. Nothing else earns a
            permanent seat on this side. -->

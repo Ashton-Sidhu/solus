@@ -11,8 +11,8 @@ import { worktreeBlockedReason } from '../run-on'
  *
  * - `local` — the agent runs on the host that owns the project. Worktree mode is
  *   a free choice.
- * - `dispatched` — the project is here, the agent was sent elsewhere. That host
- *   holds a clone, so isolation is mandatory and the task stays behind.
+ * - `dispatched` — the project is here, the agent was sent elsewhere. The task
+ *   stays behind; the target can use a new or existing worktree.
  * - `remote` — the project itself was opened on another host. It is that host's
  *   project in every respect, so this behaves exactly like `local` and only the
  *   name on the trigger differs.
@@ -76,12 +76,11 @@ export function runTarget(input: RunTargetInput): RunTarget {
       kind,
       label: hostLabel,
       startsWorktree: worktree,
-      // Isolation is mandatory only when the dispatch would otherwise run in
-      // the target's base checkout. A run continuing inside an existing session
-      // worktree is being watched from right here and behaves like local.
       worktreeForced: worktree,
-      worktreeBlockedNote: worktree ? null : worktreeBlockedReason(canBranchWorktree),
-      taskNote: `Runs on ${hostLabel} · task stays on ${taskHostLabel}`,
+      // The target checkout resolves its own default branch during Send. A
+      // detached source checkout must not block a new worktree on that host.
+      worktreeBlockedNote: null,
+      taskNote: null,
     }
   }
 
@@ -97,6 +96,6 @@ export function runTarget(input: RunTargetInput): RunTarget {
     startsWorktree: worktree,
     worktreeForced: false,
     worktreeBlockedNote: worktreeBlockedReason(canBranchWorktree),
-    taskNote: kind === 'remote' ? `Runs and files tasks on ${hostLabel}` : null,
+    taskNote: null
   }
 }

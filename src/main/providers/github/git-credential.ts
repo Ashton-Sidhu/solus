@@ -32,13 +32,21 @@ export function coerceGitCredentialAction(value: string | undefined): GitCredent
   throw new Error('Unknown git-credential action. Expected: get, store or erase.')
 }
 
-function parseCredentialRequest(input: string): Record<string, string> {
-  const fields: Record<string, string> = {}
+export interface GitCredentialRequest {
+  protocol?: string
+  host?: string
+}
+
+function parseCredentialRequest(input: string): GitCredentialRequest {
+  const fields: GitCredentialRequest = {}
   for (const line of input.split('\n')) {
     if (!line.trim()) continue
     const separator = line.indexOf('=')
     if (separator <= 0) continue
-    fields[line.slice(0, separator).trim()] = line.slice(separator + 1).trim()
+    const key = line.slice(0, separator).trim()
+    const value = line.slice(separator + 1).trim()
+    if (key === 'protocol') fields.protocol = value
+    if (key === 'host') fields.host = value
   }
   return fields
 }
@@ -48,7 +56,7 @@ function parseCredentialRequest(input: string): Record<string, string> {
  * the request — an unknown host, a non-HTTPS protocol, or no stored token.
  */
 export function credentialFor(
-  fields: Record<string, string>,
+  fields: GitCredentialRequest,
   token: string | null,
 ): { username: string; password: string } | null {
   if (!token) return null

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { localApi } from '../../src/client-core/local-api'
 import { mergeNativeOnlySolusApi } from '../../src/client-core/native-api-overlay'
 import { createNoHostSolusApi } from '../../src/client-core/no-host-api'
 import { claimServer, normalizeServerUrl, pairServer, parsePairLink, saveBootstrappedServer } from '../../src/client-core/pairing'
@@ -11,6 +12,26 @@ import {
 } from '../../src/client-core/ws-transport'
 
 describe('client core transport helpers', () => {
+  test('loads before the client bridge and follows the bridge installed later', () => {
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+    try {
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        value: { solus: { getPlatform: () => 'web' } },
+      })
+      expect(localApi.getPlatform()).toBe('web')
+
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        value: { solus: { getPlatform: () => 'darwin' } },
+      })
+      expect(localApi.getPlatform()).toBe('darwin')
+    } finally {
+      if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+      else Reflect.deleteProperty(globalThis, 'window')
+    }
+  })
+
   test('keeps the no-host boot API inert and referentially stable', async () => {
     const api = createNoHostSolusApi()
 
@@ -158,6 +179,7 @@ describe('client core transport helpers', () => {
       return new Response(JSON.stringify({
         sessionToken: 'device.123.label.sig',
         installationId: 'server-installation-1',
+        os: 'macos',
       }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -185,6 +207,7 @@ describe('client core transport helpers', () => {
         url: 'http://10.0.0.8:51234',
         sessionToken: 'device.123.label.sig',
         installationId: 'server-installation-1',
+        os: 'macos',
       })
     } finally {
       globalThis.fetch = originalFetch
@@ -203,6 +226,7 @@ describe('client core transport helpers', () => {
         claimedAt: 1770000000000,
         installationId: 'claimed-installation-1',
         fingerprint: 'abc123ef',
+        os: 'linux',
       }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -237,6 +261,7 @@ describe('client core transport helpers', () => {
         url: 'http://100.64.0.4:3000',
         sessionToken: 'owner.123.label.sig',
         installationId: 'claimed-installation-1',
+        os: 'linux',
       })
     } finally {
       globalThis.fetch = originalFetch
@@ -252,6 +277,7 @@ describe('client core transport helpers', () => {
         fingerprint: 'abc12345',
       },
       'Build Host',
+      'linux',
     )
 
     expect(server).toMatchObject({
@@ -260,6 +286,7 @@ describe('client core transport helpers', () => {
       url: 'http://100.64.0.8:3000',
       sessionToken: 'ssh-issued-session',
       installationId: 'ssh-installation',
+      os: 'linux',
     })
   })
 

@@ -2,12 +2,12 @@ import type { DiagramDoc, DiagramEdge } from './diagram-types'
 
 // Edge kind → Mermaid arrow. Mirrors the editor's visual encoding: async is
 // dotted, data is thick.
-const ARROW: Record<NonNullable<DiagramEdge['kind']> | 'default', string> = {
+const ARROW = {
   sync: '-->',
   async: '-.->',
   data: '==>',
   default: '-->',
-}
+} satisfies Record<NonNullable<DiagramEdge['kind']> | 'default', string>
 
 /** Mermaid ids must be identifier-safe; map arbitrary node ids to stable aliases. */
 function safeId(id: string, seen: Map<string, string>): string {

@@ -143,19 +143,20 @@ export class HostOnboardingStore {
     }
 
     try {
-      const result = await sshApi.connectionsBootstrapDiscoveredServer({
+      const request: Parameters<typeof sshApi.connectionsBootstrapDiscoveredServer>[0] = {
         server: target,
-        ...(options.targetOverride ? { sshTarget: options.targetOverride } : {}),
-        ...(options.authSecret ? { authSecret: options.authSecret } : {}),
-        ...(options.attempt ? { attempt: options.attempt } : {}),
         deviceLabel: defaultDeviceLabel(),
-      })
+      }
+      if (options.targetOverride) request.sshTarget = options.targetOverride
+      if (options.authSecret) request.authSecret = options.authSecret
+      if (options.attempt) request.attempt = options.attempt
+      const result = await sshApi.connectionsBootstrapDiscoveredServer(request)
       if (generation !== this.pairingGeneration || !this.isOpen) return
 
       if (result.status === 'connected') {
         this.sshPassword = ''
         this.adoptPairedHost(
-          saveBootstrappedServer(url, result.credential, target.name),
+          saveBootstrappedServer(url, result.credential, target.name, target.os),
           target,
           result.credential.fingerprint,
         )

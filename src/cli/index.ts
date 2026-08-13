@@ -1,6 +1,7 @@
 import { spawn } from 'child_process'
 import { createHash } from 'crypto'
-import { once } from 'events'
+import type { ChildProcess } from 'child_process'
+import { z } from 'zod'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { basename, dirname, join } from 'path'
@@ -36,6 +37,17 @@ interface AuthSessionCreateOptions extends CommonOptions {
 
 interface GitCredentialOptions extends CommonOptions {
   delegationDeviceId?: string
+}
+
+interface ChildExit {
+  code: number | null
+  signal: NodeJS.Signals | null
+}
+
+function waitForExit(child: ChildProcess): Promise<ChildExit> {
+  return new Promise((resolve) => {
+    child.once('exit', (code, signal) => resolve({ code, signal }))
+  })
 }
 
 async function main(argv: string[]): Promise<void> {
@@ -96,7 +108,7 @@ async function start(opts: StartOptions): Promise<void> {
     env: serverEnv(opts),
     stdio: 'inherit',
   })
-  const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null]
+  const { code, signal } = await waitForExit(child)
   if (signal) process.exitCode = 1
   else process.exitCode = code ?? 1
 }
@@ -109,7 +121,7 @@ async function logs(opts: LogsOptions): Promise<void> {
     return
   }
   const child = spawn('tail', ['-n', String(opts.lines), '-f', paths.logFile], { stdio: 'inherit' })
-  const [code] = await once(child, 'exit') as [number | null]
+  const { code } = await waitForExit(child)
   process.exitCode = code ?? 1
 }
 
@@ -158,7 +170,7 @@ async function auth(args: string[]): Promise<void> {
     ...(opts.deviceLabel ? ['--device-label', opts.deviceLabel] : []),
   ]
   const child = spawn(paths.nodePath, childArgs, { stdio: 'inherit' })
-  const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null]
+  const { code, signal } = await waitForExit(child)
   if (signal) process.exitCode = 1
   else process.exitCode = code ?? 1
 }
@@ -181,7 +193,7 @@ async function gitCredential(args: string[]): Promise<void> {
     ],
     { stdio: 'inherit' },
   )
-  const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null]
+  const { code, signal } = await waitForExit(child)
   if (signal) process.exitCode = 1
   else process.exitCode = code ?? 1
 }
@@ -298,12 +310,13 @@ function parsePositiveInt(value: string, flag: string): number {
 }
 
 function serverEnv(opts: StartOptions): NodeJS.ProcessEnv {
-  return {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     SOLUS_DATA_DIR: opts.dataDir,
-    ...(opts.host ? { SOLUS_HOST: opts.host } : {}),
-    ...(opts.port ? { SOLUS_PORT: opts.port } : {}),
   }
+  if (opts.host) env.SOLUS_HOST = opts.host
+  if (opts.port) env.SOLUS_PORT = opts.port
+  return env
 }
 
 function isBrewManaged(installDir: string): boolean {
@@ -332,6 +345,14 @@ interface GithubRelease {
   assets: ReleaseAsset[]
 }
 
+const githubReleaseSchema = z.object({
+  tag_name: z.string(),
+  assets: z.array(z.object({
+    name: z.string(),
+    browser_download_url: z.string(),
+  })),
+})
+
 async function getLatestRelease(repo: string): Promise<GithubRelease> {
   const response = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
     headers: {
@@ -340,9 +361,9 @@ async function getLatestRelease(repo: string): Promise<GithubRelease> {
     },
   })
   if (!response.ok) throw new Error(`GitHub release lookup failed: ${response.status} ${response.statusText}`)
-  const body = await response.json() as Partial<GithubRelease>
-  if (!body.tag_name || !Array.isArray(body.assets)) throw new Error('GitHub release response was missing tag_name/assets')
-  return { tag_name: body.tag_name, assets: body.assets }
+  const parsed = githubReleaseSchema.safeParse(await response.json())
+  if (!parsed.success) throw new Error('GitHub release response was missing tag_name/assets')
+  return parsed.data
 }
 
 function artifactTarget(): string {
@@ -368,7 +389,7 @@ function verifyArchiveSha256(file: string, sums: string, artifactName: string): 
 
 async function run(command: string, args: string[]): Promise<void> {
   const child = spawn(command, args, { stdio: 'inherit' })
-  const [code] = await once(child, 'exit') as [number | null]
+  const { code } = await waitForExit(child)
   if (code !== 0) throw new Error(`${command} exited with status ${code}`)
 }
 

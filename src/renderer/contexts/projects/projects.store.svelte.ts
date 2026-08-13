@@ -36,7 +36,8 @@ export class ProjectsStore {
       .catch(() => {
         this.projects = []
         this.projectsLoaded = true
-        return [] as ProjectEntry[]
+        const empty: ProjectEntry[] = []
+        return empty
       })
       .finally(() => {
         this.projectsLoading = false
@@ -83,7 +84,8 @@ export class ProjectsStore {
       .catch(() => {
         this.projectsByHost.set(serverId, [])
         this.projectsLoadedByHost.set(serverId, true)
-        return [] as ProjectEntry[]
+        const empty: ProjectEntry[] = []
+        return empty
       })
       .finally(() => {
         this.projectsLoadingByHost.set(serverId, false)
@@ -121,7 +123,8 @@ export class ProjectsStore {
       .catch(() => {
         this.recentProjects = []
         this.recentProjectsLoaded = true
-        return [] as RecentProject[]
+        const empty: RecentProject[] = []
+        return empty
       })
       .finally(() => {
         this.recentProjectsLoading = false

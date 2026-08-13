@@ -5,6 +5,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { buildHttpServer } from '../../src/main/server/http'
 import * as auth from '../../src/main/server/auth'
+import { hostOperatingSystem } from '../../src/main/platform/host-operating-system'
 
 const NOW = new Date('2026-03-01T00:00:00Z')
 
@@ -34,6 +35,7 @@ describe('claim state machine', () => {
       const healthBefore = await getJson(`${baseUrl}/health`)
       expect(healthBefore.status).toBe(200)
       expect(healthBefore.body.claimable).toBe(true)
+      expect(healthBefore.body.os).toBe(hostOperatingSystem())
 
       const first = await postJson(`${baseUrl}/claim`, {
         code: claimWindow.code,
@@ -42,6 +44,7 @@ describe('claim state machine', () => {
       expect(first.status).toBe(200)
       expect(first.body.fingerprint).toBe(auth.getServerFingerprint())
       expect(first.body.ownerDeviceId).toBe(auth.verifySessionToken(first.body.sessionToken)!.deviceId)
+      expect(first.body.os).toBe(hostOperatingSystem())
       expect(auth.getOwnershipState()).toEqual({
         owned: {
           ownerDeviceId: first.body.ownerDeviceId,
@@ -106,6 +109,7 @@ describe('claim state machine', () => {
         deviceLabel: 'Browser',
       })
       expect(paired.status).toBe(200)
+      expect(paired.body.os).toBe(hostOperatingSystem())
       expect(auth.verifySessionToken(paired.body.sessionToken)!.deviceLabel).toBe('Browser')
     } finally {
       await close(server)

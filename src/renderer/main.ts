@@ -29,7 +29,7 @@ function currentRendererMode(): 'editor' | 'pill' {
     : 'pill'
 }
 
-function renderBootError(err: unknown): void {
+function renderBootError(err: Parameters<typeof String>[0]): void {
   renderFatal(root, {
     hostLabel: bootTarget?.label ?? 'Solus',
     isLocalHost: bootTarget?.local ?? true,

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { asHostApi } from '../../src/client-core/host-api'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 mock.module('@client-core/server-connections', () => ({
@@ -67,6 +68,33 @@ describe('remote access settings', () => {
 })
 
 describe('agent task lifecycle settings', () => {
+  test('loads the policy for the host shown in settings', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const api = asHostApi({
+      getServerCapabilities: async () => ({
+        headless: false,
+        desktopHandlers: true,
+        agents: { claude: true, codex: true },
+        dictation: false,
+        platform: 'darwin',
+        version: 'test',
+        projectCount: 1,
+        agentAuth: { claude: true },
+        gitAuth: { github: true },
+        agentTaskLifecyclePolicy: 'moderate' as const,
+      }),
+    })
+    const { ConnectionsStore } = await import('../../src/renderer/contexts/connections/connections.store.svelte')
+    const store = new ConnectionsStore()
+
+    await store.refreshCapabilities({ serverId: 'remote-host', api })
+
+    expect(store.capabilitiesFor('remote-host')?.agentTaskLifecyclePolicy).toBe('moderate')
+  })
+
   test('updates the host capability from the saved policy', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,

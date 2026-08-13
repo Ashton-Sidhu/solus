@@ -82,12 +82,12 @@
     onClose();
   }
 
-  const KIND_LABEL: Record<TaskLinkKind, string> = {
+  const KIND_LABEL = {
     work: "Doc",
     plan: "Plan",
     automation: "Automation",
     pr: "PR",
-  };
+  } satisfies Record<TaskLinkKind, string>;
 </script>
 
 <svelte:window

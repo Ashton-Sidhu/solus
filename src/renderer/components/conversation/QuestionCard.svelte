@@ -205,7 +205,7 @@
 
   function handleKeydown(e: KeyboardEvent) {
     if (tabId !== session.activeTabId || responded || !request) return;
-    const target = e.target as HTMLElement | null;
+    const target = e.target instanceof HTMLElement ? e.target : null;
     const tag = target?.tagName;
     const typing =
       tag === "TEXTAREA" ||

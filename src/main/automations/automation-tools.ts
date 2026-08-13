@@ -33,11 +33,11 @@ const REASONING_VALUES = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultr
 // it has no one-shot runner yet.
 const AGENT_PROVIDER_VALUES = ['claude-code', 'codex'] as const
 
-// ─── Schemas (raw zod shapes, reused by every shape we export) ───
+// ─── Schemas (raw Zod fields, reused by every tool definition) ───
 
-const listAutomationsShape = {} as const
+const listAutomationsFields = {} as const
 
-const idShape = {
+const automationIdFields = {
   automation_id: z.string().describe('The id of the automation (from list_automations).'),
 }
 
@@ -53,7 +53,7 @@ const triggerSchema = z
   })
   .describe('Trigger for the automation. Omit for a manual (run-now-only) automation. Scheduled triggers fire only while Solus is open.')
 
-const createAutomationShape = {
+const createAutomationFields = {
   name: z.string().describe('A short, human-readable name for the automation.'),
   prompt: z.string().describe('The instruction submitted to the agent when the automation runs.'),
   cwd: z.string().optional().describe('Working directory the run executes in. Defaults to the active project directory (the path shown in the status bar).'),
@@ -70,7 +70,7 @@ const createAutomationShape = {
   trigger: triggerSchema.optional(),
 }
 
-const updateAutomationShape = {
+const updateAutomationFields = {
   automation_id: z.string().describe('The id of the automation to update.'),
   name: z.string().optional(),
   prompt: z.string().optional(),
@@ -86,12 +86,12 @@ const updateAutomationShape = {
   trigger: triggerSchema.optional(),
 }
 
-const setEnabledShape = {
+const setEnabledFields = {
   automation_id: z.string().describe('The id of the automation.'),
   enabled: z.boolean().describe('true to resume, false to pause.'),
 }
 
-const readRunShape = {
+const readRunFields = {
   automation_id: z.string().describe('The id of the automation.'),
   run_id: z.string().describe('The id of the run (from list_automation_runs).'),
 }
@@ -128,48 +128,44 @@ const READ_RUN_DESC =
 
 // ─── Helpers ───
 
-function reasoning(value: unknown, fallback: ReasoningEffort): ReasoningEffort {
-  return (REASONING_VALUES as readonly string[]).includes(String(value)) ? (value as ReasoningEffort) : fallback
+function reasoning(value: ReasoningEffort | undefined, fallback: ReasoningEffort): ReasoningEffort {
+  return value && REASONING_VALUES.some((candidate) => candidate === value) ? value : fallback
 }
 
-function agentProvider(value: unknown, fallback: AgentId): AgentId {
-  return (AGENT_PROVIDER_VALUES as readonly string[]).includes(String(value)) ? (value as AgentId) : fallback
+function agentProvider(value: AgentId | undefined, fallback: AgentId): AgentId {
+  return value && AGENT_PROVIDER_VALUES.some((candidate) => candidate === value) ? value : fallback
 }
 
-/** Map the flat tool trigger object to an AutomationTrigger. Returns a string
- *  error message if the shape is malformed, or the trigger if valid. */
-function toTrigger(raw: unknown): AutomationTrigger | string {
-  if (raw === undefined || raw === null) return { type: 'manual' }
-  if (typeof raw !== 'object') return 'trigger must be an object.'
-  const t = raw as {
-    type?: unknown
-    run_at?: unknown
-    every_minutes?: unknown
-    cron?: unknown
-    timezone?: unknown
-  }
+type TriggerResult =
+  | { ok: true; trigger: AutomationTrigger }
+  | { ok: false; error: string }
+
+/** Map the parsed tool trigger fields to the stored automation trigger. */
+function toTrigger(raw: AutomationToolArgs['trigger']): TriggerResult {
+  if (!raw) return { ok: true, trigger: { type: 'manual' } }
   let trigger: AutomationTrigger
-  switch (t.type) {
+  switch (raw.type) {
     case 'manual':
       trigger = { type: 'manual' }
       break
     case 'once':
-      if (typeof t.run_at !== 'string') return 'trigger type "once" requires run_at (an ISO-8601 instant).'
-      trigger = { type: 'once', runAt: t.run_at }
+      if (!raw.run_at) return { ok: false, error: 'trigger type "once" requires run_at (an ISO-8601 instant).' }
+      trigger = { type: 'once', runAt: raw.run_at }
       break
     case 'interval':
-      if (typeof t.every_minutes !== 'number') return 'trigger type "interval" requires every_minutes.'
-      trigger = { type: 'interval', everyMinutes: t.every_minutes }
+      if (!raw.every_minutes) return { ok: false, error: 'trigger type "interval" requires every_minutes.' }
+      trigger = { type: 'interval', everyMinutes: raw.every_minutes }
       break
     case 'cron':
-      if (typeof t.cron !== 'string') return 'trigger type "cron" requires a cron expression.'
-      trigger = { type: 'cron', expr: t.cron, ...(typeof t.timezone === 'string' ? { timezone: t.timezone } : {}) }
+      if (!raw.cron) return { ok: false, error: 'trigger type "cron" requires a cron expression.' }
+      trigger = { type: 'cron', expr: raw.cron }
+      if (raw.timezone) trigger.timezone = raw.timezone
       break
     default:
-      return `Unknown trigger type "${String(t.type)}".`
+      return { ok: false, error: `Unknown trigger type "${String(raw.type)}".` }
   }
   const err = validateTrigger(trigger)
-  return err ?? trigger
+  return err ? { ok: false, error: err } : { ok: true, trigger }
 }
 
 function describeRun(r: {
@@ -266,14 +262,14 @@ export async function executeAutomationTool(
     }
 
     if (name === 'create_automation') {
-      const name_ = typeof args.name === 'string' && args.name.trim() ? args.name.trim() : ''
-      const prompt = typeof args.prompt === 'string' ? args.prompt : ''
+      const name_ = args.name?.trim() ?? ''
+      const prompt = args.prompt ?? ''
       if (!name_) return { ok: false, text: 'create_automation requires a name.' }
       if (!prompt.trim()) return { ok: false, text: 'create_automation requires a non-empty prompt.' }
 
       // No cwd given → run in the active project directory (the status-bar path,
       // which is the calling session's working directory).
-      const cwd = typeof args.cwd === 'string' && args.cwd.trim() ? args.cwd : (deps.ctx?.cwd ?? '~')
+      const cwd = args.cwd?.trim() ? args.cwd : (deps.ctx?.cwd ?? '~')
       // Bind to the calling chat thread when asked to run in-session. Without a
       // caller session id (e.g. a headless call) there's no thread to run inside,
       // so fall back to a normal background run rather than failing.
@@ -286,19 +282,19 @@ export async function executeAutomationTool(
         // caller's provider so "automate what I just did" runs on the same agent,
         // falling back to claude-code if the caller isn't a runnable provider.
         agentProvider: agentProvider(args.agent_provider ?? deps.ctx?.agentProvider, 'claude-code'),
-        modelId: typeof args.model_id === 'string' ? args.model_id : null,
+        modelId: args.model_id ?? null,
         reasoningEffort: reasoning(args.reasoning_effort, 'medium'),
         cwd,
-        ...(args.run_in_session === true ? { sessionId: deps.ctx!.sessionId } : {}),
       }
-      const enabled = typeof args.enabled === 'boolean' ? args.enabled : true
-      const trigger = toTrigger(args.trigger)
-      if (typeof trigger === 'string') return { ok: false, text: `create_automation: ${trigger}` }
+      if (args.run_in_session === true && deps.ctx?.sessionId) action.sessionId = deps.ctx.sessionId
+      const enabled = args.enabled ?? true
+      const triggerResult = toTrigger(args.trigger)
+      if (!triggerResult.ok) return { ok: false, text: `create_automation: ${triggerResult.error}` }
       const created = await createAutomation(name_, action, {
         kind: 'agent',
         agentProvider: deps.ctx?.agentProvider,
         sessionId: deps.ctx?.sessionId,
-      }, enabled, trigger)
+      }, enabled, triggerResult.trigger)
       const when =
         created.trigger.type === 'manual'
           ? 'Trigger it with run_automation.'
@@ -333,10 +329,10 @@ export async function executeAutomationTool(
       }
 
       const actionPatch: Partial<AutomationAction> = {}
-      if (typeof args.prompt === 'string') actionPatch.prompt = args.prompt
-      if (typeof args.cwd === 'string') actionPatch.cwd = args.cwd
+      if (args.prompt !== undefined) actionPatch.prompt = args.prompt
+      if (args.cwd !== undefined) actionPatch.cwd = args.cwd
       if (args.agent_provider !== undefined) actionPatch.agentProvider = agentProvider(args.agent_provider, existing.action.agentProvider)
-      if (args.model_id === null || typeof args.model_id === 'string') actionPatch.modelId = args.model_id as string | null
+      if (args.model_id !== undefined) actionPatch.modelId = args.model_id
       // Switching provider without naming a model resets to that provider's
       // default — the old provider's model id would be meaningless on the new one.
       else if (actionPatch.agentProvider && actionPatch.agentProvider !== existing.action.agentProvider) actionPatch.modelId = null
@@ -350,17 +346,17 @@ export async function executeAutomationTool(
 
       let triggerPatch: AutomationTrigger | undefined
       if (args.trigger !== undefined) {
-        const t = toTrigger(args.trigger)
-        if (typeof t === 'string') return { ok: false, text: `update_automation: ${t}` }
-        triggerPatch = t
+        const triggerResult = toTrigger(args.trigger)
+        if (!triggerResult.ok) return { ok: false, text: `update_automation: ${triggerResult.error}` }
+        triggerPatch = triggerResult.trigger
       }
 
-      const updated = await updateAutomation(id, {
-        ...(typeof args.name === 'string' ? { name: args.name } : {}),
-        ...(typeof args.enabled === 'boolean' ? { enabled: args.enabled } : {}),
-        ...(Object.keys(actionPatch).length ? { action: actionPatch } : {}),
-        ...(triggerPatch ? { trigger: triggerPatch } : {}),
-      })
+      const automationPatch: Parameters<typeof updateAutomation>[1] = {}
+      if (args.name !== undefined) automationPatch.name = args.name
+      if (args.enabled !== undefined) automationPatch.enabled = args.enabled
+      if (Object.keys(actionPatch).length) automationPatch.action = actionPatch
+      if (triggerPatch) automationPatch.trigger = triggerPatch
+      const updated = await updateAutomation(id, automationPatch)
       if (updated && deps.ctx?.sessionId) {
         await Task.linkArtifactForSession(deps.ctx.sessionId, {
           kind: 'automation',
@@ -393,7 +389,7 @@ export async function executeAutomationTool(
     if (name === 'set_automation_enabled') {
       const id = String(args.automation_id ?? '')
       if (!id) return { ok: false, text: 'set_automation_enabled requires an automation_id.' }
-      if (typeof args.enabled !== 'boolean') return { ok: false, text: 'set_automation_enabled requires a boolean "enabled".' }
+      if (args.enabled === undefined) return { ok: false, text: 'set_automation_enabled requires a boolean "enabled".' }
       const updated = await updateAutomation(id, { enabled: args.enabled })
       if (!updated) {
         if (foreignAutomationLink(deps.ctx?.solusSessionId, id)) {
@@ -450,13 +446,13 @@ export async function executeAutomationTool(
 function automationAgentTool(
   name: string,
   description: string,
-  inputShape: z.ZodRawShape,
+  inputFields: AgentTool['inputFields'],
   requiresApproval: boolean,
 ): AgentTool {
   return {
     name,
     description,
-    inputShape,
+    inputFields,
     requiresApproval,
     execute: async (args, context) => executeAutomationTool(name, args, {
       ctx: {
@@ -476,15 +472,15 @@ function automationAgentTool(
   }
 }
 
-export const createAutomationAgentTool = automationAgentTool('create_automation', CREATE_DESC, createAutomationShape, true)
-export const listAutomationsAgentTool = automationAgentTool('list_automations', LIST_DESC, listAutomationsShape, false)
-export const readAutomationAgentTool = automationAgentTool('read_automation', READ_DESC, idShape, false)
-export const updateAutomationAgentTool = automationAgentTool('update_automation', UPDATE_DESC, updateAutomationShape, true)
-export const deleteAutomationAgentTool = automationAgentTool('delete_automation', DELETE_DESC, idShape, true)
-export const setAutomationEnabledAgentTool = automationAgentTool('set_automation_enabled', SET_ENABLED_DESC, setEnabledShape, true)
-export const runAutomationAgentTool = automationAgentTool('run_automation', RUN_DESC, idShape, true)
-export const listAutomationRunsAgentTool = automationAgentTool('list_automation_runs', LIST_RUNS_DESC, idShape, false)
-export const readAutomationRunAgentTool = automationAgentTool('read_automation_run', READ_RUN_DESC, readRunShape, false)
+export const createAutomationAgentTool = automationAgentTool('create_automation', CREATE_DESC, createAutomationFields, true)
+export const listAutomationsAgentTool = automationAgentTool('list_automations', LIST_DESC, listAutomationsFields, false)
+export const readAutomationAgentTool = automationAgentTool('read_automation', READ_DESC, automationIdFields, false)
+export const updateAutomationAgentTool = automationAgentTool('update_automation', UPDATE_DESC, updateAutomationFields, true)
+export const deleteAutomationAgentTool = automationAgentTool('delete_automation', DELETE_DESC, automationIdFields, true)
+export const setAutomationEnabledAgentTool = automationAgentTool('set_automation_enabled', SET_ENABLED_DESC, setEnabledFields, true)
+export const runAutomationAgentTool = automationAgentTool('run_automation', RUN_DESC, automationIdFields, true)
+export const listAutomationRunsAgentTool = automationAgentTool('list_automation_runs', LIST_RUNS_DESC, automationIdFields, false)
+export const readAutomationRunAgentTool = automationAgentTool('read_automation_run', READ_RUN_DESC, readRunFields, false)
 
 export const automationAgentTools: AgentTool[] = [
   createAutomationAgentTool,

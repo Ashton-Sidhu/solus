@@ -98,8 +98,9 @@ export function createTabScroll(opts: { onMeasure?: () => void } = {}) {
       let target = 0;
       let bestDist = Math.abs(0 - rawTarget);
       for (const child of el.children) {
+        if (!(child instanceof HTMLElement)) continue;
         const contentLeft =
-          (child as HTMLElement).getBoundingClientRect().left - rowLeft + el.scrollLeft;
+          child.getBoundingClientRect().left - rowLeft + el.scrollLeft;
         const dist = Math.abs(contentLeft - rawTarget);
         if (dist < bestDist) {
           bestDist = dist;

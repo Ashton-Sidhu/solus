@@ -1,9 +1,9 @@
 <script lang="ts">
   import type { DiagramEdge } from '../../../../shared/diagram-types'
-  import { EDGE_SHAPES, type EdgeUpdates } from '../lib/inspector-model'
+  import { EDGE_ROUTES, type EdgeUpdates } from '../lib/inspector-model'
 
   interface Props {
-    edge: Pick<DiagramEdge, 'id' | 'source' | 'target' | 'shape'>
+    edge: Pick<DiagramEdge, 'id' | 'source' | 'target' | 'route'>
     sourceLabel: string
     targetLabel: string
     update: EdgeUpdates
@@ -14,20 +14,20 @@
 
   let { edge, sourceLabel, targetLabel, update, onOpenEndpoint, onReverse }: Props = $props()
 
-  const activeShape = $derived(edge.shape ?? 'smooth')
+  const activeRoute = $derived(edge.route ?? 'smooth')
 </script>
 
 <div class="inspector-field">
   <span class="inspector-label">Routing</span>
   <div class="inspector-segments" role="group" aria-label="Routing">
-    {#each EDGE_SHAPES as { shape, label, hint, path } (shape)}
+    {#each EDGE_ROUTES as { route, label, hint, path } (route)}
       <button
         type="button"
         class="inspector-segment"
-        class:inspector-segment--active={activeShape === shape}
-        aria-pressed={activeShape === shape}
+        class:inspector-segment--active={activeRoute === route}
+        aria-pressed={activeRoute === route}
         title={hint}
-        onclick={() => update.shape(edge.id, shape)}
+        onclick={() => update.route(edge.id, route)}
       >
         <svg viewBox="0 0 21 12" width="34" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d={path} />

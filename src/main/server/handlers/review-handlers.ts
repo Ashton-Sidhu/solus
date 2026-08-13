@@ -1,8 +1,6 @@
 import type { SolusServer } from '../server'
-import type { IpcContext } from '../../../shared/types'
-import type { ReviewLedger, ReviewState } from '../../../shared/review'
 import { readGuideByKey, readLegacyGuide, readLedger, writeLedger, resolveReviewContext, reviewCheckout, reviewRepoRoot } from '../../review/ledger'
-import { cancelGenerateGuide, generateGuide, getReviewGuideStatus, requestReviewGuide, type GenerateGuideOptions } from '../../review/guide-producer'
+import { cancelGenerateGuide, generateGuide, getReviewGuideStatus, requestReviewGuide } from '../../review/guide-producer'
 import { guideKeyFor } from '../../review/review-target'
 import { readReviewState, writeReviewState } from '../../review/review-state'
 import type { AgentDispatcher } from '../../agents/agent-runner'
@@ -10,24 +8,24 @@ import type { HostEventPublisher } from '../../events/host-event-publisher'
 
 export function registerReviewHandlers(server: SolusServer, dispatcher: AgentDispatcher, events: HostEventPublisher): void {
   server.register('readLedger', async (args) => {
-    const [ctx] = args as [IpcContext]
+    const [ctx] = args
     return readLedger(ctx)
   })
 
   server.register('writeLedger', async (args) => {
-    const [ctx, ledger] = args as [IpcContext, ReviewLedger]
+    const [ctx, ledger] = args
     const repoRoot = await reviewRepoRoot(ctx)
     if (!repoRoot) return false
     return writeLedger(repoRoot, ledger)
   })
 
   server.register('getReviewContext', async (args) => {
-    const [ctx] = args as [IpcContext]
+    const [ctx] = args
     return resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
   })
 
   server.register('generateGuide', async (args) => {
-    const [ctx, opts] = args as [IpcContext, GenerateGuideOptions | undefined]
+    const [ctx, opts] = args
     return generateGuide(
       dispatcher,
       ctx,
@@ -38,10 +36,7 @@ export function registerReviewHandlers(server: SolusServer, dispatcher: AgentDis
   })
 
   server.register('requestReviewGuide', async (args) => {
-    const [ctx, opts] = args as [
-      IpcContext,
-      GenerateGuideOptions | undefined,
-    ]
+    const [ctx, opts] = args
     return requestReviewGuide(
       dispatcher,
       ctx,
@@ -52,12 +47,12 @@ export function registerReviewHandlers(server: SolusServer, dispatcher: AgentDis
   })
 
   server.register('reviewGuideStatus', async (args) => {
-    const [ctx, opts] = args as [IpcContext, Pick<GenerateGuideOptions, 'scope' | 'ownDeltaBase'> | undefined]
+    const [ctx, opts] = args
     return getReviewGuideStatus(ctx, opts)
   })
 
   server.register('cancelGenerateGuide', async (args) => {
-    const [ctx, opts] = args as [IpcContext, Pick<GenerateGuideOptions, 'scope' | 'ownDeltaBase'> | undefined]
+    const [ctx, opts] = args
     return cancelGenerateGuide(
       ctx,
       opts,
@@ -66,7 +61,7 @@ export function registerReviewHandlers(server: SolusServer, dispatcher: AgentDis
   })
 
   server.register('readGuide', async (args) => {
-    const [ctx, key] = args as [IpcContext, string]
+    const [ctx, key] = args
     const repoRoot = await reviewRepoRoot(ctx)
     if (!repoRoot) return null
     const current = await readGuideByKey(repoRoot, key)
@@ -85,14 +80,14 @@ export function registerReviewHandlers(server: SolusServer, dispatcher: AgentDis
   })
 
   server.register('readReviewState', async (args) => {
-    const [ctx, key] = args as [IpcContext, string]
+    const [ctx, key] = args
     const repoRoot = await reviewRepoRoot(ctx)
     if (!repoRoot) return null
     return readReviewState(repoRoot, key)
   })
 
   server.register('writeReviewState', async (args) => {
-    const [ctx, state] = args as [IpcContext, ReviewState]
+    const [ctx, state] = args
     const repoRoot = await reviewRepoRoot(ctx)
     if (!repoRoot) return false
     return writeReviewState(repoRoot, state)

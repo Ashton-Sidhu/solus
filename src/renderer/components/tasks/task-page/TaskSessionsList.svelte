@@ -25,10 +25,11 @@
     onOpen: (sessionId: string) => void;
     onOpenSplit: (sessionId: string) => void;
     onStop: (sessionId: string) => void;
+    onUnlink: (sessionId: string) => void;
     onNewSession: () => void;
   }
 
-  let { sessions, taskTitle, onOpen, onOpenSplit, onStop, onNewSession }: Props = $props();
+  let { sessions, taskTitle, onOpen, onOpenSplit, onStop, onUnlink, onNewSession }: Props = $props();
 
   const session = getWorkspaceContext();
   const now = Date.now();
@@ -212,6 +213,34 @@
               {/snippet}
             </TooltipUI.Trigger>
             <TooltipUI.Content value="Open session" />
+          </TooltipUI.Root>
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  class={ROW_ACTION}
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    onUnlink(row.sessionId);
+                  }}
+                  aria-label="Unlink session"
+                >
+                  <svg
+                    width="11"
+                    height="11"
+                    viewBox="0 0 14 14"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    aria-hidden="true"><path d="M3.6 3.6l6.8 6.8M10.4 3.6l-6.8 6.8" /></svg
+                  >
+                </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value="Unlink session" />
           </TooltipUI.Root>
         </span>
       </div>

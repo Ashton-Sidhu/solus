@@ -1,7 +1,8 @@
 import { writeFile } from 'fs/promises'
 import type { ControlPlane } from '../../control-plane'
-import { gitCheckoutFromState, type IpcContext, type DiffFileContentsRequest, type DiffRequest, type GitCheckoutBranchResult, type GitStateOptions } from '../../../shared/types'
-import { createPR, commitAndPushChanges, commitChanges, discardChanges, syncWithOrigin, listBranches, listProjectWorktrees, getWorkingBranch, getDefaultBranch, restoreWorktree, createWorktree, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT } from '../../git/worktree-manager'
+import { gitCheckoutFromState, type IpcContext, type GitCheckoutBranchResult } from '../../../shared/types'
+import { discardChanges, syncWithOrigin, listBranches, listProjectWorktrees, getWorkingBranch, getDefaultBranch, restoreWorktree, createWorktree, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT } from '../../git/worktree-manager'
+import { runGitAction } from '../../git/git-action-manager'
 import { runAsync } from '../../git/exec'
 import { computeGitIdentity, computeGitState, resolveRepoRoot } from '../../git/git-helpers'
 import { getDiff, getDiffFileContents, getDiffStats, listTurnSnapshots } from '../../git/session-snapshots'
@@ -10,11 +11,15 @@ import { createLogger } from '../../logger'
 import { Task } from '../../tasks/task'
 import { loadGitHubAccessToken } from '../../providers/github/git-credential'
 import { LOCAL_DEVICE_LABEL, type HandlerCtx, type SolusServer } from '../server'
+import type { HostEventPublisher } from '../../events/host-event-publisher'
+import { resolveSourceControlWritingPolicy } from '../../git/source-control-writing'
+import { getServerSettings, resolveSourceControlWriterModel } from '../settings'
 
 const log = createLogger('main', 'worktree-handlers')
 
 export interface WorktreeDeps {
   controlPlane: ControlPlane
+  events: HostEventPublisher
 }
 
 /** A remote caller may use only its delegated credential, never the host owner's token. */
@@ -53,31 +58,35 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   const { controlPlane } = deps
   const textGenerator = new TextGenerator(controlPlane)
 
-  /** Explicit commit actions generate their subject from the session's own
-   * provider/model. Pull-request creation uses GitHub's commit-derived fill so
-   * that the user does not wait for text generation before the network work. */
-  const commitMessageOptions = (ctx: IpcContext) => ({
-    generateCommitMessage: async (cwd: string) => textGenerator.generate({
-      provider: ctx.session.provider ?? ctx.settings.activeAgent,
-      model: ctx.statusBar.model,
-      cwd,
-      prompt: await buildCommitMessagePrompt(cwd),
-      systemPrompt: COMMIT_MESSAGE_SYSTEM_PROMPT,
-      disableReasoning: true,
-      maxTurns: 1,
-      timeoutMs: 30_000,
-    }),
+  const generateCommitSubject = async (
+    cwd: string,
+    writer: ReturnType<typeof resolveSourceControlWriterModel>,
+    instructions: string,
+  ) => textGenerator.generate({
+    provider: writer.provider,
+    model: writer.model,
+    cwd,
+    prompt: [
+      await buildCommitMessagePrompt(cwd),
+      '',
+      'Writing policy:',
+      instructions,
+    ].join('\n'),
+    systemPrompt: COMMIT_MESSAGE_SYSTEM_PROMPT,
+    disableReasoning: true,
+    maxTurns: 1,
+    timeoutMs: 30_000,
   })
 
   server.register('worktreeListProject', (args) => {
-    const [ctx] = args as [IpcContext]
+    const [ctx] = args
     const dir = ctx.session.workingDirectory
     if (!dir || dir === '~') return []
     return listProjectWorktrees(dir)
   })
 
   server.register('diff', async (args) => {
-    const [ctx, request] = args as [IpcContext, DiffRequest]
+    const [ctx, request] = args
     log.info('rpc_diff', { sessionId: ctx.session.sessionId, scopeKind: request.scope.kind })
     const repoRoot = await repoRootForCtx(ctx)
     if (!repoRoot) return null
@@ -88,7 +97,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   })
 
   server.register('diffFileContents', async (args) => {
-    const [ctx, request] = args as [IpcContext, DiffFileContentsRequest]
+    const [ctx, request] = args
     const repoRoot = await repoRootForCtx(ctx)
     if (!repoRoot) return null
     const workTree = await workTreeForCtx(ctx)
@@ -97,7 +106,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   })
 
   server.register('diffStats', async (args) => {
-    const [ctx, request] = args as [IpcContext, DiffRequest]
+    const [ctx, request] = args
     const repoRoot = await repoRootForCtx(ctx)
     if (!repoRoot) return []
     const workTree = await workTreeForCtx(ctx)
@@ -107,7 +116,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   })
 
   server.register('listTurnSnapshots', async (args) => {
-    const [ctx] = args as [IpcContext]
+    const [ctx] = args
     const sid = ctx.session.agentSessionId
     if (!sid) return []
     const repoRoot = await repoRootForCtx(ctx)
@@ -115,20 +124,51 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     return await listTurnSnapshots(repoRoot, sid)
   })
 
-  server.register('worktreePR', async (args, handlerCtx) => {
-    const [ctx] = args as [IpcContext]
-    log.info('rpc_worktree_pr', { sessionId: ctx.session.sessionId })
-    if (!ctx.session.gitContext) return { success: false, error: 'No active git branch for this tab' }
-    const result = await createPR(ctx.session.gitContext, ctx.session.workingDirectory, {
+  server.register('gitRunAction', async (args, handlerCtx) => {
+    const [ctx, request] = args
+    log.info('rpc_git_run_action', { sessionId: ctx.session.sessionId, action: request.action })
+    const gitContext = await resolveGitCheckout(ctx)
+    if (!gitContext) throw new Error('No active git branch for this session.')
+    const cwd = gitContext.worktreePath || ctx.session.workingDirectory
+    const policy = await resolveSourceControlWritingPolicy(
+      cwd,
+      getServerSettings().sourceControlWriting,
+    )
+    const writerModel = resolveSourceControlWriterModel()
+    const result = await runGitAction(request, gitContext, ctx.session.workingDirectory, {
+      writer: {
+        provider: writerModel.provider,
+        model: writerModel.model,
+        textGenerator,
+        instructions: policy.pullRequestInstructions,
+        followPullRequestTemplate: policy.followPullRequestTemplate,
+      },
+      generateCommitSubject: (targetCwd) => generateCommitSubject(
+        targetCwd,
+        writerModel,
+        policy.commitInstructions,
+      ),
       githubToken: githubTokenForWorktreeRequest(handlerCtx),
+      publish: (event) => {
+        if (handlerCtx.clientId) deps.events.publish(handlerCtx.clientId, 'git.actionProgressed', event)
+        else deps.events.broadcast('git.actionProgressed', event)
+      },
     })
+    if (result.branch.status === 'created') {
+      const nextGitContext = { ...gitContext, branch: result.branch.name }
+      controlPlane.setSessionGitEnvironment(
+        ctx.session.sessionId,
+        nextGitContext.worktreePath ?? ctx.session.workingDirectory,
+        nextGitContext,
+      )
+    }
+    const pullRequest = result.pullRequest
     const sessionId = ctx.session.agentSessionId
-    const match = result.success ? result.url?.match(/\/pull\/(\d+)(?:[/?#]|$)/) : null
-    if (sessionId && result.url && match) {
+    if (sessionId && pullRequest.status !== 'skipped' && pullRequest.number !== null) {
       const task = await Task.forSession(sessionId)
       await task?.linkPullRequest({
-        number: Number(match[1]),
-        url: result.url,
+        number: pullRequest.number,
+        url: pullRequest.url,
         targetScope: ctx.session.projectPath || ctx.session.workingDirectory,
         originSessionId: sessionId,
         createdBy: 'agent',
@@ -142,24 +182,8 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     return result
   })
 
-  server.register('gitCommit', async (args) => {
-    const [ctx] = args as [IpcContext]
-    log.info('rpc_git_commit', { sessionId: ctx.session.sessionId })
-    const gitContext = await resolveGitCheckout(ctx)
-    if (!gitContext) return { success: false, outcome: 'failed', committed: false, error: 'No active git branch for this tab' }
-    return commitChanges(gitContext, ctx.session.workingDirectory, commitMessageOptions(ctx))
-  })
-
-  server.register('gitCommitPush', async (args) => {
-    const [ctx] = args as [IpcContext]
-    log.info('rpc_git_commit_push', { sessionId: ctx.session.sessionId })
-    const gitContext = await resolveGitCheckout(ctx)
-    if (!gitContext) return { success: false, outcome: 'failed', committed: false, pushed: false, error: 'No active git branch for this tab' }
-    return commitAndPushChanges(gitContext, ctx.session.workingDirectory, commitMessageOptions(ctx))
-  })
-
   server.register('gitDiscard', async (args) => {
-    const [ctx] = args as [IpcContext]
+    const [ctx] = args
     log.info('rpc_git_discard', { sessionId: ctx.session.sessionId })
     const gitContext = await resolveGitCheckout(ctx)
     if (!gitContext) return { success: false, discarded: 0, error: 'No active git branch for this tab' }
@@ -167,7 +191,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   })
 
   server.register('gitSync', async (args) => {
-    const [ctx] = args as [IpcContext]
+    const [ctx] = args
     log.info('rpc_git_sync', { sessionId: ctx.session.sessionId })
     const gitContext = await resolveGitCheckout(ctx)
     if (!gitContext) return { success: false, outcome: 'failed', error: 'No active git branch for this tab' }
@@ -175,7 +199,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   })
 
   server.register('gitCheckoutBranch', async (args): Promise<GitCheckoutBranchResult> => {
-    const [ctx, branch] = args as [IpcContext, string]
+    const [ctx, branch] = args
     log.info('rpc_git_checkout_branch', { sessionId: ctx.session.sessionId, branch })
     try {
       const cwd = ctx.session.workingDirectory
@@ -188,23 +212,23 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
       if (!gitContext) return { success: false, error: 'Checkout succeeded but branch status could not be resolved' }
       controlPlane.setSessionGitEnvironment(ctx.session.sessionId, cwd, gitContext)
       return { success: true, gitContext }
-    } catch (err: any) {
-      return { success: false, error: err?.message ?? 'Checkout failed' }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Checkout failed' }
     }
   })
 
   server.register('worktreeBranches', async (args) => {
-    const [ctx] = args as [IpcContext]
+    const [ctx, options] = args
     const cwd = ctx.session.workingDirectory
     if (!cwd || cwd === '~') return []
     await runAsync('git', ['fetch', '--all', '--prune'], cwd).catch((err) => {
       log.warn('branch_fetch_before_list_failed', { error: err instanceof Error ? err.message : String(err) })
     })
-    return listBranches(cwd)
+    return listBranches(cwd, options)
   })
 
   server.register('worktreeRestore', (args) => {
-    const [ctx, worktreePath, options] = args as [IpcContext, string, { includePr?: boolean } | undefined]
+    const [ctx, worktreePath, options] = args
     log.info('rpc_worktree_restore', { sessionId: ctx.session.sessionId })
     if (ctx.session.gitContext?.worktreePath && ctx.session.gitContext.worktreePath === worktreePath) {
       controlPlane.setSessionGitEnvironment(ctx.session.sessionId, worktreePath, ctx.session.gitContext)
@@ -220,7 +244,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   // conversation under the worktree. Eager creation (vs. the lazy worktree path)
   // gives us the branch name up front for the UI + git panel.
   server.register('continueInWorktree', async (args) => {
-    const [ctx, namePrompt] = args as [IpcContext, string | undefined]
+    const [ctx, namePrompt] = args
     log.info('rpc_continue_in_worktree', { sessionId: ctx.session.sessionId })
     const cwd = ctx.session.workingDirectory
     if (!cwd || cwd === '~') return { success: false, error: 'No active git repository for this tab' }
@@ -231,33 +255,33 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
       const gitContext = await createWorktree(repoRoot, namePrompt || '', ctx.session.gitContext?.targetBranch)
       controlPlane.setSessionGitEnvironment(ctx.session.sessionId, gitContext.worktreePath ?? cwd, gitContext)
       return { success: true, gitContext }
-    } catch (err: any) {
+    } catch (err) {
       log.error('continue_in_worktree_failed', { error: err instanceof Error ? err.message : String(err) })
-      return { success: false, error: err?.message ?? 'Failed to create worktree' }
+      return { success: false, error: err instanceof Error ? err.message : 'Failed to create worktree' }
     }
   })
 
   server.register('gitRefreshState', async (args) => {
-    const [cwd, options] = args as [string, GitStateOptions | undefined]
+    const [cwd, options] = args
     return computeGitState(cwd, options)
   })
 
-  server.register('gitIdentity', async (args) => computeGitIdentity((args as [string])[0]))
+  server.register('gitIdentity', async ([cwd]) => computeGitIdentity(cwd))
 
   server.register('gitRegisterEnvironment', (args) => {
-    const [ctx, cwd, gitContext] = args as [IpcContext, string, ReturnType<typeof gitCheckoutFromState>]
+    const [ctx, cwd, gitContext] = args
     controlPlane.setSessionGitEnvironment(ctx.session.sessionId, cwd, gitContext)
   })
 
   server.register('writePlanFile', async (args) => {
-    const [filePath, content] = args as [string, string]
+    const [filePath, content] = args
     try {
       await writeFile(filePath, content, 'utf-8')
       log.info('rpc_write_plan_file', { filePath, contentLength: content.length })
       return { ok: true }
-    } catch (err: any) {
+    } catch (err) {
       log.error('rpc_write_plan_file_failed', { filePath, error: err instanceof Error ? err.message : String(err) })
-      return { ok: false, error: err?.message ?? String(err) }
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
 }

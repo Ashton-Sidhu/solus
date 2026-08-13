@@ -607,7 +607,7 @@ export class QrCode {
     let result: Array<byte> = divisor.map((_) => 0);
     for (const b of data) {
       // Polynomial division
-      const factor: byte = b ^ (result.shift() as byte);
+      const factor: byte = b ^ (result.shift() ?? 0);
       result.push(0);
       divisor.forEach((coef, i) => (result[i]! ^= QrCode.reedSolomonMultiply(coef, factor)));
     }
@@ -625,7 +625,7 @@ export class QrCode {
       z ^= ((y >>> i) & 1) * x;
     }
     assert(z >>> 8 == 0);
-    return z as byte;
+    return z;
   }
 
   // Can only be called immediately after a light run is added, and

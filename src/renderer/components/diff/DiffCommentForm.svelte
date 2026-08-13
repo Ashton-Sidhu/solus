@@ -43,7 +43,8 @@
   const canSave = $derived(value.trim().length > 0)
 
   function handleInput(e: Event) {
-    value = (e.target as HTMLTextAreaElement).value
+    if (!(e.target instanceof HTMLTextAreaElement)) return
+    value = e.target.value
     onFormValueChange?.(value)
   }
 

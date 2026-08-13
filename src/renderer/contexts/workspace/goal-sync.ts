@@ -17,6 +17,15 @@ interface GoalSyncState {
   mutationTail: Promise<void>
 }
 
+type GoalSession = Session & {
+  agentSessionId: string
+  run: Session['run'] & { provider: 'codex' | 'claude-code' }
+}
+
+type CodexGoalSession = GoalSession & {
+  run: Session['run'] & { provider: 'codex' }
+}
+
 /** Keeps persisted goal state ordered across renderer commands, refreshes, and
  * provider notifications without replacing the owning Session object. */
 export class GoalSync {
@@ -44,7 +53,7 @@ export class GoalSync {
 
   create(sessionId: string, objective: string): Promise<ThreadGoal> {
     const session = this.requireGoalSession(sessionId)
-    const threadId = session.agentSessionId as string
+    const threadId = session.agentSessionId
     const state = this.stateFor(session)
     const revision = ++state.revision
 
@@ -53,7 +62,7 @@ export class GoalSync {
         const goal = await this.deps.apiForSession(sessionId).setThreadGoal(
           { threadId, objective, status: 'active' },
           this.deps.ctxForSession(sessionId),
-          session.run.provider as AgentId,
+          session.run.provider,
         )
         if (this.isCurrent(sessionId, session, threadId) && state.revision === revision) {
           session.goal = goal
@@ -68,7 +77,7 @@ export class GoalSync {
 
   set(sessionId: string, update: Omit<ThreadGoalSetRequest, 'threadId'>): Promise<ThreadGoal> {
     const session = this.requireCodexSession(sessionId)
-    const threadId = session.agentSessionId as string
+    const threadId = session.agentSessionId
     const state = this.stateFor(session)
     const revision = ++state.revision
 
@@ -102,7 +111,7 @@ export class GoalSync {
 
   clear(sessionId: string): Promise<void> {
     const session = this.requireCodexSession(sessionId)
-    const threadId = session.agentSessionId as string
+    const threadId = session.agentSessionId
     const state = this.stateFor(session)
     const revision = ++state.revision
 
@@ -168,13 +177,13 @@ export class GoalSync {
     return session?.run.provider === 'codex' || session?.run.provider === 'claude-code' ? session : undefined
   }
 
-  private requireGoalSession(sessionId: string): Session {
+  private requireGoalSession(sessionId: string): GoalSession {
     const session = this.goalSession(sessionId)
     if (!session?.agentSessionId) throw new Error('This session has no active agent thread')
     return session
   }
 
-  private requireCodexSession(sessionId: string): Session {
+  private requireCodexSession(sessionId: string): CodexGoalSession {
     const session = this.codexSession(sessionId)
     if (!session?.agentSessionId) throw new Error('This session has no active Codex thread')
     return session

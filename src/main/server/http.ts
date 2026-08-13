@@ -12,6 +12,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import formidable, { type File as FormidableFile } from 'formidable'
 import { resolve as pathResolve, relative as pathRelative, isAbsolute, sep } from 'path'
 import { hostname, tmpdir } from 'os'
+import { z } from 'zod'
 import { claimOwnership, consumePairToken, generatePairToken, getInstallationId, getOwnershipState, getServerFingerprint, isClaimable, issueSessionToken, listRevokedDevices, openClaimWindow, refreshSessionToken, revokeDevice, verifyClaimOpenAdminRequest, verifySessionToken } from './auth'
 import { listReachableEndpoints } from './endpoints'
 import { createTokenBucketRateLimiter } from './rate-limit'
@@ -23,6 +24,7 @@ import { readWav } from '../transcription/wav'
 import { MAX_VOICE_WAV_BYTES } from '../../shared/voice-audio'
 import { parseByteRange } from './byte-range'
 import { serveAssetToken } from './assets'
+import { hostOperatingSystem } from '../platform/host-operating-system'
 
 const log = createLogger('main', 'http')
 
@@ -46,6 +48,26 @@ type NodeBindings = { incoming: IncomingMessage; outgoing: ServerResponse }
 type Env = { Bindings: NodeBindings }
 type Ctx = Context<Env>
 
+const pairRequestSchema = z.object({
+  pairToken: z.string().optional(),
+  code: z.string().optional(),
+  deviceLabel: z.string().optional(),
+})
+
+const claimRequestSchema = z.object({
+  claimToken: z.string().optional(),
+  code: z.string().optional(),
+  deviceLabel: z.string().optional(),
+})
+
+const revokeRequestSchema = z.object({ deviceId: z.string().min(1) })
+
+export interface BuiltHttpServer {
+  server: HttpServer
+  host: string
+  port: number
+}
+
 /**
  * Builds the HTTP server. Returns a node http.Server that the caller
  * `.listen()`s separately. Engine.IO intercepts `/ws` requests on this server
@@ -56,7 +78,7 @@ type Ctx = Context<Env>
  * upload). We keep our own `http.Server` via `getRequestListener` so the
  * port-retry/rebind logic in server/index.ts stays unchanged.
  */
-export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpServer; host: string; port: number } {
+export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   const host = opts.host ?? '127.0.0.1'
   const currentHost = () => opts.getHost?.() ?? host
   const port = opts.port ?? 0
@@ -100,22 +122,22 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
     installationId: getInstallationId(),
     claimable: isClaimable(),
     name: hostname() || 'Solus Server',
+    os: hostOperatingSystem(),
   }))
 
   app.get('/endpoints', async (c) => c.json({ endpoints: await listReachableEndpoints(currentHost(), currentPort()) }))
 
   app.get('/oauth/google/callback', async (c) => {
     const result = await completeGoogleOAuthCallback(new URL(c.req.url).searchParams)
-    // status is a known 2xx/4xx/5xx literal from completeGoogleOAuthCallback.
-    return c.html(result.html, result.status as Parameters<Ctx['html']>[1])
+    return c.html(result.html, result.status)
   })
 
   app.post('/pair', async (c) => {
     if (!pairRateLimiter.allow(clientIp(c))) return c.json({ error: 'Too many pairing attempts' }, 429)
-    const body = await readJson(c)
+    const body = await readJson(c, pairRequestSchema)
     const pairToken = body?.pairToken ?? body?.code
-    const deviceLabel = (body?.deviceLabel as string | undefined)?.slice(0, 64) || 'Unknown device'
-    if (!pairToken || typeof pairToken !== 'string') {
+    const deviceLabel = body?.deviceLabel?.slice(0, 64) || 'Unknown device'
+    if (!pairToken) {
       return c.json({ error: 'pairToken or code required' }, 400)
     }
     if (!consumePairToken(pairToken)) {
@@ -123,16 +145,16 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
     }
     const { token: sessionToken } = issueSessionToken(deviceLabel)
     log.info('pair_session_issued', { deviceLabel })
-    return c.json({ sessionToken, installationId: getInstallationId() })
+    return c.json({ sessionToken, installationId: getInstallationId(), os: hostOperatingSystem() })
   })
 
   app.post('/claim', async (c) => {
     if (getOwnershipState() !== 'unclaimed') return c.json({ error: 'Server already claimed' }, 403)
     if (!claimRateLimiter.allow(clientIp(c))) return c.json({ error: 'Too many claim attempts' }, 429)
-    const body = await readJson(c)
+    const body = await readJson(c, claimRequestSchema)
     const claimToken = body?.claimToken ?? body?.code
-    const deviceLabel = (body?.deviceLabel as string | undefined)?.slice(0, 64) || 'Owner device'
-    if (!claimToken || typeof claimToken !== 'string') {
+    const deviceLabel = body?.deviceLabel?.slice(0, 64) || 'Owner device'
+    if (!claimToken) {
       return c.json({ error: 'claimToken or code required' }, 400)
     }
 
@@ -142,7 +164,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
     }
 
     log.info('server_claimed', { deviceLabel })
-    return c.json(result)
+    return c.json({ ...result, os: hostOperatingSystem() })
   })
 
   app.post('/claim/open', async (c) => {
@@ -235,15 +257,16 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
     const start = range?.start ?? 0
     const end = range?.end ?? stat.size - 1
     const fileStream = createReadStream(filePath, range ? { start, end } : undefined)
-    return new Response(Readable.toWeb(fileStream) as ReadableStream, {
+    const headers = {
+      'content-type': type,
+      'content-length': String(range ? end - start + 1 : stat.size),
+      'accept-ranges': 'bytes',
+      'content-security-policy': "default-src 'none'; img-src data: *; style-src 'unsafe-inline'",
+    }
+    if (range) Object.assign(headers, { 'content-range': `bytes ${start}-${end}/${stat.size}` })
+    return new Response(Readable.toWeb(fileStream), {
       status: range ? 206 : 200,
-      headers: {
-        'content-type': type,
-        'content-length': String(range ? end - start + 1 : stat.size),
-        'accept-ranges': 'bytes',
-        ...(range ? { 'content-range': `bytes ${start}-${end}/${stat.size}` } : {}),
-        'content-security-policy': "default-src 'none'; img-src data: *; style-src 'unsafe-inline'",
-      },
+      headers,
     })
   })
 
@@ -274,8 +297,8 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
 
   app.post('/auth/revoke', async (c) => {
     if (!verifySessionToken(readBearer(c))) return c.json({ error: 'Unauthorized' }, 401)
-    const body = await readJson(c)
-    if (!body?.deviceId) return c.json({ error: 'deviceId required' }, 400)
+    const body = await readJson(c, revokeRequestSchema)
+    if (!body) return c.json({ error: 'deviceId required' }, 400)
     revokeDevice(body.deviceId)
     return c.json({ ok: true, revoked: listRevokedDevices() })
   })
@@ -296,9 +319,14 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
   return { server, host, port }
 }
 
-async function readJson(c: Ctx): Promise<any> {
+async function readJson<T>(c: Ctx, schema: z.ZodType<T>): Promise<T | null> {
   // c.req.json() throws on an empty/invalid body; callers expect null instead.
-  try { return await c.req.json() } catch { return null }
+  try {
+    const result = schema.safeParse(await c.req.json())
+    return result.success ? result.data : null
+  } catch {
+    return null
+  }
 }
 
 function readBearer(c: Ctx): string {

@@ -151,6 +151,8 @@
   export function toggleMode() {
     docEl?.toggleMode();
   }
+  // This imperative component API intentionally hides the child component instance.
+  // oxlint-disable-next-line solus/no-pass-through-wrappers
   export function getEditor(): Editor | null {
     return ed();
   }

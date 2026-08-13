@@ -30,11 +30,11 @@
     actions,
   }: Props = $props();
 
-  const TONE: Record<NonNullable<Props["tone"]>, string> = {
+  const TONE = {
     warning: "color-mix(in oklch, var(--chart-2) 68%, var(--foreground))",
     destructive: "var(--destructive)",
     neutral: "var(--muted-foreground)",
-  };
+  } satisfies Record<NonNullable<Props["tone"]>, string>;
   const hasTrack = $derived(progress !== undefined);
 </script>
 

@@ -164,7 +164,7 @@ export function entryTimestamp(entry: PickerEntry): number {
   if (entry.kind === 'open') {
     const msgs = entry.session.messages
     for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i].timestamp) return msgs[i].timestamp as number
+      if (msgs[i].timestamp) return msgs[i].timestamp
     }
     return 0
   }
@@ -229,14 +229,14 @@ export const STATUS_GROUP_ORDER: StatusGroupKey[] = [
   'waiting', 'rate-limited', 'running', 'completed', 'error', 'idle'
 ]
 
-export const STATUS_GROUP_LABELS: Record<StatusGroupKey, string> = {
+export const STATUS_GROUP_LABELS = {
   'waiting': 'Waiting for input',
   'rate-limited': 'Rate limited',
   'running': 'Running',
   'completed': 'Completed',
   'error': 'Error',
   'idle': 'Idle',
-}
+} satisfies Record<StatusGroupKey, string>
 
 export function getStatusGroupKey(sess: Session, tab: Tab, plans?: Record<string, Plan>): StatusGroupKey {
   const attention = getAttentionState(sess, tab, plans)
@@ -252,10 +252,10 @@ export type UnreadGroupKey = 'unread' | 'read'
 
 export const UNREAD_GROUP_ORDER: UnreadGroupKey[] = ['unread', 'read']
 
-export const UNREAD_GROUP_LABELS: Record<UnreadGroupKey, string> = {
+export const UNREAD_GROUP_LABELS = {
   'unread': 'Unread',
   'read': 'Read',
-}
+} satisfies Record<UnreadGroupKey, string>
 
 export function getUnreadGroupKey(sess: Session, tab: Tab, plans?: Record<string, Plan>): UnreadGroupKey {
   return getAttentionState(sess, tab, plans) === 'unread' ? 'unread' : 'read'
@@ -265,13 +265,15 @@ export type TabGroupSection = { key: string; tabIds: string[] }
 export type TabResolver = (tabId: string) => { sess: Session; tab: Tab } | null
 
 /** Per-mode bucketing rule: the section order and how a tab maps to a section. */
-const GROUP_DEFS: Record<'status' | 'unread', {
+interface TabGroupDefinition {
   order: readonly string[]
   keyOf: (sess: Session, tab: Tab, plans?: Record<string, Plan>) => string
-}> = {
+}
+
+const GROUP_DEFS = {
   status: { order: STATUS_GROUP_ORDER, keyOf: getStatusGroupKey },
   unread: { order: UNREAD_GROUP_ORDER, keyOf: getUnreadGroupKey },
-}
+} satisfies Record<'status' | 'unread', TabGroupDefinition>
 
 /**
  * Bucket tab IDs into ordered grouping sections — the single source of truth for
@@ -365,7 +367,7 @@ export function findOpenTabForSession(
     if (!tab) continue
     const sess = sessions[tab.sessionId]
     if (
-      sess?.agentSessionId === sessionId
+      (tab.sessionId === sessionId || sess?.agentSessionId === sessionId)
       && (!provider || sess.run.provider === provider)
       && (!serverId || sess.run.serverId === serverId)
     ) return tabId

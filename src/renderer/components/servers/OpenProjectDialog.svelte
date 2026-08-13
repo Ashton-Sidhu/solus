@@ -6,7 +6,6 @@
     CaretDownIcon,
     CheckIcon,
     DesktopTowerIcon,
-    GlobeSimpleIcon,
     XIcon,
   } from "phosphor-svelte";
   import { Button } from "../ui/button";
@@ -25,6 +24,7 @@
   import { openProjectStore as store } from "./open-project.store.svelte";
   import type { CloneFailure } from "./lib/clone-outcome";
   import { homeRows } from "./lib/open-project-home";
+  import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
 
   interface Props {
     /** Runs with the host-absolute path the flow committed to. */
@@ -52,6 +52,7 @@
 
   const hosts = $derived(serversStore.servers);
   const multiHost = $derived(hosts.length > 1);
+  const selectedHost = $derived(hosts.find((host) => host.id === store.serverId));
   // GitHub credentials are per-machine, but the question home asks is about
   // *you* — so the row is gated on this client's sign-in, and a chosen host
   // that lacks its own token gets a connect panel rather than a dead end.
@@ -362,10 +363,12 @@
                     hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent)"
                   aria-label="Run on {store.hostLabel || 'this machine'}"
                 >
-                  {#if store.hostIsLocal}
+                  {#if selectedHost?.os}
+                    <HostOperatingSystemIcon os={selectedHost.os} size={11} class="shrink-0" />
+                  {:else if store.hostIsLocal}
                     <DesktopTowerIcon size={11} class="shrink-0" />
                   {:else}
-                    <GlobeSimpleIcon size={11} class="shrink-0" />
+                    <HostOperatingSystemIcon size={11} class="shrink-0" />
                   {/if}
                   <span class="truncate">{store.hostLabel || "This Mac"}</span>
                   <Kbd variant="hint" class="hidden sm:inline-flex">⌥H</Kbd>

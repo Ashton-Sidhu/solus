@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
+import { z } from 'zod'
 import { dataDir } from '../platform/paths'
 import { createLogger } from '../logger'
 import type { SessionStatus } from '../../shared/types'
@@ -23,6 +24,18 @@ interface AttentionFile {
   version: 1
   entries: Record<string, AttentionEntry>
 }
+
+const attentionFileSchema = z.object({
+  version: z.literal(1),
+  entries: z.record(z.string(), z.object({
+    sessionId: z.string(),
+    kind: z.enum(['needs_approval', 'question', 'finished', 'failed']),
+    since: z.number(),
+    summary: z.string(),
+    projectKey: z.string().optional(),
+    resolvedBy: z.string().optional(),
+  })),
+})
 
 /**
  * What a session-status transition should do to the attention entry. Kept pure
@@ -119,8 +132,8 @@ export class AttentionService {
       // Keep `since` stable while the same kind persists; reset it when the kind flips.
       since: existing && existing.kind === input.kind ? existing.since : Date.now(),
       summary: input.summary,
-      ...(input.projectKey ? { projectKey: input.projectKey } : {}),
     }
+    if (input.projectKey) entry.projectKey = input.projectKey
     this.entries.set(input.sessionId, entry)
     this._evictOverflow()
     this._persist()
@@ -153,9 +166,9 @@ export class AttentionService {
   private _load(): void {
     if (!existsSync(this.statePath)) return
     try {
-      const parsed = JSON.parse(readFileSync(this.statePath, 'utf8')) as AttentionFile
-      for (const entry of Object.values(parsed.entries ?? {})) {
-        if (entry?.sessionId) this.entries.set(entry.sessionId, entry)
+      const parsed = attentionFileSchema.parse(JSON.parse(readFileSync(this.statePath, 'utf8')))
+      for (const entry of Object.values(parsed.entries)) {
+        this.entries.set(entry.sessionId, entry)
       }
       this._evictOverflow()
     } catch (err) {

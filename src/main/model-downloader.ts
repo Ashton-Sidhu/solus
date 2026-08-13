@@ -49,17 +49,13 @@ function setStatus(next: VoiceModelStatus, options: { immediate?: boolean } = {}
   statusListener?.(getVoiceModelStatus())
 }
 
-async function isInstalled(): Promise<boolean> {
+export async function isParakeetModelReady(): Promise<boolean> {
   try {
     const marker = await readFile(join(PARAKEET_MODEL_DIR, INSTALL_MARKER), 'utf8')
     return marker === MODEL_VERSION && MODEL_FILES.every(({ name }) => existsSync(join(PARAKEET_MODEL_DIR, name)))
   } catch {
     return false
   }
-}
-
-export async function isParakeetModelReady(): Promise<boolean> {
-  return isInstalled()
 }
 
 async function downloadFile(url: string, destination: string, expectedSha256: string): Promise<void> {
@@ -78,6 +74,7 @@ async function downloadFile(url: string, destination: string, expectedSha256: st
   }
 
   const hash = createHash('sha256')
+  // SAFETY: Node and the DOM describe the same WHATWG response stream with distinct type identities.
   const source = Readable.fromWeb(response.body as import('stream/web').ReadableStream<Uint8Array>)
   source.on('data', (chunk: Buffer) => {
     hash.update(chunk)
@@ -98,7 +95,7 @@ async function downloadFile(url: string, destination: string, expectedSha256: st
 
 async function downloadAndInstall(): Promise<string> {
   setStatus({ state: 'checking' }, { immediate: true })
-  if (await isInstalled()) {
+  if (await isParakeetModelReady()) {
     setStatus({ state: 'ready' }, { immediate: true })
     return PARAKEET_MODEL_DIR
   }

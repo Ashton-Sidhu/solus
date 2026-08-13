@@ -23,24 +23,31 @@ export class SidebarSessionStatusFeed {
   private states = new SvelteMap<string, SidebarLiveSessionState>()
 
   apply(serverId: string, event: HostEventMap['session.statusChanged']): void {
-    // Sidebar task links use the provider session id. The Solus session id is
-    // only the event address and differs for sessions created by an agent tool.
-    const sessionId = event.agentSessionId ?? event.sessionId
-    const key = hostKey(serverId, sessionId)
+    // Ordinary task links use the provider session id. A handoff re-keys that
+    // same attempt to the stable Solus session id. Keep both aliases in sync so
+    // the switch frame cannot leave the old row running or start a second timer.
+    const sessionIds = [...new Set([event.sessionId, event.agentSessionId].filter(
+      (sessionId): sessionId is string => !!sessionId,
+    ))]
+    const keys = sessionIds.map((sessionId) => hostKey(serverId, sessionId))
     const attention = attentionForStatus(event.status)
     if (!attention) {
-      this.states.delete(key)
+      for (const key of keys) this.states.delete(key)
       return
     }
 
-    const previous = this.states.get(key)
-    const continuesRun = previous
-      && previous.attention !== 'error'
-      && isSessionBusyStatus(event.status)
-    this.states.set(key, {
+    const previousRunStartedAt = keys
+      .map((key) => this.states.get(key))
+      .filter((state) => state && state.attention !== 'error')
+      .reduce<number | null>((earliest, state) => (
+        earliest === null ? state!.runStartedAt : Math.min(earliest, state!.runStartedAt)
+      ), null)
+    const continuesRun = previousRunStartedAt !== null && isSessionBusyStatus(event.status)
+    const next = {
       attention,
-      runStartedAt: continuesRun ? previous.runStartedAt : event.at,
-    })
+      runStartedAt: continuesRun ? previousRunStartedAt : event.at,
+    }
+    for (const key of keys) this.states.set(key, next)
   }
 
   stateFor(serverId: string | null | undefined, sessionId: string): SidebarLiveSessionState | null {

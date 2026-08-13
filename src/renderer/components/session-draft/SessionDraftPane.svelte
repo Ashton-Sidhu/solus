@@ -249,9 +249,9 @@
 {/if}
 
 <style>
-  /* A composer under a headline takes a prompt's measure, not the reading
-     column's — the same one the leading column and a split chat use for an
-     empty session, so opening a draft never resizes the bar you were typing in. */
+  /* A session draft is a compact prompt surface under one headline, not a
+     transcript. Keep it responsive, but do not let the wider conversation
+     reading measure turn the composer into a large horizontal card. */
   .draft-column {
     --solus-reading-max: clamp(40rem, 50%, 52rem);
   }

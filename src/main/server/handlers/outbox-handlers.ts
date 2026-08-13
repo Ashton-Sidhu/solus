@@ -4,7 +4,6 @@ import {
   listOutboxOps,
   markOutboxOpsFailed,
 } from '../../outbox/outbox-store'
-import type { OutboxOp } from '../../../shared/outbox-types'
 import type { SolusServer } from '../server'
 
 /**
@@ -17,13 +16,13 @@ export function registerOutboxHandlers(server: SolusServer): void {
   server.register('outboxList', () => listOutboxOps())
 
   server.register('outboxAck', (args) => {
-    const [appliedIds, failures] = args as [string[], Array<{ id: string; error: string }> | undefined]
+    const [appliedIds, failures] = args
     ackOutboxOps(appliedIds)
     markOutboxOpsFailed(failures ?? [])
   })
 
   server.register('outboxApply', (args) => {
-    const [ops] = args as [OutboxOp[]]
+    const [ops] = args
     return applyOutboxOps(ops)
   })
 }

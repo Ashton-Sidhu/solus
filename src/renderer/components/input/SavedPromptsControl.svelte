@@ -89,7 +89,7 @@
       : "No saved prompts in this project yet",
   );
 
-  const FILE_ICON_COMPONENTS: Record<string, Component> = {
+  const FILE_ICON_COMPONENTS = {
     "image/png": ImageIcon,
     "image/jpeg": ImageIcon,
     "image/gif": ImageIcon,
@@ -100,7 +100,7 @@
     "application/json": FileCodeIcon,
     "text/yaml": FileCodeIcon,
     "text/toml": FileCodeIcon,
-  };
+  } satisfies Record<string, Component>;
 
   // Loading on open rather than on mount: the list is only ever read through
   // this sheet, and re-reading on open is also what keeps a second window's
@@ -138,7 +138,8 @@
   $effect(() => {
     if (!active) return;
     const onRequest = (event: Event) => {
-      const detail = (event as CustomEvent<SavedPromptsRequest>).detail;
+      if (!(event instanceof CustomEvent)) return;
+      const detail: SavedPromptsRequest = event.detail;
       if (detail?.tabId && detail.tabId !== tabId) return;
       if (detail?.action === "save") void save();
       else open = true;
@@ -175,9 +176,9 @@
       // just restored.
       input.text = restoreText;
       input.attachments.splice(0, input.attachments.length, ...restoreAttachments);
-      toasts.error(
-        `Could not save prompt: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toasts.error("Could not save prompt", {
+        description: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

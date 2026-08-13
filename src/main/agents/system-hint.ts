@@ -22,7 +22,7 @@ const ARTIFACT_GUIDANCE = [
 // variant (project vs general workspace, claude vs codex, plan mode) stays
 // clean and singular — no stacked/conflicting instructions in the context.
 
-function preamble(agent: 'claude' | 'codex', subagent: boolean): string {
+function preamble(): string {
   return [
     'IMPORTANT: You are NOT running in a terminal. You are running inside Solus,',
     `a desktop chat application with a rich UI that renders full markdown.`,
@@ -124,7 +124,7 @@ function userInstructionBlock(title: string, body: string): string | null {
 /** Compose the Solus system prompt from clean, non-overlapping parts. */
 export function buildSystemPrompt(opts: SystemPromptOptions): string {
   const parts: string[] = [
-    preamble(opts.agent, opts.subagent === true),
+    preamble(),
     opts.general ? GENERAL_ASSISTANT_ROLE : '',
   ]
   // The TodoWrite cadence fits a code project, not a general chat. Automations

@@ -50,7 +50,7 @@ export class SavedPromptsStore {
    * wire throws.
    */
   async create(prompt: SavedPrompt): Promise<void> {
-    const list = await serverConnections.primaryApi().savedPromptsCreate($state.snapshot(prompt) as SavedPrompt)
+    const list = await serverConnections.primaryApi().savedPromptsCreate($state.snapshot(prompt))
     this.byProjectRoot.set(prompt.projectRoot, list)
   }
 

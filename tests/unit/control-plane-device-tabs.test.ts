@@ -831,7 +831,12 @@ describe('ControlPlane provider handoff', () => {
 
     await expect(
       env.controlPlane.switchSessionProvider(sessionId, 'claude-code', agentSessionId),
-    ).resolves.toEqual({ fromProvider: 'codex', fromSessionId: agentSessionId })
+    ).resolves.toEqual({
+      fromProvider: 'codex',
+      fromSessionId: agentSessionId,
+      handoffId: sessionId,
+      taskSessionMove: { sourceSessionId: agentSessionId, targetSessionId: sessionId },
+    })
     expect(buildCalls).toEqual([])
 
     const freshContext = promptContext('claude-code', agentSessionId, sessionId)
@@ -907,6 +912,7 @@ describe('ControlPlane provider handoff', () => {
     await expect(env.controlPlane.switchSessionProvider(sessionUnderTest, 'claude-code')).resolves.toEqual({
       fromProvider: 'codex',
       fromSessionId: 'old-session',
+      handoffId: sessionUnderTest,
     })
     // The switch itself never touches the handoff builder — it's deferred to
     // the first prompt sent to the new provider.
@@ -930,17 +936,13 @@ describe('ControlPlane provider handoff', () => {
     expect(claude.lastInput?.systemPrompt).toContain('/tmp/solus-handoffs/old-session-transcript.md')
     expect(claude.lastInput?.systemPrompt).toContain('/tmp/solus-handoffs/old-session-reasoning.md')
 
-    const init = env.events.find(({ event }) =>
-      event.type === 'session_init' && event.handoffFrom?.sessionId === 'old-session'
-    )
-    expect(init?.event).toMatchObject({
-      type: 'session_init',
-      handoffFrom: { provider: 'codex', sessionId: 'old-session' },
-    })
+    const init = env.events.find(({ event }) => event.type === 'session_init')
+    expect(init?.event).toMatchObject({ type: 'session_init' })
+    expect(init?.event.type === 'session_init' ? init.event.handoffFrom : undefined).toBeUndefined()
     const switched = (env.controlPlane as unknown as {
       activeSessions: Map<string, BackendSession>
     }).activeSessions.get('old-session')
-    expect(switched?.handoffFrom).toEqual({ provider: 'codex', sessionId: 'old-session' })
+    expect(switched?.handoffFrom).toBeUndefined()
   })
 
   test('rejects an idle provider mismatch that has no pending handoff', async () => {
@@ -1001,6 +1003,7 @@ describe('ControlPlane provider handoff', () => {
     ).resolves.toEqual({
       fromProvider: 'codex',
       fromSessionId: 'limited-session',
+      handoffId: sessionUnderTest,
     })
 
     const switched = (env.controlPlane as unknown as {

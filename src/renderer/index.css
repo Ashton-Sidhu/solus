@@ -128,29 +128,25 @@
   --solus-code-font-size: calc(0.75rem * var(--solus-code-font-scale, 1));
   /* Centered reading column — shared by the message stream, progress tracker,
      status bars and the input dock so the whole thread lines up as one column.
-     Fluid: the 88% scales the column with the conversation pane's width, bounded
-     to a readable min/max. Resolves against each consumer's container, so it
-     also adapts when the sidebar/diff panel resize the pane, and is a no-op in
-     the narrow pill window (pane already below the min). */
-  --solus-reading-max: clamp(40rem, 92%, 80rem);
+     It takes most of the available conversation pane on laptops and smaller
+     viewports, then caps at 68rem so a 5K or ultrawide display gains useful
+     width without turning the transcript into a full-width wall of text. The
+     percentage resolves against each consumer's container, so splits and side
+     panels resize the column with the pane rather than with the outer window.
+     Below the 30rem floor, max-width remains a limit rather than a forced width,
+     so the column still contracts to the available space.
+
+     Keep `conversation/lib/minimap.ts` in step — it mirrors this in TypeScript
+     to place the message navigator, and `tests/unit/panel-sizing.test.ts` reads
+     this line back to prove the two agree. */
+  --solus-reading-max: clamp(30rem, 80%, 68rem);
   /* SF Pro Text first-paint defaults. Runtime font preferences replace these
      with the selected face's named Regular or Medium instance. */
   --solus-font-weight-body: 400;
   --solus-font-weight-secondary: 400;
   --solus-font-weight-user-content: 400;
-  /* macOS traffic-light safe area — single source of truth.
-     `titleBarStyle: 'hiddenInset'` floats the real window controls over the
-     top-left of our content, so every piece of chrome that can land in that
-     corner (the editor drag strip, the tab-strip lead spacer, the left
-     side-panel header, full-page view headers) must reserve space from it.
-     These are 0 wherever the controls aren't overlaid (Windows / Linux / web,
-     and the frameless pill window), so consumers reference them unconditionally
-     and the reservation self-collapses off-mac. Overridden to the real inset by
-     `html.is-mac-editor` (set from the window context on the editor window).
-       - height: the controls' vertical band.
-       - traffic-light-inset: window-left edge → first app-control x.
-       - control/content values: one geometry contract for the sidebar toggle
-         and every header that follows it, so the two can never overlap. */
+  /* macOS traffic-light safe area. These values stay at zero on web, Windows,
+     Linux, and the frameless Pill window. */
   --solus-titlebar-height: 0px;
   --solus-traffic-light-inset: 0px;
   --solus-chrome-row-h: 2.5rem;
@@ -2911,8 +2907,12 @@ button.solus-token {
 /* ─── Report prose (2a — the sub-agent's answer) ───
    Two steps, both applied alongside `.prose-transcript`: the verdict the report
    leads with, and the section bodies under it. Section headings are drawn as
-   kickers outside the prose, so nothing in here has to carry section weight —
-   which is why the ladder is flatter and a step smaller than a transcript's.
+   kickers outside the prose, so nothing in here has to carry section weight.
+
+   A report is the chip-densest prose in the product — every file, symbol, and
+   line reference is a ~22px chip box — so it keeps the transcript's 1.75
+   leading everywhere, including list items, where the transcript's tighter
+   1.55 lets stacked chip borders touch.
 
    The measure is set by the report's own column, so the 88% share is released;
    pinning it here instead would compound against that column.
@@ -2922,12 +2922,21 @@ button.solus-token {
 .prose-report-lead {
   max-width: none;
   font-size: calc(0.875rem * var(--solus-font-scale, 1));
-  line-height: 1.6;
+  line-height: 1.75;
 }
 .prose-report {
   max-width: none;
   font-size: calc(0.875rem * var(--solus-font-scale, 1));
-  line-height: 1.65;
+  line-height: 1.75;
+}
+.prose-report p,
+.prose-report-lead p {
+  margin-bottom: 0.75rem;
+}
+.prose-report li,
+.prose-report-lead li {
+  margin-bottom: 0.375rem;
+  line-height: 1.75;
 }
 
 /* ─── Agent exchange card prose (the other agent's reply) ───
@@ -3534,20 +3543,29 @@ button.solus-token {
   pointer-events: auto;
 }
 
-/* Real macOS traffic lights are overlaid only on the editor window. Set from
-   the window context (platform === darwin && editor mode); resolves the safe
-   area vars above so every consumer's reservation switches on together. */
+/* ─── Drag region for frameless window ─── */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* The macOS editor keeps edge-to-edge content under native traffic lights. */
 html.is-mac-editor {
   --solus-titlebar-height: 3.25rem;
   --solus-traffic-light-inset: 5.625rem;
   --solus-chrome-row-h: var(--solus-titlebar-height);
 }
 
-/* ─── Drag region for frameless window ─── */
-.drag-region {
+/* One titlebar contract for every real Editor header. This follows the same
+   model as T3 Code: the row owns window movement and its controls opt out. */
+html.is-mac-editor .workspace-titlebar {
   -webkit-app-region: drag;
 }
-.no-drag {
+html.is-mac-editor
+  .workspace-titlebar
+  :where(button, input, textarea, select, a, [contenteditable="true"]) {
   -webkit-app-region: no-drag;
 }
 

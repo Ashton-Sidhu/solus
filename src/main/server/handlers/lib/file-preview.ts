@@ -88,21 +88,22 @@ export async function readFilePreview(
       ? await readFilePrefix(target, PREVIEW_MAX_BYTES, PREVIEW_MAX_BYTES)
       : await readFile(target)
     const outsideRoot = !root || !isInsideRoot(root, target)
-    return {
+    const result: FilePreviewResult = {
       ok: true,
       path: target,
-      displayPath: outsideRoot ? target : relative(root!, target),
+      displayPath: outsideRoot || !root ? target : relative(root, target),
       contents: buffer.toString('utf-8'),
       size: fileStat.size,
       isReadOnly: outsideRoot || truncated,
-      ...(truncated ? { truncated } : {}),
       mimeType: mimeTypeForExtension(extname(target).toLowerCase()),
     }
-  } catch (error: any) {
+    if (truncated) result.truncated = true
+    return result
+  } catch (error) {
     return {
       ok: false,
       path: target,
-      error: error?.message ?? String(error),
+      error: error instanceof Error ? error.message : String(error),
     }
   }
 }

@@ -12,9 +12,9 @@
   } from '../diagram-colors'
   import { getSettingsContext } from '../../../contexts'
   import {
-    DIAGRAM_NODE_SHAPE_OPTIONS,
-    isDecorativeNodeShape,
-    isSimpleShapeNode,
+    DIAGRAM_NODE_SILHOUETTE_OPTIONS,
+    isDecorativeNodeSilhouette,
+    isSimpleDiagramNode,
   } from '../diagram-node-shapes'
 
   interface Props {
@@ -44,12 +44,16 @@
 
   // Card outline picker. 'rectangle' is the implicit default, so selecting it
   // clears the field rather than persisting the default value.
-  const canUseDecorativeShape = $derived(isSimpleShapeNode(node))
-  const shapeOptions = $derived(
-    DIAGRAM_NODE_SHAPE_OPTIONS.filter((shape) => canUseDecorativeShape || !shape.decorative),
+  const canUseDecorativeSilhouette = $derived(isSimpleDiagramNode(node))
+  const silhouetteOptions = $derived(
+    DIAGRAM_NODE_SILHOUETTE_OPTIONS.filter(
+      (option) => canUseDecorativeSilhouette || !option.decorative,
+    ),
   )
-  const activeShape = $derived(
-    isDecorativeNodeShape(node.shape) && !canUseDecorativeShape ? 'rectangle' : (node.shape ?? 'rectangle'),
+  const activeSilhouette = $derived(
+    isDecorativeNodeSilhouette(node.silhouette) && !canUseDecorativeSilhouette
+      ? 'rectangle'
+      : (node.silhouette ?? 'rectangle'),
   )
 
   function commit(patch: Partial<DiagramNode>) {
@@ -99,18 +103,18 @@
   <div class="inspector-field">
     <span class="inspector-label">Shape</span>
     <div class="node-shape" role="group" aria-label="Node shape">
-      {#each shapeOptions as { value, label: shapeLabel }}
+      {#each silhouetteOptions as { value, label: silhouetteLabel }}
         <button
           type="button"
           class="node-shape__btn"
-          class:node-shape__btn--active={activeShape === value}
-          aria-pressed={activeShape === value}
-          aria-label={shapeLabel}
-          title={shapeLabel}
-          onclick={() => commit({ shape: value === 'rectangle' ? undefined : value })}
+          class:node-shape__btn--active={activeSilhouette === value}
+          aria-pressed={activeSilhouette === value}
+          aria-label={silhouetteLabel}
+          title={silhouetteLabel}
+          onclick={() => commit({ silhouette: value === 'rectangle' ? undefined : value })}
         >
           <span class="node-shape__preview node-shape__preview--{value}"></span>
-          <span class="node-shape__name">{shapeLabel}</span>
+          <span class="node-shape__name">{silhouetteLabel}</span>
         </button>
       {/each}
     </div>

@@ -58,9 +58,9 @@
     try {
       await connections.connectProvider(session.ctx);
     } catch (error) {
-      toasts.error(
-        `Couldn't connect to GitHub: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      toasts.error("Couldn't connect to GitHub", {
+        description: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 

@@ -1,6 +1,7 @@
 import { track } from './analytics'
 import { disposePcmCaptureResources, PcmCapture, type PcmChunk } from './pcm-capture'
 import { serverConnections } from '@client-core/server-connections'
+import { z } from 'zod'
 
 // Audio is held back from the buffer until a chunk crosses this rms — leading
 // mic-onset noise/breath decodes as garbage punctuation (a stray "?"). Same
@@ -38,7 +39,7 @@ const devVoiceSessionStats: DevVoiceSessionStats = {
 type LegacyGetUserMedia = (
   constraints: MediaStreamConstraints,
   onSuccess: (stream: MediaStream) => void,
-  onError: (error: unknown) => void,
+  onError: (error: DOMException) => void,
 ) => void
 
 type LegacyNavigator = Navigator & {
@@ -412,7 +413,7 @@ async function requestMicrophoneStream(): Promise<MediaStream> {
     })
   }
 
-  const legacyNavigator = navigator as LegacyNavigator
+  const legacyNavigator = navigatorWithLegacyMedia()
   const legacyGetUserMedia =
     legacyNavigator.getUserMedia ??
     legacyNavigator.webkitGetUserMedia ??
@@ -432,19 +433,19 @@ async function requestMicrophoneStream(): Promise<MediaStream> {
 }
 
 function microphoneUnsupportedMessage(): string | null {
-  if (typeof navigator === 'undefined') {
+  if (!('navigator' in globalThis)) {
     return 'Microphone input is not available in this environment.'
   }
-  if (typeof window !== 'undefined' && window.isSecureContext === false) {
+  if ('window' in globalThis && window.isSecureContext === false) {
     return 'Microphone access requires a secure connection. Open Solus over HTTPS or localhost.'
   }
 
-  const legacyNavigator = navigator as LegacyNavigator
+  const legacyNavigator = navigatorWithLegacyMedia()
   const hasGetUserMedia =
-    typeof navigator.mediaDevices?.getUserMedia === 'function' ||
-    typeof legacyNavigator.getUserMedia === 'function' ||
-    typeof legacyNavigator.webkitGetUserMedia === 'function' ||
-    typeof legacyNavigator.mozGetUserMedia === 'function'
+    !!navigator.mediaDevices?.getUserMedia ||
+    !!legacyNavigator.getUserMedia ||
+    !!legacyNavigator.webkitGetUserMedia ||
+    !!legacyNavigator.mozGetUserMedia
   if (!hasGetUserMedia) {
     return 'Microphone input is not supported in this browser.'
   }
@@ -452,22 +453,32 @@ function microphoneUnsupportedMessage(): string | null {
 }
 
 function supportsBatchTranscription(): boolean {
-  return typeof serverConnections.primaryApi().transcribeAudio === 'function' &&
-    typeof AudioWorkletNode !== 'undefined'
+  return !!serverConnections.primaryApi().transcribeAudio && 'AudioWorkletNode' in globalThis
+}
+
+function navigatorWithLegacyMedia(): LegacyNavigator {
+  // SAFETY: Legacy browser media methods extend Navigator without changing its existing fields.
+  return navigator as LegacyNavigator
 }
 
 class MicrophoneUnsupportedError extends Error {
   name = 'MicrophoneUnsupportedError'
 }
 
-function microphoneErrorInfo(err: unknown): { message: string; kind: NonNullable<VoiceErrorKind> } {
-  const errorLike =
-    typeof err === 'object' && err !== null
-      ? (err as { name?: unknown; message?: unknown })
-      : null
-  const name = typeof errorLike?.name === 'string' ? errorLike.name : ''
-  const message =
-    typeof errorLike?.message === 'string' ? errorLike.message : ''
+interface MicrophoneErrorInfo {
+  message: string
+  kind: NonNullable<VoiceErrorKind>
+}
+
+const microphoneErrorSchema = z.object({
+  name: z.string().optional(),
+  message: z.string().optional(),
+})
+
+function microphoneErrorInfo<T>(err: T): MicrophoneErrorInfo {
+  const parsed = microphoneErrorSchema.safeParse(err)
+  const name = parsed.success ? parsed.data.name ?? '' : ''
+  const message = parsed.success ? parsed.data.message ?? '' : ''
 
   switch (name) {
     case 'NotAllowedError':

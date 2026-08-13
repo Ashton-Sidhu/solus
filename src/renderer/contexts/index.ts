@@ -33,6 +33,7 @@ export { TasksStore } from './tasks/tasks.store.svelte'
 /** Known projects and per-project configuration. */
 export { projectsStore } from './projects/projects.store.svelte'
 export { getProjectConfigStore } from './projects/project-config.store.svelte'
+export { getTextGenerationSettingsStore } from './projects/text-generation-settings.store.svelte'
 
 /** Composer drafts parked for later, scoped per project. */
 export { savedPrompts } from './saved-prompts/saved-prompts.store.svelte'

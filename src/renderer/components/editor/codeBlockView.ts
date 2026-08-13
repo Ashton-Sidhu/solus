@@ -1,9 +1,10 @@
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
-import type { Editor } from "@tiptap/core";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { mount, unmount } from "svelte";
 import CodeBlockLanguageSelect from "./CodeBlockLanguageSelect.svelte";
 import { codeBlockPickerLanguage } from "./lib/code-block-language";
+import { z } from "zod";
+
+const codeBlockLanguageSchema = z.string().nullable().catch(null);
 
 /** The grammars registered in lowlight.ts, plus a "plain" escape hatch. Kept
  *  here as a literal rather than read off lowlight so the picker shows stable
@@ -48,7 +49,7 @@ function control(label: string, title: string): HTMLButtonElement {
 export const DocCodeBlock = CodeBlockLowlight.extend({
   addNodeView() {
     return ({ node, editor, getPos }) => {
-      const currentNode = { value: node as ProseMirrorNode };
+      const currentNode = { value: node };
 
       const dom = document.createElement("div");
       dom.className = "doc-code-block";
@@ -68,7 +69,7 @@ export const DocCodeBlock = CodeBlockLowlight.extend({
         target: languageTarget,
         props: {
           initialValue: codeBlockPickerLanguage(
-            currentNode.value.attrs.language as string | null,
+            codeBlockLanguageSchema.parse(currentNode.value.attrs.language),
           ),
           options: LANGUAGES,
           onValueChange: (value: string) => {
@@ -116,7 +117,7 @@ export const DocCodeBlock = CodeBlockLowlight.extend({
       const syncFocus = () => {
         const pos = getPos();
         if (pos == null) return;
-        const { from, to } = (editor as Editor).state.selection;
+        const { from, to } = editor.state.selection;
         const end = pos + currentNode.value.nodeSize;
         dom.classList.toggle("doc-code-block--focused", from >= pos && to <= end);
       };
@@ -138,7 +139,9 @@ export const DocCodeBlock = CodeBlockLowlight.extend({
         update: (updated) => {
           if (updated.type.name !== currentNode.value.type.name) return false;
           currentNode.value = updated;
-          const next = codeBlockPickerLanguage(updated.attrs.language as string | null);
+          const next = codeBlockPickerLanguage(
+            codeBlockLanguageSchema.parse(updated.attrs.language),
+          );
           languagePicker.setLanguage(next);
           syncFocus();
           return true;

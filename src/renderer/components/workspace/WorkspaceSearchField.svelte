@@ -41,14 +41,16 @@
   }
 
   function handleInput(e: Event) {
-    const input = e.target as HTMLInputElement;
+    if (!(e.target instanceof HTMLInputElement)) return;
+    const input = e.target;
     const absorbed = absorbTokens(input.value);
     if (absorbed !== input.value) input.value = absorbed;
     filter.text = absorbed;
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    const input = e.target as HTMLInputElement;
+    if (!(e.target instanceof HTMLInputElement)) return;
+    const input = e.target;
     // Backspace at the caret start deletes the last chip whole.
     if (e.key === "Backspace" && input.selectionStart === 0 && input.selectionEnd === 0 && chips.length > 0) {
       e.preventDefault();

@@ -54,6 +54,26 @@ describe("toast service", () => {
     expect(calls[0].options?.duration).toBeUndefined()
   })
 
+  test("uses the description line for supporting detail", () => {
+    toasts.error("Couldn't save", { description: "Permission denied" })
+
+    expect(calls[0]).toMatchObject({
+      kind: "error",
+      message: "Couldn't save",
+      options: { description: "Permission denied" },
+    })
+  })
+
+  test("does not infer structure from punctuation in the title", () => {
+    toasts.info("Host found: laptop", { description: "Ready to connect" })
+
+    expect(calls[0]).toMatchObject({
+      kind: "info",
+      message: "Host found: laptop",
+      options: { description: "Ready to connect" },
+    })
+  })
+
   test("maps two actions to Sonner's standard action and cancel buttons", () => {
     const activated: string[] = []
     toasts.show({

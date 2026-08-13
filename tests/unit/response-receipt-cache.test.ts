@@ -70,6 +70,19 @@ describe('WebSocket response receipt retention', () => {
     expect(await thirdClient.getOrCreate('three', async () => 'ok')).toBe('ok')
   })
 
+  test('one client at its admission cap does not starve another client', async () => {
+    const budget = new ResponseReceiptBudget()
+    const busyClient = new ResponseReceiptCache(() => 'busy', budget)
+    const otherClient = new ResponseReceiptCache(() => 'busy', budget)
+    const pending = new Promise<string>(() => {})
+
+    for (let index = 0; index < RESPONSE_RECEIPT_MAX_IN_FLIGHT; index++) {
+      busyClient.getOrCreate(`busy-${index}`, () => pending)
+    }
+
+    expect(await otherClient.getOrCreate('routine-read', async () => 'ok')).toBe('ok')
+  })
+
   test('shares settled-byte retention across client caches', async () => {
     const budget = new ResponseReceiptBudget(4, 100)
     const firstClient = new ResponseReceiptCache(() => 'busy', budget)

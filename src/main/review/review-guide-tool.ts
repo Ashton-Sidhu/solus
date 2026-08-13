@@ -11,7 +11,7 @@ const log = createLogger('review', 'review-guide-tool.ts')
 // with the whole guide as its arguments — those args ARE the guide, captured
 // directly (no markup, no parsing of free text).
 
-const fileRefShape = z.object({
+const fileReferenceSchema = z.object({
   path: z.string().describe('Repo-relative path EXACTLY as it appears in the diff (the b/ post-image path).'),
   additions: z.number().int().min(0).describe('Lines added to this file in the change.'),
   deletions: z.number().int().min(0).describe('Lines removed from this file in the change.'),
@@ -26,7 +26,7 @@ const fileRefShape = z.object({
     ),
 })
 
-const sectionShape = z.object({
+const sectionSchema = z.object({
   id: z.string().describe('Stable slug for this concern, e.g. "receipt-localization".'),
   title: z.string().describe('Short human title for the concern, e.g. "Receipt Localization".'),
   order: z
@@ -48,18 +48,18 @@ const sectionShape = z.object({
   ledgerRefs: z
     .array(z.string())
     .describe('Ledger record ids that inform this section. Use [] when no ledger is present or none apply.'),
-  files: z.array(fileRefShape).describe('Files this concern spans. A file may legitimately appear in more than one section.'),
+  files: z.array(fileReferenceSchema).describe('Files this concern spans. A file may legitimately appear in more than one section.'),
 })
 
-export const submitReviewGuideShape = {
+export const submitReviewGuideFields = {
   title: z.string().describe('One-line title for the whole change.'),
   summary: z.string().describe('A 1–3 sentence overview: what the change does and why.'),
   sections: z
-    .array(sectionShape)
+    .array(sectionSchema)
     .describe('The ordered walkthrough — core concerns first, supporting next, low-signal last.'),
 }
 
-const submitReviewGuideObject = z.object(submitReviewGuideShape)
+const submitReviewGuideObject = z.object(submitReviewGuideFields)
 
 export const SUBMIT_REVIEW_GUIDE_TOOL_NAME = 'submit_review_guide'
 
@@ -86,7 +86,7 @@ export interface ParseGuideResult {
 /** Validate raw tool args into a draft. The Claude SDK pre-validates against the
  *  zod shape, but the Codex dynamicTools path hands us raw JSON, so we parse here
  *  for both. */
-export function parseGuideArgs(args: unknown): ParseGuideResult {
+export function parseGuideArgs(args: Parameters<typeof submitReviewGuideObject.safeParse>[0]): ParseGuideResult {
   const parsed = submitReviewGuideObject.safeParse(args ?? {})
   if (!parsed.success) {
     return { ok: false, error: `submit_review_guide: invalid arguments — ${parsed.error.message}` }
@@ -100,7 +100,7 @@ export function createReviewGuideAgentTool(
   return {
     name: SUBMIT_REVIEW_GUIDE_TOOL_NAME,
     description: SUBMIT_REVIEW_GUIDE_DESC,
-    inputShape: submitReviewGuideShape,
+    inputFields: submitReviewGuideFields,
     requiresApproval: false,
     execute: async (args) => {
       const result = parseGuideArgs(args)
@@ -125,7 +125,7 @@ export interface NormalizeGuideContext {
   ledgerIds: string[]
 }
 
-const BAND: Record<GuideSignificance, number> = { core: 0, supporting: 1, 'low-signal': 2 }
+const BAND = { core: 0, supporting: 1, 'low-signal': 2 } satisfies Record<GuideSignificance, number>
 
 /**
  * Validate + normalize a captured draft against the real change so the persisted

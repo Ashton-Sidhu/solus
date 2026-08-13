@@ -19,13 +19,13 @@
 
   let { text, alertType }: Props = $props();
 
-  const titles: Record<AlertType, string> = {
+  const titles = {
     note: "Note",
     tip: "Tip",
     important: "Important",
     warning: "Warning",
     caution: "Caution",
-  };
+  } satisfies Record<AlertType, string>;
 
   const markdownRenderers = {
     codespan: CodeSpan,

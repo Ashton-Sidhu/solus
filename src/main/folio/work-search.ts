@@ -2,6 +2,7 @@ import { getDb } from '../db'
 import { sanitizeFtsQuery } from '../db/fts'
 import { createLogger } from '../logger'
 import { listWorks, loadWork } from './works'
+import { z } from 'zod'
 
 const log = createLogger('folio', 'work-search.ts')
 
@@ -28,14 +29,14 @@ export interface WorkSearchHit {
 
 const SNIPPET_RADIUS = 90
 
-interface LocalHitRow {
-  id: string
-  title: string | null
-  type: string | null
-  cwd: string | null
-  updated_at: number
-  snippet: string | null
-}
+const localHitRowsSchema = z.array(z.object({
+  id: z.string(),
+  title: z.string().nullable(),
+  type: z.string().nullable(),
+  cwd: z.string().nullable(),
+  updated_at: z.number(),
+  snippet: z.string().nullable(),
+}))
 
 function workType(value: string | null | undefined): WorkType {
   return value === 'slides' || value === 'diagram' ? value : 'doc'
@@ -62,7 +63,7 @@ function searchLocalWorks(ftsQuery: string, type: WorkType | undefined, limit: n
 
   // Column -1 lets FTS5 pick the best-matching column for the snippet; the bm25
   // weights (work_id, title, content) rank a title hit above a body hit.
-  const rows = getDb().prepare(`
+  const rows = localHitRowsSchema.parse(getDb().prepare(`
     SELECT
       w.id,
       w.title,
@@ -77,7 +78,7 @@ function searchLocalWorks(ftsQuery: string, type: WorkType | undefined, limit: n
     ${type ? 'AND w.type = ?' : ''}
     ORDER BY rank ASC
     LIMIT ?
-  `).all(...params) as unknown as LocalHitRow[]
+  `).all(...params))
 
   return rows.map((row) => ({
     id: row.id,

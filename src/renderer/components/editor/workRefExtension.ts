@@ -33,13 +33,13 @@ export const WorkRefExtension = Node.create({
   },
 
   parseMarkdown(token) {
-    const url = new URL(token.href as string)
+    const url = new URL(String(token.href))
     return {
       type: 'workReference',
       attrs: {
         workId: url.searchParams.get('workId'),
         type: url.searchParams.get('type') || 'doc',
-        title: (token.text || '').replace(/\\([\[\]])/g, '$1'),
+        title: (token.text || '').replaceAll('\\[', '[').replaceAll('\\]', ']'),
       },
     }
   },

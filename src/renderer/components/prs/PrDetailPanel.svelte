@@ -62,9 +62,9 @@
         // A missing GitHub connection is not a failed open: the surface shows
         // the connect action itself.
         if (prSurfaceError(error).kind === "github-auth") return;
-        toasts.error(
-          `Couldn't open PR #${requested}: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        toasts.error(`Couldn't open PR #${requested}`, {
+          description: error instanceof Error ? error.message : String(error),
+        });
         onClose();
       });
   });

@@ -84,6 +84,7 @@ export class IpcContextBuilder {
           // nested headRepo, and proxies aren't structured-cloneable over IPC. A
           // shallow spread wouldn't unwrap headRepo; this file is plain .ts so no
           // $state.snapshot — JSON round-trip is safe for this pure-data struct.
+          // SAFETY: the JSON round-trip only unwraps the Svelte proxy from this PrReviewContext.
           prReview: session.prReview ? (JSON.parse(JSON.stringify(session.prReview)) as PrReviewContext) : null,
         }
       : {}

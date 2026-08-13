@@ -91,9 +91,9 @@
       merged = true;
       if (result.detail) onMerged?.(result.detail);
     } catch (err) {
-      toasts.error(
-        `Couldn't merge the pull request: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toasts.error("Couldn't merge the pull request", {
+        description: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       merging = false;
       requestInputFocus();

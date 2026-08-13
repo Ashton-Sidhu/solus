@@ -173,9 +173,7 @@
   // this cursor. 30 FPS remains visually continuous while preventing coarse
   // transport batches from becoming up to 18 full markdown renders apiece.
   const REVEAL_FRAME_MS = 1000 / 30;
-  const prefersReducedMotion =
-    typeof window !== "undefined" &&
-    !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   let revealLen = $state(0);
   let revealExact = 0; // float cursor; revealLen is its floor
@@ -862,7 +860,8 @@
 
   $effect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ tabId?: string }>).detail;
+      if (!(e instanceof CustomEvent)) return;
+      const detail: { tabId?: string } = e.detail;
       if (detail?.tabId && detail.tabId !== tabId) return;
       if (!isVisible) return;
       const snap = () => {
@@ -1273,6 +1272,18 @@
                   {#snippet glyph()}<TreeStructureIcon size={12} />{/snippet}
                   Continued in worktree
                   {#snippet title()}{item.message.worktreeMovedTo}{/snippet}
+                </TranscriptDivider>
+              {:else if item.message.agentChangedTo}
+                <TranscriptDivider
+                  glyphClass="text-(--solus-accent)"
+                  titleClass="text-(--solus-accent)"
+                  timestamp={item.message.timestamp}
+                  testid="agent-handoff-message"
+                  {skipMotion}
+                >
+                  {#snippet glyph()}<DesktopTowerIcon size={12} />{/snippet}
+                  Continued with
+                  {#snippet title()}{item.message.agentChangedTo}{/snippet}
                 </TranscriptDivider>
               {:else if item.message.newSessionForPlanId}
                 <!-- The implementation run keeps none of the planning

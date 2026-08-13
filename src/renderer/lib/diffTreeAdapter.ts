@@ -4,11 +4,20 @@ import type { DiffComment } from '../../shared/types'
 
 type DiffFileStatus = 'A' | 'M' | 'D' | 'R'
 
-const STATUS_MAP: Record<DiffFileStatus, GitStatus> = {
+const STATUS_MAP = {
   A: 'added',
   M: 'modified',
   D: 'deleted',
   R: 'renamed',
+} satisfies Record<DiffFileStatus, GitStatus>
+
+export interface DiffStats {
+  additions: number
+  deletions: number
+}
+
+export interface DiffHeaderStats extends DiffStats {
+  files: number
 }
 
 export function diffFilePath(file: FileDiffMetadata): string {
@@ -22,7 +31,7 @@ export function diffFileStatus(file: FileDiffMetadata): DiffFileStatus {
   return 'M'
 }
 
-export function diffFileStats(file: FileDiffMetadata): { additions: number; deletions: number } {
+export function diffFileStats(file: FileDiffMetadata): DiffStats {
   let additions = 0
   let deletions = 0
   for (const hunk of file.hunks) {
@@ -32,7 +41,7 @@ export function diffFileStats(file: FileDiffMetadata): { additions: number; dele
   return { additions, deletions }
 }
 
-export function diffHeaderStats(files: FileDiffMetadata[]): { files: number; additions: number; deletions: number } {
+export function diffHeaderStats(files: FileDiffMetadata[]): DiffHeaderStats {
   let additions = 0
   let deletions = 0
   for (const file of files) {

@@ -3,6 +3,8 @@
  * connect to multiple machines and switch without re-pairing each time.
  */
 
+import type { HostOperatingSystem } from '../shared/types'
+
 const KEY = 'solus.servers'
 const ACTIVE_KEY = 'solus.activeServerId'
 
@@ -17,6 +19,8 @@ export interface SavedServer {
   sessionToken: string
   /** Last-known installation id (so we can warn if the server identity changed). */
   installationId?: string
+  /** Last-known operating system reported by the host. */
+  os?: HostOperatingSystem
   lastConnected: number
 }
 
@@ -95,6 +99,14 @@ export function stampInstallationId(id: string, installationId: string): void {
   const target = servers.find(s => s.id === id)
   if (!target || target.installationId === installationId) return
   target.installationId = installationId
+  saveServers(servers)
+}
+
+export function stampHostOperatingSystem(id: string, os: HostOperatingSystem): void {
+  const servers = loadServers()
+  const target = servers.find(s => s.id === id)
+  if (!target || target.os === os) return
+  target.os = os
   saveServers(servers)
 }
 

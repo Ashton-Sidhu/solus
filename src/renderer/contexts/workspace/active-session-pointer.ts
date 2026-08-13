@@ -1,5 +1,12 @@
 import type { AgentId } from '../../../shared/types'
 import { localApi } from '@client-core/local-api'
+import { z } from 'zod'
+
+const sessionHandoffSchema = z.object({
+  target: z.string(),
+  sessionId: z.string(),
+  updatedAt: z.number(),
+})
 
 // Explicit "continue in the other mode" (⌥⇧E) handoff. Both Electron windows
 // share one localStorage; tab stores stay per-window, and this one-shot key
@@ -44,12 +51,11 @@ export function consumeSessionHandoff(
     try {
       const raw = localStorage.getItem(HANDOFF_KEY)
       if (!raw) return
-      const parsed = JSON.parse(raw)
+      const parsed = sessionHandoffSchema.parse(JSON.parse(raw))
       if (parsed?.target !== target) return
       localStorage.removeItem(HANDOFF_KEY)
-      if (typeof parsed?.sessionId !== 'string') return
       if (Date.now() - (parsed.updatedAt ?? 0) > HANDOFF_TTL_MS) return
-      onSession(parsed as SessionHandoff)
+      onSession(parsed)
     } catch {}
   }
   consume()

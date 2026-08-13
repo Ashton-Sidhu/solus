@@ -6,7 +6,7 @@
   import { resolveIcon } from '../diagram-icons'
   import { EditableLabel } from '../editable-label.svelte'
   import { ensureIconCollections } from '../iconify'
-  import { isDecorativeNodeShape, isSimpleShapeNode } from '../diagram-node-shapes'
+  import { isDecorativeNodeSilhouette, isSimpleDiagramNode } from '../diagram-node-shapes'
   import { cardFields } from '../lib/node-card'
   import type { PinSummary } from '../lib/comment-threads'
   import CommentPin from '../CommentPin.svelte'
@@ -55,8 +55,10 @@
 
   // Card outline. 'rectangle' is the default (the rounded card); circle/diamond
   // are decorative modifiers that only apply to a simple label node.
-  const shape = $derived(
-    isDecorativeNodeShape(data.shape) && !isSimpleShapeNode(data) ? 'rectangle' : (data.shape ?? 'rectangle')
+  const silhouette = $derived(
+    isDecorativeNodeSilhouette(data.silhouette) && !isSimpleDiagramNode(data)
+      ? 'rectangle'
+      : (data.silhouette ?? 'rectangle')
   )
 
   // `drilldown` is excluded alongside `openFile`: the drill badge is the only
@@ -135,8 +137,8 @@
   }
 
   function handleHtmlClick(e: MouseEvent) {
-    const target = e.target as HTMLElement
-    const el = target.closest('[data-action]') as HTMLElement | null
+    if (!(e.target instanceof Element)) return
+    const el = e.target.closest<HTMLElement>('[data-action]')
     if (!el) return
     const actionType = el.dataset.action
     const prompt = el.dataset.prompt
@@ -186,7 +188,7 @@
 {/if}
 
 <div
-  class="diagram-node diagram-node--{shape}"
+  class="diagram-node diagram-node--{silhouette}"
   class:diagram-node--selected={selected}
   class:diagram-node--dimmed={data.dimmed}
   class:diagram-node--clickable={!!primaryAction && !editor.editing}
@@ -203,7 +205,7 @@
   onkeydown={handleKeydown}
   oncontextmenu={handleContextMenu}
 >
-  {#if shape === 'diamond'}
+  {#if silhouette === 'diamond'}
     <!-- Outline backdrop: a plain border can't survive the diamond silhouette,
          so the fill + stroke are drawn by this polygon. preserveAspectRatio=none
          lets it stretch to the card; non-scaling-stroke keeps an even edge. -->

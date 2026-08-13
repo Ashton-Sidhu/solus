@@ -1,4 +1,5 @@
 import { join } from 'path'
+import { z } from 'zod'
 import { createLogger } from '../../logger'
 import { dataDir } from '../../platform/paths'
 import { secretStore } from '../../platform/secrets'
@@ -19,6 +20,12 @@ export interface GithubStoredToken {
   login?: string
 }
 
+const githubStoredTokenSchema = z.object({
+  accessToken: z.string(),
+  scope: z.string(),
+  login: z.string().optional(),
+})
+
 /** Raised when the OS keyring is unavailable; we never write a token in plaintext. */
 export class EncryptionUnavailableError extends Error {
   constructor() {
@@ -32,7 +39,7 @@ function tokenFile(): string {
 }
 
 export function loadToken(): GithubStoredToken | null {
-  return secretStore().loadJson<GithubStoredToken>(TOKEN_KEY, tokenFile())
+  return secretStore().loadJson(TOKEN_KEY, tokenFile(), githubStoredTokenSchema)
 }
 
 export function persistToken(token: GithubStoredToken): void {

@@ -1,6 +1,5 @@
 import type { ControlPlane } from '../../control-plane'
-import type { AgentId, IpcContext, PlanAnnotations, SessionMeta, SessionScanEvent, SessionTitleChangedEvent } from '../../../shared/types'
-import type { SearchSessionsRequest } from '../../../shared/rpc'
+import type { AgentId, IpcContext, SessionMeta, SessionScanEvent, SessionTitleChangedEvent } from '../../../shared/types'
 import { loadAnnotations, saveAnnotations, toggleBookmarkAnnotations } from '../../plans/annotations'
 import { listRecentProjects, trackRecentProject } from '../../recent-projects'
 import { createLogger, isDebugEnabled } from '../../logger'
@@ -28,8 +27,10 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   const { controlPlane, events, agentIdFromContext } = deps
 
   server.register('listSessions', async (args, handlerCtx) => {
-    const [projectPath, , , streamId, requestedLimit] = args as [string | undefined, unknown, unknown, string | undefined, number | undefined]
-    const limitPerProvider = Number.isSafeInteger(requestedLimit) && requestedLimit! > 0 ? requestedLimit : undefined
+    const [projectPath, , , streamId, requestedLimit] = args
+    const limitPerProvider = requestedLimit !== undefined && Number.isSafeInteger(requestedLimit) && requestedLimit > 0
+      ? requestedLimit
+      : undefined
     log.info('rpc_list_sessions', { projectPath, streamId, limitPerProvider })
     if (!projectPath) return []
     const t0 = Date.now()
@@ -42,7 +43,9 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
         if (batchBuffer.length === 0) return
         const sessions = takeSessionScanBatch(batchBuffer, BATCH_SIZE)
         if (handlerCtx.clientId) {
-          events.publish(handlerCtx.clientId, 'session.scanProgressed', { streamId: streamId!, type: 'batch', sessions } satisfies SessionScanEvent)
+          if (streamId) {
+            events.publish(handlerCtx.clientId, 'session.scanProgressed', { streamId, type: 'batch', sessions } satisfies SessionScanEvent)
+          }
         }
         flushScheduled = false
       }
@@ -79,7 +82,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   })
 
   server.register('searchSessions', async (args) => {
-    const [request] = args as [SearchSessionsRequest]
+    const [request] = args
     try {
       return searchIndexedSessions(request.query, {
         projectRoot: request.projectRoot,
@@ -106,7 +109,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   })
 
   server.register('trackRecentProject', async (args) => {
-    const [path] = args as [string]
+    const [path] = args
     try {
       await trackRecentProject(path)
     } catch (err) {
@@ -115,7 +118,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   })
 
   server.register('loadSession', async (args) => {
-    const [sessionId, projectPath, ctx, provider, limit] = args as [string, string | undefined, IpcContext | undefined, AgentId | undefined, number | undefined]
+    const [sessionId, projectPath, ctx, provider, limit] = args
     const agentId = provider ?? agentIdFromContext(ctx)
     log.info('rpc_load_session', { sessionId, projectPath, limit })
     try {
@@ -123,12 +126,13 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       if (isDebugEnabled) {
         log.debug('session_load_bytes', { sessionId, bytes: serializedBytes(messages), messageCount: messages.length })
         for (const message of messages) {
-          log.debug('session_event_bytes', {
+          const details = {
             sessionId,
             eventType: message.role,
-            ...(message.toolName ? { toolName: message.toolName } : {}),
             bytes: serializedBytes(message),
-          })
+          }
+          if (message.toolName) Object.assign(details, { toolName: message.toolName })
+          log.debug('session_event_bytes', details)
         }
       }
       return projectSessionHistory(messages)
@@ -139,7 +143,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   })
 
   server.register('loadSessionPreview', async (args) => {
-    const [sessionId, projectPath, ctx, provider] = args as [string, string | undefined, IpcContext | undefined, AgentId | undefined]
+    const [sessionId, projectPath, ctx, provider] = args
     const agentId = provider ?? agentIdFromContext(ctx)
     log.info('rpc_load_session_preview', { sessionId, projectPath })
     try {
@@ -151,7 +155,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   })
 
   server.register('getSessionInfo', async (args) => {
-    const [sessionId] = args as [string]
+    const [sessionId] = args
     try {
       return await controlPlane.getSessionInfo(sessionId)
     } catch (err) {
@@ -160,19 +164,23 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
+  server.register('resolveSessionHandoff', (args) => {
+    const [provider, providerSessionId] = args
+    try {
+      return controlPlane.resolveSessionHandoff(provider, providerSessionId)
+    } catch (err) {
+      log.error('resolve_session_handoff_failed', { error: String(err), provider, providerSessionId })
+      return null
+    }
+  })
+
   server.register('generateSessionMetadata', (args) => {
-    const [promptText, cwd] = args as [string, string]
+    const [promptText, cwd] = args
     return generateSessionMetadata(controlPlane, promptText, cwd)
   })
 
   server.register('setSessionTitle', async (args) => {
-    const [sessionId, title, source = 'manual', generatedDescription, publishEvent = true] = args as [
-      string,
-      string | null,
-      'generated' | 'manual' | undefined,
-      string | undefined,
-      boolean | undefined,
-    ]
+    const [sessionId, title, source = 'manual', generatedDescription, publishEvent = true] = args
     const trimmed = title?.trim()
     const customTitle = trimmed || null
     setSessionCustomTitle(sessionId, customTitle)
@@ -199,12 +207,13 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const pinLabel = trimmed || getIndexedSession(sessionId)?.firstMessage?.replace(/\s+/g, ' ').slice(0, 80)
     if (pinLabel) renamePinnedSession(sessionId, pinLabel)
     if (publishEvent) {
-      events.broadcast('session.titleChanged', {
+      const event: SessionTitleChangedEvent = {
         sessionId,
         title: customTitle,
         source,
-        ...(generatedDescription ? { generatedDescription } : {}),
-      } satisfies SessionTitleChangedEvent)
+      }
+      if (generatedDescription) event.generatedDescription = generatedDescription
+      events.broadcast('session.titleChanged', event)
     } else if (!taskChanged) {
       // The proxy row changed even when a generated task name lost a race to a
       // manual edit. Other clients of the task host still need to reload it.
@@ -214,7 +223,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   })
 
   server.register('listPlans', async (args) => {
-    const [projectPath, allProjects] = args as [string | undefined, boolean | undefined]
+    const [projectPath, allProjects] = args
     log.info('rpc_list_plans', { projectPath, allProjects: !!allProjects })
     const t0 = Date.now()
     try {
@@ -228,7 +237,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   })
 
   server.register('loadPlanContent', async (args) => {
-    const [sessionId, projectPath, planToolUseId, ctx, provider] = args as [string, string, string, IpcContext | undefined, AgentId | undefined]
+    const [sessionId, projectPath, planToolUseId, ctx, provider] = args
     const agentId = provider ?? agentIdFromContext(ctx)
     log.info('rpc_load_plan_content', { sessionId, planToolUseId })
     const t0 = Date.now()
@@ -243,7 +252,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   })
 
   server.register('loadPlanAnnotations', async (args) => {
-    const [sessionId, planToolUseId] = args as [string, string]
+    const [sessionId, planToolUseId] = args
     try {
       return await loadAnnotations(sessionId, planToolUseId)
     } catch (err) {
@@ -253,7 +262,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   })
 
   server.register('savePlanAnnotations', async (args) => {
-    const [annotations] = args as [PlanAnnotations]
+    const [annotations] = args
     try {
       await saveAnnotations(annotations)
       controlPlane.invalidatePlanCaches(annotations.sessionId)
@@ -265,7 +274,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   })
 
   server.register('toggleBookmarkPlan', async (args) => {
-    const [sessionId, projectPath, cwd, planToolUseId, title] = args as [string, string, string, string, string]
+    const [sessionId, projectPath, cwd, planToolUseId, title] = args
     const merged = await toggleBookmarkAnnotations(sessionId, projectPath, cwd, planToolUseId, title)
     controlPlane.invalidatePlanCaches(sessionId)
     return merged

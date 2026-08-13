@@ -26,7 +26,7 @@ export interface LoadHistoryOptions {
   sources: SessionHistorySource[]
   /** Sources that take a network round trip to discover. They join the same scan
    *  when they arrive, so finding a remote host never delays the local rows. */
-  deferredSources?: Promise<SessionHistorySource[]>
+  deferredSources?: Promise<SessionHistorySource[]> | Array<Promise<SessionHistorySource[]>>
   ctx: IpcContext
   onBatch: (sessions: SessionMeta[]) => void
   limitPerProvider?: number
@@ -52,24 +52,94 @@ export function sessionHistorySourcesFromRoots(roots: string[]): SessionHistoryS
   return [...sources.values()]
 }
 
+/** The one sort key for history rows, newest first. A row whose timestamp will
+ *  not parse sorts last instead of jumping to the top of the picker. */
+function historySessionTimestamp(meta: SessionMeta): number {
+  const timestamp = new Date(meta.lastTimestamp).getTime()
+  return Number.isFinite(timestamp) ? timestamp : 0
+}
+
 export function sortedDedupedHistorySessions(sessions: SessionMeta[]): SessionMeta[] {
   const deduped = new Map<string, SessionMeta>()
   for (const meta of sessions) {
     const key = sessionMetaKey(meta)
     const existing = deduped.get(key)
-    if (
-      !existing ||
-      new Date(meta.lastTimestamp).getTime() >
-        new Date(existing.lastTimestamp).getTime()
-    ) {
+    if (!existing || historySessionTimestamp(meta) > historySessionTimestamp(existing)) {
       deduped.set(key, meta)
     }
   }
   return [...deduped.values()].sort(
-    (a, b) =>
-      new Date(b.lastTimestamp).getTime() -
-      new Date(a.lastTimestamp).getTime(),
+    (a, b) => historySessionTimestamp(b) - historySessionTimestamp(a),
   )
+}
+
+/**
+ * Keeps a history list newest-first with one row per session while a scan
+ * streams into it.
+ *
+ * A project with a few thousand sessions arrives in a hundred-odd batches. The
+ * list they land in is reactive state that the picker's whole derived chain
+ * reads, so rebuilding it per batch — re-sorting every row and handing the
+ * renderer a new array each time — is the expensive way to fill it. This mirrors
+ * the list's identities and sort keys, so each row can be spliced straight into
+ * the position it belongs in.
+ */
+export class HistorySessionOrder {
+  #rows: Array<{ key: string; ts: number }> = []
+  #timestampByKey = new Map<string, number>()
+
+  /** Adopt an already-ordered list wholesale. */
+  reset(sessions: SessionMeta[]): void {
+    this.#rows = sessions.map((meta) => ({
+      key: sessionMetaKey(meta),
+      ts: historySessionTimestamp(meta),
+    }))
+    this.#timestampByKey = new Map(this.#rows.map(({ key, ts }) => [key, ts]))
+  }
+
+  /** Splice a batch into `sessions` — the list this order mirrors. */
+  insert(sessions: SessionMeta[], batch: SessionMeta[]): void {
+    for (const meta of batch) {
+      const key = sessionMetaKey(meta)
+      const ts = historySessionTimestamp(meta)
+      const heldTs = this.#timestampByKey.get(key)
+      if (heldTs !== undefined) {
+        // Already listed — from another host's scan, or an earlier batch of
+        // this one. Only a newer row for the same session replaces it.
+        if (ts <= heldTs) continue
+        const heldAt = this.#indexOfKey(key, heldTs)
+        if (heldAt >= 0) {
+          this.#rows.splice(heldAt, 1)
+          sessions.splice(heldAt, 1)
+        }
+      }
+      const at = this.#insertionIndex(ts)
+      this.#rows.splice(at, 0, { key, ts })
+      sessions.splice(at, 0, meta)
+      this.#timestampByKey.set(key, ts)
+    }
+  }
+
+  /** Where a row with this timestamp belongs. Equal timestamps keep the order
+   *  they arrived in, as the sort this replaces did. */
+  #insertionIndex(ts: number): number {
+    let low = 0
+    let high = this.#rows.length
+    while (low < high) {
+      const mid = (low + high) >>> 1
+      if (this.#rows[mid].ts >= ts) low = mid + 1
+      else high = mid
+    }
+    return low
+  }
+
+  /** The position of a row already held, found through its known timestamp. */
+  #indexOfKey(key: string, ts: number): number {
+    for (let at = this.#insertionIndex(ts) - 1; at >= 0 && this.#rows[at].ts === ts; at--) {
+      if (this.#rows[at].key === key) return at
+    }
+    return -1
+  }
 }
 
 export class SessionHistoryLoader {
@@ -130,11 +200,23 @@ export class SessionHistoryLoader {
       const known = Promise.all(sources.map(scan))
       // A host that never answers must not cost the picker the rows it already
       // has, so a failed discovery resolves to nothing rather than rejecting.
-      const deferred = deferredSources
-        ? deferredSources
-            .then((late) => (seq === this.loadSeq ? Promise.all(late.map(scan)) : []))
-            .catch(() => [] as SessionMeta[][])
-        : Promise.resolve([] as SessionMeta[][])
+      const discoveries = deferredSources
+        ? Array.isArray(deferredSources) ? deferredSources : [deferredSources]
+        : []
+      const scannedSourceIds = new Set(sources.map((source) => source.id))
+      const deferred = Promise.all(discoveries.map((discovery) =>
+        discovery
+          .then((late) => {
+            if (seq !== this.loadSeq) return []
+            const fresh = late.filter((source) => {
+              if (scannedSourceIds.has(source.id)) return false
+              scannedSourceIds.add(source.id)
+              return true
+            })
+            return Promise.all(fresh.map(scan))
+          })
+          .catch((): SessionMeta[][] => []),
+      )).then((batches) => batches.flat())
       const sessions = (await Promise.all([known, deferred])).flat(2)
       if (seq !== this.loadSeq) return []
       return sortedDedupedHistorySessions(sessions)

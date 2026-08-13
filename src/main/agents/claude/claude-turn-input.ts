@@ -55,7 +55,7 @@ export class TurnInputChannel {
     const waiting = this.waiting
     if (waiting) {
       this.waiting = null
-      waiting({ value: undefined as never, done: true })
+      waiting({ value: undefined, done: true })
     }
   }
 
@@ -65,7 +65,7 @@ export class TurnInputChannel {
         next: (): Promise<IteratorResult<SDKUserMessage>> => {
           const buffered = this.buffered.shift()
           if (buffered) return Promise.resolve({ value: buffered, done: false })
-          if (this.isClosed) return Promise.resolve({ value: undefined as never, done: true })
+          if (this.isClosed) return Promise.resolve({ value: undefined, done: true })
           return new Promise((resolve) => { this.waiting = resolve })
         },
       }),

@@ -14,10 +14,11 @@ export function pushHostRefs(
   savedServers: SavedServer[],
   primary?: PushHostRef | null,
 ): PushHostRef[] {
-  const hosts = new Map(savedServers.map((server) => [server.id, {
-    serverId: server.id,
-    ...(server.installationId ? { installationId: server.installationId } : {}),
-  }]))
+  const hosts = new Map(savedServers.map((server) => {
+    const host: PushHostRef = { serverId: server.id }
+    if (server.installationId) host.installationId = server.installationId
+    return [server.id, host] as const
+  }))
   if (primary) hosts.set(primary.serverId, primary)
   return [...hosts.values()]
 }

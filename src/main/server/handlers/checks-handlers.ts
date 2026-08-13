@@ -1,6 +1,4 @@
 import type { PrChecksSnapshot } from '../../../shared/checks-rpc-types'
-import type { PrChecksSummary } from '../../../shared/checks-types'
-import type { IpcContext } from '../../../shared/types'
 import { createLogger } from '../../logger'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 import type { Provider, RepoRef } from '../../providers/types'
@@ -30,11 +28,22 @@ export interface ClientChecksActivity {
   active: boolean
 }
 
+export interface RemovedChecksClientActivity {
+  removed: boolean
+  activeRepoKey: string | null
+}
+
+export interface ChecksHandlerStats {
+  connectedClients: number
+  activities: number
+  activeRepoKey: string | null
+}
+
 export function removeChecksClientActivity(
   activities: Map<string, ClientChecksActivity>,
   clientId: string,
   activeRepoKey: string | null,
-): { removed: boolean; activeRepoKey: string | null } {
+): RemovedChecksClientActivity {
   if (!activities.delete(clientId)) return { removed: false, activeRepoKey }
 
   let fallbackRepoKey: string | null = null
@@ -118,7 +127,7 @@ export interface ChecksHandlersLifecycle {
   handleClientConnected(clientId: string): void
   handleClientDisconnected(clientId: string): void
   handleTransportClosed(): void
-  stats(): { connectedClients: number; activities: number; activeRepoKey: string | null }
+  stats(): ChecksHandlerStats
 }
 
 export function registerChecksHandlers(
@@ -157,7 +166,7 @@ export function registerChecksHandlers(
     const cache = caches.get(repoKey)
     const elapsed = cache ? Date.now() - cache.lastAttemptAt : interval
     timer = setTimeout(() => void refresh(repoKey), Math.max(0, interval - elapsed))
-    ;(timer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.()
+    timer.unref()
   }
 
   const refresh = (key: string): Promise<void> => {
@@ -180,7 +189,7 @@ export function registerChecksHandlers(
   }
 
   server.register('prChecks', async (args) => {
-    const [ctx, numbers = []] = args as [IpcContext, number[] | undefined]
+    const [ctx, numbers = []] = args
     const { repo, provider } = await resolveReviewTarget(ctx)
     const key = repoKey(repo)
     const cache = ensureCache(repo, provider)
@@ -193,7 +202,7 @@ export function registerChecksHandlers(
   })
 
   server.register('prChecksActivity', async (args, request) => {
-    const [ctx, reviewSurfaceOpen, active] = args as [IpcContext, boolean, boolean]
+    const [ctx, reviewSurfaceOpen, active] = args
     const clientId = clientKey(request)
     const connectionToken = connectedClientTokens.get(clientId)
     if (!connectionToken) return
@@ -202,12 +211,11 @@ export function registerChecksHandlers(
     // connection with the same client id makes the old result stale.
     if (connectedClientTokens.get(clientId) !== connectionToken) return
     const key = repoKey(repo)
-    ensureCache(repo, provider)
+    const cache = ensureCache(repo, provider)
     activities.set(clientId, { repoKey: key, reviewSurfaceOpen, active })
     if (active) activeRepoKey = key
     if (activeRepoKey === key) {
       const interval = intervalFor(key)
-      const cache = caches.get(key)!
       if (interval !== null && Date.now() - cache.lastAttemptAt >= interval) void refresh(key)
       else schedule(key)
     }
@@ -233,7 +241,7 @@ export function registerChecksHandlers(
       if (timer) clearTimeout(timer)
       timer = null
     },
-    stats(): { connectedClients: number; activities: number; activeRepoKey: string | null } {
+    stats(): ChecksHandlerStats {
       return {
         connectedClients: connectedClientTokens.size,
         activities: activities.size,

@@ -1,6 +1,8 @@
 import type { AgentTaskLifecyclePolicy, AuthStatus, DeviceCodePrompt, IpcContext, ServerCapabilities } from '../../../shared/types'
+import type { HostApi } from '@client-core/host-api'
 import { TransportDisconnectedError } from '@client-core/ws-transport'
 import { serverConnections } from '@client-core/server-connections'
+import { SvelteMap } from 'svelte/reactivity'
 
 export interface PairToken {
   token: string
@@ -43,6 +45,7 @@ export class ConnectionsStore {
   remoteAccessUpdating = $state(false)
   agentTaskLifecyclePolicyUpdating = $state(false)
   capabilities = $state<ServerCapabilities | null>(null)
+  private capabilitiesByServer = new SvelteMap<string, ServerCapabilities>()
 
   providerStatus = $state<AuthStatus | null>(null)
   providerLoaded = $state(false)
@@ -101,9 +104,16 @@ export class ConnectionsStore {
     }
   }
 
-  async refreshCapabilities(): Promise<void> {
+  capabilitiesFor(serverId: string): ServerCapabilities | null {
+    return this.capabilitiesByServer.get(serverId) ?? null
+  }
+
+  async refreshCapabilities(target?: { serverId: string; api: HostApi }): Promise<void> {
     try {
-      this.capabilities = await serverConnections.primaryApi().getServerCapabilities()
+      const capabilities = await (target?.api ?? serverConnections.primaryApi()).getServerCapabilities()
+      const serverId = target?.serverId ?? serverConnections.connectionFor()?.serverId
+      if (serverId) this.capabilitiesByServer.set(serverId, capabilities)
+      if (!target) this.capabilities = capabilities
     } catch (e) {
       if (e instanceof TransportDisconnectedError) return
       console.error('getServerCapabilities failed', e)
@@ -120,16 +130,20 @@ export class ConnectionsStore {
     if (this.capabilities) this.capabilities.projectsBaseDirectory = result.projectsBaseDirectory
   }
 
-  async setAgentTaskLifecyclePolicy(policy: AgentTaskLifecyclePolicy): Promise<void> {
-    if (!this.capabilities || this.agentTaskLifecyclePolicyUpdating) return
-    const previousPolicy = this.capabilities.agentTaskLifecyclePolicy
-    this.capabilities.agentTaskLifecyclePolicy = policy
+  async setAgentTaskLifecyclePolicy(
+    policy: AgentTaskLifecyclePolicy,
+    target?: { serverId: string; api: HostApi },
+  ): Promise<void> {
+    const capabilities = target ? this.capabilitiesFor(target.serverId) : this.capabilities
+    if (!capabilities || this.agentTaskLifecyclePolicyUpdating) return
+    const previousPolicy = capabilities.agentTaskLifecyclePolicy
+    capabilities.agentTaskLifecyclePolicy = policy
     this.agentTaskLifecyclePolicyUpdating = true
     try {
-      const result = await serverConnections.primaryApi().setAgentTaskLifecyclePolicy(policy)
-      this.capabilities.agentTaskLifecyclePolicy = result.agentTaskLifecyclePolicy
+      const result = await (target?.api ?? serverConnections.primaryApi()).setAgentTaskLifecyclePolicy(policy)
+      capabilities.agentTaskLifecyclePolicy = result.agentTaskLifecyclePolicy
     } catch (e) {
-      this.capabilities.agentTaskLifecyclePolicy = previousPolicy
+      capabilities.agentTaskLifecyclePolicy = previousPolicy
       console.error('set agent task lifecycle policy failed', e)
     } finally {
       this.agentTaskLifecyclePolicyUpdating = false

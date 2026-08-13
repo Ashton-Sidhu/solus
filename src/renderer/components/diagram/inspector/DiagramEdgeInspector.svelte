@@ -7,7 +7,7 @@
   import {
     EDGE_INSPECTOR_TABS,
     edgeKindLabel,
-    edgeShapeLabel,
+    edgeRouteLabel,
     type EdgeInspectorTab,
     type EdgeUpdates,
   } from '../lib/inspector-model'
@@ -31,7 +31,7 @@
       | 'width'
       | 'dash'
       | 'arrows'
-      | 'shape'
+      | 'route'
       | 'cardinality'
     >
     sourceLabel: string
@@ -84,12 +84,12 @@
     now,
   }: Props = $props()
 
-  const TAB_LABELS: Record<EdgeInspectorTab, string> = {
+  const TAB_LABELS = {
     identity: 'Identity',
     style: 'Style',
     route: 'Route',
     comments: 'Comments',
-  }
+  } satisfies Record<EdgeInspectorTab, string>
 
   // An edge only takes a tint when it means something; otherwise it borrows the
   // selection colour so the header still reads as one family with the node panel.
@@ -98,13 +98,13 @@
   // for the sub-line and the mono chip — never a second spelling of the enum.
   const relationship = $derived(edgeKindLabel(edge.kind).toLowerCase())
   const subtitle = $derived(edge.label ? `${relationship} · ${edge.label}` : relationship)
-  const routeChip = $derived(edgeShapeLabel(edge.shape).toLowerCase())
+  const routeChip = $derived(edgeRouteLabel(edge.route).toLowerCase())
   const threadCount = $derived(threads.filter((t) => !isResolved(t)).length)
 
   let panelEl = $state<HTMLDivElement | undefined>()
 
   $effect(() => {
-    edge.id
+    void edge.id
     if (autoFocus && panelEl) {
       panelEl.querySelector<HTMLElement>('.inspector-name-input')?.focus()
     }

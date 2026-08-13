@@ -70,9 +70,9 @@
       thread.comments.push(comment);
       cancelReply();
     } catch (err) {
-      toasts.error(
-        `Reply failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toasts.error("Reply failed", {
+        description: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       busy = false;
     }
@@ -85,9 +85,9 @@
       thread.isResolved = !thread.isResolved;
       if (thread.isResolved) showResolved = false;
     } catch (err) {
-      toasts.error(
-        `Couldn't update thread: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toasts.error("Couldn't update thread", {
+        description: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       busy = false;
     }

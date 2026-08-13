@@ -64,7 +64,7 @@
       finish("chat");
       return;
     }
-    const target = event.target as HTMLElement | null;
+    const target = event.target instanceof HTMLElement ? event.target : null;
     const inField =
       target?.tagName === "INPUT" ||
       target?.tagName === "TEXTAREA" ||

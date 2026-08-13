@@ -9,15 +9,9 @@ export interface GoogleHandlersDeps {
   getServerInfo(): { host: string; port: number }
 }
 
-interface GoogleUploadDocArgs {
-  title: string
-  markdown: string
-  oauthCallbackBaseUrl?: string
-}
-
 export function registerGoogleHandlers(server: SolusServer, deps: GoogleHandlersDeps): void {
   server.register('googleUploadDoc', async (args) => {
-    const [{ title, markdown, oauthCallbackBaseUrl }] = args as [GoogleUploadDocArgs]
+    const [{ title, markdown, oauthCallbackBaseUrl }] = args
     try {
       const accessToken = await getAccessToken()
       if (!accessToken) {

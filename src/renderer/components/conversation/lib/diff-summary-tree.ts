@@ -164,10 +164,12 @@ export function flattenDiffTree(
 }
 
 /** Added/removed split of a folder's row bar, as percentages. */
-export function changeRatio(folder: { additions: number; deletions: number }): {
+export interface ChangeRatio {
   added: number
   removed: number
-} {
+}
+
+export function changeRatio(folder: { additions: number; deletions: number }): ChangeRatio {
   const total = folder.additions + folder.deletions
   if (total === 0) return { added: 0, removed: 0 }
   const added = Math.round((folder.additions / total) * 100)

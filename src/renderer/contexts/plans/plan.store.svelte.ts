@@ -388,7 +388,7 @@ export class PlanStore {
   }
 
   isDescriptorLoading(key: string): boolean {
-    this.descriptorCacheLoading
+    void this.descriptorCacheLoading
     return this._descriptorLoads.has(key)
   }
 

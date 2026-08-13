@@ -1,4 +1,3 @@
-import type { ProjectConfig } from '../../../shared/types'
 import { listProjectIdentities } from '../../project-config/project-identities'
 import { loadProjectConfig, saveProjectConfig } from '../../project-config/project-config'
 import { deleteProject, listProjects, recordProject } from '../../project-config/projects-manifest'
@@ -7,11 +6,11 @@ import type { SolusServer } from '../server'
 
 export function registerProjectConfigHandlers(server: SolusServer): void {
   server.register('projectConfigLoad', (args) => {
-    const [cwd] = args as [string]
+    const [cwd] = args
     return loadProjectConfig(cwd)
   })
   server.register('projectConfigSave', async (args) => {
-    const [cwd, config] = args as [string, ProjectConfig]
+    const [cwd, config] = args
     const saved = await saveProjectConfig(cwd, config)
     // The task provider binding may have changed (provider switched, remote
     // fixed) — drop the cached instance so the next call re-resolves it.
@@ -22,7 +21,7 @@ export function registerProjectConfigHandlers(server: SolusServer): void {
   server.register('listProjects', () => listProjects())
   server.register('listProjectIdentities', () => listProjectIdentities())
   server.register('deleteProject', (args) => {
-    const [projectPath] = args as [string]
+    const [projectPath] = args
     return deleteProject(projectPath)
   })
 }

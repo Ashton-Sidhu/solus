@@ -14,14 +14,14 @@ import type { HostEventPublisher } from '../../events/host-event-publisher'
 
 export function registerStackHandlers(server: SolusServer, events: HostEventPublisher): void {
   server.register('stackGet', async (args) => {
-    const [ctx] = args as [IpcContext]
+    const [ctx] = args
     const repoRoot = await repoRootFor(ctx)
     if (!ctx.settings.stackedPrsEnabled) return { repoRoot, graph: emptyStackGraph() }
     return { repoRoot, graph: (await readStackGraph(repoRoot)) ?? emptyStackGraph() }
   })
 
   server.register('stackDetect', async (args) => {
-    const [ctx] = args as [IpcContext]
+    const [ctx] = args
     if (!ctx.settings.stackedPrsEnabled) {
       return { repoRoot: await repoRootFor(ctx), graph: emptyStackGraph() }
     }
@@ -32,7 +32,7 @@ export function registerStackHandlers(server: SolusServer, events: HostEventPubl
   })
 
   server.register('stackAddManualEdge', async (args) => {
-    const [ctx, parent, child] = args as [IpcContext, number, number]
+    const [ctx, parent, child] = args
     if (!ctx.settings.stackedPrsEnabled) throw new Error('Stacked pull requests are disabled.')
     const { repoRoot, repo, provider } = await detectionTargetFor(ctx)
     let graph = await readStackGraph(repoRoot)
@@ -45,7 +45,7 @@ export function registerStackHandlers(server: SolusServer, events: HostEventPubl
   })
 
   server.register('stackRemoveManualEdge', async (args) => {
-    const [ctx, parent, child] = args as [IpcContext, number, number]
+    const [ctx, parent, child] = args
     if (!ctx.settings.stackedPrsEnabled) throw new Error('Stacked pull requests are disabled.')
     const { repoRoot, repo, provider } = await detectionTargetFor(ctx)
     await removeManualStackEdge(repoRoot, parent, child)

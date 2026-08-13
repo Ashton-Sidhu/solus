@@ -533,9 +533,29 @@ CREATE UNIQUE INDEX task_comments_external
   ON task_comments(task_id, external_id)
   WHERE external_id IS NOT NULL;
 `,
+  // New cross-provider handoffs only. Provider transcript files remain the
+  // source of conversation content; this table records membership, order, and
+  // the active endpoint. Sessions that never enter a Solus handoff have no row.
+  `
+CREATE TABLE session_handoff_members (
+  handoff_id TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  provider TEXT NOT NULL,
+  provider_session_id TEXT,
+  cwd TEXT NOT NULL,
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (handoff_id, position)
+);
+CREATE UNIQUE INDEX session_handoff_member_provider_session
+  ON session_handoff_members(provider, provider_session_id)
+  WHERE provider_session_id IS NOT NULL;
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {
+  // SAFETY: SQLite PRAGMA user_version always returns one row with this integer column.
   const row = db.prepare('PRAGMA user_version').get() as { user_version: number }
   const currentVersion = row.user_version
 

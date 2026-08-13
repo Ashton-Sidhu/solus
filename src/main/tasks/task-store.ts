@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { z } from 'zod'
 import { getDb, withTx } from '../db'
 import { createLogger } from '../logger'
 import { ulid } from './ulid'
@@ -8,11 +9,8 @@ import type {
   TaskActor,
   TaskComment,
   TaskCreateInput,
-  TaskExternalLink,
   TaskListFilter,
   TaskListResult,
-  TaskPr,
-  TaskPriority,
   TaskSource,
   TaskStatus,
   TaskTitleSource,
@@ -28,51 +26,59 @@ const TASK_STATUSES = new Set<TaskStatus>([
   'dropped',
 ])
 
-interface TaskRow {
-  id: string
-  short_id: number | null
-  project_key: string | null
-  parent_id: string | null
-  title: string
-  title_source: TaskTitleSource
-  body: string
-  status: TaskStatus
-  kind: Task['kind']
-  assignee: string | null
-  due_date: string | null
-  priority: TaskPriority | null
-  labels: string
-  branch: string | null
-  pr: string | null
-  worktree_key: string | null
-  source: TaskSource
-  origin_session_id: string | null
-  origin_automation_id: string | null
-  created_at: number
-  updated_at: number
-  triaged_at: number | null
-  done_at: number | null
-  snoozed_until: number | null
-  snoozed_at: number | null
-  snooze_note: string | null
-  last_read_at: number | null
+const taskStatusSchema = z.enum(['inbox', 'todo', 'in_progress', 'in_review', 'done', 'dropped'])
+const taskSourceSchema = z.enum(['user', 'agent', 'automation', 'import', 'session'])
+const taskPrioritySchema = z.enum(['urgent', 'high', 'medium', 'low'])
+const taskRowSchema = z.object({
+  id: z.string(),
+  short_id: z.number().nullable(),
+  project_key: z.string().nullable(),
+  parent_id: z.string().nullable(),
+  title: z.string(),
+  title_source: z.enum(['prompt', 'generated', 'manual']),
+  body: z.string(),
+  status: taskStatusSchema,
+  kind: z.enum(['task', 'epic']),
+  assignee: z.string().nullable(),
+  due_date: z.string().nullable(),
+  priority: taskPrioritySchema.nullable(),
+  labels: z.string(),
+  branch: z.string().nullable(),
+  pr: z.string().nullable(),
+  worktree_key: z.string().nullable(),
+  source: taskSourceSchema,
+  origin_session_id: z.string().nullable(),
+  origin_automation_id: z.string().nullable(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  triaged_at: z.number().nullable(),
+  done_at: z.number().nullable(),
+  snoozed_until: z.number().nullable(),
+  snoozed_at: z.number().nullable(),
+  snooze_note: z.string().nullable(),
+  last_read_at: z.number().nullable(),
   /** Joined from `task_external_links`; null on a task with no ticket. */
-  external_provider: TaskExternalLink['provider'] | null
-  external_id: string | null
-  external_url: string | null
-}
+  external_provider: z.literal('github').nullable(),
+  external_id: z.string().nullable(),
+  external_url: z.string().nullable(),
+})
+const taskCommentRowSchema = z.object({
+  id: z.string(),
+  task_id: z.string(),
+  author: z.string().nullable(),
+  source: z.enum(['local', 'external']),
+  external_id: z.string().nullable(),
+  origin_session_id: z.string().nullable(),
+  body: z.string(),
+  created_at: z.number(),
+  dirty: z.number(),
+})
+export const taskPrSchema = z.object({ url: z.string(), number: z.number() })
+const labelListSchema = z.array(z.string())
+const nextShortIdRowSchema = z.object({ next_id: z.number() })
 
-interface TaskCommentRow {
-  id: string
-  task_id: string
-  author: string | null
-  source: TaskComment['source']
-  external_id: string | null
-  origin_session_id: string | null
-  body: string
-  created_at: number
-  dirty: number
-}
+type TaskRow = z.infer<typeof taskRowSchema>
+type TaskCommentRow = z.infer<typeof taskCommentRowSchema>
 
 type TasksChangedListener = () => void
 const changedListeners = new Set<TasksChangedListener>()
@@ -98,20 +104,19 @@ export function emitChanged(): void {
   }
 }
 
-export function jsonValue<T>(value: string | null, fallback: T): T {
-  if (value === null) return fallback
+export function jsonValue<T>(value: string | null, schema: z.ZodType<T>): T | undefined {
+  if (value === null) return undefined
   try {
-    return JSON.parse(value) as T
+    return schema.parse(JSON.parse(value))
   } catch {
-    return fallback
+    return undefined
   }
 }
 
 export function taskFromRow(row: TaskRow): Task {
-  return {
+  const task: Task = {
     id: row.id,
     providerId: 'local',
-    ...(row.short_id === null ? {} : { shortId: row.short_id }),
     projectKey: row.project_key,
     kind: row.kind,
     title: row.title,
@@ -119,55 +124,55 @@ export function taskFromRow(row: TaskRow): Task {
     body: row.body,
     status: row.status,
     url: null,
-    ...(row.external_provider && row.external_id
-      ? {
-        mirroredTicket: {
-          provider: row.external_provider,
-          externalId: row.external_id,
-          url: row.external_url ?? '',
-        },
-      }
-      : {}),
-    ...(row.assignee === null ? {} : { assignee: row.assignee }),
-    labels: jsonValue<string[]>(row.labels, []),
-    ...(row.parent_id === null ? {} : { parentId: row.parent_id }),
-    ...(row.due_date === null ? {} : { dueDate: row.due_date }),
-    ...(row.priority === null ? {} : { priority: row.priority }),
-    ...(row.branch === null ? {} : { branch: row.branch }),
-    ...(row.pr === null ? {} : { pr: jsonValue<TaskPr | undefined>(row.pr, undefined) }),
+    labels: jsonValue(row.labels, labelListSchema) ?? [],
     canEditPlanningFields: true,
-    ...(row.worktree_key === null ? {} : { worktreeKey: row.worktree_key }),
     source: row.source,
-    ...(row.origin_session_id === null ? {} : { originSessionId: row.origin_session_id }),
-    ...(row.origin_automation_id === null ? {} : { originAutomationId: row.origin_automation_id }),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    ...(row.triaged_at === null ? {} : { triagedAt: row.triaged_at }),
-    ...(row.done_at === null ? {} : { doneAt: row.done_at }),
-    ...(row.snoozed_until === null ? {} : { snoozedUntil: row.snoozed_until }),
-    ...(row.snoozed_at === null ? {} : { snoozedAt: row.snoozed_at }),
-    ...(row.snooze_note === null ? {} : { snoozeNote: row.snooze_note }),
-    ...(row.last_read_at === null ? {} : { lastReadAt: row.last_read_at }),
   }
+  if (row.short_id !== null) task.shortId = row.short_id
+  if (row.external_provider && row.external_id) {
+    task.mirroredTicket = {
+      provider: row.external_provider,
+      externalId: row.external_id,
+      url: row.external_url ?? '',
+    }
+  }
+  if (row.assignee !== null) task.assignee = row.assignee
+  if (row.parent_id !== null) task.parentId = row.parent_id
+  if (row.due_date !== null) task.dueDate = row.due_date
+  if (row.priority !== null) task.priority = row.priority
+  if (row.branch !== null) task.branch = row.branch
+  const pr = jsonValue(row.pr, taskPrSchema)
+  if (pr) task.pr = pr
+  if (row.worktree_key !== null) task.worktreeKey = row.worktree_key
+  if (row.origin_session_id !== null) task.originSessionId = row.origin_session_id
+  if (row.origin_automation_id !== null) task.originAutomationId = row.origin_automation_id
+  if (row.triaged_at !== null) task.triagedAt = row.triaged_at
+  if (row.done_at !== null) task.doneAt = row.done_at
+  if (row.snoozed_until !== null) task.snoozedUntil = row.snoozed_until
+  if (row.snoozed_at !== null) task.snoozedAt = row.snoozed_at
+  if (row.snooze_note !== null) task.snoozeNote = row.snooze_note
+  if (row.last_read_at !== null) task.lastReadAt = row.last_read_at
+  return task
 }
 
 function commentFromRow(row: TaskCommentRow): TaskComment {
-  return {
+  const comment: TaskComment = {
     id: row.id,
     taskId: row.task_id,
     author: row.author,
     source: row.source,
-    ...(row.external_id === null ? {} : { externalId: row.external_id }),
-    ...(row.origin_session_id === null ? {} : { originSessionId: row.origin_session_id }),
     body: row.body,
     createdAt: row.created_at,
-    ...(row.dirty === 1 ? { syncPending: true } : {}),
   }
+  if (row.external_id !== null) comment.externalId = row.external_id
+  if (row.origin_session_id !== null) comment.originSessionId = row.origin_session_id
+  if (row.dirty === 1) comment.syncPending = true
+  return comment
 }
 
-export function database(): DatabaseSync {
-  return getDb()
-}
+export const database = getDb
 
 /**
  * Every task read joins its external link, so a published task names its
@@ -185,7 +190,7 @@ const TASK_SELECT = `
 `
 
 function taskRow(id: string, db: DatabaseSync = database()): TaskRow | undefined {
-  return db.prepare(`${TASK_SELECT} WHERE tasks.id = ?`).get(id) as unknown as TaskRow | undefined
+  return taskRowSchema.nullish().parse(db.prepare(`${TASK_SELECT} WHERE tasks.id = ?`).get(id)) ?? undefined
 }
 
 /** Internal record read used by the session-link store. */
@@ -195,11 +200,11 @@ export function loadTaskRecord(id: string): Task | null {
 }
 
 export function listTaskChildren(parentId: string): Task[] {
-  const rows = database().prepare(`
+  const rows = taskRowSchema.array().parse(database().prepare(`
     ${TASK_SELECT}
     WHERE tasks.parent_id = ?
     ORDER BY tasks.updated_at DESC, tasks.created_at DESC, tasks.id
-  `).all(parentId) as unknown as TaskRow[]
+  `).all(parentId))
   return rows.map(taskFromRow)
 }
 
@@ -210,7 +215,9 @@ export function requireTask(id: string, db: DatabaseSync = database()): TaskRow 
 }
 
 function nextShortId(db: DatabaseSync): number {
-  const row = db.prepare('SELECT COALESCE(MAX(short_id), 0) + 1 AS next_id FROM tasks').get() as { next_id: number }
+  const row = nextShortIdRowSchema.parse(
+    db.prepare('SELECT COALESCE(MAX(short_id), 0) + 1 AS next_id FROM tasks').get(),
+  )
   return row.next_id
 }
 
@@ -237,13 +244,13 @@ export function parentForChild(parentId: string, childId: string | undefined, db
 }
 
 /** A task's origin, as the activity feed reads it. */
-const ACTOR_BY_SOURCE: Record<TaskSource, TaskActor> = {
+const ACTOR_BY_SOURCE = {
   user: 'user',
   agent: 'agent',
   session: 'agent',
   automation: 'automation',
   import: 'system',
-}
+} satisfies Record<TaskSource, TaskActor>
 
 export function writeTask(db: DatabaseSync, input: TaskCreateInput & {
   titleSource: TaskTitleSource
@@ -346,20 +353,20 @@ export function listTasks(filter: TaskListFilter = {}): TaskListResult {
   if (filter.scope === 'up_next') clauses.push("status IN ('todo', 'in_progress', 'in_review')")
 
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
-  const rows = database().prepare(`
+  const rows = taskRowSchema.array().parse(database().prepare(`
     ${TASK_SELECT}
     ${where}
     ORDER BY tasks.updated_at DESC, tasks.created_at DESC, tasks.id
-  `).all(...params) as unknown as TaskRow[]
+  `).all(...params))
   return { tasks: rows.map(taskFromRow) }
 }
 
 export function commentsForTask(taskId: string, db: DatabaseSync): TaskComment[] {
-  const rows = db.prepare(`
+  const rows = taskCommentRowSchema.array().parse(db.prepare(`
     SELECT * FROM task_comments
     WHERE task_id = ?
     ORDER BY created_at, id
-  `).all(taskId) as unknown as TaskCommentRow[]
+  `).all(taskId))
   return rows.map(commentFromRow)
 }
 

@@ -16,8 +16,10 @@ export interface ToastAction {
 
 /** A single transient toast. */
 export interface ToastSpec {
-  /** The line shown to the user, e.g. "Comment deleted" or "Saved". */
+  /** Short title shown to the user, e.g. "Comment deleted" or "Saved". */
   message: string
+  /** Supporting detail shown below the title. */
+  description?: string
   /** Visual tone. Defaults to "info". */
   variant?: ToastVariant
   /** How long the toast stays before auto-dismissing, in ms. */
@@ -79,6 +81,7 @@ class ToastService {
     this.#active = active
 
     const toastOptions: ExternalToast = {
+      description: spec.description,
       duration: spec.duration,
       onDismiss: () => this.#settle(active, true),
       onAutoClose: () => this.#settle(active, true),
@@ -117,9 +120,10 @@ class ToastService {
   }
 
   error(message: string, opts?: ToastOptions): ToastId {
+    const copy = opts?.description ? `${message}\n${opts.description}` : message
     const copyAction: ToastAction = {
       label: "Copy",
-      onAction: () => void copyText(message),
+      onAction: () => void copyText(copy),
     }
 
     if (opts?.actions?.length) {
@@ -170,7 +174,7 @@ class ToastService {
     const active = this.#active
     if (!active?.action || active.action.label !== "Undo") return
     if (event.shiftKey || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") return
-    const target = event.target as HTMLElement | null
+    const target = event.target instanceof HTMLElement ? event.target : null
     if (target && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName))) return
 
     event.preventDefault()

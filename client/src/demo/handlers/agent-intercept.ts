@@ -74,12 +74,11 @@ export function registerAgentIntercept(backend: DemoBackend, store: DemoStore): 
     showCta()
     return { success: false, error: 'Download Solus to make changes to your repository.' }
   }
-  backend.register('gitCommitPush', interceptGitMutation)
-  backend.register('gitSync', interceptGitMutation)
-  backend.register('worktreePR', () => {
+  backend.register('gitRunAction', () => {
     showCta()
-    return { success: false, error: 'Download Solus to create a pull request.' }
+    throw new Error('Download Solus to make changes to your repository.')
   })
+  backend.register('gitSync', interceptGitMutation)
 
   backend.register('openExternal', (args) => {
     const [url] = args as [string]

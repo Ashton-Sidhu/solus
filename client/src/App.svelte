@@ -378,13 +378,14 @@
     return untrack(() => notificationsStore.start({
       hostDisplay: (serverId) => {
         const host = serversStore.hostFor(serverId);
-        return {
+        const display: import("@renderer/contexts/notifications/notifications.store.svelte").NotificationHostDisplay = {
           label: host?.label ?? "this host",
-          ...(host && "installationId" in host && host.installationId
-            ? { installationId: host.installationId }
-            : {}),
           isPrimary: serverConnections.connectionFor()?.serverId === serverId,
         };
+        if (host && "installationId" in host && host.installationId) {
+          display.installationId = host.installationId;
+        }
+        return display;
       },
       isSessionFocused: (serverId, sessionId) =>
         document.visibilityState === "visible" &&
@@ -401,7 +402,8 @@
   // address bar, the persisted snapshot, and agent links use.
   $effect(() => {
     const handler = (event: Event) => {
-      const route = parseRoute((event as CustomEvent<string>).detail ?? "");
+      if (!(event instanceof CustomEvent)) return;
+      const route = parseRoute(String(event.detail ?? ""));
       if (!route) return;
       session.openRoute(route);
       requestInputFocus();
@@ -414,19 +416,15 @@
     initializeRuntime(session, sessionSidebarStore);
   });
 
-  $effect(() => {
-    void connectionsStore.refreshCapabilities();
-  });
-
   const detectReconnect = createReconnectDetector(webState.connectionStatus);
   $effect(() => {
     const connectionStatus = webState.connectionStatus;
     const reconnected = detectReconnect(connectionStatus);
     if (connectionStatus === 'connected') track(reconnected ? 'client_reconnected' : 'client_connected', reconnected ? { attempt: webState.connectionAttempt } : {});
+    if (connectionStatus === 'connected') void connectionsStore.refreshCapabilities();
     if (reconnected) {
       settings.setSystemTheme(window.matchMedia('(prefers-color-scheme: dark)').matches);
       initializeRuntime(session, sessionSidebarStore);
-      void connectionsStore.refreshCapabilities();
       session.prsStore.reportChecksActivity(session.apiForContext(session.ctx), session.ctx);
     }
   });
@@ -490,7 +488,7 @@
     const modes = ["ask", "auto", "plan"] as const;
     const next =
       modes[
-        (modes.indexOf(permissionMode as (typeof modes)[number]) + 1) %
+        (modes.indexOf(permissionMode) + 1) %
           modes.length
       ];
     session.setPermissionMode(next, undefined, "keybinding");
@@ -538,8 +536,8 @@
 
   $effect(() => {
     const handler = (event: Event) => {
-      const detail = (
-        event as CustomEvent<{
+      if (!(event instanceof CustomEvent)) return;
+      const detail: {
           tabId?: string;
           draftId?: string;
           /** A tab id or a draft id — the surface that asked, when the emitter
@@ -547,8 +545,7 @@
           requesterId?: string;
           serverId?: string;
           intent?: "dispatch" | "open-project";
-        }>
-      ).detail;
+        } | undefined = event.detail;
       const requesterId = detail?.requesterId;
       const requesterDraftId =
         requesterId && session.sessionDrafts.has(requesterId)
@@ -567,8 +564,8 @@
       directoryPickerOpen = true;
     };
     const openProjectHandler = (event: Event) => {
-      const detail = (event as CustomEvent<{ tabId?: string } | undefined>)
-        .detail;
+      if (!(event instanceof CustomEvent)) return;
+      const detail: { tabId?: string } | undefined = event.detail;
       startOpenProject({ tabId: detail?.tabId });
     };
     // The nearby-host discovery toast fires from a store, which has no way to

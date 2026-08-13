@@ -1,6 +1,10 @@
 import { formatAnswer, questionKey } from '../../../../shared/question-answer'
 import type { QuestionRequest, Session } from '../../../../shared/types'
 
+export interface QuestionNoteAnswers {
+  [questionKey: string]: string
+}
+
 /**
  * The normal composer becomes a free-text answer only while this session is
  * blocked on an agent question. MCP elicitations keep their structured card:
@@ -20,8 +24,8 @@ export function pendingQuestionForPrompt(
 export function answersForQuestionNote(
   request: QuestionRequest,
   note: string,
-): Record<string, string> {
-  const answers: Record<string, string> = {}
+): QuestionNoteAnswers {
+  const answers: QuestionNoteAnswers = {}
   request.questions.forEach((question, index) => {
     answers[questionKey(question)] = index === 0 ? formatAnswer('', note) : ''
   })

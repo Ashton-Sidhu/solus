@@ -43,7 +43,11 @@
   import TaskSessionsList from "./TaskSessionsList.svelte";
   import TaskSidebar from "./TaskSidebar.svelte";
 
-  let { params, paneId }: RouteSurfaceProps<"task"> = $props();
+  let {
+    params,
+    paneId,
+    surfaceVisible = true,
+  }: RouteSurfaceProps<"task"> = $props();
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
@@ -159,12 +163,19 @@
   let loadedId: string | null = null;
   $effect(() => {
     const id = taskId;
-    if (!id || id === loadedId) return;
-    loadedId = id;
-    void store.ensureLoaded().catch(() => {});
-    void store
-      .loadDetails(id, projectCwd)
-      .catch((err) => toastError("open task", err));
+    if (!id || !surfaceVisible) {
+      loadedId = null;
+      return;
+    }
+    const stopWatching = store.watchDetails(id);
+    if (id !== loadedId) {
+      loadedId = id;
+      void store.ensureLoaded().catch(() => {});
+      void store
+        .loadDetails(id, projectCwd)
+        .catch((err) => toastError("open task", err));
+    }
+    return stopWatching;
   });
 
   // ── Prev/next follow the Tasks page's own ordering, so "next" is the row the
@@ -183,10 +194,10 @@
       : null,
   );
 
-  function toastError(action: string, err: unknown) {
-    toasts.error(
-      `Couldn't ${action}: ${err instanceof Error ? err.message : String(err)}`,
-    );
+  function toastError(action: string, err: Parameters<typeof String>[0]) {
+    toasts.error(`Couldn't ${action}`, {
+      description: err instanceof Error ? err.message : String(err),
+    });
   }
 
   function save(patch: TaskUpdatePatch) {
@@ -344,6 +355,12 @@
     if (revealed) session.openSplitChat(revealed.id);
   }
 
+  function unlinkSession(sessionId: string) {
+    void store
+      .unlinkSession(taskId, sessionId)
+      .catch((err) => toastError("unlink this session", err));
+  }
+
   async function stopSession(sessionId: string) {
     try {
       const serverId = store.hostFor(taskId);
@@ -456,6 +473,7 @@
               onOpen={openSession}
               onOpenSplit={openSessionSplit}
               onStop={stopSession}
+              onUnlink={unlinkSession}
               onNewSession={() => void session.openTaskSession(task)}
             />
           {/if}

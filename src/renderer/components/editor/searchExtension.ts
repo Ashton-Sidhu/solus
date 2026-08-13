@@ -1,5 +1,5 @@
 import { Extension } from "@tiptap/core";
-import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { Plugin, PluginKey, TextSelection, type EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 
@@ -20,11 +20,8 @@ export interface SearchState {
 export const searchPluginKey = new PluginKey<SearchState>("documentSearch");
 
 /** Read the live search state for the find bar (counter, current match). */
-export function getSearchState(state: {
-  plugins: unknown;
-}): SearchState | undefined {
-  // `state` is an EditorState; typed loosely so callers can pass editor.state.
-  return searchPluginKey.getState(state as never);
+export function getSearchState(state: EditorState): SearchState | undefined {
+  return searchPluginKey.getState(state);
 }
 
 function findMatches(
@@ -200,6 +197,7 @@ export const SearchExtension = Extension.create({
         state: {
           init: () => EMPTY,
           apply(tr, value, _oldState, newState) {
+            // SAFETY: only this extension writes this plugin key, always with a SearchState patch.
             const meta = tr.getMeta(searchPluginKey) as
               | Partial<SearchState>
               | undefined;

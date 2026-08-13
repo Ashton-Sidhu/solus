@@ -26,10 +26,7 @@ function safeFileName(name: string): string {
 }
 
 function decodeAttachmentDataUrl(request: AttachmentUploadRequest): Buffer {
-  if (!request || typeof request.name !== 'string' || typeof request.mime !== 'string' || typeof request.dataUrl !== 'string') {
-    throw new Error('Invalid attachment upload.')
-  }
-  if (!/^[a-z0-9][a-z0-9!#$&^_.+\/-]{0,126}$/i.test(request.mime)) {
+  if (!/^[a-z0-9][a-z0-9!#$&^_.+/-]{0,126}$/i.test(request.mime)) {
     throw new Error('Invalid attachment MIME type.')
   }
   const match = request.dataUrl.match(/^data:([^;,]+);base64,([a-zA-Z0-9+/]*={0,2})$/)
@@ -65,9 +62,9 @@ export async function writeAttachmentUpload(
     try {
       lock = await open(lockPath, 'wx', 0o600)
       await lock.close()
-    } catch (error: unknown) {
+    } catch (error) {
       await lock?.close().catch(() => {})
-      if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') continue
+      if (error instanceof Error && 'code' in error && error.code === 'EEXIST') continue
       throw error
     }
 
@@ -78,7 +75,7 @@ export async function writeAttachmentUpload(
       await handle.writeFile(buffer)
       await handle.close()
       return filePath
-    } catch (error: unknown) {
+    } catch (error) {
       await handle?.close().catch(() => {})
       await unlink(filePath).catch(() => {})
       await unlink(lockPath).catch(() => {})
@@ -91,7 +88,7 @@ export async function writeAttachmentUpload(
 
 export function registerAttachmentHandlers(server: SolusServer, deps: AttachmentHandlerDeps = {}): void {
   server.register('attachUpload', async (args) => {
-    const [ctx, request] = args as [IpcContext, AttachmentUploadRequest]
+    const [ctx, request] = args
     return writeAttachmentUpload(ctx, request, deps)
   })
 }

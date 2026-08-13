@@ -43,7 +43,7 @@
 
   // Per-scope labels used as sub-headers inside merged categories and as the
   // section heading in search results.
-  const SCOPE_LABELS: Record<string, string> = {
+  const SCOPE_LABELS = {
     global: "Global",
     "diff-panel": "Diff Panel",
     workspace: "Workspace",
@@ -53,7 +53,11 @@
     "plan-action-bar": "Plan review",
     "design-annotation": "Design annotation",
     diagram: "Diagram",
-  };
+  } satisfies Partial<Record<Scope, string>>;
+
+  function isBindingId(value: string): value is BindingId {
+    return value in KEYBINDINGS;
+  }
 
   // Every scope in rail order — drives the cross-scope search view.
   const ALL_SCOPES: Scope[] = RAIL_GROUPS.flatMap((g) => g.scopes);
@@ -75,8 +79,9 @@
   /** Find a binding in the same scope (or global) already using `combo`. */
   function findConflict(id: BindingId, combo: KeyCombo): { id: BindingId; label: string } | null {
     const def = KEYBINDINGS[id];
-    for (const [cidRaw, cdef] of Object.entries(KEYBINDINGS)) {
-      const cid = cidRaw as BindingId;
+    for (const cid of Object.keys(KEYBINDINGS)) {
+      if (!isBindingId(cid)) continue;
+      const cdef = KEYBINDINGS[cid];
       if (cid === id) continue;
       if (cdef.scope !== def.scope && cdef.scope !== "global") continue;
       const resolved = settings.keybindings[cid] ?? defaultCombo(cdef);
@@ -86,7 +91,7 @@
   }
 
   function commitBinding(id: BindingId, combo: KeyCombo, clearOtherId?: BindingId): void {
-    const next: Record<string, KeyCombo> = { ...settings.keybindings };
+    const next = { ...settings.keybindings };
     if (clearOtherId) delete next[clearOtherId];
     // Storing the default would be redundant — treat "set to default" as a reset.
     if (comboEquals(combo, defaultCombo(KEYBINDINGS[id]))) delete next[id];
@@ -192,10 +197,10 @@
       }
     } catch (error) {
       appFailed = { ...appFailed, [key]: true };
-      toasts.error(
-        `Couldn't apply the shortcut: ${error instanceof Error ? error.message : String(error)}`,
-        { action: { label: "Restart", onAction: restart } },
-      );
+      toasts.error("Couldn't apply the shortcut", {
+        description: error instanceof Error ? error.message : String(error),
+        action: { label: "Restart", onAction: restart },
+      });
     }
   }
 
@@ -225,7 +230,7 @@
       e.stopImmediatePropagation();
       if (current === "app:primary") handleAppCapture("primary", e);
       else if (current === "app:secondary") handleAppCapture("secondary", e);
-      else handleBindingCapture(current as BindingId, e);
+      else if (isBindingId(current)) handleBindingCapture(current, e);
     };
     window.addEventListener("keydown", onKeydown, { capture: true });
     return () => window.removeEventListener("keydown", onKeydown, { capture: true });

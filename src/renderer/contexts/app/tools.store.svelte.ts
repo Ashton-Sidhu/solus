@@ -8,6 +8,10 @@ export interface DetectedTools {
   terminals: DetectedTerminal[]
 }
 
+function emptyDetectedTools(): DetectedTools {
+  return { editors: [], terminals: [] }
+}
+
 export class ToolsStore {
   // These legacy fields back the compact client-local settings popover. The
   // full Settings tab reads the selected host through detectedFor().
@@ -16,13 +20,13 @@ export class ToolsStore {
   detectedToolsLoaded = $state(false)
   detectedToolsLoading = $state(false)
 
-  private detectedToolsInFlight: Promise<{ editors: DetectedEditor[]; terminals: DetectedTerminal[] }> | null = null
+  private detectedToolsInFlight: Promise<DetectedTools> | null = null
   private readonly detectedByHost = new SvelteMap<string, DetectedTools>()
   private readonly loadedHosts = new SvelteMap<string, boolean>()
   private readonly loadingHosts = new SvelteMap<string, boolean>()
   private readonly inFlightByHost = new Map<string, Promise<DetectedTools>>()
 
-  async loadDetectedTools(opts: { force?: boolean } = {}): Promise<{ editors: DetectedEditor[]; terminals: DetectedTerminal[] }> {
+  async loadDetectedTools(opts: { force?: boolean } = {}): Promise<DetectedTools> {
     if (this.detectedToolsLoaded && !opts.force) {
       return { editors: this.detectedEditors, terminals: this.detectedTerminals }
     }
@@ -31,10 +35,10 @@ export class ToolsStore {
     this.detectedToolsLoading = true
     const serverId = serverConnections.connectionFor()?.serverId
     const promise = (async () => {
-      if (!serverId) return { editors: [] as DetectedEditor[], terminals: [] as DetectedTerminal[] }
+      if (!serverId) return emptyDetectedTools()
       const capabilities = await serverConnections.capabilitiesFor(serverId)
       if (capabilities.editors === undefined) {
-        return { editors: [] as DetectedEditor[], terminals: [] as DetectedTerminal[] }
+        return emptyDetectedTools()
       }
       const result = await serverConnections.primaryApi().detectEditors()
       return {
@@ -49,7 +53,7 @@ export class ToolsStore {
         return result
       })
       .catch(() => {
-        const empty = { editors: [] as DetectedEditor[], terminals: [] as DetectedTerminal[] }
+        const empty = emptyDetectedTools()
         this.detectedEditors = empty.editors
         this.detectedTerminals = empty.terminals
         this.detectedToolsLoaded = true
@@ -89,7 +93,7 @@ export class ToolsStore {
     const promise = serverConnections.capabilitiesFor(serverId)
       .then(async (capabilities) => {
         if (capabilities.editors === undefined) {
-          return { editors: [] as DetectedEditor[], terminals: [] as DetectedTerminal[] }
+          return emptyDetectedTools()
         }
         const result = await api.detectEditors()
         return {

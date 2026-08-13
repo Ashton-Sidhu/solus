@@ -1,6 +1,6 @@
 // Curated inline-SVG icon set, stroke=currentColor, 16×16 viewBox.
 // Shared between DiagramNode (rendering) and IconPicker (selection UI).
-export const ICON_SVG: Record<string, string> = {
+export const ICON_SVG = new Map(Object.entries({
   service: '<rect x="2" y="4" width="12" height="8" rx="1.5"/><path d="M2 7.5h12"/><circle cx="4.5" cy="5.75" r=".65" fill="currentColor"/><circle cx="6.5" cy="5.75" r=".65" fill="currentColor"/>',
   db: '<ellipse cx="8" cy="4.5" rx="5" ry="2"/><path d="M3 4.5v7c0 1.1 2.24 2 5 2s5-.9 5-2v-7"/><path d="M3 8c0 1.1 2.24 2 5 2s5-.9 5-2"/>',
   queue: '<rect x="2" y="4" width="12" height="7" rx="1"/><path d="M2 8.5h12M5 11v2.5M11 11v2.5M5 4V1.5M11 4V1.5"/>',
@@ -18,6 +18,12 @@ export const ICON_SVG: Record<string, string> = {
   cdn: '<circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c-2 2-3 3.7-3 5.5s1 3.5 3 5.5M8 2.5c2 2 3 3.7 3 5.5s-1 3.5-3 5.5"/><circle cx="12" cy="4.5" r="1.5" fill="currentColor" stroke="none"/>',
   // Default glyph for data-model entities (a node carrying `fields`).
   table: '<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 6h12M6 6v7.5"/>',
+}))
+
+export interface ResolvedDiagramIcon {
+  iconify: string | null
+  svg: string | null
+  emoji: string | null
 }
 
 /** Matches Iconify `prefix:name` format (e.g. `logos:postgresql`). */
@@ -32,11 +38,11 @@ export const isIconifyName = (icon: string): boolean => /^[a-z0-9-]+:[a-z0-9-]+$
 export function resolveIcon(
   icon: string | undefined,
   fallbackKey = 'service',
-): { iconify: string | null; svg: string | null; emoji: string | null } {
+): ResolvedDiagramIcon {
   const iconify = icon && isIconifyName(icon) ? icon : null
   if (iconify) return { iconify, svg: null, emoji: null }
-  const key = icon && ICON_SVG[icon] ? icon : fallbackKey
-  const svg = ICON_SVG[key] ?? null
+  const key = icon && ICON_SVG.has(icon) ? icon : fallbackKey
+  const svg = ICON_SVG.get(key) ?? null
   if (svg) return { iconify: null, svg, emoji: null }
   return { iconify: null, svg: null, emoji: icon ?? '⬡' }
 }

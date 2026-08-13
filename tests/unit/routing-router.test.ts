@@ -124,6 +124,65 @@ describe('reading the location', () => {
   })
 })
 
+describe('leading with a route that is already open', () => {
+  const PR_REVIEW: RouteRef = { name: 'prReview', params: { number: 4821 } }
+
+  test('a companion review takes the lead so a chat can open beside it', () => {
+    // WHY: "Ask Solus" must never cost the user the review they asked about.
+    // At the pane cap `aside` resolves back to the leading pane, so a review
+    // sitting in the companion would have been overwritten by its own chat.
+    const router = new RouterStore()
+    router.navigate(PR_REVIEW, { target: 'aside' })
+
+    router.leadWith('prReview')
+    router.navigate({ name: 'chat', params: { sessionId: 'sess_pr' } }, { target: 'aside' })
+
+    expect(router.panes.map((pane) => pane.base?.name)).toEqual(['prReview', 'chat'])
+    expect(router.chatSessionIn(router.panes[1].id)).toBe('sess_pr')
+  })
+
+  test('reattaching an Ask Solus checkout keeps chat only in the secondary pane', () => {
+    // WHY: checkout preparation completes after the chat pane opens. At that
+    // point focus is in the secondary pane, where a second relative `aside`
+    // points back at the leading pane and duplicates the conversation.
+    const router = new RouterStore()
+    router.navigate(PR_REVIEW)
+
+    const reveal = () => {
+      router.leadWith('prReview')
+      router.navigate(
+        { name: 'chat', params: { sessionId: 'sess_pr' } },
+        { target: router.asidePanes[0]?.id ?? 'aside' },
+      )
+    }
+
+    reveal()
+    reveal()
+
+    expect(router.panes.map((pane) => pane.base?.name)).toEqual(['prReview', 'chat'])
+    expect(router.panes.filter((pane) => pane.base?.name === 'chat')).toHaveLength(1)
+  })
+
+  test('a review that already leads stays put, and its pane is not rebuilt', () => {
+    const router = new RouterStore()
+    const review = router.navigate(PR_REVIEW)
+
+    router.leadWith('prReview')
+
+    expect(router.panes).toHaveLength(1)
+    expect(router.leadingPane.id).toBe(review.id)
+  })
+
+  test('a destination that is not open leaves the location alone', () => {
+    const router = new RouterStore()
+    router.navigate(PLAN, { target: 'aside' })
+
+    router.leadWith('prReview')
+
+    expect(router.panes.map((pane) => pane.base?.name)).toEqual(['chat', 'plan'])
+  })
+})
+
 describe('resolved payloads', () => {
   test('a route resolves once and is served from the cache after that', async () => {
     const router = new RouterStore()

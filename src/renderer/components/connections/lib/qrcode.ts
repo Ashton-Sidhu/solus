@@ -439,7 +439,7 @@ class QrCode {
   ): Byte[] {
     const result = divisor.map(() => 0);
     for (const b of data) {
-      const factor = b ^ (result.shift() as Byte);
+      const factor = b ^ (result.shift() ?? 0);
       result.push(0);
       divisor.forEach((coef, i) => (result[i]! ^= QrCode.reedSolomonMultiply(coef, factor)));
     }
@@ -455,7 +455,7 @@ class QrCode {
       z ^= ((y >>> i) & 1) * x;
     }
     assert(z >>> 8 == 0);
-    return z as Byte;
+    return z;
   }
 
   private finderPenaltyCountPatterns(runHistory: Readonly<Array<Int>>): Int {

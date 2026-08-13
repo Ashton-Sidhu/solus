@@ -40,11 +40,15 @@ export async function resolveSessionLinkMeta(
   );
 }
 
-const AGENT_PROVIDERS = new Set<AgentId>([
+const AGENT_PROVIDERS = new Set<string>([
   "claude-code",
   "codex",
   "opencode",
 ]);
+
+function isAgentId(value: string): value is AgentId {
+  return AGENT_PROVIDERS.has(value);
+}
 
 export function parseSessionHref(href: string): SessionLinkParams | null {
   try {
@@ -56,14 +60,14 @@ export function parseSessionHref(href: string): SessionLinkParams | null {
       url.protocol !== "session:" ||
       url.hostname !== "open" ||
       !provider ||
-      !AGENT_PROVIDERS.has(provider as AgentId) ||
+      !isAgentId(provider) ||
       !sessionId
     ) {
       return null;
     }
 
     return {
-      provider: provider as AgentId,
+      provider,
       sessionId,
       serverId: url.searchParams.get("serverId"),
       cwd: url.searchParams.get("cwd"),

@@ -36,14 +36,15 @@ export function payloadForAttentionEntry(
   options: { installationId?: string; hostLabel?: string } = {},
 ): AttentionNotificationPayload {
   const summary = entry.summary || 'A Solus session needs attention.'
-  return {
+  const payload: AttentionNotificationPayload = {
     title: titleForKind(entry.kind),
     body: options.hostLabel ? `${summary} on ${options.hostLabel}` : summary,
     sessionId: entry.sessionId,
     kind: entry.kind,
     entryKey: attentionEntryKey(entry),
-    ...(options.installationId ? { installationId: options.installationId } : {}),
   }
+  if (options.installationId) payload.installationId = options.installationId
+  return payload
 }
 
 /** A scoped chat route. The `~` suffix is optional so older bare-session routes

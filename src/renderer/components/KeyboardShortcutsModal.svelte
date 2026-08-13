@@ -18,7 +18,7 @@
 
   const kb = getKeybindingsContext()
 
-  const SCOPE_META: Record<Scope, { label: string; order: number }> = {
+  const SCOPE_META = {
     'global':            { label: 'Global',             order: 10 },
     'diff-panel':        { label: 'Diff Panel',         order: 20 },
     'file-editor':       { label: 'File Editor',        order: 25 },
@@ -38,7 +38,7 @@
     // First-run onboarding holds this scope exclusively and declares no bindings
     // of its own, so it is named here but never listed in ALL_SCOPES.
     'onboarding':        { label: 'Onboarding',         order: 110 },
-  }
+  } satisfies Record<Scope, { label: string; order: number }>
 
   const ALL_SCOPES: Scope[] = [
     'global', 'diff-panel', 'file-editor', 'files-pane',

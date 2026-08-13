@@ -3,8 +3,20 @@ export const RESPONSE_RECEIPT_MAX_ENTRIES = 100
 export const RESPONSE_RECEIPT_MAX_BYTES = 16 * 1024 * 1024
 export const RESPONSE_RECEIPT_MAX_ENTRY_BYTES = 4 * 1024 * 1024
 export const RESPONSE_RECEIPT_MAX_IN_FLIGHT = 64
-export const RESPONSE_RECEIPT_GLOBAL_MAX_IN_FLIGHT = RESPONSE_RECEIPT_MAX_IN_FLIGHT
+// Editor, Pill, web, and mobile clients can issue independent boot reads at the
+// same time. Keep the per-client guard strict without letting one busy surface
+// consume the whole host budget and reject routine reads from every other one.
+export const RESPONSE_RECEIPT_GLOBAL_MAX_IN_FLIGHT = RESPONSE_RECEIPT_MAX_IN_FLIGHT * 4
 export const RESPONSE_RECEIPT_GLOBAL_MAX_BYTES = RESPONSE_RECEIPT_MAX_BYTES
+
+export interface ResponseReceiptBudgetStats {
+  inFlight: number
+  settledBytes: number
+}
+
+export interface ResponseReceiptCacheStats extends ResponseReceiptBudgetStats {
+  entries: number
+}
 
 export class ResponseReceiptBudget {
   private inFlight = 0
@@ -35,7 +47,7 @@ export class ResponseReceiptBudget {
     this.settledBytes = Math.max(0, this.settledBytes - bytes)
   }
 
-  stats(): { inFlight: number; settledBytes: number } {
+  stats(): ResponseReceiptBudgetStats {
     return { inFlight: this.inFlight, settledBytes: this.settledBytes }
   }
 }
@@ -48,26 +60,28 @@ interface Receipt<T> {
 }
 
 /** Conservative, allocation-light estimate of the graph a settled Promise retains. */
-export function estimateRetainedBytes(value: unknown, ceiling = Number.POSITIVE_INFINITY): number {
+export function estimateRetainedBytes<Value>(value: Value, ceiling = Number.POSITIVE_INFINITY): number {
   const seen = new WeakSet<object>()
   let bytes = 0
 
-  const visit = (candidate: unknown): void => {
+  const visit = <Candidate>(candidate: Candidate): void => {
     if (bytes > ceiling || candidate == null) return
-    if (typeof candidate === 'string') {
-      bytes += 16 + candidate.length * 2
+    const stringCandidate = z.string().safeParse(candidate)
+    if (stringCandidate.success) {
+      bytes += 16 + stringCandidate.data.length * 2
       return
     }
-    if (typeof candidate === 'number' || typeof candidate === 'bigint') {
+    if (z.union([z.number(), z.bigint()]).safeParse(candidate).success) {
       bytes += 8
       return
     }
-    if (typeof candidate === 'boolean') {
+    if (z.boolean().safeParse(candidate).success) {
       bytes += 4
       return
     }
-    if (typeof candidate !== 'object' || seen.has(candidate)) return
-    seen.add(candidate)
+    const objectCandidate = z.object({}).passthrough().safeParse(candidate)
+    if (!objectCandidate.success || seen.has(objectCandidate.data)) return
+    seen.add(objectCandidate.data)
     bytes += 48
 
     if (ArrayBuffer.isView(candidate)) {
@@ -86,7 +100,7 @@ export function estimateRetainedBytes(value: unknown, ceiling = Number.POSITIVE_
       }
       return
     }
-    for (const [key, item] of Object.entries(candidate)) {
+    for (const [key, item] of Object.entries(objectCandidate.data)) {
       bytes += 8 + key.length * 2
       visit(item)
       if (bytes > ceiling) break
@@ -156,7 +170,7 @@ export class ResponseReceiptCache<T> {
     for (const [requestId, receipt] of this.entries) this.deleteReceipt(requestId, receipt)
   }
 
-  stats(): { entries: number; inFlight: number; settledBytes: number } {
+  stats(): ResponseReceiptCacheStats {
     let inFlight = 0
     let settledBytes = 0
     for (const receipt of this.entries.values()) {
@@ -251,3 +265,4 @@ export class ResponseReceiptCache<T> {
     this.cleanupTimer.unref?.()
   }
 }
+import { z } from 'zod'

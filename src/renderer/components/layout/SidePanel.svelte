@@ -51,12 +51,12 @@
   const panelColorVar = $derived(
     side === "right" ? "--solus-sidebar-bg-right" : "--solus-sidebar-bg-left",
   );
+  const windowCtx = getWindowContext();
   const panelBg = $derived(background ?? `var(${panelColorVar})`);
   // Horizontal space the shell's gutter steals from a fixed-width root. A
   // managed root uses 100% because percentages already resolve against the
   // shell's content box; subtracting this again would double its right inset.
   const gutter = $derived(flush ? 0 : 8);
-  const windowCtx = getWindowContext();
 </script>
 
 <div
@@ -75,7 +75,7 @@
   aria-hidden={!open}
 >
   <div
-    class="side-panel-root no-drag flex h-full flex-col overflow-hidden bg-(--side-panel-bg,var(--solus-sidebar-bg)) [contain:layout_paint] {flush
+    class="side-panel-root flex h-full flex-col overflow-hidden bg-(--side-panel-bg,var(--solus-sidebar-bg)) [contain:layout_paint] {flush
  ? ''
  : 'rounded-2xl'} {flush
  ? ''
@@ -97,7 +97,7 @@
  : 'px-4 pt-3 pb-2'} {windowCtx.isMac &&
  windowCtx.viewMode === 'editor' &&
  side === 'left'
- ? 'side-panel-header--mac-left'
+ ? 'side-panel-header--mac-left workspace-titlebar'
  : ''} {windowCtx.isMac &&
  windowCtx.viewMode === 'editor' &&
  side === 'left' &&
@@ -134,7 +134,7 @@
           </div>
           </Sidebar.Header>
         {/if}
-        <Sidebar.Content class="overflow-hidden">
+        <Sidebar.Content class="overflow-hidden {side === 'left' ? 'no-drag' : ''}">
           {@render children()}
         </Sidebar.Content>
       </Sidebar.Root>
@@ -144,8 +144,6 @@
 
 <style>
   .side-panel-shell {
-    /* The shell starts 4px from the window and its 1px border paints inward.
-       Mac titlebar chrome compensates for the resulting 5px local origin. */
     --side-panel-window-inset: 5px;
     flex-shrink: 0;
     min-width: var(--panel-min-width, 160px);
@@ -208,10 +206,6 @@
     min-height: var(--solus-chrome-row-h, 2.5rem);
   }
 
-  /* Traffic lights float over this header on the editor window; the title drops
-     to a second row that clears their vertical band while the actions sit
-     inline beside them in the first row. Row height comes from the shared
-     titlebar safe-area var so it can't drift from the other consumers. */
   :global(.side-panel-header--mac-left) {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -223,10 +217,12 @@
     padding: 0 0.75rem 0.75rem 1rem;
   }
 
-  /* An untitled sidebar has no second-row label to clear. Keep its action in
-     the traffic-light row, but do not reserve the otherwise empty lower pad. */
   :global(.side-panel-header--mac-left.side-panel-header--untitled) {
     padding-bottom: 0;
+    /* The untitled session header has no second label row. Pull its list into
+       half of that unused space while the collapse control stays centred on
+       the traffic lights. */
+    margin-bottom: calc(0px - var(--side-panel-window-inset) - 0.625rem);
   }
 
   :global(.side-panel-header--mac-left .side-panel-title) {

@@ -1,8 +1,8 @@
 import posthog from 'posthog-js'
 import type { SolusEventMap } from '../../shared/analytics-events'
 
-const POSTHOG_KEY = (import.meta as any).env?.VITE_POSTHOG_KEY as string | undefined
-const POSTHOG_HOST = ((import.meta as any).env?.VITE_POSTHOG_HOST as string | undefined) ?? 'https://us.i.posthog.com'
+const POSTHOG_KEY = import.meta.env.VITE_POSTHOG_KEY
+const POSTHOG_HOST = import.meta.env.VITE_POSTHOG_HOST ?? 'https://us.i.posthog.com'
 const ANON_ID_KEY = 'solus-analytics-id'
 let initialized = false
 

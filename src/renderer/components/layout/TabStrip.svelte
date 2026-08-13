@@ -72,7 +72,7 @@
     weight?: "fill";
   };
 
-  const GROUP_VISUAL: Record<StatusGroupKey, GroupVisual> = {
+  const GROUP_VISUAL = {
     waiting: {
       icon: ChatTeardropIcon,
       color: "var(--solus-status-permission)",
@@ -103,9 +103,9 @@
       color: "var(--solus-text-tertiary)",
       spin: false,
     },
-  };
+  } satisfies Record<StatusGroupKey, GroupVisual>;
 
-  const UNREAD_VISUAL: Record<UnreadGroupKey, GroupVisual> = {
+  const UNREAD_VISUAL = {
     unread: {
       icon: CircleIcon,
       color: "var(--solus-unread-ink)",
@@ -117,27 +117,21 @@
       color: "var(--solus-text-tertiary)",
       spin: false,
     },
-  };
+  } satisfies Record<UnreadGroupKey, GroupVisual>;
 
   // Section label + binder glyph per grouping mode, looked up by section key.
-  const GROUP_PRESENTATION: Record<
-    "status" | "unread",
-    {
-      labels: Record<string, string>;
-      visual: Record<string, GroupVisual>;
-    }
-  > = {
+  const GROUP_PRESENTATION = {
     status: { labels: STATUS_GROUP_LABELS, visual: GROUP_VISUAL },
     unread: { labels: UNREAD_GROUP_LABELS, visual: UNREAD_VISUAL },
   };
 
   // Tooltip names the CURRENT grouping plus the mode the toggle switches INTO
   // (it cycles flat → status → unread).
-  const GROUP_TOOLTIPS: Record<TabGroupMode, string> = {
+  const GROUP_TOOLTIPS = {
     flat: "Tabs: ungrouped · group by status (⌥⇧U)",
     status: "Tabs: grouped by status · group by unread (⌥⇧U)",
     unread: "Tabs: grouped by unread · ungroup (⌥⇧U)",
-  };
+  } satisfies Record<TabGroupMode, string>;
 
   const isGrouped = $derived(session.tabGroupMode !== "flat");
   const groupToggleTooltip = $derived(GROUP_TOOLTIPS[session.tabGroupMode]);
@@ -154,12 +148,12 @@
   };
 
   const groupedSections = $derived.by<TabSection[] | null>(() => {
-    if (!isGrouped) return null;
-    const pres =
-      GROUP_PRESENTATION[session.tabGroupMode as "status" | "unread"];
+    const mode = session.tabGroupMode;
+    if (mode === "flat") return null;
+    const pres = GROUP_PRESENTATION[mode];
     return buildTabSections(
       renderedTabIds,
-      session.tabGroupMode,
+      mode,
       (tabId) => session.resolveTab(tabId),
       planStore.plans,
     ).map(({ key, tabIds }) => ({
@@ -289,9 +283,9 @@
     const activeChanged = activeId !== lastActiveId;
     lastActiveId = activeId;
     void tick().then(() => {
-      const activeEl = sc.querySelector(
+      const activeEl = sc.querySelector<HTMLElement>(
         '[aria-selected="true"]',
-      ) as HTMLElement | null;
+      );
       // Bring a freshly-selected tab into view, but don't yank the strip back
       // just because a background status change re-ran this effect mid-scroll.
       if (activeEl && (activeChanged || !tabScroll.recentlyManual())) {
@@ -307,9 +301,9 @@
     // outside the viewport when the rightmost active tab is closed.
     const t = setTimeout(() => {
       if (activeChanged && session.onScreenTabId === activeId) {
-        const settledActiveEl = sc.querySelector(
+        const settledActiveEl = sc.querySelector<HTMLElement>(
           '[aria-selected="true"]',
-        ) as HTMLElement | null;
+        );
         if (settledActiveEl) alignActiveTab(sc, settledActiveEl, "auto");
       }
       tabScroll.remeasure();

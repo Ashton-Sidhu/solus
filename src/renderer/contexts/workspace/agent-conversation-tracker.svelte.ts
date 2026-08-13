@@ -12,10 +12,15 @@ interface AgentConversationState {
   countByAgent: Map<string, number>
 }
 
-const SETTLED_STATUS: Record<'completed' | 'interrupted' | 'failed', AgentExchange['status']> = {
+const SETTLED_STATUS = {
   completed: 'done',
   interrupted: 'interrupted',
   failed: 'failed',
+} satisfies Record<'completed' | 'interrupted' | 'failed', AgentExchange['status']>
+
+interface AgentConversationApplyResult {
+  newCard: boolean
+  needsAttention: boolean
 }
 
 /** Maintains one card per other agent per turn, mutating messages in
@@ -70,7 +75,7 @@ export class AgentConversationTracker {
 
   /** Returns true when the update was consumed (it always is — agent-conversation events
    *  never fall through to other reducer arms). */
-  apply(session: Session, update: AgentConversationUpdate): { newCard: boolean; needsAttention: boolean } {
+  apply(session: Session, update: AgentConversationUpdate): AgentConversationApplyResult {
     const state = this.state(session)
     switch (update.phase) {
       case 'dispatched': {

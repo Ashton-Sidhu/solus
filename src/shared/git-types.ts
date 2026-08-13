@@ -108,28 +108,57 @@ export interface TurnSnapshot {
   deletions: number
 }
 
-export interface WorktreePRResult {
-  success: boolean
-  url?: string
-  error?: string
+export type GitAction =
+  | 'commit'
+  | 'commit_push'
+  | 'push'
+  | 'create_pull_request'
+  | 'commit_push_pull_request'
+
+export type GitActionPhase =
+  | 'branch'
+  | 'commit'
+  | 'push'
+  | 'author_pull_request'
+  | 'create_pull_request'
+
+export interface GitActionRequest {
+  actionId: string
+  action: GitAction
+  /** Move work off the default branch before committing. */
+  createFeatureBranch?: boolean
 }
 
-export interface GitCommitPushResult {
-  success: boolean
-  outcome: 'pushed' | 'committed-only' | 'unchanged' | 'failed'
-  committed: boolean
-  pushed: boolean
-  error?: string
+export type GitBranchStep =
+  | { status: 'created'; name: string }
+  | { status: 'skipped' }
+
+export type GitCommitStep =
+  | { status: 'created'; sha: string; subject: string }
+  | { status: 'skipped_no_changes' }
+  | { status: 'skipped' }
+
+export type GitPushStep =
+  | { status: 'pushed'; branch: string }
+  | { status: 'skipped' }
+
+export type GitPullRequestStep =
+  | { status: 'created' | 'existing'; url: string; number: number | null; title: string }
+  | { status: 'skipped' }
+
+export interface GitActionResult {
+  action: GitAction
+  branch: GitBranchStep
+  commit: GitCommitStep
+  push: GitPushStep
+  pullRequest: GitPullRequestStep
 }
 
-/** Commit without publishing. `unchanged` means there was nothing to commit,
- *  which is a success — the working tree already matched HEAD. */
-export interface GitCommitResult {
-  success: boolean
-  outcome: 'committed' | 'unchanged' | 'failed'
-  committed: boolean
-  error?: string
-}
+export type GitActionProgressEvent =
+  | { actionId: string; cwd: string; action: GitAction; kind: 'started'; phases: GitActionPhase[] }
+  | { actionId: string; cwd: string; action: GitAction; kind: 'phase_started'; phase: GitActionPhase; label: string }
+  | { actionId: string; cwd: string; action: GitAction; kind: 'finished'; result: GitActionResult }
+  | { actionId: string; cwd: string; action: GitAction; kind: 'failed'; phase: GitActionPhase | null; message: string }
 
 export interface GitSyncResult {
   success: boolean
@@ -171,5 +200,10 @@ export interface GitIdentity {
 
 export interface GitState extends GitIdentity {
   uncommittedChanges: UncommittedChanges
+  upstreamRef: string | null
+  aheadCount: number
+  behindCount: number
+  /** Commits on HEAD that are not on the target branch. Loaded with details. */
+  targetAheadCount?: number
   prUrl?: string
 }

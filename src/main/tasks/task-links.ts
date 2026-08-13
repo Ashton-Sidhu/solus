@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { z } from 'zod'
 import { appendTaskEvent, type EventActor } from './task-events'
 import type {
-  TaskActor,
   TaskLink,
   TaskLinkInput,
   TaskLinkKind,
@@ -15,63 +15,80 @@ import type {
  * `Task` object's `link()` / `unlink()` / `links()`.
  */
 
-interface TaskLinkRow {
-  task_id: string
-  kind: TaskLinkKind
-  target_scope: string
-  target_key: string
-  title: string
-  url: string | null
-  created_by: TaskActor | 'migration'
-  origin_session_id: string | null
-  linked_at: number
-  work_title: string | null
-  work_type: string | null
-  automation_title: string | null
-  automation_enabled: number | null
-  plan_title: string | null
-  plan_status: string | null
+const taskLinkRowSchema = z.object({
+  task_id: z.string(),
+  kind: z.enum(['work', 'plan', 'pr', 'automation']),
+  target_scope: z.string(),
+  target_key: z.string(),
+  title: z.string(),
+  url: z.string().nullable(),
+  created_by: z.enum(['user', 'agent', 'automation', 'system', 'migration']),
+  origin_session_id: z.string().nullable(),
+  linked_at: z.number(),
+  work_title: z.string().nullable(),
+  work_type: z.string().nullable(),
+  automation_title: z.string().nullable(),
+  automation_enabled: z.number().nullable(),
+  plan_title: z.string().nullable(),
+  plan_status: z.string().nullable(),
+})
+const nullableTitleRowSchema = z.object({ title: z.string().nullable() })
+const titleRowSchema = z.object({ title: z.string() })
+const taskPrLinkRowSchema = z.object({
+  task_id: z.string(),
+  target_key: z.string(),
+  url: z.string().nullable(),
+})
+
+type TaskLinkRow = z.infer<typeof taskLinkRowSchema>
+
+interface LiveTaskLinkFields {
+  liveTitle?: string
+  liveStatus?: string
+}
+
+interface TaskSidebarPrLinks {
+  [taskId: string]: TaskSidebarPrLink
 }
 
 /** Live title/status per kind. `work`, `plan` and `automation` all live in this
  * database, so a rename shows up immediately; `pr` state is a GitHub round trip
  * and must not make a task read network-bound, so it stays on the snapshot and
  * the renderer overlays from its own PR store. */
-function liveFields(row: TaskLinkRow): { liveTitle?: string; liveStatus?: string } {
+function liveFields(row: TaskLinkRow): LiveTaskLinkFields {
+  const fields: LiveTaskLinkFields = {}
   switch (row.kind) {
     case 'work':
-      return {
-        ...(row.work_title === null ? {} : { liveTitle: row.work_title }),
-        ...(row.work_type === null ? {} : { liveStatus: row.work_type }),
-      }
+      if (row.work_title !== null) fields.liveTitle = row.work_title
+      if (row.work_type !== null) fields.liveStatus = row.work_type
+      return fields
     case 'automation':
-      return {
-        ...(row.automation_title === null ? {} : { liveTitle: row.automation_title }),
-        ...(row.automation_enabled === null ? {} : { liveStatus: row.automation_enabled === 1 ? 'Active' : 'Paused' }),
-      }
+      if (row.automation_title !== null) fields.liveTitle = row.automation_title
+      if (row.automation_enabled !== null) fields.liveStatus = row.automation_enabled === 1 ? 'Active' : 'Paused'
+      return fields
     case 'plan':
-      return {
-        ...(row.plan_title === null ? {} : { liveTitle: row.plan_title }),
-        ...(row.plan_status === null ? {} : { liveStatus: row.plan_status }),
-      }
+      if (row.plan_title !== null) fields.liveTitle = row.plan_title
+      if (row.plan_status !== null) fields.liveStatus = row.plan_status
+      return fields
     default:
-      return {}
+      return fields
   }
 }
 
 function linkFromRow(row: TaskLinkRow): TaskLink {
-  return {
+  const link: TaskLink = {
     taskId: row.task_id,
     kind: row.kind,
     targetScope: row.target_scope,
     targetKey: row.target_key,
     title: row.title,
-    ...(row.url === null ? {} : { url: row.url }),
     ...liveFields(row),
     createdBy: row.created_by,
-    ...(row.origin_session_id === null ? {} : { originSessionId: row.origin_session_id }),
     linkedAt: row.linked_at,
   }
+  if (row.url !== null) link.url = row.url
+  if (row.origin_session_id !== null) link.originSessionId = row.origin_session_id
+  return link
 }
 
 /** The snapshot label, so a row renders even once its target is gone. Resolved
@@ -82,19 +99,21 @@ function snapshotTitle(db: DatabaseSync, input: TaskLinkInput): string {
   const scope = input.targetScope ?? ''
   switch (input.kind) {
     case 'work': {
-      const row = db.prepare('SELECT title FROM works WHERE id = ?').get(input.targetKey) as
-        { title: string | null } | undefined
+      const row = nullableTitleRowSchema.nullish().parse(
+        db.prepare('SELECT title FROM works WHERE id = ?').get(input.targetKey),
+      )
       return row?.title?.trim() || 'Untitled doc'
     }
     case 'automation': {
-      const row = db.prepare('SELECT name FROM automations WHERE id = ?').get(input.targetKey) as
-        { name: string | null } | undefined
+      const row = z.object({ name: z.string().nullable() }).nullish().parse(
+        db.prepare('SELECT name FROM automations WHERE id = ?').get(input.targetKey),
+      )
       return row?.name?.trim() || 'Untitled automation'
     }
     case 'plan': {
-      const row = db.prepare(
+      const row = nullableTitleRowSchema.nullish().parse(db.prepare(
         'SELECT title FROM plan_annotations WHERE session_id = ? AND plan_tool_use_id = ?',
-      ).get(scope, input.targetKey) as { title: string | null } | undefined
+      ).get(scope, input.targetKey))
       return row?.title?.trim() || 'Untitled plan'
     }
     case 'pr':
@@ -156,10 +175,10 @@ export function deleteTaskLink(
   actor: EventActor = {},
   now = Date.now(),
 ): boolean {
-  const existing = db.prepare(`
+  const existing = titleRowSchema.nullish().parse(db.prepare(`
     SELECT title FROM task_links
     WHERE task_id = ? AND kind = ? AND target_scope = ? AND target_key = ?
-  `).get(taskId, kind, targetScope, targetKey) as { title: string } | undefined
+  `).get(taskId, kind, targetScope, targetKey))
   if (!existing) return false
 
   db.prepare(`
@@ -180,7 +199,7 @@ export function deleteTaskLink(
 }
 
 export function readTaskLinks(db: DatabaseSync, taskId: string): TaskLink[] {
-  const rows = db.prepare(`
+  const rows = taskLinkRowSchema.array().parse(db.prepare(`
     SELECT
       task_links.*,
       works.title AS work_title,
@@ -200,29 +219,28 @@ export function readTaskLinks(db: DatabaseSync, taskId: string): TaskLink[] {
      AND plan_annotations.plan_tool_use_id = task_links.target_key
     WHERE task_links.task_id = ?
     ORDER BY task_links.linked_at DESC, task_links.kind, task_links.target_key
-  `).all(taskId) as unknown as TaskLinkRow[]
+  `).all(taskId))
   return rows.map(linkFromRow)
 }
 
 /** One compact PR edge per task for the sidebar's cold-start snapshot. Links
  * are newest-first because the task surface treats the most recent PR link as
  * the active one. Invalid legacy keys stay out of the renderer contract. */
-export function readLatestTaskPrLinks(db: DatabaseSync): Record<string, TaskSidebarPrLink> {
-  const rows = db.prepare(`
+export function readLatestTaskPrLinks(db: DatabaseSync): TaskSidebarPrLinks {
+  const rows = taskPrLinkRowSchema.array().parse(db.prepare(`
     SELECT task_id, target_key, url
     FROM task_links
     WHERE kind = 'pr'
     ORDER BY linked_at DESC, rowid DESC
-  `).all() as unknown as Array<{ task_id: string; target_key: string; url: string | null }>
-  const links: Record<string, TaskSidebarPrLink> = {}
+  `).all())
+  const links: TaskSidebarPrLinks = {}
   for (const row of rows) {
     if (links[row.task_id]) continue
     const number = Number(row.target_key)
     if (!Number.isSafeInteger(number) || number <= 0) continue
-    links[row.task_id] = {
-      number,
-      ...(row.url === null ? {} : { url: row.url }),
-    }
+    const link: TaskSidebarPrLink = { number }
+    if (row.url !== null) link.url = row.url
+    links[row.task_id] = link
   }
   return links
 }

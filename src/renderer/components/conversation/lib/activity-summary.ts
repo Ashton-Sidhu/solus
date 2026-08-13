@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 import type { Message, TurnStartKind } from '../../../../shared/types'
 import { prettyToolName, solusToolKey } from '../../../contexts/workspace/session.utils'
 
@@ -6,7 +8,7 @@ import { prettyToolName, solusToolKey } from '../../../contexts/workspace/sessio
  *  rather than earning a row of its own. */
 export type ActivityKind = 'think' | 'search' | 'read' | 'edit' | 'run' | 'other'
 
-const KIND_FOR_TOOL: Record<string, ActivityKind> = {
+const KIND_FOR_TOOL = {
   Read: 'read',
   Glob: 'search',
   Grep: 'search',
@@ -17,27 +19,27 @@ const KIND_FOR_TOOL: Record<string, ActivityKind> = {
   NotebookEdit: 'edit',
   Bash: 'run',
   exec_command: 'run',
-}
+} as const satisfies Record<string, ActivityKind>
 
 /** Past tense, because a finished block reads as a caption. */
-const VERB_FOR_KIND: Record<ActivityKind, string> = {
+const VERB_FOR_KIND = {
   think: 'thought',
   search: 'searched',
   read: 'read',
   edit: 'edited',
   run: 'ran commands',
   other: 'used tools',
-}
+} as const satisfies Record<ActivityKind, string>
 
 /** Present participle, because a running block reads as a sentence in progress. */
-const PARTICIPLE_FOR_KIND: Record<ActivityKind, string> = {
+const PARTICIPLE_FOR_KIND = {
   think: 'Thinking',
   search: 'Searching',
   read: 'Reading',
   edit: 'Editing',
   run: 'Running',
   other: 'Working',
-}
+} as const satisfies Record<ActivityKind, string>
 
 const CHANGE_PATH_KEYS = [
   'file_path',
@@ -50,28 +52,46 @@ const CHANGE_PATH_KEYS = [
   'new_path',
   'oldPath',
   'newPath',
-]
+] as const
 
-export interface ParsedToolInput {
-  file_path?: unknown
-  filePath?: unknown
-  path?: unknown
-  file?: unknown
-  fileName?: unknown
-  filename?: unknown
-  old_path?: unknown
-  new_path?: unknown
-  oldPath?: unknown
-  newPath?: unknown
-  changes?: unknown
-  pattern?: unknown
-  command?: unknown
-  query?: unknown
-  search_query?: unknown
-  url?: unknown
-  prompt?: unknown
-  description?: unknown
-  skill?: unknown
+const toolPathSchema = z.object({
+  file_path: z.string().optional(),
+  filePath: z.string().optional(),
+  path: z.string().optional(),
+  file: z.string().optional(),
+  fileName: z.string().optional(),
+  filename: z.string().optional(),
+  old_path: z.string().optional(),
+  new_path: z.string().optional(),
+  oldPath: z.string().optional(),
+  newPath: z.string().optional(),
+})
+
+const toolInputSchema = toolPathSchema.extend({
+  changes: z.array(toolPathSchema).optional(),
+  pattern: z.string().optional(),
+  command: z.string().optional(),
+  query: z.string().optional(),
+  search_query: z.string().optional(),
+  url: z.string().optional(),
+  prompt: z.string().optional(),
+  description: z.string().optional(),
+  skill: z.string().optional(),
+})
+
+type ParsedToolFields = z.infer<typeof toolInputSchema>
+
+export type ParsedToolInput = ParsedToolFields & {
+  sourceJson: string
+}
+
+export function parseToolInput(value: string): ParsedToolInput | null {
+  try {
+    const result = toolInputSchema.safeParse(JSON.parse(value))
+    return result.success ? { ...result.data, sourceJson: value } : null
+  } catch {
+    return null
+  }
 }
 
 export function activityKind(toolName: string | undefined): ActivityKind {
@@ -123,8 +143,8 @@ export function liveActivityLabel(
   return activity || (hasTools ? 'Planning the next step…' : 'Thinking it through…')
 }
 
-function addToolPath(paths: Set<string>, value: unknown): void {
-  if (typeof value !== 'string') return
+function addToolPath(paths: Set<string>, value: string | undefined): void {
+  if (value === undefined) return
   let path = value.trim()
   if (!path || path === '/dev/null') return
   if (
@@ -136,15 +156,14 @@ function addToolPath(paths: Set<string>, value: unknown): void {
   paths.add(path)
 }
 
-export function toolPathsFromParsed(parsed: object): string[] {
+export function toolPathsFromParsed(parsed: ParsedToolInput): string[] {
   const paths = new Set<string>()
-  for (const key of CHANGE_PATH_KEYS) addToolPath(paths, Reflect.get(parsed, key))
+  for (const key of CHANGE_PATH_KEYS) addToolPath(paths, parsed[key])
 
-  const changes = Reflect.get(parsed, 'changes')
-  if (Array.isArray(changes)) {
+  const changes = parsed.changes
+  if (changes) {
     for (const change of changes) {
-      if (!change || typeof change !== 'object') continue
-      for (const key of CHANGE_PATH_KEYS) addToolPath(paths, Reflect.get(change, key))
+      for (const key of CHANGE_PATH_KEYS) addToolPath(paths, change[key])
     }
   }
 
@@ -159,13 +178,13 @@ function describeFilePaths(action: string, paths: string[]): string {
 
 function describeSolusTool(
   name: string,
-  parsed: object,
+  parsed: ParsedToolInput,
   truncate: boolean,
 ): string {
   const label = prettyToolName(name)
-  if (Object.keys(parsed).length === 0) return label
+  if (parsed.sourceJson.trim() === '{}') return label
 
-  const description = `${label}: ${JSON.stringify(parsed)}`
+  const description = `${label}: ${parsed.sourceJson}`
   return truncate && description.length > 60
     ? `${description.substring(0, 57)}...`
     : description
@@ -177,31 +196,30 @@ export function getToolDescriptionFromParsed(
   options: { truncate?: boolean } = {},
 ): string {
   const truncate = options.truncate ?? true
-  const s = (v: unknown) => (typeof v === 'string' ? v : '')
   if (solusToolKey(name)) return describeSolusTool(name, parsed, truncate)
   switch (name) {
     case 'Read':
-      return `Read ${s(parsed.file_path) || s(parsed.path) || 'file'}`
+      return `Read ${parsed.file_path || parsed.path || 'file'}`
     case 'Edit':
       return describeFilePaths('Edit', toolPathsFromParsed(parsed))
     case 'Write':
       return describeFilePaths('Write', toolPathsFromParsed(parsed))
     case 'Glob':
-      return `Search files: ${s(parsed.pattern)}`
+      return `Search files: ${parsed.pattern ?? ''}`
     case 'Grep':
-      return `Search: ${s(parsed.pattern)}`
+      return `Search: ${parsed.pattern ?? ''}`
     case 'Bash': {
-      const cmd = s(parsed.command)
+      const cmd = parsed.command ?? ''
       return truncate && cmd.length > 60 ? `${cmd.substring(0, 57)}...` : cmd || 'Bash'
     }
     case 'WebSearch':
-      return `Search: ${s(parsed.query) || s(parsed.search_query)}`
+      return `Search: ${parsed.query || parsed.search_query || ''}`
     case 'WebFetch':
-      return `Fetch: ${s(parsed.url)}`
+      return `Fetch: ${parsed.url ?? ''}`
     case 'Agent':
-      return `Agent: ${truncate ? (s(parsed.prompt) || s(parsed.description)).substring(0, 100) : s(parsed.prompt) || s(parsed.description)}`
+      return `Agent: ${truncate ? (parsed.prompt || parsed.description || '').substring(0, 100) : parsed.prompt || parsed.description || ''}`
     case 'Skill':
-      return s(parsed.skill) ? `Skill: ${s(parsed.skill)}` : 'Skill'
+      return parsed.skill ? `Skill: ${parsed.skill}` : 'Skill'
     default:
       return name
   }
@@ -215,14 +233,11 @@ export function getToolDescription(
   const pretty = prettyToolName(name)
   const truncate = options.truncate ?? true
   if (!input) return pretty
-  try {
-    const parsed = JSON.parse(input)
-    return getToolDescriptionFromParsed(name, parsed, { truncate })
-  } catch {
-    const trimmed = input.trim()
-    if (truncate && trimmed.length > 60) return `${pretty}: ${trimmed.substring(0, 57)}...`
-    return trimmed ? `${pretty}: ${trimmed}` : pretty
-  }
+  const parsed = parseToolInput(input)
+  if (parsed) return getToolDescriptionFromParsed(name, parsed, { truncate })
+  const trimmed = input.trim()
+  if (truncate && trimmed.length > 60) return `${pretty}: ${trimmed.substring(0, 57)}...`
+  return trimmed ? `${pretty}: ${trimmed}` : pretty
 }
 
 /** Formats elapsed activity time for the right-hand rail. */
@@ -286,9 +301,9 @@ export function activitySummary(tools: Message[]): SummarySegment[] {
   const paths = new Set<string>()
   for (const tool of tools) {
     if (!tool.toolInput) continue
-    try {
-      for (const path of toolPathsFromParsed(JSON.parse(tool.toolInput))) paths.add(path)
-    } catch {}
+    const parsed = parseToolInput(tool.toolInput)
+    if (!parsed) continue
+    for (const path of toolPathsFromParsed(parsed)) paths.add(path)
   }
 
   const lead = joinClauses(clauses)

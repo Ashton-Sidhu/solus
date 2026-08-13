@@ -1,9 +1,10 @@
 import { createAppContext } from '../app/create-app-context'
-import { gitCheckoutFromState, type GitCheckout, type GitState, type IpcContext, type RunConfig, type Session, type WorktreeEntry } from '../../../shared/types'
+import { gitCheckoutFromState, worktreeProjectRoot, type GitCheckout, type GitState, type IpcContext, type RunConfig, type Session, type WorktreeEntry } from '../../../shared/types'
 import { formatBranchDisplayName } from '../../lib/git-context'
 import type { HostApi } from '@client-core/host-api'
 import { hostKey } from '@client-core/host-key'
 import { serverConnections } from '@client-core/server-connections'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 
 export interface GitProjectRefs {
   branches: string[]
@@ -27,7 +28,7 @@ interface GitFacetOutcome {
   error?: string
 }
 
-function gitErrorText(error: unknown): string {
+function gitErrorText(error: Parameters<typeof String>[0]): string {
   return error instanceof Error ? error.message : String(error)
 }
 
@@ -114,6 +115,10 @@ export class SessionEnvironmentStore {
   private versions = new Map<string, number>()
   private apiByCwd = new Map<string, HostApi>()
   private serverIdByCwd = new Map<string, string>()
+  private dispatchRootByTarget = new SvelteMap<string, string | null>()
+  private dispatchBranchesByTarget = new SvelteMap<string, string[]>()
+  private dispatchBranchesLoading = new SvelteSet<string>()
+  private dispatchRefsInflight = new Map<string, Promise<boolean>>()
 
   bindWorkspace(workspace: SessionEnvironmentWorkspace): void {
     this.workspace = workspace
@@ -494,6 +499,7 @@ export class SessionEnvironmentStore {
               insertions: status.uncommittedChanges.insertions,
               deletions: status.uncommittedChanges.deletions,
             },
+            targetAheadCount: status.targetAheadCount,
             prUrl: status.prUrl,
           }
         : status
@@ -508,15 +514,17 @@ export class SessionEnvironmentStore {
     const key = hostKey(serverId, cwd)
     const previous = this.byCwd[key]
     if (!status || !previous || !this.detailWatchers.has(key) || previous.branch !== status.branch) return status
-    return {
+    const visibleStatus: GitState = {
       ...status,
       uncommittedChanges: {
         ...status.uncommittedChanges,
         insertions: previous.uncommittedChanges.insertions,
         deletions: previous.uncommittedChanges.deletions,
       },
-      ...(previous.prUrl ? { prUrl: previous.prUrl } : {}),
     }
+    if (previous.targetAheadCount !== undefined) visibleStatus.targetAheadCount = previous.targetAheadCount
+    if (previous.prUrl) visibleStatus.prUrl = previous.prUrl
+    return visibleStatus
   }
 
   private scheduleDetailsRefresh(serverId: string, cwd: string): void {
@@ -582,6 +590,99 @@ export class SessionEnvironmentStore {
     if (!projectRoot) return { worktrees: [], branches: [] }
     const serverId = this.boundServerIdFor(projectRoot)
     return serverId ? this.refsForHost(serverId, projectRoot) : { worktrees: [], branches: [] }
+  }
+
+  /** Existing isolated worktrees from this device's checkout on the selected
+   * host. The base checkout is absent because dispatched sessions stay isolated. */
+  dispatchWorktreesFor(run: RunConfig | null | undefined): WorktreeEntry[] {
+    const pending = run?.pendingHostDispatch
+    if (pending?.intent !== 'dispatch') return []
+    const serverId = serverConnections.resolveId(pending.serverId)
+    const root = this.dispatchRootByTarget.get(hostKey(serverId, pending.repoKey))
+    if (!root) return []
+    return this.refsForHost(serverId, root).worktrees.filter((worktree) => worktree.path !== root)
+  }
+
+  /** Origin branches that do not already have a worktree on the target. A
+   * branch appears once in the picker: as its existing worktree when present,
+   * otherwise as the source for a new target worktree. */
+  dispatchBranchesFor(run: RunConfig | null | undefined): string[] {
+    const pending = run?.pendingHostDispatch
+    if (pending?.intent !== 'dispatch') return []
+    const serverId = serverConnections.resolveId(pending.serverId)
+    const key = hostKey(serverId, pending.repoKey)
+    const branches = this.dispatchBranchesByTarget.get(key) ?? []
+    const root = this.dispatchRootByTarget.get(key)
+    if (!root) return branches
+    const worktreeBranches = new Set(
+      this.refsForHost(serverId, root).worktrees
+        .filter((worktree) => worktree.path !== root)
+        .map((worktree) => worktree.branch),
+    )
+    return branches.filter((branch) => !worktreeBranches.has(branch))
+  }
+
+  dispatchBranchesLoadingFor(run: RunConfig | null | undefined): boolean {
+    const pending = run?.pendingHostDispatch
+    if (pending?.intent !== 'dispatch') return false
+    const serverId = serverConnections.resolveId(pending.serverId)
+    return this.dispatchBranchesLoading.has(hostKey(serverId, pending.repoKey))
+  }
+
+  /** Load device-scoped target worktrees and source origin branches together. */
+  async refreshDispatchWorktrees(
+    run: RunConfig | null | undefined,
+    ctxForDirectory: (cwd: string) => IpcContext,
+  ): Promise<boolean> {
+    const pending = run?.pendingHostDispatch
+    if (pending?.intent !== 'dispatch') return false
+    const serverId = serverConnections.resolveId(pending.serverId)
+    const key = hostKey(serverId, pending.repoKey)
+    const existing = this.dispatchRefsInflight.get(key)
+    if (existing) return existing
+    const targetApi = serverConnections.apiFor(serverId)
+    const sourceServerId = serverConnections.resolveId(run.serverId)
+    const sourceApi = serverConnections.apiFor(sourceServerId)
+    const sourceRoot = run.gitContext?.repoRoot
+      ?? (run.workingDirectory && run.workingDirectory !== '~' ? worktreeProjectRoot(run.workingDirectory) : null)
+    this.dispatchBranchesLoading.add(key)
+    const branchesPromise = sourceRoot
+      ? sourceApi.worktreeBranches(ctxForDirectory(sourceRoot), { remoteOnly: true })
+      : Promise.resolve([])
+    const promise = Promise.allSettled([
+      targetApi.resolveDispatchHistoryRoots([pending.repoKey]),
+      branchesPromise,
+    ])
+      .then(async ([rootsResult, branchesResult]): Promise<boolean> => {
+        const root = rootsResult.status === 'fulfilled'
+          ? rootsResult.value.find((candidate) => candidate.repoKey === pending.repoKey)?.path ?? null
+          : null
+        const branches = branchesResult.status === 'fulfilled' ? branchesResult.value : []
+        this.dispatchRootByTarget.set(key, root)
+        if (!root) {
+          this.dispatchBranchesByTarget.set(key, branches)
+          return rootsResult.status === 'fulfilled' && branchesResult.status === 'fulfilled'
+        }
+        this.bindCwd(serverId, root, targetApi)
+        const worktreesOutcome = await this.refreshRefsOutcomeForHost(
+          serverId,
+          root,
+          ctxForDirectory(root),
+          { force: true },
+        )
+        // Do not expose an origin branch until the target worktrees are known.
+        // Otherwise a branch that already has a worktree briefly looks new and
+        // can create a duplicate when selected during the refresh.
+        this.dispatchBranchesByTarget.set(key, branches)
+        return worktreesOutcome.ok && branchesResult.status === 'fulfilled'
+      })
+      .catch(() => false)
+      .finally(() => {
+        this.dispatchBranchesLoading.delete(key)
+        this.dispatchRefsInflight.delete(key)
+      })
+    this.dispatchRefsInflight.set(key, promise)
+    return promise
   }
 }
 

@@ -99,7 +99,7 @@
   })
 
   function activate(e: MouseEvent | KeyboardEvent) {
-    if ((e.target as HTMLElement).closest('button, a, textarea')) return
+    if (e.target instanceof Element && e.target.closest('button, a, textarea')) return
     onFocus()
   }
 </script>

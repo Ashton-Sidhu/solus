@@ -1,10 +1,9 @@
 import type { Message, TodoItem } from '../../../../shared/types'
 import { formatTokens } from '../../../lib/contextUsage'
-import { formatActivityDuration, toolPathsFromParsed } from './activity-summary'
+import { formatActivityDuration, parseToolInput, toolPathsFromParsed } from './activity-summary'
 import { decodeHtmlEntities } from './html-entities'
 import {
   callsOnCurrentStep,
-  parseSubInput,
   parseSubagentInput,
   subagentInputText,
   subagentTodos,
@@ -39,11 +38,11 @@ export interface SubagentHeader {
   files: string
 }
 
-const VERB_FOR_STATE: Record<SubagentRowState, string> = {
+const VERB_FOR_STATE = {
   running: 'running for',
   done: 'finished in',
   failed: 'failed after',
-}
+} as const satisfies Record<SubagentRowState, string>
 
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`
@@ -104,12 +103,17 @@ const WRITE_TOOLS = new Set(['Write', 'Edit', 'NotebookEdit'])
 
 /** Distinct files the run read and wrote. An agent that reads one file six times
  *  read one file, so both sides collect paths rather than calls. */
-export function subagentFilePaths(subs: Message[]): { read: string[]; wrote: string[] } {
+export interface SubagentFilePaths {
+  read: string[]
+  wrote: string[]
+}
+
+export function subagentFilePaths(subs: Message[]): SubagentFilePaths {
   const read = new Set<string>()
   const wrote = new Set<string>()
   for (const m of subs) {
-    if (m.role !== 'tool') continue
-    const parsed = parseSubInput(m)
+    if (m.role !== 'tool' || m.toolStatus === 'running') continue
+    const parsed = m.toolInput ? parseToolInput(m.toolInput) : null
     if (!parsed) continue
     const target = m.toolName === 'Read' ? read : WRITE_TOOLS.has(m.toolName ?? '') ? wrote : null
     if (!target) continue
@@ -118,7 +122,12 @@ export function subagentFilePaths(subs: Message[]): { read: string[]; wrote: str
   return { read: [...read], wrote: [...wrote] }
 }
 
-export function subagentFileCounts(subs: Message[]): { read: number; wrote: number } {
+export interface SubagentFileCounts {
+  read: number
+  wrote: number
+}
+
+export function subagentFileCounts(subs: Message[]): SubagentFileCounts {
   const { read, wrote } = subagentFilePaths(subs)
   return { read: read.length, wrote: wrote.length }
 }
@@ -320,7 +329,12 @@ export function leadParagraph(block: string): string {
   return first
 }
 
-function splitVerdict(body: string): { verdict: string; body: string } {
+interface ReportVerdict {
+  verdict: string
+  body: string
+}
+
+function splitVerdict(body: string): ReportVerdict {
   const verdict = leadParagraph(body)
   if (!verdict) return { verdict: '', body }
 

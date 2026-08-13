@@ -15,11 +15,11 @@
   // Each brand keeps its own colour where it has one. GitHub's mark is
   // monochrome by design, so it borrows the text colour and holds in both
   // themes instead of being pinned to one background.
-  const TINT: Record<Exclude<ListSourceId, "local">, string> = {
+  const TINT = {
     github: "var(--foreground)",
     linear: "#5E6AD2",
     jira: "#2684FF",
-  };
+  } satisfies Record<Exclude<ListSourceId, "local">, string>;
 </script>
 
 {#if source === "local"}

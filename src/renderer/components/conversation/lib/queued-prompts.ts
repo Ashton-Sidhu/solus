@@ -22,10 +22,10 @@ export function formatWaited(ms: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`
 }
 
-const NUMBER_WORDS: Record<string, string> = {
+const NUMBER_WORDS = {
   one: '1', two: '2', three: '3', four: '4', five: '5', six: '6',
   seven: '7', eight: '8', nine: '9', ten: '10', twelve: '12',
-}
+} satisfies Record<string, string>
 
 /** Providers name their windows however they like — `five_hour`, `Codex 5h`,
  *  `seven_day`. Reduce them to the duration a person would say out loud, and to

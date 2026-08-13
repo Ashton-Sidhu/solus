@@ -7,6 +7,7 @@ import {
   buildProjectSummaries,
   formatCompletedAge,
   formatElapsed,
+  filterSidebarTasks,
   groupTasks,
   hasDisclosure,
   sidebarChildLabel,
@@ -26,6 +27,45 @@ import {
   type SidebarTask,
   type TaskStatus,
 } from '../../src/renderer/components/session/lib/task-list'
+
+describe('sidebar task search', () => {
+  const task = (title: string, projectLabel: string): SidebarTask => ({
+    id: title,
+    key: title,
+    title,
+    projectKey: projectLabel,
+    projectLabel,
+    branchName: null,
+    serverId: null,
+    prNumber: null,
+    status: 'idle',
+    attention: null,
+    unread: false,
+    createdAt: 0,
+    activityAt: 0,
+    runStartedAt: 0,
+    lifecycle: 'active',
+    completedAt: 0,
+    snoozedUntil: 0,
+    snoozeNote: null,
+    lastReadAt: 0,
+    woke: false,
+    tabIds: [],
+  })
+  const tasks = [task('Fix sync status', 'Solus'), task('Update docs', 'Website')]
+
+  it('matches task and project names without changing row order', () => {
+    // WHY: a multi-project sidebar needs title search and project context, but
+    // filtering must not move the rows the user has learned.
+    expect(filterSidebarTasks(tasks, 'SYNC')).toEqual([tasks[0]])
+    expect(filterSidebarTasks(tasks, 'website')).toEqual([tasks[1]])
+  })
+
+  it('keeps the original task array when the query is blank', () => {
+    // WHY: idle search must not invalidate every mounted task row.
+    expect(filterSidebarTasks(tasks, '   ')).toBe(tasks)
+  })
+})
 
 describe('sidebar host scope', () => {
   it('shows only work owned by the selected host', () => {
@@ -74,10 +114,20 @@ describe('sidebar lifecycle resolution', () => {
 describe('linked PR completion', () => {
   it('completes a task when its linked PR closes or merges', () => {
     // WHY: either terminal PR result is authoritative for the linked task.
-    expect(shouldCompleteTaskForPr('in_review', 'closed')).toBe(true)
-    expect(shouldCompleteTaskForPr('in_review', 'merged')).toBe(true)
-    expect(shouldCompleteTaskForPr('in_review', 'open')).toBe(false)
-    expect(shouldCompleteTaskForPr('done', 'merged')).toBe(false)
+    const task = { status: 'in_progress' as const, updatedAt: 100 }
+    expect(shouldCompleteTaskForPr(task, { state: 'closed', updatedAt: new Date(200).toISOString() })).toBe(true)
+    expect(shouldCompleteTaskForPr(task, { state: 'merged', updatedAt: new Date(200).toISOString() })).toBe(true)
+    expect(shouldCompleteTaskForPr(task, { state: 'open', updatedAt: new Date(200).toISOString() })).toBe(false)
+  })
+
+  it('does not close a task again after it was reopened', () => {
+    // WHY: reopening is a newer explicit decision than the PR's unchanged
+    // closed state. Refreshing or restarting the app must preserve that choice.
+    const reopened = { status: 'todo' as const, updatedAt: 300 }
+    expect(shouldCompleteTaskForPr(reopened, {
+      state: 'closed',
+      updatedAt: new Date(200).toISOString(),
+    })).toBe(false)
   })
 })
 

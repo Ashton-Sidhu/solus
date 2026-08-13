@@ -17,7 +17,10 @@ export class HostEventSubscriber {
       this.listeners.set(type, listeners)
     }
     const dispatch: HostEventDispatch = (event) => {
-      listener(event.payload as HostEventMap[K], event as HostEvent<K>)
+      if (event.type !== type) return
+      // SAFETY: The runtime discriminant check above proves this event matches the subscription's type parameter.
+      const typedEvent = event as HostEvent<K>
+      listener(typedEvent.payload, typedEvent)
     }
     listeners.add(dispatch)
     return () => {
@@ -26,14 +29,14 @@ export class HostEventSubscriber {
     }
   }
 
-  receive(value: unknown): void {
+  receive(value: Parameters<typeof isHostEvent>[0]): void {
     if (!isHostEvent(value)) {
       console.warn('[solus:events] ignored malformed host event', value)
       return
     }
     const listeners = this.listeners.get(value.type)
     if (!listeners) return
-    for (const listener of [...listeners]) {
+    for (const listener of Array.from(listeners)) {
       try {
         listener(value)
       } catch (error) {

@@ -8,7 +8,7 @@ const adapters = new Map<ExternalTicketRef['provider'], TaskSyncAdapter>([
 ])
 
 export function taskSyncAdapter(provider: string): TaskSyncAdapter {
-  const adapter = adapters.get(provider as ExternalTicketRef['provider'])
+  const adapter = provider === 'github' ? adapters.get('github') : undefined
   if (!adapter) throw new Error(`Task sync provider "${provider}" is not supported.`)
   return adapter
 }

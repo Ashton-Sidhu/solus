@@ -75,6 +75,18 @@ const FILE_REFERENCE_RE = /(^|\s)@([^\s]+)/g;
 const SLASH_REFERENCE_RE = /(^|\s)(\/[a-zA-Z-]+)/g;
 const AGENT_IDS = new Set<AgentId>(["claude-code", "codex", "opencode"]);
 
+function isPlanStatus(value: string): value is PlanReference["status"] {
+  return value === "pending" || value === "accepted" || value === "rejected";
+}
+
+function isWorkType(value: string): value is WorkReference["type"] {
+  return value === "doc" || value === "slides" || value === "diagram";
+}
+
+function isAgentId(value: string): value is AgentId {
+  return value === "claude-code" || value === "codex" || value === "opencode";
+}
+
 function basename(path: string): string {
   const stripped = path.replace(/\/+$/, "");
   const index = Math.max(stripped.lastIndexOf("/"), stripped.lastIndexOf("\\"));
@@ -82,11 +94,11 @@ function basename(path: string): string {
 }
 
 function escapeLabel(label: string): string {
-  return label.replace(/[\[\]]/g, "\\$&");
+  return label.replaceAll("[", "\\[").replaceAll("]", "\\]");
 }
 
 function unescapeLabel(label: string): string {
-  return label.replace(/\\([\[\]])/g, "$1");
+  return label.replaceAll("\\[", "[").replaceAll("\\]", "]");
 }
 
 function stringParam(url: URL, name: string): string | null {
@@ -112,7 +124,7 @@ function parseCustomReference(label: string, href: string): ReferenceToken | nul
       !planId ||
       !sessionId ||
       !planToolUseId ||
-      !["pending", "accepted", "rejected"].includes(status)
+      !isPlanStatus(status)
     )
       return null;
     return {
@@ -121,19 +133,19 @@ function parseCustomReference(label: string, href: string): ReferenceToken | nul
       sessionId,
       planToolUseId,
       title,
-      status: status as PlanReference["status"],
+      status,
     };
   }
 
   if (url.protocol === "work:") {
     const workId = stringParam(url, "workId");
     const type = url.searchParams.get("type") ?? "doc";
-    if (!workId || !["doc", "slides", "diagram"].includes(type)) return null;
+    if (!workId || !isWorkType(type)) return null;
     return {
       kind: "work",
       workId,
       title,
-      type: type as WorkReference["type"],
+      type,
     };
   }
 
@@ -149,8 +161,8 @@ function parseCustomReference(label: string, href: string): ReferenceToken | nul
 
   if (url.protocol === "session:") {
     const sessionId = stringParam(url, "sessionId");
-    const provider = url.searchParams.get("provider") as AgentId | null;
-    if (!sessionId || !provider || !AGENT_IDS.has(provider)) return null;
+    const provider = url.searchParams.get("provider");
+    if (!sessionId || !provider || !isAgentId(provider) || !AGENT_IDS.has(provider)) return null;
     return {
       kind: "session",
       sessionId,
@@ -279,11 +291,13 @@ export function parseReferenceTokens(
   return ranges.sort((left, right) => left.from - right.from);
 }
 
-export function extractTrackedReferences(text: string): {
+export interface TrackedReferences {
   planRefs: PlanReference[];
   workRefs: WorkReference[];
   sessionRefs: SessionReference[];
-} {
+}
+
+export function extractTrackedReferences(text: string): TrackedReferences {
   const planRefs: PlanReference[] = [];
   const workRefs: WorkReference[] = [];
   const sessionRefs: SessionReference[] = [];

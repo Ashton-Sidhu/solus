@@ -76,8 +76,8 @@
   // off the same anchors signal so a scroll re-reads it rather than caching a
   // box that the pane may have moved out from under.
   const canvasBox = $derived.by(() => {
-    anchors
-    canvasHeight
+    void anchors
+    void canvasHeight
     const rect = canvasEl?.getBoundingClientRect()
     return { top: rect?.top ?? 0, left: rect?.left ?? 0 }
   })

@@ -1,5 +1,5 @@
 import { createAppContext } from './create-app-context'
-import { MOBILE_QUERY } from './runtime.svelte'
+import { MOBILE_QUERY } from './viewport'
 import { localApi } from '@client-core/local-api'
 import { serverConnections } from '@client-core/server-connections'
 
@@ -21,10 +21,8 @@ export class WindowContext {
   constructor() {
     this.platform = localApi.getPlatform()
     this.viewMode = this.loadViewMode()
-    // Publish the macOS-editor flag once: it drives the titlebar safe-area vars
-    // (see --solus-traffic-light-inset in index.css) so all chrome reserves the
-    // window-control region from one place. Each Electron window is mode-locked,
-    // so this never has to change for the window's lifetime.
+    // The editor overlays native traffic lights on renderer content. Publish
+    // one document flag so its shared chrome geometry switches on together.
     if (this.isMac && this.viewMode === 'editor') {
       document.documentElement.classList.add('is-mac-editor')
     }

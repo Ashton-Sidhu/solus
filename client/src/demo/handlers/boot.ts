@@ -1,4 +1,5 @@
 import type {
+  AgentTaskLifecyclePolicy,
   HostCapabilities,
   RuntimeSessionInfo,
   ServerCapabilities,
@@ -9,6 +10,7 @@ import type { DemoStore } from '../store'
 
 export function registerBootHandlers(backend: DemoBackend, store: DemoStore): void {
   let sessionCounter = 0
+  let agentTaskLifecyclePolicy: AgentTaskLifecyclePolicy = 'moderate'
   backend.register('start', () => store.startInfo())
   backend.register('serverGetCapabilities', (): HostCapabilities => ({
     attachUpload: true,
@@ -33,7 +35,15 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     agentAuth: { claude: true, codex: true },
     gitAuth: { github: false },
     serverName: 'Solus Demo',
+    agentTaskLifecyclePolicy,
   }))
+  backend.register('setAgentTaskLifecyclePolicy', (args) => {
+    const [policy] = args
+    if (policy === 'none' || policy === 'moderate' || policy === 'autonomous') {
+      agentTaskLifecyclePolicy = policy
+    }
+    return { agentTaskLifecyclePolicy }
+  })
   backend.register('voiceModelStatus', (): VoiceModelStatus => ({
     state: 'error',
     error: 'Voice input is unavailable in demo mode.',

@@ -46,4 +46,34 @@
     min-width: 0;
     overflow-wrap: break-word;
   }
+
+  :global(.toaster [data-sonner-toast][data-styled="true"] [data-title]) {
+    text-wrap: balance;
+  }
+
+  :global(.toaster [data-sonner-toast][data-styled="true"] [data-description]) {
+    text-wrap: pretty;
+  }
+
+  /* Sonner starts swipe handling when pointerdown targets the close SVG rather
+     than its button. Keep the button as the event target, and extend its small
+     stock control outward so it has a reliable 40px hit area without covering
+     toast content. */
+  :global(.toaster [data-sonner-toast][data-styled="true"] [data-close-button] > svg) {
+    pointer-events: none;
+  }
+
+  :global(.toaster [data-sonner-toast][data-styled="true"] [data-close-button]::before) {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 40px;
+    height: 40px;
+    content: "";
+  }
+
+  :global(.toaster[dir="rtl"] [data-sonner-toast][data-styled="true"] [data-close-button]::before) {
+    right: auto;
+    left: 0;
+  }
 </style>

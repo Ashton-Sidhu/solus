@@ -15,7 +15,7 @@ export function useKeybinding(
   opts: RegisterOptions = {},
 ): void {
   const ctx = getKeybindingsContext()
-  const getId = typeof id === 'function' ? id : () => id
+  const getId = id instanceof Function ? id : () => id
   $effect(() => {
     return ctx.register(getId(), handler, opts)
   })
@@ -38,7 +38,7 @@ export function useScope(
   opts: { exclusive?: boolean; active?: () => boolean; pre?: boolean } = {},
 ): void {
   const ctx = getKeybindingsContext()
-  const getScope = typeof scope === 'function' ? scope : () => scope
+  const getScope = scope instanceof Function ? scope : () => scope
   const register = () => {
     if (opts.active && !opts.active()) return
     return ctx.pushScope(getScope(), opts.exclusive)

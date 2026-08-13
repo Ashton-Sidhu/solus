@@ -15,6 +15,7 @@
   import OuterScrollbar from "./OuterScrollbar.svelte";
   import SolusTips from "./SolusTips.svelte";
   import SessionPicker from "../session/SessionPicker.svelte";
+  import TaskPicker from "../session/TaskPicker.svelte";
   import Pane from "../ui/Pane.svelte";
   import ConversationView from "../conversation/ConversationView.svelte";
   import { SvelteSet } from "svelte/reactivity";
@@ -192,9 +193,6 @@
       leadingRef?.name === "prReview",
   );
   const maximizedPaneId = $derived(geometry.maximizedPaneId);
-  const sidebarOpenForChrome = $derived(
-    sidebarOpen || secondaryCollapsesSidebar,
-  );
 
   // The tab strip, the composer and the project rail are one set of chrome: all
   // three belong to a conversation in the primary slot. Any non-conversation
@@ -280,17 +278,16 @@
   // Scale the sidebar with the viewport instead of two coarse breakpoints:
   // narrower on laptops (more room for the conversation), wider on large
   // displays so it doesn't look anemic beside a wide thread. ~19% of the
-  // viewport, bounded to a usable band. The project rail scales the same way,
-  // but against its conversation view — see project-panel/lib/rail-width.
-  // Measured, not sampled once at mount: the app window is what the sidebar
-  // shares, and it changes when the window is resized or moved to another
-  // display.
-  const defaultSidebarWidth = $derived(
-    defaultWorkspaceRailWidth(
-      workspaceBodyWidth ||
-        (typeof window !== "undefined" ? window.innerWidth : 1440),
-    ),
+  // viewport, bounded to a usable band. The project rail takes the same measure
+  // from the same width, so the two rails match — see
+  // project-panel/lib/rail-width. Measured, not sampled once at mount: the app
+  // window is what the sidebar shares, and it changes when the window is resized
+  // or moved to another display.
+  const workspaceWidth = $derived(
+    workspaceBodyWidth ||
+      window.innerWidth,
   );
+  const defaultSidebarWidth = $derived(defaultWorkspaceRailWidth(workspaceWidth));
 
   let sidebarOpen = $state(true);
   let sidebarClosedForOverlay = $state(false);
@@ -316,6 +313,9 @@
   }
 
   function toggleSidebar() {
+    // Once the user makes an explicit choice, closing the surface that caused
+    // the automatic collapse must not override it.
+    sidebarClosedForOverlay = false;
     if (!sidebarOpen) {
       openSidebar();
     } else {
@@ -359,7 +359,7 @@
   // Full-page views never host a split chat, so this only ever means the lead.
   frameChrome.toggleProjectPanelFromFrame = () => toggleProjectPanel();
   $effect(() => {
-    frameChrome.sidebarOpen = active ? sidebarOpenForChrome : true;
+    frameChrome.sidebarOpen = active ? sidebarOpen : true;
     frameChrome.projectPanelOpen = active ? isPrimaryProjectPanelOpen : true;
   });
 
@@ -556,24 +556,29 @@
       ),
   );
 
-  // Collapse the session sidebar while a full-width overlay is up — a secondary
+  // Collapse the session sidebar when a full-width surface opens — a secondary
   // pane, review guide, or Settings — and restore it on close, the same way the
-  // diff panel reclaims the width. The Workspace is not one of them: it dropped
+  // diff panel reclaims the width. Track only the surface transition: the user
+  // can reopen the sidebar while that surface remains open without this effect
+  // immediately closing it again. The Workspace is not one of them: it dropped
   // its own left rail, so it no longer competes for the sidebar's width.
   $effect(() => {
-    if (
+    const sidebarOverlayOpen =
       secondaryCollapsesSidebar ||
       primaryReviewOpen ||
-      router.at("settings")
-    ) {
-      if (sidebarOpen) {
-        sidebarClosedForOverlay = true;
-        closeSidebar();
+      router.at("settings");
+
+    untrack(() => {
+      if (sidebarOverlayOpen) {
+        if (sidebarOpen) {
+          sidebarClosedForOverlay = true;
+          closeSidebar();
+        }
+      } else if (sidebarClosedForOverlay) {
+        sidebarClosedForOverlay = false;
+        openSidebar();
       }
-    } else if (sidebarClosedForOverlay) {
-      sidebarClosedForOverlay = false;
-      openSidebar();
-    }
+    });
   });
 
   // PaneForge owns the geometry while Solus owns whether the sidebar is
@@ -693,11 +698,16 @@
                           session.sessionPickerOpen = false;
                         }}
                       />
+                      <TaskPicker
+                        open={active && session.taskPickerOpen}
+                        onClose={() => {
+                          session.taskPickerOpen = false;
+                        }}
+                      />
 
                       <div
                         class="primary-column relative flex h-full flex-1 flex-col min-w-0"
                         class:justify-center={centerHome}
-                        class:home-measure={centerHome}
                       >
                         {#if showLeadingBand}
                           <SessionBreadcrumb
@@ -728,7 +738,7 @@
                  re-mounted. That is what `keepAlive` declares in the registry:
                  the pool owns a chat's lifecycle, not the route. -->
                         <div
-                          class="conversation-pool flex flex-col min-h-0 no-drag"
+                          class="conversation-pool flex flex-col min-h-0"
                           class:flex-1={!centerHome}
                           class:mode-hidden={!poolInLead}
                           onfocusin={() => router.focusPane(leadingPane.id)}
@@ -792,6 +802,7 @@
                     sourceId={leadingDraft?.id ?? session.activeTabId}
                     {active}
                     containerWidth={projectRailContainerWidth}
+                    {workspaceWidth}
                     minimized={secondaryVisible ||
                       (!leadingStarted && !newTabProjectPanelPoppedOut)}
                     onCollapse={() => toggleProjectPanel()}
@@ -966,12 +977,6 @@
      project-panel rules above (equal specificity). */
   .workspace-body.page-flush .content-column {
     padding: 0;
-  }
-  /* On the home the composer is a card floating under a headline, not the floor
-     of a transcript — so it takes a prompt's measure rather than the reading
-     column's. The card already sizes itself off this var. */
-  .primary-column.home-measure {
-    --solus-reading-max: clamp(40rem, 50%, 52rem);
   }
   .conversation-card {
     background: var(--solus-container-bg);

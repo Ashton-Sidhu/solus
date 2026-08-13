@@ -45,7 +45,7 @@
     aria-label="Loading document"
   >
     <!-- Where you are stays real type; only the verbs on the right are ghosts. -->
-    <header class="flex h-[2.875rem] shrink-0 items-center gap-2.5 pl-[1.375rem]">
+    <header class="workspace-titlebar flex h-[2.875rem] shrink-0 items-center gap-2.5 pl-[1.375rem]">
       {#if breadcrumb}
         <span class="doc-skeleton-breadcrumb">{breadcrumb} /</span>
       {/if}

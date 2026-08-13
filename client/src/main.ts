@@ -15,8 +15,17 @@ import { webPushState } from './lib/web-push.svelte'
 import { toasts } from '@renderer/lib/toasts'
 import { startScrollReveal } from '@renderer/lib/scroll-reveal'
 import WebToaster from './components/WebToaster.svelte'
-import type { LocalApi } from '@client-core/host-api'
 import { routeForPushClick, serverIdForInstallation, type PushClickPayload } from './lib/push-click'
+import { installWindowSolusApi } from '@client-core/native-api-overlay'
+import { z } from 'zod'
+
+const serviceWorkerMessageSchema = z.object({
+  type: z.string().optional(),
+  route: z.string().nullable().optional(),
+  sessionId: z.string().nullable().optional(),
+  installationId: z.string().nullable().optional(),
+  entryKey: z.string().nullable().optional(),
+})
 
 window.addEventListener('unhandledrejection', (event) => {
   if (event.reason instanceof TransportDisconnectedError) event.preventDefault()
@@ -66,8 +75,8 @@ mount(WebToaster, { target: root })
 subscribe(({ status, attempt }) => webState.setConnectionStatus(status, attempt))
 
 let activeTransport: WsTransport | null = null
-let connectFlowApp: Record<string, any> | null = null
-let solusApp: Record<string, any> | null = null
+let connectFlowApp: ReturnType<typeof mount> | null = null
+let solusApp: ReturnType<typeof mount> | null = null
 let serviceWorkerBridgeInstalled = false
 let connectionGeneration = 0
 let workspaceAppImport: Promise<typeof import('./App.svelte')> | null = null
@@ -87,7 +96,9 @@ function installServiceWorkerMessageBridge(): void {
   if (serviceWorkerBridgeInstalled || !('serviceWorker' in navigator)) return
   serviceWorkerBridgeInstalled = true
   navigator.serviceWorker.addEventListener('message', (event) => {
-    const data = event.data as (PushClickPayload & { type?: string }) | undefined
+    const parsed = serviceWorkerMessageSchema.safeParse(event.data)
+    if (!parsed.success) return
+    const data = parsed.data
     if (data?.type === 'solus:push-received') {
       const serverId = serverIdForInstallation(data.installationId, loadServers())
       if (serverId && data.entryKey) {
@@ -167,7 +178,7 @@ async function connectToServer(server: SavedServer): Promise<void> {
     },
   })
 
-  window.solus = api as unknown as LocalApi
+  installWindowSolusApi(api)
   serverConnections.registerPrimary(server.id, api, transport, target)
   activeTransport = transport
   webPushState.init()
@@ -206,7 +217,7 @@ async function connectToServer(server: SavedServer): Promise<void> {
 async function bootWithoutServer(): Promise<void> {
   const generation = ++connectionGeneration
   toasts.dismiss()
-  window.solus = createNoHostSolusApi() as unknown as LocalApi
+  installWindowSolusApi(createNoHostSolusApi())
   webState.setConnectedServer(null)
   setConnectionState({ status: 'disconnected', attempt: 0 })
   leaveConnectScreen()

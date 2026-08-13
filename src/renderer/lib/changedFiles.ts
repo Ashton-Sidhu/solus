@@ -1,7 +1,8 @@
 import type { Message } from "../../shared/types";
+import { z } from "zod";
 
-export function isGitCommand(command: unknown): boolean {
-  if (typeof command !== "string" || !command.trim()) return false;
+export function isGitCommand(command: string | undefined): boolean {
+  if (!command?.trim()) return false;
   const trimmed = command.trim();
   const shellWrapped = trimmed.match(/^(?:\/\S+\/)?(?:sh|bash|zsh)\s+(?:-[A-Za-z]*\s+)*-[A-Za-z]*c[A-Za-z]*\s+(?:'([^']*)'|"([^"]*)"|(.+))$/);
   if (shellWrapped) {
@@ -11,36 +12,40 @@ export function isGitCommand(command: unknown): boolean {
   return /(?:^|[;&|]\s*|&&\s*|\|\|\s*)(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:\S+\/)?git(?:\s|$)/.test(trimmed);
 }
 
-function addStringPath(paths: Set<string>, value: unknown, projectPath?: string): void {
-  if (typeof value !== "string" || !value.trim()) return;
+function addStringPath(paths: Set<string>, value: string | undefined, projectPath?: string): void {
+  if (!value?.trim()) return;
   let path = value.trim();
   const prefix = projectPath ? projectPath.replace(/\/$/, "") + "/" : "";
   if (prefix && path.startsWith(prefix)) path = path.slice(prefix.length);
   paths.add(path);
 }
 
-function addPathsFromChange(paths: Set<string>, change: unknown, projectPath?: string): void {
-  if (!change || typeof change !== "object") return;
-  const record = change as { path?: unknown; filePath?: unknown; file_path?: unknown; filename?: unknown; file?: unknown };
-  addStringPath(paths, record.path, projectPath);
-  addStringPath(paths, record.filePath, projectPath);
-  addStringPath(paths, record.file_path, projectPath);
-  addStringPath(paths, record.filename, projectPath);
-  addStringPath(paths, record.file, projectPath);
+const changedPathSchema = z.object({
+  path: z.string().optional(),
+  filePath: z.string().optional(),
+  file_path: z.string().optional(),
+  filename: z.string().optional(),
+  file: z.string().optional(),
+});
+
+const changedFileToolInputSchema = changedPathSchema.extend({
+  changes: z.array(changedPathSchema).optional(),
+});
+
+type ChangedPath = z.infer<typeof changedPathSchema>;
+type ChangedFileToolInput = z.infer<typeof changedFileToolInputSchema>;
+
+function addPathsFromChange(paths: Set<string>, change: ChangedPath, projectPath?: string): void {
+  addStringPath(paths, change.path, projectPath);
+  addStringPath(paths, change.filePath, projectPath);
+  addStringPath(paths, change.file_path, projectPath);
+  addStringPath(paths, change.filename, projectPath);
+  addStringPath(paths, change.file, projectPath);
 }
 
-function addPathsFromParsed(paths: Set<string>, parsed: unknown, projectPath?: string): void {
-  if (!parsed || typeof parsed !== "object") return;
-  const record = parsed as { file_path?: unknown; filePath?: unknown; path?: unknown; filename?: unknown; file?: unknown; changes?: unknown };
-  addStringPath(paths, record.file_path, projectPath);
-  addStringPath(paths, record.filePath, projectPath);
-  addStringPath(paths, record.path, projectPath);
-  addStringPath(paths, record.filename, projectPath);
-  addStringPath(paths, record.file, projectPath);
-
-  if (Array.isArray(record.changes)) {
-    for (const change of record.changes) addPathsFromChange(paths, change, projectPath);
-  }
+function addPathsFromParsed(paths: Set<string>, parsed: ChangedFileToolInput, projectPath?: string): void {
+  addPathsFromChange(paths, parsed, projectPath);
+  for (const change of parsed.changes ?? []) addPathsFromChange(paths, change, projectPath);
 }
 
 function addPathsFromText(paths: Set<string>, input: string, projectPath?: string): void {
@@ -72,7 +77,9 @@ function collectMessagePaths(paths: Set<string>, m: Message, projectPath?: strin
 
   if (m.toolInput) {
     try {
-      addPathsFromParsed(paths, JSON.parse(m.toolInput), projectPath);
+      const parsed = changedFileToolInputSchema.safeParse(JSON.parse(m.toolInput));
+      if (parsed.success) addPathsFromParsed(paths, parsed.data, projectPath);
+      else addPathsFromText(paths, m.toolInput, projectPath);
     } catch {
       addPathsFromText(paths, m.toolInput, projectPath);
     }

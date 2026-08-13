@@ -14,9 +14,8 @@ import type { AppGlobalShortcuts, AppShortcutCombo } from '../shared/types'
 import { clampZoomFactor } from '../shared/zoom'
 import { comboToAccelerator } from '../renderer/lib/keybindings/match'
 import { initAutoUpdater } from './updater'
-import type { BootedServer } from './server'
 import { bootCore, type BootCore } from './boot-core'
-import { showDesktopNotification } from './desktop-notifications'
+import { clientNotificationRequestSchema, showDesktopNotification } from './desktop-notifications'
 import type { WindowDeps } from './server/handlers/window-handlers'
 import type { FileDeps } from './server/handlers/file-handlers'
 import { mintPairUrl } from './pair-url'
@@ -32,6 +31,7 @@ import { handleArtifactRequest } from './artifact-protocol'
 import { LOCAL_DEVICE_LABEL } from './server/server'
 import { MAX_ATTACHMENT_UPLOAD_BYTES } from '../shared/rpc'
 import { consumeClientAttachmentRead } from './client-attachment-read'
+import { z } from 'zod'
 
 const SPACES_DEBUG = process.env.SOLUS_DEBUG === '1' || process.env.SOLUS_SPACES_DEBUG === '1'
 const isHeadless = process.argv.includes('--headless')
@@ -88,14 +88,13 @@ let designModeCounter = 0
 let pasteCounter = 0
 let toggleSequence = 0
 let currentViewMode: 'pill' | 'editor' = 'editor'
-let booted: BootedServer | null = null
 let core: BootCore | null = null
 // Resolves with the booted core once bootCore finishes; rejects if boot fails.
 // The renderer's first IPC (getLocalConnection) awaits this instead of racing
 // window creation against server boot — the window is now created before boot
 // so its bundle loads in parallel, and the connection resolves when ready.
 let resolveBoot!: (core: BootCore) => void
-let rejectBoot!: (err: unknown) => void
+let rejectBoot!: (error: Error) => void
 const bootPromise = new Promise<BootCore>((resolve, reject) => {
   resolveBoot = resolve
   rejectBoot = reject
@@ -142,17 +141,25 @@ function appShortcutsPath(): string {
   return join(app.getPath('userData'), 'app-shortcuts.json')
 }
 
-function isCombo(v: unknown): v is AppShortcutCombo {
-  return !!v && typeof v === 'object' && typeof (v as AppShortcutCombo).code === 'string'
-}
+const appShortcutComboSchema = z.object({
+  code: z.string(),
+  alt: z.boolean().optional(),
+  mod: z.boolean().optional(),
+  shift: z.boolean().optional(),
+  ctrl: z.boolean().optional(),
+  meta: z.boolean().optional(),
+})
+
+const appGlobalShortcutsSchema = z.object({
+  primary: appShortcutComboSchema,
+  secondary: appShortcutComboSchema,
+})
 
 function loadAppShortcuts(): AppGlobalShortcuts {
   try {
     const raw = readFileSync(appShortcutsPath(), 'utf-8')
-    const parsed = JSON.parse(raw)
-    if (isCombo(parsed?.primary) && isCombo(parsed?.secondary)) {
-      return { primary: parsed.primary, secondary: parsed.secondary }
-    }
+    const parsed = appGlobalShortcutsSchema.safeParse(JSON.parse(raw))
+    if (parsed.success) return parsed.data
   } catch {}
   return DEFAULT_APP_SHORTCUTS
 }
@@ -174,7 +181,11 @@ function saveAppShortcuts(shortcuts: AppGlobalShortcuts): void {
  * assistant summon), secondary always toggles the editor. Deterministic —
  * what a key does never depends on which window the user last touched.
  */
-function applyAppGlobalShortcuts(shortcuts: AppGlobalShortcuts): { failed: string[] } {
+interface AppliedAppGlobalShortcuts {
+  failed: string[]
+}
+
+function applyAppGlobalShortcuts(shortcuts: AppGlobalShortcuts): AppliedAppGlobalShortcuts {
   const prevAccels = [
     comboToAccelerator(currentAppShortcuts.primary),
     comboToAccelerator(currentAppShortcuts.secondary),
@@ -358,9 +369,8 @@ function loadRenderer(win: BrowserWindow, mode: 'pill' | 'editor'): void {
 function createPillWindow(options: { showWhenReady?: boolean; source?: string } = {}): BrowserWindow {
   const bounds = workAreaBoundsForCursor()
 
-  mainWindow = new BrowserWindow({
+  const windowOptions: Electron.BrowserWindowConstructorOptions = {
     ...bounds,
-    ...(process.platform === 'darwin' ? { type: 'panel' as const } : {}),  // NSPanel — non-activating, joins all spaces
     frame: false,
     transparent: true,
     resizable: false,
@@ -377,7 +387,10 @@ function createPillWindow(options: { showWhenReady?: boolean; source?: string } 
       contextIsolation: true,
       nodeIntegration: false,
     },
-  })
+  }
+  // NSPanel — non-activating, joins all spaces.
+  if (process.platform === 'darwin') windowOptions.type = 'panel'
+  mainWindow = new BrowserWindow(windowOptions)
 
   if (!isTestMode) {
     mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
@@ -449,17 +462,10 @@ function editorDefaultBounds(): Electron.Rectangle {
  *  hides it — the window (and its bounds) live for the rest of the app run,
  *  so reopening is instant; a fresh launch starts at the default bounds. */
 function createEditorWindow(): BrowserWindow {
-  editorWindow = new BrowserWindow({
+  const windowOptions: Electron.BrowserWindowConstructorOptions = {
     ...editorDefaultBounds(),
     minWidth: 640,
     minHeight: 480,
-    // Frameless look with real traffic lights on macOS; standard frame elsewhere.
-    ...(process.platform === 'darwin'
-      ? {
-          titleBarStyle: 'hiddenInset' as const,
-          trafficLightPosition: { x: 16, y: 18 },
-        }
-      : {}),
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#18181b' : '#fafafa',
     show: false,
     icon: join(__dirname, '../../resources/icon.icns'),
@@ -468,7 +474,13 @@ function createEditorWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
     },
-  })
+  }
+  // Edge-to-edge content with native traffic lights on macOS.
+  if (process.platform === 'darwin') {
+    windowOptions.titleBarStyle = 'hiddenInset'
+    windowOptions.trafficLightPosition = { x: 16, y: 18 }
+  }
+  editorWindow = new BrowserWindow(windowOptions)
 
   editorWindow.on('close', (e) => {
     if (!forceQuit) {
@@ -676,7 +688,7 @@ function expandDesignModeWindow(bounds: Electron.Rectangle): void {
   designModeWindow.setBounds(bounds, false)
 }
 
-function designModeCaptureRegion(): { x: number; y: number; width: number; height: number } {
+function designModeCaptureRegion(): Electron.Rectangle {
   const win = activeWindow()
   if (!isLive(win)) return { x: 0, y: 0, width: 0, height: 0 }
   const windowBounds = win.getBounds()
@@ -765,9 +777,7 @@ function attachContextMenu(win: BrowserWindow): void {
 
 // ─── Native-only IPC handlers (don't go through SolusServer) ───
 
-interface PersistedLocalSessionToken {
-  token?: string
-}
+const persistedLocalSessionTokenSchema = z.object({ token: z.string() })
 
 function localSessionTokenFile(): string {
   return join(app.getPath('userData'), 'local-session-token.json')
@@ -777,8 +787,8 @@ function readPersistedLocalSessionToken(): string | null {
   try {
     const file = localSessionTokenFile()
     if (!existsSync(file)) return null
-    const parsed = JSON.parse(readFileSync(file, 'utf8')) as PersistedLocalSessionToken
-    return typeof parsed.token === 'string' ? parsed.token : null
+    const parsed = persistedLocalSessionTokenSchema.safeParse(JSON.parse(readFileSync(file, 'utf8')))
+    return parsed.success ? parsed.data.token : null
   } catch {
     return null
   }
@@ -837,10 +847,15 @@ ipcMain.handle(LOCAL_CONNECTION_CHANNEL, async () => {
   }
 })
 
-ipcMain.handle('solus:open-external', async (_event, url: unknown, options?: { hideAppAfterOpen?: boolean }) => {
-  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return false
+const externalUrlSchema = z.string().regex(/^https?:\/\//i)
+const attachmentReadSchema = z.tuple([z.string(), z.string()])
+const viewModeSchema = z.enum(['pill', 'editor'])
+
+ipcMain.handle('solus:open-external', async (_event, input, options?: { hideAppAfterOpen?: boolean }) => {
+  const parsedUrl = externalUrlSchema.safeParse(input)
+  if (!parsedUrl.success) return false
   try {
-    await shell.openExternal(url)
+    await shell.openExternal(parsedUrl.data)
     if (options?.hideAppAfterOpen) hideAppWindow()
     return true
   } catch {
@@ -848,18 +863,20 @@ ipcMain.handle('solus:open-external', async (_event, url: unknown, options?: { h
   }
 })
 
-ipcMain.handle('solus:show-notification', (_event, request: unknown) => {
-  return showDesktopNotification(request, (route) => {
+ipcMain.handle('solus:show-notification', (_event, request) => {
+  const parsed = clientNotificationRequestSchema.safeParse(request)
+  if (!parsed.success) return false
+  return showDesktopNotification(parsed.data, (route) => {
     showCurrentModeWindow('notification click', { fromTrayShow: true })
     broadcastNativeEvent('solus:open-route', route)
   })
 })
 
-ipcMain.handle('solus:read-attachment-bytes', async (_event, path: unknown, mime: unknown) => {
-  if (typeof path !== 'string' || typeof mime !== 'string') {
-    throw new Error('Invalid attachment read request.')
-  }
-  if (!/^[a-z0-9][a-z0-9!#$&^_.+\/-]{0,126}$/i.test(mime)) {
+ipcMain.handle('solus:read-attachment-bytes', async (_event, rawPath, rawMime) => {
+  const request = attachmentReadSchema.safeParse([rawPath, rawMime])
+  if (!request.success) throw new Error('Invalid attachment read request.')
+  const [path, mime] = request.data
+  if (!/^[a-z0-9][a-z0-9!#$&^_.+/-]{0,126}$/i.test(mime)) {
     throw new Error('Invalid attachment MIME type.')
   }
   const allowedPath = consumeClientAttachmentRead(path)
@@ -888,12 +905,15 @@ function scheduleSessionIndexer(): void {
   sessionIndexerStartTimer.unref?.()
 }
 
-ipcMain.on('solus:renderer-mounted', (_event, mode: unknown) => {
-  if (mode !== 'pill' && mode !== 'editor') return
+ipcMain.on('solus:renderer-mounted', (_event, rawMode) => {
+  if (!viewModeSchema.safeParse(rawMode).success) return
   scheduleSessionIndexer()
 })
 
-ipcMain.on('solus:renderer-ready', (event, mode: unknown) => {
+ipcMain.on('solus:renderer-ready', (event, rawMode) => {
+  const parsedMode = viewModeSchema.safeParse(rawMode)
+  if (!parsedMode.success) return
+  const mode = parsedMode.data
   if (mode === 'editor') {
     if (!isLive(editorWindow) || editorWindow.webContents !== event.sender) return
     if (!isTestMode) {
@@ -912,7 +932,7 @@ ipcMain.on('solus:renderer-ready', (event, mode: unknown) => {
 // OS-level click-through is preload-only — it operates on the Electron window
 // directly and isn't relevant for browser clients.
 ipcMain.on('solus:set-quote-context', (_event, tabId: string | null) => {
-  quoteContextTabId = typeof tabId === 'string' && tabId ? tabId : null
+  quoteContextTabId = tabId || null
 })
 
 ipcMain.on('solus:set-ignore-mouse-events', (event, ignore: boolean, options?: { forward?: boolean; focus?: boolean }) => {
@@ -927,9 +947,10 @@ ipcMain.on('solus:set-ignore-mouse-events', (event, ignore: boolean, options?: {
   }
 })
 
-ipcMain.on('solus:set-zoom-factor', (event, factor: unknown) => {
-  if (typeof factor !== 'number') return
-  event.sender.setZoomFactor(clampZoomFactor(factor))
+ipcMain.on('solus:set-zoom-factor', (event, rawFactor) => {
+  const factor = z.number().safeParse(rawFactor)
+  if (!factor.success) return
+  event.sender.setZoomFactor(clampZoomFactor(factor.data))
 })
 
 function restoreDesignModeWindow(): void {
@@ -1103,7 +1124,6 @@ if (isPairUrl) {
       return
     }
     core = bootedCore
-    booted = bootedCore.booted
     resolveBoot(bootedCore)
     bootedCore.controlPlane.on('active-work-changed', syncPowerSaveBlocker)
     syncPowerSaveBlocker()

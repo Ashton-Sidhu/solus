@@ -6,12 +6,12 @@
   // load, swapping cards for shimmer placeholders. A fixed per-column card plan
   // keeps the silhouette stable across renders (no random reflow); the widths
   // are title lengths as a percentage of the card.
-  const PLAN: Record<string, number[]> = {
+  const PLAN = {
     in_progress: [72, 54, 64],
     in_review: [60, 78],
     todo: [66, 48, 70],
     done: [58],
-  };
+  } satisfies Record<string, number[]>;
 </script>
 
 <div

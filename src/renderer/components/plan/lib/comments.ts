@@ -51,9 +51,9 @@ export function findMarkElement(
   commentId: string,
 ): HTMLElement | null {
   if (!scrollContainer) return null;
-  return scrollContainer.querySelector(
+  return scrollContainer.querySelector<HTMLElement>(
     `mark[data-plan-comment="${commentId}"]`,
-  ) as HTMLElement | null;
+  );
 }
 
 export function addCommentMark(
@@ -129,13 +129,18 @@ export function scrollAndFlashMark(
   flashMark(mark);
 }
 
+export interface HoveredComment {
+  comment: PlanComment
+  anchor: { x: number; y: number }
+}
+
 export function resolveHoveredComment(
   e: MouseEvent,
   comments: PlanComment[],
-): { comment: PlanComment; anchor: { x: number; y: number } } | null {
-  const mark = (e.target as HTMLElement).closest(
-    "mark[data-plan-comment]",
-  ) as HTMLElement | null;
+): HoveredComment | null {
+  if (!(e.target instanceof Element)) return null;
+  const candidate = e.target.closest("mark[data-plan-comment]");
+  const mark = candidate instanceof HTMLElement ? candidate : null;
   if (!mark) return null;
   const commentId = mark.getAttribute("data-plan-comment");
   const comment = comments.find((c) => c.id === commentId);

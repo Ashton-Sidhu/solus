@@ -4,6 +4,7 @@ import { resolveRepoRef } from '../../git/git-helpers'
 import { createLogger } from '../../logger'
 import type { RepoRef } from '../../providers/types'
 import type { Task, TaskCommentData, TaskKind, TaskList, TaskPriority, TaskStatus, TaskUpdatePatch } from '../../../shared/task-types'
+import { z } from 'zod'
 
 const log = createLogger('main', 'github-tasks')
 
@@ -271,11 +272,7 @@ function statusFromOption(name: string): TaskStatus | undefined {
  * first item carrying each field wins (resolved independently per field). Due
  * date prefers a conventionally-named DATE field, falling back to the first one.
  */
-function readProjectFields(items: ProjectItemNode[]): {
-  status?: TaskStatus
-  dueDate?: string
-  priority?: TaskPriority
-} {
+function readProjectFields(items: ProjectItemNode[]): ProjectFieldValues {
   let status: TaskStatus | undefined
   let priority: TaskPriority | undefined
   let namedDue: string | undefined
@@ -308,6 +305,19 @@ interface ProjectFields {
   status?: ResolvedSelectField
   due?: { id: string }
   priority?: ResolvedSelectField
+}
+
+interface ProjectFieldValues {
+  status?: TaskStatus
+  dueDate?: string
+  priority?: TaskPriority
+}
+
+interface IssueUpdateFields {
+  title?: string
+  body?: string
+  labels?: string[]
+  assignees?: string[]
 }
 
 interface ProjectFieldDefNode {
@@ -507,7 +517,7 @@ export class GitHubTaskProvider {
     // Content fields → native issue fields. `labels` replaces the whole set
     // (the UI shows every label, so it edits the full set); `assignees` mirrors
     // our single-assignee model.
-    const fields: { title?: string; body?: string; labels?: string[]; assignees?: string[] } = {}
+    const fields: IssueUpdateFields = {}
     if (patch.title !== undefined) fields.title = patch.title
     if (patch.body !== undefined) fields.body = patch.body
     if (patch.labels !== undefined) fields.labels = patch.labels
@@ -560,7 +570,8 @@ export class GitHubTaskProvider {
       await rest.issues.update({ ...base, state: 'open' })
       // Removing a label that isn't applied 404s — that's a no-op for us.
       await rest.issues.removeLabel({ ...base, name: IN_PROGRESS_LABEL }).catch((err) => {
-        if ((err as { status?: number }).status !== 404) throw err
+        const parsed = z.object({ status: z.number().optional() }).safeParse(err)
+        if (!parsed.success || parsed.data.status !== 404) throw err
       })
     }
   }
@@ -614,12 +625,14 @@ export class GitHubTaskProvider {
     items: ProjectItemRef[],
     status: TaskStatus,
   ): Promise<void> {
-    const fallback: Partial<Record<TaskStatus, TaskStatus>> = {
-      in_review: 'in_progress',
-      dropped: 'done',
-      inbox: 'todo',
-    }
-    const candidates = [status, fallback[status]].filter(Boolean) as TaskStatus[]
+    const fallback = new Map<TaskStatus, TaskStatus>([
+      ['in_review', 'in_progress'],
+      ['dropped', 'done'],
+      ['inbox', 'todo'],
+    ])
+    const candidates: TaskStatus[] = [status]
+    const fallbackStatus = fallback.get(status)
+    if (fallbackStatus) candidates.push(fallbackStatus)
     for (const item of items) {
       const fields = await this.resolveProjectFields(graphql, item.project.id)
       if (!fields.status) continue

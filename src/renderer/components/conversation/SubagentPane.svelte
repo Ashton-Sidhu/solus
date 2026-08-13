@@ -119,7 +119,7 @@
        expand/close floating on the other. Both insets are published by the pane
        column, so the two clusters sit on one optical line. -->
   <div
-    class="flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
+    class="workspace-titlebar flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <h2
       class="m-0 text-sm leading-tight font-medium "

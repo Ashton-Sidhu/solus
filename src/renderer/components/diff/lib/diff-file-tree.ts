@@ -43,6 +43,11 @@ interface MountDiffFileTreeOptions {
   onSelect: (path: string) => void;
 }
 
+export interface MountedDiffFileTree {
+  tree: FileTree
+  destroy: () => void
+}
+
 export function mountDiffFileTree({
   node,
   paths,
@@ -50,7 +55,7 @@ export function mountDiffFileTree({
   files,
   comments,
   onSelect,
-}: MountDiffFileTreeOptions): { tree: FileTree; destroy: () => void } {
+}: MountDiffFileTreeOptions): MountedDiffFileTree {
   const tree = new FileTree({
     paths,
     flattenEmptyDirectories: true,

@@ -1,4 +1,4 @@
-import type { Session, Tab, Prompt, ModelConfig, RunConfig } from '../../../shared/types'
+import type { Session, Tab, Prompt, RunConfig } from '../../../shared/types'
 import { uuid } from '../../../shared/uuid'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import { LOCAL_SERVER_ID } from '../../../client-core/server-registry'
@@ -12,7 +12,7 @@ export function makeRunConfig(overrides?: Partial<RunConfig>): RunConfig {
     workingDirectory: '~',
     gitContext: null,
     worktree: null,
-    modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false } as ModelConfig,
+    modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
     permissionMode: 'auto',
     provider: null,
     serverId: LOCAL_SERVER_ID,

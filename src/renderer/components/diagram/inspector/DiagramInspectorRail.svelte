@@ -25,14 +25,14 @@
 
   let { kindWord, label, tint, tabs, tab, hasUnreadThreads, onExpand, tile }: Props = $props()
 
-  const TAB_LABELS: Record<string, string> = {
+  const TAB_LABELS = {
     identity: 'Identity',
     style: 'Style',
     data: 'Data',
     links: 'Links',
     route: 'Route',
     comments: 'Comments',
-  }
+  } satisfies Record<string, string>
 
   function handleRailKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' || e.key === ' ') {

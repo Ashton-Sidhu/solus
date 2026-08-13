@@ -5,7 +5,7 @@ import {
   type SidebarSessionChild,
 } from '../../src/renderer/contexts/workspace/session-sidebar.store.svelte'
 
-type SidebarStoreHarness = Pick<SessionSidebarStore, 'closeTask' | 'closeChild' | 'closeProject' | 'runningTaskCountIn' | 'renameTask'> & {
+type SidebarStoreHarness = Pick<SessionSidebarStore, 'closeTask' | 'closeChild' | 'closeProject' | 'runningTaskCountIn' | 'renameTask' | 'restoreTask'> & {
   doneTaskIds: Set<string>
   dismissedRowKeys: Set<string>
   closedTabIds: string[]
@@ -87,6 +87,35 @@ describe('session sidebar dismissal', () => {
 
     expect(store.closedTabIds).toEqual(['root-tab', 'child-tab'])
     expect([...(store.dismissedRowKeys as Set<string>)]).toEqual(['root'])
+  })
+
+  test('restoring a task restores its full linked session tree', () => {
+    // WHY: selecting a task in the picker promises to put every prior attempt
+    // back under the expanded task, not only the draft it opens now.
+    const store = sidebarStoreForDismissal()
+    store.dismissedRowKeys = new Set([
+      'root',
+      'session:root-session',
+      'task:child',
+      'unrelated',
+    ])
+    store.session = {
+      tasksStore: {
+        taskForId: (taskId: string) => ({
+          root: { id: 'root' },
+          child: { id: 'child', parentId: 'root' },
+        })[taskId] ?? null,
+        byParent: new Map([['root', [{ id: 'child', parentId: 'root', createdAt: 2 }]]]),
+        sessionsByTask: new Map([
+          ['root', [{ sessionId: 'root-session' }]],
+          ['child', [{ sessionId: 'child-session' }]],
+        ]),
+      },
+    }
+
+    store.restoreTask('root')
+
+    expect([...(store.dismissedRowKeys as Set<string>)]).toEqual(['unrelated'])
   })
 })
 

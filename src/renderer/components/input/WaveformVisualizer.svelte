@@ -73,7 +73,8 @@
           const p = x / w
           const envelope = Math.sin(p * Math.PI)
           const y = h / 2 + Math.sin(p * Math.PI * layer.freq + t * layer.speed) * amplitude * envelope
-          x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
+          if (x === 0) ctx.moveTo(x, y)
+          else ctx.lineTo(x, y)
         }
         ctx.stroke()
       }

@@ -28,8 +28,10 @@
     /** The attempt the rail is describing, which leads the Sessions group and
      *  carries a resting wash so it reads as the one you are in. */
     currentSessionId?: string | null;
+    /** False while this mounted tab's project rail is not on screen. */
+    active?: boolean;
   }
-  let { task, projectCwd, currentSessionId = null }: Props = $props();
+  let { task, projectCwd, currentSessionId = null, active = true }: Props = $props();
 
   const session = getWorkspaceContext();
   const store = session.tasksStore;
@@ -99,9 +101,16 @@
   let loadedTaskId: string | null = null;
   $effect(() => {
     const id = task.id;
-    if (id === loadedTaskId) return;
-    loadedTaskId = id;
-    void store.loadDetails(id, projectCwd).catch(() => {});
+    if (!active) {
+      loadedTaskId = null;
+      return;
+    }
+    const stopWatching = store.watchDetails(id);
+    if (id !== loadedTaskId) {
+      loadedTaskId = id;
+      void store.loadDetails(id, projectCwd).catch(() => {});
+    }
+    return stopWatching;
   });
 
   /** Focus the session's tab when it's already open, otherwise resume it from
@@ -176,9 +185,9 @@
     void session
       .openTaskSession(task)
       .catch((err) =>
-        toasts.error(
-          `Couldn't start a session: ${err instanceof Error ? err.message : String(err)}`,
-        ),
+        toasts.error("Couldn't start a session", {
+          description: err instanceof Error ? err.message : String(err),
+        }),
       );
   }
 </script>
@@ -200,7 +209,7 @@
            and hands its slot to the actions on hover, so the row keeps one
            value column and never changes height. -->
       <div
-        class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-[0.8125rem] text-(--solus-text-secondary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {row.current
+        class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-xs text-(--solus-text-secondary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {row.current
  ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
  : ''} {row.dimmed ? 'opacity-[.62] hover:opacity-100' : ''}"
         role="button"
@@ -235,7 +244,7 @@
              action, which trades places with it on hover so the row keeps a
              single value column and never changes width. -->
         <span
-          class="shrink-0 truncate text-xs text-(--solus-text-tertiary) group-hover:hidden {row.valueMono
+          class="shrink-0 truncate text-menu-meta text-(--solus-text-tertiary) group-hover:hidden {row.valueMono
  ? 'tabular-nums'
  : ''}"
         >
@@ -266,7 +275,7 @@
 
     <button
       type="button"
-      class="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-[0.8125rem] text-(--solus-text-secondary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
+      class="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-xs text-(--solus-text-secondary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
       onclick={newSession}
     >
       <PlusIcon size={13} class="shrink-0" />
@@ -285,11 +294,11 @@
     ></div>
     <div class="flex items-center gap-2 px-2">
       <span
-        class="text-xs font-medium text-(--solus-text-tertiary) uppercase"
+        class="text-menu-meta font-medium text-(--solus-text-tertiary) uppercase"
       >
         Linked
       </span>
-      <span class="text-xs tabular-nums text-(--solus-text-tertiary) opacity-70">
+      <span class="text-menu-meta tabular-nums text-(--solus-text-tertiary) opacity-70">
         {linkList.total}
       </span>
     </div>
@@ -299,7 +308,7 @@
         {@const KindIcon = row.icon}
         <button
           type="button"
-          class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-[0.8125rem] text-(--solus-text-secondary) transition-[background-color,color,opacity] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {row.dimmed
+          class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-xs text-(--solus-text-secondary) transition-[background-color,color,opacity] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {row.dimmed
  ? 'opacity-[.62] hover:opacity-100'
  : ''}"
           title="{row.kindLabel} · {row.label}"
@@ -316,7 +325,7 @@
           </span>
           {#if row.ref}
             <span
-              class="shrink-0 font-mono text-xs text-(--solus-text-tertiary)"
+              class="shrink-0 font-mono text-menu-meta text-(--solus-text-tertiary)"
             >
               {row.ref}
             </span>
@@ -324,7 +333,7 @@
           <span class="min-w-0 flex-1 truncate text-left">{row.label}</span>
           {#if row.value}
             <span
-              class="shrink-0 text-xs text-(--solus-text-tertiary) {row.valueMono
+              class="shrink-0 text-menu-meta text-(--solus-text-tertiary) {row.valueMono
  ? 'tabular-nums'
  : ''}"
             >
@@ -337,7 +346,7 @@
       {#if linkList.moreLabel}
         <button
           type="button"
-          class="flex w-full cursor-pointer items-center gap-1 rounded-[0.4375rem] px-2 py-1.5 text-xs text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
+          class="flex w-full cursor-pointer items-center gap-1 rounded-[0.4375rem] px-2 py-1.5 text-menu-meta text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
           onclick={() => (expanded = true)}
         >
           <span class="flex-1 text-left">{linkList.moreLabel}</span>

@@ -15,9 +15,11 @@ export type TaskSnoozeAnchor = HTMLElement | { x: number; y: number }
  * has gone. So keep tracking the button while it can be seen, and hold its last
  * known position once it cannot.
  */
+export interface TaskSnoozeAnchorTarget { getBoundingClientRect: () => DOMRect }
+
 export function taskSnoozeAnchorTarget(
   anchor: TaskSnoozeAnchor,
-): { getBoundingClientRect: () => DOMRect } {
+): TaskSnoozeAnchorTarget {
   if (!(anchor instanceof HTMLElement)) {
     const { x, y } = anchor
     return { getBoundingClientRect: () => new DOMRect(x, y, 0, 0) }

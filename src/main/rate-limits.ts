@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 import type { NormalizedEvent, RateLimitInfo } from '../shared/types'
 
 type RateLimitEvent = Extract<NormalizedEvent, { type: 'rate_limit' }>
@@ -11,19 +13,30 @@ export function normalizeResetNumber(value: number): number | null {
   return Math.ceil(nowSeconds + value)
 }
 
-export function findResetTimestamp(value: unknown): number | null {
-  if (value == null) return null
+const resetDetailsSchema = z.object({
+  resetsAt: z.union([z.number(), z.string()]).nullish(),
+  resetAt: z.union([z.number(), z.string()]).nullish(),
+  reset_at: z.union([z.number(), z.string()]).nullish(),
+  retryAfter: z.union([z.number(), z.string()]).nullish(),
+  retry_after: z.union([z.number(), z.string()]).nullish(),
+  retryAfterSeconds: z.union([z.number(), z.string()]).nullish(),
+  secondsUntilReset: z.union([z.number(), z.string()]).nullish(),
+  resetInSeconds: z.union([z.number(), z.string()]).nullish(),
+})
 
-  if (typeof value === 'number') return normalizeResetNumber(value)
+export function findResetTimestamp<Input>(value: Input): number | null {
+  const numberResult = z.number().safeParse(value)
+  if (numberResult.success) return normalizeResetNumber(numberResult.data)
 
-  if (typeof value === 'string') {
-    const numeric = Number(value)
+  const stringResult = z.string().safeParse(value)
+  if (stringResult.success) {
+    const numeric = Number(stringResult.data)
     if (Number.isFinite(numeric)) return normalizeResetNumber(numeric)
 
-    const parsedDate = Date.parse(value)
+    const parsedDate = Date.parse(stringResult.data)
     if (!Number.isNaN(parsedDate)) return Math.ceil(parsedDate / 1000)
 
-    const tryAgainMatch = value.match(/try again at (\d{1,2}):(\d{2})\s*(AM|PM)/i)
+    const tryAgainMatch = stringResult.data.match(/try again at (\d{1,2}):(\d{2})\s*(AM|PM)/i)
     if (tryAgainMatch) {
       let hours = parseInt(tryAgainMatch[1], 10)
       const minutes = parseInt(tryAgainMatch[2], 10)
@@ -39,19 +52,20 @@ export function findResetTimestamp(value: unknown): number | null {
     return null
   }
 
-  if (typeof value !== 'object') return null
-
-  for (const key of [
-    'resetsAt',
-    'resetAt',
-    'reset_at',
-    'retryAfter',
-    'retry_after',
-    'retryAfterSeconds',
-    'secondsUntilReset',
-    'resetInSeconds',
+  const detailsResult = resetDetailsSchema.safeParse(value)
+  if (!detailsResult.success) return null
+  const details = detailsResult.data
+  for (const candidate of [
+    details.resetsAt,
+    details.resetAt,
+    details.reset_at,
+    details.retryAfter,
+    details.retry_after,
+    details.retryAfterSeconds,
+    details.secondsUntilReset,
+    details.resetInSeconds,
   ]) {
-    const found = findResetTimestamp(Reflect.get(value, key))
+    const found = findResetTimestamp(candidate)
     if (found) return found
   }
 
@@ -62,7 +76,7 @@ export function decorateRateLimit(event: RateLimitEvent): RateLimitEvent {
   if (event.info) return event
 
   const info = rateLimitInfo(event)
-  const used = typeof event.usedPercent === 'number' ? `, ${Math.round(event.usedPercent)}% used` : ''
+  const used = event.usedPercent === undefined ? '' : `, ${Math.round(event.usedPercent)}% used`
   const message = event.status === 'allowed_warning'
     ? `Rate limit warning (${event.rateLimitType}).${used ? ` ${used.slice(2)}.` : ''} Resets at ${new Date(event.resetsAt * 1000).toLocaleString()}.`
     : `Rate limited (${event.rateLimitType}${used}). Resets at ${new Date(event.resetsAt * 1000).toLocaleString()}.`

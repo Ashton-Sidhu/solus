@@ -2,6 +2,7 @@
   import { localApi } from "@client-core/local-api";
   import {
     ArrowsClockwiseIcon,
+    CaretRightIcon,
     EyeglassesIcon,
     GitCommitIcon,
     GitPullRequestIcon,
@@ -30,6 +31,7 @@
   import { checksPresentation } from "../prs/lib/checks";
   import type { PullRequestSummary } from "../../../shared/providers";
   import { serverConnections } from "@client-core/server-connections";
+  import { primaryGitAction } from "./lib/git-action-selection";
 
   interface Props {
     /** The tab or draft whose run this section describes — see `ProjectPanel`. */
@@ -54,8 +56,19 @@
   const actions = $derived(gitActionsFor(sourceId, session, environmentStore));
   const canGit = $derived(!!env.branch);
   const canViewDiff = $derived(!!status);
-  const canPr = $derived(!!env.branch && env.branch !== env.targetBranch);
   const prUrl = $derived(actions.prUrl || status?.prUrl || null);
+  const primaryAction = $derived(primaryGitAction(status));
+  const isCommitActionRunning = $derived(
+    actions.running &&
+      (actions.activeAction === "commit" ||
+        actions.activeAction === "commit_push" ||
+        actions.activeAction === "commit_push_pull_request"),
+  );
+  const isPullRequestActionRunning = $derived(
+    actions.running &&
+      (actions.activeAction === "create_pull_request" ||
+        actions.activeAction === "commit_push_pull_request"),
+  );
   const currentBranch = $derived(
     status === undefined ? env.branch : (status?.branch ?? null),
   );
@@ -64,36 +77,58 @@
   //     so labels/icons align by construction. ---
   interface ActionDef extends ActionRowItem {
     disclosure?: MenuKey;
+    secondaryMenu?: MenuKey;
     run: () => void;
   }
 
   const commitPhase = $derived<ActionDef["phase"]>(
-    actions.commitPushing
+    isCommitActionRunning &&
+    (actions.activePhase === "branch" || actions.activePhase === "commit")
       ? "loading"
-      : actions.commitPushed
+      : actions.lastResult?.commit.status === "created"
         ? "success"
-        : actions.commitPushError
+        : actions.actionError
           ? "error"
           : "idle",
   );
   const prPhase = $derived<ActionDef["phase"]>(
-    actions.creatingPR ? "loading" : actions.prError ? "error" : "idle",
+    isPullRequestActionRunning
+      ? "loading"
+      : actions.lastResult?.pullRequest.status !== "skipped" &&
+          actions.lastResult?.pullRequest !== undefined
+        ? "success"
+        : actions.actionError
+          ? "error"
+          : "idle",
   );
 
-  // --- Rows, in the order 5c lays them out. Two of them are disclosures with
-  //     their own popover: Commit (its variants and the destructive escape
-  //     hatch) and Pull requests (open one, or jump to one that exists). ---
+  function runPrimaryAction() {
+    if (primaryAction.kind === "view") {
+      localApi.openExternal(primaryAction.url);
+      requestInputFocus();
+      return;
+    }
+    if (primaryAction.kind !== "run") return;
+    void actions.run(primaryAction.action, {
+      createFeatureBranch: primaryAction.createFeatureBranch,
+    });
+  }
+
+  // --- Rows, in the order 5c lays them out. Commit remains a disclosure for
+  //     its variants and the destructive escape hatch. Pull requests use the
+  //     status-aware primary action directly. ---
   const actionDefs = $derived.by<ActionDef[]>(() => {
     const defs: ActionDef[] = [
       {
         key: "commit",
         // The row is "Commit"; publishing is a choice inside it, so the panel's
         // headline label no longer changes meaning when a push is configured.
-        label: actions.commitPushed
-          ? "Committed"
-          : actions.commitPushing
-            ? "Committing…"
-            : "Commit",
+        label:
+          isCommitActionRunning && actions.activeLabel
+            ? actions.activeLabel
+            : actions.lastResult?.commit.status === "created"
+              ? "Committed"
+              : "Commit",
         icon: PaperPlaneTiltIcon,
         // No trailing count: the changed-file total already sits on the stats
         // line under the branch, and repeating it here reads as a second,
@@ -105,16 +140,14 @@
       },
       {
         key: "pull-requests",
-        label: actions.creatingPR ? "Opening pull request…" : "Pull requests",
+        label: isPullRequestActionRunning && actions.activeLabel
+          ? actions.activeLabel
+          : primaryAction.label,
         icon: GitPullRequestIcon,
         phase: prPhase,
-        disclosure: prUrl ? undefined : "pull-requests",
-        disabled: !canViewDiff,
-        run: () => {
-          if (!prUrl) return;
-          localApi.openExternal(prUrl);
-          requestInputFocus();
-        },
+        disabled: primaryAction.kind === "disabled" || actions.running,
+        run: runPrimaryAction,
+        secondaryMenu: "pull-requests",
       },
       {
         key: "review",
@@ -169,8 +202,7 @@
     return defs;
   });
 
-  // One shared popover anchored to whichever disclosure row is open (mirrors the
-  // branch picker's open/triggerEl pattern). Its contents branch on the key.
+  // The commit popover is anchored to its row, like the branch picker.
   type MenuKey = "commit" | "pull-requests";
   let rowMenuOpen = $state(false);
   let openMenuKey = $state<MenuKey | null>(null);
@@ -182,7 +214,8 @@
       return;
     }
     openMenuKey = key;
-    openRowEl = el.closest(".row-wrap") as HTMLElement | null;
+    const row = el.closest(".row-wrap");
+    openRowEl = row instanceof HTMLElement ? row : null;
     // Re-arm the destructive step every time the menu is opened, so a discard
     // can never be one stray click away from a menu left in the armed state.
     confirmingDiscard = false;
@@ -203,7 +236,7 @@
     else def.run();
   }
 
-  // The PR list backing both the menu and the row's own state. Read through the
+  // The PR list backs the row's current PR state. Read through the
   // store (cached) with an explicit filter rather than `loadAll`, which would
   // stomp the PRs pane's own filter state.
   let openPrs = $state<PullRequestSummary[]>([]);
@@ -401,9 +434,9 @@
         },
       );
     } catch (error) {
-      toasts.error(
-        `Couldn't generate report: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      toasts.error("Couldn't generate report", {
+        description: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       requestInputFocus();
     }
@@ -464,7 +497,7 @@
     type="button"
     disabled={opts.disabled}
     onclick={opts.onclick}
-    class="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[0.8125rem] lg:text-[0.8125rem] focus-visible:outline-none focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-primary) disabled:pointer-events-none disabled:opacity-50 {opts.danger
+    class="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-xs lg:text-xs focus-visible:outline-none focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-primary) disabled:pointer-events-none disabled:opacity-50 {opts.danger
       ? 'font-normal text-destructive hover:bg-destructive/10 hover:text-destructive'
       : opts.emphasis
         ? 'bg-[color-mix(in_srgb,var(--solus-accent)_8%,transparent)] font-medium text-(--solus-text-primary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_14%,transparent)]'
@@ -473,7 +506,7 @@
     <span class="min-w-0 flex-1 truncate">{label}</span>
     {#if opts.trail}
       <span
-        class="shrink-0 text-xs tabular-nums text-(--solus-text-tertiary)"
+        class="shrink-0 text-menu-meta tabular-nums text-(--solus-text-tertiary)"
         >{opts.trail}</span
       >
     {/if}
@@ -495,7 +528,10 @@
          glyph takes the colour of its checks. Nothing is added to the column,
          and the row's menu still opens from the same click. -->
     {@const item =
-      def.key === "pull-requests" && activePr && prPhase === "idle"
+      def.key === "pull-requests" &&
+      activePr &&
+      prPhase === "idle" &&
+      primaryAction.kind === "view"
         ? {
             ...def,
             label: activePr.title,
@@ -507,7 +543,22 @@
           }
         : def}
     <div class="row-wrap">
-      {#if def.key === "review" && (reviewing || reviewKey)}
+      {#if def.secondaryMenu}
+        <div class="split-row">
+          <MenuRow {item} split onActivate={() => def.run()} />
+          <button
+            type="button"
+            class="split-caret"
+            class:is-open={rowMenuOpen && openMenuKey === def.secondaryMenu}
+            aria-label="More pull request actions"
+            aria-haspopup="menu"
+            aria-expanded={rowMenuOpen && openMenuKey === def.secondaryMenu}
+            onclick={(event) => toggleRowMenu(def.secondaryMenu!, event.currentTarget)}
+          >
+            <CaretRightIcon size={11} />
+          </button>
+        </div>
+      {:else if def.key === "review" && (reviewing || reviewKey)}
         <div class="split-row">
           <MenuRow {item} split onActivate={(e) => activateRow(def, e)} />
           {#if reviewing}
@@ -572,7 +623,7 @@
         <!-- Armed state: the menu becomes the confirmation, so the
              irreversible action still needs a second, deliberate click. -->
         <p
-          class="m-0 px-2 pt-[0.3125rem] pb-[0.4375rem] text-xs leading-[1.5] text-(--solus-text-tertiary)"
+          class="m-0 px-2 pt-[0.3125rem] pb-[0.4375rem] text-menu-meta leading-[1.5] text-(--solus-text-tertiary)"
         >
           Discards {uncommittedFileCount} uncommitted change{uncommittedFileCount ===
           1
@@ -591,18 +642,18 @@
         {@render popRow("Commit", {
           onclick: () => {
             closeRowMenu();
-            void actions.commit();
+            void actions.run("commit");
           },
           emphasis: true,
-          disabled: !canGit || actions.commitPushing,
+          disabled: !canGit || actions.running,
         })}
         {@render popRow("Commit and push", {
           onclick: () => {
             closeRowMenu();
-            void actions.commitPush();
+            void actions.run("commit_push");
           },
           hint: comboHint("orb.commit-push"),
-          disabled: !canGit || actions.commitPushing,
+          disabled: !canGit || actions.running,
         })}
         {@render popRow(
           actions.synced
@@ -629,53 +680,15 @@
         })}
       {/if}
     {:else if openMenuKey === "pull-requests"}
-      {#if prUrl}
-        {@render popRow("View pull request", {
-          onclick: () => {
-            closeRowMenu();
-            localApi.openExternal(prUrl);
-          },
-          emphasis: true,
-        })}
-      {:else}
-        {@render popRow(
-          actions.creatingPR ? "Opening pull request…" : "Open pull request",
-          {
-            onclick: () => {
-              closeRowMenu();
-              void actions.createPR();
-            },
-            emphasis: true,
-            disabled: !canPr || actions.creatingPR,
-          },
-        )}
-      {/if}
       {#if openPrs.length > 0}
-        {@render popDivider()}
-        <!-- Status is a dot, the number is the row's trailing value. Draft
-             PRs read grey; anything open reads live. -->
         {#each openPrs.slice(0, 5) as pr (pr.number)}
-          <button
-            type="button"
-            onclick={() => openPr(pr)}
-            class="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[0.8125rem] lg:text-[0.8125rem] font-normal text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-primary)"
-          >
-            <span
-              class="size-[0.4375rem] shrink-0 rounded-full"
-              style:background={pr.draft
-                ? "var(--solus-text-tertiary)"
-                : "var(--solus-status-complete)"}
-              aria-hidden="true"
-            ></span>
-            <span class="min-w-0 flex-1 truncate">{pr.title}</span>
-            <span
-              class="shrink-0 text-xs tabular-nums text-(--solus-text-tertiary)"
-              >#{pr.number}</span
-            >
-          </button>
+          {@render popRow(pr.title, {
+            onclick: () => openPr(pr),
+            trail: `#${pr.number}`,
+          })}
         {/each}
+        {@render popDivider()}
       {/if}
-      {@render popDivider()}
       {@render popRow("Review a PR…", {
         onclick: () => {
           closeRowMenu();
@@ -729,7 +742,8 @@
       color 0.15s ease;
   }
   .split-caret:hover,
-  .split-caret[aria-expanded="true"] {
+  .split-caret[aria-expanded="true"],
+  .split-caret.is-open {
     background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
@@ -751,7 +765,7 @@
     flex-shrink: 0;
     color: var(--solus-text-tertiary);
     font-family: var(--solus-code-font-family);
-    font-size: 0.75rem;
+    font-size: var(--text-menu-meta);
     opacity: 0.7;
   }
 </style>
