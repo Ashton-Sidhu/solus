@@ -14,6 +14,11 @@ exists only after a source-dependent action requests it.
 - `prOpenReview` returns the host target.
 - `prGetDiff` returns complete-file patch slices and rejects a stale head SHA.
 - `prGetDiffFileContents` reads omitted source context at the requested revision.
+- Both accept an optional commit SHA that scopes the read to one commit of the
+  change. A commit-scoped read compares against the commit's parent, not the PR
+  base, and skips the base staleness check: a commit is content-addressed, so
+  its diff cannot change under its key. Inline commenting is disabled while a
+  commit is scoped because comment anchors belong to the full head diff.
 - `prPrepareCheckout` creates or reuses the deterministic PR worktree.
 - Pull request detail includes provider capabilities and the connected viewer's
   permissions. Controls use both sets instead of assuming GitHub access.

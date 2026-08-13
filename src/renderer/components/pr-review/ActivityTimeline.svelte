@@ -8,7 +8,7 @@
     GitPullRequestIcon,
   } from "phosphor-svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
-  import type { ReviewComment, ReviewThread } from "../../../shared/providers";
+  import type { PrCommit, ReviewComment, ReviewThread } from "../../../shared/providers";
   import {
     formatTimeAgoFromTimestamp,
     formatAbsoluteTimestamp,
@@ -43,6 +43,7 @@
     authorName,
     openedAt,
     onJump,
+    onOpenCommit,
     onReply,
     onResolve,
   }: {
@@ -60,6 +61,8 @@
     openedAt: number | null;
     /** Jump to a thread's / file's location in the Diff tab. */
     onJump?: (path: string, line: number | null) => void;
+    /** Open the diff scoped to one commit's changes. */
+    onOpenCommit?: (commit: PrCommit) => void;
     onReply: (threadId: string, body: string) => Promise<ReviewComment>;
     onResolve: (threadId: string, resolved: boolean) => Promise<void>;
   } = $props();
@@ -211,16 +214,24 @@
                  it — same treatment as the composer at the foot of the feed. -->
             <ul class="mt-2 flex flex-col gap-1.5" role="list">
               {#each preview.visible as commit (commit.sha)}
-                <li
-                  class="flex items-center gap-3 rounded-2xl bg-card px-3 py-[9px] shadow-[inset_0_0_0_.5px_var(--hairline-strong)]"
-                >
-                  <code class="shrink-0 font-mono text-xs text-primary"
-                    >{commit.sha.slice(0, 7)}</code
+                <li>
+                  <!-- Each chip opens the diff scoped to that commit. Raw
+                       button by the list-row rule; hover promotes the message
+                       to foreground so the chip reads as pressable. -->
+                  <button
+                    type="button"
+                    class="group/commit flex w-full cursor-pointer items-center gap-3 rounded-2xl bg-card px-3 py-[9px] text-left shadow-[inset_0_0_0_.5px_var(--hairline-strong)] transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    aria-label="View changes in commit {commit.sha.slice(0, 7)}"
+                    onclick={() => onOpenCommit?.(commit)}
                   >
-                  <span
-                    class="min-w-0 flex-1 truncate text-[0.8125rem] text-muted-foreground"
-                    >{commit.message}</span
-                  >
+                    <code class="shrink-0 font-mono text-xs text-primary"
+                      >{commit.sha.slice(0, 7)}</code
+                    >
+                    <span
+                      class="min-w-0 flex-1 truncate text-[0.8125rem] text-muted-foreground transition-colors group-hover/commit:text-foreground"
+                      >{commit.message}</span
+                    >
+                  </button>
                 </li>
               {/each}
             </ul>

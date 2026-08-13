@@ -10,6 +10,7 @@
   import type { IpcContext } from "../../../shared/types";
   import type {
     DraftReview,
+    PrCommit,
     PullRequestDetail,
     PrReviewTarget,
   } from "../../../shared/providers";
@@ -36,6 +37,7 @@
   import type { PrActivityTarget } from "./lib/activity-data";
   import SubmitReviewModal from "./SubmitReviewModal.svelte";
   import SinceReviewBar from "./SinceReviewBar.svelte";
+  import CommitDiffBanner from "./CommitDiffBanner.svelte";
   import { prReviewState } from "./lib/pr-review.store.svelte";
   import PrDetailChrome from "./PrDetailChrome.svelte";
   import GithubConnectionRequired from "../prs/GithubConnectionRequired.svelte";
@@ -397,6 +399,18 @@
   const isSinceReviewMode = $derived(review.isSinceReviewMode);
   const sinceReviewThreads = $derived(review.sinceReviewThreads);
 
+  // ── Commit scope ──
+  // While set, the Diff tab shows one commit's changes instead of the PR diff.
+  const commitScope = $derived(review.commitScope);
+  const diffViewLoading = $derived(
+    commitScope
+      ? review.commitDiffLoading && review.commitDiffPatch === null
+      : review.diffLoading && review.diffPatch === null,
+  );
+  const diffViewError = $derived(
+    commitScope ? review.commitDiffError : review.diffError,
+  );
+
   $effect(() => {
     const currentNumber = target.number;
     const prCwd = review.checkout?.worktreePath;
@@ -612,6 +626,26 @@
         diffPanelRef?.navigateTo(path, line ?? undefined, side),
       );
     }
+    requestInputFocus();
+  }
+
+  // A commit chip in Activity opens the change scoped to that commit — the
+  // same surface as a file jump, narrowed to one commit's patch.
+  function openCommitDiff(commit: PrCommit) {
+    review.viewCommit(commit);
+    if (!inlineDiff) {
+      showActivityColumn();
+      session.openPrDiff(target.number, prCtx());
+    } else {
+      if (activeTab === undefined) session.prsStore.prReviewTab = "diff";
+      onActiveTabChange?.("diff");
+      mountedDiff = true;
+    }
+    requestInputFocus();
+  }
+
+  function clearCommitScope() {
+    review.clearCommitScope();
     requestInputFocus();
   }
 
@@ -964,15 +998,16 @@
     {/if}
     {#if mountedDiff && pr}
       <div class="absolute inset-0 flex flex-col" class:hidden={sub !== "diff"}>
-        {#if ownDeltaBase}
+        {#if commitScope}
+          <CommitDiffBanner commit={commitScope} onClear={clearCommitScope} />
+        {:else if ownDeltaBase}
           <StackDiffBanner
             parent={ownDeltaBase.parent}
             fileCount={review.ownDeltaFileCount}
             showingFull={showingFullDiff}
             onToggle={toggleFullDiff}
           />
-        {/if}
-        {#if !ownDeltaBase && hasReviewCheckpointNotice && interdiff}
+        {:else if hasReviewCheckpointNotice && interdiff}
           <SinceReviewBar
             result={interdiff}
             showingSince={isSinceReviewMode}
@@ -983,13 +1018,13 @@
           />
         {/if}
         <div class="min-h-0 flex-1">
-          {#if review.diffLoading && review.diffPatch === null}
+          {#if diffViewLoading}
             <div class="grid h-full place-items-center text-xs text-muted-foreground" role="status">
-              Loading pull request diff…
+              Loading {commitScope ? "commit" : "pull request"} diff…
             </div>
-          {:else if review.diffError}
+          {:else if diffViewError}
             <div class="grid h-full place-items-center px-6 text-center text-xs text-destructive" role="alert">
-              {review.diffError}
+              {diffViewError}
             </div>
           {:else}
           <DiffPanel
@@ -1006,21 +1041,38 @@
             embedded
             {onToggleMaximize}
             initialScope={diffScope}
-            patchOverride={isSinceReviewMode ? (interdiff?.patch ?? "") : (review.diffPatch ?? "")}
-            patchOverrideFileLoader={isSinceReviewMode ? undefined : review.loadDiffFiles}
-            emptyState={isSinceReviewMode
+            commentingDisabled={!!commitScope}
+            patchOverride={commitScope
+              ? (review.commitDiffPatch ?? "")
+              : isSinceReviewMode
+                ? (interdiff?.patch ?? "")
+                : (review.diffPatch ?? "")}
+            patchOverrideFileLoader={commitScope
+              ? review.loadCommitDiffFiles
+              : isSinceReviewMode
+                ? undefined
+                : review.loadDiffFiles}
+            emptyState={commitScope
               ? {
-                  title: "No patch changes since your review",
+                  title: "No file changes in this commit",
                   description:
-                    "The PR head moved, but its effective patch stayed the same.",
+                    "This commit did not change any reviewable files.",
                 }
-              : undefined}
-            externalComments={diffComments}
+              : isSinceReviewMode
+                ? {
+                    title: "No patch changes since your review",
+                    description:
+                      "The PR head moved, but its effective patch stayed the same.",
+                  }
+                : undefined}
+            externalComments={commitScope ? [] : diffComments}
             onExternalCommentSave={saveDiffComment}
             onExternalCommentDelete={removeDraft}
-            reviewThreads={isSinceReviewMode
-              ? sinceReviewThreads
-              : reviewThreads}
+            reviewThreads={commitScope
+              ? []
+              : isSinceReviewMode
+                ? sinceReviewThreads
+                : reviewThreads}
             onThreadReply={replyToThread}
             onThreadResolve={resolveThread}
           />
@@ -1053,6 +1105,7 @@
           onDetailChanged={(detail) => (reviewDetail = detail)}
           {onRefreshTarget}
           onJump={jumpToDiff}
+          onOpenCommit={openCommitDiff}
           masthead={headless || embedded ? undefined : detailMasthead}
         />
       </div>

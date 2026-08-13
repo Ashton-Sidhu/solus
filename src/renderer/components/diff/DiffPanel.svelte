@@ -73,6 +73,7 @@
     initialFilePath,
     navigationRequestId,
     embedded = false,
+    commentingDisabled = false,
     externalComments = null,
     onExternalCommentSave,
     onExternalCommentDelete,
@@ -101,6 +102,10 @@
      *  navigation) and the session turn stepper (turn scopes would silently
      *  replace the host's PR scope with no way back). */
     embedded?: boolean;
+    /** Disable inline commenting. For views whose line numbers no other surface
+     *  shares (a commit-scoped patch): an anchored comment would point at
+     *  different code once read against the full diff. */
+    commentingDisabled?: boolean;
     /** Optional externally-owned comment list for surfaces that persist comments
      *  outside the active tab while still reusing the diff UI. */
     externalComments?: DiffComment[] | null;
@@ -473,6 +478,7 @@
     end: number,
     side: "old" | "new",
   ) {
+    if (commentingDisabled) return;
     const sameDraft = draft.filePath === filePath && draft.editingCommentId === null;
     draft.range = { startLine: start, endLine: end, side };
     draft.filePath = filePath;
@@ -509,6 +515,12 @@
     session.setDiffCommentDraft(null);
     streamRef?.clearSelectedLines();
   }
+
+  // Entering a commenting-disabled view (a commit-scoped patch) discards any
+  // in-progress draft: its line anchors belong to the diff being left.
+  $effect(() => {
+    if (commentingDisabled) untrack(() => resetCommentForm());
+  });
 
   function handleSaveComment(comment: string) {
     if (hasExternalCommentStore && onExternalCommentSave) {
@@ -779,6 +791,7 @@
   }
 
   function startCommentOnCurrentLine() {
+    if (commentingDisabled) return;
     const file = streamRef?.getFocusedFile();
     if (!file) return;
     if (draft.range) {
@@ -987,6 +1000,7 @@
           diffStyle={effectiveDiffStyle}
           tokenHighlight={tokenHighlightState}
           comments={diffComments}
+          {commentingDisabled}
           {reviewThreads}
           {onThreadReply}
           {onThreadResolve}

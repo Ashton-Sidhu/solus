@@ -8,6 +8,7 @@
   import DiffPanel from "../diff/DiffPanel.svelte";
   import SinceReviewBar from "./SinceReviewBar.svelte";
   import StackDiffBanner from "./StackDiffBanner.svelte";
+  import CommitDiffBanner from "./CommitDiffBanner.svelte";
   import { existingPrReviewState } from "./lib/pr-review.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { serverConnections } from "@client-core/server-connections";
@@ -65,7 +66,15 @@
 
 {#if review && pr}
   <div class="flex h-full min-h-0 flex-col">
-    {#if review.ownDeltaBase}
+    {#if review.commitScope}
+      <CommitDiffBanner
+        commit={review.commitScope}
+        onClear={() => {
+          review.clearCommitScope();
+          requestInputFocus();
+        }}
+      />
+    {:else if review.ownDeltaBase}
       <StackDiffBanner
         parent={review.ownDeltaBase.parent}
         fileCount={review.ownDeltaFileCount}
@@ -83,10 +92,14 @@
       />
     {/if}
     <div class="min-h-0 flex-1">
-      {#if review.diffLoading && review.diffPatch === null}
-        <div class="grid h-full place-items-center text-xs text-muted-foreground" role="status">Loading pull request diff…</div>
-      {:else if review.diffError}
-        <div class="grid h-full place-items-center px-6 text-center text-xs text-destructive" role="alert">{review.diffError}</div>
+      {#if review.commitScope ? review.commitDiffLoading && review.commitDiffPatch === null : review.diffLoading && review.diffPatch === null}
+        <div class="grid h-full place-items-center text-xs text-muted-foreground" role="status">
+          Loading {review.commitScope ? "commit" : "pull request"} diff…
+        </div>
+      {:else if review.commitScope ? review.commitDiffError : review.diffError}
+        <div class="grid h-full place-items-center px-6 text-center text-xs text-destructive" role="alert">
+          {review.commitScope ? review.commitDiffError : review.diffError}
+        </div>
       {:else}
       <DiffPanel
         bind:this={diffPanelRef}
@@ -102,18 +115,36 @@
         embedded
         onToggleMaximize={pane.toggleMaximize}
         initialScope={review.diffScope}
-        patchOverride={review.isSinceReviewMode ? (review.interdiff?.patch ?? "") : (review.diffPatch ?? "")}
-        patchOverrideFileLoader={review.isSinceReviewMode ? undefined : review.loadDiffFiles}
-        emptyState={review.isSinceReviewMode
+        commentingDisabled={!!review.commitScope}
+        patchOverride={review.commitScope
+          ? (review.commitDiffPatch ?? "")
+          : review.isSinceReviewMode
+            ? (review.interdiff?.patch ?? "")
+            : (review.diffPatch ?? "")}
+        patchOverrideFileLoader={review.commitScope
+          ? review.loadCommitDiffFiles
+          : review.isSinceReviewMode
+            ? undefined
+            : review.loadDiffFiles}
+        emptyState={review.commitScope
           ? {
-              title: "No patch changes since your review",
-              description: "The PR head moved, but its effective patch stayed the same.",
+              title: "No file changes in this commit",
+              description: "This commit did not change any reviewable files.",
             }
-          : undefined}
-        externalComments={review.drafts.diffComments}
+          : review.isSinceReviewMode
+            ? {
+                title: "No patch changes since your review",
+                description: "The PR head moved, but its effective patch stayed the same.",
+              }
+            : undefined}
+        externalComments={review.commitScope ? [] : review.drafts.diffComments}
         onExternalCommentSave={(comment) => review.drafts.save(comment)}
         onExternalCommentDelete={(id) => review.drafts.remove(id)}
-        reviewThreads={review.isSinceReviewMode ? review.sinceReviewThreads : review.threads}
+        reviewThreads={review.commitScope
+          ? []
+          : review.isSinceReviewMode
+            ? review.sinceReviewThreads
+            : review.threads}
         onThreadReply={(threadId, body) => review.replyToThread(threadId, body)}
         onThreadResolve={(threadId, resolved) => review.resolveThread(threadId, resolved)}
       />
