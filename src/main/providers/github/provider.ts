@@ -58,6 +58,9 @@ function diffPath(path: string): string {
   return /[\s"\\]/.test(path) ? JSON.stringify(path) : path
 }
 
+/** Only a real commit id may scope a diff — the sha travels into an API path. */
+const COMMIT_SHA_PATTERN = /^[0-9a-f]{7,40}$/i
+
 /** Convert complete GitHub file records into a unified patch. Keeping this
  * file-based is what guarantees pagination never cuts through a hunk. */
 interface UnifiedGithubPatch {
@@ -571,7 +574,7 @@ function toThread(t: GqlThread): ReviewThread {
  * layer imports `ReviewProvider`/DTOs only — never `@octokit/*`. Reads, threads,
  * and leaving review comments work identically for fork and same-repo PRs.
  */
-class GitHubProvider implements ReviewProvider {
+export class GitHubProvider implements ReviewProvider {
   private diffBaseCache = new Map<string, Promise<string>>()
   private viewerCache: { token: string; login: Promise<string> } | null = null
 
@@ -699,17 +702,33 @@ class GitHubProvider implements ReviewProvider {
     if (detail.headSha !== request.headSha) {
       throw new Error('This pull request changed. Refresh it before reviewing the new diff.')
     }
+    const page = request.cursor === undefined ? 1 : Number(request.cursor)
+    if (!Number.isSafeInteger(page) || page < 1) throw new Error('Invalid pull request diff cursor.')
+    const { rest } = await this.client()
+    if (request.commitSha) {
+      // One commit of the change rather than the whole of it. A commit is
+      // content-addressed, so no base staleness check applies: the sha either
+      // exists with exactly this diff or the request fails.
+      if (!COMMIT_SHA_PATTERN.test(request.commitSha)) throw new Error('Invalid pull request commit.')
+      const response = await rest.repos.getCommit({
+        owner: repo.owner,
+        repo: repo.repo,
+        ref: request.commitSha,
+        page,
+        per_page: 100,
+      })
+      const converted = githubFilesToUnifiedPatch(response.data.files ?? [])
+      const hasNextPage = /<[^>]+>;\s*rel="next"/.test(response.headers.link ?? '')
+      return {
+        patch: converted.patch,
+        truncated: converted.truncated,
+        nextCursor: hasNextPage ? String(page + 1) : null,
+      }
+    }
     const diffBaseSha = await this.getPullRequestDiffBase(repo, detail)
     if (diffBaseSha !== request.baseSha) {
       throw new Error('This pull request base changed. Refresh it before reviewing the new diff.')
     }
-    if (request.commitSha && request.commitSha !== request.headSha) {
-      throw new Error('Commit-specific pull request diffs are not available from GitHub yet.')
-    }
-
-    const page = request.cursor === undefined ? 1 : Number(request.cursor)
-    if (!Number.isSafeInteger(page) || page < 1) throw new Error('Invalid pull request diff cursor.')
-    const { rest } = await this.client()
     const response = await rest.pulls.listFiles({
       owner: repo.owner,
       repo: repo.repo,
@@ -734,12 +753,7 @@ class GitHubProvider implements ReviewProvider {
     if (detail.headSha !== request.headSha) {
       throw new Error('This pull request changed. Refresh it before loading file contents.')
     }
-    const newRef = request.commitSha ?? request.headSha
     const { rest } = await this.client()
-    const diffBaseSha = await this.getPullRequestDiffBase(repo, detail)
-    if (diffBaseSha !== request.baseSha) {
-      throw new Error('This pull request base changed. Refresh it before loading file contents.')
-    }
     const readFile = async (source: RepoRef, path: string, ref: string): Promise<string> => {
       const { data } = await rest.repos.getContent({ owner: source.owner, repo: source.repo, path, ref })
       if (Array.isArray(data) || data.type !== 'file' || !('content' in data)) {
@@ -749,12 +763,35 @@ class GitHubProvider implements ReviewProvider {
       return Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf8')
     }
     const headRepo: RepoRef = { host: repo.host, owner: detail.headRepo.owner, repo: detail.headRepo.repo }
+    if (request.commitSha) {
+      // A commit-scoped diff compares against the commit's parent, not the PR
+      // base, and the contents API accepts no `sha^` expression — resolve the
+      // parent explicitly. A root commit has no parent; its old side is empty.
+      if (!COMMIT_SHA_PATTERN.test(request.commitSha)) throw new Error('Invalid pull request commit.')
+      const { data: commit } = await rest.git.getCommit({
+        owner: repo.owner,
+        repo: repo.repo,
+        commit_sha: request.commitSha,
+      })
+      const parentSha = commit.parents[0]?.sha
+      const oldContents = request.changeType === 'new' || !parentSha
+        ? ''
+        : await readFile(headRepo, request.oldPath, parentSha)
+      const newContents = request.changeType === 'deleted'
+        ? ''
+        : await readFile(headRepo, request.newPath, request.commitSha)
+      return { oldContents, newContents }
+    }
+    const diffBaseSha = await this.getPullRequestDiffBase(repo, detail)
+    if (diffBaseSha !== request.baseSha) {
+      throw new Error('This pull request base changed. Refresh it before loading file contents.')
+    }
     const oldContents = request.changeType === 'new'
       ? ''
       : await readFile(repo, request.oldPath, diffBaseSha)
     const newContents = request.changeType === 'deleted'
       ? ''
-      : await readFile(headRepo, request.newPath, newRef)
+      : await readFile(headRepo, request.newPath, request.headSha)
     return { oldContents, newContents }
   }
 

@@ -1,5 +1,5 @@
 import { untrack } from 'svelte'
-import type { PrDiffSlice, PrReviewTarget, ReviewComment, ReviewThread } from '../../../../shared/providers'
+import type { PrCommit, PrDiffSlice, PrReviewTarget, ReviewComment, ReviewThread } from '../../../../shared/providers'
 import type { DiffScope, IpcContext, PrCheckoutContext, PrInterdiffResult, PrReviewContext } from '../../../../shared/types'
 import { worktreeProjectRoot } from '../../../../shared/types'
 import type { DiffBase, StackGraph } from '../../../../shared/stack-types'
@@ -40,6 +40,15 @@ export class PrReviewState {
   diffError = $state<string | null>(null)
   diffTruncated = $state(false)
 
+  // ── Commit scope ──
+  // One commit of the change rather than the whole of it. Scoped state lives
+  // apart from the full diff so leaving the commit returns to an intact review.
+  commitScope = $state<PrCommit | null>(null)
+  commitDiffPatch = $state<string | null>(null)
+  commitDiffLoading = $state(false)
+  commitDiffError = $state<string | null>(null)
+  commitDiffTruncated = $state(false)
+
   // ── Threads ──
   // Existing GitHub inline review comments. Fetched once and shared with the
   // diff (anchored at their line) and Activity (which owns reply / resolve,
@@ -72,6 +81,7 @@ export class PrReviewState {
   #deps: PrReviewDeps
   #interdiffKey = ''
   #diffKey = ''
+  #commitDiffKey = ''
   #checkoutPromise: Promise<PrReviewContext> | null = null
 
   constructor(number: number, deps: PrReviewDeps) {
@@ -127,6 +137,14 @@ export class PrReviewState {
     this.showingSinceReview = false
     this.stackReady = false
     this.stackLoadFailed = false
+    // A moved head may have dropped the scoped commit (force push / new PR);
+    // never strand the reader on a commit the revision no longer has.
+    this.commitScope = null
+    this.commitDiffPatch = null
+    this.commitDiffError = null
+    this.commitDiffTruncated = false
+    this.commitDiffLoading = false
+    this.#commitDiffKey = ''
   }
 
   get liveDiffBase(): DiffBase {
@@ -309,6 +327,55 @@ export class PrReviewState {
     })
   }
 
+  /** Scope the diff surfaces to one commit of the pull request. */
+  viewCommit(commit: PrCommit): void {
+    this.commitScope = commit
+    this.loadCommitDiff()
+  }
+
+  clearCommitScope(): void {
+    this.commitScope = null
+  }
+
+  loadCommitDiff(force = false): void {
+    const target = this.pr
+    const commit = this.commitScope
+    if (!target || !commit) return
+    const key = `${target.host}/${target.owner}/${target.repo}:${target.number}:${commit.sha}`
+    if (!force && this.#commitDiffKey === key && (this.commitDiffPatch !== null || this.commitDiffLoading)) return
+    this.#commitDiffKey = key
+    this.commitDiffPatch = null
+    this.commitDiffError = null
+    this.commitDiffTruncated = false
+    this.commitDiffLoading = true
+    const context = this.#deps.fallbackCtx()
+    // Guarded on the key, not the scope: clearing the scope mid-load lets the
+    // load finish into the cache, so re-opening the same commit is instant.
+    const current = () => this.#commitDiffKey === key
+    void (async () => {
+      const patches: string[] = []
+      let cursor: string | undefined
+      do {
+        const slice: PrDiffSlice = await this.#deps.loadDiff(context, {
+          number: target.number,
+          baseSha: target.baseSha,
+          headSha: target.headSha,
+          commitSha: commit.sha,
+          ...(cursor ? { cursor } : {}),
+        })
+        if (!current()) return
+        if (slice.patch) patches.push(slice.patch)
+        this.commitDiffTruncated ||= slice.truncated
+        cursor = slice.nextCursor ?? undefined
+      } while (cursor)
+      if (current()) this.commitDiffPatch = patches.join('\n')
+    })().catch((error) => {
+      if (current()) this.commitDiffError = error instanceof Error ? error.message : String(error)
+    }).finally(() => {
+      if (current()) this.commitDiffLoading = false
+    })
+  }
+
   ensureCheckout(): Promise<PrReviewContext> {
     const target = this.pr
     if (!target) return Promise.reject(new Error('The pull request is not ready.'))
@@ -364,6 +431,34 @@ export class PrReviewState {
       name: fileDiff.name,
       contents: result.newContents,
       cacheKey: `${target.headSha}:${fileDiff.name}`,
+    }
+    return { oldFile: fileDiff.type === 'rename-pure' ? null : oldFile, newFile }
+  }
+
+  /** Context expansion for a commit-scoped patch: the old side of every file is
+   *  the commit's parent, which the provider resolves from the sha. */
+  loadCommitDiffFiles = async (fileDiff: FileDiffMetadata): Promise<FileDiffLoadedFiles> => {
+    const target = this.pr
+    const commit = this.commitScope
+    if (!target || !commit) throw new Error('The pull request is not ready.')
+    const result = await this.api.prGetDiffFileContents(this.#deps.fallbackCtx(), {
+      number: target.number,
+      baseSha: target.baseSha,
+      headSha: target.headSha,
+      commitSha: commit.sha,
+      oldPath: fileDiff.prevName ?? fileDiff.name,
+      newPath: fileDiff.name,
+      changeType: fileDiff.type,
+    })
+    const oldFile = {
+      name: fileDiff.prevName ?? fileDiff.name,
+      contents: result.oldContents,
+      cacheKey: `${commit.sha}^:${fileDiff.prevName ?? fileDiff.name}`,
+    }
+    const newFile = {
+      name: fileDiff.name,
+      contents: result.newContents,
+      cacheKey: `${commit.sha}:${fileDiff.name}`,
     }
     return { oldFile: fileDiff.type === 'rename-pure' ? null : oldFile, newFile }
   }

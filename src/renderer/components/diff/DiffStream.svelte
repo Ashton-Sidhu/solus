@@ -79,6 +79,10 @@
     diffStyle: "unified" | "split";
     tokenHighlight: boolean;
     comments: DiffComment[];
+    /** Hide the line-selection and gutter comment affordances entirely — for
+     *  views whose line numbers no other surface shares (a commit-scoped
+     *  patch), where an anchored comment would point at different code. */
+    commentingDisabled?: boolean;
     /** GitHub PR review threads, anchored at their line. Interactive (reply /
      *  resolve) when the thread callbacks below are supplied. */
     reviewThreads: DiffReviewThread[];
@@ -114,6 +118,7 @@
     diffStyle,
     tokenHighlight,
     comments,
+    commentingDisabled = false,
     reviewThreads,
     onThreadReply,
     onThreadResolve,
@@ -557,8 +562,8 @@
       disableFileHeader: false,
       // Hydration failures are non-fatal: @pierre/diffs keeps the partial patch.
       disableErrorHandling: !loadDiffFiles,
-      enableLineSelection: true,
-      enableGutterUtility: true,
+      enableLineSelection: !commentingDisabled,
+      enableGutterUtility: !commentingDisabled,
       stickyHeaders: true,
       layout: {
         paddingTop: 0,
@@ -699,6 +704,7 @@
     void diffHeaderHeight;
     void tokenHighlight;
     void loadDiffFiles;
+    void commentingDisabled;
     if (!codeView) return;
     void setDiffWorkerPoolTheme(isDark);
     void setDiffWorkerPoolLineDiffType(tokenHighlight);

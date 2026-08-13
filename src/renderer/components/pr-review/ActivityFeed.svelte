@@ -69,6 +69,7 @@
     onGenerateGuide,
     onChat,
     onJump,
+    onOpenCommit,
     onRefreshThreads,
     onRefreshTarget,
     onDetailChanged,
@@ -98,6 +99,8 @@
     onChat?: () => void;
     /** Jump to a thread's / file's location in the Diff tab. */
     onJump?: (path: string, line: number | null) => void;
+    /** Open the diff scoped to one commit's changes. */
+    onOpenCommit?: (commit: PrCommit) => void;
     /** Refetch the shared threads (e.g. from this tab's Refresh button). */
     onRefreshThreads?: () => void;
     /** Refresh the exact host revision owned by the route. */
@@ -912,6 +915,7 @@
           {authorName}
           {openedAt}
           onJump={jumpToFile}
+          {onOpenCommit}
           onReply={replyToThread}
           onResolve={resolveThread}
         />
