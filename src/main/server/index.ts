@@ -60,6 +60,7 @@ import { recordSessionDelegation } from '../sessions/session-delegations'
 import { registerAttachmentHandlers } from './handlers/attachment-handlers'
 import { registerAssetHandlers } from './handlers/asset-handlers'
 import { registerCapabilityHandlers } from './handlers/capability-handlers'
+import { registerObservabilityHandlers } from './handlers/observability-handlers'
 import { startMetricsRollover, stopMetricsRollover } from '../observability/rollover'
 import { projectSessionEvent, serializedBytes } from './result-projection'
 
@@ -259,6 +260,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // app is open and catches up missed fires on launch (local-only by design).
   startAutomationScheduler()
   startMetricsRollover(() => getServerSettings().metricsRetentionDays)
+  registerObservabilityHandlers(server, { controlPlane: opts.controlPlane })
   registerProjectConfigHandlers(server)
   registerTasksHandlers(server)
   registerOutboxHandlers(server)

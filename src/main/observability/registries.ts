@@ -23,6 +23,7 @@ export const SPAN_SERVICES = {
   indexer: 'solus.indexer',
   rpc: 'solus.rpc',
   git: 'solus.git',
+  insights: 'solus.insights',
 } as const
 
 export type SpanService = (typeof SPAN_SERVICES)[keyof typeof SPAN_SERVICES]

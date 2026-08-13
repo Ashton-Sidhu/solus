@@ -6,7 +6,11 @@ optionally export the same data live to a user-owned OpenTelemetry collector. Us
 data-driven workflow decisions from their real session history; maintainers investigate
 Solus's own internals through the same pipe.
 
-**Status: planned.** Nothing is implemented. GPT Sol (Codex, `gpt-5.6-sol`) audited
+**Status: WP1-WP3 implemented; WP4-WP5 planned.** The foundation
+(`src/main/observability/`), the session emitter, and the query engine (field
+registry, per-kind views, QuerySpec compiler, guarded SQL executor, NL→SQL
+compile, saved queries, `metrics*` RPC methods) are landed; the Insights UI and
+the OTel exporter are not. GPT Sol (Codex, `gpt-5.6-sol`) audited
 this plan read-only twice on 2026-08-09: first the Codex-provider assumptions (eight
 corrections, folded into WP2 as **[codex-audit]**), then the full document including
 the call stack flow (31 findings — corrected anchors, the `setup` child span, the

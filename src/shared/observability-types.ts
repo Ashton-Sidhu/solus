@@ -1,0 +1,162 @@
+// ─── Observability query contracts ───
+//
+// The serializable surface between the Insights clients and the metrics query
+// engine (docs/plans/observability.md). A QuerySpec is what the builder edits
+// and the server compiles to parameterized SQL; SQL text flows through the
+// guarded read-only executor. Both return the same tabular result shape.
+
+/** One cell of a query result. */
+export type MetricsValue = string | number | boolean | null
+
+export interface MetricsTimeRange {
+  /** Inclusive lower bound on started_at, epoch ms. */
+  from?: number
+  /** Exclusive upper bound on started_at, epoch ms. */
+  to?: number
+}
+
+export type MetricsFilterOp = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'in'
+
+export interface MetricsFilter {
+  /** A spans column, an `attrs.<path>` JSON path, or a registry field name
+   *  (registry names require an `eq` filter on `kind` in the same spec). */
+  field: string
+  op: MetricsFilterOp
+  value: string | number | boolean | Array<string | number>
+}
+
+export type MetricsTimeBucket = 'minute' | 'hour' | 'day' | 'week' | 'month'
+
+export type MetricsGroupBy = { field: string } | { timeBucket: MetricsTimeBucket }
+
+export type MetricsAggregateFn = 'count' | 'avg' | 'min' | 'max' | 'sum' | 'p50' | 'p95'
+
+export interface MetricsAggregate {
+  fn: MetricsAggregateFn
+  /** Field the aggregate reads. Required for everything except `count`. */
+  field?: string
+  /** Output column name. Defaults to the fn, or `<fn>_<field>`. */
+  as?: string
+}
+
+/** The builder/preset query contract — table-less, always over `spans`. */
+export interface MetricsQuerySpec {
+  timeRange?: MetricsTimeRange
+  filters?: MetricsFilter[]
+  groupBy?: MetricsGroupBy[]
+  /** Omit for a plain span listing (drill-through rows). */
+  aggregates?: MetricsAggregate[]
+  orderBy?: Array<{ field: string; dir: 'asc' | 'desc' }>
+  limit?: number
+}
+
+export interface MetricsQueryResult {
+  columns: string[]
+  /** Row cells aligned to `columns`. */
+  rows: MetricsValue[][]
+}
+
+export type MetricsFieldType = 'string' | 'number' | 'boolean' | 'duration'
+
+export interface MetricsFieldDescriptor {
+  /** The SQL column name in the per-kind view. */
+  name: string
+  type: MetricsFieldType
+  description: string
+}
+
+export interface MetricsViewDescriptor {
+  view: string
+  kind: string
+  /** True for `internal.*` kinds — hidden unless the internals toggle is on. */
+  internal: boolean
+  description: string
+  columns: MetricsFieldDescriptor[]
+}
+
+/** The field registry as served to clients: views, columns, types, docs. */
+export interface MetricsSchema {
+  views: MetricsViewDescriptor[]
+}
+
+export type MetricsSqlValidation =
+  | { ok: true; columns: string[] }
+  | { ok: false; error: string; offset?: number; guardViolation?: boolean }
+
+export interface MetricsNlCompileResult {
+  sql: string
+  /** Whether the final SQL prepared cleanly against the guarded executor. */
+  ok: boolean
+  error?: string
+  attempts: number
+}
+
+/** A user-authored query persisted in solus.db. Exactly one form owns it:
+ *  a builder-editable spec, or editor-owned SQL text. */
+export interface SavedMetricsQuery {
+  id: string
+  name: string
+  form: 'spec' | 'sql'
+  spec?: MetricsQuerySpec
+  sql?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export type MetricsAttrValue = string | number | boolean
+
+export interface MetricsSpan {
+  spanId: string
+  parentSpanId: string | null
+  traceId: string
+  kind: string
+  name: string
+  service: string
+  sessionId: string | null
+  provider: string | null
+  model: string | null
+  projectRoot: string | null
+  origin: string | null
+  startedAt: number
+  endedAt: number | null
+  durationMs: number | null
+  status: string
+  attrs: Record<string, MetricsAttrValue>
+}
+
+/** One turn's full span tree for the waterfall. */
+export interface MetricsTurnTrace {
+  traceId: string
+  spans: MetricsSpan[]
+  /** Root turn time not covered by the union of observed blocking child
+   *  intervals. Null when the trace has no root turn span. */
+  uninstrumentedMs: number | null
+}
+
+export interface MetricsTurnSummary {
+  /** Display ordinal over `(startedAt, spanId)` — computed at query time,
+   *  never persisted. */
+  turnNumber: number
+  traceId: string
+  startedAt: number
+  endedAt: number | null
+  durationMs: number | null
+  status: string
+  model: string | null
+  origin: string | null
+  promptSource: string | null
+  costUsd: number | null
+  inputTokens: number | null
+  outputTokens: number | null
+  toolCallCount: number | null
+}
+
+export interface MetricsSessionSummary {
+  sessionId: string
+  turnCount: number
+  totalDurationMs: number
+  totalCostUsd: number
+  totalInputTokens: number
+  totalOutputTokens: number
+  turns: MetricsTurnSummary[]
+}
