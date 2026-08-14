@@ -389,7 +389,7 @@
   </div>
 {:else if open && layer.el}
   <div use:portal={layer.el} class="pointer-events-auto fixed inset-0 z-[200] flex items-center justify-center overflow-hidden overscroll-contain bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] motion-safe:animate-[backdrop-fade_140ms_ease-out]" style={centringStyle}>
-    <div bind:this={pickerEl} class="flex h-3/4 max-h-[75%] w-3/4 origin-top flex-col overflow-hidden overscroll-contain rounded-2xl border border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_both] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-(--solus-container-bg) max-md:shadow-none" role="dialog" aria-label="Task picker" tabindex="-1" onkeydown={handleKeyDown}>
+    <div bind:this={pickerEl} class="flex h-3/4 max-h-[75%] w-3/4 origin-top flex-col overflow-hidden overscroll-contain rounded-2xl border border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-(--solus-container-bg) max-md:shadow-none" role="dialog" aria-label="Task picker" tabindex="-1" onkeydown={handleKeyDown}>
       {@render pickerContent()}
     </div>
   </div>

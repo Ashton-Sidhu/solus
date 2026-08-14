@@ -1911,6 +1911,8 @@ export interface TextGenerationModelSelection {
 export interface TextGenerationSettings {
   /** General-purpose model for metadata and other short background writing. */
   textGenerationModel: TextGenerationModelSelection
+  /** Used when the preferred model is not available on the host. */
+  backupTextGenerationModel: TextGenerationModelSelection
   /** Optional override for commit, branch, and pull-request writing. */
   sourceControlWriterModel: TextGenerationModelSelection | null
   /** Host-wide policy applied in the repository where each Git action runs. */

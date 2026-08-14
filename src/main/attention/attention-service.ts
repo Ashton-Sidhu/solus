@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
+import { mkdir, rename, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import { z } from 'zod'
 import { dataDir } from '../platform/paths'
@@ -176,13 +177,37 @@ export class AttentionService {
     }
   }
 
+  /** Coalesced async write-through: status transitions arrive in bursts on the
+   *  hot event path, and a synchronous whole-file write per transition blocks
+   *  the main event loop. Writes chain so the file always ends at the latest
+   *  state; losing the tail write on a crash only costs best-effort UI state. */
+  private persistDirty = false
+  private pendingPersist: Promise<void> | null = null
+
+  /** Resolves once every change made so far has reached disk. */
+  async flushPersist(): Promise<void> {
+    while (this.pendingPersist) await this.pendingPersist
+  }
+
   private _persist(): void {
-    try {
-      mkdirSync(dirname(this.statePath), { recursive: true })
-      const body: AttentionFile = { version: 1, entries: Object.fromEntries(this.entries) }
-      writeFileSync(this.statePath, JSON.stringify(body, null, 2), { mode: 0o600 })
-    } catch (err) {
-      log.error('attention_state_persist_failed', { error: err instanceof Error ? err.message : String(err) })
-    }
+    this.persistDirty = true
+    if (this.pendingPersist) return
+    this.pendingPersist = (async () => {
+      while (this.persistDirty) {
+        this.persistDirty = false
+        try {
+          await mkdir(dirname(this.statePath), { recursive: true })
+          const body: AttentionFile = { version: 1, entries: Object.fromEntries(this.entries) }
+          // Temp + rename: an async truncate-and-write interrupted by process
+          // exit would leave a partial file that _load() rejects wholesale.
+          const tempPath = `${this.statePath}.tmp`
+          await writeFile(tempPath, JSON.stringify(body, null, 2), { mode: 0o600 })
+          await rename(tempPath, this.statePath)
+        } catch (err) {
+          log.error('attention_state_persist_failed', { error: err instanceof Error ? err.message : String(err) })
+        }
+      }
+      this.pendingPersist = null
+    })()
   }
 }

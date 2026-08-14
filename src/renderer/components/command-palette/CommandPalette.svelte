@@ -360,7 +360,15 @@
   /* Keyframes can't be expressed as Tailwind utilities; referenced via
      [animation:…] on the panel above. */
   .command-palette-enter {
-    animation: cmdk-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    /* `backwards`, not `both`: a retained end transform keeps the panel on its
+       own compositing layer and blurs its text (see index.css msg-in-up note). */
+    animation: cmdk-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .command-palette-enter {
+      animation: none;
+    }
   }
 
   @keyframes cmdk-enter {

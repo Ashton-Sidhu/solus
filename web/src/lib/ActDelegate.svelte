@@ -6,7 +6,7 @@
 			<div class="delegate-tab"><i></i>session-hardening</div>
 			<div class="delegate-tab"><i></i>csrf-protection</div>
 		</div>
-		<div class="delegate-new">＋ <span>New session</span></div>
+		<div class="delegate-new">+ <span>New session</span></div>
 	</div>
 
 	<div class="delegate-body">
@@ -14,7 +14,7 @@
 			<div class="delegate-context">
 				<div>
 					<strong>auth-refactor</strong>
-					<span>⌁ feature/auth-refactor</span>
+					<span><svg class="delegate-branch-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5v7M4.5 4.5a1.7 1.7 0 1 0 0-3.4 1.7 1.7 0 0 0 0 3.4Zm0 7a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4Zm7-7a1.7 1.7 0 1 0 0-3.4 1.7 1.7 0 0 0 0 3.4Zm0 0c0 3-2.5 3.6-4.8 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> feature/auth-refactor</span>
 				</div>
 				<span class="delegate-running"><i></i> Working</span>
 			</div>
@@ -40,15 +40,15 @@
 			</div>
 
 			<div class="delegate-input">
-				<span>Plan, Build, Automate / @ for context</span>
-				<div><b>@</b><b>⌕</b><em>Solus 3.5⌄</em><i>↑</i></div>
+				<span>Plan, Build, Automate · @ for context</span>
+				<div><b>@</b><b>⌕</b><em>Claude Code ⌄</em><em>Auto ⌄</em><i>↑</i></div>
 			</div>
 		</div>
 
 		<aside class="delegate-project">
 			<section>
 				<h4>Git</h4>
-				<div class="delegate-branch">⌁ feature/auth-refactor <span>⌄</span></div>
+				<div class="delegate-branch"><svg class="delegate-branch-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5v7M4.5 4.5a1.7 1.7 0 1 0 0-3.4 1.7 1.7 0 0 0 0 3.4Zm0 7a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4Zm7-7a1.7 1.7 0 1 0 0-3.4 1.7 1.7 0 0 0 0 3.4Zm0 0c0 3-2.5 3.6-4.8 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> feature/auth-refactor <span>⌄</span></div>
 				<dl>
 					<div><dt>Uncommitted</dt><dd>4</dd></div>
 					<div><dt>Staged</dt><dd>6</dd></div>
@@ -56,7 +56,7 @@
 				</dl>
 			</section>
 			<section class="delegate-tasks">
-				<h4>Tasks <span>＋</span></h4>
+				<h4>Tasks <span>+</span></h4>
 				<div><i class="green"></i>Refactor auth middleware</div>
 				<div><i></i>Add refresh-token rotation</div>
 				<div><i></i>Update tests</div>
@@ -166,7 +166,9 @@
 	}
 	.delegate-input > div { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
 	.delegate-input b { color: #766f67; font-family: var(--font-mono); font-size: 9px; }
-	.delegate-input em { margin-left: auto; color: #8b8177; font-family: var(--font-mono); font-size: 7px; font-style: normal; }
+	.delegate-input em { color: #8b8177; font-family: var(--font-mono); font-size: 7px; font-style: normal; }
+	.delegate-input em:first-of-type { margin-left: auto; }
+	.delegate-branch-ic { width: 8px; height: 8px; flex-shrink: 0; vertical-align: -1px; }
 	.delegate-input i { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 999px; background: linear-gradient(145deg, #e08868 0%, #d97757 40%, #c96442 100%); color: white; font-size: 12px; font-weight: 700; font-style: normal; box-shadow: 0 2px 8px rgba(217,119,87,.2), 0 1px 2px rgba(0,0,0,.2); }
 	.delegate-project { display: flex; min-width: 0; flex-direction: column; border-left: 1px solid rgba(0, 0, 0, 0.07); padding: 12px 10px 9px; }
 	.delegate-project section + section { margin-top: 14px; border-top: 1px solid rgba(0,0,0,.06); padding-top: 12px; }

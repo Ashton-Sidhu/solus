@@ -173,6 +173,13 @@
     max-width: none;
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .side-panel-shell,
+    .side-panel-shell.side-panel-closed {
+      transition: none;
+    }
+  }
+
   .side-panel-shell.side-panel-closed {
     width: 0;
     min-width: 0;

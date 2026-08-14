@@ -128,7 +128,12 @@
     /* Single weight across all states — active/attention differentiate via color +
        background only, avoiding the layout reflow a weight change causes. */
     font-weight: 400;
+    /* The single source of tab-item transition truth. This file is unlayered,
+       so it beats Tailwind utilities — don't add transition-* classes in the
+       markup; they silently lose to this shorthand. */
     transition:
+      background-color 0.12s ease,
+      color 0.12s ease,
       box-shadow 0.12s ease,
       width 0.11s cubic-bezier(0.2, 0.8, 0.2, 1),
       max-width 0.11s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -233,6 +238,19 @@
     }
     to {
       transform: rotate(360deg);
+    }
+  }
+
+  /* Tab widths are viewport-relative (15vw/24vw clamps): during an OS window
+     resize the 0.11s width transition retargets every frame and the strip lags
+     the window edge. Track it 1:1 while the frame is moving. */
+  html.solus-resizing .tab-item {
+    transition: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tab-item {
+      transition: none;
     }
   }
 

@@ -119,6 +119,7 @@ describe('macOS editor titlebar', () => {
       'class="workspace-titlebar h-(--solus-titlebar-height) shrink-0"',
     )
     expect(panelSectionSource).toContain("? 'workspace-titlebar'")
+    expect(panelSectionSource).toContain("? 'ml-auto'")
     expect(panelSectionSource).toContain(
       'class="no-drag min-h-0 pt-1.5"',
     )

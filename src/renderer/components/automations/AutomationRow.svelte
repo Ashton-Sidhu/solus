@@ -33,6 +33,7 @@
     onCancelRun: (a: Automation, e: Event) => void;
     onToggleFavorite: (a: Automation, e: Event) => void;
     onDelete: (a: Automation, e: Event) => void;
+    onContextMenu?: (event: MouseEvent, automation: Automation) => void;
   }
   let {
     automation: a,
@@ -46,6 +47,7 @@
     onCancelRun,
     onToggleFavorite,
     onDelete,
+    onContextMenu,
   }: Props = $props();
 
   const actBtn =
@@ -86,11 +88,13 @@
   const age = $derived(compactRelativeTime(a.lastRunAt, now));
 </script>
 
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="group relative flex h-11 w-full items-center rounded-lg pr-2 pl-2.5 transition-shadow duration-150 {selected
     ? 'bg-[var(--wash-2)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)]'
     : 'hover:bg-[var(--wash-1)]'} {a.enabled ? '' : 'opacity-70'}"
   data-selected={selected}
+  oncontextmenu={(event) => onContextMenu?.(event, a)}
 >
   <button
     type="button"

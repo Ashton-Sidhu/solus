@@ -21,6 +21,9 @@
     placeholder?: string;
     ariaLabel?: string;
     debounceMs?: number;
+    /** Queries shorter than this are not searched by the host, so the counter
+     *  stays hidden instead of claiming "0/0" for text the content contains. */
+    minQueryLength?: number;
     caseSensitive?: boolean;
     onCaseSensitiveChange?: (value: boolean) => void;
     replacement?: string;
@@ -40,6 +43,7 @@
     placeholder = "Find",
     ariaLabel = "Find",
     debounceMs = 0,
+    minQueryLength = 1,
     caseSensitive = false,
     onCaseSensitiveChange,
     replacement = "",
@@ -158,7 +162,7 @@
       class="find-bar__input"
     />
     <span class="find-bar__count" aria-live="polite" aria-atomic="true">
-      {query.trim() ? `${current}/${total}` : ""}
+      {query.trim().length >= minQueryLength ? `${current}/${total}` : ""}
     </span>
     {#if onCaseSensitiveChange}
       <button

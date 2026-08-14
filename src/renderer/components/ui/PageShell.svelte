@@ -48,7 +48,7 @@
     {@render leading()}
   </div>
 {/if}
-<div class="absolute right-2.5 top-2.5 z-10 flex items-center gap-1">
+<div class="no-drag pointer-events-auto absolute right-2.5 top-2.5 z-10 flex items-center gap-1">
   {#if trailing}{@render trailing()}{/if}
   <FrameExpandButton variant="projectPanel" />
   {#if onClose}

@@ -2,14 +2,41 @@
   import { Skeleton } from "../ui/skeleton";
 
   interface Props {
-    variant?: "diff" | "preview";
+    variant?: "diff" | "preview" | "map";
   }
 
   let { variant = "diff" }: Props = $props();
+
+  // Treemap tile layout, mirroring the heat map's few large cells over many
+  // small ones so the skeleton reads as the same view before the data lands.
+  const mapTiles = [
+    "col-span-2 row-span-2",
+    "col-span-2",
+    "",
+    "",
+    "col-span-2",
+    "",
+    "",
+  ];
 </script>
 
 <div class="flex-1 min-h-0 overflow-hidden p-2 flex flex-col gap-1.5">
-  {#if variant === "preview"}
+  {#if variant === "map"}
+    <div class="flex h-full min-h-0 flex-1 flex-col gap-3 p-2">
+      <div class="flex items-center justify-between gap-4">
+        <Skeleton class="h-[0.625rem] w-24 shrink-0 rounded-[0.1875rem]" />
+        <div class="flex items-center gap-3">
+          <Skeleton class="h-[0.625rem] w-28 shrink-0 rounded-[0.1875rem]" />
+          <Skeleton class="h-1.5 w-16 shrink-0 rounded-full" />
+        </div>
+      </div>
+      <div class="grid min-h-0 flex-1 grid-cols-4 grid-rows-3 gap-1.5">
+        {#each mapTiles as span, i (i)}
+          <Skeleton class="rounded-md {span}" />
+        {/each}
+      </div>
+    </div>
+  {:else if variant === "preview"}
     <div class="diff-skel-slot" style="background:transparent">
       <div
         class="flex items-center gap-2 px-3 border-b border-(--solus-file-slot-divider)"

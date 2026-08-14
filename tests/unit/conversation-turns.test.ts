@@ -7,6 +7,7 @@ import {
   itemKey,
   needsLiveRow,
   runIsLive,
+  stabilizeTurns,
 } from '../../src/renderer/components/conversation/lib/turns'
 
 let clock = 1_000
@@ -530,5 +531,42 @@ describe('a run parked on a card has not ended', () => {
 
     expect(turn.tail).toHaveLength(0)
     expect(turn.live).toBe(true)
+  })
+})
+
+describe('stabilizeTurns — settled turns keep their identity across streaming rebuilds', () => {
+  test('an unchanged turn returns the previous object; the changed live turn stays fresh', () => {
+    // WHY: the reveal cursor rebuilds turns ~30×/s while text streams. Each row
+    // component keys its derived work on the `turn` prop's identity, so handing
+    // every settled turn a fresh object each frame re-runs per-turn derived
+    // state across the whole transcript for a one-character reveal step.
+    const settled = [
+      msg({ role: 'user', content: 'first prompt' }),
+      msg({ role: 'assistant', content: 'first answer' }),
+    ]
+    const livePrompt = msg({ role: 'user', content: 'second prompt' })
+    const grouped = groupMessages([...settled, livePrompt])
+
+    const frameOne = buildTurns(grouped, { running: true })
+    const frameTwo = stabilizeTurns(
+      buildTurns(
+        [...grouped, { kind: 'live-assistant' as const, id: 'live-stream', content: 'strea' }],
+        { running: true },
+      ),
+      frameOne,
+    )
+
+    expect(frameTwo[0]).toBe(frameOne[0])
+    expect(frameTwo[1]).not.toBe(frameOne[1])
+    expect(frameTwo[1].body.at(-1)).toMatchObject({ kind: 'live-assistant', content: 'strea' })
+  })
+
+  test('a turn whose end changed is not reused', () => {
+    const prompt = msg({ role: 'user', content: 'do the thing' })
+    const grouped = groupMessages([prompt])
+    const running = buildTurns(grouped, { running: true })
+    const stopped = stabilizeTurns(buildTurns(grouped, { running: false }), running)
+    expect(stopped[0]).not.toBe(running[0])
+    expect(stopped[0].live).toBe(false)
   })
 })

@@ -262,7 +262,7 @@
                   <button
                     type="button"
                     onclick={onRemove}
-                    class="cursor-pointer text-xs text-(--solus-text-tertiary) opacity-60 transition-all duration-100 hover:text-(--destructive) hover:opacity-100 focus-visible:text-(--destructive) focus-visible:opacity-100 focus-visible:outline-none"
+                    class="cursor-pointer text-xs text-(--solus-text-tertiary) opacity-60 transition-[color,opacity] duration-100 hover:text-(--destructive) hover:opacity-100 focus-visible:text-(--destructive) focus-visible:opacity-100 focus-visible:outline-none"
                   >
                     Remove
                   </button>

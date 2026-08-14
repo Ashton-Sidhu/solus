@@ -1,7 +1,9 @@
 import { createReadStream, existsSync, writeFileSync } from 'node:fs'
+import { open, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { extname, join } from 'node:path'
 import { createInterface } from 'node:readline'
+import { MemoryCache } from '../../../shared/cache'
 import { z } from 'zod'
 import { encodePathAsFolder, stripInjectedContext } from '../utils'
 import { extractPlanTitle } from '../plan-text'
@@ -336,31 +338,80 @@ export function codexThreadBelongsToProject(thread: CodexThreadSummary, projectR
   return cwd === projectRoot || worktreeProjectRoot(cwd) === projectRoot
 }
 
-export async function scanCodexThreadActivityTimestamp(thread: CodexThreadSummary): Promise<number | null> {
-  if (!thread.path || !existsSync(thread.path)) return null
+// Newest entries live at the end of a thread's JSONL, so the latest activity
+// timestamp is derivable from the file tail; parsing the whole transcript
+// scales with total bytes on disk rather than with what changed.
+const ACTIVITY_SCAN_TAIL_BYTES = 64 * 1024
+const activityTimestampCache = new MemoryCache<string, { mtimeMs: number; size: number; timestamp: number | null }>({ maxEntries: 512 })
 
-  const transcriptPath = thread.path
+function latestActivityTimestampInLine(line: string): number | null {
+  try {
+    const obj = JSON.parse(line)
+    if (obj.type === 'event_msg' && obj.payload?.type === 'task_started') {
+      return parseEpochMs(obj.payload?.started_at ?? obj.timestamp)
+    }
+    if (obj.type === 'response_item') return parseEpochMs(obj.timestamp)
+  } catch {}
+  return null
+}
+
+async function scanWholeTranscriptActivityTimestamp(transcriptPath: string): Promise<number | null> {
   let latest: number | null = null
   await new Promise<void>((resolve) => {
     const rl = createInterface({ input: createReadStream(transcriptPath) })
     rl.on('line', (line: string) => {
-      try {
-        const obj = JSON.parse(line)
-        let timestamp: number | null = null
-
-        if (obj.type === 'event_msg' && obj.payload?.type === 'task_started') {
-          timestamp = parseEpochMs(obj.payload?.started_at ?? obj.timestamp)
-        } else if (obj.type === 'response_item') {
-          timestamp = parseEpochMs(obj.timestamp)
-        }
-
-        if (timestamp !== null) latest = Math.max(latest ?? 0, timestamp)
-      } catch {}
+      const timestamp = latestActivityTimestampInLine(line)
+      if (timestamp !== null) latest = Math.max(latest ?? 0, timestamp)
     })
     rl.on('close', () => resolve())
     rl.on('error', () => resolve())
   })
+  return latest
+}
 
+export async function scanCodexThreadActivityTimestamp(thread: CodexThreadSummary): Promise<number | null> {
+  if (!thread.path) return null
+  const transcriptPath = thread.path
+
+  let fileStat
+  try {
+    fileStat = await stat(transcriptPath)
+  } catch {
+    return null
+  }
+  const cached = activityTimestampCache.get(transcriptPath)
+  if (cached && cached.mtimeMs === fileStat.mtimeMs && cached.size === fileStat.size) return cached.timestamp
+
+  let latest: number | null = null
+  try {
+    const readStart = Math.max(0, fileStat.size - ACTIVITY_SCAN_TAIL_BYTES)
+    const handle = await open(transcriptPath, 'r')
+    try {
+      const length = fileStat.size - readStart
+      const buffer = Buffer.alloc(length)
+      // Honor short reads (file truncated between stat and read) — decoding the
+      // NUL-filled remainder would poison the newest line.
+      const { bytesRead } = await handle.read(buffer, 0, length, readStart)
+      const lines = buffer.toString('utf8', 0, bytesRead).split('\n')
+      // The tail almost always starts mid-line; drop the partial first entry.
+      if (readStart > 0) lines.shift()
+      for (const line of lines) {
+        const timestamp = latestActivityTimestampInLine(line)
+        if (timestamp !== null) latest = Math.max(latest ?? 0, timestamp)
+      }
+    } finally {
+      await handle.close()
+    }
+  } catch {
+    return null
+  }
+
+  // A tail holding no parsable timestamp (e.g. one oversized item) falls back
+  // to the full scan so the answer matches the whole-file read.
+  if (latest === null && fileStat.size > ACTIVITY_SCAN_TAIL_BYTES) {
+    latest = await scanWholeTranscriptActivityTimestamp(transcriptPath)
+  }
+  activityTimestampCache.set(transcriptPath, { mtimeMs: fileStat.mtimeMs, size: fileStat.size, timestamp: latest })
   return latest
 }
 

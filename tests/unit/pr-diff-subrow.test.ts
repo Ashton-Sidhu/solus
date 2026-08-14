@@ -48,4 +48,18 @@ describe('diff toolbar under a host header', () => {
     expect(guard).toBeGreaterThan(-1)
     expect(identity).toBeGreaterThan(guard)
   })
+
+  test('keeps commit scope in the toolbar instead of a separate banner', () => {
+    // WHY: commit scope is lightweight context for the diff, not a second
+    // header that pushes the changed files down. The compact identity must also
+    // keep the route back to the full pull-request diff.
+    expect(reviewPaneSource).not.toContain('CommitDiffBanner')
+    expect(diffPaneSource).not.toContain('CommitDiffBanner')
+    expect(reviewPaneSource).toContain('commitSha={commitScope?.sha ?? null}')
+    expect(diffPaneSource).toContain('commitSha={review.commitScope?.sha ?? null}')
+    expect(toolbarSource).toContain('{#if commitSha}')
+    expect(toolbarSource).toContain('<GitCommitIcon size={14} weight="duotone" />')
+    expect(toolbarSource).toContain('<span>{commitSha.slice(0, 7)}</span>')
+    expect(toolbarSource).toContain('<TooltipUI.Content value={"View all changes"} />')
+  })
 })

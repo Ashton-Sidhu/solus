@@ -12,6 +12,10 @@
    */
   let { dimBackdrop = false }: { dimBackdrop?: boolean } = $props();
 
+  const reduceMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
+
   const host = $derived(serversStore.activeServer);
   const isRemote = $derived(!!host && !host.local);
 
@@ -108,7 +112,7 @@
   <div
     class="pointer-events-auto fixed left-1/2 top-3 z-[10018] flex -translate-x-1/2 items-center gap-2 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) py-1.5 pl-3 pr-2 text-xs font-secondary text-(--solus-text-secondary) shadow-(--solus-popover-shadow) backdrop-blur-xl"
     role="status"
-    transition:fly={{ y: -8, duration: 260 }}
+    transition:fly={{ y: -8, duration: reduceMotion ? 0 : 260 }}
   >
     <WifiXIcon size={14} class="shrink-0 text-(--solus-accent)" />
     <span class="max-w-[14rem] truncate">
@@ -130,7 +134,7 @@
   <div
     class="pointer-events-auto fixed left-1/2 top-3 z-[10018] w-[19rem] -translate-x-1/2 rounded-2xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-3.5 font-secondary shadow-(--solus-popover-shadow) backdrop-blur-xl"
     role="alert"
-    transition:fly={{ y: -8, duration: 300 }}
+    transition:fly={{ y: -8, duration: reduceMotion ? 0 : 300 }}
   >
     <div class="text-[0.8125rem] text-(--solus-text-primary)">{cardCopy.title}</div>
     <p class="mt-1 text-xs leading-relaxed text-(--solus-text-tertiary)">
@@ -157,7 +161,7 @@
   <div
     class="pointer-events-none fixed left-1/2 top-3 z-[10018] flex -translate-x-1/2 items-center gap-2 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) px-3 py-1.5 text-xs font-secondary text-(--solus-text-secondary) shadow-(--solus-popover-shadow) backdrop-blur-xl"
     role="status"
-    transition:fly={{ y: -8, duration: 260 }}
+    transition:fly={{ y: -8, duration: reduceMotion ? 0 : 260 }}
   >
     <CheckIcon size={13} class="shrink-0 text-(--solus-status-live)" />
     <span>

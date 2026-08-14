@@ -76,6 +76,8 @@
     embedded = false,
     hasHostHeaderRow = false,
     commentingDisabled = false,
+    commitSha = null,
+    onClearCommitScope,
     externalComments = null,
     onExternalCommentSave,
     onExternalCommentDelete,
@@ -113,6 +115,11 @@
      *  shares (a commit-scoped patch): an anchored comment would point at
      *  different code once read against the full diff. */
     commentingDisabled?: boolean;
+    /** Commit identity shown in the diff toolbar while the panel is scoped to
+     *  one pull-request commit. */
+    commitSha?: string | null;
+    /** Return from a commit-scoped patch to the full pull-request diff. */
+    onClearCommitScope?: () => void;
     /** Optional externally-owned comment list for surfaces that persist comments
      *  outside the active tab while still reusing the diff UI. */
     externalComments?: DiffComment[] | null;
@@ -677,7 +684,9 @@
   // paints — so next/prev cycle in visual top-to-bottom order. Recomputes
   // automatically on live mid-turn refresh (derived over reactive fileDiffs).
   const findMatches = $derived.by<DiffFindMatch[]>(() => {
-    if (findQuery.trim().length === 0) return [];
+    // A 1-character query on a large diff yields hundreds of thousands of match
+    // objects and a full stream repaint; wait for a query that can narrow.
+    if (findQuery.trim().length < 2) return [];
     return diffState.findMatches(
       findQuery,
       orderedFiles.map((f) => f.name),
@@ -995,12 +1004,14 @@
     turnRunning={sess?.status === "running" || sess?.status === "connecting"}
     mode={isWorkingTreeScope ? "working-tree" : "session"}
     {hasHostHeaderRow}
+    {commitSha}
+    {onClearCommitScope}
     {panelView}
     onSetPanelView={(view) => (panelView = view)}
   />
 
   {#if showLoading}
-    <DiffLoadingSkeleton />
+    <DiffLoadingSkeleton variant={panelView === "map" ? "map" : "diff"} />
   {:else if diffState.loading}
     <!-- Pre-skeleton window: a fast load resolves here and swaps straight to
          content without ever flashing the skeleton or the empty state. -->
@@ -1056,6 +1067,7 @@
               placeholder="Find in diff"
               ariaLabel="Find in diff"
               debounceMs={120}
+              minQueryLength={2}
               onQueryChange={(v) => {
                 findQuery = v;
                 findIndex = 0;

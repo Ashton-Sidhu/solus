@@ -127,14 +127,13 @@ export function relativeTime(iso: string | number, now = Date.now()): string {
 /**
  * The kanban columns, in board order. Status is the drop target / drag result.
  *
- * Ordered by how much attention the column wants, matching the section order of
- * the grouped list — so switching layouts re-plots the same tasks rather than
- * re-teaching where they live.
+ * Ordered by lifecycle, from work that is ready to start through completed
+ * work, so the board reads from left to right as a workflow.
  */
 export const BOARD_COLUMNS: { status: TaskStatus; label: string }[] = [
+  { status: 'todo', label: 'Todo' },
   { status: 'in_progress', label: 'In progress' },
   { status: 'in_review', label: 'In review' },
-  { status: 'todo', label: 'Todo' },
   { status: 'done', label: 'Done' },
 ]
 

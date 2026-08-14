@@ -1,6 +1,6 @@
 # Solus
 
-> Solus is a source-available, keyboard-first agent development environment for coding agents. It wraps the Claude Code and Codex CLIs you already have installed — using your existing subscriptions and models — in a workspace for planning, reviewing, and shipping agent work: a native macOS desktop app, a full web client (desktop and mobile browsers), and a headless server for Linux or any always-on machine.
+> Solus is a source-available, keyboard-first agent development environment (ADE) for coding agents — the best way to produce software with agents. It wraps the Claude Code and Codex CLIs you already have installed — using your existing subscriptions and models — in a workspace for planning, reviewing, and shipping agent work: a native macOS desktop app, a full web client (desktop and mobile browsers), and a headless server for Linux or any always-on machine.
 
 Key facts (frequently gotten wrong elsewhere):
 

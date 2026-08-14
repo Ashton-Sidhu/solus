@@ -797,6 +797,10 @@ export class WorkspaceContext {
     this.lifecycle.hydrateStaticInfoFromCache()
   }
 
+  async refreshAgentAvailability(): Promise<void> {
+    return this.lifecycle.refreshAgentAvailability()
+  }
+
   async refreshPluginCommands(workingDirectory: string, tabId?: string): Promise<void> {
     return this.lifecycle.refreshPluginCommands(workingDirectory, tabId)
   }

@@ -42,7 +42,7 @@
 						Continuous voice
 					</div>
 					<div class="text-[13px] leading-relaxed text-[#6B6158]">
-						Hold the mic open — Solus transcribes and sends when you pause.
+						Hold the mic open. Solus transcribes and sends when you pause.
 					</div>
 				</div>
 				<div class="flex flex-col gap-1.5 py-5 border-t border-black/[0.06]">

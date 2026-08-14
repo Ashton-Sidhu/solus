@@ -102,13 +102,22 @@ export function findLastUserIndex(messages: Message[]): number {
   return -1
 }
 
+/** How far back a running tool can plausibly sit: enough for the largest live
+ *  exchange (hundreds of tool rows) without walking a 5k-message transcript. */
+const RUNNING_TOOL_SCAN_DEPTH = 250
+
 /** The most specific user-facing label for a live session's current phase. */
 export function computeCurrentActivity(session: Session): string {
   if (session.permissionQueue.length > 0) return `Waiting for permission: ${session.permissionQueue[0].toolTitle}`
   if (session.questionQueue.length > 0) return 'Waiting for your input...'
   if (session.isStreamingText) return 'Writing...'
   if (session.isReconnecting) return 'Reconnecting...'
-  for (let i = session.messages.length - 1; i >= 0; i--) {
+  // A running tool always sits near the tail (the current exchange), so bound
+  // the reverse walk instead of scanning — and subscribing to — the whole
+  // transcript. Depth-bounded rather than stopping at the last user message so
+  // a mid-turn steering message cannot hide a still-running tool's label.
+  const scanFloor = Math.max(0, session.messages.length - RUNNING_TOOL_SCAN_DEPTH)
+  for (let i = session.messages.length - 1; i >= scanFloor; i--) {
     const message = session.messages[i]
     if (message.role === 'tool' && message.toolStatus === 'running' && message.toolName) {
       return `Running ${prettyToolName(message.toolName)}...`

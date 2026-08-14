@@ -8,7 +8,6 @@
   import DiffPanel from "../diff/DiffPanel.svelte";
   import SinceReviewBar from "./SinceReviewBar.svelte";
   import StackDiffBanner from "./StackDiffBanner.svelte";
-  import CommitDiffBanner from "./CommitDiffBanner.svelte";
   import { existingPrReviewState } from "./lib/pr-review.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { serverConnections } from "@client-core/server-connections";
@@ -66,15 +65,7 @@
 
 {#if review && pr}
   <div class="flex h-full min-h-0 flex-col">
-    {#if review.commitScope}
-      <CommitDiffBanner
-        commit={review.commitScope}
-        onClear={() => {
-          review.clearCommitScope();
-          requestInputFocus();
-        }}
-      />
-    {:else if review.ownDeltaBase}
+    {#if !review.commitScope && review.ownDeltaBase}
       <StackDiffBanner
         parent={review.ownDeltaBase.parent}
         fileCount={review.ownDeltaFileCount}
@@ -116,6 +107,11 @@
         onToggleMaximize={pane.toggleMaximize}
         initialScope={review.diffScope}
         commentingDisabled={!!review.commitScope}
+        commitSha={review.commitScope?.sha ?? null}
+        onClearCommitScope={() => {
+          review.clearCommitScope();
+          requestInputFocus();
+        }}
         patchOverride={review.commitScope
           ? (review.commitDiffPatch ?? "")
           : review.isSinceReviewMode

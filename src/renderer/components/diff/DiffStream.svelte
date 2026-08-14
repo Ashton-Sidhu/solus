@@ -194,6 +194,20 @@
     });
   }
 
+  // Move decoration walks every rendered host with per-line selector queries
+  // and DOM mutation. onPostRender fires per recycle during fast scroll, so
+  // coalesce to one decoration pass per frame, same as the find repaint above.
+  let moveDecorateRaf = 0;
+
+  function scheduleMoveDecorations() {
+    if (moveDecorateRaf) return;
+    moveDecorateRaf = requestAnimationFrame(() => {
+      moveDecorateRaf = 0;
+      if (!codeView) return;
+      decorateMovedLines(codeView.getRenderedItems(), moveAnalysis, diffStyle);
+    });
+  }
+
   const commentsByPath = $derived.by(() => {
     const m = new Map<string, DiffComment[]>();
     for (const c of comments) {
@@ -574,12 +588,7 @@
       unsafeCSS: `${DIFFS_THEME_CSS}\n${DIFF_FIND_HIGHLIGHT_CSS}`,
       onPostRender: () => {
         paintItemBackgrounds();
-        if (codeView)
-          decorateMovedLines(
-            codeView.getRenderedItems(),
-            moveAnalysis,
-            diffStyle,
-          );
+        scheduleMoveDecorations();
         scheduleFindRepaint();
       },
       renderHeaderPrefix: (
@@ -683,6 +692,8 @@
       unsubscribe();
       if (findRepaintRaf) cancelAnimationFrame(findRepaintRaf);
       findRepaintRaf = 0;
+      if (moveDecorateRaf) cancelAnimationFrame(moveDecorateRaf);
+      moveDecorateRaf = 0;
       unsubscribeFindScroll?.();
       unsubscribeFindScroll = null;
       findHighlighter.destroy();

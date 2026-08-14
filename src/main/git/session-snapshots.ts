@@ -85,7 +85,10 @@ export function getSessionBaseSha(repoRoot: string, sessionId: string): string |
 
 function writeSidecar(repoRoot: string, sessionId: string, data: Sidecar): void {
   ensureSolusDirs(repoRoot)
-  writeFileSync(sidecarPath(repoRoot, sessionId), JSON.stringify(data, null, 2))
+  // Machine-written, machine-read, and rewritten at every turn boundary — the
+  // sidecar grows with session length, so serialize compact to keep the
+  // event-loop cost of a turn snapshot flat.
+  writeFileSync(sidecarPath(repoRoot, sessionId), JSON.stringify(data))
 }
 
 export async function initSessionBase(repoRoot: string, sessionId: string, baseSha: string): Promise<void> {

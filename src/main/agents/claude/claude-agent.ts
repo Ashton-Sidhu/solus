@@ -1,10 +1,9 @@
-import { execSync } from 'child_process'
 import { homedir } from 'os'
 import { Options, PermissionMode, query } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeTurnNormalizer, isAbortSeamResult, isTaskNotificationResult } from './claude-event-normalizer'
 import { TurnInputChannel } from './claude-turn-input'
 import { createLogger } from '../../logger'
-import { getCliEnv } from '../../cli-env'
+import { findOnPath, warmCliPath } from '../../cli-env'
 import { SOLUS_PLUGINS_DIR } from '../plugins'
 import { parseClaudeUsageReport } from './claude-usage'
 import type { ClaudeUsageWindows } from './claude-usage'
@@ -85,13 +84,18 @@ export const SAFE_TOOLS = [
   'WebSearch', 'WebFetch',
 ]
 
+// Resolved off the boot path: the synchronous alternative (`which` through an
+// interactive login shell) stalls the main process for up to several seconds at
+// import. Until the warm PATH resolves, runs pass `undefined` and the SDK falls
+// back to its bundled CLI — the same state as a machine with no global install.
 let claudeExecutablePath: string | undefined
-try {
-  claudeExecutablePath = execSync('which claude', { encoding: 'utf8', env: getCliEnv() }).trim() || undefined
-  log.info('claude_executable_found', { path: claudeExecutablePath })
-} catch {
+void warmCliPath().then((path) => {
+  claudeExecutablePath = findOnPath('claude', path) ?? undefined
+  if (claudeExecutablePath) log.info('claude_executable_found', { path: claudeExecutablePath })
+  else log.warn('claude_executable_not_found')
+}).catch(() => {
   log.warn('claude_executable_not_found')
-}
+})
 
 export type CanUseTool = (toolName: string, input: any, options?: { toolUseID?: string }) => Promise<any>
 

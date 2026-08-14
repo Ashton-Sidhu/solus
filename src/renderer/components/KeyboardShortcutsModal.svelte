@@ -265,8 +265,17 @@
       var(--solus-popover-shadow),
       inset 0 0.0625rem 0 rgba(255, 255, 255, 0.14);
     overflow: hidden;
-    animation: shortcuts-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    /* `backwards`, not `both`: a retained end transform keeps the whole list on
+       its own compositing layer and blurs its text. */
+    animation: shortcuts-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
     transform-origin: center top;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .shortcuts-backdrop,
+    .shortcuts-modal {
+      animation: none;
+    }
   }
 
   :global(.dark) .shortcuts-modal {

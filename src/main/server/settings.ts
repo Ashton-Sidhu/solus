@@ -34,6 +34,7 @@ const persistedServerSettingsSchema = z.object({
   name: z.string().optional(),
   projectsBaseDirectory: z.string().optional(),
   textGenerationModel: modelSelectionSchema.optional(),
+  backupTextGenerationModel: modelSelectionSchema.optional(),
   sourceControlWriterModel: modelSelectionSchema.nullable().optional(),
   sourceControlWriting: sourceControlWritingSchema.optional(),
 }).strip()
@@ -50,6 +51,7 @@ export interface ServerSettings {
    */
   projectsBaseDirectory?: string
   textGenerationModel: TextGenerationModelSelection
+  backupTextGenerationModel: TextGenerationModelSelection
   sourceControlWriterModel: TextGenerationModelSelection | null
   sourceControlWriting: SourceControlWritingPreferences
 }
@@ -63,6 +65,10 @@ const DEFAULT_SETTINGS: ServerSettings = {
   remoteAccess: true,
   agentTaskLifecyclePolicy: 'moderate',
   textGenerationModel: { provider: 'codex', model: DEFAULT_TEXT_GENERATION_MODELS.codex },
+  backupTextGenerationModel: {
+    provider: 'claude-code',
+    model: DEFAULT_TEXT_GENERATION_MODELS['claude-code'],
+  },
   sourceControlWriterModel: null,
   sourceControlWriting: DEFAULT_SOURCE_CONTROL_WRITING,
 }
@@ -84,6 +90,8 @@ export function getServerSettings(): ServerSettings {
         projectsBaseDirectory: normalizeProjectsBaseDirectory(parsed?.projectsBaseDirectory),
         textGenerationModel: normalizeModelSelection(parsed?.textGenerationModel)
           ?? DEFAULT_SETTINGS.textGenerationModel,
+        backupTextGenerationModel: normalizeModelSelection(parsed?.backupTextGenerationModel)
+          ?? DEFAULT_SETTINGS.backupTextGenerationModel,
         sourceControlWriterModel: parsed?.sourceControlWriterModel === null
           ? null
           : normalizeModelSelection(parsed?.sourceControlWriterModel),
@@ -145,6 +153,9 @@ export function setTextGenerationSettings(
     textGenerationModel: patch.textGenerationModel
       ? requireModelSelection(patch.textGenerationModel)
       : current.textGenerationModel,
+    backupTextGenerationModel: patch.backupTextGenerationModel
+      ? requireModelSelection(patch.backupTextGenerationModel)
+      : current.backupTextGenerationModel,
     sourceControlWriterModel: patch.sourceControlWriterModel === undefined
       ? current.sourceControlWriterModel
       : patch.sourceControlWriterModel === null
@@ -163,14 +174,17 @@ export function setTextGenerationSettings(
 }
 
 export function resolveTextGenerationModel(): TextGenerationModelSelection {
-  return resolveAvailableModel(getServerSettings().textGenerationModel)
+  const settings = getServerSettings()
+  return resolveAvailableModel(settings.textGenerationModel, settings.backupTextGenerationModel)
 }
 
 export function resolveSourceControlWriterModel(): TextGenerationModelSelection {
   const settings = getServerSettings()
-  return settings.sourceControlWriterModel
-    ? resolveAvailableModel(settings.sourceControlWriterModel, settings.textGenerationModel)
-    : resolveAvailableModel(settings.textGenerationModel)
+  return resolveAvailableModel(
+    settings.sourceControlWriterModel,
+    settings.textGenerationModel,
+    settings.backupTextGenerationModel,
+  )
 }
 
 function persistSettings(next: ServerSettings): void {
@@ -227,11 +241,12 @@ function automaticTextGenerationModel(): TextGenerationModelSelection {
   return { ...DEFAULT_SETTINGS.textGenerationModel }
 }
 
+/** Candidates run in preference order; an absent one is simply skipped. */
 function resolveAvailableModel(
-  selection: TextGenerationModelSelection,
-  fallback?: TextGenerationModelSelection,
+  ...candidates: (TextGenerationModelSelection | null)[]
 ): TextGenerationModelSelection {
-  if (isAvailable(selection)) return selection
-  if (fallback && isAvailable(fallback)) return fallback
+  for (const candidate of candidates) {
+    if (candidate && isAvailable(candidate)) return candidate
+  }
   return automaticTextGenerationModel()
 }

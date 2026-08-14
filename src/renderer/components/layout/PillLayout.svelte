@@ -114,6 +114,27 @@
     if (router.at("folio")) hasMountedWorkspace = true;
   });
 
+  // The conversation pool outlives every covering surface. Unmounting it for a
+  // picker, Settings, or a page toggle would force a full transcript remount
+  // (markdown re-parse, entry animations, scroll reset) on the way back — so it
+  // lazy-mounts once and then hides with display:none, like WorkspaceBody's pool.
+  const conversationSurfaceActive = $derived(
+    !router.at("settings") &&
+      !router.at("folio") &&
+      !router.at("automations") &&
+      !router.at("tasks") &&
+      !router.at("prs"),
+  );
+  const conversationPoolVisible = $derived(
+    conversationSurfaceActive && !pickerOpen && !taskPickerOpen,
+  );
+  // Seeded from the current value so the common launch (straight into a
+  // conversation) paints the pool on the very first frame.
+  let hasMountedConversationPool = $state(conversationPoolVisible);
+  $effect(() => {
+    if (conversationPoolVisible) hasMountedConversationPool = true;
+  });
+
   // Lazy-mount the pill conversation pool. Only create a tab's ConversationView
   // the first time it becomes active, rather than mounting all N at once.
   const mountedTabIds = new SvelteSet<string>([session.activeTabId].filter(Boolean));
@@ -197,14 +218,11 @@
       transition:background 0.28s cubic-bezier(0.16,1,0.3,1), box-shadow 0.28s cubic-bezier(0.16,1,0.3,1), margin-bottom 0.28s cubic-bezier(0.16,1,0.3,1), border-color 0.28s cubic-bezier(0.16,1,0.3,1);
     "
     >
-      <div
-        class="overflow-hidden no-drag"
-        style="
-        height:{bodyOpen ? 'auto' : 0};
-        opacity:{bodyOpen ? 1 : 0};
-        transition:height 0.28s cubic-bezier(0.16,1,0.3,1), opacity 0.28s cubic-bezier(0.16,1,0.3,1);
-      "
-      >
+      <!-- height:0↔auto never interpolates, so the body used to snap while the
+           card frame animated. Grid rows 0fr↔1fr animate the same collapse
+           smoothly and stay interruptible mid-toggle. -->
+      <div class="pill-body-reveal no-drag" class:pill-body-open={bodyOpen}>
+        <div class="min-h-0 overflow-hidden flex flex-col">
         {#if router.at("settings")}
           <div style="height:var(--pill-body-max);overflow:hidden">
             {#await import("../settings/SettingsPage.svelte")}
@@ -253,7 +271,7 @@
               {/await}
             </div>
           {/if}
-          {#if !router.at("folio") && !router.at("automations") && !router.at("tasks") && !router.at("prs")}
+          {#if conversationSurfaceActive}
             {#if pickerOpen}
               <div
                 class="flex flex-col"
@@ -280,7 +298,11 @@
                   }}
                 />
               </div>
-            {:else}
+            {/if}
+          {/if}
+        {/if}
+        {#if hasMountedConversationPool}
+          <div class:tab-hidden={!conversationPoolVisible}>
               <div class="relative" style="{showPillDiagram || pillGoalSessionId ? 'height:var(--pill-body-max)' : 'max-height:var(--pill-body-max)'}">
                 {#if pillGoalSessionId}
                   <PaneChrome
@@ -332,7 +354,7 @@
                       >
                         <ConversationView
                           tabId={tId}
-                          surfaceVisible={active && !showPillDiagram && !pillGoalSessionId}
+                          surfaceVisible={active && conversationPoolVisible && !showPillDiagram && !pillGoalSessionId}
                           retainTranscriptRows={retainedTranscriptTabIds.has(tId)}
                         />
                       </div>
@@ -340,7 +362,7 @@
                   {/each}
                 </div>
               </div>
-              {#if pillWorkModal && !isEditorMode && pillWorkModal.type !== "diagram"}
+              {#if conversationPoolVisible && pillWorkModal && !isEditorMode && pillWorkModal.type !== "diagram"}
                 {#await import("../document-modal/DocumentModal.svelte")}
                   <DocumentModalSkeleton
                     title={pillWorkModal.title}
@@ -356,19 +378,19 @@
                     onClose={() => session.closeWorkModal()}
                   />
                 {/await}
-              {:else if pillPlanModal && !isEditorMode}
+              {:else if conversationPoolVisible && pillPlanModal && !isEditorMode}
                 {#await import("../plan/PlanModal.svelte")}
                   <PlanModalSkeleton />
                 {:then planModalModule}
                   {@const PlanModal = planModalModule.default}
                   <PlanModal plan={pillPlanModal} />
                 {/await}
-              {:else if pillPlanPending && !isEditorMode}
+              {:else if conversationPoolVisible && pillPlanPending && !isEditorMode}
                 <PlanModalSkeleton />
               {/if}
-            {/if}
-          {/if}
+          </div>
         {/if}
+        </div>
       </div>
     </div>
 
@@ -422,5 +444,22 @@
 <style>
   .tab-hidden {
     display: none !important;
+  }
+  .pill-body-reveal {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transition:
+      grid-template-rows 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+      opacity 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .pill-body-reveal.pill-body-open {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pill-body-reveal {
+      transition: none;
+    }
   }
 </style>

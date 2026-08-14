@@ -117,9 +117,14 @@
 >
   <!-- The chrome row: `‹ Subagents` on the traffic-light side, PaneChrome's
        expand/close floating on the other. Both insets are published by the pane
-       column, so the two clusters sit on one optical line. -->
+       column, so the two clusters sit on one optical line.
+
+       The chrome gutter is a margin, not padding: this row is a window drag
+       region, and a drag rect that reached under PaneChrome's cluster would
+       swallow its clicks as window moves. Margin keeps the rect short of the
+       cluster; the row draws nothing, so the layout is unchanged. -->
   <div
-    class="workspace-titlebar flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
+    class="workspace-titlebar flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center mr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <h2
       class="m-0 text-sm leading-tight font-medium "

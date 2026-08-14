@@ -124,16 +124,21 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     try {
       const messages = await controlPlane.loadSession(agentId, sessionId, projectPath, limit)
       if (isDebugEnabled) {
-        log.debug('session_load_bytes', { sessionId, bytes: serializedBytes(messages), messageCount: messages.length })
+        // Serialize each message once and sum for the total, instead of
+        // stringifying the whole multi-MB transcript a second time.
+        let totalBytes = 0
         for (const message of messages) {
+          const bytes = serializedBytes(message)
+          totalBytes += bytes
           const details = {
             sessionId,
             eventType: message.role,
-            bytes: serializedBytes(message),
+            bytes,
           }
           if (message.toolName) Object.assign(details, { toolName: message.toolName })
           log.debug('session_event_bytes', details)
         }
+        log.debug('session_load_bytes', { sessionId, bytes: totalBytes, messageCount: messages.length })
       }
       return projectSessionHistory(messages)
     } catch (err) {

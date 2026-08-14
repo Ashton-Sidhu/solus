@@ -144,9 +144,7 @@
   const selectedTaskIds = new SvelteSet<string>();
   let selectionAnchorId = $state<string | null>(null);
   $effect(() => {
-    const visibleIds = new Set(
-      searchedTasks.map((task) => task.id),
-    );
+    const visibleIds = new Set(searchedTasks.map((task) => task.id));
     for (const taskId of selectedTaskIds) {
       if (!visibleIds.has(taskId)) selectedTaskIds.delete(taskId);
     }
@@ -341,9 +339,7 @@
   }
 
   function selectedTasks(): SidebarTask[] {
-    return searchedTasks.filter((task) =>
-      selectedTaskIds.has(task.id),
-    );
+    return searchedTasks.filter((task) => selectedTaskIds.has(task.id));
   }
 
   async function bulkComplete() {
@@ -352,8 +348,7 @@
       task.tabIds.includes(session.onScreenTabId),
     );
     const next =
-      searchedTasks.find((task) => !selectedTaskIds.has(task.id)) ??
-      null;
+      searchedTasks.find((task) => !selectedTaskIds.has(task.id)) ?? null;
     const blocked = rows.find(
       (task) => lifecycleBlocked(task.attention) || !task.taskId,
     );
@@ -405,13 +400,12 @@
       () => session.tasksStore.restorePending(pending),
       {
         onDismiss: () =>
-          void session.tasksStore
-            .commitPending(pending)
-            .catch((error) =>
-              toasts.error("Couldn't delete task", {
-                description: error instanceof Error ? error.message : String(error),
-              }),
-            ),
+          void session.tasksStore.commitPending(pending).catch((error) =>
+            toasts.error("Couldn't delete task", {
+              description:
+                error instanceof Error ? error.message : String(error),
+            }),
+          ),
       },
     );
   }
@@ -576,9 +570,7 @@
     if (!targets.length) return;
     const task = targets[0];
     const row =
-      searchedTasks.find(
-        (candidate) => candidate.taskId === task.id,
-      ) ?? null;
+      searchedTasks.find((candidate) => candidate.taskId === task.id) ?? null;
     const next = row ? nextActiveTaskAfter(row.id) : null;
     const wasSelected = !!row?.tabIds.includes(session.onScreenTabId);
     try {
@@ -615,9 +607,10 @@
     const rows = [
       ...scrollEl.querySelectorAll<HTMLElement>('[role="treeitem"]'),
     ];
-    const focused = event.target instanceof Element
-      ? event.target.closest<HTMLElement>('[role="treeitem"]')
-      : null;
+    const focused =
+      event.target instanceof Element
+        ? event.target.closest<HTMLElement>('[role="treeitem"]')
+        : null;
     const index = focused ? rows.indexOf(focused) : -1;
     if (index < 0) return;
 
@@ -1005,7 +998,8 @@
           <kbd
             class="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 font-sans text-[0.625rem] leading-none font-medium text-[color-mix(in_oklch,var(--foreground)_35%,transparent)] opacity-0 transition-opacity duration-150 group-hover/search:opacity-100 group-focus-within/search:opacity-0"
             aria-hidden="true"
-          >{comboHint("global.focus-sidebar-task-search")}</kbd>
+            >{comboHint("global.focus-sidebar-task-search")}</kbd
+          >
         {/if}
       </label>
     {/snippet}
@@ -1104,17 +1098,6 @@
     >
       {#if !session.tasksStore.loaded}
         <TaskListSkeleton />
-      {:else if searchedTasks.length === 0 && (!taskQuery.trim() || !hasTaskSearchResults)}
-        <!-- A scoped list that comes back empty says which project it looked
-             in, and stays scoped: clearing the filter for the user hides the
-             fact that the project has nothing open. -->
-        <p class="py-1 pl-[0.125rem] text-menu-meta text-muted-foreground">
-          {taskQuery.trim()
-            ? "No matching tasks"
-            : sidebarStore.scopedProject
-            ? `No open tasks in ${sidebarStore.scopedProject.label}`
-            : "No open tasks"}
-        </p>
       {:else}
         <div class="flex flex-col gap-[0.1875rem]">
           {#each searchedTasks as task (task.id)}
@@ -1260,6 +1243,18 @@
           </div>
         {/if}
       {/if}
+      <Sidebar.MenuItem>
+        <Sidebar.MenuButton
+          class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+          onclick={() => localApi.openExternal("https://solus.sh/docs")}
+        >
+          <span
+            class="flex shrink-0 items-center motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:rotate-90"
+            ><BooksIcon size={14} /></span
+          >
+          <span class="flex-1 text-left text-[0.875rem]">Docs</span>
+        </Sidebar.MenuButton>
+      </Sidebar.MenuItem>
       <Sidebar.MenuItem>
         <Sidebar.MenuButton
           class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(

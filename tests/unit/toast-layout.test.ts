@@ -6,13 +6,20 @@ const source = readFileSync(
   join(import.meta.dir, "../../src/renderer/components/ui/sonner/sonner.svelte"),
   "utf8",
 )
+const appSource = readFileSync(
+  join(import.meta.dir, "../../src/renderer/App.svelte"),
+  "utf8",
+)
 
-describe("toast close control", () => {
-  test("keeps close icon pointer events on the button and provides a 40px hit area", () => {
-    expect(source).toContain("[data-close-button] > svg)")
-    expect(source).toContain("pointer-events: none")
-    expect(source).toContain("[data-close-button]::before)")
-    expect(source).toContain("width: 40px")
-    expect(source).toContain("height: 40px")
+describe("toast layout", () => {
+  test("uses a short default duration", () => {
+    expect(appSource).toContain("duration={3000}")
+  })
+
+  test("does not show an unreliable close control", () => {
+    // WHY: the close control cannot receive clicks reliably in the native Pill
+    // window. Toast actions and automatic dismissal remain available.
+    expect(source).not.toMatch(/^\s+closeButton\s*$/m)
+    expect(source).not.toContain("[data-close-button]")
   })
 })

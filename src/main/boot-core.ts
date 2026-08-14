@@ -34,6 +34,10 @@ export async function bootCore(opts: BootCoreOptions = {}): Promise<BootCore> {
       if (shutdownPromise) return shutdownPromise
       shutdownPromise = (async () => {
         controlPlane.shutdown()
+        // Session cancellation above drives status transitions whose attention
+        // writes are coalesced and asynchronous; drain them before the process
+        // is allowed to exit so the persisted file reflects the final state.
+        await controlPlane.attention.flushPersist()
         await booted.shutdown()
       })()
       return shutdownPromise

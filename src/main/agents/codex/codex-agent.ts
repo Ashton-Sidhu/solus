@@ -167,13 +167,25 @@ export class CodexAppServerClient extends EventEmitter {
   }
 
   private onStdout(chunk: string): void {
-    this.buffer += chunk
-    for (;;) {
-      const idx = this.buffer.indexOf('\n')
-      if (idx === -1) return
-      const line = this.buffer.slice(0, idx).trim()
-      this.buffer = this.buffer.slice(idx + 1)
-      if (!line) continue
+    // The retained tail never contains a newline (every complete line is
+    // consumed below), so only the appended chunk needs scanning. Without this
+    // a multi-MB frame arriving in small chunks re-scans the whole accumulated
+    // buffer per chunk — O(n²) on large tool results — and the old
+    // slice-per-line loop copied the remaining buffer once per line on top.
+    const data = this.buffer ? this.buffer + chunk : chunk
+    const lines: string[] = []
+    let cursor = 0
+    let idx = data.indexOf('\n', this.buffer.length)
+    while (idx !== -1) {
+      const line = data.slice(cursor, idx).trim()
+      cursor = idx + 1
+      if (line) lines.push(line)
+      idx = data.indexOf('\n', cursor)
+    }
+    // Commit the tail before dispatching so a handler that resets the buffer
+    // (a process restart) is not clobbered after the loop.
+    this.buffer = cursor === 0 ? data : data.slice(cursor)
+    for (const line of lines) {
       try {
         // SAFETY: Codex app-server stdout is the generated JSON-RPC protocol transport.
         this.onMessage(JSON.parse(line) as JsonRpcMessage)

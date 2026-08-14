@@ -6,6 +6,7 @@ function snapshot(model: string): TextGenerationSettingsSnapshot {
   const selection = { provider: 'codex' as const, model }
   return {
     textGenerationModel: selection,
+    backupTextGenerationModel: selection,
     sourceControlWriterModel: null,
     effectiveTextGenerationModel: selection,
     effectiveSourceControlWriterModel: selection,

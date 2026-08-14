@@ -2,7 +2,6 @@ import type { SessionLoadMessage } from '../../../../src/shared/session-history'
 import type {
   Automation,
   AutomationRun,
-  NormalizedEvent,
   PlanAnnotations,
   PlanDescriptor,
   SessionMeta,
@@ -10,6 +9,7 @@ import type {
   WorkAnnotations,
   WorkMeta,
   WorkPrevious,
+  WireNormalizedEvent,
 } from '../../../../src/shared/types'
 import type {
   PullRequestOverview,
@@ -25,7 +25,7 @@ import type {
 import type { ReviewGuide } from '../../../../src/shared/review'
 import type {
   ChangedFileStat,
-  GitProjectStatus,
+  GitState,
   TurnSnapshot,
 } from '../../../../src/shared/git-types'
 import type { RpcInvokeMethod } from '../../../../src/shared/rpc'
@@ -77,7 +77,7 @@ export interface DemoFixtures {
       changedFiles: string[]
     }
   >
-  gitStatus: GitProjectStatus
+  gitStatus: GitState
   replayScript: ReplayStep[]
   files: {
     root: string
@@ -89,7 +89,7 @@ export interface DemoFixtures {
 export interface ReplayStep {
   delayMs: number
   sessionId: string
-  event: NormalizedEvent
+  event: WireNormalizedEvent
 }
 
 export interface DemoServer {

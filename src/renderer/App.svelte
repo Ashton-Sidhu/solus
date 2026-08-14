@@ -2250,7 +2250,7 @@
   position="top-right"
   offset={{ top: "1rem", right: "1rem" }}
   visibleToasts={1}
-  duration={6000}
+  duration={3000}
   hotkey={TOAST_HOTKEY}
 />
 
@@ -2424,7 +2424,15 @@
 <!-- First run only. Mounted over everything, and never lazily pre-warmed: a
      client that has already been through it must not pay for the chunk. -->
 {#if !settings.onboardingCompleted}
-  {#await import("./components/onboarding/OnboardingSurface.svelte") then onboardingModule}
+  {#await import("./components/onboarding/OnboardingSurface.svelte")}
+    <!-- Opaque from the first frame: without this the workspace is visible for
+         as long as the lazy chunk takes to arrive. Same composite as the
+         surface itself — --background alone is translucent in dark mode. -->
+    <div
+      class="fixed inset-0 z-[10005]"
+      style="background: linear-gradient(var(--background), var(--background)) var(--solus-edge-bg)"
+    ></div>
+  {:then onboardingModule}
     {@const OnboardingSurface = onboardingModule.default}
     <OnboardingSurface />
   {/await}

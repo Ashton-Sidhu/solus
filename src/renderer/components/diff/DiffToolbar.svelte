@@ -66,6 +66,10 @@
      *  second, quieter row: no branch identity, no chrome-row height, and no
      *  gutter reserved for floating pane controls that live in that header. */
     hasHostHeaderRow?: boolean;
+    /** Commit identity for a pull-request diff scoped to one commit. */
+    commitSha?: string | null;
+    /** Return to the full pull-request diff. */
+    onClearCommitScope?: () => void;
   }
 
   let {
@@ -99,6 +103,8 @@
     panelView,
     onSetPanelView,
     hasHostHeaderRow = false,
+    commitSha = null,
+    onClearCommitScope,
   }: Props = $props();
 
   const showTurns = $derived(mode === "session" && turns.length > 0);
@@ -138,6 +144,29 @@
 >
   <!-- Left section -->
   <div class="toolbar-section toolbar-left">
+    {#if commitSha}
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <Button
+              {...tooltipProps}
+              variant="ghost"
+              size="default"
+              type="button"
+              onclick={onClearCommitScope}
+              disabled={!onClearCommitScope}
+              aria-label={`Showing commit ${commitSha.slice(0, 7)}. View all changes`}
+              class="h-7 shrink-0 gap-1.5 rounded-lg px-1.5 font-mono text-xs text-(--solus-accent) pointer-coarse:h-10"
+            >
+              <GitCommitIcon size={14} weight="duotone" />
+              <span>{commitSha.slice(0, 7)}</span>
+            </Button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={"View all changes"} />
+      </TooltipUI.Root>
+    {/if}
+
     {#if !hasHostHeaderRow}
     <div class="flex items-center gap-1 min-w-0 shrink desktop-only">
       <GitBranchIcon

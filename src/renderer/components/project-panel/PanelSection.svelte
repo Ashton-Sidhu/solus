@@ -77,7 +77,11 @@
     {#if headerExtra}
       <!-- The header's trailing value is a reading, not a label: regular weight,
            so only the heading itself carries the 500. -->
-      <span class="min-w-0 shrink-0 font-normal text-(--solus-text-tertiary)">
+      <span
+        class="min-w-0 shrink-0 font-normal text-(--solus-text-tertiary) {titlebar
+          ? 'ml-auto'
+          : ''}"
+      >
         {@render headerExtra()}
       </span>
     {/if}

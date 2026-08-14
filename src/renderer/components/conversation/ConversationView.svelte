@@ -66,7 +66,9 @@
     itemKey,
     needsLiveRow,
     runIsLive,
+    stabilizeTurns,
     type GroupedItem,
+    type Turn,
   } from "./lib/turns";
   import { SvelteMap } from "svelte/reactivity";
   import { assistantMarkdownOptions } from "./lib/assistant-markdown";
@@ -651,7 +653,18 @@
   // §16 — a turn collapses to one row when it ends. Until then it renders the
   // transcript it always did, in the order it happened.
   const isTurnLive = $derived(runIsLive(sess?.status, !!liveStreamContent));
-  const turns = $derived(buildTurns(displayGrouped, { running: isTurnLive }));
+  // Reveal frames rebuild displayGrouped ~30×/s while text streams. Stabilizing
+  // against the previous build keeps every settled turn's object identity, so
+  // per-turn derived work only re-runs for the live turn.
+  let previousTurns: Turn[] = [];
+  const turns = $derived.by(() => {
+    const next = stabilizeTurns(
+      buildTurns(displayGrouped, { running: isTurnLive }),
+      previousTurns,
+    );
+    previousTurns = next;
+    return next;
+  });
   // Scrollback and history loads must not replay two hundred entry animations;
   // only the turns at the live end of the transcript animate in.
   const animatedTurnStart = $derived(Math.max(0, turns.length - 2));

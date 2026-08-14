@@ -41,6 +41,7 @@ export function registerSettingsHandlers(
     const settings = getServerSettings()
     return {
       textGenerationModel: settings.textGenerationModel,
+      backupTextGenerationModel: settings.backupTextGenerationModel,
       sourceControlWriterModel: settings.sourceControlWriterModel,
       sourceControlWriting: settings.sourceControlWriting,
       effectiveTextGenerationModel: resolveTextGenerationModel(),

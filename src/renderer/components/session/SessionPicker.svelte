@@ -658,7 +658,7 @@
   >
     <div
       bind:this={popoverEl}
-      class="flex h-3/4 max-h-[75%] w-3/4 origin-top flex-col overflow-hidden overscroll-contain rounded-2xl border border-[var(--solus-popover-border)] bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_both] dark:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-[var(--solus-container-bg)] max-md:shadow-none max-md:backdrop-filter-none"
+      class="flex h-3/4 max-h-[75%] w-3/4 origin-top flex-col overflow-hidden overscroll-contain rounded-2xl border border-[var(--solus-popover-border)] bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards] dark:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-[var(--solus-container-bg)] max-md:shadow-none max-md:backdrop-filter-none"
       role="dialog"
       aria-label="Session picker"
       tabindex="-1"

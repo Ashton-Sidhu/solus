@@ -15,6 +15,18 @@
   let dragStartY = 0;
   let dragStartScrollTop = 0;
 
+  // Scroll events fire faster than frames paint; coalesce the layout reads and
+  // the five state writes to one per frame, like ConversationMinimap does.
+  let updateRaf = 0;
+
+  function scheduleThumbUpdate() {
+    if (updateRaf) return;
+    updateRaf = requestAnimationFrame(() => {
+      updateRaf = 0;
+      updateThumb();
+    });
+  }
+
   function updateThumb() {
     if (!target || !trackElement) {
       isScrollable = false;
@@ -41,7 +53,7 @@
     const track = trackElement;
     if (!scrollElement || !track) return;
 
-    const resizeObserver = new ResizeObserver(updateThumb);
+    const resizeObserver = new ResizeObserver(scheduleThumbUpdate);
     const previousId = scrollElement.id;
     const assignedId =
       previousId || `workspace-scroll-source-${crypto.randomUUID()}`;
@@ -50,12 +62,16 @@
     resizeObserver.observe(scrollElement);
     resizeObserver.observe(track);
     for (const child of scrollElement.children) resizeObserver.observe(child);
-    scrollElement.addEventListener("scroll", updateThumb, { passive: true });
+    scrollElement.addEventListener("scroll", scheduleThumbUpdate, { passive: true });
     updateThumb();
 
     return () => {
       resizeObserver.disconnect();
-      scrollElement.removeEventListener("scroll", updateThumb);
+      scrollElement.removeEventListener("scroll", scheduleThumbUpdate);
+      if (updateRaf) {
+        cancelAnimationFrame(updateRaf);
+        updateRaf = 0;
+      }
       if (!previousId && scrollElement.id === assignedId) {
         scrollElement.removeAttribute("id");
       }
@@ -76,6 +92,13 @@
   }
 
   function handlePointerDown(event: PointerEvent) {
+    // The thumb geometry is rAF-coalesced; flush it so the click-vs-drag
+    // hit-test below never classifies against a one-frame-stale thumb.
+    if (updateRaf) {
+      cancelAnimationFrame(updateRaf);
+      updateRaf = 0;
+    }
+    updateThumb();
     if (!target || !trackElement || !isScrollable) return;
     const trackRect = trackElement.getBoundingClientRect();
     const pointerY = event.clientY - trackRect.top;

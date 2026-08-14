@@ -277,7 +277,9 @@ export class ControlPlane extends EventEmitter {
    * meaningful). Flushed on the 300ms interval and before any non-buffered event
    * for that session. The first chunk emits immediately for latency; the rest
    * batch into one event per flush — one stream, one chunking, however many
-   * clients are watching.
+   * clients are watching. Plain `+=` is fine here: nothing reads the string
+   * between appends, so engine rope strings keep accumulation O(1) per token
+   * (measured in scripts/perf-benchmark.ts before choosing this shape).
    */
   private pendingFlush = new Map<string, string>()
   /** Per-session accumulator for all text in the current streaming turn. Read by bindRuntimeSession so late joiners see in-flight text. */
@@ -2838,6 +2840,13 @@ export class ControlPlane extends EventEmitter {
     if (prevKey) {
       this.gitWatcher.deregister(prevKey)
       this.gitWatchKeys.delete(sessionId)
+      // Last watcher for this checkout gone — drop its retained status snapshot
+      // so closed projects do not hold serialized git status for the app's life.
+      let stillWatched = false
+      for (const key of this.gitWatchKeys.values()) {
+        if (key === prevKey) { stillWatched = true; break }
+      }
+      if (!stillWatched) this.lastGitStatusByCwd.delete(prevKey)
     }
     if (nextKey) {
       this.gitWatcher.register(nextKey)
@@ -2900,7 +2909,15 @@ export class ControlPlane extends EventEmitter {
           targetBranch: status.targetBranch,
           repoRoot: status.repoRoot,
         }
-        if (JSON.stringify(gitContext) !== JSON.stringify(environment.gitContext)) {
+        // Only the four fields written above can differ from the stored context,
+        // so compare them directly instead of double-stringifying per session.
+        const previous = environment.gitContext
+        const gitContextChanged =
+          gitContext.branch !== previous.branch ||
+          gitContext.detachedHeadSha !== previous.detachedHeadSha ||
+          gitContext.targetBranch !== previous.targetBranch ||
+          gitContext.repoRoot !== previous.repoRoot
+        if (gitContextChanged) {
           this.sessionGitEnvironments.set(sessionId, { cwd, gitContext })
           const session = this.activeSessions.get(sessionId)
           if (session) session.gitContext = gitContext
@@ -3170,11 +3187,18 @@ export class ControlPlane extends EventEmitter {
    *  service dedupes, so calling this on no-op transitions is cheap. */
   private _syncAttention(agentSessionId: string, sessionId: string, newStatus: SessionStatus): void {
     const session = this.activeSessions.get(sessionId)
-    const pendingEvent = session
-      ? [...session.pendingInputEvents].reverse().find(
-          (e) => e.type === 'permission_request' || e.type === 'question_request',
-        )
-      : undefined
+    // Backwards scan without the copy + reverse allocations: this runs on every
+    // status transition, several times per turn.
+    let pendingEvent: NormalizedEvent | undefined
+    if (session) {
+      for (let i = session.pendingInputEvents.length - 1; i >= 0; i--) {
+        const e = session.pendingInputEvents[i]
+        if (e.type === 'permission_request' || e.type === 'question_request') {
+          pendingEvent = e
+          break
+        }
+      }
+    }
     const pending = pendingEvent?.type === 'question_request'
       ? 'question'
       : pendingEvent?.type === 'permission_request'

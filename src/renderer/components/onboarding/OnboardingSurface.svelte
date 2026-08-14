@@ -12,7 +12,7 @@
    */
   import { onMount } from "svelte";
   import { MoonIcon, SunIcon } from "phosphor-svelte";
-  import { getSettingsContext } from "../../contexts";
+  import { getSettingsContext, getWorkspaceContext } from "../../contexts";
   import { getKeybindingsContext } from "../../lib/keybindings/dispatcher.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import OnboardingMark from "./OnboardingMark.svelte";
@@ -24,6 +24,7 @@
   import type { OnboardingMode } from "./lib/onboarding-model";
 
   const settings = getSettingsContext();
+  const workspace = getWorkspaceContext();
   const keybindings = getKeybindingsContext();
 
   const stage = $derived(store.stage);
@@ -46,6 +47,10 @@
   function finish(mode: OnboardingMode) {
     store.chooseMode(mode);
     settings.update({ onboardingCompleted: true });
+    // The boot-time start() probed agent binaries before onboarding had a
+    // chance to install or repair anything, and a stale "Not installed" would
+    // otherwise survive into the agent picker until the next launch.
+    void workspace.refreshAgentAvailability().catch(() => {});
     if (mode === "project") {
       window.dispatchEvent(new CustomEvent("solus:open-directory-picker"));
       return;
@@ -87,7 +92,7 @@
 <svelte:window onkeydown={onKeydown} />
 
 <div
-  class="onboarding-shell fixed inset-0 z-[10005] flex flex-col bg-background text-foreground"
+  class="onboarding-shell fixed inset-0 z-[10005] flex flex-col text-foreground"
   role="dialog"
   aria-modal="true"
   aria-label="Set up Solus"
@@ -120,8 +125,8 @@
   </div>
 
   {#if stage === "intro" || store.introLeaving}
-    <!-- The greeting sits over the first stage rather than replacing it, so the
-         agent rows are already probing the host behind this fade. -->
+    <!-- The greeting sits over the first stage rather than replacing it, so
+         the stage is already laid out behind this fade. -->
     <button
       type="button"
       class="absolute inset-x-0 bottom-0 top-12 z-30 flex items-center justify-center overflow-hidden bg-background transition-opacity duration-[550ms]"
@@ -164,6 +169,11 @@
   /* The only motion this file owns. Stage entry animations are shared by every
      stage and live in index.css; the mark owns its two-layer zoom. */
   .onboarding-shell {
+    /* --background is translucent in dark mode (the app composites it over the
+       window edge), so it is layered over the opaque edge color here — a plain
+       bg-background lets the workspace show through the overlay. */
+    background: linear-gradient(var(--background), var(--background))
+      var(--solus-edge-bg);
     animation: onboarding-shell 0.34s ease-out both;
   }
   @keyframes onboarding-shell {

@@ -3,7 +3,7 @@
 		<div class="review-lights"><i></i><i></i><i></i></div>
 		<nav><b>Guide</b><span>Diff</span><span>Activity</span></nav>
 		<strong>#184 · Typed errors for user API</strong>
-		<div class="review-actions"><span class="checks">✓ 4 checks⌄</span><span>▢ Chat</span><span>•••</span></div>
+		<div class="review-actions"><span class="checks">✓ 4 checks ⌄</span><span>Chat</span><span>•••</span></div>
 	</div>
 
 	<div class="review-body">
@@ -29,10 +29,12 @@
 					<div class="add"><i>53</i><code>+ if (!rotated.valid) &#123;</code></div>
 					<div class="add"><i>54</i><code>+ &nbsp; return res.sendStatus(401);</code></div>
 					<div class="add"><i>55</i><code>+ &#125;</code></div>
+					<div class="add"><i>56</i><code>+ setRefreshCookie(res, rotated.next);</code></div>
+					<div><i>57</i><code>&nbsp; return next();</code></div>
 				</div>
 				<div class="review-comment">
 					<span class="review-avatar">AK</span>
-					<div><strong>Alex Kim <small>1m ago</small></strong><p>Nice—does rotateToken invalidate the old token atomically?</p><span>Reply</span></div>
+					<div><strong>Alex Kim <small>1m ago</small></strong><p>Nice, does rotateToken invalidate the old token atomically?</p><span>Reply</span></div>
 				</div>
 			</section>
 
@@ -49,9 +51,9 @@
 	</div>
 
 	<div class="review-tray">
-		<span>▢ 1 comment⌄</span>
+		<span>1 comment ⌄</span>
 		<p>Overall, looks good. Address the comment and I’ll review again.</p>
-		<strong>➤ Send to agent <i>⌄</i></strong>
+		<strong>Send to agent <i>⌄</i></strong>
 	</div>
 </div>
 

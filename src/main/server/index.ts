@@ -328,17 +328,20 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // One publish per watching client. Two panes on one renderer are one client
   // and receive one payload; desktop and web are two, with the same payload.
   opts.controlPlane.on('event', (sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
+    const projectedEvent = projectSessionEvent(event)
+    if (!projectedEvent) return
+    // Measure the projected event — the payload that actually ships to clients.
+    // Serializing the raw event would re-inflate the tool bodies projection
+    // exists to strip, on every single event.
     if (isDebugEnabled) {
       const details = {
         sessionId,
         eventType: event.type,
-        bytes: serializedBytes(event),
+        bytes: serializedBytes(projectedEvent),
       }
       if ('toolName' in event && event.toolName) Object.assign(details, { toolName: event.toolName })
       log.debug('session_event_bytes', details)
     }
-    const projectedEvent = projectSessionEvent(event)
-    if (!projectedEvent) return
     let clients = opts.controlPlane.clientsWatching(sessionId)
     if (to?.only) clients = clients.filter((clientId) => clientId === to.only)
     if (to?.except) clients = clients.filter((clientId) => clientId !== to.except)

@@ -34,6 +34,10 @@ describe.serial('server settings defaults', () => {
       provider: 'codex',
       model: 'gpt-5.6-luna',
     })
+    expect(settings.getServerSettings().backupTextGenerationModel).toEqual({
+      provider: 'claude-code',
+      model: 'claude-haiku-4-5-20251001',
+    })
     expect(settings.getServerSettings().sourceControlWriterModel).toBeNull()
     expect(settings.getServerSettings().sourceControlWriting).toEqual({
       mode: 'repo_conventions',

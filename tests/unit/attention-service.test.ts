@@ -103,10 +103,12 @@ describe('AttentionService — entry lifecycle + persistence', () => {
     expect(changes).toHaveLength(1)
   })
 
-  test('state round-trips across a simulated restart (new instance, same file)', () => {
+  test('state round-trips across a simulated restart (new instance, same file)', async () => {
     const first = new AttentionService(statePath)
     first.set({ sessionId: 's1', kind: 'needs_approval', summary: 'Approval needed: Write', projectKey: '/repo' })
     first.set({ sessionId: 's2', kind: 'failed', summary: 'Run failed' })
+    // Persistence is coalesced and asynchronous; restart only sees flushed state.
+    await first.flushPersist()
 
     // Sanity: the file exists and holds both entries.
     const raw = JSON.parse(readFileSync(statePath, 'utf8'))
@@ -120,6 +122,7 @@ describe('AttentionService — entry lifecycle + persistence', () => {
 
     // A resolve on the restarted instance persists too.
     restarted.resolve('s2')
+    await restarted.flushPersist()
     const afterResolve = new AttentionService(statePath)
     expect(afterResolve.list().map((e) => e.sessionId)).toEqual(['s1'])
   })

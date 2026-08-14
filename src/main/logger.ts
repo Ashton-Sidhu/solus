@@ -61,12 +61,14 @@ function writeToConsole(level: LogLevel, message: string): void {
 }
 
 function formatDevData<Data extends object>(data: Data): string {
+  // Bounded like the NDJSON file writer below: an uncapped inspect renders a
+  // whole tool payload to stdout synchronously on every log call in dev.
   return inspect(data, {
     colors: true,
     compact: false,
-    depth: null,
-    maxArrayLength: null,
-    maxStringLength: null,
+    depth: 8,
+    maxArrayLength: 100,
+    maxStringLength: 2000,
     breakLength: 120,
   })
 }

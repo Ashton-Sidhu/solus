@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="resources/banner.svg" alt="Solus — stay in flow" width="100%" />
+  <img src="resources/banner.svg" alt="Solus — the best Agentic Editor for building software" width="100%" />
 </p>
 
 <p align="center">
-  <b>A keyboard-first desktop app for coding agents.</b><br />
-  Talk to Claude Code or Codex from a floating overlay that sits above your editor — no terminal tab required.
+  <b>Plan, review, and ship work with Claude Code or Codex — from your desktop, browser, or phone.</b><br />
+  A keyboard-first agentic editor that floats above whatever you're doing. No terminal tab required.
 </p>
 
 <p align="center">
@@ -18,7 +18,8 @@
   <a href="https://solus.sh">Website</a> ·
   <a href="https://solus.sh/docs">Docs</a> ·
   <a href="#install">Install</a> ·
-  <a href="https://solus.sh/docs#keybindings">Shortcuts</a> ·
+  <a href="#keyboard-shortcuts">Shortcuts</a> ·
+  <a href="#headless-server">Server</a> ·
   <a href="./CONTRIBUTING.md">Contributing</a> ·
   <a href="./CHANGELOG.md">Changelog</a>
 </p>
@@ -78,23 +79,20 @@ Then press `⌥Space` to summon the window (`⌘⇧K` if that's taken), pick a p
 
 Solus drives the agent CLIs you already have installed and auto-detects which are available — it doesn't ship its own agent or ask for an API key.
 
-## Build from source
+## Keyboard shortcuts
 
-You'll additionally need [Bun](https://bun.sh) and the Xcode Command Line Tools.
+Global shortcuts use `⌥⇧`, sub-page shortcuts use `⌥`. These are the ones worth learning first — the full reference lives in the [keybindings docs](https://solus.sh/docs#keybindings), or press `⌥⇧/` in the app.
 
-```bash
-git clone https://github.com/Ashton-Sidhu/solus.git
-cd solus
-bun install
-bun run dev      # development
-```
-
-```bash
-bun run build    # verify the app + web client compile
-bun run dist     # produces a Solus.app bundle in dist/
-```
-
-`.env` is optional — copy `.env.example` if you're testing analytics, Google integration, or release signing. Leave those values empty otherwise.
+| Shortcut | Action |
+|---|---|
+| `⌥Space` | Toggle the window (system-wide) |
+| `⌥L` | Focus input |
+| `⌘O` | Select project |
+| `⌘T` | New tab |
+| `⌥⇧E` | Toggle editor / pill mode |
+| `⌥⇧Tab` | Cycle permission mode (Ask → Auto → Plan) |
+| `⌥⇧D` | Toggle diff panel |
+| `⌥⇧B` | Toggle worktree mode |
 
 ## Headless server
 
@@ -130,20 +128,23 @@ bun scripts/package-server.ts --platform linux --arch x64  # or a specific targe
 
 To iterate on server code without repackaging, re-run `bun run build` and launch `bin/solus-server` from an existing bundle — or run `bun run dev` and point the web client (`client/`) at the dev server.
 
-## Keyboard shortcuts
+## Build from source
 
-Global shortcuts use `⌥⇧`, sub-page shortcuts use `⌥`. These are the ones worth learning first — the full reference lives in the [keybindings docs](https://solus.sh/docs#keybindings), or press `⌥⇧/` in the app.
+You'll additionally need [Bun](https://bun.sh) and the Xcode Command Line Tools.
 
-| Shortcut | Action |
-|---|---|
-| `⌥Space` | Toggle the window (system-wide) |
-| `⌥L` | Focus input |
-| `⌘O` | Select project |
-| `⌘T` | New tab |
-| `⌥⇧E` | Toggle editor / pill mode |
-| `⌥⇧Tab` | Cycle permission mode (Ask → Auto → Plan) |
-| `⌥⇧D` | Toggle diff panel |
-| `⌥⇧B` | Toggle worktree mode |
+```bash
+git clone https://github.com/Ashton-Sidhu/solus.git
+cd solus
+bun install
+bun run dev      # development
+```
+
+```bash
+bun run build    # verify the app + web client compile
+bun run dist     # produces a Solus.app bundle in dist/
+```
+
+`.env` is optional — copy `.env.example` if you're testing analytics, Google integration, or release signing. Leave those values empty otherwise.
 
 ## How it works
 

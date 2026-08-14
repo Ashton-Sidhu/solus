@@ -565,7 +565,7 @@ class ServersStore {
       : `${unannounced.length} Solus hosts found nearby`
     toasts.info(title, {
       description: unannounced.length === 1 ? unannounced[0].name : undefined,
-      duration: 12_000,
+      duration: 5_000,
       action: {
         label: 'Show',
         // Settings → Connections → Nearby is the surface that can actually act

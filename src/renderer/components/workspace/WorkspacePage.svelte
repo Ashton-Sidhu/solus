@@ -36,6 +36,7 @@
   import PageEmpty from "../ui/PageEmpty.svelte";
   import SortMenu from "../ui/SortMenu.svelte";
   import WorkspaceRow from "./WorkspaceRow.svelte";
+  import WorkspaceItemContextMenu from "./WorkspaceItemContextMenu.svelte";
   import WorkspacePeek from "./WorkspacePeek.svelte";
   import WorkspaceProjectSwitcher from "./WorkspaceProjectSwitcher.svelte";
   import WorkspaceSearchField from "./WorkspaceSearchField.svelte";
@@ -164,6 +165,11 @@
   let renderLimit = $state(RENDER_PAGE);
   let searchEl: HTMLInputElement | null = $state(null);
   let scrollEl: HTMLDivElement | null = $state(null);
+  let itemContextMenu = $state<{
+    item: WorkspaceItem;
+    x: number;
+    y: number;
+  } | null>(null);
 
   /** The hover peek — the ledger's only preview. It is deliberately not the
    *  selection: peeking must never lose your place in a 400-row ledger. */
@@ -514,6 +520,11 @@
     else await session.openWorkModal(item.id);
   }
 
+  async function openItemInSplit(item: WorkspaceItem) {
+    if (item.source.kind !== "work") return;
+    await session.openWorkModal(item.id, undefined, { secondary: true });
+  }
+
   async function resumeItem(item: WorkspaceItem) {
     if (item.source.kind === "plan") {
       await session.resumeSessionFromDescriptor(item.source.descriptor);
@@ -564,6 +575,15 @@
     if (item.source.kind !== "work") return;
     session.requestWorkDelete(item.source.work);
     void tick().then(() => searchEl?.focus());
+  }
+
+  function openItemContextMenu(event: MouseEvent, item: WorkspaceItem) {
+    event.preventDefault();
+    event.stopPropagation();
+    peek.close();
+    const index = flat.indexOf(item);
+    if (index >= 0) selectedIndex = index;
+    itemContextMenu = { item, x: event.clientX, y: event.clientY };
   }
 
   function createNew(type: "doc" | "diagram") {
@@ -640,6 +660,7 @@
     onOpenSessionSplit={item.sessionId ? () => openSessionInSplit(item) : undefined}
     onPeek={(row) => peek.enter(item, row)}
     onPeekLeave={() => peek.leave()}
+    onContextMenu={(event) => openItemContextMenu(event, item)}
   />
 {/snippet}
 
@@ -952,6 +973,30 @@
       </div>
 
     </div>
+
+    {#if itemContextMenu}
+      {@const menuItem = itemContextMenu.item}
+      <WorkspaceItemContextMenu
+        x={itemContextMenu.x}
+        y={itemContextMenu.y}
+        item={menuItem}
+        onOpen={() => void openItem(menuItem)}
+        onOpenSplit={menuItem.source.kind === "work"
+          ? () => void openItemInSplit(menuItem)
+          : undefined}
+        onTogglePin={() => togglePin(menuItem)}
+        onOpenSession={menuItem.sessionId
+          ? () => void resumeItem(menuItem)
+          : undefined}
+        onOpenSessionSplit={menuItem.sessionId
+          ? () => void openSessionInSplit(menuItem)
+          : undefined}
+        onDelete={menuItem.source.kind === "work"
+          ? () => deleteItem(menuItem)
+          : undefined}
+        onClose={() => (itemContextMenu = null)}
+      />
+    {/if}
 
     <!-- The preview: a transient card over the row, never a reserved column. -->
     {#if peek.item && peek.anchor && scrollEl}

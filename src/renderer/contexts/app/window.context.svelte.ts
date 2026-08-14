@@ -32,8 +32,11 @@ export class WindowContext {
     // derived chains reading workAreaWidth/Height don't re-run on every tick.
     let raf = 0
     // Flag the document as actively resizing so expensive per-frame paint work
-    // (notably backdrop-filter blur) can switch off for the duration of the
-    // drag and back on shortly after it settles — the main cause of resize jank.
+    // (notably backdrop-filter blur) and size-reactive layout transitions
+    // (sidebar/rail widths, tab widths — which would retarget every frame and
+    // rubber-band behind the window edge) can switch off for the duration of
+    // the drag and back on shortly after it settles — the main causes of
+    // resize jank.
     let resizeIdle = 0
     const root = document.documentElement
     window.addEventListener('resize', () => {

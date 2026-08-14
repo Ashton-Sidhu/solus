@@ -1154,8 +1154,10 @@ export class SessionEventReducer {
     session.currentTurnStart = null
     session.isStreamingText = false
     session.isReconnecting = false
-    session.permissionQueue = []
-    session.questionQueue = []
+    // Empty in place, and only when non-empty: swapping the array reference
+    // invalidates every $derived reading the queue; a no-op turn end writes nothing.
+    if (session.permissionQueue.length) session.permissionQueue.splice(0, session.permissionQueue.length)
+    if (session.questionQueue.length) session.questionQueue.splice(0, session.questionQueue.length)
     session.permissionDenied = null
     // Thinking that never reached a tool call has nowhere to be printed; drop it
     // at the turn boundary so it can't attach to the next turn's first tool.

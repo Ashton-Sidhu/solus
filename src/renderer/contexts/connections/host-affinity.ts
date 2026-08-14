@@ -1,11 +1,19 @@
-import { CloudSlashIcon, GlobeSimpleIcon } from 'phosphor-svelte'
+import {
+  AppleLogoIcon,
+  CloudSlashIcon,
+  GlobeSimpleIcon,
+  LinuxLogoIcon,
+  WindowsLogoIcon,
+} from 'phosphor-svelte'
 import type { Component } from 'svelte'
+import type { HostOperatingSystem } from '../../../shared/types'
 import type { ServerItemStatus } from './servers.store.svelte'
 
 /** The host a surface belongs to, in the two facts every badge needs. */
 export interface HostAffinityTarget {
   label: string
   local: boolean
+  os?: HostOperatingSystem
 }
 
 export interface HostAffinityGlyph {
@@ -50,13 +58,17 @@ export function hostAffinityGlyph(
   status: ServerItemStatus,
 ): HostAffinityGlyph | null {
   if (!host || host.local) return null
-  const { icon, className, statusLabel } = glyphForStatus(status)
+  const { icon, className, statusLabel } = glyphForStatus(status, host.os)
   return { icon, className, statusLabel, tooltip: `Runs on ${host.label} · ${statusLabel}` }
 }
 
-function glyphForStatus(status: ServerItemStatus): Omit<HostAffinityGlyph, 'tooltip'> {
+function glyphForStatus(
+  status: ServerItemStatus,
+  os?: HostOperatingSystem,
+): Omit<HostAffinityGlyph, 'tooltip'> {
+  const hostIcon = operatingSystemIcon(os)
   if (status === 'connecting') {
-    return { icon: GlobeSimpleIcon, className: 'animate-pulse text-(--solus-accent)', statusLabel: hostStatusLabel(status) }
+    return { icon: hostIcon, className: 'animate-pulse text-(--solus-accent)', statusLabel: hostStatusLabel(status) }
   }
   if (status === 'offline' || status === 'different-server') {
     return { icon: CloudSlashIcon, className: 'text-(--solus-status-error)', statusLabel: hostStatusLabel(status) }
@@ -64,7 +76,14 @@ function glyphForStatus(status: ServerItemStatus): Omit<HostAffinityGlyph, 'tool
   // A host nobody has probed yet is unknown, not unreachable — saying "offline"
   // in error red would cry wolf before anything was even dialled.
   if (status === 'saved') {
-    return { icon: GlobeSimpleIcon, className: 'text-(--solus-text-quaternary)', statusLabel: hostStatusLabel(status) }
+    return { icon: hostIcon, className: 'text-(--solus-text-quaternary)', statusLabel: hostStatusLabel(status) }
   }
-  return { icon: GlobeSimpleIcon, className: 'text-(--solus-text-tertiary)', statusLabel: hostStatusLabel(status) }
+  return { icon: hostIcon, className: 'text-(--solus-text-tertiary)', statusLabel: hostStatusLabel(status) }
+}
+
+function operatingSystemIcon(os?: HostOperatingSystem): Component {
+  if (os === 'macos') return AppleLogoIcon
+  if (os === 'windows') return WindowsLogoIcon
+  if (os === 'linux') return LinuxLogoIcon
+  return GlobeSimpleIcon
 }

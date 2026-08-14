@@ -29,6 +29,7 @@
   } from "../ui/list-page";
   import { folderLabel, relativeTime } from "./lib/automation-format";
   import AutomationBuilder from "./AutomationBuilder.svelte";
+  import AutomationContextMenu from "./AutomationContextMenu.svelte";
   import AutomationLaunchpad from "./AutomationLaunchpad.svelte";
   import AutomationProjectFilter from "./AutomationProjectFilter.svelte";
   import AutomationRow from "./AutomationRow.svelte";
@@ -102,6 +103,11 @@
   // nothing is fetched or mounted until a row is actually opened.
   let selectedId = $state<string | null>(null);
   let collapsedGroups = $state<Record<string, boolean>>({});
+  let automationContextMenu = $state<{
+    automation: Automation;
+    x: number;
+    y: number;
+  } | null>(null);
 
   // Tick the clock so "next run in 4 hr" and the rows' ages keep counting down
   // instead of freezing at load.
@@ -333,34 +339,45 @@
     searchEl?.focus();
   }
 
-  async function toggleEnabled(a: Automation, e: Event) {
-    e.stopPropagation();
+  async function toggleEnabled(a: Automation, e?: Event) {
+    e?.stopPropagation();
     await store.setEnabled(a.id, !a.enabled);
   }
 
-  async function runNow(a: Automation, e: Event) {
-    e.stopPropagation();
+  async function runNow(a: Automation, e?: Event) {
+    e?.stopPropagation();
     await store.runNow(a.id);
   }
 
-  async function cancelRun(a: Automation, e: Event) {
-    e.stopPropagation();
+  async function cancelRun(a: Automation, e?: Event) {
+    e?.stopPropagation();
     await store.cancel(a.id);
   }
 
-  async function toggleFavorite(a: Automation, e: Event) {
-    e.stopPropagation();
+  async function toggleFavorite(a: Automation, e?: Event) {
+    e?.stopPropagation();
     await store.setFavorite(a.id, !a.favorite);
   }
 
-  function deleteAutomation(a: Automation, e: Event) {
-    e.stopPropagation();
+  function deleteAutomation(a: Automation, e?: Event) {
+    e?.stopPropagation();
     // Hide the row immediately, then offer a brief undo window. The on-disk
     // delete is deferred until the toast commits (matches document delete).
     if (!store.softRemove(a.id)) return;
     toasts.undo("Automation deleted", () => store.restorePending(), {
       onDismiss: () => void store.commitPending(),
     });
+  }
+
+  function openAutomationContextMenu(event: MouseEvent, automation: Automation) {
+    event.preventDefault();
+    event.stopPropagation();
+    selectedId = automation.id;
+    automationContextMenu = {
+      automation,
+      x: event.clientX,
+      y: event.clientY,
+    };
   }
 
   // ── List keyboard nav ── the four keys the footer rail advertises.
@@ -524,6 +541,7 @@
                         onCancelRun={cancelRun}
                         onToggleFavorite={toggleFavorite}
                         onDelete={deleteAutomation}
+                        onContextMenu={openAutomationContextMenu}
                       />
                     </li>
                   {/each}
@@ -545,6 +563,22 @@
           {/if}
         </div>
       </ListPage>
+
+      {#if automationContextMenu}
+        {@const menuAutomation = automationContextMenu.automation}
+        <AutomationContextMenu
+          x={automationContextMenu.x}
+          y={automationContextMenu.y}
+          automation={menuAutomation}
+          onEdit={() => startEdit(menuAutomation)}
+          onRunNow={() => void runNow(menuAutomation)}
+          onCancelRun={() => void cancelRun(menuAutomation)}
+          onToggleEnabled={() => void toggleEnabled(menuAutomation)}
+          onToggleFavorite={() => void toggleFavorite(menuAutomation)}
+          onDelete={() => deleteAutomation(menuAutomation)}
+          onClose={() => (automationContextMenu = null)}
+        />
+      {/if}
     {/if}
   </div>
 {/if}

@@ -1,6 +1,7 @@
 import { serversStore } from '../../contexts'
 import { hostSetupStore, type HostSetupSession } from '../servers/host-setup.store.svelte'
 import {
+  ONBOARDING_STAGES,
   nextStage,
   previousStage,
   type OnboardingMode,
@@ -84,13 +85,15 @@ class OnboardingStore {
 
   /**
    * Leaves the greeting. The first stage is put up first and the greeting fades
-   * over it, so the agent rows are already probing the host behind the fade
-   * rather than appearing empty once it clears.
+   * over it, so the stage is already laid out behind the fade rather than
+   * appearing empty once it clears. The host readiness probe kicked off in
+   * `start()` runs behind the shortcuts stage, so the agents stage usually
+   * arrives already answered.
    */
   endIntro(): void {
     if (this.stage !== 'intro' || this.introLeaving) return
     this.introLeaving = true
-    this.stage = 'agents'
+    this.stage = ONBOARDING_STAGES[0]
     this.after(LEAVE_MS, () => {
       this.introLeaving = false
     })

@@ -1128,11 +1128,7 @@
         onResume={linkedSessionCount > 0 ? () => onResume(menuTask) : undefined}
         onOpenTask={() => onOpen(menuTask)}
         onOpenSource={menuTask.url ? () => onOpenLink(menuTask) : undefined}
-        onToggleDone={() =>
-          void onSetStatus(
-            menuTask,
-            menuTask.status === "done" ? "todo" : "done",
-          )}
+        onSetStatus={(status) => void onSetStatus(menuTask, status)}
         onDelete={menuTask.providerId === "local"
           ? () => onDelete(menuTask)
           : undefined}

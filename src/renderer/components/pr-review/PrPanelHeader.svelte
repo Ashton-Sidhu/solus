@@ -9,6 +9,7 @@
     XIcon,
   } from "phosphor-svelte";
   import type { Snippet } from "svelte";
+  import CopyButton from "../ui/CopyButton.svelte";
 
   /**
    * The chrome band of the review panel that slides out beside the list.
@@ -64,7 +65,7 @@
   const canStepQueue = $derived(position > 0 && total > 1);
 
   const roundButton =
-    "flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30";
+    "no-drag pointer-events-auto flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30";
 </script>
 
 <!-- Beside the list this row starts at the panel's own edge. Covering the list
@@ -87,6 +88,7 @@
       class="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground opacity-70"
     >
       <span class="truncate">{headRef}</span>
+      <CopyButton text={headRef} title="Copy branch name" iconOnly />
       <ArrowRightIcon size={10} class="shrink-0 opacity-50" aria-hidden="true" />
       <span class="shrink-0">{baseRef}</span>
     </span>

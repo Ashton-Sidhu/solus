@@ -4,7 +4,6 @@ import {
   entryFirstMessage,
   entryTimestamp,
   entryTitle,
-  findOpenTabForSession,
   type PickerEntry,
 } from './sessionUtils'
 
@@ -24,15 +23,21 @@ export function dedupeHistoryEntries(
   historySessions: SessionMeta[],
   lookup: SessionLookup,
 ): PickerEntry[] {
+  // Index the open tabs once instead of scanning tabOrder per history row —
+  // this runs inside a reactive getter on every streamed history batch, so the
+  // per-row scan made the whole pass O(history × tabs).
+  const openSessionKeys = new Set<string>()
+  for (const tabId of lookup.tabOrder) {
+    const tab = lookup.tabs[tabId]
+    if (!tab) continue
+    const session = lookup.sessions[tab.sessionId]
+    const provider = session?.run.provider
+    if (!provider) continue
+    openSessionKeys.add(`${provider}:${tab.sessionId}`)
+    if (session.agentSessionId) openSessionKeys.add(`${provider}:${session.agentSessionId}`)
+  }
   const filtered = historySessions.filter(
-    (meta) =>
-      !findOpenTabForSession(
-        meta.sessionId,
-        lookup.tabs,
-        lookup.sessions,
-        lookup.tabOrder,
-        meta.provider,
-      ),
+    (meta) => !openSessionKeys.has(`${meta.provider}:${meta.sessionId}`),
   )
   const nonWorktreeMessages = new Set(
     filtered
@@ -187,16 +192,26 @@ export class FrozenEntryOrder {
   }
 
   sort(entries: PickerEntry[], settled: boolean): PickerEntry[] {
-    const byTimestamp = [...entries].sort(
-      (a, b) => this.timestamp(b) - this.timestamp(a),
-    )
-    if (!settled) return byTimestamp
-    for (const entry of byTimestamp) {
+    // Decorate once — entryKey builds a string, so calling it inside a
+    // comparator allocates O(n log n) keys per pass instead of O(n). The picker
+    // re-sorts on every history scan batch, so the comparators stay pure
+    // number lookups.
+    const decorated = entries.map((entry) => {
       const key = entryKey(entry)
-      if (!this.#order.has(key)) this.#order.set(key, this.#order.size)
+      let frozenTimestamp = this.#ts.get(key)
+      if (frozenTimestamp === undefined) {
+        frozenTimestamp = entryTimestamp(entry)
+        this.#ts.set(key, frozenTimestamp)
+      }
+      return { entry, key, frozenTimestamp }
+    })
+    decorated.sort((a, b) => b.frozenTimestamp - a.frozenTimestamp)
+    if (settled) {
+      for (const item of decorated) {
+        if (!this.#order.has(item.key)) this.#order.set(item.key, this.#order.size)
+      }
+      decorated.sort((a, b) => this.#order.get(a.key)! - this.#order.get(b.key)!)
     }
-    return byTimestamp.sort(
-      (a, b) => this.#order.get(entryKey(a))! - this.#order.get(entryKey(b))!,
-    )
+    return decorated.map((item) => item.entry)
   }
 }

@@ -58,7 +58,7 @@ describe('page window-control safe area', () => {
     // A docked companion or a page beside the open session sidebar cannot hit
     // the traffic lights, so padding those surfaces would create a false band.
     expect(workspaceSource).toMatch(
-      /secondary-pane-wrap--maximized[\s\S]*--solus-page-top-inset:\s*var\(--solus-titlebar-height\)/,
+      /secondary-pane-content--maximized[\s\S]*--solus-page-top-inset:\s*var\(--solus-titlebar-height\)/,
     )
     expect(workspaceSource).toMatch(
       /workspace-body\.sidebar-collapsed[\s\S]*--solus-page-top-inset:\s*var\(--solus-titlebar-height\)/,

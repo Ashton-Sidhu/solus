@@ -9,6 +9,7 @@
   import { cn } from "../../lib/utils";
   import { startsWorktree } from "../../contexts/workspace/run-config";
   import type { PickerSelection } from "../pickers/lib/picker-selection";
+  import type { PluginCommandsResult } from "../../../shared/types";
   import type { SessionDraft } from "../../contexts/workspace/session-draft.svelte";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import AsidePaneShell from "../layout/AsidePaneShell.svelte";
@@ -17,6 +18,7 @@
   import InputBar from "../input/InputBar.svelte";
   import InputBarHeader from "../input/InputBarHeader.svelte";
   import InputToolbar from "../input/InputToolbar.svelte";
+  import { draftPluginCommandScope } from "./lib/plugin-command-scope";
 
   let {
     params,
@@ -57,6 +59,48 @@
   // No project chosen yet — "build in ~?" names nothing, so the question drops
   // its object and the chip below does the choosing.
   const hasProject = $derived(projectName !== "~");
+
+  // A draft has no session command cache. Load against the run selected in its
+  // own model picker instead of borrowing commands from the active tab.
+  let pluginCommands = $state<PluginCommandsResult>({ global: [], project: [] });
+  let pluginCommandRequestSequence = 0;
+  $effect(() => {
+    const current = draft;
+    if (!current) return;
+    const scope = draftPluginCommandScope(
+      current.run,
+      theme.activeAgent,
+      current.id,
+      (workingDirectory, gitContext, sourceId) =>
+        session.ctxForEnvironment(workingDirectory, gitContext, sourceId),
+    );
+    // Reading both values makes a picker change invalidate this request even
+    // when two models belong to the same provider.
+    const requestIdentity =
+      `${scope.provider}\0${scope.modelId ?? ""}\0${scope.workingDirectory}`;
+    const requestSequence = ++pluginCommandRequestSequence;
+    pluginCommands = { global: [], project: [] };
+    void session
+      .apiForRun(current.run)
+      .getPluginCommands(scope.workingDirectory, scope.context)
+      .then((result) => {
+        if (requestSequence !== pluginCommandRequestSequence) return;
+        const latest = draft;
+        if (!latest) return;
+        const latestIdentity =
+          `${latest.run.provider ?? theme.activeAgent}\0${latest.run.modelConfig.modelId ?? ""}\0${latest.run.workingDirectory}`;
+        if (latestIdentity !== requestIdentity) return;
+        pluginCommands = result;
+      })
+      .catch((error) => {
+        if (requestSequence === pluginCommandRequestSequence)
+          console.error("getPluginCommands failed", error);
+      });
+    return () => {
+      if (requestSequence === pluginCommandRequestSequence)
+        pluginCommandRequestSequence++;
+    };
+  });
 
   // A draft names a directory before anything has read it — and when the
   // project was opened on another host, only that host can read it. Until it
@@ -200,6 +244,7 @@
           isPrimary={!isAside}
           {paneId}
           run={current.run}
+          {pluginCommands}
           bind:prompt={current.prompt}
           onDispatch={dispatch}
         >

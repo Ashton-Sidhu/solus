@@ -59,6 +59,7 @@
     textGenerationSettingsStore.errorFor(serverId),
   );
   let textGenerationPickerSelection = $state<PickerSelection>();
+  let backupTextGenerationPickerSelection = $state<PickerSelection>();
 
   $effect(() => {
     const targetServerId = serverId;
@@ -87,6 +88,21 @@
     }
     textGenerationPickerSelection.provider = selection.provider;
     textGenerationPickerSelection.modelId = selection.model;
+  });
+
+  $effect(() => {
+    const selection = textGenerationSnapshot?.backupTextGenerationModel;
+    if (!selection) return;
+    if (!backupTextGenerationPickerSelection) {
+      backupTextGenerationPickerSelection = {
+        provider: selection.provider,
+        modelId: selection.model,
+        reasoningEffort: "high",
+      };
+      return;
+    }
+    backupTextGenerationPickerSelection.provider = selection.provider;
+    backupTextGenerationPickerSelection.modelId = selection.model;
   });
 
   const themeModes = [
@@ -188,6 +204,14 @@
     ).catch(() => {});
   }
 
+  async function selectBackupTextGenerationModel(selection: PickerSelection): Promise<void> {
+    if (!selection.modelId) return;
+    await textGenerationSettingsStore.update(
+      { serverId, api },
+      { backupTextGenerationModel: { provider: selection.provider, model: selection.modelId } },
+    ).catch(() => {});
+  }
+
   function selectAppFont(value: typeof theme.fontFamily) {
     theme.update({ fontFamily: value });
     requestInputFocus();
@@ -220,6 +244,7 @@
     { id: "agent", keywords: ["agent", "default", "claude", "ai", "model"] },
     { id: "model", keywords: ["model", "default", "opus", "sonnet", "haiku", "gpt", "codex"] },
     { id: "text-generation-model", keywords: ["model", "text", "generation", "background", "session", "name", "metadata", "writing"] },
+    { id: "backup-text-generation-model", keywords: ["backup", "fallback", "model", "text", "generation", "unavailable", "haiku"] },
     { id: "notification", keywords: ["notification", "sound", "alert", "bell", "audio"] },
     { id: "font-family", keywords: ["font", "family", "typeface", "inter", "dm sans", "system", "geist", "lora", "serif"] },
     { id: "font-size", keywords: ["font", "size", "text", "zoom"] },
@@ -557,7 +582,7 @@
 
 <SettingsSection
   label="Text generation"
-  visible={isVisible("text-generation-model")}
+  visible={isVisible("text-generation-model") || isVisible("backup-text-generation-model")}
 >
   <SettingsRow
     label="Text-generation model"
@@ -592,6 +617,30 @@
         {/if}
       {/snippet}
     {/if}
+  </SettingsRow>
+
+  <SettingsRow
+    label="Backup text-generation model"
+    description="Used when the text-generation model is not available on the {hostLabel} host."
+    visible={isVisible("backup-text-generation-model")}
+  >
+    {#snippet control()}
+      {#if backupTextGenerationPickerSelection && textGenerationSnapshot}
+        <SessionChip
+          selection={backupTextGenerationPickerSelection}
+          agents={textGenerationSnapshot.agents}
+          modelOnly
+          menuSide="bottom"
+          ariaLabel="Backup text-generation model"
+          returnFocusOnClose
+          onSelectionChange={(selection) => void selectBackupTextGenerationModel(selection)}
+        />
+      {:else}
+        <Button variant="outline" size="sm" disabled class="min-w-32 text-xs shadow-xs">
+          Loading…
+        </Button>
+      {/if}
+    {/snippet}
   </SettingsRow>
 
 </SettingsSection>

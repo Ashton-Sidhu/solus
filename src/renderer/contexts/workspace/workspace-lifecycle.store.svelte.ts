@@ -216,6 +216,18 @@ export class WorkspaceLifecycleStore {
     }
   }
 
+  /**
+   * Re-reads start() so agent availability probed at boot does not survive as
+   * a stale answer. Misses are never cached server-side, so this re-probes any
+   * binary the boot-time check failed to find — an agent installed or repaired
+   * during onboarding reads as available without a relaunch.
+   */
+  async refreshAgentAvailability(): Promise<void> {
+    const result = await serverConnections.primaryApi().start()
+    this.applyStartInfo(result, { fresh: true })
+    saveCachedStart(result)
+  }
+
   async refreshPluginCommands(workingDirectory: string, tabId?: string): Promise<void> {
     const targetTabId = tabId ?? this.deps.registry.activeTabId
     const targetSession = this.deps.registry.sessionFor(targetTabId)

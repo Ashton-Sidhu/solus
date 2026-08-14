@@ -51,7 +51,7 @@
      all --solus-chrome-row-h tall. A fixed top-2.5 put the 26px buttons' centre
      at 23px against the row's 20px. -->
 <div
-  class="no-drag absolute right-2.5 top-0 z-30 flex h-(--solus-chrome-row-h,2.5rem) items-center gap-1"
+  class="no-drag pointer-events-auto absolute right-2.5 top-0 z-30 flex h-(--solus-chrome-row-h,2.5rem) items-center gap-1"
 >
   {#if trailing}{@render trailing()}{/if}
 

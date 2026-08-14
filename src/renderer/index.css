@@ -3547,7 +3547,8 @@ button.solus-token {
 .drag-region {
   -webkit-app-region: drag;
 }
-.no-drag {
+.no-drag,
+.no-drag * {
   -webkit-app-region: no-drag;
 }
 
@@ -3663,10 +3664,6 @@ html.is-mac-editor
   from { opacity: 0; }
   to   { opacity: 1; }
 }
-@keyframes picker-scale-in {
-  from { opacity: 0; transform: scale(0.98); }
-  to   { opacity: 1; transform: scale(1); }
-}
 @keyframes skeleton-shimmer {
   0%   { transform: translateX(-100%); }
   100% { transform: translateX(100%); }
@@ -3706,7 +3703,9 @@ html.is-mac-editor
   50%      { opacity: 1;   transform: scale(1); }
 }
 .doc-shell-root--floating {
-  animation: plan-modal-enter var(--duration-modal) var(--ease-modal) both;
+  /* `backwards`, not `both`: a retained end transform would pin the entire
+     document editor to a compositing layer and blur its text (see msg-in-up). */
+  animation: plan-modal-enter var(--duration-modal) var(--ease-modal) backwards;
   transform-origin: center top;
 }
 .doc-shell-backdrop {

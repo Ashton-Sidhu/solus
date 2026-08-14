@@ -26,6 +26,7 @@
     PlanReference,
     Prompt,
     PromptDelivery,
+    PluginCommandsResult,
     RunConfig,
     WorkReference,
     SessionReference,
@@ -93,6 +94,9 @@
      *  same shape in the same position, so @-file search and saved prompts find
      *  their project without asking which of the two they were handed. */
     run?: RunConfig;
+    /** Commands resolved for this composer. Drafts supply their picker-scoped
+     *  result because they have no session cache of their own. */
+    pluginCommands?: PluginCommandsResult;
     /** The unsent message this bar edits. Passed in rather than resolved here,
      *  so the bar never needs to know whether it belongs to a conversation or to
      *  a composer that has no session yet. Mutated in place. */
@@ -114,6 +118,7 @@
     isPrimary = false,
     paneId,
     run,
+    pluginCommands: suppliedPluginCommands,
     prompt = $bindable(),
     onDispatch,
     leadingActions,
@@ -177,7 +182,7 @@
   const attachments = $derived(prompt.attachments);
   const voiceModeEnabled = $derived(theme.voiceModeEnabled);
   const pluginCommands = $derived(
-    sess?.pluginCommands ?? session.pluginCommands,
+    suppliedPluginCommands ?? sess?.pluginCommands ?? session.pluginCommands,
   );
   // Working directory driving @-file search and plan/work lookup in the composer.
   const composerCwd = $derived(

@@ -468,7 +468,7 @@
                     data-testid="tab-item"
                     data-status={sess?.status ?? "idle"}
                     data-pill-active={isActive}
-                    class="tab-item transition-[background-color,box-shadow,width,max-width] duration-150 data-[pill-active=true]:bg-[color-mix(in_srgb,var(--solus-accent)_9%,var(--solus-container-bg))] data-[pill-active=true]:shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-accent)_18%,transparent),0_0.0625rem_0.1875rem_rgba(0,0,0,0.08)] {isActive ? 'active' : ''} {needsAttention
+                    class="tab-item data-[pill-active=true]:bg-[color-mix(in_srgb,var(--solus-accent)_9%,var(--solus-container-bg))] data-[pill-active=true]:shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-accent)_18%,transparent),0_0.0625rem_0.1875rem_rgba(0,0,0,0.08)] {isActive ? 'active' : ''} {needsAttention
                       ? 'needs-attention'
                       : ''} {isUnread ? 'unread' : ''} {tabId === splitTabId && splitFocused
                       ? 'split-focused'
@@ -520,7 +520,7 @@
                     data-testid="tab-item"
                     data-status={sess?.status ?? "idle"}
                     data-pill-active={isActive}
-                    class="tab-item transition-[background-color,box-shadow,width,max-width] duration-150 data-[pill-active=true]:bg-[color-mix(in_srgb,var(--solus-accent)_9%,var(--solus-container-bg))] data-[pill-active=true]:shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-accent)_18%,transparent),0_0.0625rem_0.1875rem_rgba(0,0,0,0.08)] {isActive ? 'active' : ''} {needsAttention
+                    class="tab-item data-[pill-active=true]:bg-[color-mix(in_srgb,var(--solus-accent)_9%,var(--solus-container-bg))] data-[pill-active=true]:shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-accent)_18%,transparent),0_0.0625rem_0.1875rem_rgba(0,0,0,0.08)] {isActive ? 'active' : ''} {needsAttention
                       ? 'needs-attention'
                       : ''} {isUnread ? 'unread' : ''} {dragTabId === tabId
                       ? 'dragging'

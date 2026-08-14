@@ -19,7 +19,7 @@
   import { CellFocus } from "./cellFocus";
   import { DocCodeBlock } from "./codeBlockView";
   import DragHandle from "@tiptap/extension-drag-handle";
-  import { lowlight } from "./lowlight";
+  import { lowlight } from "../../lib/lowlight";
   import { SearchExtension } from "./searchExtension";
   import { imageFilesFromDataTransfer, readAsDataUrl } from "./images";
   import {

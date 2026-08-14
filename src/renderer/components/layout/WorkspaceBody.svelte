@@ -209,6 +209,13 @@
   const locationChromeVisible = $derived(
     (poolInLead || !!leadingDraft) && maximizedPaneId === null,
   );
+  // Lazy-mount-then-hide (see renderer CLAUDE.md): the project rail mounts the
+  // first time the conversation chrome is visible and afterwards only toggles
+  // display, so covering surfaces don't pay a Git/Task section rebuild on exit.
+  let hasMountedProjectRail = $state(false);
+  $effect(() => {
+    if (enableProjectPanel && locationChromeVisible) hasMountedProjectRail = true;
+  });
   // The one band over the leading pane, whatever it holds — a transcript, an
   // empty session, or a draft. It floats over the content rather than sitting in
   // a row, which is the only way it differs from the one `AsidePaneShell` draws;
@@ -291,6 +298,23 @@
 
   let sidebarOpen = $state(true);
   let sidebarClosedForOverlay = $state(false);
+  // Overlay-driven collapse/expand lands in the same single layout pass as the
+  // companion pane instead of animating: the pane already snaps into the split,
+  // and animating flex-grow beside it relayouts the entire workspace —
+  // transcript included — every frame for 240ms. User toggles stay animated.
+  let sidebarSnapForOverlay = $state(false);
+  let sidebarSnapTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function snapSidebarForOverlay(moveSidebar: () => void) {
+    sidebarSnapForOverlay = true;
+    moveSidebar();
+    if (sidebarSnapTimer) clearTimeout(sidebarSnapTimer);
+    // Long enough for the collapsed layout to apply and paint once before
+    // transitions come back; short enough that a user toggle right after
+    // animates normally.
+    sidebarSnapTimer = setTimeout(() => (sidebarSnapForOverlay = false), 100);
+  }
+  $effect(() => () => clearTimeout(sidebarSnapTimer));
 
   const sidebarBounds = $derived(
     paneBoundsPercent(workspaceBodyWidth, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH),
@@ -572,11 +596,11 @@
       if (sidebarOverlayOpen) {
         if (sidebarOpen) {
           sidebarClosedForOverlay = true;
-          closeSidebar();
+          snapSidebarForOverlay(closeSidebar);
         }
       } else if (sidebarClosedForOverlay) {
         sidebarClosedForOverlay = false;
-        openSidebar();
+        snapSidebarForOverlay(openSidebar);
       }
     });
   });
@@ -618,6 +642,7 @@
 <div
   class="workspace-body flex flex-1 min-w-0 min-h-0"
   class:is-resizing={isResizingSecondary}
+  class:sidebar-snap={sidebarSnapForOverlay}
   class:sidebar-collapsed={!sidebarOpen}
   class:page-flush={pageFlush}
   class:project-panel-open={railOpen}
@@ -793,20 +818,25 @@
                     </div>
                   </div>
                 </div>
-                <!-- The rail is chrome of THIS conversation, so it mounts and
-                     unmounts with the tab strip and sizes itself against the
-                     column. A secondary pane minimizes it temporarily without
-                     changing the user's persisted preference. -->
-                {#if enableProjectPanel && locationChromeVisible}
-                  <ProjectPanel
-                    sourceId={leadingDraft?.id ?? session.activeTabId}
-                    {active}
-                    containerWidth={projectRailContainerWidth}
-                    {workspaceWidth}
-                    minimized={secondaryVisible ||
-                      (!leadingStarted && !newTabProjectPanelPoppedOut)}
-                    onCollapse={() => toggleProjectPanel()}
-                  />
+                <!-- The rail is chrome of THIS conversation and sizes itself
+                     against the column. It mounts on first reveal, then hides
+                     with display:none while a page, review, or maximized pane
+                     covers it — unmounting here made every maximize/restore
+                     and page open rebuild the Git/Task sections. A secondary
+                     pane minimizes it temporarily without changing the user's
+                     persisted preference. -->
+                {#if enableProjectPanel && hasMountedProjectRail}
+                  <div class="contents" class:mode-hidden={!locationChromeVisible}>
+                    <ProjectPanel
+                      sourceId={leadingDraft?.id ?? session.activeTabId}
+                      {active}
+                      containerWidth={projectRailContainerWidth}
+                      {workspaceWidth}
+                      minimized={secondaryVisible ||
+                        (!leadingStarted && !newTabProjectPanelPoppedOut)}
+                      onCollapse={() => toggleProjectPanel()}
+                    />
+                  </div>
                 {/if}
               </div>
             </div>
@@ -833,8 +863,8 @@
               minSize={secondaryBounds.min}
               maxSize={secondaryBounds.max}
               class={`secondary-pane-wrap relative ${
-                maximized ? "secondary-pane-wrap--maximized" : ""
-              } ${closing ? "secondary-pane-wrap--closing" : ""} ${
+                closing ? "secondary-pane-wrap--closing" : ""
+              } ${
                 isFramedRoute(ref) ? "secondary-pane-wrap--framed" : ""
               } ${
                 FLUSH_PAGES.has(ref?.name ?? "")
@@ -844,7 +874,14 @@
               style={closing ? `width:${secondaryClosingWidth}px` : undefined}
             >
               {#if companions.settled.has(pane.id)}
-                <div class="secondary-pane-content h-full min-h-0">
+                <!-- Maximize fixes THIS element, not the pane wrap: the wrap
+                     keeps holding its slot in the split, so the fully-covered
+                     workspace behind never relayouts on maximize or restore —
+                     only the surface re-measures to the window. -->
+                <div
+                  class="secondary-pane-content h-full min-h-0"
+                  class:secondary-pane-content--maximized={maximized}
+                >
                   <Pane
                     {pane}
                     surfaceVisible={active && secondaryVisible}
@@ -907,10 +944,12 @@
     padding-bottom: var(--solus-pane-gutter);
     opacity: 1;
     transform: translateX(0);
+    /* No standing will-change here: it pinned every open pane (a full-height
+       surface) to its own compositing layer for its whole lifetime to serve a
+       180ms close transition the browser layerizes on its own anyway. */
     transition:
       transform 180ms cubic-bezier(0.2, 0, 0, 1),
       opacity 160ms cubic-bezier(0.2, 0, 0, 1);
-    will-change: transform, opacity;
   }
   /* …unless it holds a full-page surface, whose footer band has to reach the
      window edge the same way it does in the primary slot. */
@@ -928,7 +967,7 @@
     transform: translateX(0.375rem);
     pointer-events: none;
   }
-  :global(.secondary-pane-wrap--maximized) {
+  .secondary-pane-content--maximized {
     position: fixed;
     inset: 0;
     z-index: 10040;
@@ -1003,6 +1042,44 @@
   }
   .workspace-body.is-resizing :global(.side-panel-shell) {
     transition: none;
+  }
+  /* Overlay-driven sidebar moves snap (see snapSidebarForOverlay): the whole
+     workspace relayouts once with the arriving/leaving pane instead of every
+     frame for 240ms. */
+  .workspace-body.sidebar-snap :global(.workspace-rail-pane),
+  .workspace-body.sidebar-snap :global(.side-panel-shell) {
+    transition: none;
+  }
+  /* While the OS window frame is resizing (maximize, restore, edge drags —
+     window.context flags the root), these widths retarget their 240ms
+     transitions every frame and rubber-band behind the window edge, then keep
+     settling after it stops. Track the window 1:1 instead. */
+  :global(html.solus-resizing .workspace-rail-pane),
+  :global(html.solus-resizing .side-panel-shell),
+  :global(html.solus-resizing .secondary-pane-wrap) {
+    transition: none;
+  }
+  /* The surface mounts one beat after the pane shell (companions.settled);
+     a compositor-only fade turns that mount from a pop into a reveal. */
+  .secondary-pane-content {
+    animation: secondary-content-in 160ms cubic-bezier(0.2, 0, 0, 1) backwards;
+  }
+  @keyframes secondary-content-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .secondary-pane-content {
+      animation: none;
+    }
+    :global(.workspace-rail-pane),
+    :global(.secondary-pane-wrap) {
+      transition: none;
+    }
   }
   /* Slim drag handle shown on full-page views in place of the tab strip. */
   .page-drag-strip {

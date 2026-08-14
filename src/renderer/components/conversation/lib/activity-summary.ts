@@ -85,13 +85,36 @@ export type ParsedToolInput = ParsedToolFields & {
   sourceJson: string
 }
 
+// A tool call's input string is stable per snapshot, but many surfaces
+// (activity rows, subagent headers, turn summaries) re-derive from it on every
+// stream tick or clock tick — and a running tool's input is re-snapshotted as
+// it streams, so superseded snapshots must not be pinned. Memoize on the raw
+// string, bounded by entry count AND total key characters, evicting FIFO.
+const PARSE_CACHE_MAX_ENTRIES = 1000
+const PARSE_CACHE_MAX_CHARS = 2_000_000
+let parseCacheChars = 0
+const parseCache = new Map<string, ParsedToolInput | null>()
+
 export function parseToolInput(value: string): ParsedToolInput | null {
+  const cached = parseCache.get(value)
+  if (cached !== undefined || parseCache.has(value)) return cached ?? null
+  let parsed: ParsedToolInput | null = null
   try {
     const result = toolInputSchema.safeParse(JSON.parse(value))
-    return result.success ? { ...result.data, sourceJson: value } : null
+    parsed = result.success ? { ...result.data, sourceJson: value } : null
   } catch {
-    return null
+    parsed = null
   }
+  // An input larger than the whole budget is not worth pinning at all.
+  if (value.length > PARSE_CACHE_MAX_CHARS) return parsed
+  for (const key of parseCache.keys()) {
+    if (parseCache.size < PARSE_CACHE_MAX_ENTRIES && parseCacheChars + value.length <= PARSE_CACHE_MAX_CHARS) break
+    parseCache.delete(key)
+    parseCacheChars -= key.length
+  }
+  parseCache.set(value, parsed)
+  parseCacheChars += value.length
+  return parsed
 }
 
 export function activityKind(toolName: string | undefined): ActivityKind {

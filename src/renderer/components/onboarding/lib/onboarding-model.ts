@@ -16,17 +16,21 @@ export type OnboardingStage = 'intro' | 'agents' | 'providers' | 'shortcuts' | '
 /** What the last stage decided, and therefore what the workspace opens with. */
 export type OnboardingMode = 'project' | 'chat'
 
-/** The asking stages, in order. `intro` is not one: it cannot be returned to. */
+/**
+ * The asking stages, in order. `intro` is not one: it cannot be returned to.
+ * Shortcuts come first: the keys are worth learning before any sign-in asks
+ * the user to leave for a browser and come back.
+ */
 export const ONBOARDING_STAGES: OnboardingStage[] = [
+  'shortcuts',
   'agents',
   'providers',
-  'shortcuts',
   'start',
 ]
 
 /** The stage after this one, or null when the flow is over. */
 export function nextStage(stage: OnboardingStage): OnboardingStage | null {
-  if (stage === 'intro') return 'agents'
+  if (stage === 'intro') return ONBOARDING_STAGES[0]
   const index = ONBOARDING_STAGES.indexOf(stage)
   return ONBOARDING_STAGES[index + 1] ?? null
 }
@@ -47,12 +51,13 @@ export const AGENT_PRESENTATION = {
 } satisfies Record<SetupAgent, { abbr: string; tint: string }>
 
 /**
- * The six bindings worth learning on day one, in the order they are taught.
+ * The bindings worth learning on day one, in the order they are taught.
  * Real binding ids rather than literal keycaps: a shortcut card that prints a
  * combo the app does not answer to is a lie the user only discovers later.
  */
 export const ONBOARDING_KEYS: Array<{ id: BindingId; label: string; hint: string }> = [
   { id: 'global.command-palette', label: 'Command palette', hint: 'Everything, from anywhere' },
+  { id: 'global.continue-in-mode', label: 'Editor mode', hint: 'Swap the pill for the full workspace' },
   { id: 'global.new-task', label: 'New task', hint: 'Starts in a fresh worktree' },
   { id: 'global.session-picker', label: 'Session picker', hint: 'Jump between sessions' },
   { id: 'global.toggle-diff-panel', label: 'Toggle diff panel', hint: 'The diff for this session' },

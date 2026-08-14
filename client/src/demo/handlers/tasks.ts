@@ -18,7 +18,6 @@ function taskDetails(store: DemoStore, id: string): TaskDetails {
       body: comment.body,
       createdAt: Date.parse(comment.createdAt),
     })),
-    attempts: store.taskSessions()[id] ?? [],
     links: store.taskLinksFor(id),
     events: [],
   }

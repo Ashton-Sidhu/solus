@@ -256,7 +256,15 @@
   /* Keyframes can't be expressed as Tailwind utilities; referenced via the
      class on the panel above. */
   .file-picker-enter {
-    animation: file-picker-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    /* `backwards`, not `both`: a retained end transform keeps the panel on its
+       own compositing layer and blurs its text. */
+    animation: file-picker-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .file-picker-enter {
+      animation: none;
+    }
   }
 
   @keyframes file-picker-enter {

@@ -64,24 +64,32 @@ export function estimateRetainedBytes<Value>(value: Value, ceiling = Number.POSI
   const seen = new WeakSet<object>()
   let bytes = 0
 
-  const visit = <Candidate>(candidate: Candidate): void => {
+  // This walker measures arbitrary settled RPC payloads — there is no domain
+  // schema at this boundary, and dispatching through zod here (the rule-clean
+  // alternative it replaces) allocated four schemas plus an object clone per
+  // visited node on every settled response.
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters
+  const visit = (candidate: unknown): void => {
     if (bytes > ceiling || candidate == null) return
-    const stringCandidate = z.string().safeParse(candidate)
-    if (stringCandidate.success) {
-      bytes += 16 + stringCandidate.data.length * 2
-      return
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof
+    switch (typeof candidate) {
+      case 'string':
+        bytes += 16 + candidate.length * 2
+        return
+      case 'number':
+      case 'bigint':
+        bytes += 8
+        return
+      case 'boolean':
+        bytes += 4
+        return
+      case 'object':
+        break
+      default:
+        return
     }
-    if (z.union([z.number(), z.bigint()]).safeParse(candidate).success) {
-      bytes += 8
-      return
-    }
-    if (z.boolean().safeParse(candidate).success) {
-      bytes += 4
-      return
-    }
-    const objectCandidate = z.object({}).passthrough().safeParse(candidate)
-    if (!objectCandidate.success || seen.has(objectCandidate.data)) return
-    seen.add(objectCandidate.data)
+    if (seen.has(candidate)) return
+    seen.add(candidate)
     bytes += 48
 
     if (ArrayBuffer.isView(candidate)) {
@@ -100,7 +108,7 @@ export function estimateRetainedBytes<Value>(value: Value, ceiling = Number.POSI
       }
       return
     }
-    for (const [key, item] of Object.entries(objectCandidate.data)) {
+    for (const [key, item] of Object.entries(candidate)) {
       bytes += 8 + key.length * 2
       visit(item)
       if (bytes > ceiling) break
@@ -191,6 +199,10 @@ export class ResponseReceiptCache<T> {
       this.deleteReceipt(requestId, receipt)
       return
     }
+    // Free expired receipts before asking the shared budget for room — the
+    // estimator measures real payload sizes, so a stale burst must not make
+    // the budget refuse (and drop dedup for) a fresh settle it could hold.
+    this.prune()
     if (this.sharedBudget && !this.sharedBudget.tryRetain(retainedBytes)) {
       this.deleteReceipt(requestId, receipt)
       return
@@ -265,4 +277,3 @@ export class ResponseReceiptCache<T> {
     this.cleanupTimer.unref?.()
   }
 }
-import { z } from 'zod'

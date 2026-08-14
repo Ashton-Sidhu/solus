@@ -39,7 +39,6 @@
   import type { PrActivityTarget } from "./lib/activity-data";
   import SubmitReviewModal from "./SubmitReviewModal.svelte";
   import SinceReviewBar from "./SinceReviewBar.svelte";
-  import CommitDiffBanner from "./CommitDiffBanner.svelte";
   import { prReviewState } from "./lib/pr-review.store.svelte";
   import PrDetailChrome from "./PrDetailChrome.svelte";
   import GithubConnectionRequired from "../prs/GithubConnectionRequired.svelte";
@@ -538,12 +537,15 @@
   // Mount whichever tab we open on (Activity by default) so it renders without a
   // blank frame; the others mount lazily on first visit.
   let mountedGuide = $state(untrack(() => sub === "guide"));
-  let mountedDiff = $state(untrack(() => sub === "diff"));
+  // Popped-out mode redirects the Diff tab to Activity + pane (effect below);
+  // mounting the inline panel there would keep a full hidden duplicate of the
+  // popped-out diff (a second CodeView and parsed patch) alive for the tab's life.
+  let mountedDiff = $state(untrack(() => sub === "diff") && (headless || embedded));
   let mountedActivity = $state(untrack(() => sub === "activity"));
   let mountedMap = $state(untrack(() => sub === "map"));
   $effect(() => {
     if (sub === "guide") mountedGuide = true;
-    else if (sub === "diff") mountedDiff = true;
+    else if (sub === "diff") { if (inlineDiff) mountedDiff = true; }
     else if (sub === "activity") mountedActivity = true;
     else if (sub === "map") mountedMap = true;
   });
@@ -881,7 +883,7 @@
 
         <!-- Pane controls, pill-shaped and quiet: the band's only ink is the
              breadcrumb, so these read as affordances rather than a toolbar. -->
-        <div class="flex shrink-0 items-center gap-0.5">
+        <div class="no-drag pointer-events-auto flex shrink-0 items-center gap-0.5">
           {@render refreshButton()}
           {@render checksChip()}
           {@render chatButton()}
@@ -1064,9 +1066,7 @@
     {/if}
     {#if mountedDiff && pr}
       <div class="absolute inset-0 flex flex-col" class:hidden={sub !== "diff"}>
-        {#if commitScope}
-          <CommitDiffBanner commit={commitScope} onClear={clearCommitScope} />
-        {:else if ownDeltaBase}
+        {#if !commitScope && ownDeltaBase}
           <StackDiffBanner
             parent={ownDeltaBase.parent}
             fileCount={review.ownDeltaFileCount}
@@ -1109,6 +1109,8 @@
             {onToggleMaximize}
             initialScope={diffScope}
             commentingDisabled={!!commitScope}
+            commitSha={commitScope?.sha ?? null}
+            onClearCommitScope={clearCommitScope}
             patchOverride={commitScope
               ? (review.commitDiffPatch ?? "")
               : isSinceReviewMode

@@ -1,4 +1,4 @@
-import type { NormalizedEvent } from '../../../../src/shared/types'
+import type { WireNormalizedEvent } from '../../../../src/shared/types'
 import type { DemoBackend } from '../server'
 import type { DemoStore } from '../store'
 
@@ -57,7 +57,7 @@ export function createReplayEngine(
     autoContinueTimer = null
     backend.broadcast('session.eventReceived', {
       sessionId,
-      event: { type: 'permission_resolved', questionId } satisfies NormalizedEvent,
+      event: { type: 'permission_resolved', questionId } satisfies WireNormalizedEvent,
     })
     releaseWaiters()
     return true

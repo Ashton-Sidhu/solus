@@ -61,6 +61,7 @@
   import { groupStackedPrRows } from "./lib/stack-grouping";
   import GithubConnectionRequired from "./GithubConnectionRequired.svelte";
   import PrDetailPanel from "./PrDetailPanel.svelte";
+  import PrContextMenu from "./PrContextMenu.svelte";
 
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
@@ -85,6 +86,11 @@
   let pageWidth = $state(0);
   let stacksReady = $state(false);
   let viewerLogin = $state("");
+  let prContextMenu = $state<{
+    pr: PullRequestSummary;
+    x: number;
+    y: number;
+  } | null>(null);
 
   // Tick the clock so relative row times age instead of freezing at load.
   let now = $state(Date.now());
@@ -220,13 +226,7 @@
     prInboxGroups(store.items, rowContext, now, {
       review: (pr) => selectPr(pr, "diff"),
       open: (pr) => selectPr(pr),
-      openExternal: (pr) => {
-        const repo = pr.baseRepo;
-        if (repo)
-          void localApi.openExternal(
-            `https://github.com/${repo.owner}/${repo.repo}/pull/${pr.number}`,
-          );
-      },
+      openExternal: openPrExternal,
     }, statuses),
   );
   const inboxVirtualItems = $derived(
@@ -396,6 +396,25 @@
 
   function prByNumber(key: string): PullRequestSummary | undefined {
     return store.items.find((pr) => String(pr.number) === key);
+  }
+
+  function prUrl(pr: PullRequestSummary): string | null {
+    const repo = pr.baseRepo;
+    return repo
+      ? `https://${repo.host}/${repo.owner}/${repo.repo}/pull/${pr.number}`
+      : null;
+  }
+
+  function openPrExternal(pr: PullRequestSummary) {
+    const url = prUrl(pr);
+    if (url) void localApi.openExternal(url);
+  }
+
+  function openPrContextMenu(event: MouseEvent, pr: PullRequestSummary) {
+    event.preventDefault();
+    event.stopPropagation();
+    listView.selectedNumber = pr.number;
+    prContextMenu = { pr, x: event.clientX, y: event.clientY };
   }
 
   // ── Data loading ──
@@ -880,6 +899,10 @@
                             : undefined,
                         );
                     }}
+                    onContextMenu={(event) => {
+                      const pr = prByNumber(item.row.key);
+                      if (pr) openPrContextMenu(event, pr);
+                    }}
                   />
                   {/if}
                 </div>
@@ -966,6 +989,9 @@
                       onSelect={() => {
                         if (pr) selectPr(pr);
                       }}
+                      onContextMenu={(event) => {
+                        if (pr) openPrContextMenu(event, pr);
+                      }}
                     />
                   {:else}
                     <ListRow
@@ -975,6 +1001,9 @@
                       leading={reviewCheckbox}
                       onSelect={() => {
                         if (pr) selectPr(pr);
+                      }}
+                      onContextMenu={(event) => {
+                        if (pr) openPrContextMenu(event, pr);
                       }}
                     />
                   {/if}
@@ -1021,6 +1050,19 @@
           onStep={stepPanel}
         />
       </div>
+    {/if}
+
+    {#if prContextMenu}
+      {@const menuPr = prContextMenu.pr}
+      <PrContextMenu
+        x={prContextMenu.x}
+        y={prContextMenu.y}
+        pr={menuPr}
+        onOpen={() => selectPr(menuPr)}
+        onReview={() => selectPr(menuPr, "diff")}
+        onOpenWeb={prUrl(menuPr) ? () => openPrExternal(menuPr) : undefined}
+        onClose={() => (prContextMenu = null)}
+      />
     {/if}
   </div>
 {/if}

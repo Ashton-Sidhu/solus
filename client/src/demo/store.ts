@@ -435,7 +435,13 @@ export class DemoStore {
   linkTaskSession(taskId: string, sessionId: string): void {
     const links = this.fixtures.tasks.sessions[taskId] ??= []
     if (!links.some((link) => link.sessionId === sessionId)) {
-      links.push({ sessionId, linkedAt: this.nextTimestamp() })
+      links.push({
+        sessionId,
+        sessionTitle: this.getSessionInfo(sessionId)?.firstMessage ?? null,
+        provider: this.getSessionInfo(sessionId)?.provider ?? null,
+        lastActivityAt: null,
+        linkedAt: this.nextTimestamp(),
+      })
     }
   }
 

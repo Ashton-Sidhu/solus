@@ -32,7 +32,7 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     platform: 'web',
     version: 'demo',
     projectCount: 1,
-    agentAuth: { claude: true, codex: true },
+    agentAuth: { claude: true },
     gitAuth: { github: false },
     serverName: 'Solus Demo',
     agentTaskLifecyclePolicy,
@@ -88,6 +88,8 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     parentPath: null,
     currentPath: typeof args[0] === 'string' ? args[0] : store.startInfo().workspacePath,
   }))
+  backend.register('usageLimits', () => [])
+  backend.register('outboxList', () => [])
   backend.register('readLedger', () => null)
   backend.register('projectConfigLoad', () => ({ version: 1 }))
   backend.register('detectEditors', () => ({ editors: [], terminals: [] }))

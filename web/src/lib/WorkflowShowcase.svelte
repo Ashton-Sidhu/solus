@@ -20,7 +20,7 @@
 			</dt>
 			<dd>
 				<p>Create a session, assign the task, and let Solus plan, code, and validate end to end.</p>
-				<span><b>⌥⇧T</b> new session, new task</span>
+				<span><b>⌘T</b> new session, new task</span>
 			</dd>
 		</div>
 		<div>
@@ -29,8 +29,8 @@
 				<strong>Review intent, then output.</strong>
 			</dt>
 			<dd>
-				<p>Guide concerns, inspect diffs, and send precise feedback straight back to the agent.</p>
-				<span><b class="positive">+12</b> / <b class="negative">−4</b>　live, per-file</span>
+				<p>Step through guided concerns, inspect diffs, and send line-level feedback to the agent.</p>
+				<span><b class="positive">+12</b> / <b class="negative">−4</b> · live, per-file</span>
 			</dd>
 		</div>
 		<div>
@@ -40,7 +40,7 @@
 			</dt>
 			<dd>
 				<p>Review checks, resolve conflicts with an agent, and merge the pull request when it’s ready.</p>
-				<span class="positive"><b>green</b> → merged</span>
+				<span><b class="positive">✓ checks</b> → merged</span>
 			</dd>
 		</div>
 	</dl>
@@ -52,9 +52,9 @@
 	.workflow-glow {
 		position: absolute;
 		top: 5%;
-		left: 27%;
+		left: 30%;
 		z-index: -1;
-		width: 44%;
+		width: 40%;
 		aspect-ratio: 1.2;
 		border-radius: 999px;
 		background: radial-gradient(circle, rgba(212,175,106,.19), rgba(212,175,106,.06) 42%, transparent 72%);
@@ -72,8 +72,8 @@
 			0 8px 18px -10px rgba(70,55,35,.16);
 	}
 	.workflow-window.delegate { top: 56px; left: 0; width: 40%; height: 430px; }
-	.workflow-window.review { top: 0; left: 27%; z-index: 2; width: 44%; height: 500px; }
-	.workflow-window.ship { top: 64px; right: 0; width: 29%; height: 412px; }
+	.workflow-window.review { top: 0; left: 36%; z-index: 2; width: 38%; height: 500px; }
+	.workflow-window.ship { top: 84px; right: 0; width: 25%; height: 360px; }
 	.workflow-summaries { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; }
 	.workflow-summaries > div { min-width: 0; padding: 0 38px; }
 	.workflow-summaries > div:first-child { padding-left: 0; }
@@ -93,7 +93,7 @@
 		.workflow-theater { min-height: 480px; }
 		.workflow-window.delegate { top: 50px; height: 380px; }
 		.workflow-window.review { height: 440px; }
-		.workflow-window.ship { top: 58px; height: 360px; }
+		.workflow-window.ship { top: 72px; height: 320px; }
 		.workflow-summaries > div { padding: 0 26px; }
 	}
 	@media (max-width: 900px) {
@@ -103,7 +103,7 @@
 		.workflow-window { position: relative; top: auto !important; right: auto !important; left: auto !important; width: min(100%, 640px) !important; }
 		.workflow-window.delegate { height: 470px; order: 1; }
 		.workflow-window.review { height: 510px; order: 2; }
-		.workflow-window.ship { height: 440px; order: 3; }
+		.workflow-window.ship { height: 380px; order: 3; }
 		.workflow-summaries { grid-template-columns: 1fr; }
 		.workflow-summaries > div { padding: 28px 0 !important; }
 		.workflow-summaries > div:first-child { padding-top: 0 !important; }
@@ -114,7 +114,7 @@
 		.workflow-theater { gap: 14px; }
 		.workflow-window.delegate { height: 430px; }
 		.workflow-window.review { height: 460px; }
-		.workflow-window.ship { height: 400px; }
+		.workflow-window.ship { height: 340px; }
 		.workflow-summaries dt strong { font-size: 24px; }
 		.workflow-summaries p { font-size: 16px; }
 		.workflow-summaries dd > span { font-size: 12px; }

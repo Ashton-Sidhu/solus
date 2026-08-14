@@ -13,21 +13,21 @@ describe('first-run onboarding stages', () => {
     // Everything before it is a question the workspace does not wait on. The
     // start choice is the one that decides where the user lands, so nothing may
     // be inserted after it.
-    expect(ONBOARDING_STAGES).toEqual(['agents', 'providers', 'shortcuts', 'start'])
+    expect(ONBOARDING_STAGES).toEqual(['shortcuts', 'agents', 'providers', 'start'])
     expect(ONBOARDING_STAGES.at(-1)).toBe('start')
   })
 
   test('the greeting leads into the first question and is never returned to', () => {
-    expect(nextStage('intro')).toBe('agents')
-    expect(previousStage('agents')).toBeNull()
+    expect(nextStage('intro')).toBe('shortcuts')
+    expect(previousStage('shortcuts')).toBeNull()
     // 'intro' is not an asking stage, so it has no position to step back from.
     expect(previousStage('intro')).toBeNull()
   })
 
   test('every stage runs forward into the next one', () => {
+    expect(nextStage('shortcuts')).toBe('agents')
     expect(nextStage('agents')).toBe('providers')
-    expect(nextStage('providers')).toBe('shortcuts')
-    expect(nextStage('shortcuts')).toBe('start')
+    expect(nextStage('providers')).toBe('start')
   })
 
   test('the last stage reports the end of the flow rather than another stage', () => {
@@ -44,11 +44,12 @@ describe('first-run onboarding stages', () => {
     }
   })
 
-  test('shortcuts comes before the start choice', () => {
-    // The keys are worth learning before the workspace opens, not after the
-    // user has already been dropped into it.
+  test('shortcuts come before any sign-in', () => {
+    // The keys are worth learning before a sign-in sends the user away to a
+    // browser — once auth starts, nobody reads a shortcut card.
     const order = ONBOARDING_STAGES as OnboardingStage[]
-    expect(order.indexOf('shortcuts')).toBeLessThan(order.indexOf('start'))
+    expect(order.indexOf('shortcuts')).toBeLessThan(order.indexOf('agents'))
+    expect(order.indexOf('shortcuts')).toBeLessThan(order.indexOf('providers'))
   })
 })
 
@@ -56,10 +57,16 @@ describe('the shortcuts stage', () => {
   test('every key it teaches is a binding the app actually answers to', () => {
     // A card printing a combo with no binding behind it is a lie the user only
     // discovers after onboarding is gone.
-    expect(ONBOARDING_KEYS).toHaveLength(6)
+    expect(ONBOARDING_KEYS).toHaveLength(7)
     for (const key of ONBOARDING_KEYS) {
       expect(KEYBINDINGS[key.id]).toBeDefined()
       expect(KEYBINDINGS[key.id].scope).toBe('global')
     }
+  })
+
+  test('the editor/pill mode switch is taught', () => {
+    // Editor mode is how the workspace is actually entered; a first-run user
+    // who never learns the switch stays stuck in the pill.
+    expect(ONBOARDING_KEYS.map((key) => key.id)).toContain('global.continue-in-mode')
   })
 })

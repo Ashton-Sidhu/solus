@@ -1,4 +1,4 @@
-import type { IpcContext, NormalizedEvent, PromptOptions } from '../../../../src/shared/types'
+import type { IpcContext, PromptOptions, WireNormalizedEvent } from '../../../../src/shared/types'
 import type { DemoBackend } from '../server'
 import type { DemoStore } from '../store'
 
@@ -17,7 +17,7 @@ function showCta(): void {
 }
 
 function streamReply(backend: DemoBackend, sessionId: string): void {
-  const broadcast = (event: NormalizedEvent): void => {
+  const broadcast = (event: WireNormalizedEvent): void => {
     backend.broadcast('session.eventReceived', { sessionId, event })
   }
 
@@ -37,19 +37,9 @@ function streamReply(backend: DemoBackend, sessionId: string): void {
 export function registerAgentIntercept(backend: DemoBackend, store: DemoStore): void {
   void store
 
-  backend.register('startAgentSession', (args) => {
-    const [ctx, options] = args as [IpcContext, PromptOptions]
-    void options
-    const agentSessionId = `demo-live-session-${++sessionCounter}`
-    streamReply(backend, ctx.session.sessionId)
-    return { agentSessionId }
-  })
-
-  backend.register('dispatchToAgentSession', (args) => {
-    const [ctx, , options] = args as [IpcContext, string, PromptOptions]
-    void options
-    streamReply(backend, ctx.session.sessionId)
-  })
+  backend.register('createHeadlessSession', () => ({
+    agentSessionId: `demo-live-session-${++sessionCounter}`,
+  }))
 
   backend.register('prompt', (args) => {
     const [ctx, options] = args as [IpcContext, PromptOptions]

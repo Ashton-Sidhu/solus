@@ -206,7 +206,12 @@ export class AgentConversationTracker {
 
   private messageFor(session: Session, msgId: string | undefined) {
     if (!msgId) return undefined
-    return session.messages.find((message) => message.id === msgId)
+    // The tracked card is almost always near the tail; walk newest-first like
+    // latestAgentConversationMessage below.
+    for (let i = session.messages.length - 1; i >= 0; i--) {
+      if (session.messages[i].id === msgId) return session.messages[i]
+    }
+    return undefined
   }
 
   private latestAgentConversationMessage(session: Session, agentSessionId: string) {

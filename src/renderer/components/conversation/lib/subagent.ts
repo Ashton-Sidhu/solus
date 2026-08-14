@@ -26,15 +26,41 @@ const subagentInputSchema = z.object({
   agent_path: z.string().optional(),
 })
 
+// Subagent rows re-derive name/model/type from the same input string on every
+// clock tick, several times per row, and a dispatching call's input is
+// re-snapshotted while it streams. Parse each distinct string once, bounded by
+// entry count AND total key characters (FIFO) so superseded snapshots of large
+// prompts are not pinned.
+const SUBAGENT_PARSE_CACHE_MAX_ENTRIES = 500
+const SUBAGENT_PARSE_CACHE_MAX_CHARS = 1_000_000
+let subagentParseCacheChars = 0
+const subagentParseCache = new Map<string, SubagentInput>()
+
 export function parseSubagentInput(toolInput: string | undefined): SubagentInput {
   const input = toolInput?.trim()
   if (!input) return {}
+  const cached = subagentParseCache.get(input)
+  if (cached) return cached
+  let parsed: SubagentInput
   try {
-    const parsed = subagentInputSchema.safeParse(JSON.parse(input))
-    return parsed.success ? parsed.data : { prompt: input }
+    const result = subagentInputSchema.safeParse(JSON.parse(input))
+    parsed = result.success ? result.data : { prompt: input }
   } catch {
-    return { prompt: input }
+    parsed = { prompt: input }
   }
+  if (input.length > SUBAGENT_PARSE_CACHE_MAX_CHARS) return parsed
+  for (const key of subagentParseCache.keys()) {
+    if (
+      subagentParseCache.size < SUBAGENT_PARSE_CACHE_MAX_ENTRIES &&
+      subagentParseCacheChars + input.length <= SUBAGENT_PARSE_CACHE_MAX_CHARS
+    )
+      break
+    subagentParseCache.delete(key)
+    subagentParseCacheChars -= key.length
+  }
+  subagentParseCache.set(input, parsed)
+  subagentParseCacheChars += input.length
+  return parsed
 }
 
 export function subagentInputText(input: SubagentInput): string {

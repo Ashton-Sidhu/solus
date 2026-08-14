@@ -201,6 +201,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
    *  thread is created or its activity changes. */
   private sessionListCache = new MemoryCache<string, SessionMeta[]>({ ttlMs: 5 * 60 * 1000, maxEntries: 64 })
   private sessionIndexRefresh: Promise<void> | null = null
+  private sessionIndexRefreshTimer: ReturnType<typeof setTimeout> | null = null
   /** Set once if `thread/start` rejects dynamicTools — we then drop them and
    *  the agent loses work create/read/update for the run (experimental API). */
   private dynamicToolsUnavailable = false
@@ -451,6 +452,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   shutdown(): void {
+    if (this.sessionIndexRefreshTimer) {
+      clearTimeout(this.sessionIndexRefreshTimer)
+      this.sessionIndexRefreshTimer = null
+    }
     this.client.shutdown()
   }
 
@@ -485,6 +490,19 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     } finally {
       this.sessionIndexRefresh = null
     }
+  }
+
+  /** Coalesce turn-completion index sweeps: a burst of completing turns (parallel
+   *  sessions, subagent fan-out) schedules one sweep instead of one per turn. */
+  private scheduleSessionIndexRefresh(): void {
+    if (this.sessionIndexRefreshTimer) return
+    this.sessionIndexRefreshTimer = setTimeout(() => {
+      this.sessionIndexRefreshTimer = null
+      void this.refreshSessionIndex().catch((err) => {
+        log.warn('session_index_refresh_failed', { error: err instanceof Error ? err.message : String(err) })
+      })
+    }, 2000)
+    this.sessionIndexRefreshTimer.unref?.()
   }
 
   private async refreshSessionIndexOnce(): Promise<void> {
@@ -774,12 +792,14 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         return
       }
       // A turn just created or updated a thread — drop the cached session lists
-      // so the next listSessions reflects the new activity.
+      // the thread can appear in so the next listSessions reflects the new
+      // activity. Other projects' lists stay warm, and the index sweep is
+      // coalesced so a burst of completing turns pays for one sweep, not one each.
       if (handle?.persistent) {
-        this.sessionListCache.clear()
-        void this.refreshSessionIndex().catch((err) => {
-          log.warn('session_index_refresh_failed', { error: err instanceof Error ? err.message : String(err) })
-        })
+        this.sessionListCache.invalidateWhere((cacheKey) =>
+          codexThreadBelongsToProject({ cwd: handle.cwd }, cacheKey),
+        )
+        this.scheduleSessionIndexRefresh()
       }
       const sawRateLimit = handle?.normalizer.summary.sawRateLimit ?? false
       const exitCode = params?.turn?.status === 'failed' && !sawRateLimit ? 1 : wasInterrupted ? null : 0

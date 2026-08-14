@@ -1,19 +1,16 @@
 <script lang="ts">
-  import { localApi } from "@client-core/local-api";
   /**
    * "Two agents, one step each." Every row is read off the bound host's
    * readiness through the same setup session Settings uses, so an agent that was
    * already installed and signed in arrives here as done without being touched.
    */
-  import { ArrowSquareOutIcon } from "phosphor-svelte";
   import { onMount } from "svelte";
   import { onboardingStore as store } from "./onboarding.store.svelte";
   import { AGENT_PRESENTATION } from "./lib/onboarding-model";
   import { codingProviderRows } from "../servers/lib/host-onboarding";
   import OnboardingRow from "./OnboardingRow.svelte";
   import OnboardingStageActions from "./OnboardingStageActions.svelte";
-  import { Button } from "../ui/button";
-  import { Input } from "../ui/input";
+  import DevicePrompt from "../servers/DevicePrompt.svelte";
   import type { SetupAgent } from "../../../shared/types";
 
   const setup = $derived(store.setup);
@@ -38,8 +35,11 @@
           : "Two agents, one step each",
   );
 
-  /** Sign-in codes some CLIs ask to be typed back, kept per agent. */
-  let codes = $state<Partial<Record<SetupAgent, string>>>({});
+  /** A CLI either shows a code to enter on its sign-in page, or wants one pasted back. */
+  const why = (label: string, requiresCodeInput: boolean | undefined) =>
+    requiresCodeInput
+      ? `${label} opened your browser. Finish signing in, then paste the returned code here.`
+      : `Enter this code on the ${label} sign-in page in your browser.`;
 
   onMount(() => {
     setup.retain();
@@ -89,55 +89,18 @@
         >
           {#snippet expansion()}
             {#if verification}
-              <div class="flex flex-col gap-2.5">
-                <p class="text-xs leading-relaxed text-muted-foreground">
-                  {row.label} opened your browser to finish signing in.
-                </p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onclick={() => void localApi.openExternal(verification.url)}
-                  >
-                    <ArrowSquareOutIcon size={12} />
-                    Open the sign-in page
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    class="text-muted-foreground"
-                    onclick={() => void setup.cancelAgentSignIn(agent)}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-                {#if verification.requiresCodeInput}
-                  <div class="flex flex-col gap-2 sm:flex-row">
-                    <Input
-                      bind:value={
-                        () => codes[agent] ?? "",
-                        (next) => (codes[agent] = next)
-                      }
-                      autocomplete="off"
-                      spellcheck={false}
-                      placeholder="Paste the code the page gave you"
-                      aria-label="{row.label} sign-in code"
-                    />
-                    <Button
-                      class="shrink-0"
-                      size="sm"
-                      disabled={!codes[agent]?.trim()}
-                      onclick={() =>
-                        void setup
-                          .submitAgentSignInCode(agent, codes[agent]!.trim())
-                          .then(() => (codes[agent] = ""))
-                          .catch(() => {})}
-                    >
-                      Submit
-                    </Button>
-                  </div>
-                {/if}
-              </div>
+              <!-- The same prompt Settings shows: the one-time code some CLIs
+                   want entered on the page, or the field for a code the page
+                   hands back. -->
+              <DevicePrompt
+                url={verification.url}
+                code={verification.code}
+                label={row.label}
+                requiresCodeInput={verification.requiresCodeInput}
+                why={why(row.label, verification.requiresCodeInput)}
+                onsubmit={(code) => setup.submitAgentSignInCode(agent, code)}
+                oncancel={() => void setup.cancelAgentSignIn(agent)}
+              />
             {:else if failure}
               <p
                 class="cursor-text select-text text-pretty text-xs leading-relaxed text-(--solus-status-error)"
@@ -156,6 +119,7 @@
     continueLabel="Continue"
     continueEnabled={readyCount > 0}
     oncontinue={() => store.advance()}
+    onback={() => store.back()}
     onskip={() => store.advance()}
   />
 </div>
