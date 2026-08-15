@@ -16,9 +16,22 @@ export type ListPageView = 'global' | 'inbox'
 
 /** One project in the header's scope switcher. */
 export interface ListProjectOption {
-  /** Repo root — the scope key, and the path the favicon is looked up under. */
+  /** Unique across hosts (`serverId` + `projectKey`) — row identity and the
+   *  value `onSelect`/`onRemoveHistory` are keyed by. */
+  key: string
+  /** Repo root — the path the favicon is looked up under. Not unique alone:
+   *  two hosts can share it, which is exactly why `key` exists. */
   projectKey: string
+  /** The host this project lives on. */
+  serverId: string
   label: string
+  /** False for a catalog project this page cannot yet select — its host is
+   *  disconnected, or it lives on a different host than the one this page is
+   *  scoped to. The option stays visible but the switcher will not act on it. */
+  available: boolean
+  /** True for a catalog-only entry (no live session/task on it right now) —
+   *  the switcher offers "Remove from history" for these. */
+  historyOnly?: boolean
 }
 
 /** Status tints a chip or a lead statistic may carry. `neutral` is the default

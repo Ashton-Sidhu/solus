@@ -1,21 +1,44 @@
 <script lang="ts">
-  import { CaretDownIcon, SquaresFourIcon } from "phosphor-svelte";
+  import { CaretDownIcon, SquaresFourIcon, TrashIcon } from "phosphor-svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import { abbreviateHome } from "../../lib/paths";
 
-  /** The ledger's scope control: which open project the Workspace is showing.
-   *  It heads the page's action cluster, where Tasks and Pull requests keep
-   *  theirs, and governs every facet count in the filter row below it. */
-  interface Props {
-    options: { key: string; label: string; count: number }[];
-    /** null = all open projects. */
-    value: string | null;
-    allCount: number;
-    onSelect: (key: string | null) => void;
+  /** One row this switcher can show — an open project (as today) or a
+   *  catalog-only project the user has visited before but has nothing open in
+   *  right now. Mirrors `ListProjectOption`'s shape without importing it —
+   *  this is its own bespoke radio-group switcher, not the list-page one. */
+  interface WorkspaceProjectOption {
+    /** Unique across hosts — `hostKey(serverId, projectKey)`. */
+    key: string;
+    /** Repo root — the path the favicon and tooltip use. */
+    projectKey: string;
+    serverId: string;
+    label: string;
+    count: number;
+    /** False when the option's host is disconnected — stays visible, dimmed,
+     *  and cannot be selected. */
+    available: boolean;
+    /** True for a catalog-only entry with nothing open there right now — the
+     *  only rows that offer "Remove from history". */
+    historyOnly: boolean;
   }
 
-  let { options, value, allCount, onSelect }: Props = $props();
+  /** The ledger's scope control: which open or catalog project the Workspace
+   *  is showing. It heads the page's action cluster, where Tasks and Pull
+   *  requests keep theirs, and governs every facet count in the filter row
+   *  below it. */
+  interface Props {
+    options: WorkspaceProjectOption[];
+    /** The active option's `key`; null = all open projects. */
+    value: string | null;
+    allCount: number;
+    onSelect: (option: WorkspaceProjectOption | null) => void;
+    /** Forgets a catalog-only project. Files and sessions are untouched. */
+    onRemoveHistory?: (option: WorkspaceProjectOption) => void;
+  }
+
+  let { options, value, allCount, onSelect, onRemoveHistory }: Props = $props();
 
   let menuOpen = $state(false);
   let triggerEl = $state<HTMLButtonElement | null>(null);
@@ -38,7 +61,7 @@
 >
   {#if active}
     {#key active.key}
-      <ProjectFavicon projectRoot={active.key} class="size-3.5" />
+      <ProjectFavicon projectRoot={active.projectKey} class="size-3.5" />
     {/key}
   {:else}
     <SquaresFourIcon size={14} class="shrink-0 text-muted-foreground" />
@@ -69,18 +92,38 @@
       value={value ?? "all"}
       onValueChange={(key) => {
         menuOpen = false;
-        onSelect(key === "all" ? null : key);
+        onSelect(key === "all" ? null : (options.find((option) => option.key === key) ?? null));
       }}
     >
       <DropdownMenu.GroupHeading>Projects</DropdownMenu.GroupHeading>
       {#each options as option (option.key)}
-        <DropdownMenu.RadioItem value={option.key} title={abbreviateHome(option.key)}>
-          <ProjectFavicon projectRoot={option.key} class="size-3.5" />
-          <span class="min-w-0 flex-1 truncate">{option.label}</span>
-          <span class="font-mono text-xs tabular-nums text-muted-foreground opacity-60">
-            {option.count}
-          </span>
-        </DropdownMenu.RadioItem>
+        <div class="group/row flex items-center gap-0.5">
+          <DropdownMenu.RadioItem
+            value={option.key}
+            title={option.available
+              ? abbreviateHome(option.projectKey)
+              : `${abbreviateHome(option.projectKey)} — host unavailable`}
+            disabled={!option.available}
+            class="min-w-0 flex-1 {option.available ? '' : 'opacity-50'}"
+          >
+            <ProjectFavicon projectRoot={option.projectKey} class="size-3.5" />
+            <span class="min-w-0 flex-1 truncate">{option.label}</span>
+            <span class="font-mono text-xs tabular-nums text-muted-foreground opacity-60">
+              {option.count}
+            </span>
+          </DropdownMenu.RadioItem>
+          {#if option.historyOnly && onRemoveHistory}
+            <button
+              type="button"
+              class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground opacity-0 transition-opacity duration-150 hover:bg-[var(--wash-2)] hover:text-foreground group-hover/row:opacity-100"
+              title="Remove from history"
+              aria-label="Remove {option.label} from history"
+              onclick={() => onRemoveHistory(option)}
+            >
+              <TrashIcon size={13} />
+            </button>
+          {/if}
+        </div>
       {/each}
       {#if options.length > 1}
         <DropdownMenu.Separator />

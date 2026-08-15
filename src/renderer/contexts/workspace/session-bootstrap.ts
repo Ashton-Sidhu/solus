@@ -8,6 +8,8 @@ import { initDraftState, loadDrafts, loadPersistedSessionDrafts, loadPersistedTa
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { stampSessionMeta } from '@client-core/session-meta'
 import { serverConnections } from '@client-core/server-connections'
+import { projectCatalog } from '../projects/project-catalog.store.svelte'
+import { projectDirLabel } from '../../lib/paths'
 import { z } from 'zod'
 
 const permissionModeSchema = z.enum(['ask', 'auto', 'plan']).catch('auto')
@@ -300,6 +302,13 @@ function _materializeTabs(
         permissionMode: permissionModeSchema.parse(snapTab.permissionMode),
       }
       if (snapTab.modelConfig) run.modelConfig = restoredModelConfig(snapTab)
+      const catalogRoot = run.gitContext?.repoRoot ?? run.workingDirectory
+      if (serverId && catalogRoot && catalogRoot !== '~') {
+        projectCatalog.record(
+          { serverId, projectRoot: catalogRoot },
+          projectDirLabel(catalogRoot, ctx.staticInfo?.workspacePath),
+        )
+      }
       const overrides: NonNullable<Parameters<typeof makeSession>[1]> = {
         // Keep the id the snapshot carried: the persisted location names chats
         // by session, so a restored split pane has to find the same one back.

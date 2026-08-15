@@ -17,6 +17,8 @@ import { automationDraftSessionRequest } from '../automations/automation-draft-s
 import { TasksStore } from '../tasks/tasks.store.svelte'
 import { OutboxStore } from '../outbox/outbox.store.svelte'
 import { PrsStore, type PrReviewTab } from '../prs/prs.store.svelte'
+import { PrInboxStore } from '../prs/pr-inbox.store.svelte'
+import { projectCatalog } from '../projects/project-catalog.store.svelte'
 import { prSurfaceError } from '../../components/prs/lib/pr-surface-error'
 import { StacksStore } from '../prs/stacks.store.svelte'
 import { type Task, type TaskSnapshot } from '../../../shared/task-types'
@@ -170,6 +172,7 @@ export class WorkspaceContext {
   automationsStore = new AutomationsStore()
   tasksStore = new TasksStore()
   prsStore = new PrsStore()
+  prInboxStore = new PrInboxStore()
   stacksStore = new StacksStore()
   /** The outbox courier: drains cross-host writes recorded on any connected
    *  host to the host that owns each resource (ADR-0007). */
@@ -2354,6 +2357,11 @@ export class WorkspaceContext {
     }
     if (session.messages.length === 0 && resolvedPath && resolvedPath !== '~') {
       void this.apiFor(targetTabId).trackRecentProject(resolvedPath)
+      const catalogRoot = session.run.gitContext?.repoRoot ?? resolvedPath
+      projectCatalog.record(
+        { serverId: session.run.serverId, projectRoot: catalogRoot },
+        projectDirLabel(catalogRoot, this.staticInfo?.workspacePath),
+      )
     }
 
     session.run.provider = session.run.provider ?? this.settings.activeAgent

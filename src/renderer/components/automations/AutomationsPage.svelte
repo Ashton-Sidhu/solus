@@ -1,5 +1,6 @@
 <script lang="ts">
   import { serverConnections } from "@client-core/server-connections";
+  import { hostKey } from "@client-core/host-key";
   import { tick } from "svelte";
   import { StarIcon } from "phosphor-svelte";
   import type { Automation } from "../../../shared/types";
@@ -8,6 +9,7 @@
     getWindowContext,
     runtime,
     serversStore,
+    projectCatalog,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import {
@@ -36,6 +38,7 @@
   import {
     automationProject,
     automationProjects,
+    type AutomationProject,
   } from "./lib/automation-projects";
 
   const session = getWorkspaceContext();
@@ -61,15 +64,35 @@
   // The page starts with the complete catalog. Its project facet comes from
   // that catalog, not from open tabs, so every automation always has a choice.
   let selectedProjectKey = $state<string | null>(null);
-  const projects = $derived(
-    automationProjects(
+  const projects = $derived.by(() => {
+    const base = automationProjects(
       hostItems,
       session.openProjects,
       session.staticInfo?.workspacePath,
       (automation) => store.hostFor(automation.id),
       (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
-    ),
-  );
+    );
+    // The catalog knows about projects on this host with no automations yet —
+    // union them in at zero count, so the filter also offers "jump scope to a
+    // project before automating it," not only ones the list already spans.
+    const extra: AutomationProject[] = [];
+    for (const entry of projectCatalog.entries) {
+      if (entry.serverId !== selectedServerId) continue;
+      const key = hostKey(entry.serverId, entry.projectRoot);
+      if (base.some((project) => project.key === key)) continue;
+      extra.push({
+        key,
+        projectPath: entry.projectRoot,
+        serverId: entry.serverId,
+        label: entry.label,
+        roots: [entry.projectRoot],
+        count: 0,
+      });
+    }
+    return extra.length === 0
+      ? base
+      : [...base, ...extra].sort((a, b) => a.label.localeCompare(b.label));
+  });
   const selectedProject = $derived(
     projects.find((project) => project.key === selectedProjectKey) ?? null,
   );

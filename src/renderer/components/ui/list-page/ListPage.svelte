@@ -38,10 +38,16 @@
      *  The switcher stands above the title — the scope is stated and changed in
      *  the same place. */
     projects?: ListProjectOption[];
+    /** The scoped project's host-qualified `key`. */
     activeProjectKey?: string;
     /** Shown when no project is scoped yet. */
     emptyProjectLabel?: string;
-    onSelectProject?: (projectKey: string) => void;
+    onSelectProject?: (option: ListProjectOption) => void;
+    /** Forgets a catalog-only project from a page's switcher. */
+    onRemoveProjectHistory?: (option: ListProjectOption) => void;
+    /** Leads the switcher with an "All projects" row that clears the scope. */
+    onSelectAllProjects?: () => void;
+    allProjectsLabel?: string;
     title: string;
     /** The first stat is the lead and the only coloured text in the header. */
     summary: ListSummaryStat[];
@@ -78,6 +84,9 @@
     activeProjectKey,
     emptyProjectLabel,
     onSelectProject,
+    onRemoveProjectHistory,
+    onSelectAllProjects,
+    allProjectsLabel,
     title,
     summary,
     view = "global",
@@ -153,9 +162,12 @@
         {#if !split && projects}
           <ListProjectSwitcher
             {projects}
-            {activeProjectKey}
+            activeKey={activeProjectKey}
             emptyLabel={emptyProjectLabel}
             onSelect={onSelectProject}
+            onRemoveHistory={onRemoveProjectHistory}
+            onSelectAll={onSelectAllProjects}
+            allLabel={allProjectsLabel}
           />
         {/if}
 

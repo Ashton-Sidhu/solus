@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { serverConnections } from "@client-core/server-connections";
+  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import { tick, untrack } from "svelte";
   import {
     BooksIcon,
@@ -19,6 +21,10 @@
     getPlanStore,
     getWindowContext,
     runtime,
+    projectCatalog,
+    mergeProjectOptions,
+    projectRefKey,
+    serversStore,
   } from "../../contexts";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import { liveSessionTitle } from "../../lib/sessionUtils";
@@ -116,23 +122,78 @@
   let projectScope = $state<string | null>(
     localStorage.getItem(PROJECT_SCOPE_KEY),
   );
-  // With a single project open, "all projects" *is* that project — name it,
-  // rather than making the scope read wider than it is.
-  const scopedProject = $derived(
-    openProjects.find((project) => project.key === projectScope) ??
-      (openProjects.length === 1 ? openProjects[0] : null),
+  // The switcher's host this page reads/writes projects on. `openProjects` has
+  // no host of its own today (a session's `run.serverId` never survives into
+  // it), so every open project is attributed to the primary connection —
+  // exactly how Tasks' `sidebarServerId` resolves the same gap.
+  const sidebarServerId = $derived(
+    serverConnections.connectionFor()?.serverId ?? LOCAL_SERVER_ID,
   );
+  // The union of every open project (as today) and every project the catalog
+  // has recorded that isn't already open — a project closed today can still
+  // be jumped back into from here.
+  const projectOptions = $derived(
+    mergeProjectOptions(
+      [
+        openProjects.map((project) => ({
+          serverId: sidebarServerId,
+          projectRoot: project.key,
+          label: project.label,
+        })),
+        projectCatalog.entries,
+      ],
+      (serverId) => serversStore.statusFor(serverId) !== "offline",
+      (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
+    ).map((option) => ({
+      key: option.key,
+      projectKey: option.projectRoot,
+      serverId: option.serverId,
+      label: option.label,
+      count: allItems.filter((item) => item.projectKey === option.projectRoot)
+        .length,
+      available: option.available,
+      historyOnly: !openProjects.some(
+        (project) => project.key === option.projectRoot,
+      ),
+    })),
+  );
+  // With a single project open, "all projects" *is* that project — name it,
+  // rather than making the scope read wider than it is. A scope naming a
+  // catalog-only project (nothing open there right now) falls through to the
+  // catalog row instead, so the switcher still shows what is selected.
+  const scopedProject = $derived.by(() => {
+    const openMatch = openProjects.find(
+      (project) => project.key === projectScope,
+    );
+    if (openMatch) return openMatch;
+    if (projectScope) {
+      const catalogMatch = projectOptions.find(
+        (option) => option.projectKey === projectScope,
+      );
+      if (catalogMatch)
+        return { key: catalogMatch.projectKey, label: catalogMatch.label };
+    }
+    return openProjects.length === 1 ? openProjects[0] : null;
+  });
   const items: WorkspaceItem[] = $derived(
     scopedProject
       ? allItems.filter((item) => item.projectKey === scopedProject.key)
       : allItems,
   );
-  const projectOptions = $derived(
-    openProjects.map((project) => ({
-      key: project.key,
-      label: project.label,
-      count: allItems.filter((item) => item.projectKey === project.key).length,
-    })),
+  // The switcher keys its rows on the host-qualified catalog key; the scope
+  // itself stays a bare path (the ledger's `projectKey` has no host of its
+  // own), so this resolves one to the other the same way Tasks' pinned-project
+  // key does.
+  const activeProjectOptionKey = $derived(
+    scopedProject
+      ? (projectOptions.find(
+          (option) => option.projectKey === scopedProject!.key,
+        )?.key ??
+          projectRefKey({
+            serverId: sidebarServerId,
+            projectRoot: scopedProject!.key,
+          }))
+      : null,
   );
   /** A row names its project only when the ledger spans more than one. */
   const showProject = $derived(!scopedProject && openProjects.length > 1);
@@ -146,6 +207,13 @@
     // search, which was written against the project being left.
     filter.text = "";
     resetLedgerSelection();
+  }
+
+  function removeProjectHistory(option: { serverId: string; projectKey: string }) {
+    projectCatalog.remove({
+      serverId: option.serverId,
+      projectRoot: option.projectKey,
+    });
   }
 
   function load() {
@@ -736,9 +804,10 @@
                  and Pull requests keep theirs. -->
             <WorkspaceProjectSwitcher
               options={projectOptions}
-              value={scopedProject?.key ?? null}
+              value={activeProjectOptionKey}
               allCount={allItems.length}
-              onSelect={selectProject}
+              onSelect={(option) => selectProject(option ? option.projectKey : null)}
+              onRemoveHistory={removeProjectHistory}
             />
             <DropdownMenu.Root>
               <DropdownMenu.Trigger>

@@ -39,6 +39,7 @@
   import type { Command } from "./components/command-palette/lib/commands";
   import {
     projectsStore,
+    projectCatalog,
     connectionsStore,
     serversStore,
     cloudflareStore,
@@ -218,6 +219,7 @@
       flushDrafts();
       flushPersistedTabs();
       flushPersistedSessionDrafts();
+      projectCatalog.flush();
     };
     const handlePageHide = (event: PageTransitionEvent) => {
       flush();
@@ -2057,6 +2059,9 @@
     openProjectStore.close();
     if (!serverId) return;
 
+    const name = path.split(/[\\/]/).pop() || path;
+    projectCatalog.record({ serverId, projectRoot: path }, name);
+
     // The flow may have been started from a draft (RunOnPicker passes its
     // requester id through `tabId`); re-aim that draft instead of opening a
     // second one and orphaning the prompt already typed into it.
@@ -2105,7 +2110,6 @@
     }
 
     if (!cloned && hostIsLocal) return;
-    const name = path.split(/[\\/]/).pop();
     toasts.success(
       cloned
         ? `Cloned ${name} on ${hostLabel || "host"}`
