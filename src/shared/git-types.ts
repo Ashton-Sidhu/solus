@@ -127,6 +127,13 @@ export interface GitActionRequest {
   action: GitAction
   /** Move work off the default branch before committing. */
   createFeatureBranch?: boolean
+  /** Manual commit subject. Blank or absent falls back to the generator. Only
+   *  valid alongside a commit action. */
+  commitMessage?: string
+  /** Repository-relative paths to commit, file-level only. Absent commits every
+   *  change (legacy `git add -A` behavior); an empty array is invalid. Only
+   *  valid alongside a commit action. */
+  filePaths?: string[]
 }
 
 export type GitBranchStep =

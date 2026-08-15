@@ -42,6 +42,81 @@ function wantsPullRequest(action: GitAction): boolean {
   return action === 'create_pull_request' || action === 'commit_push_pull_request'
 }
 
+/** Repository-relative, posix-normalized, and free of traversal — the shape a
+ *  selective commit path must have before it ever reaches `git`. */
+function normalizeRepoRelativePath(raw: string): string {
+  if (!raw.trim()) throw new Error('A selected file path cannot be empty.')
+  const posixPath = raw.replace(/\\/g, '/').trim()
+  if (posixPath.startsWith('/') || /^[A-Za-z]:/.test(posixPath)) {
+    throw new Error(`File path must be relative to the repository: ${raw}`)
+  }
+  const normalized = path.posix.normalize(posixPath)
+  if (normalized === '.' || normalized.split('/').includes('..')) {
+    throw new Error(`File path is outside the repository: ${raw}`)
+  }
+  return normalized
+}
+
+function normalizeSelectedFilePaths(paths: string[]): string[] {
+  if (paths.length === 0) throw new Error('Select at least one file to commit.')
+  const seen = new Set<string>()
+  for (const raw of paths) {
+    const normalized = normalizeRepoRelativePath(raw)
+    if (seen.has(normalized)) throw new Error(`Duplicate file selected: ${normalized}`)
+    seen.add(normalized)
+  }
+  return [...seen]
+}
+
+function validateCommitMessage(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed) throw new Error('Commit message cannot be blank.')
+  if (trimmed.length > 1000) throw new Error('Commit message is too long.')
+  return trimmed
+}
+
+/** Paths `git status` reports as untracked (`??`), scoped to the given set —
+ *  the only selected-file kind `git commit -- <pathspec>` can't see on its own. */
+async function untrackedPathsAmong(cwd: string, paths: string[]): Promise<string[]> {
+  const out = await runAsync('git', ['status', '--porcelain=v1', '--', ...paths], cwd)
+  const untracked = new Set<string>()
+  for (const line of out.split('\n')) {
+    if (line.startsWith('?? ')) untracked.add(line.slice(3).trim())
+  }
+  return paths.filter((filePath) => untracked.has(filePath))
+}
+
+/**
+ * Commits only the given paths, using Git's own pathspec-restricted commit
+ * (the standard `-o`/`--only` mode Git enters whenever paths are given without
+ * `-a`/`-i`): it reads each named path's current worktree content into a
+ * throwaway tree, commits that, and updates the real index only for those
+ * paths — every other staged or unstaged change is left exactly as it was.
+ * Untracked paths must be staged first (`commit -- <pathspec>` otherwise
+ * rejects them as unknown); on failure that staging is rolled back so the
+ * repository ends up untouched.
+ */
+async function commitSelectedFiles(
+  cwd: string,
+  filePaths: string[],
+  subject: string,
+): Promise<GitActionResult['commit']> {
+  const untracked = await untrackedPathsAmong(cwd, filePaths)
+  if (untracked.length > 0) {
+    await runAsync('git', ['add', '--', ...untracked], cwd)
+  }
+  try {
+    await runAsync('git', ['commit', '-m', subject, '--', ...filePaths], cwd)
+  } catch (error) {
+    if (untracked.length > 0) {
+      await runAsync('git', ['reset', '--', ...untracked], cwd).catch(() => {})
+    }
+    throw error
+  }
+  const sha = await runAsync('git', ['rev-parse', 'HEAD'], cwd)
+  return { status: 'created', sha, subject }
+}
+
 function sanitizeCommitSubject(raw: string): string {
   const line = raw
     .split(/\r?\n/)
@@ -141,6 +216,11 @@ async function runGitActionUnlocked(
 
   const commitRequested = wantsCommit(request.action)
   const pullRequestRequested = wantsPullRequest(request.action)
+  if ((request.commitMessage !== undefined || request.filePaths !== undefined) && !commitRequested) {
+    throw new Error('A commit message or file selection is only valid for a commit action.')
+  }
+  const selectedFilePaths = request.filePaths !== undefined ? normalizeSelectedFilePaths(request.filePaths) : undefined
+  const manualCommitMessage = request.commitMessage?.trim() ? validateCommitMessage(request.commitMessage) : undefined
   const initialDirty = await workingTreeIsDirty(cwd)
   if (commitRequested && !initialDirty) {
     throw new Error('There are no local changes to commit.')
@@ -197,8 +277,11 @@ async function runGitActionUnlocked(
     if (commitRequested) {
       currentPhase = 'commit'
       options.publish({ ...baseEvent, kind: 'phase_started', phase: currentPhase, label: 'Committing…' })
-      if (await workingTreeIsDirty(cwd)) {
-        const subject = generatedSubject ?? sanitizeCommitSubject(await options.generateCommitSubject(cwd))
+      if (selectedFilePaths) {
+        const subject = manualCommitMessage ?? generatedSubject ?? sanitizeCommitSubject(await options.generateCommitSubject(cwd))
+        commitStep = await commitSelectedFiles(cwd, selectedFilePaths, subject)
+      } else if (await workingTreeIsDirty(cwd)) {
+        const subject = manualCommitMessage ?? generatedSubject ?? sanitizeCommitSubject(await options.generateCommitSubject(cwd))
         await runAsync('git', ['add', '-A'], cwd)
         await runAsync('git', ['commit', '-m', subject], cwd)
         const sha = await runAsync('git', ['rev-parse', 'HEAD'], cwd)
