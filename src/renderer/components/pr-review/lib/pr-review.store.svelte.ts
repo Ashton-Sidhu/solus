@@ -1,6 +1,6 @@
 import { untrack } from 'svelte'
 import type { PrCommit, PrDiffSlice, PrReviewTarget, ReviewComment, ReviewThread } from '../../../../shared/providers'
-import type { DiffScope, IpcContext, PrCheckoutContext, PrInterdiffResult, PrReviewContext } from '../../../../shared/types'
+import type { DiffScope, IpcContext, PrCheckoutContext, PrInterdiffResult, PrRepoCheckoutFailureReason, PrRepoCheckoutResult, PrReviewContext } from '../../../../shared/types'
 import { worktreeProjectRoot } from '../../../../shared/types'
 import type { DiffBase, StackGraph } from '../../../../shared/stack-types'
 import { reviewGuideKeyForBase } from '../../../../shared/review'
@@ -9,6 +9,7 @@ import { interdiffReviewThreads } from '../../diff/lib/interdiff-annotations'
 import { matchedReviewComments } from './since-review'
 import type { HostApi } from '@client-core/host-api'
 import { hostKey } from '@client-core/host-key'
+import { TransportDisconnectedError } from '@client-core/ws-transport'
 import type { FileDiffLoadedFiles, FileDiffMetadata } from '@pierre/diffs'
 
 /**
@@ -33,6 +34,15 @@ export class PrReviewState {
   checkout = $state<PrCheckoutContext | null>(null)
   checkoutStatus = $state<'idle' | 'preparing' | 'ready' | 'failed'>('idle')
   checkoutError = $state<string | null>(null)
+
+  // ── Explicit "check out in the current repository" destination ──
+  // A distinct status from `checkoutStatus`: the two destinations run
+  // independently, and the UI needs to know which one a failure belongs to.
+  repoCheckoutStatus = $state<'idle' | 'preparing' | 'ready' | 'failed'>('idle')
+  repoCheckoutError = $state<string | null>(null)
+  repoCheckoutReason = $state<PrRepoCheckoutFailureReason | null>(null)
+  /** Set only when `repoCheckoutReason` is `'branch-in-use'`. */
+  repoCheckoutWorktreePath = $state<string | null>(null)
 
   // ── Host diff ──
   diffPatch = $state<string | null>(null)
@@ -83,6 +93,7 @@ export class PrReviewState {
   #diffKey = ''
   #commitDiffKey = ''
   #checkoutPromise: Promise<PrReviewContext> | null = null
+  #repoCheckoutPromise: Promise<PrRepoCheckoutResult> | null = null
 
   constructor(number: number, deps: PrReviewDeps) {
     this.number = number
@@ -408,6 +419,44 @@ export class PrReviewState {
     return promise
   }
 
+  /** The explicit "check out in the current repository" destination. Unlike
+   *  `ensureCheckout`, a structured failure (stale head, dirty, conflicted,
+   *  branch in use) is not thrown — it is reported through `repoCheckout*`
+   *  state so the confirm UI can show the specific reason. Only a transport
+   *  failure (a disconnected host) throws. */
+  async checkoutInRepo(): Promise<PrRepoCheckoutResult> {
+    const target = this.pr
+    if (!target) throw new Error('The pull request is not ready.')
+    if (this.#repoCheckoutPromise) return this.#repoCheckoutPromise
+    this.repoCheckoutStatus = 'preparing'
+    this.repoCheckoutError = null
+    this.repoCheckoutReason = null
+    this.repoCheckoutWorktreePath = null
+    const promise = this.#deps.checkoutInRepo(this.#deps.fallbackCtx(), target)
+      .then((result) => {
+        if (result.success) {
+          this.repoCheckoutStatus = 'ready'
+        } else {
+          this.repoCheckoutStatus = 'failed'
+          this.repoCheckoutReason = result.reason ?? 'generic'
+          this.repoCheckoutError = result.error ?? 'Checkout failed.'
+          this.repoCheckoutWorktreePath = result.worktreePath ?? null
+        }
+        return result
+      })
+      .catch((error) => {
+        this.repoCheckoutStatus = 'failed'
+        this.repoCheckoutReason = error instanceof TransportDisconnectedError ? 'disconnected' : 'generic'
+        this.repoCheckoutError = error instanceof Error ? error.message : String(error)
+        throw error
+      })
+      .finally(() => {
+        if (this.#repoCheckoutPromise === promise) this.#repoCheckoutPromise = null
+      })
+    this.#repoCheckoutPromise = promise
+    return promise
+  }
+
   loadDiffFiles = async (fileDiff: FileDiffMetadata): Promise<FileDiffLoadedFiles> => {
     const target = this.pr
     if (!target) throw new Error('The pull request is not ready.')
@@ -486,6 +535,7 @@ export interface PrReviewDeps {
   loadThreads: (ctx: IpcContext, number: number, force: boolean) => Promise<ReviewThread[]>
   loadDiff: (ctx: IpcContext, request: import('../../../../shared/providers').PrDiffRequest) => Promise<PrDiffSlice>
   prepareCheckout: (ctx: IpcContext, target: PrReviewTarget) => Promise<PrCheckoutContext>
+  checkoutInRepo: (ctx: IpcContext, target: PrReviewTarget) => Promise<PrRepoCheckoutResult>
   loadInterdiff: (ctx: IpcContext, pr: PrReviewContext, force: boolean) => Promise<PrInterdiffResult>
   diffStats: (ctx: IpcContext, scope: DiffScope) => Promise<number>
   replyThread: (ctx: IpcContext, number: number, threadId: string, body: string) => Promise<ReviewComment>

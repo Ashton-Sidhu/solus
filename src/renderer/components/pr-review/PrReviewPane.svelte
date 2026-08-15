@@ -39,6 +39,7 @@
   import type { PrActivityTarget } from "./lib/activity-data";
   import SubmitReviewModal from "./SubmitReviewModal.svelte";
   import SinceReviewBar from "./SinceReviewBar.svelte";
+  import PrCheckoutMenu from "./PrCheckoutMenu.svelte";
   import { prReviewState } from "./lib/pr-review.store.svelte";
   import PrDetailChrome from "./PrDetailChrome.svelte";
   import GithubConnectionRequired from "../prs/GithubConnectionRequired.svelte";
@@ -185,6 +186,7 @@
           session.prsStore.loadThreads(api, serverId, ctx, number, { force }),
         loadDiff: (ctx, request) => api.prGetDiff(ctx, request),
         prepareCheckout: (ctx, target) => api.prPrepareCheckout(ctx, target),
+        checkoutInRepo: (ctx, target) => api.prCheckoutInRepo(ctx, target),
         loadInterdiff: (ctx, target, force) =>
           session.prsStore.loadInterdiff(api, serverId, ctx, target, { force }),
         diffStats: (ctx, scope) =>
@@ -695,6 +697,29 @@
     requestInputFocus();
   }
 
+  // The explicit "check out in current repository" destination. The server
+  // has already switched the repo's branch by the time this resolves;
+  // `activatePrRepoCheckout` only decides where the resulting conversation
+  // lands. A structured failure is left on `review.repoCheckout*` for the
+  // confirm dialog — nothing else to do here beyond a toast.
+  async function checkoutHere() {
+    if (!pr) return;
+    try {
+      const result = await review.checkoutInRepo();
+      if (result.success && result.gitContext) {
+        session.config.activatePrRepoCheckout(
+          result.gitContext,
+          projectCtx().session.projectPath ?? projectCtx().session.workingDirectory ?? null,
+        );
+        requestInputFocus();
+      }
+    } catch (error) {
+      toasts.error("Couldn't check out here", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   function exit() {
     if (onExit) onExit();
     else session.exitPrReview();
@@ -839,6 +864,13 @@
   </Button>
 {/snippet}
 
+<!-- Explicit checkout UI, separate from "Ask Solus": a worktree destination
+     (recommended, first) and an explicit-and-confirmed current-repository
+     destination. -->
+{#snippet checkoutMenu()}
+  <PrCheckoutMenu {pr} {review} onOpenWorktree={openChat} onCheckoutHere={checkoutHere} />
+{/snippet}
+
 <section class="flex h-full min-h-0 flex-col bg-background">
   {#if embedded}
     <PrPanelHeader
@@ -856,6 +888,7 @@
       {#snippet actions()}
         {@render refreshButton()}
         {@render checksChip()}
+        {@render checkoutMenu()}
         {@render chatButton()}
       {/snippet}
     </PrPanelHeader>
@@ -886,6 +919,7 @@
         <div class="no-drag pointer-events-auto flex shrink-0 items-center gap-0.5">
           {@render refreshButton()}
           {@render checksChip()}
+          {@render checkoutMenu()}
           {@render chatButton()}
 
           {#if sub === "guide" && !showingFullDiff}

@@ -243,6 +243,7 @@ export const RPC_INVOKE_METHODS = [
   'prGetDiff',
   'prGetDiffFileContents',
   'prPrepareCheckout',
+  'prCheckoutInRepo',
   'prGetDetail',
   'prUpdate',
   'prGetOverview',

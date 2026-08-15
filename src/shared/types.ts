@@ -2291,6 +2291,20 @@ export interface GitCheckoutBranchResult {
   error?: string
 }
 
+/** Why the "check out in the current repository" destination could not switch
+ *  the repo onto a pull request's head. `'disconnected'` is client-only — the
+ *  server never returns it, the transport throws before a result exists. */
+export type PrRepoCheckoutFailureReason = 'stale-head' | 'dirty' | 'conflicted' | 'branch-in-use' | 'disconnected' | 'generic'
+
+export interface PrRepoCheckoutResult {
+  success: boolean
+  gitContext?: GitCheckout
+  reason?: PrRepoCheckoutFailureReason
+  /** Set when `reason` is `'branch-in-use'`: the worktree already holding the branch. */
+  worktreePath?: string
+  error?: string
+}
+
 export interface WorktreeEntry {
   path: string
   branch: string
