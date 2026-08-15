@@ -418,7 +418,7 @@ function nonEmpty(value: string | undefined): string | null {
   return trimmed || null
 }
 
-function githubApiErrorMessage<T>(err: T, fallback: string): string {
+export function githubApiErrorMessage<T>(err: T, fallback: string): string {
   const parsed = githubApiErrorSchema.safeParse(err)
   const status = parsed.success ? parsed.data.status : undefined
   const responseData = parsed.success ? parsed.data.response?.data : undefined

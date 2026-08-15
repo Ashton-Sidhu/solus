@@ -207,3 +207,60 @@ export interface GitState extends GitIdentity {
   targetAheadCount?: number
   prUrl?: string
 }
+
+/**
+ * Whether a folder is a Git repository at all — distinct from `GitState`,
+ * which reports null for both "no repository" and "repository with no
+ * commits yet" (an unborn HEAD has no resolvable identity). This is what the
+ * Initialize Git / Publish to GitHub empty states key off.
+ */
+export interface GitRepositoryStatus {
+  isRepository: boolean
+  hasCommits: boolean
+  /** The current (possibly unborn) branch name; null only when detached. */
+  branch: string | null
+  primaryRemoteName: string | null
+  primaryRemoteUrl: string | null
+}
+
+export interface GitInitRepositoryResult {
+  defaultBranch: string
+}
+
+export interface GithubPublishRepositoryRequest {
+  owner: string
+  name: string
+  private: boolean
+  /** Defaults to "origin" on the host. */
+  remoteName?: string
+  protocol: 'https' | 'ssh'
+}
+
+export type GithubPublishRepositoryStep =
+  | { status: 'created'; url: string; fullName: string }
+  | { status: 'found'; url: string; fullName: string }
+  | { status: 'failed'; error: string }
+
+export type GithubPublishRemoteStep =
+  | { status: 'added'; name: string; url: string }
+  | { status: 'existing'; name: string; url: string }
+  | { status: 'failed'; error: string }
+  | { status: 'skipped' }
+
+export type GithubPublishPushStep =
+  | { status: 'pushed'; branch: string }
+  | { status: 'skipped_no_commits' }
+  | { status: 'failed'; error: string }
+  | { status: 'skipped' }
+
+/**
+ * Every stage's outcome, even after an earlier stage fails — so a client that
+ * created the GitHub repository but failed to push can show the repository
+ * URL and retry, instead of losing it behind a thrown error.
+ */
+export interface GithubPublishRepositoryResult {
+  success: boolean
+  repository: GithubPublishRepositoryStep
+  remote: GithubPublishRemoteStep
+  push: GithubPublishPushStep
+}
