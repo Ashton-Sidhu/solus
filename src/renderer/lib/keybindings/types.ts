@@ -17,6 +17,7 @@ export type Scope =
   | 'document-modal'
   | 'workspace'
   | 'automations'
+  | 'insights'
   | 'tasks'
   | 'prs'
   | 'pr-review'

@@ -6,11 +6,11 @@ optionally export the same data live to a user-owned OpenTelemetry collector. Us
 data-driven workflow decisions from their real session history; maintainers investigate
 Solus's own internals through the same pipe.
 
-**Status: WP1-WP3 implemented; WP4-WP5 planned.** The foundation
-(`src/main/observability/`), the session emitter, and the query engine (field
+**Status: WP1-WP4 implemented; WP5 planned.** The foundation
+(`src/main/observability/`), the session emitter, the query engine (field
 registry, per-kind views, QuerySpec compiler, guarded SQL executor, NL→SQL
-compile, saved queries, `metrics*` RPC methods) are landed; the Insights UI and
-the OTel exporter are not. GPT Sol (Codex, `gpt-5.6-sol`) audited
+compile, saved queries, `metrics*` RPC methods), and the Insights UI
+(`src/renderer/components/insights/`) are landed; the OTel exporter is not. GPT Sol (Codex, `gpt-5.6-sol`) audited
 this plan read-only twice on 2026-08-09: first the Codex-provider assumptions (eight
 corrections, folded into WP2 as **[codex-audit]**), then the full document including
 the call stack flow (31 findings — corrected anchors, the `setup` child span, the
@@ -555,6 +555,29 @@ the natural cross-host aggregation point for dispatch.
   single-statement queries over half a dozen views.
 - `metricsRetentionDays` default 30; prune at boot + daily.
 - Mobile v1 read-only (approved exception, documented here).
+- **Amended 2026-08-15 — the Insights design's tables are the field registry's,
+  not its own.** The "Observability v5" design composition names `latency_ms`,
+  `user_id`, a `sessions` table, and a `messages` table. Solus has none of
+  those: duration is `duration_ms`, there are no users, a session rollup is
+  `metricsSessionSummary` rather than a view, and metrics never store assistant
+  replies. The surface was built against the real registry — session grouping is
+  a client-side grouping of turn rows, and the design's "Messages" panel is a
+  **Prompt** panel over the turn's `prompt` attr with a link into the
+  conversation. Showing a fabricated reply beside measured spans would make the
+  whole surface untrustworthy.
+- **A result that is not a turn listing renders as a plain table.** The console
+  runs arbitrary SQL, so most answers are rollups. The page reads a result as
+  turns only when it carries `trace_id` and `started_at`; anything else gets a
+  generic grid rather than being forced into a shape with no waterfall behind
+  it.
+- **The histogram is not the question.** Turn volume runs its own QuerySpec over
+  the window and stays fixed while the query changes; brushing it narrows the
+  list client-side. A histogram that re-ran with every question would flatten
+  the shape the answer is meant to be read against.
+- **The internals toggle persists in client storage, not server settings.** It
+  changes which kinds and presets are offered on one screen; it never affects
+  query execution, and a saved query against an internal kind still runs with
+  the toggle off.
 
 ## Work packages
 
@@ -590,11 +613,24 @@ Each WP lands green (`bun run build`, focused unit tests) before the next starts
   guard rejection cases (multi-statement, write attempts, `ATTACH`/`PRAGMA`, row-cap
   injection); view columns match the field registry; `metricsValidateSql` error and
   result-column cases.
-- **WP4 — Insights UI.** Store, presets, builder, SQL editor (CodeMirror extensions:
-  schema/value completion, lint diagnostics, hover docs, snippets — adds
-  `@codemirror/lang-sql`), NL prompt input, waterfall, internals toggle;
-  desktop + web; mobile read-only presets. One integrated pass after developer
-  agreement, per house rules.
+- **WP4 — Insights UI (landed).** `src/renderer/components/insights/`:
+  `insights.store.svelte.ts` (registry, distinct-value and trace caches, run
+  history, saved queries, host scoping), the query console with both front
+  doors, the SQL editor (CodeMirror extensions: schema/value completion, lint
+  diagnostics, hover docs, snippets — adds `@codemirror/lang-sql`), the NL
+  prompt input with the compiled SQL always visible and openable, the turn
+  volume histogram with a time brush, the turn list with session grouping, the
+  turn drawer, and the full-page waterfall. Routes `insights` and
+  `insightsTurn`; entry points are the session sidebar row and
+  `opt+shift+I`. Every graph is LayerChart — the histogram is `Bars` +
+  `BrushContext` over a band scale, and the waterfall is a ranged-bar chart
+  (band scale over span rows, one linear time scale across the trace,
+  `Axis placement="top"` for the ruler and its gridlines). Colour comes from the
+  brand art ramp, one bar layer per span kind. Tests:
+  `tests/unit/insights-turn-rows.test.ts` (result-shape detection, row mapping,
+  sorting/grouping, bucketing, half-open brush selection) and
+  `tests/unit/insights-waterfall.test.ts` (interval unions, tree assembly,
+  orphan re-parenting, bar placement, denied permissions, value completion).
 - **WP5 — OTel + app emitters.** Settings-driven exporter (traces/metrics/logs,
   per-service resources, privacy gates) — note `otel.ts` today exports only
   logs/metrics over HTTP, so WP5 adds the trace SDK and gRPC exporter packages
@@ -611,5 +647,17 @@ Each WP lands green (`bun run build`, focused unit tests) before the next starts
   second platform exception (the first is Insights query composing).
 - Exact attrs shape of the `tool_call_complete` outcome field — resolve at WP2 start
   against both providers' available outcome data.
-- Chart rendering in Insights: existing in-repo primitives vs a small chart lib —
-  decide at WP4 with the dataviz guidance.
+- ~~Chart rendering in Insights~~ — **resolved at WP4: LayerChart, for the
+  waterfall as well as the histogram.** Composed from its primitives (`Chart`,
+  `Svg`, `Bars`, `Axis`, `BrushContext`) rather than its simplified chart
+  components: the histogram needs a brush over the same band scale two bar
+  layers share, and the waterfall needs ranged bars (`x` returning
+  `[start, end]`) on a band scale of span rows. Its four container variables are
+  bridged to Solus tokens in `index.css`, so charts follow the theme.
+  **Two consequences of putting the waterfall on one shared scale**, both
+  deliberate: span labels and durations are HTML columns pinned to the band's
+  row height rather than SVG axis ticks, because they carry indentation,
+  truncation, and hit targets that ticks cannot; and a selected span's detail
+  opens *below* the plot rather than inline under its row, because pushing rows
+  apart mid-trace would break the alignment the shared axis exists to provide.
+  The design composition shows inline expansion; the shared axis is worth more.

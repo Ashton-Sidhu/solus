@@ -1081,6 +1081,7 @@
   useKeybinding("global.toggle-workspace", () => session.toggleFolio("keybinding"));
   useKeybinding("global.toggle-automations", () => session.toggleAutomations("keybinding"));
   useKeybinding("global.toggle-tasks", () => session.toggleTasks("keybinding"));
+  useKeybinding("global.toggle-insights", () => session.toggleInsights("keybinding"));
   useKeybinding("global.settings", () => session.showSettings("general", "keybinding"));
   useKeybinding("global.focus-input", () => requestInputFocus());
   useKeybinding("global.history-back", () => session.router.back());

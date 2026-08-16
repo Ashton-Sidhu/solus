@@ -29,6 +29,7 @@ export const KEYBINDINGS = {
   'global.toggle-workspace':     { combo: { alt: true, shift: true, code: 'KeyL' },       scope: 'global',             label: 'Open workspace',           group: 'View' },
   'global.toggle-automations': { combo: { alt: true, shift: true, code: 'KeyV' },          scope: 'global',             label: 'Open automations',         group: 'View' },
   'global.toggle-tasks':       { combo: { alt: true, shift: true, code: 'KeyT' },          scope: 'global',             label: 'Open tasks',               group: 'View' },
+  'global.toggle-insights':    { combo: { alt: true, shift: true, code: 'KeyI' },          scope: 'global',             label: 'Open insights',            group: 'View' },
   'global.toggle-sidebar':     { combo: { mod: true, code: 'KeyB' },                       scope: 'global',             label: 'Toggle sidebar',           group: 'View' },
   'global.toggle-expanded':   { combo: { alt: true, shift: true, code: 'Equal' },         scope: 'global',             label: 'Expand / collapse input',  group: 'View' },
   // Desktop-only: on web these combos stay with the browser's own zoom (the
@@ -150,6 +151,12 @@ export const KEYBINDINGS = {
   // ── Automations ────────────────────────────────────────────────────────────
   'automations.close':            { combo: { code: 'Escape' },                             scope: 'automations',        label: 'Close',                    group: 'Automations' },
   'automations.new':              { combo: { alt: true, code: 'KeyN' },                    scope: 'automations',        label: 'New automation',           group: 'Automations' },
+
+  // ── Insights ───────────────────────────────────────────────────────────────
+  'insights.close':               { combo: { code: 'Escape' },                             scope: 'insights',           label: 'Close',                    group: 'Insights' },
+  'insights.natural-language':    { combo: { alt: true, code: 'Digit1' },                  scope: 'insights',           label: 'Ask in natural language',  group: 'Insights' },
+  'insights.sql':                 { combo: { alt: true, code: 'Digit2' },                  scope: 'insights',           label: 'Write SQL',                group: 'Insights' },
+  'insights.refresh':             { combo: { alt: true, code: 'KeyR' },                    scope: 'insights',           label: 'Refresh the histogram',    group: 'Insights' },
 
   // ── Tasks ───────────────────────────────────────────────────────────────────
   'tasks.close':                  { combo: { code: 'Escape' },                             scope: 'tasks',              label: 'Close',                    group: 'Tasks' },

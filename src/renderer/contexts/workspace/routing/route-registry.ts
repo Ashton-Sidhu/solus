@@ -64,6 +64,11 @@ export interface RouteParams {
   tasks: Record<string, never>
   task: { taskId: string }
   prs: { projectPath?: string }
+  /** The query surface over the host's `metrics.db`. */
+  insights: Record<string, never>
+  /** One turn's spans. A trace id is the turn's identity, so the waterfall is
+   *  deep-linkable and survives the list that led to it. */
+  insightsTurn: { traceId: string }
   reviewMode: Record<string, never>
   settings: { tab?: SettingsTab; projectCwd?: string }
   folio: Record<string, never>
@@ -240,6 +245,26 @@ export const ROUTES = defineRoutes({
     // The list keeps the same fixed top measure in either sidebar state.
     ownsTitlebarChrome: true,
     component: () => import('../../../components/prs/PrsPage.svelte'),
+  },
+  insights: {
+    parse: () => ({}) as Record<string, never>,
+    serialize: () => '',
+    placement: 'any',
+    exclusiveGroup: 'page',
+    // Keeps the console at the same fixed top measure as the other workspace
+    // pages whether or not the session sidebar is showing.
+    ownsTitlebarChrome: true,
+    component: () => import('../../../components/insights/InsightsPage.svelte'),
+  },
+  // One turn replaces the list rather than sitting beside it: the waterfall
+  // wants the full width, and the page's own crumb is the way back.
+  insightsTurn: {
+    parse: (s) => (s ? { traceId: s } : null),
+    serialize: (p) => p.traceId,
+    placement: 'any',
+    exclusiveGroup: 'page',
+    ownsTitlebarChrome: true,
+    component: () => import('../../../components/insights/TurnDetailPage.svelte'),
   },
   reviewMode: {
     parse: () => ({}) as Record<string, never>,

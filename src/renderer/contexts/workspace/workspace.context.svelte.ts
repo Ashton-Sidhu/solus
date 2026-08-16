@@ -2857,6 +2857,25 @@ export class WorkspaceContext {
     }
   }
 
+  // ─── Insights page ───
+  //
+  // The page loads its own registry, saved queries, and histogram on entry —
+  // it needs the active host, which the store resolves — so opening one is
+  // just a location change.
+
+  toggleInsights(via: Via = 'click'): void {
+    this.togglePage({ name: 'insights', params: {} }, via, 'insights')
+  }
+
+  openInsights(via: Via = 'click'): void {
+    this.showPage({ name: 'insights', params: {} }, via, 'insights')
+  }
+
+  /** One turn's waterfall, by the trace that identifies it. */
+  openInsightsTurn(traceId: string, via: Via = 'click'): void {
+    this.showPage({ name: 'insightsTurn', params: { traceId } }, via, 'insights')
+  }
+
   // ─── Automations page ───
 
   toggleAutomations(via: Via = 'click'): void {

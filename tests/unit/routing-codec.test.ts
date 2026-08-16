@@ -22,6 +22,8 @@ const SAMPLES: RouteRef[] = [
   { name: 'tasks', params: {} as Record<string, never> },
   { name: 'task', params: { taskId: 'SOL-12' } },
   { name: 'prs', params: { projectPath: '/repo/app' } },
+  { name: 'insights', params: {} as Record<string, never> },
+  { name: 'insightsTurn', params: { traceId: 'tr_9f2a41' } },
   { name: 'reviewMode', params: {} as Record<string, never> },
   { name: 'settings', params: { tab: 'voice' } },
   { name: 'settings', params: { tab: 'projects', projectCwd: '/repo/app' } },
