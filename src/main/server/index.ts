@@ -18,6 +18,7 @@ import type { AgentId, IpcContext } from '../../shared/types'
 import { registerWindowHandlers, type WindowDeps } from './handlers/window-handlers'
 import { enrichAgentMetadata, registerSessionHandlers, type SessionDeps } from './handlers/session-handlers'
 import { registerWorktreeHandlers } from './handlers/worktree-handlers'
+import { registerGitPublishHandlers } from './handlers/git-publish-handlers'
 import { registerFilesystemHandlers } from './handlers/filesystem-handlers'
 import { registerHistoryHandlers } from './handlers/history-handlers'
 import type { FileDeps } from './handlers/file-handlers'
@@ -195,6 +196,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerSettingsHandlers(server, { controlPlane: opts.controlPlane })
 
   registerWorktreeHandlers(server, { controlPlane: opts.controlPlane, events })
+  registerGitPublishHandlers(server)
   // Browsing a host's filesystem must work headless — that is the whole point
   // of pairing a server that has no window.
   registerFilesystemHandlers(server)

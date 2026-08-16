@@ -30,6 +30,7 @@
   import GoalSection from "./GoalSection.svelte";
   import EnvironmentSection from "./EnvironmentSection.svelte";
   import GitSection from "./GitSection.svelte";
+  import GitSetupSection from "./GitSetupSection.svelte";
   import TaskSection from "./TaskSection.svelte";
   import AutomationsSection from "./AutomationsSection.svelte";
   import {
@@ -434,6 +435,17 @@
         onToggle={() => toggleSection("git")}
       >
         <GitSection {sourceId} />
+        <GitSetupSection {sourceId} />
+      </PanelSection>
+    {:else if !isUnconfiguredCwd(gitCwd)}
+      <!-- No repository yet — the Environment section above already names the
+           folder; this card is only the way in. -->
+      <PanelSection
+        title="Git"
+        collapsed={collapsedSections.git}
+        onToggle={() => toggleSection("git")}
+      >
+        <GitSetupSection {sourceId} />
       </PanelSection>
     {/if}
     <!-- The section exists only while a goal is set. It owns its own card
