@@ -1,13 +1,18 @@
 import type { Task, TaskComment, TaskDetails } from '../../../shared/task-types'
 import { z } from 'zod'
+import { forwardCompatibleArray } from '@client-core/forward-compat'
 
+const upstreamCommentSchema = z.object({
+  id: z.string().optional(),
+  author: z.object({ login: z.string().optional() }).nullable().optional(),
+  body: z.string(),
+  createdAt: z.string(),
+})
+
+// Comments decode per element: one reshaped comment from a newer provider
+// must drop alone, not blank every comment on the task.
 const upstreamTaskSchema = z.object({
-  comments: z.array(z.object({
-    id: z.string().optional(),
-    author: z.object({ login: z.string().optional() }).nullable().optional(),
-    body: z.string(),
-    createdAt: z.string(),
-  })).optional(),
+  comments: forwardCompatibleArray(upstreamCommentSchema).optional().catch(undefined),
 })
 
 function upstreamComments(task: Task): TaskComment[] {

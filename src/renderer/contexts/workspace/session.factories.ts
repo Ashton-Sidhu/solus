@@ -67,6 +67,7 @@ export function makeSession(
     historyTruncated: false,
     forkedFromSessionId: null,
     forked: false,
+    forkExcludeLatestTurn: false,
     boundWorkId: null,
     task: { kind: 'new' },
     prReview: null,

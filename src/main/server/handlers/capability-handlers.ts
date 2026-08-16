@@ -1,4 +1,5 @@
 import type { EditorId, HostCapabilities } from '../../../shared/types'
+import { appVersion } from '../../platform/paths'
 import type { SolusServer } from '../server'
 
 /** Advertise only handlers this host actually registered. The editor probe is
@@ -17,6 +18,8 @@ export function registerCapabilityHandlers(server: SolusServer): void {
     const editors = supportsEditors && editorIdsPromise ? await editorIdsPromise : undefined
 
     const capabilities: HostCapabilities = {
+      // The running build's version, for the client's per-host skew notice.
+      version: appVersion(),
       attachUpload: server.hasHandler('attachUpload'),
       assetUrls: server.hasHandler('assetCreateUrl'),
       skillsInstall: server.hasHandler('skillsInstall'),

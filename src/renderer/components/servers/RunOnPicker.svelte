@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { localApi } from "@client-core/local-api";
   import {
     CheckIcon,
     DesktopTowerIcon,
@@ -8,7 +7,6 @@
   } from "phosphor-svelte";
   import { mergeProps } from "bits-ui";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
-  import { serverConnections } from "@client-core/server-connections";
   import type { RunConfig } from "../../../shared/types";
   import {
     getWindowContext,
@@ -42,6 +40,7 @@
   import { homeGitDetails } from "../../lib/git-context";
   import { getSessionEnvironmentStore } from "../../contexts";
   import { hostOnboardingStore } from "./host-onboarding.store.svelte";
+  import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
 
   interface Props {
     /** Where the next session will run. A started session and a session draft
@@ -89,11 +88,6 @@
 
   const workspace = getWorkspaceContext();
   const environmentStore = getSessionEnvironmentStore();
-  // A browser with no host is choosing where to work, not dispatching from
-  // somewhere to somewhere: picking a host reloads the page onto it. A host
-  // only ever arrives by that reload, so this is settled at mount.
-  const webNoHost =
-    localApi.getPlatform() === "web" && !serverConnections.connectionFor();
   const selectedHostId = $derived(
     run.pendingHostDispatch?.serverId ?? run.serverId,
   );
@@ -115,21 +109,30 @@
   const inWorktree = $derived(environment.isolated);
   const selectedServer = $derived(serversStore.hostFor(selectedHostId));
   const selectedAffinity = $derived(serversStore.affinityFor(selectedHostId));
+  // The OS logo marks a machine you dispatch to; the local host keeps the
+  // plain device glyph. A forgotten host has no saved OS and falls back too.
+  const selectedHostOs = $derived(
+    selectedServer && !selectedServer.local && "os" in selectedServer
+      ? selectedServer.os
+      : undefined,
+  );
   const onRemoteHost = $derived(!!selectedServer && !selectedServer.local);
-  // Keep local choices on one conceptual axis: both labels describe the shape
-  // of the checkout. A remote target is named for the host instead.
-  // Where you already are is a worktree often enough that calling it a plain
-  // checkout reads as a mistake — name it for what it is.
-  // A browser has no machine of its own — "Local" would claim the phone in
-  // your hand, so the connected host is named instead.
+  // On desktop you are sitting at the machine, so "Local" says it best. A
+  // browser has no machine of its own — "Local" would claim the phone in your
+  // hand — so the connected host is named instead ("This host" only for the
+  // beat before /health answers).
   const windowCtx = getWindowContext();
+  const currentHostId = $derived(run.serverId ?? LOCAL_SERVER_ID);
+  const localHost = $derived(
+    serversStore.servers.find((server) => server.local),
+  );
+  // Hosts are symmetric rows (dispatch-client step 5): a browser has no
+  // machine of its own, so "stay" names the host this run is already on.
   const stayLabel = $derived(
     windowCtx.isWeb
-      ? (serversStore.servers.find((server) => server.local)?.label ?? "This host")
+      ? (serversStore.hostFor(currentHostId)?.label ?? "This host")
       : "Local",
   );
-  // On web the active server is folded into the local row, so "another host"
-  // means the rows that remain — not the raw saved list, which includes it.
   const otherHosts = $derived(
     serversStore.servers.filter((server) => !server.local),
   );
@@ -171,7 +174,6 @@
   const worktreeBlockedNote = $derived(target.worktreeBlockedNote);
   // The repo is resolved against the host the session is already on — a
   // dispatched session's checkout path means nothing in the local manifest.
-  const currentHostId = $derived(run.serverId ?? LOCAL_SERVER_ID);
   const detectedRepoKey = $derived(
     repoKeyForPath(
       serversStore.projectIdentitiesFor(currentHostId),
@@ -293,15 +295,6 @@
   }
 
   function chooseServer(event: Event, server: ServerItem) {
-    // With no host connected there is nothing to dispatch from — activating the
-    // chosen host reloads the client straight onto it.
-    if (webNoHost) {
-      event.preventDefault();
-      open = false;
-      serversStore.switchTo(server.id);
-      return;
-    }
-
     // Staying on the host you're already using isn't a dispatch, so it needs no
     // directory of its own; every real move does.
     if (
@@ -337,12 +330,14 @@
 
   /** Both local checkout choices cancel a queued remote dispatch first. */
   function chooseLocalStart(worktree: boolean) {
-    const local = serversStore.servers.find((server) => server.local);
-    if (!local) return;
+    // The "stay" target is the client's machine when it has one; a web
+    // client stays on the host this run already lives on.
+    const stayHostId =
+      serversStore.servers.find((server) => server.local)?.id ?? currentHostId;
     onRun(
       withLocalStart(
         run,
-        local.id,
+        stayHostId,
         workspace.globalDefaults.workingDirectory,
         worktree,
       ),
@@ -397,6 +392,12 @@
     {#if affinity}
       {@const HostIcon = affinity.icon}
       <HostIcon size={14} class="shrink-0 {affinity.className}" />
+    {:else if !server.local && server.os}
+      <HostOperatingSystemIcon
+        os={server.os}
+        size={14}
+        class="shrink-0 text-(--solus-text-tertiary)"
+      />
     {:else}
       <DesktopTowerIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
     {/if}
@@ -406,18 +407,6 @@
     {:else if affinity && server.status !== "saved"}
       <span class="shrink-0 text-xs text-(--solus-text-tertiary)">{affinity.statusLabel}</span>
     {/if}
-  </DropdownMenu.Item>
-{/snippet}
-
-{#snippet connectHostRow()}
-  <DropdownMenu.Item
-    onSelect={() => {
-      open = false;
-      window.dispatchEvent(new CustomEvent("solus:open-server-connect"));
-    }}
-  >
-    <PlusIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
-    <span class="min-w-0 flex-1 truncate">Connect a host…</span>
   </DropdownMenu.Item>
 {/snippet}
 
@@ -469,6 +458,12 @@
                 size={14}
                 class="shrink-0 {selectedAffinity.className}"
               />
+            {:else if selectedHostOs}
+              <HostOperatingSystemIcon
+                os={selectedHostOs}
+                size={14}
+                class="shrink-0"
+              />
             {:else}
               <DesktopTowerIcon size={14} class="shrink-0 opacity-60" />
             {/if}
@@ -504,6 +499,14 @@
                         class="shrink-0 transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
  ? 'opacity-100'
  : 'opacity-70'} {selectedAffinity.className}"
+                      />
+                    {:else if selectedHostOs}
+                      <HostOperatingSystemIcon
+                        os={selectedHostOs}
+                        size={14}
+                        class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
+ ? 'opacity-100'
+ : 'opacity-70'}"
                       />
                     {:else}
                       <DesktopTowerIcon
@@ -541,6 +544,12 @@
                       <HostIcon
                         size={14}
                         class="shrink-0 {selectedAffinity.className}"
+                      />
+                    {:else if selectedHostOs}
+                      <HostOperatingSystemIcon
+                        os={selectedHostOs}
+                        size={14}
+                        class="shrink-0"
                       />
                     {:else}
                       <DesktopTowerIcon size={14} class="shrink-0 opacity-60" />
@@ -641,7 +650,6 @@
               {@render serverRow(server)}
             {/each}
             {@render targetNote()}
-            {#if webNoHost}{@render connectHostRow()}{/if}
             {#if serversStore.nearbyHosts.length > 0}
               <DropdownMenu.Separator />
               {#each serversStore.nearbyHosts as host (host.server.installationId)}
@@ -654,7 +662,6 @@
               {@render serverRow(server)}
             {/each}
             {@render targetNote()}
-            {#if webNoHost}{@render connectHostRow()}{/if}
             {#if serversStore.nearbyHosts.length > 0}
               <DropdownMenu.Separator />
               <DropdownMenu.Label>Nearby</DropdownMenu.Label>

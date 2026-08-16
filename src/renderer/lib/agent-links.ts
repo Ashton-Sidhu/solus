@@ -9,7 +9,10 @@ import type { RouteRef } from '../contexts/workspace/routing/route-registry'
  * Total — an href that names no destination returns null, and the caller falls
  * back to opening it externally.
  */
-export function routeForHref(href: string, opts: { title?: string } = {}): RouteRef | null {
+export function routeForHref(
+  href: string,
+  opts: { title?: string; serverId?: string } = {},
+): RouteRef | null {
   if (!/^(plan|work|pr):\/\//i.test(href) && !/^https:\/\/github\.com\//i.test(href)) return null
   let url: URL
   try {
@@ -39,7 +42,9 @@ export function routeForHref(href: string, opts: { title?: string } = {}): Route
     const sessionId = params.get('sessionId') ?? ''
     const planToolUseId = params.get('planToolUseId') ?? ''
     const planId = params.get('planId') || (sessionId && planToolUseId ? planKey(sessionId, planToolUseId) : '')
-    return planId ? { name: 'plan', params: { planId } } : null
+    // A plan link in a transcript names that transcript's plan: the plan lives
+    // on the host that wrote it, which the caller passes as the link's origin.
+    return planId ? { name: 'plan', params: { planId, serverId: opts.serverId } } : null
   }
 
   if (href.startsWith('work://')) {

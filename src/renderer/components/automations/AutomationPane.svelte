@@ -18,12 +18,6 @@
 </script>
 
 {#if params.automationId === null || automation}
-  <PaneChrome
-    onClose={pane.close}
-    onOpenInSplit={pane.moveAcross}
-    isLeading={pane.isLeading}
-    closeLabel="Close automation"
-  />
   {#key automation?.id ?? "new"}
     {#await import("./AutomationBuilder.svelte")}
       <div
@@ -43,4 +37,12 @@
       />
     {/await}
   {/key}
+  <!-- After the content: the builder header is a window drag region, and a drag
+       rect later in the DOM would re-cover this cluster's no-drag holes. -->
+  <PaneChrome
+    onClose={pane.close}
+    onOpenInSplit={pane.moveAcross}
+    isLeading={pane.isLeading}
+    closeLabel="Close automation"
+  />
 {/if}

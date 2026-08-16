@@ -107,6 +107,7 @@ export class SessionEnvironmentStore {
   private workspace: SessionEnvironmentWorkspace | null = null
   private inflight = new Map<string, Promise<GitFacetOutcome>>()
   private refsInflight = new Map<string, Promise<GitFacetOutcome>>()
+  private refsLoading = new SvelteSet<string>()
   private lastRefresh = new Map<string, number>()
   private detailsLastRefresh = new Map<string, number>()
   private refsLastRefresh = new Map<string, number>()
@@ -459,12 +460,16 @@ export class SessionEnvironmentStore {
     this.scheduleDetailsRefresh(serverId, cwd)
   }
 
-  watchDetails(cwd: string): () => void {
-    const serverId = this.boundServerIdFor(cwd)
-    if (!serverId) return () => {}
+  watchDetails(serverId: string, cwd: string): () => void {
     const key = hostKey(serverId, cwd)
-    this.detailWatchers.set(key, (this.detailWatchers.get(key) ?? 0) + 1)
-    void this.refreshStatusForHost(serverId, cwd, { force: true, details: true })
+    const previousCount = this.detailWatchers.get(key) ?? 0
+    this.detailWatchers.set(key, previousCount + 1)
+    // A reactive consumer can unsubscribe and subscribe again while the same
+    // checkout remains visible. Only the first live consumer starts a scan;
+    // later consumers share the same status and refresh timer.
+    if (previousCount === 0) {
+      void this.refreshStatusForHost(serverId, cwd, { force: true, details: true })
+    }
     return () => {
       const remaining = (this.detailWatchers.get(key) ?? 1) - 1
       if (remaining > 0) {
@@ -581,8 +586,12 @@ export class SessionEnvironmentStore {
             : undefined
         return { ok, error: ok ? undefined : gitErrorText(rejected) }
       })
-      .finally(() => this.refsInflight.delete(key))
+      .finally(() => {
+        this.refsInflight.delete(key)
+        this.refsLoading.delete(key)
+      })
     this.refsInflight.set(key, promise)
+    this.refsLoading.add(key)
     return promise
   }
 
@@ -590,6 +599,15 @@ export class SessionEnvironmentStore {
     if (!projectRoot) return { worktrees: [], branches: [] }
     const serverId = this.boundServerIdFor(projectRoot)
     return serverId ? this.refsForHost(serverId, projectRoot) : { worktrees: [], branches: [] }
+  }
+
+  /** Whether a worktree/branch scan is in flight for this project, so a picker
+   *  that has nothing cached yet can say it is loading rather than say the repo
+   *  has no branches. */
+  refsLoadingFor(projectRoot: string | null | undefined): boolean {
+    if (!projectRoot) return false
+    const serverId = this.boundServerIdFor(projectRoot)
+    return serverId ? this.refsLoading.has(hostKey(serverId, projectRoot)) : false
   }
 
   /** Existing isolated worktrees from this device's checkout on the selected

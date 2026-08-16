@@ -83,6 +83,11 @@
   const dispatchBranchesLoading = $derived(
     pendingDispatch ? environmentStore.dispatchBranchesLoadingFor(run) : false,
   );
+  // A scan with nothing cached yet must not read as "this repo has one branch";
+  // once refs have arrived the list refreshes in place instead.
+  const refsLoading = $derived(
+    !pendingDispatch && environmentStore.refsLoadingFor(projectRoot),
+  );
   const worktreeBranches = $derived(worktrees.map((w) => w.branch));
   // The branch you are on leads the list in its own right, so it must not also
   // appear under "Checked out".
@@ -209,6 +214,16 @@
                   {/if}
                 </Command.Item>
               {/each}
+              {#if refsLoading && worktrees.length === 0}
+                <Command.Item
+                  value="Loading worktrees"
+                  disabled
+                  class="pointer-events-none text-(--solus-text-tertiary)"
+                >
+                  <SpinnerGapIcon size={13} class="shrink-0 animate-spin motion-reduce:animate-none" />
+                  <span class="min-w-0 flex-1 truncate">Loading worktrees…</span>
+                </Command.Item>
+              {/if}
             </Command.Group>
             {#if pendingDispatch && (dispatchBranchesLoading || dispatchBranches.length > 0)}
               <Command.Group heading="Origin branches">
@@ -248,7 +263,9 @@
             ? dispatchBranchesLoading
               ? `${worktrees.length} worktrees · loading origin branches`
               : `${worktrees.length} worktrees · ${dispatchBranches.length} origin branches`
-            : `${worktrees.length} worktrees`}
+            : refsLoading && worktrees.length === 0
+              ? "Loading worktrees…"
+              : `${worktrees.length} worktrees`}
         />
       {:else}
         <Command.Root>
@@ -278,10 +295,25 @@
               {#each branches.filter((branch) => branch !== displayBranch && !worktreeBranches.includes(branch)) as branch (branch)}
                 {@render branchItem(branch)}
               {/each}
+              {#if refsLoading && branches.length === 0}
+                <Command.Item
+                  value="Loading branches"
+                  disabled
+                  class="pointer-events-none text-(--solus-text-tertiary)"
+                >
+                  <SpinnerGapIcon size={13} class="shrink-0 animate-spin motion-reduce:animate-none" />
+                  <span class="min-w-0 flex-1 truncate">Loading branches…</span>
+                </Command.Item>
+              {/if}
             </Command.Group>
           </Command.List>
         </Command.Root>
-        <MenuFooter hints={[["⏎", "check out"]]} summary="{branches.length} branches" />
+        <MenuFooter
+          hints={[["⏎", "check out"]]}
+          summary={refsLoading && branches.length === 0
+            ? "Loading branches…"
+            : `${branches.length} branches`}
+        />
       {/if}
     </Popover.Content>
   </Popover.Root>

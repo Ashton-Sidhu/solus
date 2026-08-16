@@ -20,5 +20,8 @@ export function routeForPushClick(payload: PushClickPayload, servers: SavedServe
   if (payload.route) return payload.route
   if (!payload.sessionId) return null
   const serverId = serverIdForInstallation(payload.installationId, servers)
-  return notificationSessionRoute(payload.sessionId, serverId ?? undefined)
+  // A push naming a host this client no longer knows opens the app plain: a
+  // host-less chat route would resolve against whichever host answers first.
+  if (!serverId) return null
+  return notificationSessionRoute(payload.sessionId, serverId)
 }

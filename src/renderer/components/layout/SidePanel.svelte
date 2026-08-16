@@ -75,7 +75,7 @@
   aria-hidden={!open}
 >
   <div
-    class="side-panel-root flex h-full flex-col overflow-hidden bg-(--side-panel-bg,var(--solus-sidebar-bg)) [contain:layout_paint] {flush
+    class="side-panel-root @container flex h-full flex-col overflow-hidden bg-(--side-panel-bg,var(--solus-sidebar-bg)) [contain:layout_paint] {flush
  ? ''
  : 'rounded-2xl'} {flush
  ? ''

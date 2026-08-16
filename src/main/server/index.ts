@@ -4,8 +4,9 @@ import { z } from 'zod'
 import type { Server as HttpServer } from 'http'
 import { SolusServer } from './server'
 import { buildHttpServer } from './http'
-import { getServerSettings, setRemoteAccess } from './settings'
+import { getServerSettings, setRemoteAccess, setTrustLocalNetwork } from './settings'
 import { isLoopbackHost, resolveEffectiveServerOptions } from './bind-policy'
+import { isTrustedRequesterAddress } from './trusted-requesters'
 import { attachWebSocketTransport } from '../transports/websocket'
 import { ResponseReceiptBudget } from '../transports/response-receipt-cache'
 import { ClientEventRegistry } from '../events/client-event-registry'
@@ -370,19 +371,24 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     staticDir: opts.staticDir,
     getHost: () => host,
     getPort: () => actualPort,
+    requireAuth: () => requireAuth,
+    isTrustedRequester: isTrustedRequesterAddress,
     transcribeAudio: opts.transcribeAudio,
   })
   const responseReceiptBudget = new ResponseReceiptBudget()
   let ws = attachWebSocketTransport(http, server, {
     clientEvents,
     requireAuth: () => requireAuth,
+    isTrustedRequester: isTrustedRequesterAddress,
     responseBudget: responseReceiptBudget,
     onClientConnected: ({ clientId }) => {
       checksHandlers.handleClientConnected(clientId)
     },
     onClientDisconnected: ({ clientId }) => {
-      opts.controlPlane.handleClientDisconnected(clientId)
       checksHandlers.handleClientDisconnected(clientId)
+    },
+    onClientExpired: ({ clientId }) => {
+      opts.controlPlane.handleClientExpired(clientId)
     },
   })
   let sessionIndexPollTimer: ReturnType<typeof setTimeout> | null = null
@@ -511,13 +517,16 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     ws = attachWebSocketTransport(http, server, {
       clientEvents,
       requireAuth: () => requireAuth,
+      isTrustedRequester: isTrustedRequesterAddress,
       responseBudget: responseReceiptBudget,
       onClientConnected: ({ clientId }) => {
         checksHandlers.handleClientConnected(clientId)
       },
       onClientDisconnected: ({ clientId }) => {
-        opts.controlPlane.handleClientDisconnected(clientId)
         checksHandlers.handleClientDisconnected(clientId)
+      },
+      onClientExpired: ({ clientId }) => {
+        opts.controlPlane.handleClientExpired(clientId)
       },
     })
     lock = acquireLock(host, actualPort)
@@ -526,7 +535,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
 
   registerConnectionsHandlers(server, {
-    getServerInfo: () => ({ host, port: actualPort, allowLan: !isLoopbackHost(host), remoteAccess: getServerSettings().remoteAccess, requireAuth }),
+    getServerInfo: () => ({ host, port: actualPort, allowLan: !isLoopbackHost(host), remoteAccess: getServerSettings().remoteAccess, requireAuth, trustLocalNetwork: getServerSettings().trustLocalNetwork }),
     getActiveSessions: () => [...ws.sessions.values()].map(s => ({
       id: s.id,
       deviceLabel: s.deviceLabel,
@@ -539,6 +548,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       await rebind(next.remoteAccess)
       return { ...next, host, port: actualPort, allowLan: !isLoopbackHost(host), requireAuth }
     },
+    // Trust is evaluated per request, so no rebind: the next connection
+    // attempt simply reads the new policy.
+    setTrustLocalNetwork: (trustLocalNetwork) => ({
+      trustLocalNetwork: setTrustLocalNetwork(trustLocalNetwork).trustLocalNetwork,
+    }),
   })
 
   log.info('server_listening', { host, port: actualPort })

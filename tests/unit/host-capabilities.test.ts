@@ -24,6 +24,26 @@ describe('host capability gates', () => {
     expect(supportsSettingsSurface({ voiceModel: false }, 'voice')).toBe(false)
   })
 
+  test('an advertisement from a newer host degrades per field, never whole', () => {
+    // WHY: skew-safety (dispatch-client step 1). One unknown editor id from a
+    // newer host used to null the entire capability record, silently reading
+    // as "everything unsupported" across the app.
+    const skewed = normalizeHostCapabilities({
+      attachUpload: true,
+      automations: 'yes',
+      editors: ['vscode', 'zed'],
+      futureField: { shape: 'unknown' },
+    })
+    expect(skewed.attachUpload).toBe(true)
+    expect(skewed.automations).toBeUndefined()
+    expect(skewed.editors).toEqual(['vscode'])
+  })
+
+  test('a non-object advertisement is an empty record, not a throw', () => {
+    expect(normalizeHostCapabilities(null)).toEqual({})
+    expect(normalizeHostCapabilities('nope')).toEqual({})
+  })
+
   test('filters automation hosts and editor choices from the record', () => {
     const records = new Map<string, HostCapabilities>([
       ['new', { automations: true, editors: ['vscode'] }],

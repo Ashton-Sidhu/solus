@@ -106,10 +106,12 @@ export class KeybindingsContext {
       const bindings = BINDINGS_BY_SCOPE.get(scope)
       if (!bindings) continue
       for (const [id, def] of bindings) {
+        // `null` is a binding that ships unassigned: only a user override can
+        // ever make it fire.
         const combo = this.overrides[id] ?? defaultCombo(def)
         // An override replaces the primary combo but keeps the built-in aliases.
         const matched =
-          eventMatches(e, combo) ||
+          (combo !== null && eventMatches(e, combo)) ||
           (def.aliases?.some((a) => eventMatches(e, a)) ?? false)
         if (!matched) continue
         // Auto-repeat (held key) only fires bindings that opt in (e.g. palette
@@ -125,7 +127,7 @@ export class KeybindingsContext {
           // preventDefault() above can't stop, so the accent still leaks into
           // the focused editor (notably in Safari). We don't try to swallow it —
           // just warn so the offending binding gets moved to a non-dead key.
-          if (isMac && e.altKey && MAC_DEAD_KEY_CODES.has(combo.code)) {
+          if (isMac && e.altKey && combo !== null && MAC_DEAD_KEY_CODES.has(combo.code)) {
             console.warn(
               `[keybindings] "${id}" is bound to ⌥${combo.code} — a macOS dead key. ` +
                 `Its accent character may leak into the input. Rebind to a non-dead key.`,

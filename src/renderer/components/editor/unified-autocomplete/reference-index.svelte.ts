@@ -163,6 +163,7 @@ export class ReferenceIndex {
           kind: 'session',
           sessionId: session.sessionId,
           provider: session.provider,
+          serverId: session.serverId,
           title: sessionRefTitle(session),
           cwd: session.cwd,
         },

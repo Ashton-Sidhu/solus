@@ -12,6 +12,12 @@ import {
   worktreeProjectRoot,
 } from '../../shared/types'
 import { readSessionHeadMeta } from '../agents/claude/claude-session-helpers'
+import { scanPlanFile } from '../agents/claude/claude-plan-helpers'
+import {
+  markIndexedPlanSessionUnavailable,
+  replaceIndexedPlansForSession,
+  type IndexedPlanInput,
+} from '../plans/plan-index'
 import { createLogger } from '../logger'
 import { sanitizeFtsQuery } from './fts'
 import { getDb, withTx } from './index'
@@ -127,6 +133,10 @@ function deleteSessionFile(filePath: string): void {
       WHERE session_id = ? AND model IS NULL AND reasoning_effort IS NULL
     `).run(sessionId)
     db.prepare('DELETE FROM session_files WHERE path = ?').run(filePath)
+    // Plans are durable Workspace artifacts even after Claude's transcript
+    // retention removes the source session. Keep the plan, but make resume
+    // attempts fail before they create an empty conversation tab.
+    markIndexedPlanSessionUnavailable('claude-code', sessionId)
   })
 }
 
@@ -488,6 +498,21 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<bo
       WHERE path = ?
     `).run(fileStat.size, mtime, lastIndexedOffset, Date.now(), filePath)
   })
+  const scannedPlans = await scanPlanFile(filePath, sessionId, projectPath, meta.cwd ?? projectPath)
+  const indexedPlans: IndexedPlanInput[] = scannedPlans.map((plan) => ({
+    provider: 'claude-code',
+    sessionId: plan.sessionId,
+    planToolUseId: plan.planToolUseId,
+    projectPath: plan.projectPath,
+    cwd: plan.cwd,
+    timestamp: plan.timestamp,
+    title: plan.title,
+    excerpt: plan.excerpt,
+    planFilePath: plan.planFilePath,
+    content: plan.content,
+    derivedStatus: plan.derivedStatus,
+  }))
+  replaceIndexedPlansForSession('claude-code', sessionId, indexedPlans)
   return true
 }
 

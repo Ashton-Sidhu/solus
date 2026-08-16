@@ -298,6 +298,29 @@ export function parseJsonlLine(line: string): SessionLoadMessage | null {
   return null
 }
 
+/** Find the assistant message immediately before the latest real user prompt.
+ * Claude's resumeSessionAt option accepts only an assistant SDK message UUID. */
+export function findClaudeForkResumeId(lines: string[]): string | null {
+  let lastAssistantId: string | null = null
+  let resumeId: string | null = null
+
+  for (const line of lines) {
+    try {
+      const parsed = claudeTranscriptLineSchema.safeParse(JSON.parse(line))
+      if (!parsed.success) continue
+      const transcriptLine = parsed.data
+      if (transcriptLine.isSidechain || transcriptLine.parent_tool_use_id) continue
+      if (transcriptLine.type === 'assistant' && transcriptLine.uuid) {
+        lastAssistantId = transcriptLine.uuid
+        continue
+      }
+      if (parseJsonlLine(line)?.role === 'user') resumeId = lastAssistantId
+    } catch {}
+  }
+
+  return resumeId
+}
+
 export async function scanSessionsInDir(
   sessionsDir: string,
   encodedPath: string,

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { serverConnections } from "@client-core/server-connections";
+  import { hostKey } from "@client-core/host-key";
   import { tick } from "svelte";
   import { StarIcon } from "phosphor-svelte";
   import type { Automation } from "../../../shared/types";
@@ -8,6 +9,7 @@
     getWindowContext,
     runtime,
     serversStore,
+    projectCatalog,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import {
@@ -36,15 +38,22 @@
   import {
     automationProject,
     automationProjects,
+    type AutomationProject,
   } from "./lib/automation-projects";
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
   const store = session.automationsStore;
+  // The full-page catalog has no narrower owner, so the new-work default host
+  // is its explicit scope; with no host connected there is nothing to list.
   const selectedServerId = $derived(
-    serverConnections.resolveId(serversStore.activeServerId),
+    serverConnections.defaultServerId() ??
+      serverConnections.connectedServerIds()[0] ??
+      null,
   );
-  const hostItems = $derived(store.itemsForHost(selectedServerId));
+  const hostItems = $derived(
+    selectedServerId ? store.itemsForHost(selectedServerId) : [],
+  );
 
   const open = $derived(session.router.at("automations"));
   // Editor mode opens the builder in the side panel; pill mode has no pane, so it
@@ -61,15 +70,35 @@
   // The page starts with the complete catalog. Its project facet comes from
   // that catalog, not from open tabs, so every automation always has a choice.
   let selectedProjectKey = $state<string | null>(null);
-  const projects = $derived(
-    automationProjects(
+  const projects = $derived.by(() => {
+    const base = automationProjects(
       hostItems,
       session.openProjects,
       session.staticInfo?.workspacePath,
       (automation) => store.hostFor(automation.id),
       (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
-    ),
-  );
+    );
+    // The catalog knows about projects on this host with no automations yet —
+    // union them in at zero count, so the filter also offers "jump scope to a
+    // project before automating it," not only ones the list already spans.
+    const extra: AutomationProject[] = [];
+    for (const entry of projectCatalog.entries) {
+      if (entry.serverId !== selectedServerId) continue;
+      const key = hostKey(entry.serverId, entry.projectRoot);
+      if (base.some((project) => project.key === key)) continue;
+      extra.push({
+        key,
+        projectPath: entry.projectRoot,
+        serverId: entry.serverId,
+        label: entry.label,
+        roots: [entry.projectRoot],
+        count: 0,
+      });
+    }
+    return extra.length === 0
+      ? base
+      : [...base, ...extra].sort((a, b) => a.label.localeCompare(b.label));
+  });
   const selectedProject = $derived(
     projects.find((project) => project.key === selectedProjectKey) ?? null,
   );
@@ -158,7 +187,9 @@
   ] satisfies Array<{ value: StatusFilter; label: string; short?: string; count: number }>));
 
   const isInitialLoading = $derived(
-    !store.hasLoadedHost(selectedServerId) && store.isLoadingHost(selectedServerId),
+    !!selectedServerId &&
+      !store.hasLoadedHost(selectedServerId) &&
+      store.isLoadingHost(selectedServerId),
   );
   // The zero-state owns the page, so the header hides its New button and the
   // command bar (search/filter noise with nothing to filter) while it shows.
@@ -260,10 +291,11 @@
       // names one (e.g. from the project panel or a "Sent via automation"
       // badge); the bare route lands on the list.
       const focusId = session.router.params("automations")?.automationId;
-      if (focusId) {
-        void store.loadAll(selectedServerId).then(() => {
+      if (focusId && selectedServerId) {
+        const scopeServerId = selectedServerId;
+        void store.loadAll(scopeServerId).then(() => {
           const target = store
-            .itemsForHost(selectedServerId)
+            .itemsForHost(scopeServerId)
             .find((automation) => automation.id === focusId);
           view = target
             ? { kind: "edit", automation: target }
@@ -271,7 +303,7 @@
         });
       } else {
         view = { kind: "list" };
-        void store.loadAll(selectedServerId);
+        if (selectedServerId) void store.loadAll(selectedServerId);
         if (!runtime.shouldSuppressFocus) {
           void tick().then(() => searchEl?.focus());
         }

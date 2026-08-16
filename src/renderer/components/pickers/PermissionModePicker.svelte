@@ -34,6 +34,7 @@
   let { compact = false, tabId, run, onRun, isPrimary = false }: Props = $props();
 
   let open = $state(false)
+  let triggerEl: HTMLButtonElement | null = $state(null)
 
   const ctx = $derived(onRun ? statusBar.ctxForRun(run) : statusBar.ctxFor(tabId ?? session.activeTabId))
   const permissionMode = $derived(ctx.permissionMode)
@@ -68,10 +69,30 @@
     open = false
     if (isPrimary) requestInputFocus()
   }
+
+  // Same shape as the model chip's shortcut: the picker for the addressed tab
+  // opens, and only the copy in the visible layout (both stay mounted).
+  function openFromShortcut(targetTabId?: string) {
+    if (onRun) return
+    if (targetTabId === undefined ? !isPrimary : targetTabId !== tabId) return
+    if (!supportsPermissions) return
+    if (triggerEl && triggerEl.offsetParent === null) return
+    open = true
+  }
+
+  $effect(() => {
+    const handler = (event: Event) => {
+      const detail: { tabId?: string } | undefined =
+        event instanceof CustomEvent ? event.detail : undefined
+      openFromShortcut(detail?.tabId)
+    }
+    window.addEventListener('solus:toggle-permission-menu', handler)
+    return () => window.removeEventListener('solus:toggle-permission-menu', handler)
+  })
 </script>
 
 <DropdownMenu.Root bind:open onOpenChange={(next) => { if (!next && isPrimary) requestInputFocus() }}>
-  <DropdownMenu.Trigger disabled={!supportsPermissions}>
+  <DropdownMenu.Trigger disabled={!supportsPermissions} bind:ref={triggerEl}>
     {#snippet child({ props })}
       <TooltipUI.Root>
         <TooltipUI.Trigger>

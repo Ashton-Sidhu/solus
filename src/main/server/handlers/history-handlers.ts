@@ -7,9 +7,7 @@ import type { SolusServer } from '../server'
 import { getIndexedSession, searchIndexedSessions, setSessionCustomTitle } from '../../db/session-indexer'
 import { renamePinnedSession } from '../../sessions/pinned-sessions'
 import { generateSessionMetadata } from '../../sessions/session-title'
-import { updateGeneratedMetadataForSession } from '../../tasks/task-sessions'
-import { Task } from '../../tasks/task'
-import { tasksForSession } from '../../tasks/task-sessions'
+import { updateGeneratedDescriptionForSession } from '../../tasks/task-sessions'
 import { emitChanged } from '../../tasks/task-store'
 import { takeSessionScanBatch } from '../session-scan'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
@@ -169,10 +167,10 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
-  server.register('resolveSessionHandoff', (args) => {
+  server.register('resolveSessionLineage', (args) => {
     const [provider, providerSessionId] = args
     try {
-      return controlPlane.resolveSessionHandoff(provider, providerSessionId)
+      return controlPlane.resolveSessionLineage(provider, providerSessionId)
     } catch (err) {
       log.error('resolve_session_handoff_failed', { error: String(err), provider, providerSessionId })
       return null
@@ -189,23 +187,21 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const trimmed = title?.trim()
     const customTitle = trimmed || null
     setSessionCustomTitle(sessionId, customTitle)
-    let taskChanged = false
-    if (trimmed) {
-      try {
-        if (source === 'generated') {
-          if (generatedDescription) {
-            taskChanged = !!await updateGeneratedMetadataForSession(sessionId, trimmed, generatedDescription)
-          }
-        } else {
-          const task = await tasksForSession(sessionId)
-          if (task) {
-            await (await Task.byId(task.task.id)).update({ title: trimmed }, { actor: 'agent' })
-            taskChanged = true
-          }
+    let taskCatalogChanged = false
+    try {
+      if (source === 'generated') {
+        if (trimmed && generatedDescription) {
+          taskCatalogChanged = !!await updateGeneratedDescriptionForSession(sessionId, generatedDescription)
         }
-      } catch (error) {
-        log.warn('task_session_metadata_update_failed', { sessionId, error: String(error) })
+      } else {
+        // Session names and task names have separate owners. The task snapshot
+        // still needs a refresh because its attempt rows join this session
+        // title, but renaming one attempt must not rename the shared task.
+        emitChanged()
+        taskCatalogChanged = true
       }
+    } catch (error) {
+      log.warn('task_session_metadata_update_failed', { sessionId, error: String(error) })
     }
     // A pin carries its own label, so it has to be told: the custom name when
     // there is one, otherwise back to what the session derives its title from.
@@ -219,7 +215,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       }
       if (generatedDescription) event.generatedDescription = generatedDescription
       events.broadcast('session.titleChanged', event)
-    } else if (!taskChanged) {
+    } else if (!taskCatalogChanged) {
       // The proxy row changed even when a generated task name lost a race to a
       // manual edit. Other clients of the task host still need to reload it.
       emitChanged()

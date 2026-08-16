@@ -34,4 +34,26 @@ describe('usage handlers', () => {
     expect(broadcasts).toHaveLength(1)
     expect(broadcasts[0]).toEqual([{ provider: 'claude-code', stale: false }])
   })
+
+  test('a first read that fails still reports the provider, marked stale', async () => {
+    // WHY: Claude's quota comes from an account endpoint that answers empty or
+    // rate-limited under load. Booting inside such a window left nothing
+    // cached, and the panel dropped Claude entirely — reading as "no quota"
+    // rather than "could not read". The row has to survive with no numbers.
+    const server = new SolusServer()
+
+    registerUsageHandlers(server, {
+      controlPlane: {
+        usageCapableAgents: () => ['claude-code'],
+        readUsageLimits: async () => null,
+      } as never,
+      events: { broadcast: () => 1 } as never,
+    })
+
+    const snapshots = await server.handle('usageLimits', [])
+
+    expect(snapshots).toEqual([
+      { provider: 'claude-code', fiveHour: null, weekly: null, planType: null, fetchedAt: 0, stale: true },
+    ])
+  })
 })

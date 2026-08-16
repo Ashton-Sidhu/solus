@@ -30,6 +30,10 @@
     getProjectConfigStore,
     getSessionSidebarStore,
     runtime,
+    projectCatalog,
+    mergeProjectOptions,
+    projectRefKey,
+    serversStore,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import {
@@ -70,6 +74,7 @@
     virtualGroupItems,
     type ListFilterSpec,
     type ListPageView,
+    type ListProjectOption,
     type ListStatusOption,
   } from "../ui/list-page";
   import PageEmpty from "../ui/PageEmpty.svelte";
@@ -98,19 +103,54 @@
       : session.taskCreationContext,
   );
   const cwd = $derived(taskContext?.projectKey ?? null);
-  const projectOptions = $derived(
-    sessionSidebar.projectSummaries
-      .filter((project) => project.projectKey !== "~")
-      .map((project) => ({
-        projectKey: project.projectKey,
-        label: project.label,
-      })),
+  // The switcher shows the deduplicated union of the sidebar's live projects
+  // (the selected host only) and every project the catalog has ever recorded,
+  // across every host — a project closed today still shows up here.
+  const sidebarServerId = $derived(serverConnections.defaultServerId());
+  const projectOptions = $derived<ListProjectOption[]>(
+    mergeProjectOptions(
+      [
+        // With no default host there is nothing to attribute a sidebar project
+        // to; the catalog still carries its own host per entry.
+        sidebarServerId
+          ? sessionSidebar.projectSummaries
+              .filter((project) => project.projectKey !== "~")
+              .map((project) => ({
+                serverId: sidebarServerId,
+                projectRoot: project.projectKey,
+                label: project.label,
+              }))
+          : [],
+        projectCatalog.entries,
+      ],
+      (serverId) => serversStore.statusFor(serverId) !== "offline",
+      (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
+    ).map((option) => ({
+      key: option.key,
+      projectKey: option.projectRoot,
+      serverId: option.serverId,
+      label: option.label,
+      available: option.available,
+      historyOnly: !sessionSidebar.projectSummaries.some(
+        (project) => project.projectKey === option.projectRoot,
+      ),
+    })),
+  );
+  // The pin is a bare path (TasksStore looks tasks up by path only), so when a
+  // path is unique across the catalog this recovers the exact option; when two
+  // hosts share the path it falls back to the current session's host, which is
+  // the same project TasksStore would have resolved either way.
+  const activeProjectOptionKey = $derived(
+    cwd
+      ? (projectOptions.find((option) => option.projectKey === cwd)?.key ??
+          (sidebarServerId
+            ? projectRefKey({ serverId: sidebarServerId, projectRoot: cwd })
+            : ""))
+      : "",
   );
   const projectTasks = $derived(store.tasksForProject(cwd));
   const projectServerId = $derived(
-    store.hostForProject(cwd) ??
-      serverConnections.connectionFor()?.serverId ??
-      null,
+    store.hostForProject(cwd) ?? serverConnections.defaultServerId(),
   );
   const projectHost = $derived(
     projectServerId
@@ -464,15 +504,25 @@
   // A different project is a different list, so nothing about how the old one
   // was being read survives the switch. The load effect keys off `cwd` and
   // refetches on its own.
-  function selectProject(projectKey: string) {
+  function selectProject(option: ListProjectOption) {
+    if (!option.available) return;
     pinnedProjectKey =
-      projectKey === session.tasksProjectCwd ? null : projectKey;
+      option.projectKey === session.tasksProjectCwd
+        ? null
+        : option.projectKey;
     clearFilters();
     selection.clear();
     selectedKey = null;
     collapsedGroups = {};
     composing = null;
     void tick().then(() => searchEl?.focus());
+  }
+
+  function removeProjectHistory(option: ListProjectOption) {
+    projectCatalog.remove({
+      serverId: option.serverId,
+      projectRoot: option.projectKey,
+    });
   }
 
   // Re-read native tasks and explicitly poll the configured upstream provider.
@@ -781,9 +831,10 @@
   >
     <ListPage
       projects={projectOptions}
-      activeProjectKey={cwd ?? ""}
+      activeProjectKey={activeProjectOptionKey}
       emptyProjectLabel="No project"
       onSelectProject={selectProject}
+      onRemoveProjectHistory={removeProjectHistory}
       title="Tasks"
       {summary}
       {view}

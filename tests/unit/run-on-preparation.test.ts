@@ -7,6 +7,10 @@ describe('automatic Run on repository preparation', () => {
   test('delegates the caller credential when preparing a different host', async () => {
     // WHY: the destination owns checkout placement, but private-repository
     // access must follow the caller rather than whichever account owns it.
+    // Delegation exists only where a client machine does (desktop).
+    const connections = serverConnections as unknown as { localServerId: () => string | null }
+    const originalLocalServerId = connections.localServerId
+    connections.localServerId = () => LOCAL_SERVER_ID
     const calls: Array<{ method: string; args: unknown }> = []
     const apis = {
       target: {
@@ -30,13 +34,18 @@ describe('automatic Run on repository preparation', () => {
         credential: { accessToken: 'caller-token', login: 'caller' },
       },
     }])
+    connections.localServerId = originalLocalServerId
   })
 
-  test('does not export a credential when the target is the resolved local host', async () => {
-    // WHY: a web client has no credential of its own — LOCAL_SERVER_ID resolves
-    // onto the connection it is already talking to, which must clone as itself.
+  test('does not export a credential when the target is the client machine itself', async () => {
+    // WHY: your own machine clones as itself — there is no other credential
+    // store to borrow from. (On web, localServerId is null and every dispatch
+    // target uses its own token; that arm is covered by the null default.)
+    const connections = serverConnections as unknown as { localServerId: () => string | null }
+    const originalLocalServerId = connections.localServerId
+    connections.localServerId = () => LOCAL_SERVER_ID
     let exported = false
-    const localServerId = serverConnections.resolveId(LOCAL_SERVER_ID)
+    const localServerId = LOCAL_SERVER_ID
     const args: unknown[] = []
     await prepareHostCheckout({
       target: {
@@ -55,6 +64,7 @@ describe('automatic Run on repository preparation', () => {
 
     expect(exported).toBeFalse()
     expect(args).toEqual([{ cloneUrl: 'https://github.com/solus-sh/solus.git' }])
+    connections.localServerId = originalLocalServerId
   })
 
   test('asks the target host to use the exact selected worktree', async () => {
@@ -69,7 +79,7 @@ describe('automatic Run on repository preparation', () => {
       local: {
         githubExportCredential: async () => { throw new Error('not used for the resolved local host') },
       },
-    }, serverConnections.resolveId(LOCAL_SERVER_ID), 'github.com/solus-sh/solus', '/srv/projects/solus/.solus-worktrees/release')
+    }, LOCAL_SERVER_ID, 'github.com/solus-sh/solus', '/srv/projects/solus/.solus-worktrees/release')
 
     // WHY: the selected worktree is a target-host path. Preparation validates
     // and returns it without trying to use that path on the source host.

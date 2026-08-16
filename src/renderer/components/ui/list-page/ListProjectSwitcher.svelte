@@ -3,6 +3,7 @@
     CaretDownIcon,
     MagnifyingGlassIcon,
     CheckIcon,
+    TrashIcon,
   } from "phosphor-svelte";
   import ProjectFavicon from "../ProjectFavicon.svelte";
   import { abbreviateHome } from "../../../lib/paths";
@@ -17,26 +18,34 @@
    */
   interface Props {
     projects: ListProjectOption[];
-    /** Repo root of the project on screen; `""` when there is none. */
-    activeProjectKey?: string;
+    /** The scoped project's `key` (host-qualified); `""` when there is none. */
+    activeKey?: string;
     /** Stands in when nothing is scoped yet. */
     emptyLabel?: string;
-    onSelect?: (projectKey: string) => void;
+    onSelect?: (option: ListProjectOption) => void;
+    /** Forgets a catalog-only project. Files and sessions are untouched. */
+    onRemoveHistory?: (option: ListProjectOption) => void;
+    /** When set, an "All projects" row leads the menu and clears the scope —
+     *  the pull requests inbox uses this; Tasks always needs one project. */
+    onSelectAll?: () => void;
+    allLabel?: string;
   }
   let {
     projects,
-    activeProjectKey,
+    activeKey,
     emptyLabel = "No project",
     onSelect,
+    onRemoveHistory,
+    onSelectAll,
+    allLabel = "All projects",
   }: Props = $props();
 
   let menuOpen = $state(false);
   let query = $state("");
   let queryEl = $state<HTMLInputElement | null>(null);
 
-  const active = $derived(
-    projects.find((p) => p.projectKey === activeProjectKey),
-  );
+  const active = $derived(projects.find((p) => p.key === activeKey));
+  const allActive = $derived(!!onSelectAll && !activeKey);
   // A handful of projects is a list you read; past that it is one you search.
   const showFilter = $derived(projects.length > 6);
   const matches = $derived(
@@ -68,10 +77,17 @@
     return () => document.removeEventListener("keydown", onKeydown, true);
   });
 
-  function pick(projectKey: string) {
+  function pick(option: ListProjectOption) {
+    if (!option.available) return;
     menuOpen = false;
     query = "";
-    if (onSelect) onSelect(projectKey);
+    if (onSelect) onSelect(option);
+  }
+
+  function pickAll() {
+    menuOpen = false;
+    query = "";
+    onSelectAll?.();
   }
 </script>
 
@@ -106,7 +122,7 @@
     <span
       class="max-w-[180px] truncate text-[0.8125rem] font-normal "
     >
-      {active?.label ?? emptyLabel}
+      {active?.label ?? (allActive ? allLabel : emptyLabel)}
     </span>
     <CaretDownIcon
       size={14}
@@ -139,40 +155,79 @@
         </div>
       {/if}
 
+      {#if onSelectAll}
+        <button
+          type="button"
+          class="flex h-[34px] w-full cursor-pointer items-center gap-[9px] rounded-lg border-0 px-[9px] text-left transition-colors duration-150 hover:bg-[var(--wash-2)] {allActive
+ ? 'bg-[var(--wash-2)]'
+ : 'bg-transparent'}"
+          onclick={pickAll}
+        >
+          <span
+            class="min-w-0 flex-1 truncate text-[0.8125rem] {allActive
+ ? 'font-medium'
+ : ''}"
+          >
+            {allLabel}
+          </span>
+          <span class="flex w-3 shrink-0 justify-end">
+            {#if allActive}
+              <CheckIcon size={14} class="text-primary" />
+            {/if}
+          </span>
+        </button>
+      {/if}
+
       <div
         class="px-[9px] pt-[5px] pb-1 text-xs font-normal text-muted-foreground uppercase"
       >
         Projects
       </div>
 
-      {#each matches as project (project.projectKey)}
-        {@const isActive = project.projectKey === activeProjectKey}
-        <button
-          type="button"
-          class="flex h-[34px] w-full cursor-pointer items-center gap-[9px] rounded-lg border-0 px-[9px] text-left transition-colors duration-150 hover:bg-[var(--wash-2)] {isActive
- ? 'bg-[var(--wash-2)]'
- : 'bg-transparent'}"
-          title={abbreviateHome(project.projectKey)}
-          onclick={() => pick(project.projectKey)}
-        >
-          <ProjectFavicon
-            projectRoot={project.projectKey}
-            class="size-3.5"
-            coloredFallback
-          />
-          <span
-            class="min-w-0 flex-1 truncate text-[0.8125rem] {isActive
+      {#each matches as project (project.key)}
+        {@const isActive = project.key === activeKey}
+        <div class="group/row flex items-center gap-0.5">
+          <button
+            type="button"
+            class="flex h-[34px] min-w-0 flex-1 items-center gap-[9px] rounded-lg border-0 px-[9px] text-left transition-colors duration-150 {project.available
+ ? 'cursor-pointer hover:bg-[var(--wash-2)]'
+ : 'cursor-not-allowed opacity-50'} {isActive ? 'bg-[var(--wash-2)]' : 'bg-transparent'}"
+            title={project.available
+              ? abbreviateHome(project.projectKey)
+              : `${abbreviateHome(project.projectKey)} — host unavailable`}
+            disabled={!project.available}
+            onclick={() => pick(project)}
+          >
+            <ProjectFavicon
+              projectRoot={project.projectKey}
+              class="size-3.5"
+              coloredFallback
+            />
+            <span
+              class="min-w-0 flex-1 truncate text-[0.8125rem] {isActive
  ? 'font-medium'
  : ''}"
-          >
-            {project.label}
-          </span>
-          <span class="flex w-3 shrink-0 justify-end">
-            {#if isActive}
-              <CheckIcon size={14} class="text-primary" />
-            {/if}
-          </span>
-        </button>
+            >
+              {project.label}
+            </span>
+            <span class="flex w-3 shrink-0 justify-end">
+              {#if isActive}
+                <CheckIcon size={14} class="text-primary" />
+              {/if}
+            </span>
+          </button>
+          {#if project.historyOnly && onRemoveHistory}
+            <button
+              type="button"
+              class="flex size-[34px] shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-muted-foreground opacity-0 transition-opacity duration-150 hover:bg-[var(--wash-2)] hover:text-foreground group-hover/row:opacity-100"
+              title="Remove from history"
+              aria-label="Remove {project.label} from history"
+              onclick={() => onRemoveHistory(project)}
+            >
+              <TrashIcon size={13} />
+            </button>
+          {/if}
+        </div>
       {/each}
 
       {#if matches.length === 0}

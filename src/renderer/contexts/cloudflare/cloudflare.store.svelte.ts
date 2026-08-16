@@ -1,4 +1,5 @@
 import { serverConnections } from '../../../client-core/server-connections'
+import { subscribeAllHosts } from '../../../client-core/host-events'
 
 /**
  * The one place the renderer knows anything about the Cloudflare profile.
@@ -44,8 +45,9 @@ export const CLOUDFLARE_TOKEN_PERMISSIONS = [
   { permission: 'Account Settings', access: 'Read' },
 ] as const
 
-class CloudflareStore {
-  // primary-host by decision pending WP6 host framing (docs/plans/multi-host-parity.md)
+export class CloudflareStore {
+  // One profile snapshot at a time; every method names the host that owns the
+  // credential — the machine that deploys.
   status = $state<CloudflareStatus | null>(null)
   statusLoaded = $state(false)
   connecting = $state(false)
@@ -55,6 +57,8 @@ class CloudflareStore {
   connectRequested = $state(false)
 
   private statusRequest: Promise<void> | null = null
+  private statusServerId: string | null = null
+  private statusGeneration = 0
 
   get connected(): boolean {
     return this.status?.connected === true
@@ -77,24 +81,37 @@ class CloudflareStore {
   }
 
   /** First caller pays for the fetch; everyone after reads the cached status. */
-  ensureStatus(): Promise<void> {
-    if (this.statusLoaded) return Promise.resolve()
-    return (this.statusRequest ??= this.loadStatus())
+  ensureStatus(serverId: string): Promise<void> {
+    if (this.statusLoaded && this.statusServerId === serverId) return Promise.resolve()
+    if (this.statusServerId !== serverId) {
+      this.status = null
+      this.statusLoaded = false
+      this.statusRequest = null
+    }
+    if (this.statusRequest && this.statusServerId === serverId) return this.statusRequest
+    return (this.statusRequest ??= this.loadStatus(serverId))
   }
 
-  async refreshStatus(): Promise<void> {
-    this.statusRequest = this.loadStatus()
+  async refreshStatus(serverId: string): Promise<void> {
+    this.statusRequest = null
+    this.statusRequest = this.loadStatus(serverId)
     await this.statusRequest
   }
 
-  private async loadStatus(): Promise<void> {
+  private async loadStatus(serverId: string): Promise<void> {
+    const generation = ++this.statusGeneration
+    this.statusServerId = serverId
+    this.statusLoaded = false
     try {
-      this.status = await serverConnections.primaryApi().cloudflareStatus()
+      const status = await serverConnections.apiFor(serverId).cloudflareStatus()
+      if (generation === this.statusGeneration) this.status = status
     } catch (e) {
       console.error('cloudflareStatus failed', e)
     } finally {
-      this.statusLoaded = true
-      this.statusRequest = null
+      if (generation === this.statusGeneration) {
+        this.statusLoaded = true
+        this.statusRequest = null
+      }
     }
   }
 
@@ -103,16 +120,16 @@ class CloudflareStore {
    * pass it after a `choose-account` or `accounts-forbidden` failure, along
    * with the same token, and the call goes through.
    */
-  async connect(apiToken: string, accountId?: string): Promise<boolean> {
+  async connect(serverId: string, apiToken: string, accountId?: string): Promise<boolean> {
     if (this.connecting) return false
     this.connecting = true
     this.failure = null
     try {
-      const result = await serverConnections.primaryApi().cloudflareConnect(
+      const result = await serverConnections.apiFor(serverId).cloudflareConnect(
         accountId ? { apiToken, accountId } : { apiToken },
       )
       if (result.ok) {
-        await this.refreshStatus()
+        await this.refreshStatus(serverId)
         return true
       }
       this.failure =
@@ -133,11 +150,11 @@ class CloudflareStore {
     }
   }
 
-  async disconnect(): Promise<void> {
+  async disconnect(serverId: string): Promise<void> {
     try {
-      await serverConnections.primaryApi().cloudflareDisconnect()
+      await serverConnections.apiFor(serverId).cloudflareDisconnect()
       this.failure = null
-      await this.refreshStatus()
+      await this.refreshStatus(serverId)
     } catch (e) {
       console.error('cloudflareDisconnect failed', e)
     }
@@ -156,8 +173,8 @@ class CloudflareStore {
    *  if no Cloudflare surface has ever been opened, so the status read is
    *  kicked off here rather than waiting for a component to ask. */
   listenForConnectRequests(): () => void {
-    return serverConnections.eventsForPrimary().subscribe('cloudflare.connectNeeded', () => {
-      void this.ensureStatus().then(() => {
+    return subscribeAllHosts('cloudflare.connectNeeded', (serverId) => {
+      void this.ensureStatus(serverId).then(() => {
         // Main only broadcasts on a disconnected profile, but the user may have
         // connected from Settings in the meantime — don't ask twice.
         if (!this.connected) this.connectRequested = true

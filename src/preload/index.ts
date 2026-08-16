@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
-import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, ReasoningEffort, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, Attachment, SessionMeta, SessionSearchResult, SessionGeneratedMetadata, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionHandoffResolution, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential } from '../shared/types'
+import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, ReasoningEffort, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, Attachment, SessionMeta, SessionSearchResult, SessionGeneratedMetadata, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionLineageResolution, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, PrRepoCheckoutResult } from '../shared/types'
 import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrEffortRequest, PrEffortResult, PrFilter, PrLifecycleAction, PrListPage, PrReviewer, PrReviewerCandidate, PrReviewTarget, PullRequestDetail, PullRequestOverview, PullRequestSummary, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview } from '../shared/providers'
 import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskCandidateOptions, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskListFilter, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarSnapshot, TaskSnapshot, TaskSnoozeInput, TaskUpdatePatch } from '../shared/task-types'
 import type { OutboxApplyResult, OutboxOp } from '../shared/outbox-types'
@@ -82,7 +82,7 @@ export interface SolusAPI {
   loadSession(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId, limit?: number): Promise<WireSessionLoadMessage[]>
   loadSessionPreview(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId): Promise<SessionPreviewResult>
   getSessionInfo(sessionId: string): Promise<SessionMeta | null>
-  resolveSessionHandoff(provider: AgentId, providerSessionId: string): Promise<SessionHandoffResolution | null>
+  resolveSessionLineage(provider: AgentId, providerSessionId: string): Promise<SessionLineageResolution | null>
   /** Name a session and describe its task from the opening prompt. */
   generateSessionMetadata(promptText: string, cwd: string): Promise<SessionGeneratedMetadata | null>
   /** Persist a session name; null clears it back to the derived title. */
@@ -122,13 +122,14 @@ export interface SolusAPI {
     | { ok: false; kind: 'choose-account'; accounts: Array<{ id: string; name: string }> }
   >
   cloudflareDisconnect(): Promise<void>
-  connectionsGetServerInfo(): Promise<{ host: string; port: number; allowLan: boolean; installationId: string; remoteAccess: boolean; requireAuth: boolean }>
+  connectionsGetServerInfo(): Promise<{ host: string; port: number; allowLan: boolean; installationId: string; remoteAccess: boolean; requireAuth: boolean; trustLocalNetwork: boolean }>
   connectionsListEndpoints(): Promise<Array<{ kind: 'loopback' | 'lan' | 'tailnet'; label: string; host: string; port: number }>>
   connectionsGeneratePairToken(): Promise<{ token: string; code: string; expiresAt: number }>
   connectionsListSessions(): Promise<Array<{ id: string; deviceLabel: string; deviceId: string | null; connectedAt: number; connectionCount: number; connectionIds: string[] }>>
   connectionsBootstrapDiscoveredServer(args: { server: DiscoveredServer; sshTarget?: string; authSecret?: string; attempt?: number; deviceLabel?: string }): Promise<SshBootstrapResult>
   connectionsRevokeDevice(args: { deviceId: string }): Promise<{ ok: boolean; revoked: string[] }>
   connectionsSetRemoteAccess(args: { remoteAccess: boolean }): Promise<{ remoteAccess: boolean; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
+  connectionsSetTrustLocalNetwork(args: { trustLocalNetwork: boolean }): Promise<{ trustLocalNetwork: boolean }>
   setAnalyticsConsent(enabled: boolean): Promise<void>
   setAgentTaskLifecyclePolicy(policy: AgentTaskLifecyclePolicy): Promise<{ agentTaskLifecyclePolicy: AgentTaskLifecyclePolicy }>
   textGenerationSettingsGet(): Promise<TextGenerationSettingsSnapshot>
@@ -195,6 +196,9 @@ export interface SolusAPI {
   prGetDiff(ctx: IpcContext, request: PrDiffRequest): Promise<PrDiffSlice>
   prGetDiffFileContents(ctx: IpcContext, request: PrDiffFileContentsRequest): Promise<PrDiffFileContents>
   prPrepareCheckout(ctx: IpcContext, target: PrReviewTarget): Promise<PrCheckoutContext>
+  /** Explicit "check out here" destination: switches the current repository
+   *  itself onto the pull request's head instead of an isolated worktree. */
+  prCheckoutInRepo(ctx: IpcContext, target: PrReviewTarget): Promise<PrRepoCheckoutResult>
   /** Fetch the PR's body, author, and state for the Activity overview. */
   prGetDetail(ctx: IpcContext, number: number): Promise<PullRequestDetail>
   prUpdate(ctx: IpcContext, number: number, patch: PullRequestUpdate): Promise<PullRequestDetail>
@@ -317,6 +321,9 @@ export interface SolusAPI {
 
   pinnedSessionsList(): Promise<PinnedSession[]>
   togglePinnedSession(session: PinnedSession): Promise<PinnedSession[]>
+  /** Foreground heartbeat: hosts skip watch-fired freshness work while no
+   *  client holds a live lease (dispatch-client step 7). */
+  activityLease(foreground: boolean): Promise<{ ok: boolean }>
   savedPromptsList(projectRoot: string): Promise<SavedPrompt[]>
   savedPromptsCreate(prompt: SavedPrompt): Promise<SavedPrompt[]>
   savedPromptsDelete(projectRoot: string, id: string): Promise<SavedPrompt[]>
@@ -417,6 +424,32 @@ export interface NativeSolusAPI {
 // round trip.
 const localConnectionPromise: Promise<LocalConnectionInfo> = ipcRenderer.invoke(LOCAL_CONNECTION_CHANNEL)
 
+// One IPC listener per channel, fanned out to however many callers subscribe.
+// A listener per caller crossed Node's ten-listener warning threshold on
+// `solus:window-shown`: the renderer keeps every tab mounted, so each tab
+// holding a composer added its own.
+function channelFanOut<Args extends unknown[]>(channel: string): (cb: (...args: Args) => void) => () => void {
+  const callbacks = new Set<(...args: Args) => void>()
+  ipcRenderer.on(channel, (_event: IpcRendererEvent, ...args: unknown[]) => {
+    // SAFETY: main sends exactly `Args` on this channel — the channel name and
+    // the payload type are fixed together at each `channelFanOut` call below.
+    const payload = args as Args
+    for (const cb of callbacks) cb(...payload)
+  })
+  return (cb) => {
+    callbacks.add(cb)
+    return () => { callbacks.delete(cb) }
+  }
+}
+
+const subscribeQuoteSelection = channelFanOut<[text: string, sourceTabId: string]>('solus:quote-selection')
+const subscribeAskSelectionInNewSession
+  = channelFanOut<[text: string, sourceTabId: string]>('solus:ask-selection-in-new-session')
+const subscribeOpenRoute = channelFanOut<[route: string]>('solus:open-route')
+const subscribeThemeChange = channelFanOut<[isDark: boolean]>('solus:theme-changed')
+const subscribeWindowShown = channelFanOut<[cursorPos: { x: number; y: number } | null]>('solus:window-shown')
+const subscribeWindowHidden = channelFanOut<[]>('solus:window-hidden')
+
 const nativeApi: NativeSolusAPI = {
   getPlatform: () => process.platform,
   getLocalConnection: () => localConnectionPromise,
@@ -437,38 +470,14 @@ const nativeApi: NativeSolusAPI = {
     ipcRenderer.send('solus:set-zoom-factor', factor),
   setQuoteContext: (tabId: string | null) =>
     ipcRenderer.send('solus:set-quote-context', tabId),
-  onQuoteSelection: (cb: (text: string, sourceTabId: string) => void) => {
-    const handler = (_event: IpcRendererEvent, text: string, sourceTabId: string) => cb(text, sourceTabId)
-    ipcRenderer.on('solus:quote-selection', handler)
-    return () => ipcRenderer.removeListener('solus:quote-selection', handler)
-  },
-  onAskSelectionInNewSession: (cb: (text: string, sourceTabId: string) => void) => {
-    const handler = (_event: IpcRendererEvent, text: string, sourceTabId: string) => cb(text, sourceTabId)
-    ipcRenderer.on('solus:ask-selection-in-new-session', handler)
-    return () => ipcRenderer.removeListener('solus:ask-selection-in-new-session', handler)
-  },
+  onQuoteSelection: subscribeQuoteSelection,
+  onAskSelectionInNewSession: subscribeAskSelectionInNewSession,
   /** A location the app was asked to open from outside the renderer — today a
    *  notification click; the payload is a serialized route. */
-  onOpenRoute: (cb: (route: string) => void) => {
-    const handler = (_event: IpcRendererEvent, route: string) => cb(route)
-    ipcRenderer.on('solus:open-route', handler)
-    return () => ipcRenderer.removeListener('solus:open-route', handler)
-  },
-  onThemeChange: (cb: (isDark: boolean) => void) => {
-    const handler = (_event: IpcRendererEvent, isDark: boolean) => cb(isDark)
-    ipcRenderer.on('solus:theme-changed', handler)
-    return () => ipcRenderer.removeListener('solus:theme-changed', handler)
-  },
-  onWindowShown: (cb: (cursorPos: { x: number; y: number } | null) => void) => {
-    const handler = (_event: IpcRendererEvent, cursorPos: { x: number; y: number } | null) => cb(cursorPos)
-    ipcRenderer.on('solus:window-shown', handler)
-    return () => ipcRenderer.removeListener('solus:window-shown', handler)
-  },
-  onWindowHidden: (cb: () => void) => {
-    const handler = () => cb()
-    ipcRenderer.on('solus:window-hidden', handler)
-    return () => ipcRenderer.removeListener('solus:window-hidden', handler)
-  },
+  onOpenRoute: subscribeOpenRoute,
+  onThemeChange: subscribeThemeChange,
+  onWindowShown: subscribeWindowShown,
+  onWindowHidden: subscribeWindowHidden,
 }
 
 contextBridge.exposeInMainWorld('solusNative', nativeApi)

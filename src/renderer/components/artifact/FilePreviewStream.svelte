@@ -9,6 +9,7 @@
   } from "@pierre/diffs";
   import { Editor } from "@pierre/diffs/edit";
   import type { DiffComment, IpcContext } from "../../../shared/types";
+  import { uuid } from "../../../shared/uuid";
   import type { HostApi } from "@client-core/host-api";
   import { DIFFS_THEME_CSS } from "../../lib/diffTheme";
   import {
@@ -256,6 +257,7 @@
      */
     revealEpoch?: number;
     onSaveStateChange?: (state: FileSaveState) => void;
+    onContentsChange?: (contents: string) => void;
   }
 
   let {
@@ -270,6 +272,7 @@
     line,
     revealEpoch = 0,
     onSaveStateChange,
+    onContentsChange,
   }: Props = $props();
 
   type AnnotationMeta =
@@ -465,7 +468,7 @@
     }
     workspace.addDiffComment(
       {
-        id: crypto.randomUUID(),
+        id: uuid(),
         filePath: draft.filePath,
         startLine: draft.range.startLine,
         endLine: draft.range.endLine,
@@ -630,6 +633,7 @@
   function scheduleSave(nextContents: string) {
     if (isReadOnly) return;
     latestContents = nextContents;
+    onContentsChange?.(nextContents);
     setSaveState("dirty");
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {

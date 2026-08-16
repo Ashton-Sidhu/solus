@@ -1,5 +1,5 @@
 import { defaultContextWindowFor, isSessionBusyStatus, type Message, type ModelConfig, type RunConfig, type Session, type SessionMeta } from '../../../shared/types'
-import { loadServers, LOCAL_SERVER_ID } from '../../../client-core/server-registry'
+import { loadServers } from '../../../client-core/server-registry'
 import { makePrompt, makeSession, makeTab } from './session.factories'
 import { taskTargetFrom } from './session-draft.svelte'
 import { loadRestoredSessionTranscript } from './session-transcript'
@@ -8,6 +8,8 @@ import { initDraftState, loadDrafts, loadPersistedSessionDrafts, loadPersistedTa
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { stampSessionMeta } from '@client-core/session-meta'
 import { serverConnections } from '@client-core/server-connections'
+import { projectCatalog } from '../projects/project-catalog.store.svelte'
+import { projectDirLabel } from '../../lib/paths'
 import { z } from 'zod'
 
 const permissionModeSchema = z.enum(['ask', 'auto', 'plan']).catch('auto')
@@ -215,9 +217,17 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
         return
       }
 
-      // Re-register with the server so event routing is alive again.
+      // Re-register with the server so event routing is alive again. Send the
+      // provider thread too: without it main cannot recognise the session and
+      // simply opens a watch under whatever id we hand it, which is the stale
+      // one whenever another client named this thread first.
       const api = ctx.apiFor(tabId)
-      await api.watchSession({ sessionId }).catch(() => null)
+      const watched = await api.watchSession({
+        sessionId,
+        agentSessionId: session.agentSessionId ?? undefined,
+        provider: session.run.provider ?? undefined,
+      }).catch(() => null)
+      if (watched) ctx.adoptSessionId(tabId, watched.sessionId)
 
       // Same as hydrateTab: Git doesn't depend on the bind below, so don't queue
       // it behind one. Registration needs the watch above, hence not earlier.
@@ -285,21 +295,27 @@ function _materializeTabs(
       const serverId = snapTab.serverInstallationId
         ? savedServers.find((server) => server.installationId === snapTab.serverInstallationId)?.id
           ?? snapTab.serverId
-          ?? LOCAL_SERVER_ID
-        : snapTab.serverId ?? LOCAL_SERVER_ID
+        : snapTab.serverId
       const run: Partial<RunConfig> = {
         serverId,
         provider: snapTab.provider,
         workingDirectory: snapTab.workingDirectory || ctx.staticInfo?.projectPath || ctx.staticInfo?.workspacePath || '~',
         gitContext: snapTab.gitContext,
-        worktree: (snapTab.worktreeRequested ?? !!snapTab.worktreeBaseBranch)
+        worktree: snapTab.worktreeRequested
           ? { baseBranch: snapTab.worktreeBaseBranch }
           : null,
-        taskServerId: snapTab.taskServerId ?? serverId,
+        taskServerId: snapTab.taskServerId,
         projectGroupPath: snapTab.projectGroupPath ?? null,
         permissionMode: permissionModeSchema.parse(snapTab.permissionMode),
       }
       if (snapTab.modelConfig) run.modelConfig = restoredModelConfig(snapTab)
+      const catalogRoot = run.gitContext?.repoRoot ?? run.workingDirectory
+      if (serverId && catalogRoot && catalogRoot !== '~') {
+        projectCatalog.record(
+          { serverId, projectRoot: catalogRoot },
+          projectDirLabel(catalogRoot, ctx.staticInfo?.workspacePath),
+        )
+      }
       const overrides: NonNullable<Parameters<typeof makeSession>[1]> = {
         // Keep the id the snapshot carried: the persisted location names chats
         // by session, so a restored split pane has to find the same one back.
@@ -371,8 +387,6 @@ function startRestoredMetadataReads(
     if (!snapTab.agentSessionId) continue
     const sourceServerId = ctx.sessionFor(snapTab.tabId)?.run.serverId
       ?? snapTab.serverId
-      ?? serverConnections.connectionFor()?.serverId
-    if (!sourceServerId) continue
     const serverId = serverConnections.resolveId(sourceServerId)
     void ctx.apiFor(snapTab.tabId)
       .getSessionInfo(snapTab.agentSessionId)
@@ -400,13 +414,13 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
 
   const api = ctx.apiFor(snapTab.tabId)
   const snapshotProvider = snapTab.provider ?? ctx.settings.activeAgent
-  const handoff = await api.resolveSessionHandoff(
+  const handoff = await api.resolveSessionLineage(
     snapshotProvider,
     snapTab.agentSessionId ?? session.id,
   ).catch(() => null)
   const activeMember = handoff?.active
   if (activeMember) {
-    session.handoffId = handoff?.handoffId
+    session.handoffId = handoff?.sessionId
     session.run.provider = activeMember.provider
     session.agentSessionId = activeMember.providerSessionId
   }
@@ -415,13 +429,13 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   // nothing below — so start it now rather than behind a transcript parse and a
   // bind round-trip.
   const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: snapTab.tabId }).catch(() => null)
-  const taskSessionId = handoff?.handoffId ?? snapTab.agentSessionId
+  const taskSessionId = handoff?.sessionId ?? snapTab.agentSessionId
   const taskHydration = taskSessionId
     ? ctx.tasksStore.ensureSessionBinding(taskSessionId, snapTab.taskServerId).catch(() => null)
     : Promise.resolve(null)
 
   if (snapTab.agentSessionId || handoff) {
-    const sessionId = handoff?.handoffId ?? snapTab.agentSessionId
+    const sessionId = handoff?.sessionId ?? snapTab.agentSessionId
     const provider = activeMember?.provider ?? snapshotProvider
     const displayCwd = snapTab.workingDirectory || ctx.staticInfo?.projectPath || ctx.staticInfo?.workspacePath || '~'
     // Claude persists transcripts under the dir it actually ran in. Worktree
@@ -488,11 +502,16 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
     // Join the live event stream only after durable history is in memory.
     // Otherwise an event that arrives during loadSession makes the successful
     // history response look stale and the restored session can stay blank.
-    await api.watchSession({
-      sessionId: handoff?.handoffId ?? session.id,
+    // Main is authoritative on identity: this snapshot minted its own uuid for a
+    // provider thread that another client may already have open under a different
+    // one. Adopt what main answers with, or events published under its id never
+    // reach this client's reducer and the tab sits frozen while the other streams.
+    const watched = await api.watchSession({
+      sessionId: handoff?.sessionId ?? session.id,
       agentSessionId: session.agentSessionId,
       provider: session.run.provider ?? undefined,
     })
+    ctx.adoptSessionId(snapTab.tabId, watched.sessionId)
     const info = await api
       .bindRuntimeSession(ctx.ctxFor(snapTab.tabId))
       .catch(() => null)

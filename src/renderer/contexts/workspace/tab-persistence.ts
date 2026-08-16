@@ -2,31 +2,19 @@ import type { AgentId, ContextUsage, GitCheckout, ModelConfig, SessionHandoffLin
 import { localApi } from '@client-core/local-api'
 import { z } from 'zod'
 
-// Tab state is scoped first by server installation, then by Electron window
-// mode. The web client has one window, so it only gets the server scope.
-// Legacy unscoped Electron keys seed the local editor installation; the pill
-// starts fresh unless it has its own legacy mode-scoped key.
-const LEGACY_TABS_KEY = 'solus-open-tabs'
-const LEGACY_DRAFTS_KEY = 'solus-tab-drafts'
+// Tab state is client-scoped (dispatch-client step 5): the workspace is one
+// tab set spanning hosts, and each persisted tab names its own host — so the
+// namespace is keyed only by Electron window mode.
+const TABS_KEY = 'solus-open-tabs'
+const DRAFTS_KEY = 'solus-tab-drafts'
 const DISMISSED_SIDEBAR_TASKS_KEY = 'solus-dismissed-sidebar-tasks'
+const OPEN_SIDEBAR_TASKS_KEY = 'solus-open-sidebar-tasks'
 // Last successful start() payload, scoped to the server installation (+ window
 // mode) exactly like the tab snapshot so a different server never reads a stale
 // environment. Applied optimistically on boot, then reconciled with fresh data.
 const START_CACHE_KEY = 'solus-start-cache'
 /** Prompts written but not yet sent, with the target they would run against. */
 const SESSION_DRAFTS_KEY = 'solus-session-drafts'
-
-let activeInstallationId: string | null = null
-let shouldMigrateLegacyKeys = false
-
-export function setTabPersistenceServerInstallationId(
-  installationId: string | null | undefined,
-  opts: { migrateLegacy?: boolean } = {},
-): void {
-  const normalized = installationId?.trim()
-  activeInstallationId = normalized ? encodeURIComponent(normalized) : null
-  shouldMigrateLegacyKeys = opts.migrateLegacy === true
-}
 
 function modeSuffix(): string {
   try {
@@ -37,50 +25,20 @@ function modeSuffix(): string {
   }
 }
 
-function serverSuffix(): string {
-  return activeInstallationId ? `:${activeInstallationId}` : ''
-}
-
 function storageKey(base: string): string {
-  return base + serverSuffix() + modeSuffix()
-}
-
-function legacyMigrationKeys(base: string): string[] {
-  if (!activeInstallationId || !shouldMigrateLegacyKeys) return []
-  const suffix = modeSuffix()
-  const keys = [base + suffix]
-  if (suffix === ':editor') keys.push(base)
-  return [...new Set(keys)].filter((key) => key !== storageKey(base))
-}
-
-function readStorageWithMigration(base: string): string | null {
-  const key = storageKey(base)
-  const raw = localStorage.getItem(key)
-  if (raw) return raw
-
-  for (const legacyKey of legacyMigrationKeys(base)) {
-    const legacyRaw = localStorage.getItem(legacyKey)
-    if (!legacyRaw) continue
-    localStorage.setItem(key, legacyRaw)
-    localStorage.removeItem(legacyKey)
-    return legacyRaw
-  }
-
-  return null
+  return base + modeSuffix()
 }
 
 export interface PersistedTab {
   tabId: string
   /** The renderer session this tab shows. Persisted because a chat route names
    *  a session, not a tab: without it the id would be re-minted on every boot
-   *  and a restored split-chat pane would point at nothing. Missing in legacy
-   *  snapshots, which mint one on restore. */
-  sessionId?: string
+   *  and a restored split-chat pane would point at nothing. */
+  sessionId: string
   title: string
-  /** Missing in legacy snapshots — an unnamed tab is free to be auto-named. */
-  titleCustom?: boolean
-  /** Saved-server registry id used for routing. Missing in legacy snapshots means local. */
-  serverId?: string
+  titleCustom: boolean
+  /** Saved-server registry id used for routing. */
+  serverId: string
   /** Stable server identity used to recover from a changed registry id after re-pairing. */
   serverInstallationId?: string
   agentSessionId: string | null
@@ -92,11 +50,9 @@ export interface PersistedTab {
   additionalDirs: string[]
   gitContext: GitCheckout | null
   worktreeBaseBranch: string | null
-  /** Missing in legacy snapshots, where the resolved base branch stands in. */
-  worktreeRequested?: boolean
-  /** The host that owns this run's task record. Missing in legacy snapshots,
-   *  which restore it as the run's own host — a session that never dispatched. */
-  taskServerId?: string
+  worktreeRequested: boolean
+  /** The host that owns this run's task record. */
+  taskServerId: string
   modelConfig: ModelConfig
   permissionMode: string
   hasUnread: boolean
@@ -122,48 +78,38 @@ export interface PersistedTab {
 }
 
 export interface PersistedTabs {
-  version: 1
+  version: 2
   activeTabId: string
   tabOrder: string[]
   tabs: PersistedTab[]
   /** The serialized location — which routes were in which panes. Rides the same
-   *  debounced write as the tabs, so there is one writer, not two. Absent in
-   *  snapshots written before the workspace had a location. */
-  location?: string
+   *  debounced write as the tabs, so there is one writer, not two. */
+  location: string
 }
 
 const persistedTabsSchema = z.object({
-  version: z.literal(1),
-  activeTabId: z.string().optional(),
-  tabOrder: z.array(z.string()).optional(),
-  tabs: z.array(z.object({ tabId: z.string() }).passthrough()),
-  location: z.string().optional(),
+  version: z.literal(2),
+  activeTabId: z.string(),
+  tabOrder: z.array(z.string()),
+  tabs: z.array(z.object({
+    tabId: z.string(),
+    sessionId: z.string(),
+    titleCustom: z.boolean(),
+    serverId: z.string(),
+    worktreeRequested: z.boolean(),
+    taskServerId: z.string(),
+  }).passthrough()),
+  location: z.string(),
 }).passthrough()
 
 export function loadPersistedTabs(): PersistedTabs | null {
   try {
-    const raw = readStorageWithMigration(LEGACY_TABS_KEY)
+    const raw = localStorage.getItem(storageKey(TABS_KEY))
     if (!raw) return null
     const result = persistedTabsSchema.safeParse(JSON.parse(raw))
     if (!result.success) return null
-    const parsed = result.data
-
-    // Keep recoverable tabs even when an older or interrupted writer omitted
-    // the selection fields. Rejecting the whole snapshot here makes startup
-    // treat a real prior session as an empty workspace and open a composer.
-    const persistedTabIds = parsed.tabs.map((tab) => tab.tabId)
-    const persistedTabIdSet = new Set(persistedTabIds)
-    const tabOrder = (parsed.tabOrder ?? []).filter((tabId) => persistedTabIdSet.has(tabId))
-    for (const tabId of persistedTabIds) {
-      if (!tabOrder.includes(tabId)) tabOrder.push(tabId)
-    }
-    const activeTabId = parsed.activeTabId
-      && persistedTabIdSet.has(parsed.activeTabId)
-      ? parsed.activeTabId
-      : tabOrder[0] ?? ''
-
     // SAFETY: The versioned snapshot was written from PersistedTabs; the schema verifies its routing fields before recovery.
-    return { ...parsed, activeTabId, tabOrder } as PersistedTabs
+    return result.data as PersistedTabs
   } catch {
     return null
   }
@@ -171,7 +117,7 @@ export function loadPersistedTabs(): PersistedTabs | null {
 
 export function savePersistedTabs(snapshot: PersistedTabs): void {
   try {
-    localStorage.setItem(storageKey(LEGACY_TABS_KEY), JSON.stringify(snapshot))
+    localStorage.setItem(storageKey(TABS_KEY), JSON.stringify(snapshot))
   } catch {}
 }
 
@@ -267,7 +213,7 @@ let pendingTabsKey: string | null = null
 
 export function savePersistedTabsDebounced(snapshot: PersistedTabs): void {
   pendingTabs = snapshot
-  pendingTabsKey = storageKey(LEGACY_TABS_KEY)
+  pendingTabsKey = storageKey(TABS_KEY)
   if (tabsTimer) return
   tabsTimer = setTimeout(flushPersistedTabs, 400)
 }
@@ -290,7 +236,7 @@ export function flushPersistedTabs(): void {
  *  Closing is destructive UI state: if the renderer refreshes before the
  *  structural persistence effect runs, the tab must not be restored. */
 export function removePersistedTab(tabId: string, activeTabId: string): void {
-  const key = storageKey(LEGACY_TABS_KEY)
+  const key = storageKey(TABS_KEY)
   const remove = (snapshot: PersistedTabs): PersistedTabs => ({
     ...snapshot,
     activeTabId,
@@ -353,6 +299,26 @@ export function clearDismissedSidebarRowKeys(): void {
   } catch {}
 }
 
+/** Root task rows this client has opened. The host owns task data; each client
+ * owns which of those tasks are present in its sidebar. Null means the client
+ * has not seeded its migration snapshot yet. */
+export function loadOpenSidebarTaskIds(): string[] | null {
+  try {
+    const raw = localStorage.getItem(storageKey(OPEN_SIDEBAR_TASKS_KEY))
+    if (!raw) return null
+    const parsed = z.array(z.string()).safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
+  }
+}
+
+export function persistOpenSidebarTaskIds(taskIds: Iterable<string>): void {
+  try {
+    localStorage.setItem(storageKey(OPEN_SIDEBAR_TASKS_KEY), JSON.stringify([...taskIds]))
+  } catch {}
+}
+
 // Unsent input drafts live in their own key, written on a debounce. They change
 // per-keystroke, so coalescing the writes keeps the structural snapshot above
 // synchronous and stops the persist effect from re-running on every keypress.
@@ -368,7 +334,7 @@ const tabDraftsSchema = z.object({
 
 export function loadDrafts(): TabDrafts | null {
   try {
-    const raw = readStorageWithMigration(LEGACY_DRAFTS_KEY)
+    const raw = localStorage.getItem(storageKey(DRAFTS_KEY))
     if (!raw) return null
     const parsed = tabDraftsSchema.safeParse(JSON.parse(raw))
     return parsed.success ? parsed.data : null
@@ -386,7 +352,7 @@ let draftsDirty = false
 let liveDraftsKey: string | null = null
 
 export function initDraftState(initial: TabDrafts | null): void {
-  liveDraftsKey = storageKey(LEGACY_DRAFTS_KEY)
+  liveDraftsKey = storageKey(DRAFTS_KEY)
   liveDraftTabs = new Map(Object.entries(initial?.tabs ?? {}))
   liveActiveInputText = initial?.activeInputText ?? ''
 }
@@ -418,7 +384,7 @@ function scheduleDraftFlush() {
 // Keep the old signature so existing callers compile without change, but
 // prefer patchActiveDraft for per-keystroke updates.
 export function saveDraftsDebounced(drafts: TabDrafts): void {
-  liveDraftsKey = storageKey(LEGACY_DRAFTS_KEY)
+  liveDraftsKey = storageKey(DRAFTS_KEY)
   liveDraftTabs = new Map(Object.entries(drafts.tabs))
   liveActiveInputText = drafts.activeInputText
   draftsDirty = true
@@ -433,7 +399,7 @@ export function flushDrafts(): void {
   }
   if (!draftsDirty) return
   try {
-    localStorage.setItem(liveDraftsKey ?? storageKey(LEGACY_DRAFTS_KEY), JSON.stringify({
+    localStorage.setItem(liveDraftsKey ?? storageKey(DRAFTS_KEY), JSON.stringify({
       activeInputText: liveActiveInputText,
       tabs: Object.fromEntries(liveDraftTabs),
     }))

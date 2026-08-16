@@ -22,6 +22,7 @@
     worktreeProjectRoot,
     type WorktreeEntry,
   } from "../../../shared/types";
+  import { serverConnections } from "@client-core/server-connections";
 
   interface Props {
     /** The tab or draft whose run this section describes — see `ProjectPanel`. */
@@ -36,6 +37,10 @@
   const settings = getSettingsContext();
   const sectionRun = $derived(session.runFor(sourceId));
   const env = $derived(environmentStore.environmentFor(sectionRun));
+  const detailCwd = $derived(env.cwd);
+  const detailServerId = $derived(
+    serverConnections.serverIdForApi(session.apiFor(sourceId)),
+  );
   const status = $derived(env.status);
   const uncommittedFileCount = $derived(
     status?.uncommittedChanges.files.length ?? 0,
@@ -68,8 +73,8 @@
   const hostAffinity = $derived(serversStore.affinityFor(sectionRun?.serverId));
 
   $effect(() => {
-    if (!active || !env.cwd) return;
-    return environmentStore.watchDetails(env.cwd);
+    if (!active || !detailCwd) return;
+    return environmentStore.watchDetails(detailServerId, detailCwd);
   });
 
   const actionRows = $derived.by<(ActionRowItem & { run: () => void })[]>(
@@ -257,13 +262,19 @@
     border-radius: 0.4375rem;
     background: transparent;
     color: var(--solus-text-secondary);
-    font-size: 0.75rem;
+    /* Same token as MenuRow: the branch row anchors the same menu language. */
+    font-size: var(--text-menu);
     font-weight: 400;
     text-align: left;
     cursor: pointer;
     transition:
       background-color 0.15s ease,
       color 0.15s ease;
+  }
+  @container (max-width: 15rem) {
+    .branch-row {
+      font-size: 0.75rem;
+    }
   }
   .branch-row:hover {
     background: var(--solus-surface-hover);

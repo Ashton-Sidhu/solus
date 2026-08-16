@@ -4,11 +4,12 @@ import {
   installationIdDecision,
   loadServers,
   LOCAL_SERVER_ID,
-  stampInstallationId,
   stampHostOperatingSystem,
 } from './server-registry'
 import type { WsTransport, ConnectionStatus } from './ws-transport'
 import type { HostEventSubscriber } from './host-event-subscriber'
+import { HostSupervisor, type HostPhase } from './host-supervisor'
+import { onWakeSignal } from './wake-signals'
 import { asHostApi, type HostApi } from './host-api'
 import type { HostCapabilities, HostOperatingSystem } from '../shared/types'
 import { z } from 'zod'
@@ -18,8 +19,6 @@ import {
 } from './host-capabilities'
 
 const CACHE_TTL_MS = 60_000
-export const HOST_CAPABILITIES_CACHE_TTL_MS = CACHE_TTL_MS
-export const HOST_CAPABILITIES_FAILURE_TTL_MS = 5_000
 const HEALTH_TIMEOUT_MS = 3_000
 
 export interface ServerHealth {
@@ -30,12 +29,15 @@ export interface ServerHealth {
   os?: HostOperatingSystem
 }
 
+// `ok`, `installationId`, and `name` are the identity contract and stay
+// required; everything else degrades alone so a newer host's additions never
+// null the whole health record and silently stop identity verification.
 const serverHealthSchema = z.object({
   ok: z.literal(true),
   installationId: z.string().min(1),
   name: z.string().min(1),
-  claimable: z.boolean().optional(),
-  os: z.enum(['macos', 'windows', 'linux']).optional(),
+  claimable: z.boolean().optional().catch(undefined),
+  os: z.enum(['macos', 'windows', 'linux']).optional().catch(undefined),
 })
 
 export interface ManagedConnection {
@@ -46,10 +48,13 @@ export interface ManagedConnection {
   events: HostEventSubscriber
   status: ConnectionStatus
   attempt: number
+  /** The one owner of this host's connection lifecycle and retry policy. */
+  supervisor: HostSupervisor
 }
 
 type StatusListener = (serverId: string, status: ConnectionStatus, attempt: number) => void
 type ConnectionListener = (connection: ManagedConnection) => void
+type PhaseListener = (serverId: string, phase: HostPhase, attempt: number) => void
 
 interface CacheEntry<T> {
   value: T
@@ -62,13 +67,21 @@ export class ServerConnections {
   private readonly localTokenRefreshers = new Map<string, () => Promise<string>>()
   private readonly statusListeners = new Set<StatusListener>()
   private readonly connectionListeners = new Set<ConnectionListener>()
+  private readonly phaseListeners = new Set<PhaseListener>()
   private readonly healthCache = new Map<string, CacheEntry<ServerHealth | null>>()
-  private readonly capabilitiesCache = new Map<string, CacheEntry<HostCapabilities>>()
-  private readonly capabilitiesInFlight = new Map<string, Promise<HostCapabilities>>()
-  private readonly capabilityGenerations = new Map<string, number>()
   private readonly identityCache = new Map<string, CacheEntry<Awaited<ReturnType<SolusAPI['listProjectIdentities']>>>>()
   private readonly retainedServerIds = new Set<string>()
   private primaryServerId: string | null = null
+
+  constructor() {
+    // One classified wake stream fans out to every supervisor: N hosts must
+    // not mean N window listeners each re-deciding what a wake meant.
+    onWakeSignal((signal) => {
+      for (const connection of this.connections.values()) {
+        connection.supervisor.handleWakeSignal(signal)
+      }
+    })
+  }
 
   registerTarget(target: SolusServerTarget, refreshLocalSessionToken?: () => Promise<string>): void {
     this.targets.set(target.id, target)
@@ -81,19 +94,23 @@ export class ServerConnections {
     transport: WsTransport,
     target?: SolusServerTarget,
   ): ManagedConnection {
-    this.bumpCapabilityGeneration(serverId)
     const resolvedTarget = target ?? this.resolveTarget(serverId)
     this.targets.set(serverId, resolvedTarget)
     const existing = this.connections.get(serverId)
     const previousPrimaryId = this.primaryServerId
     if (previousPrimaryId && previousPrimaryId !== serverId) {
-      this.connections.get(previousPrimaryId)?.transport.destroy()
+      const displaced = this.connections.get(previousPrimaryId)
+      displaced?.supervisor.destroy()
+      displaced?.transport.destroy()
       this.connections.delete(previousPrimaryId)
     }
     // Re-selecting the same saved host creates a fresh transport. Destroy the
-    // displaced socket before replacing the map entry or it reconnects forever
+    // displaced socket before replacing the map entry or it dials forever
     // with no remaining owner.
-    if (existing && existing.transport !== transport) existing.transport.destroy()
+    if (existing && existing.transport !== transport) {
+      existing.supervisor.destroy()
+      existing.transport.destroy()
+    }
     const connection: ManagedConnection = {
       serverId,
       target: resolvedTarget,
@@ -102,6 +119,9 @@ export class ServerConnections {
       events: transport.events,
       status: existing?.status ?? 'disconnected',
       attempt: existing?.attempt ?? 0,
+      // The boot-created primary is supervised like everything else; boot's
+      // own transport.start() is simply the first dial.
+      supervisor: this.superviseTransport(serverId, transport, api),
     }
     this.primaryServerId = serverId
     this.connections.set(serverId, connection)
@@ -109,21 +129,72 @@ export class ServerConnections {
     return connection
   }
 
-  /**
-   * On a web client no host is "local": the primary connection plays that
-   * role, so `LOCAL_SERVER_ID` resolves to it whenever no local target was
-   * ever registered. On desktop the local target is registered at boot, so
-   * this is the identity function there.
-   */
-  resolveId(serverId: string): string {
-    if (
-      serverId === LOCAL_SERVER_ID
-      && this.primaryServerId
-      && !this.connections.has(serverId)
-      && !this.targets.has(serverId)
-    ) {
-      return this.primaryServerId
+  /** Eagerly desire every catalog entry: the registered local/platform target
+   *  plus each saved host (dispatch-client step 3). Idempotent — hosts with a
+   *  live supervisor are left exactly as they are. */
+  startCatalogSupervisors(): void {
+    for (const serverId of this.catalogServerIds()) {
+      this.ensure(serverId)
     }
+  }
+
+  phaseFor(serverId: string): HostPhase | undefined {
+    return this.connections.get(this.resolveId(serverId))?.supervisor.phase
+  }
+
+  onPhaseChange(listener: PhaseListener): () => void {
+    this.phaseListeners.add(listener)
+    return () => this.phaseListeners.delete(listener)
+  }
+
+  /** User retry: reset the host's ladder and dial now. */
+  dialNow(serverId: string): void {
+    this.connections.get(this.resolveId(serverId))?.supervisor.dialNow()
+  }
+
+  /** Move the new-work default to another catalog host, in place. Hosts are
+   *  symmetric and stay connected (dispatch-client step 5): the displaced
+   *  host keeps its supervised socket and every live session on it. */
+  setPrimary(serverId: string): void {
+    const resolved = this.resolveId(serverId)
+    this.ensure(resolved)
+    this.primaryServerId = resolved
+  }
+
+  private catalogServerIds(): string[] {
+    const ids = new Set<string>()
+    for (const [id, target] of this.targets) {
+      if (target.local) ids.add(id)
+    }
+    if (this.primaryServerId) ids.add(this.primaryServerId)
+    for (const server of loadServers()) ids.add(server.id)
+    return [...ids]
+  }
+
+  private superviseTransport(serverId: string, transport: WsTransport, api: SolusAPI): HostSupervisor {
+    const supervisor = new HostSupervisor({
+      transport,
+      loadCapabilities: () => api.serverGetCapabilities(),
+      onPhaseChange: (phase, attempt) => {
+        for (const listener of this.phaseListeners) listener(serverId, phase, attempt)
+      },
+      // Decorate the legacy status stream with the supervisor's attempt count,
+      // which the transport no longer knows.
+      onRetryScheduled: (attempt) => {
+        const connection = this.connections.get(serverId)
+        if (!connection || connection.status === 'connected') return
+        this.updateStatus(serverId, connection.status, attempt)
+      },
+    })
+    transport.attachDialOutcomeReporter((outcome) => supervisor.report(outcome))
+    return supervisor
+  }
+
+  /** Identity since the web `local` alias died (dispatch-client step 5):
+   *  `LOCAL_SERVER_ID` names only the desktop's registered local target, and
+   *  a web client asks for hosts by their real ids. Kept as the one seam
+   *  where an id-space translation could ever live again. */
+  resolveId(serverId: string): string {
     return serverId
   }
 
@@ -132,7 +203,6 @@ export class ServerConnections {
     const existing = this.connections.get(serverId)
     if (existing) return existing
 
-    this.bumpCapabilityGeneration(serverId)
     const target = this.resolveTarget(serverId)
     const { api, transport, events } = createSolusConnection(target, {
       onStatusChange: (status, attempt) => this.updateStatus(serverId, status, attempt),
@@ -147,6 +217,7 @@ export class ServerConnections {
       events,
       status: 'disconnected',
       attempt: 0,
+      supervisor: this.superviseTransport(serverId, transport, api),
     }
     this.connections.set(serverId, connection)
     // `ensure()` is reached from derived renderer state — a component asking
@@ -159,7 +230,7 @@ export class ServerConnections {
     queueMicrotask(() => {
       if (this.connections.get(serverId) !== connection) return
       this.emitConnectionCreated(connection)
-      transport.start()
+      connection.supervisor.start()
     })
     return connection
   }
@@ -168,19 +239,31 @@ export class ServerConnections {
     return asHostApi(this.ensure(serverId).api)
   }
 
-  primaryApi(): HostApi {
-    const serverId = this.primaryServerId
-    if (!serverId) throw new Error('Primary Solus connection has not been registered')
-    return asHostApi(this.ensure(serverId).api)
+  /**
+   * The host new work targets when nothing narrower names one — the visible,
+   * explicit remnant of "primary" (dispatch-client step 5): set at boot,
+   * moved in place by host switching, never an ambient fallback for
+   * session-scoped reads.
+   */
+  defaultServerId(): string | null {
+    return this.primaryServerId
+  }
+
+  /** The client machine's own registered host: the desktop's local target.
+   *  Null on web — a browser is not a machine that can host. */
+  localServerId(): string | null {
+    for (const [id, target] of this.targets) {
+      if (target.local) return id
+    }
+    return null
+  }
+
+  localHostApi(): HostApi | null {
+    const serverId = this.localServerId()
+    return serverId ? this.apiFor(serverId) : null
   }
 
   eventsFor(serverId: string): HostEventSubscriber {
-    return this.ensure(serverId).events
-  }
-
-  eventsForPrimary(): HostEventSubscriber {
-    const serverId = this.primaryServerId
-    if (!serverId) throw new Error('Primary Solus connection has not been registered')
     return this.ensure(serverId).events
   }
 
@@ -232,9 +315,8 @@ export class ServerConnections {
     ].filter((id) => this.connections.has(id))
   }
 
-  connectionFor(serverId?: string): ManagedConnection | undefined {
-    const resolvedId = serverId ? this.resolveId(serverId) : this.primaryServerId
-    return resolvedId ? this.connections.get(resolvedId) : undefined
+  connectionFor(serverId: string): ManagedConnection | undefined {
+    return this.connections.get(this.resolveId(serverId))
   }
 
   /** HTTP origin paired with a host's WebSocket transport. Signed asset URLs
@@ -246,10 +328,6 @@ export class ServerConnections {
 
   updateStatus(serverId: string, status: ConnectionStatus, attempt = 0): void {
     const connection = this.connections.get(serverId)
-    const previousStatus = connection?.status
-    if (status === 'reconnecting' && previousStatus !== 'reconnecting') {
-      this.bumpCapabilityGeneration(serverId)
-    }
     if (connection) {
       connection.status = status
       connection.attempt = attempt
@@ -277,9 +355,14 @@ export class ServerConnections {
 
   release(serverId: string): void {
     if (serverId === this.primaryServerId || this.retainedServerIds.has(serverId)) return
+    // Catalog entries are eagerly desired: their supervisors are never torn
+    // down by a borrower's release. Only genuinely borrowed, non-catalog
+    // targets still close behind themselves.
+    if (this.catalogServerIds().includes(serverId)) return
     const connection = this.connections.get(serverId)
     if (!connection) return
     this.connections.delete(serverId)
+    connection.supervisor.destroy()
     connection.transport.destroy()
   }
 
@@ -287,41 +370,25 @@ export class ServerConnections {
     return this.connections.get(this.resolveId(serverId))?.status ?? 'disconnected'
   }
 
-  /** Load and cache one host's authenticated feature advertisement. Older
-   * hosts reject the method; that is an empty record, never a feature error. */
+  /** One host's authenticated feature advertisement for its current server
+   * session (dispatch-client step 3): loaded once per accepted session,
+   * cleared on disconnect. Older hosts reject the method; that is an empty
+   * record, never a feature error. */
   capabilitiesFor(serverId: string): Promise<HostCapabilities> {
-    serverId = this.resolveId(serverId)
-    const cached = this.capabilitiesCache.get(serverId)
-    if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.value)
-    const pending = this.capabilitiesInFlight.get(serverId)
-    if (pending) return pending
-
-    // `ensure` advances the generation for a newly created transport. Do it
-    // before capturing the generation so the first probe is not mistaken for
-    // an answer from a displaced socket.
-    this.ensure(serverId)
-    const generation = this.capabilityGenerations.get(serverId) ?? 0
-    const promise = this.requestCapabilities(serverId, generation).finally(() => {
-      if (this.capabilitiesInFlight.get(serverId) === promise) {
-        this.capabilitiesInFlight.delete(serverId)
-      }
-    })
-    this.capabilitiesInFlight.set(serverId, promise)
-    return promise
+    return this.ensure(serverId).supervisor.whenCapabilities()
+      .then((record) => normalizeHostCapabilities(record))
   }
 
-  /** Synchronous renderer gate. Undefined means the advertisement has not
-   * loaded (or expired); a loaded record with an absent key returns false. */
+  /** Synchronous renderer gate. Undefined means no session record yet; a
+   * loaded record with an absent key returns false — hide, never probe. */
   capability(serverId: string, key: HostBooleanCapability): boolean | undefined {
-    const cached = this.cachedCapabilitiesFor(serverId)
-    return cached ? cached[key] === true : undefined
+    const record = this.cachedCapabilitiesFor(serverId)
+    return record ? record[key] === true : undefined
   }
 
   cachedCapabilitiesFor(serverId: string): HostCapabilities | undefined {
-    serverId = this.resolveId(serverId)
-    const cached = this.capabilitiesCache.get(serverId)
-    if (!cached || cached.expiresAt <= Date.now()) return undefined
-    return cached.value
+    const record = this.connections.get(this.resolveId(serverId))?.supervisor.capabilities
+    return record ? normalizeHostCapabilities(record) : undefined
   }
 
   async probeHealth(serverId: string, force = false): Promise<ServerHealth | null> {
@@ -356,13 +423,7 @@ export class ServerConnections {
     // Only a successful health response can establish or reject identity. A
     // transient HTTP failure must not turn a working socket into a false match.
     if (!health) return true
-    const decision = installationIdDecision(saved.installationId, health.installationId)
-    if (decision === 'mismatch') return false
-    if (decision === 'absent') {
-      stampInstallationId(saved.id, health.installationId)
-      target.installationId = health.installationId
-    }
-    return true
+    return installationIdDecision(saved.installationId, health.installationId) === 'match'
   }
 
   async projectIdentities(serverId: string, force = false): Promise<Awaited<ReturnType<SolusAPI['listProjectIdentities']>>> {
@@ -373,29 +434,6 @@ export class ServerConnections {
     const value = await this.apiFor(serverId).listProjectIdentities()
     this.identityCache.set(serverId, { value, expiresAt: Date.now() + CACHE_TTL_MS })
     return value
-  }
-
-  private async requestCapabilities(serverId: string, generation: number): Promise<HostCapabilities> {
-    let value: HostCapabilities = {}
-    let ttl = HOST_CAPABILITIES_FAILURE_TTL_MS
-    try {
-      value = normalizeHostCapabilities(await this.apiFor(serverId).serverGetCapabilities())
-      ttl = HOST_CAPABILITIES_CACHE_TTL_MS
-    } catch {}
-
-    const currentGeneration = this.capabilityGenerations.get(serverId) ?? 0
-    if (generation !== currentGeneration) {
-      return this.requestCapabilities(serverId, currentGeneration)
-    }
-    this.capabilitiesCache.set(serverId, { value, expiresAt: Date.now() + ttl })
-    return value
-  }
-
-  private bumpCapabilityGeneration(serverId: string): void {
-    serverId = this.resolveId(serverId)
-    this.capabilityGenerations.set(serverId, (this.capabilityGenerations.get(serverId) ?? 0) + 1)
-    this.capabilitiesCache.delete(serverId)
-    this.capabilitiesInFlight.delete(serverId)
   }
 
   private resolveTarget(serverId: string): SolusServerTarget {

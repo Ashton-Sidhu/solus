@@ -25,7 +25,7 @@
       ...(work.sessionId ? [work.sessionId] : []),
     ];
     for (const sid of candidates) {
-      const openTab = session.tabIdForAgentSession(sid);
+      const openTab = session.tabIdForAgentSession(sid, session.worksStore.hostFor(work.id) ?? undefined);
       if (openTab) {
         const sess = session.sessionFor(openTab);
         if (sess) {
@@ -170,13 +170,6 @@
 
 {#if work}
   <div class="flex h-full flex-col min-h-0 work-live-host" class:work-live-pulse={justUpdated}>
-    <PaneChrome
-      onClose={pane.close}
-      onOpenInSplit={pane.moveAcross}
-      isLeading={pane.isLeading}
-      closeLabel={work.type === "diagram" ? "Close diagram" : "Close document"}
-      closeTestId={work.type === "diagram" ? undefined : "document-modal-close"}
-    />
     {#if conflict}
       {@render refreshPill()}
     {/if}
@@ -252,6 +245,16 @@
         {/if}
       </div>
     {/key}
+    <!-- After the content: the shell toolbars above are window drag regions,
+         and a drag rect later in the DOM would re-cover this cluster's no-drag
+         holes. -->
+    <PaneChrome
+      onClose={pane.close}
+      onOpenInSplit={pane.moveAcross}
+      isLeading={pane.isLeading}
+      closeLabel={work.type === "diagram" ? "Close diagram" : "Close document"}
+      closeTestId={work.type === "diagram" ? undefined : "document-modal-close"}
+    />
   </div>
 {/if}
 

@@ -68,7 +68,8 @@
 
   // ─── In-app bindings ───
 
-  function effectiveCombo(id: BindingId): KeyCombo {
+  /** `null` when the binding ships unassigned and the user hasn't given it a key. */
+  function effectiveCombo(id: BindingId): KeyCombo | null {
     return settings.keybindings[id] ?? defaultCombo(KEYBINDINGS[id]);
   }
 
@@ -85,7 +86,7 @@
       if (cid === id) continue;
       if (cdef.scope !== def.scope && cdef.scope !== "global") continue;
       const resolved = settings.keybindings[cid] ?? defaultCombo(cdef);
-      if (comboEquals(combo, resolved)) return { id: cid, label: cdef.label };
+      if (resolved && comboEquals(combo, resolved)) return { id: cid, label: cdef.label };
     }
     return null;
   }
@@ -94,7 +95,8 @@
     const next = { ...settings.keybindings };
     if (clearOtherId) delete next[clearOtherId];
     // Storing the default would be redundant — treat "set to default" as a reset.
-    if (comboEquals(combo, defaultCombo(KEYBINDINGS[id]))) delete next[id];
+    const fallback = defaultCombo(KEYBINDINGS[id]);
+    if (fallback && comboEquals(combo, fallback)) delete next[id];
     else next[id] = combo;
     settings.update({ keybindings: next });
   }
@@ -168,22 +170,25 @@
 
   $effect(() => {
     if (windowCtx.isWeb) return;
-    // primary-host by decision (docs/plans/multi-host-parity.md)
+    // OS summon shortcuts belong to this machine's own app instance.
     let alive = true;
-    serverConnections.primaryApi()
-      .getAppGlobalShortcuts()
+    serverConnections.localHostApi()
+      ?.getAppGlobalShortcuts()
       .then((s) => { if (alive) appShortcuts = s; })
       .catch(() => {});
     return () => { alive = false; };
   });
 
   async function commitAppShortcut(key: "primary" | "secondary", combo: AppShortcutCombo): Promise<void> {
+    // The OS shortcuts are this machine's; a web client has no local app to set.
+    const localHostApi = serverConnections.localHostApi();
+    if (!localHostApi) return;
     const next: AppGlobalShortcuts = { ...appShortcuts, [key]: combo };
     appShortcuts = next;
     try {
       // Snapshot before IPC: the spread keeps the untouched slot as a Svelte
       // $state proxy, which structured-clone can't serialize (silent reject).
-      const result = await serverConnections.primaryApi().setAppGlobalShortcuts($state.snapshot(next));
+      const result = await localHostApi.setAppGlobalShortcuts($state.snapshot(next));
       // The slot failed if its accelerator is in the returned failure list.
       const accel = comboToAccelerator(combo);
       const failed = !!accel && result.failed.includes(accel);
@@ -217,7 +222,7 @@
   }
 
   function restart(): void {
-    void serverConnections.primaryApi().restartApp();
+    void serverConnections.localHostApi()?.restartApp();
   }
 
   // Single capture-phase listener while recording so the press is consumed
@@ -238,14 +243,17 @@
 
   // ─── Search filtering ───
 
-  function matches(label: string, scopeLabel: string, group: string, combo: KeyCombo): boolean {
+  function matches(label: string, scopeLabel: string, group: string, combo: KeyCombo | null): boolean {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
     return (
       label.toLowerCase().includes(q) ||
       scopeLabel.toLowerCase().includes(q) ||
       group.toLowerCase().includes(q) ||
-      formatCombo(combo).join("").toLowerCase().includes(q)
+      // "unassigned" finds every action still waiting for a shortcut.
+      (combo === null
+        ? "unassigned".includes(q)
+        : formatCombo(combo).join("").toLowerCase().includes(q))
     );
   }
 
@@ -367,20 +375,25 @@
           type="button"
           class="inline-flex items-center gap-[0.1875rem] py-1 px-1.5 rounded-md border border-transparent [transition:border-color_var(--duration-base)_var(--ease-premium),background_var(--duration-base)_var(--ease-premium)] hover:bg-(--solus-surface-hover) hover:border-(--solus-container-border)
  {custom ? 'border-(--solus-accent)/35 bg-(--solus-accent)/8' : ''}"
-          aria-label={`Rebind ${def.label}`}
+          aria-label={combo ? `Rebind ${def.label}` : `Assign a shortcut to ${def.label}`}
           onclick={() => startRecord(id)}
         >
-          {#each formatCombo(combo) as k}
-            <Kbd variant="standalone" class={k === "⇧" ? "kbd-shift" : ""}>{k}</Kbd>
-          {/each}
+          {#if combo}
+            {#each formatCombo(combo) as k}
+              <Kbd variant="standalone" class={k === "⇧" ? "kbd-shift" : ""}>{k}</Kbd>
+            {/each}
+          {:else}
+            <span class="text-xs text-(--solus-text-tertiary) px-0.5">Unassigned</span>
+          {/if}
         </button>
         {#if isOverridden(id)}
+          {@const clears = defaultCombo(KEYBINDINGS[id]) === null}
           <Button
             variant="ghost"
             size="icon-xs"
             class="text-(--solus-text-tertiary)"
-            aria-label={`Reset ${def.label} to default`}
-            title="Reset to default"
+            aria-label={clears ? `Clear the shortcut for ${def.label}` : `Reset ${def.label} to default`}
+            title={clears ? "Clear shortcut" : "Reset to default"}
             onclick={() => resetBinding(id)}
           >
             <ArrowCounterClockwiseIcon size={13} />

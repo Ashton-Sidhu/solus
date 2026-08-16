@@ -198,6 +198,9 @@
         ? worktreeProjectRoot(composerCwd)
         : null),
   );
+  const composerServerId = $derived(
+    run?.serverId ?? serverConnections.defaultServerId(),
+  );
 
   // ─── Prompt history ───
 
@@ -816,8 +819,12 @@
       ipcContext: targetTabId
         ? session.ctxFor(targetTabId)
         : session.ctxForDirectory(composerCwd),
-      clearTab: () => {
-        if (targetTabId) session.clearTab(targetTabId);
+      clearCurrentConversation: () => {
+        if (targetTabId) {
+          session.clearTabToDraft(targetTabId, "keybinding");
+        } else {
+          session.openSessionDraft({ via: "keybinding" });
+        }
       },
       addSystemMessage: (message) => {
         if (targetTabId) session.addSystemMessage(message, targetTabId);
@@ -1059,8 +1066,12 @@
     }
     const sentSavedPromptId = prompt.savedPromptId;
     prompt.savedPromptId = null;
-    if (sentSavedPromptId && composerProjectRoot) {
-      void savedPrompts.remove(composerProjectRoot, sentSavedPromptId);
+    if (sentSavedPromptId && composerProjectRoot && composerServerId) {
+      void savedPrompts.remove(
+        composerProjectRoot,
+        sentSavedPromptId,
+        composerServerId,
+      );
     }
 
     if (options.refocus !== false) {
@@ -1304,6 +1315,7 @@
       {prompt}
       tabId={targetTabId}
       projectRoot={composerProjectRoot}
+      serverId={composerServerId}
       active={isActiveMode && receivesFocusedInput}
       {isReadOnly}
       anchorEl={composerRootEl}

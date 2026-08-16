@@ -521,18 +521,22 @@
 
   async function handleGoogleUpload() {
     if (uploading) return;
+    // Default-host by decision (docs/plans/multi-host-parity.md): the Google
+    // OAuth flow is client-global, so the upload runs on the new-work default.
+    const defaultServerId = serverConnections.defaultServerId();
+    if (!defaultServerId) return;
+    const api = serverConnections.apiFor(defaultServerId);
     uploading = true;
     try {
       const markdown = currentMarkdown();
       const request = { title, markdown, oauthCallbackBaseUrl: googleOAuthCallbackBaseUrl() };
-      // primary-host by decision (docs/plans/multi-host-parity.md)
-      let result = await serverConnections.primaryApi().googleUploadDoc(request);
+      let result = await api.googleUploadDoc(request);
       if ("authUrl" in result) {
         await openUrl(result.authUrl);
         const deadline = Math.min(result.expiresAt ?? Date.now() + 5 * 60_000, Date.now() + 5 * 60_000);
         while (Date.now() < deadline) {
           await sleep(2000);
-          result = await serverConnections.primaryApi().googleUploadDoc(request);
+          result = await api.googleUploadDoc(request);
           if (!("authUrl" in result)) break;
         }
       }

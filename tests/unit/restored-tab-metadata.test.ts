@@ -46,6 +46,7 @@ describe('restored tab metadata', () => {
   test('persists sidebar-visible status and timer with every open tab', () => {
     const session = restoredSession()
     const tab = makeTab(session.id, { id: 'tab-1' })
+    // SAFETY: This fixture supplies every WorkspaceContext member read by snapshotPersistedTabs.
     const snapshot = snapshotPersistedTabs({
       tabOrder: [tab.id],
       tabs: { [tab.id]: tab },
@@ -64,6 +65,32 @@ describe('restored tab metadata', () => {
       status: 'running',
       currentTurnStartedAt: 1_700_000_000_000,
     })
+  })
+
+  test('does not persist rate-limited status beyond the server lifetime', () => {
+    const session = restoredSession()
+    session.status = 'rate_limited'
+    session.rateLimitInfo = {
+      status: 'limited',
+      resetsAt: 1_800_000_000,
+      rateLimitType: 'Claude',
+      isUsingOverage: false,
+    }
+    const tab = makeTab(session.id, { id: 'tab-1' })
+    // SAFETY: This fixture supplies every WorkspaceContext member read by snapshotPersistedTabs.
+    const snapshot = snapshotPersistedTabs({
+      tabOrder: [tab.id],
+      tabs: { [tab.id]: tab },
+      sessionFor: () => session,
+      globalDefaults: {
+        workingDirectory: '/repo',
+        modelConfig: session.run.modelConfig,
+        permissionMode: 'ask',
+      },
+    } as never)
+
+    expect(snapshot[0]?.status).toBe('idle')
+    expect(snapshot[0]).not.toHaveProperty('rateLimitInfo')
   })
 
   test('applies live status, timer, provider, and model without selecting the tab', () => {

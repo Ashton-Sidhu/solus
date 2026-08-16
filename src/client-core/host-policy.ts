@@ -1,12 +1,14 @@
 import { serverConnections } from './server-connections'
-import { LOCAL_SERVER_ID } from './server-registry'
 
-/** Client policy stays separate from host-advertised feature support. On web,
- * the primary host is the client machine because no desktop-local target is
- * registered; `resolveId` already owns that distinction. */
+/** Client policy stays separate from host-advertised feature support. Only
+ * the desktop's registered local target is the client machine; on web nothing
+ * is — a browser cannot reveal files in Finder or open a local terminal, and
+ * pretending the serving host was "local" made those actions lie
+ * (dispatch-client step 5). */
 export const hostPolicy = {
   isClientMachine(serverId: string | null | undefined): boolean {
     if (!serverId) return false
-    return serverConnections.resolveId(serverId) === serverConnections.resolveId(LOCAL_SERVER_ID)
+    const localServerId = serverConnections.localServerId()
+    return !!localServerId && serverConnections.resolveId(serverId) === localServerId
   },
 }

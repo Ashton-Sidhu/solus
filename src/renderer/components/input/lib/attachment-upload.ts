@@ -1,5 +1,6 @@
 import type { HostApi } from '@client-core/host-api'
 import type { Attachment, IpcContext } from '../../../../shared/types'
+import { uuid } from '../../../../shared/uuid'
 import {
   MAX_ATTACHMENT_UPLOAD_BYTES,
   MAX_ATTACHMENT_UPLOAD_COUNT,
@@ -49,7 +50,7 @@ export async function uploadFileObjects(
     const dataUrl = await readFileDataUrl(file)
     const hostPath = await api.attachUpload(ctx, { name: file.name, mime, dataUrl })
     const attachment: Attachment = {
-      id: crypto.randomUUID(),
+      id: uuid(),
       type: isImageMime(mime) ? 'image' : 'file',
       name: file.name,
       path: hostPath,
@@ -122,7 +123,7 @@ export function pastedImageAttachment(dataUrl: string, serverId: string): Attach
   assertUploadSize(size)
   const name = `pasted image.${extension}`
   return {
-    id: crypto.randomUUID(),
+    id: uuid(),
     type: 'image',
     name,
     path: name,

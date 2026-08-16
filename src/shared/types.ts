@@ -45,6 +45,8 @@ export interface ServerCapabilities {
 /** Feature surface advertised by one authenticated host. Missing keys are
  * unsupported so newer clients remain safe when connected to older hosts. */
 export interface HostCapabilities {
+  /** The host build's version, for the per-host skew notice. */
+  version?: string
   attachUpload?: boolean
   assetUrls?: boolean
   skillsInstall?: boolean
@@ -652,8 +654,8 @@ export interface SessionHandoffLineage {
   sessionId: string
 }
 
-/** One provider transcript in a Solus-created cross-provider handoff. */
-export interface SessionHandoffMember {
+/** One provider transcript in a session's lineage. */
+export interface SessionLineageMember {
   position: number
   provider: AgentId
   providerSessionId: string | null
@@ -662,11 +664,13 @@ export interface SessionHandoffMember {
   endedAt: number | null
 }
 
-/** The ordered provider chain behind any member transcript. */
-export interface SessionHandoffResolution {
-  handoffId: string
-  members: SessionHandoffMember[]
-  active: SessionHandoffMember
+/** The ordered provider chain behind any member transcript. Every session has one;
+ *  `members.length > 1` is what makes it a handoff. */
+export interface SessionLineageResolution {
+  /** The stable Solus session id. Registered at session_init; never re-pointed. */
+  sessionId: string
+  members: SessionLineageMember[]
+  active: SessionLineageMember
   /** Changes whenever membership or a provider session binding changes. */
   lineageToken: string
 }
@@ -779,6 +783,9 @@ export interface Session {
   forkedFromSessionId: string | null
   /** True until the first prompt is sent, so the provider starts from a fork of agentSessionId. */
   forked: boolean
+  /** True when the fork was requested during an active source turn. The provider
+   *  must omit that latest turn when it creates the fork, if it supports a cutoff. */
+  forkExcludeLatestTurn?: boolean
   /** Work this session is actively collaborating on. Its current content is
    *  injected into each prompt so the agent revises the live version. */
   boundWorkId: string | null
@@ -1106,6 +1113,9 @@ export interface SessionReference {
   provider: AgentId
   title: string   // slug || first line of firstMessage
   cwd: string      // needed so read_session can locate cross-project sessions
+  /** Client-edge host stamp. Hosts ignore it; the client routes and resumes
+   *  by it, so every new ref carries one. */
+  serverId?: string
 }
 
 // ─── Plans ───
@@ -1219,6 +1229,8 @@ export interface PlanDescriptor {
   commentCount: number
   bookmarked: boolean
   bookmarkedAt?: number
+  /** False when the saved plan remains but its provider transcript is gone. */
+  sessionAvailable?: boolean
   planFilePath?: string
   revisions: PlanRevisionSummary[]
 }
@@ -1428,7 +1440,9 @@ export type PromptDelivery = 'steer' | 'queue'
 export type PromptVia = 'automation' | 'session-report'
 
 export interface PromptDispatchResult {
-  disposition: 'started' | 'steered' | 'queued'
+  /** `duplicate`: this session already accepted the same `clientPromptId` —
+   *  an outbox drain replayed a delivered send, and nothing ran twice. */
+  disposition: 'started' | 'steered' | 'queued' | 'duplicate'
   queueId?: string
 }
 
@@ -1507,6 +1521,7 @@ export interface SessionCtx {
   latestCheckpointId: string | null
   title?: string | null
   forked?: boolean
+  forkExcludeLatestTurn?: boolean
   /** PR review context for this session's chat tab (null for normal sessions). */
   prReview?: PrReviewContext | null
 }
@@ -1584,6 +1599,7 @@ export interface SessionRunInput {
   /** null = start a new session; set = resume this session. */
   agentSessionId: string | null
   forked: boolean
+  forkExcludeLatestTurn?: boolean
   workingDirectory: string
   projectPath: string
   additionalDirs: string[]
@@ -2288,6 +2304,20 @@ export function gitCheckoutFromState(
 export interface GitCheckoutBranchResult {
   success: boolean
   gitContext?: GitCheckout
+  error?: string
+}
+
+/** Why the "check out in the current repository" destination could not switch
+ *  the repo onto a pull request's head. `'disconnected'` is client-only — the
+ *  server never returns it, the transport throws before a result exists. */
+export type PrRepoCheckoutFailureReason = 'stale-head' | 'dirty' | 'conflicted' | 'branch-in-use' | 'disconnected' | 'generic'
+
+export interface PrRepoCheckoutResult {
+  success: boolean
+  gitContext?: GitCheckout
+  reason?: PrRepoCheckoutFailureReason
+  /** Set when `reason` is `'branch-in-use'`: the worktree already holding the branch. */
+  worktreePath?: string
   error?: string
 }
 

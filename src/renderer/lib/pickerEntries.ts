@@ -33,11 +33,15 @@ export function dedupeHistoryEntries(
     const session = lookup.sessions[tab.sessionId]
     const provider = session?.run.provider
     if (!provider) continue
-    openSessionKeys.add(`${provider}:${tab.sessionId}`)
-    if (session.agentSessionId) openSessionKeys.add(`${provider}:${session.agentSessionId}`)
+    // Keys carry the host: the same provider session id on two hosts is two
+    // sessions, and host A's open tab must not hide host B's history row.
+    openSessionKeys.add(`${session.run.serverId}:${provider}:${tab.sessionId}`)
+    if (session.agentSessionId) {
+      openSessionKeys.add(`${session.run.serverId}:${provider}:${session.agentSessionId}`)
+    }
   }
   const filtered = historySessions.filter(
-    (meta) => !openSessionKeys.has(`${meta.provider}:${meta.sessionId}`),
+    (meta) => !openSessionKeys.has(`${meta.serverId ?? ''}:${meta.provider}:${meta.sessionId}`),
   )
   const nonWorktreeMessages = new Set(
     filtered
@@ -62,10 +66,10 @@ export function dedupeHistoryEntries(
 function entryKey(entry: PickerEntry): string {
   if (entry.kind === 'open') {
     return entry.session.agentSessionId
-      ? `${entry.session.run.provider}:${entry.session.agentSessionId}`
+      ? `${entry.session.run.serverId}:${entry.session.run.provider}:${entry.session.agentSessionId}`
       : `tab:${entry.tabId}`
   }
-  return `${entry.meta.provider}:${entry.meta.sessionId}`
+  return `${entry.meta.serverId ?? ''}:${entry.meta.provider}:${entry.meta.sessionId}`
 }
 
 function buildSearchText(entry: PickerEntry): string {

@@ -71,8 +71,7 @@
   const taskComposerServerId = $derived(
     taskComposer
       ? (session.tasksStore.hostForProject(taskComposer.cwd) ??
-        serverConnections.connectionFor()?.serverId ??
-        null)
+        serverConnections.defaultServerId())
       : null,
   );
   const taskComposerHost = $derived(
@@ -155,10 +154,11 @@
     if (session.hydrating) return;
     const tabs = snapshotPersistedTabs(session);
     const snapshot: PersistedTabs = {
-      version: 1,
+      version: 2,
       activeTabId: session.activeTabId,
       tabOrder: [...session.tabOrder],
       tabs,
+      location: session.router.serialized,
     };
     savePersistedTabs(snapshot);
   });
@@ -251,12 +251,14 @@
     if (webState.serverSetupOpen) hasMountedServerSetup = true;
   });
 
-  // A bare host has no commit identity; this machine's is the obvious prefill.
-  // On web "local" resolves to the connected server, which plays that role.
+  // A bare host has no commit identity; on web the serving/boot host plays the
+  // "this machine" role and its identity is the obvious prefill.
   $effect(() => {
-    if (!openProjectStore.isOpen || localGitIdentity || !serverConnections.connectionFor()) return;
+    if (!openProjectStore.isOpen || localGitIdentity) return;
+    const bootServerId = serverConnections.defaultServerId();
+    if (!bootServerId) return;
     void serverConnections
-      .apiFor(LOCAL_SERVER_ID)
+      .apiFor(bootServerId)
       .setupHostReadiness()
       .then((readiness) => (localGitIdentity = readiness.git.identity))
       .catch(() => {});
@@ -303,15 +305,18 @@
       (directoryPickerTargetTabId
         ? session.sessionFor(directoryPickerTargetTabId)?.run.serverId
         : session.activeSession?.run.serverId) ??
+      serverConnections.defaultServerId() ??
       LOCAL_SERVER_ID,
   );
-  // apiFor() opens the connection as a side effect, so only reach for it while
-  // the picker is actually on screen. On web, LOCAL resolves to the primary.
-  const directoryPickerApi = $derived(
-    !directoryPickerOpen || directoryPickerServerId === LOCAL_SERVER_ID
-      ? serverConnections.primaryApi()
-      : serverConnections.apiFor(directoryPickerServerId),
-  );
+  // apiFor() opens the connection as a side effect, so only reach for the
+  // chosen host's api while the picker is actually on screen.
+  const directoryPickerApi = $derived.by(() => {
+    if (directoryPickerOpen) {
+      return serverConnections.apiFor(directoryPickerServerId);
+    }
+    const bootServerId = serverConnections.defaultServerId();
+    return bootServerId ? serverConnections.apiFor(bootServerId) : undefined;
+  });
   const directoryPickerHostLabel = $derived.by(() => {
     const host = serversStore.hostFor(directoryPickerServerId);
     return host && !host.local ? host.label : undefined;
@@ -338,12 +343,12 @@
   // listener callback or an initial loader happens to read synchronously.
   $effect(() =>
     untrack(() => {
-      const events = serverConnections.eventsForPrimary();
       const unsubVoiceModel = subscribeAllHosts('voice.modelStatusChanged', (serverId, status) =>
         voiceModelStore.apply(status, serverId),
       );
       const unsubSessionStatuses = sessionSidebarStore.subscribeSessionStatuses();
-      void voiceModelStore.refresh();
+      const defaultServerId = serverConnections.defaultServerId();
+      if (defaultServerId) void voiceModelStore.refresh(defaultServerId);
       const unsubAutomations = subscribeAllHosts('automation.changed', (serverId, event) => {
         session.automationsStore.applyChange(serverId, event);
         if (event.kind === 'run-finished' && event.run.status === 'failed') {
@@ -355,7 +360,7 @@
           });
         }
       });
-      const unsubUsage = events.subscribe('usage.limitsChanged', ({ snapshots }) =>
+      const unsubUsage = subscribeAllHosts('usage.limitsChanged', (_serverId, { snapshots }) =>
         agent.applyUsage(snapshots),
       );
       void agent.refreshUsage();
@@ -380,7 +385,7 @@
         const host = serversStore.hostFor(serverId);
         const display: import("@renderer/contexts/notifications/notifications.store.svelte").NotificationHostDisplay = {
           label: host?.label ?? "this host",
-          isPrimary: serverConnections.connectionFor()?.serverId === serverId,
+          isPrimary: serverConnections.defaultServerId() === serverId,
         };
         if (host && "installationId" in host && host.installationId) {
           display.installationId = host.installationId;
@@ -421,7 +426,12 @@
     const connectionStatus = webState.connectionStatus;
     const reconnected = detectReconnect(connectionStatus);
     if (connectionStatus === 'connected') track(reconnected ? 'client_reconnected' : 'client_connected', reconnected ? { attempt: webState.connectionAttempt } : {});
-    if (connectionStatus === 'connected') void connectionsStore.refreshCapabilities();
+    if (connectionStatus === 'connected') {
+      const defaultServerId = serverConnections.defaultServerId();
+      if (defaultServerId) {
+        void connectionsStore.refreshCapabilities({ serverId: defaultServerId });
+      }
+    }
     if (reconnected) {
       settings.setSystemTheme(window.matchMedia('(prefers-color-scheme: dark)').matches);
       initializeRuntime(session, sessionSidebarStore);
@@ -667,7 +677,8 @@
       workspace: session,
       tabId,
       serverId,
-      isLocalHost: serverId === LOCAL_SERVER_ID,
+      // A browser is not a machine that can host, so this is never true on web.
+      isLocalHost: serverId === serverConnections.localServerId(),
       path,
       intent: options.intent ?? "open-project",
     });
@@ -804,7 +815,7 @@
     const targetTabId = tabId ?? session.focusedChatTabId ?? session.activeTabId;
     const serverId =
       (targetTabId ? session.runFor(targetTabId)?.serverId : undefined) ??
-      serverConnections.connectionFor()?.serverId;
+      serverConnections.defaultServerId();
     if (!serverId) return;
     const capabilities = await serverConnections.capabilitiesFor(serverId);
     if (capabilities.attachUpload !== true) {
@@ -815,7 +826,9 @@
       toasts.info(unsupportedOnHost("File attachments", hostLabel));
       return;
     }
-    const api = targetTabId ? session.apiFor(targetTabId) : serverConnections.primaryApi();
+    const api = targetTabId
+      ? session.apiFor(targetTabId)
+      : serverConnections.apiFor(serverId);
     const ctx = targetTabId ? session.ctxFor(targetTabId) : session.ctx;
     const files = await api.attachFiles(ctx);
     if (!files || files.length === 0) return;
@@ -875,7 +888,7 @@
       const tabId = session.focusedChatTabId ?? session.activeTabId;
       const serverId =
         (tabId ? session.runFor(tabId)?.serverId : undefined) ??
-        serverConnections.connectionFor()?.serverId;
+        serverConnections.defaultServerId();
       if (!serverId) return;
       const capabilities = await serverConnections.capabilitiesFor(serverId);
       if (capabilities.attachUpload !== true) {
@@ -886,7 +899,9 @@
         toasts.info(unsupportedOnHost("File attachments", hostLabel));
         return;
       }
-      const api = tabId ? session.apiFor(tabId) : serverConnections.primaryApi();
+      const api = tabId
+        ? session.apiFor(tabId)
+        : serverConnections.apiFor(serverId);
       const ctx = tabId ? session.ctxFor(tabId) : session.ctx;
       const attachments = await api.uploadFiles(Array.from(files), ctx);
       const runServerId = tabId ? session.runFor(tabId)?.serverId : undefined;

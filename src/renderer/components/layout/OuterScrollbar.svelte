@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { uuid } from "../../../shared/uuid";
+
   interface Props {
     target: HTMLElement | null;
   }
@@ -56,7 +58,7 @@
     const resizeObserver = new ResizeObserver(scheduleThumbUpdate);
     const previousId = scrollElement.id;
     const assignedId =
-      previousId || `workspace-scroll-source-${crypto.randomUUID()}`;
+      previousId || `workspace-scroll-source-${uuid()}`;
     scrollElement.id = assignedId;
     controlledElementId = assignedId;
     resizeObserver.observe(scrollElement);

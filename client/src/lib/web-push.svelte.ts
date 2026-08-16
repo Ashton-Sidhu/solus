@@ -134,13 +134,15 @@ class WebPushState {
   }
 
   private hosts(): PushHostRef[] {
-    const primary = serverConnections.connectionFor()
-    let primaryHost: PushHostRef | null = null
-    if (primary) {
-      primaryHost = { serverId: primary.serverId }
-      if (primary.target.installationId) primaryHost.installationId = primary.target.installationId
+    // The serving-origin host may be unsaved, so it is added beside the saved list.
+    const bootServerId = serverConnections.defaultServerId()
+    const boot = bootServerId ? serverConnections.connectionFor(bootServerId) : undefined
+    let bootHost: PushHostRef | null = null
+    if (boot) {
+      bootHost = { serverId: boot.serverId }
+      if (boot.target.installationId) bootHost.installationId = boot.target.installationId
     }
-    return pushHostRefs(loadServers(), primaryHost)
+    return pushHostRefs(loadServers(), bootHost)
   }
 
   private async reconcile(removingServerId?: string): Promise<void> {

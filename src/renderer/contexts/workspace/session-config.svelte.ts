@@ -11,7 +11,6 @@ import { toasts } from '../../lib/toasts'
 import { isDispatch, startsWorktree, withCheckout, withDispatchBaseBranch, withDispatchWorktree, withWorktreeToggled } from './run-config'
 import { nextMsgId } from './session.utils'
 import type { HostApi } from '@client-core/host-api'
-import { serverConnections } from '@client-core/server-connections'
 
 /** What a destination command edits: the run a source owns, and the started
  *  session behind it when there is one. A draft resolves to a run with no
@@ -47,7 +46,7 @@ export interface SessionConfigControllerDeps {
   draftFor(sourceId: string): SessionDraft | undefined
   ctx(tabId?: string): IpcContext
   ctxForDirectory(dir: string): IpcContext
-  apiFor?(tabId?: string): HostApi
+  apiFor(tabId?: string): HostApi
   /** The RPC surface for the host a run names — the machine work happens on.
    *  Where a destination command talks to, resolved from the run rather than a
    *  tab, so a draft on a remote host reaches that host with no session. */
@@ -56,6 +55,9 @@ export interface SessionConfigControllerDeps {
   rekeyTaskSessionBinding(sourceSessionId: string, targetSessionId: string, serverId?: string): void
   refreshGitRefs(projectRoot: string, ctx: IpcContext): void
   refreshGitState(opts: { sourceId?: string; cwd?: string; worktreeRequested?: boolean }): Promise<GitRefreshResult>
+  /** Bring an already-open tab to the front — the "matching tab" half of
+   *  activating a checkout. */
+  selectTab?(tabId: string): void
 }
 
 export class SessionConfigController {
@@ -80,10 +82,6 @@ export class SessionConfigController {
   constructor(private deps: SessionConfigControllerDeps) {
     this.globalDefaults.modelConfig = this.defaultModelConfigFor(deps.settings.activeAgent)
     this.tabGroupMode = deps.settings.tabGroupMode
-  }
-
-  private apiFor(tabId?: string): HostApi {
-    return this.deps.apiFor?.(tabId) ?? serverConnections.primaryApi()
   }
 
   /**
@@ -201,7 +199,7 @@ export class SessionConfigController {
     try {
       // The server keeps a session record only while a runtime is attached, so an
       // idle conversation must carry its own provider thread into the handoff.
-      const result = await this.apiFor(targetTabId).switchSessionAgent(session.id, agentId, session.agentSessionId)
+      const result = await this.deps.apiFor(targetTabId).switchSessionAgent(session.id, agentId, session.agentSessionId)
       track('agent_switched', { from: result.fromProvider, to: agentId, via })
       this.deps.settings.update({ activeAgent: agentId })
       this.globalDefaults.modelConfig = newModelConfig
@@ -404,6 +402,32 @@ export class SessionConfigController {
     } finally {
       this.switchingBranch = false
     }
+  }
+
+  /**
+   * Land the "check out in the current repository" destination once the
+   * server has already fetched the exact head and switched the repo's
+   * branch: bring an already-matching tab to the front, or open a fresh
+   * draft there. Never retargets a tab whose session has already started —
+   * a live conversation keeps running where it is, and only a draft or a
+   * tab that already matches this checkout is touched.
+   */
+  activatePrRepoCheckout(gitContext: GitCheckout, fallbackProjectPath: string | null): void {
+    const projectRoot = gitContext.repoRoot ?? fallbackProjectPath
+    if (!projectRoot) return
+    const matchingTabId = this.deps.registry.tabOrder.find((tabId) => {
+      const session = this.deps.registry.sessionFor(tabId)
+      return session?.run.workingDirectory === projectRoot && session.run.gitContext?.branch === gitContext.branch
+    })
+    if (matchingTabId) {
+      this.deps.selectTab?.(matchingTabId)
+    } else {
+      this.globalDefaults.workingDirectory = projectRoot
+      this.globalDefaults.gitContext = gitContext
+      this.deps.refreshPluginCommands(projectRoot)
+      this.deps.openSessionDraft(projectRoot)
+    }
+    this.deps.refreshGitRefs(projectRoot, this.deps.ctxForDirectory(projectRoot))
   }
 
   async setBaseDirectory(dir: string, sourceId?: string): Promise<void> {

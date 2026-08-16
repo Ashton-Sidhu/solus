@@ -109,7 +109,7 @@
         </span>
         <span class="flex min-w-0 flex-1 items-baseline gap-1.5">
           <span
-            class="min-w-0 truncate text-xs font-normal text-(--solus-text-secondary) transition-colors duration-150 group-hover:text-(--solus-text-primary)"
+            class="min-w-0 truncate text-menu font-normal text-(--solus-text-secondary) transition-colors duration-150 @max-[15rem]:text-xs group-hover:text-(--solus-text-primary)"
           >
             {a.name}
           </span>

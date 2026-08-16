@@ -42,6 +42,7 @@ export interface ScannedPlan {
   timestamp: number
   title: string
   excerpt: string
+  content: string
   planFilePath?: string
   derivedStatus: DerivedStatus
 }
@@ -56,7 +57,7 @@ function classifyToolResult(content: string, isError: boolean): DerivedStatus | 
   return 'pending'
 }
 
-async function scanOnePlanFile(
+export async function scanPlanFile(
   filePath: string,
   sessionId: string,
   encodedPath: string,
@@ -101,6 +102,7 @@ async function scanOnePlanFile(
                 timestamp: ts,
                 title: extractPlanTitle(planContent),
                 excerpt: extractExcerpt(planContent),
+                content: planContent,
                 planFilePath: block.input?.planFilePath || undefined,
                 derivedStatus: 'pending',
               })
@@ -158,7 +160,7 @@ export async function scanPlansInDir(
   const tasks = files.map((file) => {
     const sessionId = file.replace(/\.jsonl$/, '')
     const filePath = join(sessionsDir, file)
-    return () => scanOnePlanFile(filePath, sessionId, encodedPath, fallbackCwd)
+    return () => scanPlanFile(filePath, sessionId, encodedPath, fallbackCwd)
   })
   const results = await runBounded(tasks, MAX_CONCURRENT_PLAN_SCANS)
   return results.flat()

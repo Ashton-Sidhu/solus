@@ -7,6 +7,7 @@ import {
   itemKey,
   needsLiveRow,
   runIsLive,
+  shouldAnimateTurnEntry,
   stabilizeTurns,
 } from '../../src/renderer/components/conversation/lib/turns'
 
@@ -531,6 +532,32 @@ describe('a run parked on a card has not ended', () => {
 
     expect(turn.tail).toHaveLength(0)
     expect(turn.live).toBe(true)
+  })
+})
+
+describe('shouldAnimateTurnEntry — history paints as one transcript', () => {
+  test('does not animate completed turns mounted by transcript hydration', () => {
+    const turns = turnsFor([
+      msg({ role: 'user', content: 'Question' }),
+      msg({ role: 'assistant', content: 'Answer' }),
+    ], false)
+
+    // WHY: animating a bulk-loaded turn lets its simpler assistant row paint
+    // before the user bubble finishes mounting, so the transcript looks reordered.
+    expect(shouldAnimateTurnEntry(turns[0], 0, turns.length)).toBe(false)
+  })
+
+  test('animates only recent turns while the run is live', () => {
+    const turns = turnsFor([
+      msg({ role: 'user', content: 'First' }),
+      msg({ role: 'assistant', content: 'First answer' }),
+      msg({ role: 'user', content: 'Second' }),
+      msg({ role: 'assistant', content: 'Second answer' }),
+      msg({ role: 'user', content: 'Third' }),
+    ], true)
+
+    expect(turns.map((turn, index) => shouldAnimateTurnEntry(turn, index, turns.length)))
+      .toEqual([false, false, true])
   })
 })
 

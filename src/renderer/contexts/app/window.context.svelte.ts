@@ -77,7 +77,7 @@ export class WindowContext {
    *  surface the other mode's window (creating it on first use). */
   async setViewMode(mode: ViewMode): Promise<void> {
     if (this.isWeb) return
-    await serverConnections.primaryApi().switchMode(mode)
+    await serverConnections.localHostApi()?.switchMode(mode)
   }
 }
 

@@ -66,6 +66,7 @@
     itemKey,
     needsLiveRow,
     runIsLive,
+    shouldAnimateTurnEntry,
     stabilizeTurns,
     type GroupedItem,
     type Turn,
@@ -665,9 +666,8 @@
     previousTurns = next;
     return next;
   });
-  // Scrollback and history loads must not replay two hundred entry animations;
-  // only the turns at the live end of the transcript animate in.
-  const animatedTurnStart = $derived(Math.max(0, turns.length - 2));
+  // Scrollback and history loads mount completed turns as one stable transcript.
+  // Only new work at the live edge may animate in.
   // Successful and historical work stays compact. The latest failed work opens
   // by default so its commands are immediately available; an explicit user
   // choice then wins and survives transcript re-renders.
@@ -922,15 +922,18 @@
   });
 
   async function navigateToSourceSession(agentSessionId: string) {
-    const matchingTabId = session.tabIdForAgentSession(agentSessionId);
+    // The source session lives on the same host as the transcript citing it.
+    const matchingTabId = session.tabIdForAgentSession(agentSessionId, sess?.run.serverId);
     if (matchingTabId) {
       session.selectTab(matchingTabId);
       return;
     }
-    // Not open — scan history and resume it.
+    // Not open — scan history on this conversation's host and resume it. The
+    // source session delegated to this one, so it lives on the same host.
+    if (!sess) return;
     const meta = await sourceSessionHistory.findSession(
       agentSessionId,
-      { projectPath: sess?.run.workingDirectory || "~" },
+      { projectPath: sess.run.workingDirectory || "~", serverId: sess.run.serverId },
       session.ctx,
     );
     if (meta) {
@@ -1068,7 +1071,11 @@
                 : 'space-y-2'}"
             >
               {#each turns as turn, turnIdx (turn.id)}
-                {@const skipMotion = turnIdx < animatedTurnStart}
+                {@const skipMotion = !shouldAnimateTurnEntry(
+                  turn,
+                  turnIdx,
+                  turns.length,
+                )}
                 {@const isLastTurn = turnIdx === turns.length - 1}
                 {@const expanded =
                   turnExpansion.get(turn.id) ??

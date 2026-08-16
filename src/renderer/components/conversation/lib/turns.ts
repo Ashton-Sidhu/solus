@@ -382,6 +382,13 @@ export function stabilizeTurns(next: Turn[], previous: Turn[]): Turn[] {
   return next
 }
 
+/** Entry motion belongs to new work at the live edge. A transcript hydration
+ * mounts its newest completed turns in one batch; animating those rows makes
+ * the assistant output paint before the user bubble and reads as a reorder. */
+export function shouldAnimateTurnEntry(turn: Turn, index: number, count: number): boolean {
+  return turn.live && index >= Math.max(0, count - 2)
+}
+
 function firstTimestamp(items: GroupedItem[]): number {
   for (const item of items) {
     if (item.kind === 'tool-group' || item.kind === 'subagent-group' || item.kind === 'agent-conversation-group') return item.messages[0].timestamp

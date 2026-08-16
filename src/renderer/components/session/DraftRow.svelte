@@ -42,7 +42,7 @@
   <span class="flex min-w-0 flex-1 flex-col">
     <span class="flex h-[1.1875rem] items-center gap-[0.5625rem]">
       <span
-        class="min-w-0 flex-1 overflow-hidden text-sm leading-[1.1875rem] text-ellipsis whitespace-nowrap text-(--solus-text-secondary)"
+        class="min-w-0 flex-1 overflow-hidden text-sm leading-[1.1875rem] text-ellipsis whitespace-nowrap text-(--solus-text-secondary) @max-[15rem]:text-[0.8125rem]"
         title={row.title}>{row.title}</span
       >
 

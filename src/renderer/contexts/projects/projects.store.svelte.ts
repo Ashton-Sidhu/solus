@@ -4,8 +4,9 @@ import type { HostApi } from '@client-core/host-api'
 import { SvelteMap } from 'svelte/reactivity'
 
 export class ProjectsStore {
-  // The unqualified fields remain the primary-host cache used by the directory
-  // picker. The Settings tab uses the qualified cache below.
+  // The unqualified fields remain the single-host cache used by the directory
+  // picker; callers name the host that fills it. The Settings tab uses the
+  // qualified cache below.
   projects = $state<ProjectEntry[]>([])
   projectsLoaded = $state(false)
   projectsLoading = $state(false)
@@ -21,12 +22,12 @@ export class ProjectsStore {
   private readonly projectsLoadingByHost = new SvelteMap<string, boolean>()
   private readonly projectLoadsByHost = new Map<string, Promise<ProjectEntry[]>>()
 
-  async loadProjects(opts: { force?: boolean } = {}): Promise<ProjectEntry[]> {
+  async loadProjects(serverId: string, opts: { force?: boolean } = {}): Promise<ProjectEntry[]> {
     if (this.projectsLoaded && !opts.force) return this.projects
     if (this.projectsInFlight && !opts.force) return this.projectsInFlight
 
     this.projectsLoading = true
-    const promise = serverConnections.primaryApi()
+    const promise = serverConnections.apiFor(serverId)
       .listProjects()
       .then((projects) => {
         this.projects = projects
@@ -47,8 +48,8 @@ export class ProjectsStore {
     return promise
   }
 
-  async deleteProject(path: string): Promise<void> {
-    await serverConnections.primaryApi().deleteProject(path)
+  async deleteProject(serverId: string, path: string): Promise<void> {
+    await serverConnections.apiFor(serverId).deleteProject(path)
     this.projects = this.projects.filter((project) => project.path !== path)
     this.projectsLoaded = true
   }
@@ -108,12 +109,12 @@ export class ProjectsStore {
     this.projectsLoadedByHost.set(serverId, true)
   }
 
-  async loadRecentProjects(opts: { force?: boolean } = {}): Promise<RecentProject[]> {
+  async loadRecentProjects(serverId: string, opts: { force?: boolean } = {}): Promise<RecentProject[]> {
     if (this.recentProjectsLoaded && !opts.force) return this.recentProjects
     if (this.recentProjectsInFlight && !opts.force) return this.recentProjectsInFlight
 
     this.recentProjectsLoading = true
-    const promise = serverConnections.primaryApi()
+    const promise = serverConnections.apiFor(serverId)
       .listRecentProjects()
       .then((projects) => {
         this.recentProjects = projects

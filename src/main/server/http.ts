@@ -10,14 +10,15 @@ import { getMimeType } from 'hono/utils/mime'
 import { getRequestListener } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import formidable, { type File as FormidableFile } from 'formidable'
-import { resolve as pathResolve, relative as pathRelative, isAbsolute, sep } from 'path'
+import { resolve as pathResolve, isAbsolute } from 'path'
 import { hostname, tmpdir } from 'os'
 import { z } from 'zod'
-import { claimOwnership, consumePairToken, generatePairToken, getInstallationId, getOwnershipState, getServerFingerprint, isClaimable, issueSessionToken, listRevokedDevices, openClaimWindow, refreshSessionToken, revokeDevice, verifyClaimOpenAdminRequest, verifySessionToken } from './auth'
+import { claimOwnership, consumePairToken, generatePairToken, getInstallationId, getOwnershipState, getServerFingerprint, isClaimable, issueSessionToken, issueWsTicket, listRevokedDevices, openClaimWindow, refreshSessionToken, revokeDevice, verifyClaimOpenAdminRequest, verifySessionToken } from './auth'
 import { listReachableEndpoints } from './endpoints'
 import { createTokenBucketRateLimiter } from './rate-limit'
 import { filePathsToAttachments } from './attachment-utils'
 import { createLogger } from '../logger'
+import { isInsideRoot } from '../paths'
 import { completeGoogleOAuthCallback } from '../google/oauth'
 import { listProjects } from '../project-config/projects-manifest'
 import { readWav } from '../transcription/wav'
@@ -39,6 +40,12 @@ export interface HttpServerOptions {
   port?: number
   /** Path to the prebuilt web client `dist/` directory; if present, mounted at /. */
   staticDir?: string
+  /** Whether connections must authenticate; advertised on /health so a served
+   *  client knows it can connect without pairing. Defaults to true. */
+  requireAuth?: () => boolean
+  /** Requester addresses allowed past a require-auth bind without a token
+   *  (the machine itself, the host's own tailnet). Untrusted when absent. */
+  isTrustedRequester?: (address: string) => Promise<boolean>
   /** Long-form voice transcription implementation supplied by the host. */
   transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
 }
@@ -108,6 +115,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   app.use('/artifact', publicCors)
   app.use('/api/assets/*', publicCors)
   app.use('/auth/refresh', publicCors)
+  app.use('/auth/ws-ticket', publicCors)
   app.use('/auth/pair-token', publicCors)
   app.use('/auth/revoke', publicCors)
 
@@ -117,10 +125,21 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   })
   app.notFound((c) => c.json({ error: 'not found' }, 404))
 
-  app.get('/health', (c) => c.json({
+  /** Auth demanded of this particular caller: the bind policy, relaxed for
+   *  trusted requesters (loopback, the host's own tailnet). */
+  const authRequiredFor = async (c: Ctx): Promise<boolean> => {
+    if (!(opts.requireAuth?.() ?? true)) return false
+    if (!opts.isTrustedRequester) return true
+    return !(await opts.isTrustedRequester(clientIp(c)))
+  }
+  const authorized = async (c: Ctx): Promise<boolean> =>
+    !!verifySessionToken(readBearer(c)) || !(await authRequiredFor(c))
+
+  app.get('/health', async (c) => c.json({
     ok: true,
     installationId: getInstallationId(),
     claimable: isClaimable(),
+    requireAuth: await authRequiredFor(c),
     name: hostname() || 'Solus Server',
     os: hostOperatingSystem(),
   }))
@@ -182,7 +201,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   })
 
   app.post('/upload', async (c) => {
-    if (!verifySessionToken(readBearer(c))) return c.json({ error: 'Unauthorized' }, 401)
+    if (!(await authorized(c))) return c.json({ error: 'Unauthorized' }, 401)
     try {
       const filePaths = await receiveMultipart(c.env.incoming)
       return c.json({ attachments: filePathsToAttachments(filePaths) })
@@ -193,7 +212,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   })
 
   app.post('/voice/transcribe', async (c) => {
-    if (!verifySessionToken(readBearer(c))) return c.json({ error: 'Unauthorized', transcript: null }, 401)
+    if (!(await authorized(c))) return c.json({ error: 'Unauthorized', transcript: null }, 401)
     if (!opts.transcribeAudio) return c.json({ error: 'Voice transcription is unavailable', transcript: null }, 503)
 
     const declaredLength = Number(c.req.header('content-length') ?? 0)
@@ -226,7 +245,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   })
 
   app.get('/artifact', async (c) => {
-    if (!verifySessionToken(readBearer(c))) return c.json({ error: 'Unauthorized' }, 401)
+    if (!(await authorized(c))) return c.json({ error: 'Unauthorized' }, 401)
     const rawPath = c.req.query('p')
     if (!rawPath || !isAbsolute(rawPath)) return c.json({ error: 'absolute path required' }, 400)
 
@@ -295,6 +314,14 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     return c.json({ sessionToken: refreshed, installationId: getInstallationId() })
   })
 
+  // The long-lived credential travels only in this header; the socket
+  // handshake takes the derived five-minute ticket instead.
+  app.post('/auth/ws-ticket', (c) => {
+    const ticket = issueWsTicket(readBearer(c))
+    if (!ticket) return c.json({ error: 'Unauthorized' }, 401)
+    return c.json({ ticket })
+  })
+
   app.post('/auth/revoke', async (c) => {
     if (!verifySessionToken(readBearer(c))) return c.json({ error: 'Unauthorized' }, 401)
     const body = await readJson(c, revokeRequestSchema)
@@ -311,12 +338,43 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     // Registered after every dynamic/range route, so only the static fallback
     // reaches compression. Hono preserves streaming and skips 206 responses.
     app.use('*', compress())
+    app.use('*', setClientCacheHeaders)
     app.get('*', serveStatic({ root }))
+    // A file request that reached this point does not exist in the build. It
+    // must 404: answering a stale chunk with index.html makes the browser
+    // reject HTML as a module ("'text/html' is not a valid JavaScript MIME
+    // type") instead of reporting the chunk as gone, which hides an
+    // out-of-date tab behind an unrecoverable parse error.
+    app.get('*', (c, next) => (hasFileExtension(c.req.path) ? c.notFound() : next()))
     app.get('*', serveStatic({ root, path: 'index.html' }))
   }
 
   const server = createServer(getRequestListener(app.fetch, { overrideGlobalObjects: false }))
   return { server, host, port }
+}
+
+/** A request for a build file (`/assets/index-lLoEVyX3.js`), not a client route. */
+function hasFileExtension(path: string): boolean {
+  const lastSegment = path.slice(path.lastIndexOf('/') + 1)
+  return lastSegment.includes('.')
+}
+
+/**
+ * Vite content-hashes everything under /assets, so those files may be cached
+ * forever. Everything else — index.html above all — names those hashes and must
+ * be revalidated, or a reload keeps booting the previous build and asking for
+ * chunks the current one no longer contains.
+ *
+ * serveStatic's onFound runs after the response is built, so the header goes on
+ * the way out instead.
+ */
+const setClientCacheHeaders = async (c: Ctx, next: () => Promise<void>): Promise<void> => {
+  await next()
+  if (c.res.status !== 200 && c.res.status !== 206) return
+  c.res.headers.set(
+    'cache-control',
+    c.req.path.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache',
+  )
 }
 
 async function readJson<T>(c: Ctx, schema: z.ZodType<T>): Promise<T | null> {
@@ -363,11 +421,6 @@ async function resolveKnownProjectFile(rawPath: string): Promise<string | null> 
   }
 
   return null
-}
-
-function isInsideRoot(root: string, target: string): boolean {
-  const rel = pathRelative(root, target)
-  return rel === '' || (!!rel && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
 }
 
 // Caps for the authenticated /upload endpoint. The server can bind to LAN/tailnet,

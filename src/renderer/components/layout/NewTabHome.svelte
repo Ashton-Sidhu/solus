@@ -7,8 +7,6 @@
 </script>
 
 <script lang="ts">
-  import { localApi } from "@client-core/local-api";
-  import { serverConnections } from "@client-core/server-connections";
   import { projectDirLabel } from "../../lib/paths";
   import { homeGitDetails } from "../../lib/git-context";
   import { comboHint } from "../../lib/keybindings/manifest";
@@ -47,12 +45,6 @@
   // No project chosen yet — "build in ~?" names nothing, so the question drops
   // its object and the input bar's project chip does the choosing.
   const hasProject = $derived(projectName !== "~");
-  // A browser with no host cannot answer the question below, so the home asks a
-  // different one. A host only ever arrives by page reload, so this is settled
-  // at mount. The client owns the surface that connects one; this is the shared
-  // renderer, so it asks for it by event.
-  const noHost =
-    localApi.getPlatform() === "web" && !serverConnections.connectionFor();
   const workspacePath = $derived(session.staticInfo?.workspacePath ?? null);
   const canReturnToWorkspace = $derived(
     !!workspacePath &&
@@ -90,21 +82,6 @@
 <div
   class="flex h-full w-full flex-col items-center justify-center gap-5 px-6 py-3 [animation:home-fade-in_0.24s_ease-out_both]"
 >
-  {#if noHost}
-    <h1
-      class="max-w-[40rem] text-center text-pretty text-[1.5rem] font-medium leading-[1.25] text-(--solus-text-primary)"
-    >
-      Connect a host to get started
-    </h1>
-    <button
-      type="button"
-      class="rounded-lg bg-(--solus-accent) px-3.5 py-2 text-[0.8125rem] font-medium text-(--solus-text-on-accent) transition-transform duration-[var(--duration-quick)] active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
-      onclick={() =>
-        window.dispatchEvent(new CustomEvent("solus:open-server-connect"))}
-    >
-      Connect a host
-    </button>
-  {:else}
   <h1
     class="max-w-[40rem] text-center text-pretty text-[1.5rem] font-medium leading-[1.25] text-(--solus-text-primary)"
   >
@@ -130,5 +107,4 @@
       What should we build?
     {/if}
   </h1>
-  {/if}
 </div>

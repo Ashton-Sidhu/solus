@@ -7,8 +7,11 @@ export const isMac = globalThis.navigator?.platform.startsWith('Mac') ?? false
 // can't preventDefault, so web bindings fall back to a non-reserved default.
 export const IS_WEB = globalThis.document?.documentElement.classList.contains('solus-web') ?? false
 
-/** The effective default combo for the current platform (web variant on web). */
-export function defaultCombo(def: BindingDef): KeyCombo {
+/**
+ * The effective default combo for the current platform (web variant on web).
+ * `null` when the binding ships unassigned.
+ */
+export function defaultCombo(def: BindingDef): KeyCombo | null {
   return IS_WEB && def.web ? def.web : def.combo
 }
 

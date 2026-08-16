@@ -1,5 +1,6 @@
 import { serverConnections } from '@client-core/server-connections'
 import { LOCAL_SERVER_ID, loadServers } from '@client-core/server-registry'
+import { sessionSnapshotCache, type SessionSnapshotCache } from '@client-core/session-snapshot-cache'
 import type { DispatchHistoryRoot, ProjectIdentity } from '../../../../shared/types'
 import type { SessionHistorySource } from '../../../lib/sessionPickerHistory'
 import { repoKeyForPath } from '../../servers/run-on'
@@ -29,8 +30,9 @@ export interface RemoteHistoryHosts {
 export async function remoteHistorySources(
   hosts: RemoteHistoryHosts,
   projectRoots: string[],
+  snapshotCache: SessionSnapshotCache = sessionSnapshotCache,
 ): Promise<SessionHistorySource[]> {
-  const sources = (await Promise.all(remoteHistorySourceBatches(hosts, projectRoots))).flat()
+  const sources = (await Promise.all(remoteHistorySourceBatches(hosts, projectRoots, snapshotCache))).flat()
   return [...new Map(sources.map((source) => [source.id, source])).values()]
 }
 
@@ -40,6 +42,7 @@ export async function remoteHistorySources(
 export function remoteHistorySourceBatches(
   hosts: RemoteHistoryHosts,
   projectRoots: string[],
+  snapshotCache: SessionSnapshotCache = sessionSnapshotCache,
 ): Array<Promise<SessionHistorySource[]>> {
   const serverIds = hosts.remoteServerIds()
   if (serverIds.length === 0 || projectRoots.length === 0) return []
@@ -54,23 +57,32 @@ export function remoteHistorySourceBatches(
 
   return serverIds.flatMap((serverId) => {
     const reachable = hosts.isReachable(serverId).catch(() => false)
-    const source = (projectPath: string): SessionHistorySource => ({
+    const source = (projectPath: string, repoKey?: string): SessionHistorySource => ({
       id: `${serverId}:${projectPath}`,
       serverId,
       projectPath,
+      repoKey,
     })
     return [
       (async () => {
         const [isReachable, keys] = await Promise.all([reachable, repoKeys])
-        if (!isReachable || keys.size === 0) return []
+        if (keys.size === 0) return []
+        // An unreachable host still names its last-known sources so the list
+        // can render its snapshot — without waiting on a socket that will
+        // only ever retry (dispatch-client step 2, aggregation decision 4).
+        if (!isReachable) {
+          return snapshotCache
+            .cachedSourcesForRepoKeys(serverId, keys)
+            .map((cached) => ({ ...cached, serverId, cachedOnly: true }))
+        }
         const roots = await hosts.dispatchHistoryRoots(serverId, [...keys]).catch(() => [])
-        return roots.filter((root) => keys.has(root.repoKey)).map((root) => source(root.path))
+        return roots.filter((root) => keys.has(root.repoKey)).map((root) => source(root.path, root.repoKey))
       })(),
       (async () => {
         const [isReachable, keys] = await Promise.all([reachable, repoKeys])
         if (!isReachable || keys.size === 0) return []
         const identities = await hosts.projectIdentities(serverId).catch(() => [])
-        return identities.filter((identity) => keys.has(identity.repoKey)).map((identity) => source(identity.path))
+        return identities.filter((identity) => keys.has(identity.repoKey)).map((identity) => source(identity.path, identity.repoKey))
       })(),
     ].map((batch) => batch.catch(() => []))
   })
@@ -78,9 +90,11 @@ export function remoteHistorySourceBatches(
 
 /** The saved hosts, bound to the live connection registry. */
 export function savedRemoteHistoryHosts(): RemoteHistoryHosts {
-  // On web no host is "local": the primary connection plays that role, and it
-  // must not be scanned twice.
-  const localServerId = serverConnections.resolveId(LOCAL_SERVER_ID)
+  // The host the picker already scans directly — the client's own machine
+  // when it has one, else the new-work default — must not be scanned twice.
+  const localServerId = serverConnections.localServerId()
+    ?? serverConnections.defaultServerId()
+    ?? LOCAL_SERVER_ID
   return {
     localServerId,
     remoteServerIds: () =>

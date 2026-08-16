@@ -95,7 +95,7 @@ export const RPC_INVOKE_METHODS = [
   'loadSession',
   'loadSessionPreview',
   'getSessionInfo',
-  'resolveSessionHandoff',
+  'resolveSessionLineage',
   'generateSessionMetadata',
   'setSessionTitle',
   'listRecentProjects',
@@ -151,6 +151,9 @@ export const RPC_INVOKE_METHODS = [
   'pinnedSessionsList',
   'togglePinnedSession',
 
+  // Client activity lease: foreground heartbeat gating host freshness work
+  'activityLease',
+
   // Saved prompts (per-project composer drafts in ~/.solus/solus.db)
   'savedPromptsList',
   'savedPromptsCreate',
@@ -170,6 +173,7 @@ export const RPC_INVOKE_METHODS = [
   'connectionsRevokeDevice',
   'connectionsGetServerInfo',
   'connectionsSetRemoteAccess',
+  'connectionsSetTrustLocalNetwork',
   'setAnalyticsConsent',
   'setAgentTaskLifecyclePolicy',
   'textGenerationSettingsGet',
@@ -246,6 +250,7 @@ export const RPC_INVOKE_METHODS = [
   'prGetDiff',
   'prGetDiffFileContents',
   'prPrepareCheckout',
+  'prCheckoutInRepo',
   'prGetDetail',
   'prUpdate',
   'prGetOverview',

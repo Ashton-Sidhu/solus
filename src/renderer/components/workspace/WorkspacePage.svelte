@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { serverConnections } from "@client-core/server-connections";
   import { tick, untrack } from "svelte";
   import {
     BooksIcon,
@@ -19,9 +20,14 @@
     getPlanStore,
     getWindowContext,
     runtime,
+    projectCatalog,
+    mergeProjectOptions,
+    projectRefKey,
+    serversStore,
   } from "../../contexts";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import { liveSessionTitle } from "../../lib/sessionUtils";
+  import { SessionUnavailableError } from "../../contexts/workspace/session-errors";
   import {
     useKeybinding,
     useScope,
@@ -116,23 +122,82 @@
   let projectScope = $state<string | null>(
     localStorage.getItem(PROJECT_SCOPE_KEY),
   );
-  // With a single project open, "all projects" *is* that project — name it,
-  // rather than making the scope read wider than it is.
-  const scopedProject = $derived(
-    openProjects.find((project) => project.key === projectScope) ??
-      (openProjects.length === 1 ? openProjects[0] : null),
+  // The switcher's host this page reads/writes projects on. `openProjects` has
+  // no host of its own today (a session's `run.serverId` never survives into
+  // it), so every open project is attributed to the default host — exactly how
+  // Tasks' `sidebarServerId` resolves the same gap.
+  const sidebarServerId = $derived(serverConnections.defaultServerId());
+  // The union of every open project (as today) and every project the catalog
+  // has recorded that isn't already open — a project closed today can still
+  // be jumped back into from here.
+  const projectOptions = $derived(
+    mergeProjectOptions(
+      [
+        // With no default host there is nothing to attribute an open project
+        // to; the catalog still carries its own host per entry.
+        sidebarServerId
+          ? openProjects.map((project) => ({
+              serverId: sidebarServerId,
+              projectRoot: project.key,
+              label: project.label,
+            }))
+          : [],
+        projectCatalog.entries,
+      ],
+      (serverId) => serversStore.statusFor(serverId) !== "offline",
+      (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
+    ).map((option) => ({
+      key: option.key,
+      projectKey: option.projectRoot,
+      serverId: option.serverId,
+      label: option.label,
+      count: allItems.filter((item) => item.projectKey === option.projectRoot)
+        .length,
+      available: option.available,
+      historyOnly: !openProjects.some(
+        (project) => project.key === option.projectRoot,
+      ),
+    })),
   );
+  // With a single project open, "all projects" *is* that project — name it,
+  // rather than making the scope read wider than it is. A scope naming a
+  // catalog-only project (nothing open there right now) falls through to the
+  // catalog row instead, so the switcher still shows what is selected.
+  const scopedProject = $derived.by(() => {
+    const openMatch = openProjects.find(
+      (project) => project.key === projectScope,
+    );
+    if (openMatch) return openMatch;
+    if (projectScope) {
+      const catalogMatch = projectOptions.find(
+        (option) => option.projectKey === projectScope,
+      );
+      if (catalogMatch)
+        return { key: catalogMatch.projectKey, label: catalogMatch.label };
+    }
+    return openProjects.length === 1 ? openProjects[0] : null;
+  });
   const items: WorkspaceItem[] = $derived(
     scopedProject
       ? allItems.filter((item) => item.projectKey === scopedProject.key)
       : allItems,
   );
-  const projectOptions = $derived(
-    openProjects.map((project) => ({
-      key: project.key,
-      label: project.label,
-      count: allItems.filter((item) => item.projectKey === project.key).length,
-    })),
+  // The switcher keys its rows on the host-qualified catalog key; the scope
+  // itself stays a bare path (the ledger's `projectKey` has no host of its
+  // own), so this resolves one to the other the same way Tasks' pinned-project
+  // key does.
+  const activeProjectOptionKey = $derived(
+    scopedProject
+      ? (projectOptions.find(
+          (option) => option.projectKey === scopedProject!.key,
+        )?.key ??
+          (sidebarServerId
+            ? projectRefKey({
+                serverId: sidebarServerId,
+                projectRoot: scopedProject!.key,
+              })
+            : null))
+      : null,
   );
   /** A row names its project only when the ledger spans more than one. */
   const showProject = $derived(!scopedProject && openProjects.length > 1);
@@ -146,6 +211,13 @@
     // search, which was written against the project being left.
     filter.text = "";
     resetLedgerSelection();
+  }
+
+  function removeProjectHistory(option: { serverId: string; projectKey: string }) {
+    projectCatalog.remove({
+      serverId: option.serverId,
+      projectRoot: option.projectKey,
+    });
   }
 
   function load() {
@@ -387,8 +459,21 @@
   // Only the rows that are actually rendered are looked up — the ledger pages
   // in 80 at a time, so scrolling resolves the next batch rather than the whole
   // history up front.
+  /** The host that owns an artifact's origin session: the plan descriptor's
+   *  stamp (or the plan store's side map), or the work's owner host. */
+  function originServerId(item: WorkspaceItem): string | null {
+    return item.source.kind === "plan"
+      ? (item.source.descriptor.serverId ?? planStore.hostFor(item.id))
+      : session.worksStore.hostFor(item.source.work.id);
+  }
+
   $effect(() => {
-    sessionLabels.ensure(flat.map((item) => item.sessionId));
+    sessionLabels.ensure(
+      flat.map((item) => ({
+        sessionId: item.sessionId,
+        serverId: originServerId(item),
+      })),
+    );
   });
 
   /** What to call the session an artifact came from. A session open in a tab
@@ -396,7 +481,7 @@
   function originLabel(item: WorkspaceItem): string | null {
     if (!item.sessionId) return null;
     return (
-      liveSessionTitle(item.sessionId, session) ??
+      liveSessionTitle(item.sessionId, originServerId(item), session) ??
       sessionLabels.get(item.sessionId)
     );
   }
@@ -543,20 +628,31 @@
     if (!item.sessionId) return;
     const descriptor = item.source.kind === "plan" ? item.source.descriptor : null;
     const work = item.source.kind === "work" ? item.source.work : null;
-    const tabId = await session.resumeSession(
-      {
-        serverId: descriptor?.serverId ?? (work ? session.worksStore.hostFor(work.id) ?? undefined : undefined),
-        provider: descriptor?.provider ?? work?.agentProvider ?? session.settings.activeAgent,
-        sessionId: item.sessionId,
-        slug: null,
-        firstMessage: item.title,
-        lastTimestamp: new Date(item.timestamp).toISOString(),
-        size: 0,
-        cwd: item.cwd,
-        projectPath: descriptor?.projectPath ?? "",
-      },
-      { background: true },
-    );
+    if (descriptor?.sessionAvailable === false) {
+      session.notifySessionUnavailable(descriptor.provider);
+      return;
+    }
+    let tabId: string;
+    try {
+      tabId = await session.resumeSession(
+        {
+          serverId: descriptor?.serverId ?? (work ? session.worksStore.hostFor(work.id) ?? undefined : undefined),
+          provider: descriptor?.provider ?? work?.agentProvider ?? session.settings.activeAgent,
+          sessionId: item.sessionId,
+          slug: null,
+          firstMessage: item.title,
+          lastTimestamp: new Date(item.timestamp).toISOString(),
+          size: 0,
+          cwd: item.cwd,
+          projectPath: descriptor?.projectPath ?? "",
+        },
+        { background: true },
+      );
+    } catch (error) {
+      if (!(error instanceof SessionUnavailableError)) throw error;
+      session.notifySessionUnavailable(descriptor?.provider);
+      return;
+    }
     const resumed = tabId ? session.sessionFor(tabId) : undefined;
     if (resumed) session.openSplitChat(resumed.id);
   }
@@ -736,9 +832,10 @@
                  and Pull requests keep theirs. -->
             <WorkspaceProjectSwitcher
               options={projectOptions}
-              value={scopedProject?.key ?? null}
+              value={activeProjectOptionKey}
               allCount={allItems.length}
-              onSelect={selectProject}
+              onSelect={(option) => selectProject(option ? option.projectKey : null)}
+              onRemoveHistory={removeProjectHistory}
             />
             <DropdownMenu.Root>
               <DropdownMenu.Trigger>

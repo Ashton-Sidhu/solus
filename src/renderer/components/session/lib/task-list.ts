@@ -12,15 +12,6 @@ import type { AttentionState } from '../../../lib/sessionUtils'
  *  this", which nothing else in the app knows. */
 export type TaskStatus = 'question' | 'error' | 'plan' | 'limit' | 'running' | 'idle' | 'done'
 
-/** A sidebar belongs to one selected host. Unknown ownership stays visible
- * while a new task or session is still being linked. */
-export function belongsToSelectedHost(
-  ownerServerId: string | null | undefined,
-  selectedServerId: string | null | undefined,
-): boolean {
-  return !ownerServerId || !selectedServerId || ownerServerId === selectedServerId
-}
-
 /** One fixed order everywhere. The list is a queue of decisions, so anything
  *  that stopped and asked sorts above anything still working. */
 export const STATUS_RANK = {
@@ -218,16 +209,16 @@ export function shouldCompleteTaskForPr(
   return !Number.isFinite(prUpdatedAt) || task.updatedAt <= prUpdatedAt
 }
 
-/** Two things keep a row out: it is a child task, which renders under its root,
- * or the user dismissed it. Lifecycle status is not one of them — completing a
- * task removes its row by writing that same dismissal, so an open session
- * restores a finished task exactly as it restores any other. */
+/** A host task appears only after this client opens it. Child tasks render under
+ * their root, and a local dismissal keeps a root closed until a session reopens
+ * it. Lifecycle status does not control row ownership or visibility. */
 export function shouldShowDurableSidebarTask(
   task: Task,
   isDismissed: boolean,
   hasOpenSession: boolean,
+  isOpenOnClient: boolean,
 ): boolean {
-  return !task.parentId && (!isDismissed || hasOpenSession)
+  return !task.parentId && ((!isDismissed && isOpenOnClient) || hasOpenSession)
 }
 
 /** Same rule one level down: a dismissed child returns with a reopened tab. */

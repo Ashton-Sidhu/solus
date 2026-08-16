@@ -505,6 +505,94 @@ describe('SessionConfigController branch switching', () => {
   })
 })
 
+describe('SessionConfigController PR repo checkout activation', () => {
+  test('brings an already-matching tab to the front instead of opening a draft', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const liveSession = {
+      run: { workingDirectory: '/repo', gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' } },
+    } as unknown as Session
+    const matchingSession = {
+      run: { workingDirectory: '/repo', gitContext: { repoRoot: '/repo', branch: 'feature/x', targetBranch: 'main' } },
+    } as unknown as Session
+    const sessions: Record<string, Session> = { 'tab-live': liveSession, 'tab-match': matchingSession }
+    const selected: string[] = []
+    let draftedCwd: string | undefined
+    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const controller = new SessionConfigController({
+      settings: { activeAgent: 'codex', defaultModels: {}, tabGroupMode: 'flat' } as any,
+      registry: {
+        activeTabId: 'tab-live',
+        activeSession: liveSession,
+        tabOrder: ['tab-live', 'tab-match'],
+        sessionFor: (tabId: string) => sessions[tabId],
+      } as any,
+      statusBar: { ctx: { workingDirectory: '/repo' } } as any,
+      setPluginCommands: () => {},
+      openSessionDraft: (cwd) => { draftedCwd = cwd },
+      ctx: () => ({ session: { sessionId: 'tab-live' } }) as IpcContext,
+      ctxForDirectory: () => ({ session: { sessionId: 'tab-live' } }) as IpcContext,
+      refreshPluginCommands: () => {},
+      draftFor: () => undefined,
+      apiForRun: () => ({}) as any,
+      refreshGitRefs: () => {},
+      refreshGitState: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
+      selectTab: (tabId) => selected.push(tabId),
+    })
+
+    controller.activatePrRepoCheckout({ repoRoot: '/repo', branch: 'feature/x', targetBranch: 'main' }, null)
+
+    // WHY: a tab already on this exact branch is what "activate a matching
+    // tab" means — bringing it forward touches nothing about it, so a live
+    // conversation on a different tab is left running untouched either way.
+    expect(selected).toEqual(['tab-match'])
+    expect(draftedCwd).toBeUndefined()
+  })
+
+  test('opens a fresh draft when no tab already matches, without migrating the live session', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const liveSession = {
+      run: { workingDirectory: '/repo', gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' } },
+    } as unknown as Session
+    const selected: string[] = []
+    let draftedCwd: string | undefined
+    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const controller = new SessionConfigController({
+      settings: { activeAgent: 'codex', defaultModels: {}, tabGroupMode: 'flat' } as any,
+      registry: {
+        activeTabId: 'tab-live',
+        activeSession: liveSession,
+        tabOrder: ['tab-live'],
+        sessionFor: () => liveSession,
+      } as any,
+      statusBar: { ctx: { workingDirectory: '/repo' } } as any,
+      setPluginCommands: () => {},
+      openSessionDraft: (cwd) => { draftedCwd = cwd },
+      ctx: () => ({ session: { sessionId: 'tab-live' } }) as IpcContext,
+      ctxForDirectory: () => ({ session: { sessionId: 'tab-live' } }) as IpcContext,
+      refreshPluginCommands: () => {},
+      draftFor: () => undefined,
+      apiForRun: () => ({}) as any,
+      refreshGitRefs: () => {},
+      refreshGitState: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
+      selectTab: (tabId) => selected.push(tabId),
+    })
+
+    controller.activatePrRepoCheckout({ repoRoot: '/repo', branch: 'feature/x', targetBranch: 'main' }, null)
+
+    expect(selected).toEqual([])
+    expect(draftedCwd).toBe('/repo')
+    expect(controller.globalDefaults.gitContext).toEqual({ repoRoot: '/repo', branch: 'feature/x', targetBranch: 'main' })
+    // The live tab's own session never moves to the new branch.
+    expect(liveSession.run.gitContext?.branch).toBe('main')
+  })
+})
+
 describe('SessionConfigController session start target', () => {
   test('opens a draft composer with the selected worktree context from the tab-less home', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
