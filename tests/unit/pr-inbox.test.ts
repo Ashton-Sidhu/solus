@@ -8,7 +8,7 @@ import {
   qualifiedPrKey,
   qualifiedStackParentOf,
   type QualifiedProject,
-} from '../../src/renderer/components/prs/lib/pr-inbox-view'
+} from '../../src/renderer/components/prs/lib/pr-cross-project'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 

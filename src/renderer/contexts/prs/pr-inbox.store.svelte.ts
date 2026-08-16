@@ -1,4 +1,4 @@
-import type { PrFilter, PullRequestSummary } from '../../../shared/providers'
+import type { PrFilter, PrListPage, PullRequestSummary } from '../../../shared/providers'
 import type { IpcContext } from '../../../shared/types'
 import { SvelteMap } from 'svelte/reactivity'
 import type { HostApi } from '@client-core/host-api'
@@ -121,6 +121,14 @@ export class PrInboxStore {
     await Promise.all(Array.from({ length: Math.min(concurrency, projects.length) }, worker))
   }
 
+  /** `PrsStore.loadAll`/`loadMore` stamp these same two fields off a fetched
+   *  page; shared here since a per-project loader needs the identical update
+   *  twice — once for a fresh page, once for one appended by `loadMore`. */
+  private applyPagination(state: ProjectPrState, page: PrListPage): void {
+    state.hasMore = page.hasMore
+    state.nextPage = page.page + 1
+  }
+
   private async loadProject(
     prsStore: PrsStore,
     project: PrInboxProject,
@@ -136,8 +144,7 @@ export class PrInboxStore {
       const page = await prsStore.loadFor(project.api, project.serverId, project.ctx, filter, { force })
       if (generation !== this.generation) return
       state.items = page.items
-      state.hasMore = page.hasMore
-      state.nextPage = page.page + 1
+      this.applyPagination(state, page)
       state.error = null
       state.loadedAt = Date.now()
       void prsStore.loadChecks(project.api, project.serverId, project.ctx, page.items.map((item) => item.number)).catch(() => {})
@@ -165,8 +172,7 @@ export class PrInboxStore {
       if (generation !== this.generation || state.nextPage !== page) return
       const known = new Set(state.items.map((item) => item.number))
       for (const item of result.items) if (!known.has(item.number)) state.items.push(item)
-      state.hasMore = result.hasMore
-      state.nextPage = result.page + 1
+      this.applyPagination(state, result)
       void prsStore.loadChecks(state.api, state.serverId, state.ctx, result.items.map((item) => item.number)).catch(() => {})
     } catch (error) {
       if (generation === this.generation) state.error = prSurfaceError(error)

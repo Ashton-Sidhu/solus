@@ -1,10 +1,12 @@
 /**
- * Qualifies pull requests for the workspace-wide inbox — every item, action,
- * and stack lookup is keyed by `(serverId, projectRoot, number)` rather than
- * a bare number, because two different repos can hand out the same PR
- * number. Reuses the single-project row grammar (`prGroups`/`prInboxGroups`
- * in `prs-list-view.ts`) unchanged: this file only supplies the qualified key
- * and the per-repo stack lookup those functions already accept.
+ * Cross-project PR identity for the "All projects" scope — not the "My
+ * inbox" view (`prInboxGroups`/`PrInboxActions` in `prs-list-view.ts`,
+ * `prInboxFacts` in `pr-utils.ts`), which this does not touch or duplicate.
+ * Both the global list and the inbox stay `prGroups`/`prInboxGroups`
+ * unchanged; this file only supplies what they need to stay collision-safe
+ * once rows can come from more than one repository: every item, action, and
+ * stack lookup keyed by `(serverId, projectRoot, number)` rather than a bare
+ * number, since two repos can hand out the same PR number.
  */
 import type { PullRequestSummary } from '../../../../shared/providers'
 import type { IpcContext } from '../../../../shared/types'

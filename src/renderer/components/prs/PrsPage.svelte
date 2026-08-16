@@ -72,7 +72,7 @@
     qualifiedStackParentOf,
     type PrTarget,
     type QualifiedProject,
-  } from "./lib/pr-inbox-view";
+  } from "./lib/pr-cross-project";
   import GithubConnectionRequired from "./GithubConnectionRequired.svelte";
   import PrDetailPanel from "./PrDetailPanel.svelte";
   import PrContextMenu from "./PrContextMenu.svelte";
