@@ -77,7 +77,7 @@ import type {
   ThreadGoal,
   ThreadGoalSetRequest,
 } from '../shared/types'
-import { defaultContextWindowFor, encodePathAsFolder, gitCheckoutFromState, isSessionBusyStatus, isSteerableStatus } from '../shared/types'
+import { defaultContextWindowFor, encodePathAsFolder, gitCheckoutFromState, isSessionBusyStatus, isSteerableStatus, projectScopeOf } from '../shared/types'
 import { solusDir } from './platform/paths'
 import { indexLivePlan } from './plans/plan-index'
 import { activityLeases } from './server/activity-leases'
@@ -2204,7 +2204,7 @@ export class ControlPlane extends EventEmitter {
       const messages = await this.loadSession(
         input.provider,
         targetAgentSessionId,
-        input.projectPath || input.workingDirectory,
+        projectScopeOf(input),
       ).catch(() => [])
       finalText = [...messages].reverse().find(
         (message) => message.role === 'assistant' && !message.parentToolUseId && message.content,
@@ -2358,7 +2358,7 @@ export class ControlPlane extends EventEmitter {
     const incoming = input.gitContext
     const isForkingInput = !pendingHandoff && !!input.forked && !!input.agentSessionId
     const sessionGitContext = isForkingInput ? null : existingSession?.gitContext
-    const resolvedProjectPath = input.projectPath || input.workingDirectory
+    const resolvedProjectPath = projectScopeOf(input)
     let effectiveGitCtx = sessionGitContext ?? incoming ?? null
     if (!effectiveGitCtx?.worktreePath && resolvedProjectPath && resolvedProjectPath !== '~') {
       const statusGitCtx = gitCheckoutFromState(await computeGitState(resolvedProjectPath).catch(() => null))

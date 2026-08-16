@@ -235,7 +235,10 @@ export interface GitInitRepositoryResult {
 }
 
 export interface GithubPublishRepositoryRequest {
-  owner: string
+  /** An organization, or omitted to publish under the account the checkout's
+   *  credential authenticates as — which for a dispatched session is the
+   *  device that dispatched it, not the host. */
+  owner?: string
   name: string
   private: boolean
   /** Defaults to "origin" on the host. */

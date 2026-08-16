@@ -8,27 +8,22 @@ const source = readFileSync(
 )
 
 describe('project rail motion', () => {
-  test('moves the rail silently unless the user is moving it', () => {
-    // WHY: the rail closes by rule when the pane takes a draft, and the composer
-    // mounts in those same frames. Animating the rail's width there re-runs
-    // style and layout for the whole workspace on every frame of the 240ms,
-    // which is the stutter on Cmd+N. Measured on the same interaction: 85
-    // style-recalc passes down to 42, and 42 layout passes down to 22.
+  test('moves the rail in one layout pass', () => {
+    // WHY: SidePanel's default is a width/padding transition, which cannot reach
+    // the compositor — it relayouts this whole column, transcript included, on
+    // every one of its 240ms. The rail usually moves because the pane took a
+    // draft, so a composer is mounting in those same frames: that overlap was
+    // the stutter on Cmd+N. Measured on that interaction, 42 layout passes down
+    // to 15 and 85 style-recalc passes down to 32.
     expect(source).toMatch(
-      /\.workspace-body:not\(\.rail-animating\) \.project-rail :global\(\.side-panel-shell\) \{\s*transition: none;/,
+      /\.project-rail :global\(\.side-panel-shell\) \{\s*transition: none;/,
     )
-    expect(source).toContain('class:rail-animating={railAnimating}')
-  })
-
-  test('animates the move the user asked for', () => {
-    // WHY: ⌥M and the chrome button are requests to watch the rail move, so the
-    // transition is armed for exactly as long as that move takes.
-    expect(source).toMatch(/function toggleProjectPanel\([^)]*\) \{\s*animateRailMove\(\);/)
   })
 
   test('leaves the session sidebar fade alone', () => {
-    // WHY: the left sidebar is a .side-panel-shell too, and it fades on collapse.
-    // Scoping to .project-rail is what keeps this rail-only.
+    // WHY: the left sidebar is a .side-panel-shell too and still fades on
+    // collapse. The .project-rail scope is what keeps this rail-only, so an
+    // unscoped "simplification" of the selector above is a regression.
     expect(source).toContain('class="project-rail contents"')
   })
 })

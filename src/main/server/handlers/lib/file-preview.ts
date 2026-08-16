@@ -1,13 +1,14 @@
 import { open, readFile, realpath, stat } from 'fs/promises'
-import { homedir } from 'os'
-import { join, extname, relative, resolve } from 'path'
+import { extname, relative, resolve } from 'path'
 import type { FilePreviewRequest, FilePreviewResult, IpcContext } from '../../../../shared/types'
 import { mimeTypeForExtension } from '../../attachment-utils'
 import { isInsideRoot } from '../../../paths'
+import { expandHome } from './host-path'
 
+/** Unlike `expandHome`, a bare relative path resolves against the *request's*
+ *  cwd rather than the server process's. Only the `~` rule is shared. */
 export function resolvePreviewPath(rawPath: string, cwd: string | undefined): string {
-  if (rawPath.startsWith('~/')) return join(homedir(), rawPath.slice(2))
-  if (rawPath === '~') return homedir()
+  if (rawPath === '~' || rawPath.startsWith('~/')) return expandHome(rawPath)
   if (rawPath.startsWith('/')) return resolve(rawPath)
   return resolve(cwd || process.cwd(), rawPath)
 }

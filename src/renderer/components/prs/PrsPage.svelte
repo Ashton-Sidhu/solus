@@ -15,7 +15,7 @@
     WarningCircleIcon,
   } from "phosphor-svelte";
   import type { PullRequestSummary } from "../../../shared/providers";
-  import type { IpcContext } from "../../../shared/types";
+  import { projectScopeOf, type IpcContext } from "../../../shared/types";
   import {
     getWorkspaceContext,
     getSettingsContext,
@@ -191,11 +191,16 @@
   }
 
   // ── All projects: the aggregate read ──
-  // Every project the picker offers becomes a fetch target, so the inbox is
-  // never narrower than what a person could otherwise pin the list to.
+  // Only projects on a host that is connected right now. A saved host that has
+  // never dialed keeps its request queued in the transport with nothing to age
+  // it out, and one of those inside the inbox's bounded worker pool blocks
+  // every project behind it — which is how All projects ends up waiting on a
+  // machine that is not there while the project you can actually read sits
+  // unfetched. The picker still offers every project; only the fan-out is
+  // narrowed, and the effect below re-runs as hosts connect.
   const inboxProjects = $derived<PrInboxProject[]>(
     projectOptions
-      .filter((option) => option.available)
+      .filter((option) => serversStore.statusFor(option.serverId) === "online")
       .map((option) => ({
         serverId: option.serverId,
         projectRoot: option.projectKey,
@@ -235,8 +240,18 @@
   // The item list this visit is reading: one project's cache, or every
   // project's last-safe snapshot merged together.
   const activeItems = $derived(isAllProjects ? qualified.items : store.items);
+  // A host that is still dialing is not an empty inbox: until it settles the
+  // page is still on its way, so the skeleton holds rather than the list
+  // claiming there is nothing to read.
+  const inboxHostsConnecting = $derived(
+    projectOptions.some(
+      (option) => serversStore.statusFor(option.serverId) === "connecting",
+    ),
+  );
   const activeLoading = $derived(
-    isAllProjects ? inbox.loading && activeItems.length === 0 : store.loading,
+    isAllProjects
+      ? (inbox.loading || inboxHostsConnecting) && activeItems.length === 0
+      : store.loading,
   );
   const openCount = $derived(
     activeItems.filter((pr) => pr.state === "open").length,
@@ -572,37 +587,52 @@
     });
   });
 
-  /** Loads whatever the current scope needs: one project through `PrsStore`,
-   *  or every catalog/sidebar project through `inbox` — bounded parallel, so
-   *  a workspace with many projects doesn't open every connection at once. */
+  /** Loads the one scoped project through `PrsStore`. All projects reads
+   *  through the inbox effect below instead, which follows the hosts that can
+   *  answer rather than the ones that happened to be up at page open. */
   async function loadActiveScope(): Promise<void> {
-    if (!isAllProjects) {
-      // No connected host is a real state, not an error: nothing loads, and
-      // the page shows its empty surface rather than throwing on `apiFor`.
-      const api = prsApi;
-      const serverId = prsServerId;
-      if (!api || !serverId) return;
-      store.filter = { state: fetchScope };
-      void store.loadAll(api, serverId, prsCtx());
-      void store
-        .loadViewer(api, serverId, prsCtx())
-        .then((login) => (viewerLogin = login))
-        .catch(() => {});
-      stacksReady = false;
-      void stacks.load(api, serverId, prsCtx()).then(
-        () => (stacksReady = true),
-        () => (stacksReady = false),
-      );
-      return;
-    }
-    stacksReady = true;
-    void inbox.loadAll(store, inboxProjects, { state: fetchScope });
-    // Warm every project's stack graph too, so All projects can tell a stack
-    // apart from an unrelated pair of PRs from the first paint.
-    for (const project of inboxProjects) {
-      void stacks.load(project.api, project.serverId, project.ctx).catch(() => {});
-    }
+    if (isAllProjects) return;
+    // No connected host is a real state, not an error: nothing loads, and
+    // the page shows its empty surface rather than throwing on `apiFor`.
+    const api = prsApi;
+    const serverId = prsServerId;
+    if (!api || !serverId) return;
+    store.filter = { state: fetchScope };
+    void store.loadAll(api, serverId, prsCtx());
+    void store
+      .loadViewer(api, serverId, prsCtx())
+      .then((login) => (viewerLogin = login))
+      .catch(() => {});
+    stacksReady = false;
+    void stacks.load(api, serverId, prsCtx()).then(
+      () => (stacksReady = true),
+      () => (stacksReady = false),
+    );
   }
+
+  // Which hosts are connected changes while the page is open — one finishes
+  // dialing, another drops — so the aggregate read is keyed on that set rather
+  // than fired once. The body is untracked because `inboxProjects` also carries
+  // live git context that the watcher churns on every on-disk change; tracking
+  // that would flip the list back to loading under the reader.
+  const reachableInboxKey = $derived(
+    inboxProjects
+      .map((project) => `${project.serverId} ${project.projectRoot}`)
+      .join("\n"),
+  );
+
+  $effect(() => {
+    if (!open || !isAllProjects || reachableInboxKey === "") return;
+    untrack(() => {
+      stacksReady = true;
+      void inbox.loadAll(store, inboxProjects, { state: fetchScope });
+      // Warm every project's stack graph too, so All projects can tell a stack
+      // apart from an unrelated pair of PRs from the first paint.
+      for (const project of inboxProjects) {
+        void stacks.load(project.api, project.serverId, project.ctx).catch(() => {});
+      }
+    });
+  });
 
   // Coming back from a review: put the scroller where it was and hand focus to
   // the row that was being read, so the list resumes rather than restarts. A
@@ -673,7 +703,7 @@
         }
         if (emittingServerId !== prsServerId) return;
         const scopedCtx = prsCtx().session;
-        const ctxCwd = scopedCtx.projectPath || scopedCtx.workingDirectory;
+        const ctxCwd = projectScopeOf(scopedCtx);
         if (changedCwd !== ctxCwd) return;
         clearTimeout(timer);
         timer = setTimeout(() => refreshList(), 500);
@@ -1004,7 +1034,7 @@
        the window's top edge. The list uses the same fixed top measure as the
        Automations workspace; its position does not change with the sidebar. -->
   <div
-    class="@container relative flex min-h-0 flex-1 overflow-hidden bg-card focus:outline-none"
+    class="@container relative flex min-h-0 flex-1 overflow-hidden bg-card focus:outline-none [--pr-list-width:380px]"
     bind:clientWidth={pageWidth}
     role="dialog"
     aria-label="Pull Requests"
@@ -1015,9 +1045,13 @@
          takes the room that is left, so the queue stays readable while one item
          is open; E gives the review the whole surface, and Esc walks that back
          one step at a time. -->
+    <!-- The list resizes in one layout pass, in both directions. It can, because
+         the panel beside it never shares this flow: it is positioned over the
+         room this width leaves (see below), so neither opening nor closing makes
+         the queue relayout frame by frame while the panel moves. -->
     <div
-      class="flex min-h-0 min-w-0 shrink-0 transition-[width] duration-200 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none {splitList
-        ? 'w-[380px]'
+      class="flex min-h-0 min-w-0 shrink-0 {splitList
+        ? 'w-(--pr-list-width)'
         : 'w-full'}"
     >
     <ListPage
@@ -1325,10 +1359,17 @@
     </div>
 
     {#if panelOpen && openPr && openTarget}
+      <!-- Out of the list's flow on purpose, not just when full screen: it
+           covers the room the list's width leaves rather than claiming its own.
+           In flow, this panel's arrival and departure were layout events — the
+           list had to travel with it, animating a width that can never reach the
+           compositor, in the same frames PrDetailPanel mounts in. Over the top,
+           the fly is transform and opacity alone and nothing relayouts, so both
+           directions cost one layout pass. -->
       <div
         class="flex flex-col bg-background {panelFullScreen
           ? 'absolute inset-0 z-20'
-          : 'relative min-w-0 flex-1 shadow-[-1px_0_0_var(--hairline-strong),-18px_0_30px_-26px_rgba(0,0,0,.28)]'}"
+          : 'absolute inset-y-0 right-0 left-(--pr-list-width) z-10 min-w-0 shadow-[-1px_0_0_var(--hairline-strong),-18px_0_30px_-26px_rgba(0,0,0,.28)]'}"
         transition:fly={{ x: 14, duration: reduceMotion ? 0 : 200 }}
       >
         <PrDetailPanel

@@ -1,7 +1,7 @@
 <script lang="ts">
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { CaretDownIcon } from "phosphor-svelte";
-  import { MODEL_PROFILES, REASONING_EFFORT_LABELS, type AgentId } from "../../../shared/types";
+  import { MODEL_PROFILES, REASONING_EFFORT_LABELS, projectScopeOf, type AgentId } from "../../../shared/types";
   import { getSettingsContext, getAgentContext, getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Switch } from "../ui/switch";
@@ -18,7 +18,7 @@
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
   const session = getWorkspaceContext();
-  const projectPath = $derived(session.ctx.session.projectPath || session.ctx.session.workingDirectory);
+  const projectPath = $derived(projectScopeOf(session.ctx.session));
   const warmingEnabled = $derived(theme.isReviewWarmingEnabled(projectPath));
 
   // The review companion's agent/model/reasoning. `reviewAgent`/`reviewModel`/

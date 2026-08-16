@@ -1,6 +1,6 @@
 import { writeFile } from 'fs/promises'
 import type { ControlPlane } from '../../control-plane'
-import { gitCheckoutFromState, type IpcContext, type GitCheckoutBranchResult, type PrRepoCheckoutResult } from '../../../shared/types'
+import { gitCheckoutFromState, projectScopeOf, type IpcContext, type GitCheckoutBranchResult, type PrRepoCheckoutResult } from '../../../shared/types'
 import { discardChanges, syncWithOrigin, listBranches, listProjectWorktrees, getWorkingBranch, getDefaultBranch, restoreWorktree, createWorktree, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT, checkoutPrInRepo, type PrRepoCheckoutBlockReason } from '../../git/worktree-manager'
 import { runGitAction } from '../../git/git-action-manager'
 import { runAsync } from '../../git/exec'
@@ -9,8 +9,8 @@ import { getDiff, getDiffFileContents, getDiffStats, listTurnSnapshots } from '.
 import { TextGenerator } from '../../agents/text-generator'
 import { createLogger } from '../../logger'
 import { Task } from '../../tasks/task'
-import { loadGitHubAccessToken } from '../../providers/github/git-credential'
-import { LOCAL_DEVICE_LABEL, type HandlerCtx, type SolusServer } from '../server'
+import { githubTokenForCheckout } from '../../providers/github/credentials'
+import type { SolusServer } from '../server'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { resolveSourceControlWritingPolicy } from '../../git/source-control-writing'
 import { getServerSettings, resolveSourceControlWriterModel } from '../settings'
@@ -21,14 +21,6 @@ const log = createLogger('main', 'worktree-handlers')
 export interface WorktreeDeps {
   controlPlane: ControlPlane
   events: HostEventPublisher
-}
-
-/** A remote caller may use only its delegated credential, never the host owner's token. */
-export function githubTokenForWorktreeRequest(ctx: HandlerCtx): string | null {
-  if (ctx.deviceLabel === LOCAL_DEVICE_LABEL || (!ctx.clientId && !ctx.deviceId)) {
-    return loadGitHubAccessToken()
-  }
-  return ctx.deviceId ? loadGitHubAccessToken(ctx.deviceId) : null
 }
 
 async function resolveGitCheckout(ctx: IpcContext) {
@@ -48,7 +40,11 @@ async function workTreeForCtx(ctx: IpcContext): Promise<string | null> {
   return gitContext?.worktreePath || ctx.session.workingDirectory || null
 }
 
-async function repoRootForCtx(ctx: IpcContext): Promise<string | null> {
+/** The repo root behind the session's *active checkout* — its worktree when it
+ *  has one. Deliberately not `repoRootOrNull`, which starts from the project
+ *  scope: a session working in a worktree must diff that worktree, not the
+ *  project it branched from. */
+async function checkoutRepoRoot(ctx: IpcContext): Promise<string | null> {
   const gitContext = await resolveGitCheckout(ctx)
   const workTree = gitContext?.worktreePath || ctx.session.workingDirectory
   if (!workTree || workTree === '~') return null
@@ -104,7 +100,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   server.register('diff', async (args) => {
     const [ctx, request] = args
     log.info('rpc_diff', { sessionId: ctx.session.sessionId, scopeKind: request.scope.kind })
-    const repoRoot = await repoRootForCtx(ctx)
+    const repoRoot = await checkoutRepoRoot(ctx)
     if (!repoRoot) return null
     const workTree = await workTreeForCtx(ctx)
     const sid = ctx.session.agentSessionId ?? null
@@ -114,7 +110,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
 
   server.register('diffFileContents', async (args) => {
     const [ctx, request] = args
-    const repoRoot = await repoRootForCtx(ctx)
+    const repoRoot = await checkoutRepoRoot(ctx)
     if (!repoRoot) return null
     const workTree = await workTreeForCtx(ctx)
     const sid = ctx.session.agentSessionId ?? null
@@ -123,7 +119,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
 
   server.register('diffStats', async (args) => {
     const [ctx, request] = args
-    const repoRoot = await repoRootForCtx(ctx)
+    const repoRoot = await checkoutRepoRoot(ctx)
     if (!repoRoot) return []
     const workTree = await workTreeForCtx(ctx)
     const sid = ctx.session.agentSessionId ?? null
@@ -135,7 +131,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const [ctx] = args
     const sid = ctx.session.agentSessionId
     if (!sid) return []
-    const repoRoot = await repoRootForCtx(ctx)
+    const repoRoot = await checkoutRepoRoot(ctx)
     if (!repoRoot) return []
     return await listTurnSnapshots(repoRoot, sid)
   })
@@ -164,7 +160,9 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
         writerModel,
         policy.commitInstructions,
       ),
-      githubToken: githubTokenForWorktreeRequest(handlerCtx),
+      // `gh` must act as whoever the checkout's credential helper pushes as, so
+      // a dispatched branch is not opened as a PR by the host owner.
+      githubToken: await githubTokenForCheckout(cwd),
       publish: (event) => {
         if (handlerCtx.clientId) deps.events.publish(handlerCtx.clientId, 'git.actionProgressed', event)
         else deps.events.broadcast('git.actionProgressed', event)
@@ -185,7 +183,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
       await task?.linkPullRequest({
         number: pullRequest.number,
         url: pullRequest.url,
-        targetScope: ctx.session.projectPath || ctx.session.workingDirectory,
+        targetScope: projectScopeOf(ctx.session),
         originSessionId: sessionId,
         createdBy: 'agent',
       }).catch((error) => {

@@ -101,6 +101,9 @@ export const KEYBINDINGS = {
 
   // ── Files pane ─────────────────────────────────────────────────────────────
   'files-pane.close':             { combo: { code: 'Escape' },                             scope: 'files-pane',         label: 'Close files',              group: 'Panel' },
+  // Unassigned: every ⌥ letter this pane could use is already spoken for here
+  // (⌥M toggles the Markdown view), so the action ships bindable but silent.
+  'files-pane.maximize':          { combo: null,                                           scope: 'files-pane',         label: 'Maximize / restore',       group: 'Panel' },
   'files-pane.toggle-tree':       { combo: { alt: true, code: 'KeyT' },                    scope: 'files-pane',         label: 'Toggle file tree',         group: 'Navigate' },
   'files-pane.focus-search':      { combo: { code: 'Slash' },                              scope: 'files-pane',         label: 'Focus search',             group: 'Navigate' },
   'files-pane.next-file':         { combo: { alt: true, code: 'KeyJ' },                    scope: 'files-pane',         label: 'Next file',                group: 'Navigate' },

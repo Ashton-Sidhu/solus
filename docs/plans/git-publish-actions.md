@@ -17,6 +17,23 @@ The host validates the working-tree state, runs the required phases in order,
 and publishes typed `git.actionProgressed` events. An action can create a
 semantic feature branch before the commit when work starts on the target branch.
 
+## Commit scope and message
+
+A commit intent can carry two optional fields. Both are valid only with a commit
+action; the host rejects them on other intents.
+
+- `filePaths` — repository-relative paths to commit, file level only. When the
+  field is absent, the host commits every change. An empty array is invalid.
+- `commitMessage` — a manual commit subject. When the field is absent or blank,
+  the host uses the message generator.
+
+For a selected subset, the host uses Git's own pathspec-restricted commit. It
+reads the current worktree content for those paths only, and it does not change
+the staged or unstaged state of any other file. The host stages a selected
+untracked file first, so the pathspec can find it, and removes that staging
+again if the commit fails. A failed selective commit leaves the repository in
+its initial state.
+
 ## Pull-request authoring
 
 The pull-request writer reads the complete target-to-head change:
@@ -48,6 +65,13 @@ Desktop, web, and mobile use the same status-aware primary action:
 - Clean unpublished commits push and open a pull request.
 - A published pull request opens directly, or pushes pending commits first.
 - A branch behind its upstream must sync before it can publish.
+
+The primary action stays one click: it commits every change and generates the
+message. Beside it, **Commit with options…** and **Commit and push with
+options…** open a composer that lists the changed files with their status and
+line totals. The user selects a subset and can type a message. The composer
+sends the same intent with `filePaths` and `commitMessage`. It is disabled when
+the working tree is clean.
 
 Clients show the phase labels from the host event. They refresh detailed Git
 state after completion or failure.

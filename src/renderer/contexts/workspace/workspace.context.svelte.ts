@@ -55,7 +55,7 @@ import { applySessionTitleChange } from './session-title-change'
 import { applyRuntimeConfig, findLastUserIndex, nextMsgId } from './session.utils'
 import type { DiffScope } from '../../../shared/git-types'
 import type { FilePreviewRequest } from '../../lib/filePreview'
-import { gitCheckoutFromState, isSessionBusyStatus, isSolusWorktreePath, isSteerableStatus, worktreeProjectRoot } from '../../../shared/types'
+import { gitCheckoutFromState, isSessionBusyStatus, isSolusWorktreePath, isSteerableStatus, projectScopeOf, worktreeProjectRoot } from '../../../shared/types'
 import { syncPendingInputFromEvent, loadSessionTranscript, RESTORED_TRANSCRIPT_LIMIT } from './session-transcript'
 import { addDiffComment, updateDiffComment, removeDiffComment, restoreDiffComment, clearDiffComments, setDiffCommentDraft, updateDiffCommentDraftValue, setDiffGeneralComment, submitDiffFeedback, submitDiffFeedbackToNewSession } from './session-diff-feedback'
 import { clearPlanWaiting, openPlanModal, closePlanModal, requestConversationScrollToBottom, approvePlanWithModel, rejectPlan, openPlanFromDescriptor, closePlanPreview, resumeSessionFromDescriptor, loadPlanContent, type ApprovePlanOptions } from './session-plan-operations'
@@ -3239,7 +3239,7 @@ export class WorkspaceContext {
       params: {
         number,
         title,
-        cwd: ctx.session.projectPath ?? ctx.session.workingDirectory ?? undefined,
+        cwd: projectScopeOf(ctx.session) || undefined,
         serverId,
         expectedRepo,
       },
@@ -3513,7 +3513,7 @@ export class WorkspaceContext {
         name: 'prDiff',
         params: {
           number,
-          cwd: ctx.session.projectPath ?? ctx.session.workingDirectory ?? undefined,
+          cwd: projectScopeOf(ctx.session) || undefined,
           serverId: this.sessions[ctx.session.sessionId]?.run.serverId,
         },
       },

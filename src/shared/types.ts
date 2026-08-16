@@ -1583,6 +1583,21 @@ export interface IpcContext {
 }
 
 /**
+ * The project scope a session's work is filed under. Task `targetScope`, the
+ * `projectRoot` on PR events, and the renderer's per-project caches are all
+ * keyed on it, and they compare for equality — so the operator matters: `??`
+ * hands on `projectPath`'s empty string, `||` falls through to the working
+ * directory. `||` is what the main-process producers already did.
+ *
+ * Not `projectRootOf` in the renderer's `run-config`, which resolves a checkout
+ * back to its repo. This never touches the filesystem; `''` and `'~'` are both
+ * possible answers.
+ */
+export function projectScopeOf(source: Pick<SessionCtx, 'projectPath' | 'workingDirectory'>): string {
+  return source.projectPath || source.workingDirectory
+}
+
+/**
  * The minimal, caller-agnostic contract for running a turn against a session —
  * what the dispatch path and backends actually consume, with none of the UI
  * presentation state in IpcContext. Any system (the renderer, automations, a

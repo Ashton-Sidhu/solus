@@ -21,7 +21,8 @@
     <Loader2Icon class="size-4 animate-spin" />
   {/snippet}
   {#snippet successIcon()}
-    <CircleCheckIcon class="size-4" />
+    <!-- Same green a completed run wears elsewhere, in both themes. -->
+    <CircleCheckIcon class="size-4 text-(--solus-status-complete)" />
   {/snippet}
   {#snippet errorIcon()}
     <OctagonXIcon class="size-4" />

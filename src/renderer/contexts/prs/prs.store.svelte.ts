@@ -12,7 +12,7 @@ import type {
   PrReviewerCandidate,
   ReviewThread,
 } from '../../../shared/providers'
-import type { ChangedFileStat, IpcContext, PrInterdiffResult, PrReviewContext } from '../../../shared/types'
+import { projectScopeOf, type ChangedFileStat, type IpcContext, type PrInterdiffResult, type PrReviewContext } from '../../../shared/types'
 import type { PrChecksSummary } from '../../../shared/checks-types'
 import type { PrGuideMetadata, PrGuideStatus } from '../../../shared/review'
 import type { PrChecksSnapshot } from '../../../shared/checks-rpc-types'
@@ -153,7 +153,7 @@ export class PrsStore {
   }
 
   private contextKey(ctx: IpcContext): string {
-    return ctx.session.projectPath || ctx.session.workingDirectory || ''
+    return projectScopeOf(ctx.session)
   }
 
   private contextHostKey(serverId: string, ctx: IpcContext): string {

@@ -1,5 +1,5 @@
 import type { DraftReview } from '../../../../src/shared/providers'
-import type { IpcContext } from '../../../../src/shared/types'
+import { projectScopeOf, type IpcContext } from '../../../../src/shared/types'
 import type { ReviewState } from '../../../../src/shared/review'
 import { DEMO_PROJECT, type DemoServer } from '../fixtures/types'
 import type { DemoStore } from '../store'
@@ -128,5 +128,5 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
 }
 
 function projectCwd(ctx: IpcContext): string {
-  return ctx.session.projectPath || ctx.session.workingDirectory || DEMO_PROJECT
+  return projectScopeOf(ctx.session) || DEMO_PROJECT
 }

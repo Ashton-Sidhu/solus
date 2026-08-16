@@ -3,11 +3,12 @@ import type { BrowserWindow, OpenDialogOptions } from 'electron'
 import { join, basename, dirname, resolve as pathResolve, relative as pathRelative } from 'path'
 import { existsSync, writeFileSync, readFileSync, statSync } from 'fs'
 import { appendFile, mkdir, readFile as readBinaryFile, readdir, realpath, stat, writeFile as writeTextFile } from 'fs/promises'
-import { homedir, tmpdir } from 'os'
+import { tmpdir } from 'os'
 import { execFile, execFileSync } from 'child_process'
 import type { AgentId, ProjectContentSearchResult, WriteFileResult, FileMatch, DetectedEditor, DetectedTerminal, EditorId } from '../../../shared/types'
 import { AGENT_BIN } from '../../../shared/types'
 import { MAX_VOICE_WAV_BYTES } from '../../../shared/voice-audio'
+import { expandHome } from './lib/host-path'
 import { transcribeAudio, warmTranscription } from '../../transcription'
 import { readWav } from '../../transcription/wav'
 import { getVoiceModelStatus, retryParakeetModel } from '../../model-downloader'
@@ -370,7 +371,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     let search = query
     const isPath = query.startsWith('~/') || query.startsWith('./') || query.startsWith('../') || query.startsWith('/')
     if (isPath) {
-      const resolved = query.startsWith('~/') ? join(homedir(), query.slice(2)) : pathResolve(cwd, query)
+      const resolved = query.startsWith('~/') ? expandHome(query) : pathResolve(cwd, query)
       const rel = pathRelative(cwd, resolved)
       if (!rel.startsWith('..')) {
         search = rel === '' ? '' : rel + (query.endsWith('/') ? '/' : '')

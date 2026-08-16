@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { ChangedFileStat } from '../../src/shared/git-types'
-import { orderedSelection } from '../../src/renderer/components/project-panel/commit-composer/lib/commit-composer'
+import {
+  filterFiles,
+  orderedSelection,
+  splitPath,
+} from '../../src/renderer/components/project-panel/commit-composer/lib/commit-composer'
 import { changedFileTotals } from '../../src/renderer/lib/diff-stats'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -42,6 +46,42 @@ describe('orderedSelection', () => {
   })
 })
 
+const nestedFiles: ChangedFileStat[] = [
+  { path: 'src/main/git/git-init.ts', additions: 4, deletions: 0, status: 'M' },
+  { path: 'src/renderer/lib/git-actions.svelte.ts', additions: 1, deletions: 1, status: 'M' },
+  { path: 'tests/unit/git-init.test.ts', additions: 9, deletions: 0, status: 'A' },
+]
+
+describe('filterFiles', () => {
+  test('matches anywhere in the path, ignoring case', () => {
+    expect(filterFiles(nestedFiles, 'GIT-INIT').map((file) => file.path)).toEqual([
+      'src/main/git/git-init.ts',
+      'tests/unit/git-init.test.ts',
+    ])
+  })
+
+  test('narrows on every term rather than widening', () => {
+    expect(filterFiles(nestedFiles, 'git tests').map((file) => file.path)).toEqual([
+      'tests/unit/git-init.test.ts',
+    ])
+  })
+
+  test('an empty or blank query keeps the whole list', () => {
+    expect(filterFiles(nestedFiles, '')).toEqual(nestedFiles)
+    expect(filterFiles(nestedFiles, '   ')).toEqual(nestedFiles)
+  })
+})
+
+describe('splitPath', () => {
+  test('separates the folders from the file name so the name can stay legible', () => {
+    expect(splitPath('src/main/git/git-init.ts')).toEqual({ folders: 'src/main/git/', name: 'git-init.ts' })
+  })
+
+  test('a bare file name has no folders', () => {
+    expect(splitPath('README.md')).toEqual({ folders: '', name: 'README.md' })
+  })
+})
+
 describe('changedFileTotals', () => {
   test('sums additions and deletions across files', () => {
     expect(changedFileTotals(files)).toEqual({ additions: 5, deletions: 6 })
@@ -73,6 +113,34 @@ describe('CommitComposerState', () => {
 
     state.selectAll()
     expect(state.selectedPaths).toEqual(['a.txt', 'b.txt', 'c.txt'])
+  })
+
+  // A filter is a view, not a scope change: "Select all" that reached past the
+  // visible rows would commit files the user cannot see, and "None" that did so
+  // would silently drop them.
+  test('select all and none act only on what the filter shows', async () => {
+    const api = { diffStats: async () => nestedFiles } as any
+    const state = new CommitComposerState()
+    await state.load(api, {} as any)
+
+    state.query = 'tests'
+    expect(state.visibleFiles.map((file) => file.path)).toEqual(['tests/unit/git-init.test.ts'])
+
+    state.selectNone()
+    expect(state.selectedPaths).toEqual([
+      'src/main/git/git-init.ts',
+      'src/renderer/lib/git-actions.svelte.ts',
+    ])
+    expect(state.visibleSelectedCount).toBe(0)
+
+    state.query = 'renderer'
+    state.selectNone()
+    state.query = 'tests'
+    state.selectAll()
+    expect(state.selectedPaths).toEqual([
+      'src/main/git/git-init.ts',
+      'tests/unit/git-init.test.ts',
+    ])
   })
 
   test('surfaces a load failure instead of leaving a stale file list', async () => {

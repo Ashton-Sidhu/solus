@@ -21,10 +21,18 @@ export class RepositorySetupStore {
   private initErrorByKey = $state<Record<string, string | null>>({})
   private publishErrorByKey = $state<Record<string, string | null>>({})
   private publishResultByKey = $state<Record<string, GithubPublishRepositoryResult | null>>({})
+  private githubConnectedByKey = $state<Record<string, boolean>>({})
+  private connectionInflight = new Set<string>()
 
   statusFor(serverId: string, cwd: string): GitRepositoryStatus | null | undefined {
     return this.statusByKey[hostKey(serverId, cwd)]
   }
+
+  /** Whether the host can publish to GitHub, or null while the probe is out. */
+  githubConnectedFor(serverId: string, cwd: string): boolean | null {
+    return this.githubConnectedByKey[hostKey(serverId, cwd)] ?? null
+  }
+
 
   isInitializing(serverId: string, cwd: string): boolean {
     return this.initializingKeys.has(hostKey(serverId, cwd))
@@ -61,6 +69,25 @@ export class RepositorySetupStore {
       })
     this.inflight.set(key, pending)
     return pending
+  }
+
+  /**
+   * Reads the GitHub connection once per host + cwd. Both the Git rows and the
+   * setup card need it to choose between "Publish to GitHub…" and
+   * "Connect GitHub…", so it is answered here rather than in each surface.
+   */
+  async refreshGithubConnection(api: HostApi, serverId: string, ctx: IpcContext, cwd: string): Promise<void> {
+    const key = hostKey(serverId, cwd)
+    if (this.connectionInflight.has(key)) return
+    this.connectionInflight.add(key)
+    try {
+      const result = await api.providerStatus(ctx)
+      this.githubConnectedByKey[key] = result.connected
+    } catch {
+      this.githubConnectedByKey[key] = false
+    } finally {
+      this.connectionInflight.delete(key)
+    }
   }
 
   async initialize(api: HostApi, serverId: string, cwd: string): Promise<boolean> {

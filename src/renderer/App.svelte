@@ -54,7 +54,7 @@
   import { toasts } from "./lib/toasts";
   import { invalidateHomeCache } from "./components/layout/NewTabHome.svelte";
   import { setPopoverLayer } from "./components/popoverLayer.svelte";
-  import { worktreeProjectRoot } from "../shared/types";
+  import { projectScopeOf, worktreeProjectRoot } from "../shared/types";
   import type {
     AgentId,
     DesignAnnotation as DesignAnnotationType,
@@ -842,7 +842,7 @@
   // store zeroes it rather than report another project's number. Fetch the new
   // project now; leaving it to the poll blanks the badge for up to a cycle.
   const needsReviewProjectKey = $derived(
-    session.ctx.session.projectPath || session.ctx.session.workingDirectory,
+    projectScopeOf(session.ctx.session),
   );
   $effect(() => {
     void needsReviewProjectKey;

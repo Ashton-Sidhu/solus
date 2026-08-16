@@ -15,6 +15,7 @@
     XIcon,
     CaretRightIcon,
     HardDrivesIcon,
+    GithubLogoIcon,
   } from "phosphor-svelte";
   import {
     getWorkspaceContext,
@@ -26,7 +27,9 @@
     serversStore,
   } from "@renderer/contexts";
   import { gitActionsFor } from "@renderer/lib/git-actions.svelte";
-  import { primaryGitAction } from "@renderer/components/project-panel/lib/git-action-selection";
+  import { gitPublishModel } from "@renderer/components/project-panel/lib/git-action-selection";
+  import { repositorySetupStore } from "@renderer/contexts/git/repository-setup.store.svelte";
+  import PublishRepositoryDialog from "@renderer/components/project-panel/publish-repository/PublishRepositoryDialog.svelte";
   import { buildAgentAvailabilityRows } from "@renderer/lib/agentAvailability";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
   import { REASONING_EFFORT_LABELS } from "../../../src/shared/types";
@@ -135,7 +138,18 @@
   const gitEnvironment = $derived(
     environmentStore.environmentFor(session.runFor(session.activeTabId)),
   );
-  const gitPrimaryAction = $derived(primaryGitAction(gitEnvironment.status));
+  const gitApi = $derived(session.apiFor(session.activeTabId));
+  const gitServerId = $derived(serverConnections.serverIdForApi(gitApi));
+  // The same readiness model the project panel renders: an unpublished project
+  // publishes from this row rather than offering a push into nowhere.
+  const gitModel = $derived(
+    gitPublishModel(gitEnvironment.status, {
+      repository: repositorySetupStore.statusFor(gitServerId, gitEnvironment.cwd),
+      githubConnected: repositorySetupStore.githubConnectedFor(gitServerId, gitEnvironment.cwd),
+    }),
+  );
+  const gitPrimaryAction = $derived(gitModel.pullRequest.primary);
+  const pushStep = $derived(gitModel.commit.steps.find((step) => step.key === "push"));
   const isCommitActionRunning = $derived(
     actions.running &&
       (actions.activeAction === "commit" ||
@@ -153,9 +167,29 @@
     return environmentStore.watchDetails(gitEnvironment.cwd);
   });
 
+  // The readiness stage decides what these rows mean, so the sheet reads the
+  // repository probe — and, only on the publish path, the GitHub connection.
+  $effect(() => {
+    if (!open || !gitApi || !gitEnvironment.cwd || gitEnvironment.cwd === "~") return;
+    void repositorySetupStore.refresh(gitApi, gitServerId, gitEnvironment.cwd);
+    if (gitModel.readiness !== "local-only") return;
+    void repositorySetupStore.refreshGithubConnection(
+      gitApi,
+      gitServerId,
+      session.ctxForEnvironment(gitEnvironment.cwd, gitEnvironment.checkout, session.activeTabId),
+      gitEnvironment.cwd,
+    );
+  });
+
+  let publishDialogOpen = $state(false);
+
   function runPrimaryGitAction() {
     if (gitPrimaryAction.kind === "view") {
       localApi.openExternal(gitPrimaryAction.url);
+      return;
+    }
+    if (gitPrimaryAction.kind === "publish" || gitPrimaryAction.kind === "connect") {
+      publishDialogOpen = true;
       return;
     }
     if (gitPrimaryAction.kind !== "run") return;
@@ -365,7 +399,12 @@
       <!-- Source control -->
       {#if !gitDisabled}
         <div class={groupCard}>
-          <button class={listRow} onclick={() => void actions.sync()} disabled={actions.syncing}>
+          <button
+            class={listRow}
+            onclick={() => void actions.sync()}
+            disabled={actions.syncing || gitModel.sync.disabled}
+            title={gitModel.sync.reason}
+          >
             <span class="{listIcon} {actions.synced ? '!text-(--solus-status-complete)' : ''}">
               {#key actions.syncing ? "busy" : actions.synced ? "done" : "idle"}
                 <span class="icon-swap">
@@ -399,7 +438,12 @@
             <span class={listLabel}>Commit</span>
           </button>
           <div class={rowDivider}></div>
-          <button class={listRow} onclick={() => void actions.run("commit_push")} disabled={actions.running}>
+          <button
+            class={listRow}
+            onclick={() => void actions.run("commit_push")}
+            disabled={actions.running || gitModel.readiness !== "published"}
+            title={gitModel.readiness === "published" ? undefined : pushStep?.reason}
+          >
             <span class={listIcon}>
               <ArrowSquareUpIcon size={14} />
             </span>
@@ -415,6 +459,8 @@
             <span class={listIcon}>
               {#if isPullRequestActionRunning}
                 <SpinnerIcon size={14} class="animate-spin" />
+              {:else if gitPrimaryAction.kind === "publish" || gitPrimaryAction.kind === "connect"}
+                <GithubLogoIcon size={14} />
               {:else}
                 <GitPullRequestIcon size={14} />
               {/if}
@@ -516,6 +562,14 @@
       {/if}
     </div>
   </div>
+{/if}
+
+<!-- Outside the sheet's subtree: the row that opens it also closes the sheet. -->
+{#if publishDialogOpen}
+  <PublishRepositoryDialog
+    sourceId={session.activeTabId}
+    onClose={() => (publishDialogOpen = false)}
+  />
 {/if}
 
 <style>

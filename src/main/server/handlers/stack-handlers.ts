@@ -6,16 +6,18 @@ import {
   readStackGraph,
   removeManualStackEdge,
 } from '../../git/stack-detect'
-import { resolveRepoRoot } from '../../git/git-helpers'
+import { requireRepoRoot } from '../../git/ctx-paths'
 import type { Provider, RepoRef } from '../../providers/types'
 import { reviewTargetFor } from './provider-handlers'
 import type { SolusServer } from '../server'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 
+const NEEDS_REPOSITORY = 'Stack detection requires a git repository.'
+
 export function registerStackHandlers(server: SolusServer, events: HostEventPublisher): void {
   server.register('stackGet', async (args) => {
     const [ctx] = args
-    const repoRoot = await repoRootFor(ctx)
+    const repoRoot = await requireRepoRoot(ctx, NEEDS_REPOSITORY)
     if (!ctx.settings.stackedPrsEnabled) return { repoRoot, graph: emptyStackGraph() }
     return { repoRoot, graph: (await readStackGraph(repoRoot)) ?? emptyStackGraph() }
   })
@@ -23,7 +25,7 @@ export function registerStackHandlers(server: SolusServer, events: HostEventPubl
   server.register('stackDetect', async (args) => {
     const [ctx] = args
     if (!ctx.settings.stackedPrsEnabled) {
-      return { repoRoot: await repoRootFor(ctx), graph: emptyStackGraph() }
+      return { repoRoot: await requireRepoRoot(ctx, NEEDS_REPOSITORY), graph: emptyStackGraph() }
     }
     const { repoRoot, repo, provider } = await detectionTargetFor(ctx)
     const graph = await detectStackGraph({ repoRoot, repo, provider })
@@ -56,18 +58,14 @@ export function registerStackHandlers(server: SolusServer, events: HostEventPubl
   })
 }
 
-async function repoRootFor(ctx: IpcContext): Promise<string> {
-  const cwd = ctx.session.projectPath || ctx.session.workingDirectory
-  const repoRoot = cwd ? await resolveRepoRoot(cwd) : null
-  if (!repoRoot) throw new Error('Stack detection requires a git repository.')
-  return repoRoot
-}
-
 async function detectionTargetFor(ctx: IpcContext): Promise<{
   repoRoot: string
   repo: RepoRef
   provider: Provider
 }> {
-  const [{ repo, provider }, repoRoot] = await Promise.all([reviewTargetFor(ctx), repoRootFor(ctx)])
+  const [{ repo, provider }, repoRoot] = await Promise.all([
+    reviewTargetFor(ctx),
+    requireRepoRoot(ctx, NEEDS_REPOSITORY),
+  ])
   return { repoRoot, repo, provider }
 }

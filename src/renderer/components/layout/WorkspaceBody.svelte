@@ -153,19 +153,6 @@
       newTabProjectPanelPoppedOut,
     ),
   );
-  // The rail animates only while the user is moving it. Every other move — the
-  // pane taking a draft, releasing one — arrives with a surface that is mounting
-  // in those same frames, and animating the rail's width there re-runs style and
-  // layout for the whole workspace on every one of the 240ms.
-  let railAnimating = $state(false);
-  let railAnimateTimer: ReturnType<typeof setTimeout> | undefined;
-  function animateRailMove() {
-    railAnimating = true;
-    clearTimeout(railAnimateTimer);
-    railAnimateTimer = setTimeout(() => (railAnimating = false), 300);
-  }
-  $effect(() => () => clearTimeout(railAnimateTimer));
-
   // Popping the rail out on a fresh tab is intentionally transient. Starting
   // that session or moving to another tab returns control to the normal rule.
   $effect(() => {
@@ -364,7 +351,6 @@
   // user is in. The tab strip's button only ever reaches the leading pane — it
   // lives in that pane's chrome; the split chat carries its own toggle.
   function toggleProjectPanel(isSplit = false) {
-    animateRailMove();
     if (isSplit) {
       settings.update({
         splitProjectPanelOpen: !settings.splitProjectPanelOpen,
@@ -657,7 +643,6 @@
   class="workspace-body flex flex-1 min-w-0 min-h-0"
   class:is-resizing={isResizingSecondary}
   class:sidebar-snap={sidebarSnapForOverlay}
-  class:rail-animating={railAnimating}
   class:sidebar-collapsed={!sidebarOpen}
   class:page-flush={pageFlush}
   class:project-panel-open={railOpen}
@@ -1068,11 +1053,14 @@
   .workspace-body.sidebar-snap :global(.side-panel-shell) {
     transition: none;
   }
-  /* The rail's width transition relayouts the whole workspace on every frame,
-     so it runs only while the user is moving the rail (⌥M, the chrome button).
-     A rail moved by the pane instead — taking a draft, releasing one — lands in
-     one layout pass, beside the composer mounting in those same frames. */
-  .workspace-body:not(.rail-animating) .project-rail :global(.side-panel-shell) {
+  /* The rail moves in one layout pass. SidePanel's default is a width/padding
+     transition, which cannot reach the compositor: it relayouts this whole
+     column — transcript included — on every one of its 240ms, and the rail
+     usually moves because the pane took a draft, so a composer is mounting in
+     those same frames. The move is the user's own ⌥M or the pane changing under
+     them; neither needs narrating. Scoped to the rail: the session sidebar is a
+     .side-panel-shell too and keeps its collapse fade. */
+  .project-rail :global(.side-panel-shell) {
     transition: none;
   }
   /* While the OS window frame is resizing (maximize, restore, edge drags —

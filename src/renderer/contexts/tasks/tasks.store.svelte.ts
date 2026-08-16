@@ -252,6 +252,16 @@ export class TasksStore {
     return taskId ? (this.tasks.find((task) => task.id === taskId) ?? null) : null
   }
 
+  /** All session links shown under this task in the session tree. */
+  attemptsForTask(taskId: string): TaskSessionLink[] {
+    const task = this.taskForId(taskId)
+    if (!task) return this.sessionsByTask.get(taskId) ?? []
+    const rootId = task.parentId ?? task.id
+    const taskIds = [rootId, ...(this.byParent.get(rootId) ?? []).map((child) => child.id)]
+    const links = taskIds.flatMap((id) => this.sessionsByTask.get(id) ?? [])
+    return [...new Map(links.map((link) => [link.sessionId, link])).values()]
+  }
+
   snoozeReminderForSession(sessionId: string | null | undefined): TaskSnoozeReminder | null {
     return resolveTaskSnoozeReminder(this.taskForSession(sessionId), this.lifecycleNow)
   }

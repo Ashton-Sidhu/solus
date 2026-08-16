@@ -8,6 +8,7 @@
     ArrowsOutSimpleIcon,
   } from "phosphor-svelte";
   import { PAGE_ICON_BTN } from "../../lib/page-chrome";
+  import { comboHint, type BindingId } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
 
   /** The pane's only chrome: a floating icon cluster over the top-right of the
@@ -31,6 +32,9 @@
     /** Present when the pane can be maximized over the window. */
     onToggleMaximize?: (() => void) | null;
     maximized?: boolean;
+    /** The surface's own maximize binding, so the tooltip names the key that
+     *  actually works in this pane's scope rather than the diff panel's. */
+    maximizeBinding?: BindingId;
     /** Surface-specific extras rendered before the shared controls. */
     trailing?: Snippet;
     closeLabel?: string;
@@ -43,10 +47,16 @@
     isLeading = true,
     onToggleMaximize,
     maximized = false,
+    maximizeBinding = "diff-panel.maximize",
     trailing,
     closeLabel = "Close pane",
     closeTestId,
   }: Props = $props();
+
+  const maximizeHint = $derived(comboHint(maximizeBinding));
+  const maximizeTooltip = $derived(
+    `${maximized ? "Restore panel" : "Maximize"}${maximizeHint ? ` (${maximizeHint})` : ""}`,
+  );
 </script>
 
 <!-- Pinned to the chrome row and centred inside it, not offset by a fixed inset:
@@ -102,7 +112,7 @@
           </button>
         {/snippet}
       </TooltipUI.Trigger>
-      <TooltipUI.Content value={maximized ? "Restore panel (⌥M)" : "Maximize (⌥M)"} />
+      <TooltipUI.Content value={maximizeTooltip} />
     </TooltipUI.Root>
   {/if}
 

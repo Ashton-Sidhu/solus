@@ -5,7 +5,10 @@ import { join } from 'path'
 const root = join(import.meta.dir, '../..')
 
 describe('Git action GitHub authentication', () => {
-  test('uses the delegated token only for GitHub CLI calls and authors the PR explicitly', () => {
+  // A dispatch checkout's git config already pushes as the paired device, so
+  // `gh` must open the pull request as that device too — otherwise one branch
+  // carries the client's commits under a PR authored by the host owner.
+  test('passes the checkout’s token to GitHub CLI calls only, and authors the PR explicitly', () => {
     const script = String.raw`
       import { mock } from 'bun:test'
       import { Database } from 'bun:sqlite'
@@ -34,21 +37,14 @@ describe('Git action GitHub authentication', () => {
           return ''
         },
       }))
-      mock.module('./src/main/providers/github/git-credential', () => ({
-        loadGitHubAccessToken: (deviceId) => deviceId ? 'delegated-token' : 'host-token',
-      }))
-
-      const { githubTokenForWorktreeRequest } = await import('./src/main/server/handlers/worktree-handlers')
       const { runGitAction } = await import('./src/main/git/git-action-manager')
-      const token = githubTokenForWorktreeRequest({
-        clientId: 'ws:remote',
-        deviceId: 'dispatching-device',
-        deviceLabel: 'Sidhu’s MacBook',
-      })
+      const dispatchCheckout = '/Users/host/projects/solus-remote/dispatching-device/github.com/solus-sh/solus'
+      // Which token this is comes from the checkout — see github-credentials.test.ts.
+      const token = 'delegated-token'
       const result = await runGitAction(
         { actionId: 'action-1', action: 'create_pull_request' },
         { branch: 'solus/dispatched-fix', targetBranch: 'main' },
-        '/tmp/solus-dispatched-fix',
+        dispatchCheckout,
         {
           githubToken: token,
           generateCommitSubject: async () => 'unused',

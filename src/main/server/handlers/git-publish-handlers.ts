@@ -1,18 +1,18 @@
 import { z } from 'zod'
-import type { GitInitRepositoryResult, GithubPublishRepositoryResult, GitRepositoryStatus } from '../../../shared/types'
+import { isRemoteDispatchCheckoutPath, projectScopeOf, type GitInitRepositoryResult, type GithubPublishRepositoryResult, type GitRepositoryStatus } from '../../../shared/types'
 import type { SolusServer } from '../server'
 import { createLogger } from '../../logger'
 import { computeGitRepositoryStatus, initRepository } from '../../git/git-init'
 import { publishRepositoryToGithub } from '../../git/github-publish'
 import { GitHubAuth } from '../../providers/github/auth'
-import { buildClient } from '../../providers/github/octokit'
-import { loadGitHubAccessToken } from '../../providers/github/git-credential'
-import { hasGithubAuth } from './setup-handlers'
+import { buildClient, buildDelegatedClient } from '../../providers/github/octokit'
+import { githubTokenForCheckout, hostGithubToken } from '../../providers/github/credentials'
 
 const log = createLogger('main', 'git-publish-handlers')
 
 const githubPublishRequestSchema = z.object({
-  owner: z.string().trim().min(1),
+  /** Omitted means "the account the checkout's credential authenticates as". */
+  owner: z.string().trim().min(1).optional(),
   name: z.string().trim().min(1),
   private: z.boolean(),
   remoteName: z.string().trim().min(1).optional(),
@@ -39,24 +39,35 @@ export function registerGitPublishHandlers(server: SolusServer): void {
   server.register('githubPublishRepository', async (args): Promise<GithubPublishRepositoryResult> => {
     const [ctx, request] = args
     const { owner, name, private: isPrivate, remoteName, protocol } = githubPublishRequestSchema.parse(request)
-    const cwd = ctx.session.projectPath || ctx.session.workingDirectory
+    const cwd = projectScopeOf(ctx.session)
     if (!cwd || cwd === '~') throw new Error('No folder is open for this session.')
-    if (!hasGithubAuth()) throw new Error('Connect GitHub on this host before publishing.')
     const status = await computeGitRepositoryStatus(cwd)
     if (!status.isRepository) throw new Error('Initialize Git before publishing to GitHub.')
 
-    const client = await buildClient(new GitHubAuth())
+    // Publish is reachable from a dispatched session, whose checkout commits and
+    // pushes as the paired device. Creating the repository as the host owner
+    // would file the client's work under the wrong account.
+    const token = await githubTokenForCheckout(cwd)
+    if (!token) {
+      throw new Error(isRemoteDispatchCheckoutPath(cwd)
+        ? 'Connect GitHub on the device that dispatched this session before publishing.'
+        : 'Connect GitHub on this host before publishing.')
+    }
+
+    // A 401 on someone else's credential must not clear the host's stored token,
+    // so only the host's own token gets the shared, cached client.
+    const isHostToken = token === hostGithubToken()
     const result = await publishRepositoryToGithub({
-      client,
+      client: isHostToken ? await buildClient(new GitHubAuth()) : buildDelegatedClient(token),
       cwd,
       owner,
       name,
       private: isPrivate,
       remoteName,
       protocol,
-      token: loadGitHubAccessToken(),
+      token,
     })
-    log.info('github_publish_repository_completed', { cwd, owner, name, success: result.success })
+    log.info('github_publish_repository_completed', { cwd, owner, name, success: result.success, delegated: !isHostToken })
     return result
   })
 }

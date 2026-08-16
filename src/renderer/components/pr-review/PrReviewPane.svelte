@@ -7,7 +7,7 @@
     SparkleIcon,
     XIcon,
   } from "phosphor-svelte";
-  import type { IpcContext } from "../../../shared/types";
+  import { projectScopeOf, type IpcContext } from "../../../shared/types";
   import type {
     DraftReview,
     PrCommit,
@@ -172,7 +172,7 @@
   const review = $derived(
     prReviewState(
       serverId,
-      (targetCtx ?? session.ctx).session.projectPath ?? (targetCtx ?? session.ctx).session.workingDirectory,
+      projectScopeOf((targetCtx ?? session.ctx).session),
       target.number,
       {
         getApi,
@@ -437,8 +437,7 @@
       (emittingServerId, { projectRoot: changedCwd }) => {
         if (emittingServerId !== serverId) return;
         const paneCtx = prCtx();
-        const ctxCwd =
-          paneCtx.session.projectPath || paneCtx.session.workingDirectory;
+        const ctxCwd = projectScopeOf(paneCtx.session);
         if (changedCwd !== ctxCwd && changedCwd !== prCwd) return;
         clearTimeout(timer);
         timer = setTimeout(() => {
@@ -709,7 +708,7 @@
       if (result.success && result.gitContext) {
         session.config.activatePrRepoCheckout(
           result.gitContext,
-          projectCtx().session.projectPath ?? projectCtx().session.workingDirectory ?? null,
+          projectScopeOf(projectCtx().session) || null,
         );
         requestInputFocus();
       }
@@ -1132,7 +1131,7 @@
             tabId={reviewTabId}
             getCtx={prCtx}
             {getApi}
-            projectPath={checkout?.worktreePath ?? projectCtx().session.projectPath ?? projectCtx().session.workingDirectory}
+            projectPath={checkout?.worktreePath ?? projectScopeOf(projectCtx().session)}
             worktreePath={checkout?.worktreePath}
             worktreeBranch={pr.headRef}
             targetBranch={pr.baseRef}

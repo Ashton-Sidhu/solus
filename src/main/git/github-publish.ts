@@ -22,24 +22,30 @@ function isNotFoundError<T>(err: T): boolean {
   return parsed.success && parsed.data.status === 404
 }
 
-/** Reuses a matching existing repository (by owner/name) instead of failing a retry. */
+/**
+ * Reuses a matching existing repository (by owner/name) instead of failing a
+ * retry. An absent `owner` means the authenticated account — which is the only
+ * owner every caller is guaranteed to be able to write to, and saves the client
+ * having to discover whose credential the checkout actually uses.
+ */
 async function ensureGithubRepository(
   client: GitHubClient,
-  owner: string,
+  owner: string | undefined,
   name: string,
   isPrivate: boolean,
 ): Promise<GithubPublishRepositoryStep> {
   try {
+    const { data: viewer } = await client.rest.users.getAuthenticated()
+    const targetOwner = owner ?? viewer.login
     try {
-      const { data: existing } = await client.rest.repos.get({ owner, repo: name })
+      const { data: existing } = await client.rest.repos.get({ owner: targetOwner, repo: name })
       return { status: 'found', url: existing.clone_url, fullName: existing.full_name }
     } catch (err) {
       if (!isNotFoundError(err)) throw err
     }
-    const { data: viewer } = await client.rest.users.getAuthenticated()
-    const response = viewer.login.toLowerCase() === owner.toLowerCase()
+    const response = viewer.login.toLowerCase() === targetOwner.toLowerCase()
       ? await client.rest.repos.createForAuthenticatedUser({ name, private: isPrivate })
-      : await client.rest.repos.createInOrg({ org: owner, name, private: isPrivate })
+      : await client.rest.repos.createInOrg({ org: targetOwner, name, private: isPrivate })
     return { status: 'created', url: response.data.clone_url, fullName: response.data.full_name }
   } catch (err) {
     return { status: 'failed', error: githubApiErrorMessage(err, 'Could not create the GitHub repository') }

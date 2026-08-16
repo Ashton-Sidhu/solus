@@ -3,6 +3,7 @@ import { getProvider, providerForRepo } from '../../providers/registry'
 import { ConnectCancelledError } from '../../providers/github/auth'
 import { loadToken } from '../../providers/github/token-store'
 import { computeGitState, resolveRepoRef, resolveRepoRoot } from '../../git/git-helpers'
+import { repoRootOrScope } from '../../git/ctx-paths'
 import { fetchAndCheckoutPr } from '../../git/worktree-manager'
 import { emptyStackGraph, readStackGraph, scheduleStackDetection } from '../../git/stack-detect'
 import { computePrInterdiff } from '../../git/interdiff'
@@ -12,7 +13,7 @@ import { estimateReviewEffort } from '../../review/effort'
 import { readPrGuideMetadata, requestPrGuides, scheduleGuideWarming } from '../../review/guide-warmer'
 import type { Provider, RepoRef } from '../../providers/types'
 import type { PrEffortRequest, PrEffortResult, PrReviewTarget, DraftReview, PullRequestUpdate } from '../../../shared/providers'
-import type { GithubDelegatedCredential, IpcContext, PrCheckoutContext, PrConflictResolutionResult, PrMergeResult } from '../../../shared/types'
+import { projectScopeOf, type GithubDelegatedCredential, type IpcContext, type PrCheckoutContext, type PrConflictResolutionResult, type PrMergeResult } from '../../../shared/types'
 import { LOCAL_DEVICE_LABEL, type SolusServer } from '../server'
 import { attachReviewAttention } from './review-attention'
 import type { AgentDispatcher } from '../../agents/agent-runner'
@@ -93,7 +94,7 @@ async function loadReviewEfforts(
  * host in v1 — so Settings can always offer a connect affordance.
  */
 async function providerForContext(ctx: IpcContext): Promise<Provider | null> {
-  const cwd = ctx.session.projectPath || ctx.session.workingDirectory
+  const cwd = projectScopeOf(ctx.session)
   if (cwd) {
     const repo = await resolveRepoRef(cwd)
     if (repo) {
@@ -107,7 +108,7 @@ async function providerForContext(ctx: IpcContext): Promise<Provider | null> {
 /** Resolve the `{ repo, provider }` pair PR-review handlers need. Throws with a
  *  user-facing message when the repo host isn't supported or auth is missing. */
 export async function reviewTargetFor(ctx: IpcContext): Promise<{ repo: RepoRef; provider: Provider }> {
-  const cwd = ctx.session.projectPath || ctx.session.workingDirectory
+  const cwd = projectScopeOf(ctx.session)
   const repo = cwd ? await resolveRepoRef(cwd) : null
   if (!repo) throw new Error('This folder has no recognizable git remote to review PRs from.')
   const provider = providerForRepo(repo)
@@ -139,8 +140,7 @@ async function preparePrCheckout(ctx: IpcContext, target: PrReviewTarget): Promi
     if (detail.headSha !== target.headSha) {
       throw new Error('This pull request changed. Refresh it before preparing a checkout.')
     }
-    const base = ctx.session.projectPath || ctx.session.workingDirectory
-    const repoRoot = (await resolveRepoRoot(base)) ?? base
+    const repoRoot = await repoRootOrScope(ctx)
     const checkout = await fetchAndCheckoutPr(repoRoot, target.number, detail.baseRef, {
       headRef: detail.headRef,
       isFork: detail.headRepo.isFork,
@@ -160,11 +160,6 @@ async function preparePrCheckout(ctx: IpcContext, target: PrReviewTarget): Promi
   return operation
 }
 
-async function repoRootForContext(ctx: IpcContext): Promise<string> {
-  const cwd = ctx.session.projectPath || ctx.session.workingDirectory
-  return (await resolveRepoRoot(cwd)) ?? cwd
-}
-
 async function persistReviewCheckpoint(
   ctx: IpcContext,
   repo: RepoRef,
@@ -172,7 +167,7 @@ async function persistReviewCheckpoint(
   number: number,
   review: DraftReview,
 ): Promise<void> {
-  const repoRoot = await repoRootForContext(ctx)
+  const repoRoot = await repoRootOrScope(ctx)
   let checkpointBase = review.baseSha ?? null
   if (!checkpointBase) {
     try {
@@ -275,7 +270,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       provider.review.getViewer(),
     ])
     result.items = attachReviewAttention(result.items, viewer)
-    const cwd = ctx.session.projectPath || ctx.session.workingDirectory
+    const cwd = projectScopeOf(ctx.session)
     const sessionId = ctx.session.agentSessionId
     const branch = ctx.session.gitContext?.branch
     const sessionPullRequest = branch
@@ -364,7 +359,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
 
   server.register('prGuideMetadata', async (args) => {
     const [ctx, requests] = args
-    const repoRoot = await repoRootForContext(ctx)
+    const repoRoot = await repoRootOrScope(ctx)
     const graph = ctx.settings.stackedPrsEnabled ? await readStackGraph(repoRoot) : null
     return readPrGuideMetadata(repoRoot, graph, requests)
   })
@@ -402,7 +397,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     if (!detail.capabilities.mergeMethods.includes(method)) throw new Error(`The repository does not allow ${method} merges.`)
     const result = await provider.review.mergePullRequest(repo, number, method)
     if (result.merged) {
-      const projectPath = ctx.session.projectPath || ctx.session.workingDirectory
+      const projectPath = projectScopeOf(ctx.session)
       const { completeTasksForMergedPullRequest } = await import('../../tasks/sync-engine')
       await completeTasksForMergedPullRequest(projectPath, number)
       const updated = await provider.review.getPullRequest(repo, number)
@@ -420,8 +415,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
         return { success: false, error: 'This pull request comes from a fork. Resolve conflicts on the contributor branch.' }
       }
 
-      const base = ctx.session.projectPath || ctx.session.workingDirectory
-      const repoRoot = (await resolveRepoRoot(base)) ?? base
+      const repoRoot = await repoRootOrScope(ctx)
       const worktree = await fetchAndCheckoutPr(repoRoot, number, detail.baseRef, {
         headRef: detail.headRef,
         isFork: detail.headRepo.isFork,
@@ -494,7 +488,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     if (sessionId) {
       await Task.linkArtifactForSession(sessionId, {
         kind: 'pr',
-        targetScope: ctx.session.projectPath || ctx.session.workingDirectory,
+        targetScope: projectScopeOf(ctx.session),
         targetKey: String(number),
         title: updated.title,
       }).catch((error) => {
@@ -505,7 +499,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
         })
       })
     }
-    const cwd = ctx.session.projectPath || ctx.session.workingDirectory
+    const cwd = projectScopeOf(ctx.session)
     if (cwd) deps.events.broadcast('prs.invalidated', { projectRoot: cwd })
     return updated
   })
@@ -575,7 +569,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     if (!['close', 'reopen', 'ready', 'draft'].includes(action)) throw new Error('Unsupported pull request action.')
     const { repo, provider } = await reviewTargetFor(ctx)
     const detail = await provider.review.updatePullRequestLifecycle(repo, number, action, expectedHeadSha)
-    const projectRoot = ctx.session.projectPath || ctx.session.workingDirectory
+    const projectRoot = projectScopeOf(ctx.session)
     if (projectRoot) deps.events.broadcast('pr.lifecycleChanged', { projectRoot, detail })
     return detail
   })
@@ -636,7 +630,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       ? threads.filter((thread) => thread.comments[0]?.author.toLowerCase() === auth.login?.toLowerCase())
       : threads
     return computePrInterdiff({
-      repoRoot: await repoRootForContext(ctx),
+      repoRoot: await repoRootOrScope(ctx),
       gitCwd: pr.worktreePath,
       prNumber: pr.number,
       currentHead: pr.headSha,
@@ -668,7 +662,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   server.register('prGenerateGuides', async (args) => {
     const [ctx, numbers] = args
     const { repo, provider } = await reviewTargetFor(ctx)
-    const repoRoot = await repoRootForContext(ctx)
+    const repoRoot = await repoRootOrScope(ctx)
     requestPrGuides({
       dispatcher: deps.dispatcher,
       ctx,

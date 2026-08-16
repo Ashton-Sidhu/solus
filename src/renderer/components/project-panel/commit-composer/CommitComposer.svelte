@@ -3,9 +3,11 @@
     PaperPlaneTiltIcon,
     CircleNotchIcon,
     CheckIcon,
+    MagnifyingGlassIcon,
     XIcon,
     WarningCircleIcon,
   } from "phosphor-svelte";
+  import { Input } from "../../ui/input";
   import { Textarea } from "../../ui/textarea";
   import {
     runtime,
@@ -22,7 +24,7 @@
     type ConversationBounds,
   } from "../../pickers/lib/conversation-bounds";
   import { CommitComposerState } from "./lib/commit-composer.svelte";
-  import { STATUS_TONE_CLASS } from "./lib/commit-composer";
+  import { STATUS_TONE_CLASS, splitPath } from "./lib/commit-composer";
   import { changedFileTotals } from "../../../lib/diff-stats";
 
   interface Props {
@@ -77,6 +79,7 @@
     return () => cancelAnimationFrame(raf);
   });
 
+  const branchName = $derived(env.branch ?? null);
   const heading = $derived(
     action === "commit_push" ? "Commit and push files" : "Commit files",
   );
@@ -125,20 +128,40 @@
     aria-label={heading}
     aria-modal="true"
   >
+    <!-- Header, list, and footer enter as three staggered chunks rather than one
+         block, so the dialog assembles instead of appearing. -->
     <div
-      class="relative flex h-[2.875rem] flex-shrink-0 items-center gap-2 px-[1.125rem] after:absolute after:bottom-0 after:left-[1.125rem] after:right-[1.125rem] after:h-[0.0625rem] after:bg-(--solus-popover-border) after:opacity-[0.35] after:content-['']"
+      class="relative flex h-[3.25rem] flex-shrink-0 items-center gap-2.5 px-[1.125rem] after:absolute after:bottom-0 after:left-[1.125rem] after:right-[1.125rem] after:h-[0.0625rem] after:bg-(--solus-popover-border) after:opacity-[0.35] after:content-[''] [animation:commit-composer-section-in_260ms_cubic-bezier(0.22,1,0.36,1)_60ms_backwards]"
     >
-      <PaperPlaneTiltIcon
-        size={14}
-        weight="fill"
-        class="flex-shrink-0 text-(--solus-accent)"
-      />
-      <span class="text-[0.8125rem] font-medium text-(--solus-text-primary)"
-        >{heading}</span
+      <span
+        class="grid size-7 flex-shrink-0 place-items-center rounded-[0.5rem] bg-(--solus-accent-light) text-(--solus-accent) shadow-[inset_0_0_0_0.0625rem_var(--solus-accent-border)]"
       >
+        <PaperPlaneTiltIcon size={14} weight="fill" />
+      </span>
+      <div class="flex min-w-0 flex-col">
+        <span
+          class="truncate text-[0.8125rem] font-medium leading-tight text-(--solus-text-primary)"
+          >{heading}</span
+        >
+        <span
+          class="truncate text-menu-meta leading-tight text-(--solus-text-tertiary)"
+        >
+          {#if composer.loading}
+            Reading the working tree…
+          {:else}
+            <span class="tabular-nums">{composer.files.length}</span> changed file{composer
+              .files.length === 1
+              ? ""
+              : "s"}
+            {#if branchName}
+              on <span class="font-medium">{branchName}</span>
+            {/if}
+          {/if}
+        </span>
+      </div>
       <button
         type="button"
-        class="ml-auto inline-flex size-6 flex-shrink-0 cursor-pointer items-center justify-center rounded-md border-none bg-transparent text-(--solus-text-tertiary) transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) disabled:opacity-50"
+        class="relative ml-auto inline-flex size-7 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg border-none bg-transparent text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] disabled:opacity-50 after:absolute after:-inset-1.5 after:content-['']"
         onclick={onClose}
         disabled={actions.running}
         aria-label="Close"
@@ -148,118 +171,163 @@
     </div>
 
     <div
-      class="flex flex-shrink-0 items-center justify-between gap-2 px-[1.125rem] pb-1.5 pt-3"
+      class="flex flex-1 flex-col overflow-hidden [animation:commit-composer-section-in_260ms_cubic-bezier(0.22,1,0.36,1)_120ms_backwards]"
     >
-      <span class="text-xs text-(--solus-text-tertiary)">
-        {composer.selected.size} of {composer.files.length} selected
-        {#if composer.selected.size > 0}
-          · <span class="tabular-nums text-(--solus-status-complete)"
-            >+{selectedTotals.additions}</span
+      <div class="relative flex-shrink-0 px-[1.125rem] pt-3">
+        <MagnifyingGlassIcon
+          size={13}
+          class="pointer-events-none absolute left-[1.75rem] top-1/2 mt-[0.375rem] -translate-y-1/2 text-(--solus-text-tertiary)"
+        />
+        <Input
+          bind:value={composer.query}
+          placeholder="Filter files…"
+          spellcheck={false}
+          autocomplete="off"
+          aria-label="Filter changed files"
+          class="h-8 rounded-lg border-transparent bg-(--solus-input-bg-soft) pl-7 pr-7 text-xs shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-container-border)_70%,transparent)] focus-visible:border-transparent focus-visible:ring-[0.125rem] focus-visible:ring-[color-mix(in_srgb,var(--solus-accent)_30%,transparent)]"
+        />
+        {#if composer.query}
+          <button
+            type="button"
+            class="absolute right-[1.5rem] top-1/2 mt-[0.375rem] inline-flex size-5 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md border-none bg-transparent text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96]"
+            onclick={() => (composer.query = "")}
+            aria-label="Clear the filter"
           >
-          <span class="tabular-nums text-(--solus-status-error)"
-            >-{selectedTotals.deletions}</span
-          >
+            <XIcon size={11} />
+          </button>
         {/if}
-      </span>
-      <div class="flex items-center gap-1">
-        <button
-          type="button"
-          class="cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-0.5 text-xs text-(--solus-text-secondary) hover:text-(--solus-text-primary) disabled:opacity-50"
-          onclick={() => composer.selectAll()}
-          disabled={composer.loading || composer.files.length === 0}
-        >
-          Select all
-        </button>
-        <span class="text-(--solus-text-tertiary)">·</span>
-        <button
-          type="button"
-          class="cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-0.5 text-xs text-(--solus-text-secondary) hover:text-(--solus-text-primary) disabled:opacity-50"
-          onclick={() => composer.selectNone()}
-          disabled={composer.loading || composer.selected.size === 0}
-        >
-          Select none
-        </button>
+      </div>
+
+      <div
+        class="flex flex-shrink-0 items-center justify-between gap-2 px-[1.125rem] pb-1 pt-2.5"
+      >
+        <span class="min-w-0 truncate text-menu-meta text-(--solus-text-tertiary)">
+          <span class="tabular-nums">{composer.selected.size}</span> of
+          <span class="tabular-nums">{composer.files.length}</span> selected
+          {#if composer.selected.size > 0}
+            · <span class="tabular-nums text-(--solus-status-complete)"
+              >+{selectedTotals.additions}</span
+            >
+            <span class="tabular-nums text-(--solus-status-error)"
+              >−{selectedTotals.deletions}</span
+            >
+          {/if}
+        </span>
+        <div class="flex flex-shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            class="cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 text-menu-meta text-(--solus-text-secondary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] disabled:pointer-events-none disabled:opacity-40"
+            onclick={() => composer.selectAll()}
+            disabled={composer.loading || composer.visibleFiles.length === 0}
+          >
+            Select all
+          </button>
+          <button
+            type="button"
+            class="cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 text-menu-meta text-(--solus-text-secondary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] disabled:pointer-events-none disabled:opacity-40"
+            onclick={() => composer.selectNone()}
+            disabled={composer.loading || composer.visibleSelectedCount === 0}
+          >
+            None
+          </button>
+        </div>
+      </div>
+
+      <div class="min-h-[6rem] flex-1 overflow-y-auto px-3 pb-2">
+        {#if composer.loading}
+          <div
+            class="flex items-center gap-2 px-1.5 py-4 text-xs text-(--solus-text-tertiary)"
+          >
+            <CircleNotchIcon
+              size={14}
+              class="animate-spin [animation-duration:0.7s]"
+            />
+            Loading changed files…
+          </div>
+        {:else if composer.loadError}
+          <div
+            class="flex items-center gap-2 px-1.5 py-4 text-xs text-pretty text-(--solus-status-error)"
+          >
+            <WarningCircleIcon size={14} class="flex-shrink-0" />
+            {composer.loadError}
+          </div>
+        {:else if composer.files.length === 0}
+          <div class="px-1.5 py-4 text-xs text-(--solus-text-tertiary)">
+            No changed files.
+          </div>
+        {:else if composer.visibleFiles.length === 0}
+          <div class="px-1.5 py-4 text-xs text-pretty text-(--solus-text-tertiary)">
+            No file matches “{composer.query}”.
+          </div>
+        {:else}
+          <ul class="flex flex-col gap-px">
+            {#each composer.visibleFiles as file (file.path)}
+              {@const isSelected = composer.selected.has(file.path)}
+              {@const parts = splitPath(file.path)}
+              <li>
+                <button
+                  type="button"
+                  class="flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-left transition-colors duration-100 hover:bg-(--solus-surface-hover) {isSelected
+                    ? ''
+                    : 'opacity-70'}"
+                  onclick={() => composer.toggle(file.path)}
+                  aria-pressed={isSelected}
+                >
+                  <span
+                    class="grid size-[0.9375rem] flex-shrink-0 place-items-center rounded-[0.3125rem] transition-[background-color,box-shadow] duration-100 {isSelected
+                      ? 'bg-(--solus-accent) text-white shadow-[inset_0_0_0_0.0625rem_var(--solus-accent)]'
+                      : 'shadow-[inset_0_0_0_0.0625rem_var(--solus-container-border)]'}"
+                  >
+                    <CheckIcon
+                      size={10}
+                      weight="bold"
+                      class="transition-[opacity,scale,filter] duration-150 {isSelected
+                        ? 'scale-100 opacity-100 blur-none'
+                        : 'scale-[0.25] opacity-0 blur-[0.25rem]'}"
+                    />
+                  </span>
+                  <span
+                    class="w-3 flex-shrink-0 text-center text-menu-meta font-semibold {STATUS_TONE_CLASS[
+                      file.status
+                    ]}">{file.status}</span
+                  >
+                  <span class="flex min-w-0 flex-1 items-baseline font-mono text-xs">
+                    {#if parts.folders}
+                      <span
+                        class="min-w-0 flex-shrink truncate text-(--solus-text-tertiary)"
+                        >{parts.folders}</span
+                      >
+                    {/if}
+                    <span class="flex-shrink-0 truncate text-(--solus-text-primary)"
+                      >{parts.name}</span
+                    >
+                  </span>
+                  <span
+                    class="flex-shrink-0 text-menu-meta tabular-nums text-(--solus-status-complete)"
+                    >+{file.additions}</span
+                  >
+                  <span
+                    class="w-8 flex-shrink-0 text-menu-meta tabular-nums text-(--solus-status-error)"
+                    >−{file.deletions}</span
+                  >
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
       </div>
     </div>
 
-    <div class="min-h-[6rem] flex-1 overflow-y-auto px-[1.125rem] pb-2">
-      {#if composer.loading}
-        <div
-          class="flex items-center gap-2 py-4 text-xs text-(--solus-text-tertiary)"
-        >
-          <CircleNotchIcon
-            size={14}
-            class="animate-spin [animation-duration:0.7s]"
-          />
-          Loading changed files…
-        </div>
-      {:else if composer.loadError}
-        <div
-          class="flex items-center gap-2 py-4 text-xs text-(--solus-status-error)"
-        >
-          <WarningCircleIcon size={14} />
-          {composer.loadError}
-        </div>
-      {:else if composer.files.length === 0}
-        <div class="py-4 text-xs text-(--solus-text-tertiary)">
-          No changed files.
-        </div>
-      {:else}
-        <ul class="flex flex-col">
-          {#each composer.files as file (file.path)}
-            {@const isSelected = composer.selected.has(file.path)}
-            <li>
-              <button
-                type="button"
-                class="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left hover:bg-(--solus-surface-hover)"
-                onclick={() => composer.toggle(file.path)}
-                aria-pressed={isSelected}
-              >
-                <span
-                  class="grid size-3.5 flex-shrink-0 place-items-center rounded-[0.25rem] border transition-colors duration-100 {isSelected
-                    ? 'border-(--solus-accent) bg-(--solus-accent) text-white'
-                    : 'border-(--solus-container-border)'}"
-                >
-                  <CheckIcon
-                    size={11}
-                    weight="bold"
-                    class="transition-[opacity,scale] duration-150 {isSelected
-                      ? 'scale-100 opacity-100'
-                      : 'scale-50 opacity-0'}"
-                  />
-                </span>
-                <span
-                  class="w-3.5 flex-shrink-0 text-center text-xs font-medium {STATUS_TONE_CLASS[
-                    file.status
-                  ]}">{file.status}</span
-                >
-                <span
-                  class="min-w-0 flex-1 truncate font-mono text-xs text-(--solus-text-secondary)"
-                  >{file.path}</span
-                >
-                <span
-                  class="flex-shrink-0 text-xs tabular-nums text-(--solus-status-complete)"
-                  >+{file.additions}</span
-                >
-                <span
-                  class="flex-shrink-0 text-xs tabular-nums text-(--solus-status-error)"
-                  >-{file.deletions}</span
-                >
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </div>
-
-    <div class="flex-shrink-0 px-[1.125rem] pb-2">
+    <div
+      class="flex-shrink-0 px-[1.125rem] pb-2 [animation:commit-composer-section-in_260ms_cubic-bezier(0.22,1,0.36,1)_180ms_backwards]"
+    >
       <Textarea
         bind:ref={messageEl}
         bind:value={composer.message}
         placeholder="Commit message (optional — leave blank to generate one)"
         rows={2}
         disabled={actions.running}
-        class="w-full resize-none rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 py-1.5 text-xs text-(--solus-text-primary) outline-none focus:border-(--solus-accent)"
+        class="w-full resize-none rounded-lg border-transparent bg-(--solus-input-bg-soft) px-2.5 py-2 text-xs text-(--solus-text-primary) shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-container-border)_70%,transparent)] outline-none focus:border-transparent focus-visible:ring-[0.125rem] focus-visible:ring-[color-mix(in_srgb,var(--solus-accent)_30%,transparent)]"
         onSubmit={() => void submit()}
         submitOn="mod-enter"
       />
@@ -267,18 +335,22 @@
 
     {#if actions.actionError}
       <div
-        class="flex-shrink-0 px-[1.125rem] pb-2 text-xs text-(--solus-status-error)"
+        class="flex-shrink-0 px-[1.125rem] pb-2 text-xs text-pretty text-(--solus-status-error)"
       >
         {actions.actionError}
       </div>
     {/if}
 
     <div
-      class="relative flex h-[3.25rem] flex-shrink-0 items-center justify-end gap-1.5 px-[1.125rem] before:absolute before:left-[1.125rem] before:right-[1.125rem] before:top-0 before:h-[0.0625rem] before:bg-(--solus-popover-border) before:opacity-[0.35] before:content-['']"
+      class="relative flex h-[3.25rem] flex-shrink-0 items-center gap-1.5 px-[1.125rem] before:absolute before:left-[1.125rem] before:right-[1.125rem] before:top-0 before:h-[0.0625rem] before:bg-(--solus-popover-border) before:opacity-[0.35] before:content-[''] [animation:commit-composer-section-in_260ms_cubic-bezier(0.22,1,0.36,1)_180ms_backwards]"
     >
+      <span
+        class="min-w-0 flex-1 truncate text-menu-meta text-(--solus-text-tertiary)"
+        >⌘↵ to {submitLabel.toLowerCase()}</span
+      >
       <button
         type="button"
-        class="cursor-pointer rounded-md border-0 bg-transparent px-2.5 py-[0.3125rem] text-xs font-medium text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-secondary) disabled:opacity-50"
+        class="cursor-pointer rounded-lg border-0 bg-transparent px-2.5 py-[0.375rem] text-xs font-medium text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) active:scale-[0.96] disabled:pointer-events-none disabled:opacity-50"
         onclick={onClose}
         disabled={actions.running}
       >
@@ -286,7 +358,7 @@
       </button>
       <button
         type="button"
-        class="inline-flex cursor-pointer items-center gap-1.5 rounded-md border-0 bg-(--solus-accent) px-3 py-[0.3125rem] text-xs font-medium text-white transition-[opacity] duration-100 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+        class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-(--solus-accent) px-3 py-[0.375rem] text-xs font-medium text-white shadow-[0_0.0625rem_0.125rem_rgba(0,0,0,0.12),inset_0_0.0625rem_0_rgba(255,255,255,0.18)] transition-[opacity,scale] duration-100 hover:opacity-90 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100"
         disabled={!composer.canSubmit || actions.running}
         onclick={() => void submit()}
       >
@@ -304,12 +376,33 @@
 {/if}
 
 <style>
+  /* Scoped, unlayered, and therefore ahead of the utility classes that carry
+     these animations: a reduced-motion reader gets the finished dialog. */
+  @media (prefers-reduced-motion: reduce) {
+    div {
+      animation: none !important;
+    }
+  }
+
   @keyframes commit-composer-backdrop-in {
     from {
       opacity: 0;
     }
     to {
       opacity: 1;
+    }
+  }
+
+  /* One chunk of the dialog arriving. Delays stagger header → list → footer, so
+     the dialog assembles rather than appearing whole. */
+  @keyframes commit-composer-section-in {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 0.375rem, 0);
+    }
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0);
     }
   }
 

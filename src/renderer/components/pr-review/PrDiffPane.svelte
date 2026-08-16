@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
   import type { PrReviewTarget } from "../../../shared/providers";
+  import { projectScopeOf } from "../../../shared/types";
   import { getWorkspaceContext } from "../../contexts";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
@@ -93,7 +94,7 @@
         tabId={reviewTabId}
         getCtx={() => review.ctx}
         getApi={() => review.api}
-        projectPath={checkout?.worktreePath ?? params.cwd ?? review.ctx.session.projectPath ?? review.ctx.session.workingDirectory}
+        projectPath={checkout?.worktreePath ?? params.cwd ?? projectScopeOf(review.ctx.session)}
         worktreePath={checkout?.worktreePath}
         worktreeBranch={pr.headRef}
         targetBranch={pr.baseRef}

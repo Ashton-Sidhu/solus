@@ -9,7 +9,7 @@
   } from "phosphor-svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { CommentEditor } from "../ui/comment-editor";
-  import type { ChangedFileStat, IpcContext } from "../../../shared/types";
+  import { projectScopeOf, type ChangedFileStat, type IpcContext } from "../../../shared/types";
   import type {
     ReviewThread,
     ReviewComment,
@@ -132,7 +132,7 @@
     return subscribeAllHosts("pr.lifecycleChanged", (eventServerId, event) => {
       if (eventServerId !== serverId || event.detail.number !== number) return;
       const ctx = feedCtx().session;
-      if (event.projectRoot !== (ctx.projectPath || ctx.workingDirectory)) return;
+      if (event.projectRoot !== projectScopeOf(ctx)) return;
       detail = event.detail;
       onDetailChanged?.(event.detail);
     });

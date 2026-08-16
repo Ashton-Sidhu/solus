@@ -4,7 +4,6 @@ import {
   linkedTableLinks,
   taskPageCapabilities,
   taskProviderLabel,
-  taskSubtaskRow,
 } from '../../src/renderer/components/tasks/task-page/lib/task-page'
 import {
   commentSyncState,
@@ -50,31 +49,6 @@ describe('task page capabilities', () => {
       providerId: 'github',
       canEditPlanningFields: true,
     } as Task).canEditPlanningFields).toBe(true)
-  })
-})
-
-describe('task page subtasks', () => {
-  test('keeps durable children visible with their own lifecycle and attempts', () => {
-    // WHY: the session sidebar already shows child tasks. Dropping the same
-    // records from the parent task page makes the Tasks surface look stale.
-    const child = {
-      id: 'child',
-      providerId: 'local',
-      kind: 'task',
-      title: 'Restore GitHub connection state',
-      body: '',
-      status: 'in_review',
-      url: null,
-      labels: [],
-      parentId: 'parent',
-      updatedAt: 1,
-    } satisfies Task
-
-    expect(taskSubtaskRow(child, 2)).toEqual({
-      task: child,
-      statusLabel: 'In review',
-      sessionLabel: '2 sessions',
-    })
   })
 })
 

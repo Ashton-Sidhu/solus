@@ -42,7 +42,6 @@
   import TaskLinkedTable from "./TaskLinkedTable.svelte";
   import TaskSessionsList from "./TaskSessionsList.svelte";
   import TaskSidebar from "./TaskSidebar.svelte";
-  import TaskSubtasksList from "./TaskSubtasksList.svelte";
 
   let {
     params,
@@ -70,7 +69,6 @@
   const details = $derived(store.detailsFor(taskId));
   const links = $derived(details?.links ?? []);
   const sessions = $derived(store.sessionsByTask.get(taskId) ?? []);
-  const subtasks = $derived(details?.subtasks ?? []);
   const projectCwd = $derived(
     task?.projectKey ?? session.tasksProjectCwd ?? undefined,
   );
@@ -363,9 +361,6 @@
       .catch((err) => toastError("unlink this session", err));
   }
 
-  function openSubtask(subtaskId: string) {
-    session.goToTask(subtaskId, "click");
-  }
 
   async function stopSession(sessionId: string) {
     try {
@@ -469,15 +464,6 @@
             onUnlink={removeLink}
             onAdd={() => (picking = true)}
           />
-
-          {#if subtasks.length}
-            <TaskSubtasksList
-              {subtasks}
-              sessionsFor={(subtaskId) =>
-                store.sessionsByTask.get(subtaskId)?.length ?? 0}
-              onOpen={openSubtask}
-            />
-          {/if}
 
           {#if sessions.length}
             <TaskSessionsList

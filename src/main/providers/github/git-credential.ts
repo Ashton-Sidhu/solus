@@ -1,5 +1,4 @@
-import { loadToken } from './token-store'
-import { loadDelegation } from './delegation-store'
+import { delegatedGithubToken, hostGithubToken } from './credentials'
 import { text } from 'node:stream/consumers'
 
 /**
@@ -16,16 +15,6 @@ const SUPPORTED_HOST = 'github.com'
 const TOKEN_USERNAME = 'x-access-token'
 
 export type GitCredentialAction = 'get' | 'store' | 'erase'
-
-/** Resolve the GitHub token owned by this host or by one paired device. */
-export function loadGitHubAccessToken(deviceId?: string): string | null {
-  try {
-    if (deviceId) return loadDelegation(deviceId)?.accessToken ?? null
-    return loadToken()?.accessToken ?? null
-  } catch {
-    return null
-  }
-}
 
 export function coerceGitCredentialAction(value: string | undefined): GitCredentialAction {
   if (value === 'get' || value === 'store' || value === 'erase') return value
@@ -76,7 +65,7 @@ export async function runGitCredentialHelper(
   if (action !== 'get') return
 
   const fields = parseCredentialRequest(await text(stdin))
-  const token = loadGitHubAccessToken(deviceId)
+  const token = deviceId ? delegatedGithubToken(deviceId) : hostGithubToken()
   const credential = credentialFor(fields, token)
   if (credential) stdout.write(`username=${credential.username}\npassword=${credential.password}\n`)
 }

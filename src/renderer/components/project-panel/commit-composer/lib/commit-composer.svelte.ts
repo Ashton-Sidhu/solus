@@ -1,7 +1,7 @@
 import { SvelteSet } from 'svelte/reactivity'
 import type { ChangedFileStat, IpcContext } from '../../../../../shared/types'
 import type { HostApi } from '@client-core/host-api'
-import { orderedSelection } from './commit-composer'
+import { filterFiles, orderedSelection } from './commit-composer'
 
 /** Ephemeral state for one open Commit composer: the changed-file list it
  *  fetched, the user's selection, and their draft message. Lives only as long
@@ -12,6 +12,7 @@ export class CommitComposerState {
   loadError = $state<string | null>(null)
   selected = new SvelteSet<string>()
   message = $state('')
+  query = $state('')
 
   async load(api: HostApi, ctx: IpcContext): Promise<void> {
     this.loading = true
@@ -33,12 +34,22 @@ export class CommitComposerState {
     else this.selected.add(path)
   }
 
+  /** Both act on what the search currently shows: with a query up, "Select all"
+   *  that reached past the visible rows would commit files the user cannot see. */
   selectAll(): void {
-    for (const file of this.files) this.selected.add(file.path)
+    for (const file of this.visibleFiles) this.selected.add(file.path)
   }
 
   selectNone(): void {
-    this.selected.clear()
+    for (const file of this.visibleFiles) this.selected.delete(file.path)
+  }
+
+  get visibleFiles(): ChangedFileStat[] {
+    return filterFiles(this.files, this.query)
+  }
+
+  get visibleSelectedCount(): number {
+    return this.visibleFiles.reduce((count, file) => count + (this.selected.has(file.path) ? 1 : 0), 0)
   }
 
   get selectedFiles(): ChangedFileStat[] {

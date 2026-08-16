@@ -1,12 +1,16 @@
 <script lang="ts">
   import { localApi } from "@client-core/local-api";
   import {
+    ArrowSquareOutIcon,
     ArrowsClockwiseIcon,
     CaretRightIcon,
     CloudArrowUpIcon,
     EyeglassesIcon,
     GitCommitIcon,
+    GithubLogoIcon,
     GitPullRequestIcon,
+    LinkIcon,
+    MagnifyingGlassIcon,
     PaperPlaneTiltIcon,
     TrashIcon,
     WarningCircleIcon,
@@ -35,13 +39,12 @@
   } from "./MenuRow.svelte";
   import { checksPresentation } from "../prs/lib/checks";
   import type { PullRequestSummary } from "../../../shared/providers";
+  import type { GitAction } from "../../../shared/types";
   import { serverConnections } from "@client-core/server-connections";
-  import {
-    publishStepStates,
-    primaryGitAction,
-    type GitPublishStep,
-  } from "./lib/git-action-selection";
+  import { gitPublishModel, type GitMenuStep } from "./lib/git-action-selection";
+  import { repositorySetupStore } from "../../contexts/git/repository-setup.store.svelte";
   import CommitComposer from "./commit-composer/CommitComposer.svelte";
+  import PublishRepositoryDialog from "./publish-repository/PublishRepositoryDialog.svelte";
 
   interface Props {
     /** The tab or draft whose run this section describes — see `ProjectPanel`. */
@@ -80,14 +83,27 @@
   const canGit = $derived(!!env.branch);
   const canViewDiff = $derived(!!status);
   const prUrl = $derived(actions.prUrl || status?.prUrl || null);
-  const primaryAction = $derived(primaryGitAction(status));
-  // The caret menu offers the publish steps "Commit and push" bundles. A step
-  // that cannot apply stays listed and quiet, carrying the reason it can't run.
-  const publishSteps = $derived(publishStepStates(status));
-  const PUBLISH_STEP_ICON = {
+
+  // One reading of the project's Git state backs every row and both menus, so a
+  // row label and its menu can never report different states. It also carries
+  // the readiness stage: a project with no remote publishes from the pull
+  // request row instead of committing into nowhere.
+  const model = $derived(
+    gitPublishModel(status, {
+      repository: repositorySetupStore.statusFor(detailServerId, env.cwd),
+      githubConnected: repositorySetupStore.githubConnectedFor(
+        detailServerId,
+        env.cwd,
+      ),
+    }),
+  );
+  const primaryAction = $derived(model.pullRequest.primary);
+  const MENU_STEP_ICON = {
+    commit_with_options: GitCommitIcon,
+    commit_only: GitCommitIcon,
     push: CloudArrowUpIcon,
     create_pull_request: GitPullRequestIcon,
-  } satisfies Record<GitPublishStep["key"], ActionRowIcon>;
+  } satisfies Record<GitMenuStep["key"], ActionRowIcon>;
   const isCommitActionRunning = $derived(
     actions.running &&
       (actions.activeAction === "commit" ||
@@ -146,17 +162,24 @@
       requestInputFocus();
       return;
     }
+    // Publishing creates the remote this row needs, and the dialog is also
+    // where a missing GitHub connection is reported.
+    if (primaryAction.kind === "publish" || primaryAction.kind === "connect") {
+      publishDialogOpen = true;
+      return;
+    }
     if (primaryAction.kind !== "run") return;
     void actions.run(primaryAction.action, {
       createFeatureBranch: primaryAction.createFeatureBranch,
     });
   }
 
-  // --- Rows, in the order 5c lays them out. Commit and push is the one-click
-  //     action; its caret drops the by-hand version of it and the publish steps
-  //     it bundles. Pull requests use the status-aware primary action
-  //     directly. ---
+  // --- Rows, in the order 5c lays them out. The commit row owns local work and
+  //     the push that carries it; the pull request row owns the remote and the
+  //     pull request, including creating the remote. Each row's caret drops the
+  //     by-hand version of the steps its primary action bundles. ---
   const actionDefs = $derived.by<ActionDef[]>(() => {
+    const commitPrimary = model.commit.primary;
     const defs: ActionDef[] = [
       {
         key: "commit",
@@ -165,16 +188,19 @@
             ? actions.activeLabel
             : actions.lastResult?.commit.status === "created"
               ? "Committed"
-              : "Commit and push",
+              : commitPrimary.label,
         icon: PaperPlaneTiltIcon,
         // No trailing count: the changed-file total already sits on the stats
         // line under the branch, and repeating it here reads as a second,
         // different number.
         phase: commitPhase,
         hint: comboHint("orb.commit-push"),
-        disabled: !canGit || actions.running,
+        disabled: !canGit || actions.running || commitPrimary.kind !== "run",
+        tooltip:
+          commitPrimary.kind === "disabled" ? commitPrimary.reason : undefined,
         run: () => {
-          void actions.run("commit_push");
+          if (commitPrimary.kind !== "run") return;
+          void actions.run(commitPrimary.action);
         },
         caretAction: { ariaLabel: "More commit actions", menu: "commit" },
       },
@@ -194,7 +220,8 @@
               ? "error"
               : "idle",
         hint: comboHint("orb.sync"),
-        disabled: !canGit || actions.syncing,
+        disabled: !canGit || actions.syncing || model.sync.disabled,
+        tooltip: model.sync.reason,
         run: () => {
           void actions.sync();
         },
@@ -205,9 +232,16 @@
           isPullRequestActionRunning && actions.activeLabel
             ? actions.activeLabel
             : primaryAction.label,
-        icon: GitPullRequestIcon,
+        // The row keeps its position at every stage; at `local-only` it stands
+        // for publishing, so it takes the glyph of what it actually does.
+        icon:
+          primaryAction.kind === "publish" || primaryAction.kind === "connect"
+            ? GithubLogoIcon
+            : GitPullRequestIcon,
         phase: prPhase,
         disabled: primaryAction.kind === "disabled" || actions.running,
+        tooltip:
+          primaryAction.kind === "disabled" ? primaryAction.reason : undefined,
         run: runPrimaryAction,
         caretAction: {
           ariaLabel: "More pull request actions",
@@ -419,6 +453,34 @@
       .catch(() => {});
   });
 
+  // The readiness stage decides what every row means, so the rows read the
+  // repository probe themselves rather than depending on the setup card being
+  // mounted beside them. The store de-duplicates the request either way.
+  let requestedSetupFor: string | null = null;
+  $effect(() => {
+    if (!env.cwd || env.cwd === "~" || !prApi) return;
+    const key = `${detailServerId}\0${env.cwd}`;
+    if (requestedSetupFor === key) return;
+    requestedSetupFor = key;
+    void repositorySetupStore.refresh(prApi, detailServerId, env.cwd);
+  });
+
+  // Only the publish path needs the GitHub connection, so an already-published
+  // project never pays for the probe.
+  let requestedConnectionFor: string | null = null;
+  $effect(() => {
+    if (model.readiness !== "local-only" || !prApi) return;
+    const key = `${detailServerId}\0${env.cwd}`;
+    if (requestedConnectionFor === key) return;
+    requestedConnectionFor = key;
+    void repositorySetupStore.refreshGithubConnection(
+      prApi,
+      detailServerId,
+      session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
+      env.cwd,
+    );
+  });
+
   // Only the Environment section watches detailed status, and sections unmount
   // when collapsed — without our own watch the PR row would go blank whenever
   // that section is closed.
@@ -437,13 +499,37 @@
   // demand and unmounts on close, unlike the persistently-mounted panel content
   // the rest of this component drives.
   let commitComposerOpen = $state(false);
+  // The composer commits as far as the row does: to the remote once there is
+  // one, locally while the project is still unpublished.
+  let composerAction = $state<Extract<GitAction, "commit" | "commit_push">>(
+    "commit_push",
+  );
 
-  function openCommitComposer() {
+  function openCommitComposer(step: GitMenuStep) {
+    if (step.action === "commit" || step.action === "commit_push")
+      composerAction = step.action;
     commitComposerOpen = true;
   }
 
   function closeCommitComposer() {
     commitComposerOpen = false;
+    requestInputFocus();
+  }
+
+  let publishDialogOpen = $state(false);
+
+  function closePublishDialog() {
+    publishDialogOpen = false;
+    requestInputFocus();
+  }
+
+  async function copyPrLink(url: string) {
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(url);
+      toasts.success("Copied pull request link");
+    } catch {
+      toasts.error("Couldn't copy the link");
+    }
     requestInputFocus();
   }
 
@@ -722,33 +808,64 @@
     class="menu-surface z-[10002] w-[264px] gap-0 rounded-lg bg-(--solus-menu-bg) p-1.5 text-menu lg:text-menu shadow-[shadow:var(--solus-menu-shadow)] ring-0"
   >
     {#if openMenuKey === "commit"}
-      {@render popRow("Commit", {
-        icon: GitCommitIcon,
-        onclick: () => {
-          closeRowMenu();
-          openCommitComposer();
-        },
-        disabled: !canGit || actions.running || uncommittedFileCount === 0,
-        title:
-          uncommittedFileCount === 0
-            ? "There are no uncommitted changes."
-            : undefined,
-      })}
-      {#each publishSteps as step (step.key)}
+      {#each model.commit.steps as step (step.key)}
         {@render popRow(step.label, {
-          icon: PUBLISH_STEP_ICON[step.key],
+          icon: MENU_STEP_ICON[step.key],
           onclick: () => {
             closeRowMenu();
-            void actions.run(step.action);
+            // "Commit…" is the with-options half of the row: it opens the
+            // composer rather than running straight away.
+            if (step.key === "commit_with_options") openCommitComposer(step);
+            else void actions.run(step.action);
           },
-          disabled: step.disabled || actions.running,
+          disabled: step.disabled || !canGit || actions.running,
           title: step.reason,
         })}
       {/each}
     {:else if openMenuKey === "pull-requests"}
+      <!-- This branch's pull request: the steps its primary action bundles,
+           then the ways to reach the pull request it already has. -->
+      {#each model.pullRequest.steps as step (step.key)}
+        {@render popRow(step.label, {
+          icon: MENU_STEP_ICON[step.key],
+          onclick: () => {
+            closeRowMenu();
+            void actions.run(step.action);
+          },
+          disabled: step.disabled || !canGit || actions.running,
+          title: step.reason,
+        })}
+      {/each}
+      {#if prUrl}
+        {@render popRow("View on GitHub", {
+          icon: ArrowSquareOutIcon,
+          onclick: () => {
+            closeRowMenu();
+            localApi.openExternal(prUrl);
+          },
+        })}
+        {@render popRow("Copy link", {
+          icon: LinkIcon,
+          onclick: () => {
+            closeRowMenu();
+            void copyPrLink(prUrl);
+          },
+        })}
+        {#if activePr}
+          {@const branchPr = activePr}
+          {@render popRow("Open in review pane", {
+            icon: EyeglassesIcon,
+            onclick: () => openPr(branchPr),
+          })}
+        {/if}
+        {@render popDivider()}
+      {/if}
       {#if openPrs.length > 0}
         {#each openPrs.slice(0, 5) as pr (pr.number)}
+          <!-- The list entries carry the glyph too: without it their labels
+               would sit in a different column from every row around them. -->
           {@render popRow(pr.title, {
+            icon: GitPullRequestIcon,
             onclick: () => openPr(pr),
             trail: `#${pr.number}`,
           })}
@@ -756,6 +873,7 @@
         {@render popDivider()}
       {/if}
       {@render popRow("Review a PR…", {
+        icon: MagnifyingGlassIcon,
         onclick: () => {
           closeRowMenu();
           window.dispatchEvent(
@@ -776,12 +894,16 @@
 {#if commitComposerOpen}
   <CommitComposer
     {sourceId}
-    action="commit_push"
+    action={composerAction}
     {session}
     {environmentStore}
     {actions}
     onClose={closeCommitComposer}
   />
+{/if}
+
+{#if publishDialogOpen}
+  <PublishRepositoryDialog {sourceId} onClose={closePublishDialog} />
 {/if}
 
 <style>

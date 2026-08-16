@@ -265,6 +265,7 @@ describe('renderer task hydration', () => {
         { ...task(), id: 'child', parentId: 'parent' },
       ],
       sessionsByTask: {
+        parent: [{ taskId: 'parent', sessionId: 'resumed-session', role: 'referenced', linkedAt: 0 }],
         child: [{ taskId: 'child', sessionId: 'resumed-session', linkedAt: 1 }],
       },
     })
@@ -272,6 +273,12 @@ describe('renderer task hydration', () => {
 
     expect(store.taskForSession('resumed-session')?.id).toBe('child')
     expect(store.tasks.map(({ id }) => id).sort()).toEqual(['child', 'parent'])
+    expect(store.attemptsForTask('parent').map(({ sessionId }) => sessionId)).toEqual([
+      'resumed-session',
+    ])
+    expect(store.attemptsForTask('child').map(({ sessionId }) => sessionId)).toEqual([
+      'resumed-session',
+    ])
   })
 
   test('restores a durable PR link from the cold-start sidebar snapshot', async () => {
