@@ -17,7 +17,7 @@ export interface SlashCommandRunContext {
   api: HostApi;
   argument: string;
   ipcContext: IpcContext;
-  clearTab: () => void;
+  clearCurrentConversation: () => void;
   addSystemMessage: (message: string) => void;
   appendGlobalInstructions: (text: string) => void;
   requestInputFocus: () => void;
@@ -48,10 +48,10 @@ export function codexSlashCommands(provider: AgentId, includeSolusCommands: bool
 export const SLASH_COMMANDS: SlashCommand[] = [
   {
     command: "/clear",
-    description: "Clear conversation history",
+    description: "Clear current conversation",
     iconComponent: TrashIcon,
     allowReadOnly: true,
-    run: ({ clearTab }) => clearTab(),
+    run: ({ clearCurrentConversation }) => clearCurrentConversation(),
   },
   {
     command: "/update-agent-files",

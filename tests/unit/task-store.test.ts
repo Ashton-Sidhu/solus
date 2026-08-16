@@ -616,6 +616,46 @@ describe('session minting and durable links', () => {
     })
   })
 
+  test('manual session rename does not rename a task shared by other sessions', async () => {
+    // WHY: the sidebar can group several distinct attempts under one task. A
+    // session rename belongs to one attempt and must not replace the shared
+    // row's task title or make its sibling sessions appear to share a name.
+    const task = await taskSessions.prepareSessionTask({
+      sessionId: 'first-session',
+      prompt: 'Shared task title',
+    })
+    await (await tasks.Task.byId(task!.id)).linkSession('second-session', 'working')
+    db.getDb().prepare(`
+      INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp)
+      VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)
+    `).run(
+      'first-session', 'codex', 'First prompt', 'First session name', 1,
+      'second-session', 'codex', 'Second prompt', 'Second session name', 2,
+    )
+
+    const { SolusServer } = await import('../../src/main/server/server')
+    const { registerHistoryHandlers } = await import('../../src/main/server/handlers/history-handlers')
+    const { HostEventPublisher } = await import('../../src/main/events/host-event-publisher')
+    const { ClientEventRegistry } = await import('../../src/main/events/client-event-registry')
+    const server = new SolusServer()
+    // SAFETY: this test invokes only setSessionTitle, whose handler does not
+    // read ControlPlane. The empty object prevents unrelated handler work.
+    const controlPlane = {} as never
+    registerHistoryHandlers(server, {
+      controlPlane,
+      events: new HostEventPublisher(new ClientEventRegistry()),
+      agentIdFromContext: () => 'codex',
+    })
+
+    await server.handle('setSessionTitle', ['second-session', 'Renamed second session', 'manual'])
+
+    expect((await tasks.Task.byId(task!.id)).record()).toMatchObject({
+      title: 'Shared task title',
+    })
+    expect((await taskSessions.taskSessions(task!.id))[task!.id].map((link) => link.sessionTitle))
+      .toEqual(['First session name', 'Renamed second session'])
+  })
+
   test('explicit binding stamps provenance on the attempt', async () => {
     const task = await taskStore.createTask({ title: 'Existing task' })
     const bound = await taskSessions.prepareSessionTask({

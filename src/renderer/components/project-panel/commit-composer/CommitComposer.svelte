@@ -7,9 +7,20 @@
     WarningCircleIcon,
   } from "phosphor-svelte";
   import { Textarea } from "../../ui/textarea";
-  import type { WorkspaceContext, SessionEnvironmentStore } from "../../../contexts";
+  import {
+    runtime,
+    type WorkspaceContext,
+    type SessionEnvironmentStore,
+  } from "../../../contexts";
   import type { GitActions } from "../../../lib/git-actions.svelte";
   import type { GitAction } from "../../../../shared/types";
+  import { getPopoverLayer } from "../../popoverLayer.svelte";
+  import { portal } from "../../portal";
+  import {
+    centringPadding,
+    observeConversationBounds,
+    type ConversationBounds,
+  } from "../../pickers/lib/conversation-bounds";
   import { CommitComposerState } from "./lib/commit-composer.svelte";
   import { STATUS_TONE_CLASS } from "./lib/commit-composer";
   import { changedFileTotals } from "../../../lib/diff-stats";
@@ -30,6 +41,22 @@
     environmentStore.environmentFor(session.runFor(sourceId)),
   );
   const api = $derived(session.apiFor(sourceId));
+
+  // Same centring contract as the pickers: the dialog belongs to the
+  // conversation it was opened from, so it centres on that column rather than
+  // the window — an open sidebar and project panel push a window-centred dialog
+  // visibly off-axis. Centring on measured viewport coordinates only holds while
+  // the overlay is viewport-anchored, so it portals to the app-root layer rather
+  // than trusting every ancestor of the panel to stay free of a containing block.
+  const layer = getPopoverLayer();
+  let viewportWidth = $state(0);
+  let conversationBounds = $state<ConversationBounds | null>(null);
+  const centringStyle = $derived(
+    runtime.isMobileViewport
+      ? ""
+      : centringPadding(conversationBounds, viewportWidth),
+  );
+  $effect(() => observeConversationBounds((bounds) => (conversationBounds = bounds)));
 
   const composer = new CommitComposerState();
   $effect(() => {
@@ -76,11 +103,16 @@
   }
 </script>
 
+<svelte:window bind:innerWidth={viewportWidth} />
+
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
+{#if layer.el}
 <div
+  use:portal={layer.el}
   data-solus-ui
-  class="fixed inset-0 z-[10008] flex items-start justify-center pt-[13vh] pointer-events-auto bg-transparent [animation:commit-composer-backdrop-in_160ms_ease_both]"
+  class="fixed inset-0 z-[10008] flex items-center justify-center overflow-hidden overscroll-contain pointer-events-auto bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] [animation:commit-composer-backdrop-in_160ms_ease_both]"
+  style={centringStyle}
   role="presentation"
   onclick={(e) => {
     if (e.target === e.currentTarget && !actions.running) onClose();
@@ -269,6 +301,7 @@
     </div>
   </div>
 </div>
+{/if}
 
 <style>
   @keyframes commit-composer-backdrop-in {

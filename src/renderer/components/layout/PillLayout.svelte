@@ -75,6 +75,7 @@
   let inputFocused = $state(false);
   const pickerOpen = $derived(!isEditorMode && session.sessionPickerOpen);
   const taskPickerOpen = $derived(!isEditorMode && session.taskPickerOpen);
+  let prompt = $derived(session.inputFor(session.activeTabId));
 
   // A tab that has not started a conversation has nothing above the bar to
   // show, so a new tab leaves the pill as just the bar rather than opening onto
@@ -424,7 +425,7 @@
             tabId={session.activeTabId}
             isPrimary
             run={session.activeSession?.run}
-            prompt={session.inputFor(session.activeTabId)}
+            bind:prompt
           >
             {#snippet leadingActions()}
               <InputToolbar
