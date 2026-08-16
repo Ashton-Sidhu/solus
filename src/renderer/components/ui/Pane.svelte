@@ -49,13 +49,6 @@
         <ConversationPaneSkeleton />
       {:else}
         <div class="flex h-full min-h-32 w-full flex-col">
-          {#if descriptor.placement === "overlay"}
-            <PaneChrome
-              onClose={actions.closeOverlay}
-              isLeading={actions.isLeading}
-              closeLabel="Close loading pane"
-            />
-          {/if}
           <div
             class="workspace-titlebar h-(--solus-chrome-row-h) shrink-0"
             aria-hidden="true"
@@ -66,6 +59,15 @@
           >
             Loading…
           </div>
+          {#if descriptor.placement === "overlay"}
+            <!-- After the chrome row: drag rects are collected in DOM order, so
+                 the cluster's no-drag holes must come after the row's drag rect. -->
+            <PaneChrome
+              onClose={actions.closeOverlay}
+              isLeading={actions.isLeading}
+              closeLabel="Close loading pane"
+            />
+          {/if}
         </div>
       {/if}
     {:then routeModule}

@@ -277,10 +277,12 @@ export async function prepareHostCheckout(
 ): Promise<PreparedHostCheckout> {
   const cloneUrl = cloneUrlForRepoKey(repoKey)
   if (!cloneUrl) throw new Error('This repository does not have a cloneable remote.')
-  // A web client has no local credential store of its own: there, LOCAL_SERVER_ID
-  // resolves onto the target itself, and the host uses its own token as before.
+  // Credential delegation carries the client machine's GitHub token to the
+  // dispatch target. A web client has no machine (and no credential store) of
+  // its own, so the target host uses its own token as before.
+  const clientMachineServerId = serverConnections.localServerId()
   let credential: GithubDelegatedCredential | undefined
-  if (serverConnections.resolveId(LOCAL_SERVER_ID) !== serverId) {
+  if (clientMachineServerId && clientMachineServerId !== serverId) {
     try {
       credential = await apis.local.githubExportCredential()
     } catch (error) {

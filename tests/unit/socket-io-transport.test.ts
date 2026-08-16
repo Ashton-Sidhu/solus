@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createServer, type Server as HttpServer } from 'http'
-import { issueSessionToken, resetAuthStateForTests, revokeDevice, verifySessionToken } from '../../src/main/server/auth'
+import { issueSessionToken, issueWsTicket, resetAuthStateForTests, revokeDevice, verifySessionToken } from '../../src/main/server/auth'
+import { io } from 'socket.io-client'
 import { SolusServer } from '../../src/main/server/server'
 import { ClientEventRegistry } from '../../src/main/events/client-event-registry'
 import { HostEventPublisher } from '../../src/main/events/host-event-publisher'
 import { attachWebSocketTransport, FRAME_COMPRESSION_OPTIONS, isLoopbackAddress } from '../../src/main/transports/websocket'
 import { WsTransport, type ConnectionStatus } from '../../src/client-core/ws-transport'
+import { HostSupervisor } from '../../src/client-core/host-supervisor'
+import type { SolusAPI } from '../../src/preload'
 
 interface Harness {
   server: SolusServer
@@ -44,6 +47,27 @@ describe('Socket.IO transport', () => {
     expect(isLoopbackAddress('192.168.1.10')).toBe(false)
   })
 
+  test('rejects a long-lived session token in the socket handshake', async () => {
+    // WHY: the session token may travel only in the HTTP Authorization header.
+    // Accepting it in Socket.IO auth would preserve the dispatch migration's
+    // retired credential path and defeat the short-lived ticket boundary.
+    const harness = await createHarness(true)
+    const sessionToken = issueSessionToken('Legacy browser').token
+    const socket = io(harness.url, {
+      path: '/ws',
+      transports: ['websocket'],
+      reconnection: false,
+      auth: { token: sessionToken, clientInstanceId: 'legacy_browser_1234' },
+    })
+    cleanups.push(() => socket.disconnect())
+
+    const error = await new Promise<Error & { data?: { code?: string } }>((resolve, reject) => {
+      socket.once('connect', () => reject(new Error('legacy handshake unexpectedly connected')))
+      socket.once('connect_error', resolve)
+    })
+    expect(error.data?.code).toBe('UNAUTHORIZED')
+  })
+
   test('requeues an unanswered RPC across reconnect and runs its handler once', async () => {
     const harness = await createHarness(false)
     let calls = 0
@@ -69,6 +93,21 @@ describe('Socket.IO transport', () => {
 
     expect(await response).toEqual({ installationId: 'server-1' })
     expect(calls).toBe(1)
+  })
+
+  test('surfaces an RPC handler error instead of rejecting its ack envelope', async () => {
+    const harness = await createHarness(false)
+    harness.server.register('connectionsGetServerInfo', () => {
+      throw new Error('snapshot read failed')
+    })
+
+    const client = createClient(harness.url)
+    client.start()
+    await waitForStatus(client, 'connected')
+    // SAFETY: buildSolusApi installs every RPC method declared by SolusAPI.
+    const api = client.buildSolusApi() as SolusAPI
+
+    await expect(api.connectionsGetServerInfo()).rejects.toThrow('snapshot read failed')
   })
 
   test('refreshes once after auth rejection, then blocks if that token is revoked', async () => {
@@ -151,7 +190,20 @@ describe('Socket.IO transport', () => {
 })
 
 async function createHarness(requireAuth: boolean, bindHost = '127.0.0.1', urlHost = bindHost): Promise<Harness> {
-  const http = createServer()
+  const http = createServer((request, response) => {
+    if (request.method === 'POST' && request.url === '/auth/ws-ticket') {
+      const authorization = request.headers.authorization
+      const ticket = authorization?.startsWith('Bearer ')
+        ? issueWsTicket(authorization.slice('Bearer '.length))
+        : null
+      response.statusCode = ticket ? 200 : 401
+      response.setHeader('content-type', 'application/json')
+      response.end(JSON.stringify(ticket ? { ticket } : { error: 'unauthorized' }))
+      return
+    }
+    response.statusCode = 404
+    response.end()
+  })
   const server = new SolusServer()
   const clientEvents = new ClientEventRegistry()
   const events = new HostEventPublisher(clientEvents)
@@ -166,6 +218,15 @@ async function createHarness(requireAuth: boolean, bindHost = '127.0.0.1', urlHo
 
 function createClient(url: string, overrides: Partial<ConstructorParameters<typeof WsTransport>[0]> = {}): WsTransport {
   const client = new WsTransport({ serverUrl: url, sessionToken: '', ...overrides })
+  // The supervisor is the sole retry owner (dispatch-client step 3): the
+  // harness attaches a fast-ladder one so a drop redials the SAME socket —
+  // which is exactly what keeps connection-state recovery working.
+  const supervisor = new HostSupervisor({
+    transport: client,
+    setTimeoutFn: ((handler: () => void) => setTimeout(handler, 10)) as typeof setTimeout,
+  })
+  client.attachDialOutcomeReporter((outcome) => supervisor.report(outcome))
+  cleanups.push(() => supervisor.destroy())
   cleanups.push(() => client.destroy())
   return client
 }

@@ -1,13 +1,21 @@
 import type { AgentId, IpcContext, SessionMeta, SessionScanEvent } from '../../shared/types'
 import type { HostApi } from '@client-core/host-api'
 import { stampSessionMetas } from '@client-core/session-meta'
+import type { DomainSyncState, Freshness } from '@client-core/freshness'
+import type { SessionSnapshotCache } from '@client-core/session-snapshot-cache'
 
 export interface SessionHistorySource {
   id: string
   projectPath: string
   provider?: AgentId
-  /** The host that holds this path. Absent means this client's own host. */
-  serverId?: string
+  /** The host that holds this path. Every source names one. */
+  serverId: string
+  /** Logical repository this path is a checkout of, when known — persisted
+   *  with the snapshot so an unreachable host's sources can be re-scoped. */
+  repoKey?: string
+  /** Render last-known rows without dialling the host: it is unreachable,
+   *  and a scan would only wait on a socket that retries forever. */
+  cachedOnly?: boolean
 }
 
 /** The slice of one host's RPC surface a history scan needs. Resolved per source
@@ -19,7 +27,9 @@ export interface SessionHistoryHost {
 }
 
 export interface SessionHistoryLoaderOptions {
-  hostFor(serverId: string | undefined): SessionHistoryHost
+  hostFor(serverId: string): SessionHistoryHost
+  /** Last-known rows per host. Absent means no cache: failures show nothing. */
+  snapshotCache?: SessionSnapshotCache
 }
 
 export interface LoadHistoryOptions {
@@ -29,6 +39,8 @@ export interface LoadHistoryOptions {
   deferredSources?: Promise<SessionHistorySource[]> | Array<Promise<SessionHistorySource[]>>
   ctx: IpcContext
   onBatch: (sessions: SessionMeta[]) => void
+  /** Freshness-ladder report per host, as each host's sources settle. */
+  onHostState?: (serverId: string, state: DomainSyncState) => void
   limitPerProvider?: number
 }
 
@@ -42,12 +54,12 @@ function sessionMetaKey(meta: SessionMeta): string {
   return `${meta.serverId ?? ''}:${meta.provider}:${meta.sessionId}`
 }
 
-export function sessionHistorySourcesFromRoots(roots: string[]): SessionHistorySource[] {
+export function sessionHistorySourcesFromRoots(roots: string[], serverId: string): SessionHistorySource[] {
   const sources = new Map<string, SessionHistorySource>()
   for (const root of roots) {
     const projectPath = root.trim()
     if (!projectPath || sources.has(projectPath)) continue
-    sources.set(projectPath, { id: projectPath, projectPath })
+    sources.set(projectPath, { id: projectPath, projectPath, serverId })
   }
   return [...sources.values()]
 }
@@ -158,6 +170,7 @@ export class SessionHistoryLoader {
     deferredSources,
     ctx,
     onBatch,
+    onHostState,
     limitPerProvider,
   }: LoadHistoryOptions): Promise<SessionMeta[]> {
     const seq = ++this.loadSeq
@@ -169,9 +182,10 @@ export class SessionHistoryLoader {
     const streaming = limitPerProvider === undefined
     /** Which host's rows arrive on a stream, so a batch can be stamped with it. */
     const streamOwners = new Map<string, string>()
-    const subscribedHosts = new Set<string | undefined>()
+    const subscribedHosts = new Set<string>()
+    const cache = this.options.snapshotCache
 
-    const subscribeHost = (serverId: string | undefined) => {
+    const subscribeHost = (serverId: string) => {
       if (subscribedHosts.has(serverId)) return
       subscribedHosts.add(serverId)
       this.unsubscribers.push(
@@ -183,17 +197,71 @@ export class SessionHistoryLoader {
       )
     }
 
-    const scan = (source: SessionHistorySource): Promise<SessionMeta[]> => {
+    // The freshness ladder, per host: a host's sources settle independently,
+    // and one failed host must cost the list only its own live rows — its
+    // last-known snapshot stays, under an explicit `cached` state.
+    const hostSources = new Map<string, { pending: number; scannedLive: boolean; showedCachedRows: boolean; error: string | null }>()
+    const report = (serverId: string, state: DomainSyncState) => {
+      if (seq === this.loadSeq) onHostState?.(serverId, state)
+    }
+    const beginHostSource = (serverId: string) => {
+      const tracked = hostSources.get(serverId)
+      if (tracked) {
+        tracked.pending += 1
+        return
+      }
+      hostSources.set(serverId, { pending: 1, scannedLive: false, showedCachedRows: false, error: null })
+      report(serverId, { freshness: 'synchronizing', error: null })
+    }
+    const settleHostSource = (serverId: string, outcome: { live?: boolean; cachedRows?: boolean; error?: string }) => {
+      const tracked = hostSources.get(serverId)
+      if (!tracked) return
+      tracked.pending -= 1
+      if (outcome.live) tracked.scannedLive = true
+      if (outcome.cachedRows) tracked.showedCachedRows = true
+      if (outcome.error && !tracked.error) tracked.error = outcome.error
+      if (tracked.pending > 0) return
+      const freshness: Freshness = tracked.scannedLive
+        ? 'live'
+        : tracked.showedCachedRows ? 'cached' : 'empty'
+      report(serverId, { freshness, error: tracked.error })
+    }
+
+    const scan = async (source: SessionHistorySource): Promise<SessionMeta[]> => {
       const host = this.options.hostFor(source.serverId)
+      beginHostSource(host.serverId)
+      const cachedRows = cache?.cachedSessions(host.serverId, source.id) ?? []
+      if (source.cachedOnly) {
+        // The host is unreachable: last-known rows render, nothing is dialled.
+        settleHostSource(host.serverId, { cachedRows: cachedRows.length > 0 })
+        return cachedRows
+      }
+      // Cached rows render immediately while the scan runs; the newest row per
+      // session wins the merge, and the authoritative result replaces them.
+      if (streaming && cachedRows.length > 0) onBatch(cachedRows)
       let streamId: string | undefined
       if (streaming) {
         streamId = `scan-${++scanStreamCounter}-${source.id}`
         streamOwners.set(streamId, host.serverId)
         subscribeHost(source.serverId)
       }
-      return host
-        .listSessions(source.projectPath, ctx, source.provider, streamId, limitPerProvider)
-        .then((sessions) => stampSessionMetas(sessions, host.serverId))
+      try {
+        const sessions = stampSessionMetas(
+          await host.listSessions(source.projectPath, ctx, source.provider, streamId, limitPerProvider),
+          host.serverId,
+        )
+        cache?.saveSource(host.serverId, source, sessions)
+        settleHostSource(host.serverId, { live: true })
+        return sessions
+      } catch (error) {
+        // The failed sync is the host's error state, never the list's: the
+        // source contributes its last-known rows and the ladder says so.
+        settleHostSource(host.serverId, {
+          cachedRows: cachedRows.length > 0,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        return cachedRows
+      }
     }
 
     try {

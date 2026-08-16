@@ -488,7 +488,7 @@ export class SettingsContext {
       this.analyticsEnabled = patch.analyticsEnabled
       setAnalyticsEnabled(patch.analyticsEnabled!)
       if (localApi.getPlatform() !== 'web') {
-        void serverConnections.primaryApi().setAnalyticsConsent(patch.analyticsEnabled!).catch(() => {})
+        void serverConnections.localHostApi()?.setAnalyticsConsent(patch.analyticsEnabled!).catch(() => {})
       }
     }
     if (patch.projectPanelOpen !== undefined) this.projectPanelOpen = patch.projectPanelOpen

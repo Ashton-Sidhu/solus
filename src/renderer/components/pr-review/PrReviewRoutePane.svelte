@@ -22,10 +22,14 @@
 
   const ref = $derived({ name: "prReview" as const, params });
   const pr = $derived(session.router.resolvedFor(ref));
+  // A parsed link can omit the host; then the pane keeps the same API the
+  // route's `resolve` used — the workspace's for this PR's directory.
   const api = $derived(
     params.serverId
       ? serverConnections.apiFor(params.serverId)
-      : serverConnections.primaryApi(),
+      : session.apiForContext(
+          params.cwd ? session.ctxForDirectory(params.cwd) : session.ctx,
+        ),
   );
   const serverId = $derived(
     params.serverId ?? serverConnections.serverIdForApi(api),

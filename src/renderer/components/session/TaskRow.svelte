@@ -315,12 +315,12 @@
            overflows it symmetrically rather than pushing the project line down —
            the rename wash included, which is why the height holds while
            renaming rather than being handed to the input. -->
-      <span class="flex h-[1.1875rem] items-center gap-[0.5625rem]">
+      <span class="flex h-[1.1875rem] items-center gap-[0.5625rem] @max-[13rem]:gap-1.5">
         <!-- The one thing the eye scans. The title truncates; nothing else does. -->
         {#if renamingLead}
           <SessionNameInput
             value={task.title}
-            class="text-sm {titleIsEmphasized
+            class="text-sm @max-[13rem]:text-[0.8125rem] {titleIsEmphasized
  ? 'font-medium'
  : ''}"
             onCommit={(next) => onRename(null, next)}
@@ -328,7 +328,7 @@
           />
         {:else}
           <span
-            class="min-w-0 flex-1 overflow-hidden text-sm leading-[1.1875rem] text-ellipsis whitespace-nowrap transition-colors duration-150 {titleIsEmphasized
+            class="min-w-0 flex-1 overflow-hidden text-sm leading-[1.1875rem] text-ellipsis whitespace-nowrap transition-colors duration-150 @max-[13rem]:text-[0.8125rem] {titleIsEmphasized
  ? 'font-medium'
  : ''} {titleLeads
  ? 'text-foreground'
@@ -338,7 +338,7 @@
 
         <!-- The margin carries live task state, not standing navigation. -->
         {#if showsMargin}
-          <span class="ml-auto flex shrink-0 items-center gap-[0.5625rem]">
+          <span class="ml-auto flex shrink-0 items-center gap-[0.5625rem] @max-[13rem]:gap-1.5">
             {#if completedAge}
               <span
                 class="shrink-0 font-mono text-xs text-muted-foreground tabular-nums"

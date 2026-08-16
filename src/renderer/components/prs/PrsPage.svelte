@@ -5,12 +5,14 @@
   import { SvelteSet } from "svelte/reactivity";
   import {
     GitPullRequestIcon,
+    GithubLogoIcon,
     ArrowsClockwiseIcon,
     BookOpenTextIcon,
     CircleNotchIcon,
     PlayIcon,
     UserIcon,
     WarningIcon,
+    WarningCircleIcon,
   } from "phosphor-svelte";
   import type { PullRequestSummary } from "../../../shared/providers";
   import type { IpcContext } from "../../../shared/types";
@@ -31,7 +33,6 @@
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { serverConnections } from "@client-core/server-connections";
-  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import { subscribeAllHosts } from "@client-core/host-events";
   import SortMenu from "../ui/SortMenu.svelte";
   import { Button } from "../ui/button";
@@ -131,19 +132,21 @@
 
   // The sidebar's live projects are all on whichever host is selected there;
   // the catalog spans every host the client has ever recorded a project on.
-  const sidebarServerId = $derived(
-    serverConnections.connectionFor()?.serverId ?? LOCAL_SERVER_ID,
-  );
+  const sidebarServerId = $derived(serverConnections.defaultServerId());
   const projectOptions = $derived<ListProjectOption[]>(
     mergeProjectOptions(
       [
-        sessionSidebar.projectSummaries
-          .filter((project) => project.projectKey !== "~")
-          .map((project) => ({
-            serverId: sidebarServerId,
-            projectRoot: project.projectKey,
-            label: project.label,
-          })),
+        // With no default host there is nothing to attribute a sidebar project
+        // to; the catalog still carries its own host per entry.
+        sidebarServerId
+          ? sessionSidebar.projectSummaries
+              .filter((project) => project.projectKey !== "~")
+              .map((project) => ({
+                serverId: sidebarServerId,
+                projectRoot: project.projectKey,
+                label: project.label,
+              }))
+          : [],
         projectCatalog.entries,
       ],
       (serverId) => serversStore.statusFor(serverId) !== "offline",
@@ -168,12 +171,15 @@
 
   // Meaningful only when one project is scoped — All projects reads through
   // `inbox` (the aggregator) instead, one `(api, serverId, ctx)` per project.
-  const prsApi = $derived(
-    scopedProject
-      ? serverConnections.apiFor(scopedProject.serverId)
-      : serverConnections.primaryApi(),
+  // Null when nothing is connected to read from: a host is a precondition for
+  // loading, not something to assume, so every caller below guards rather than
+  // letting `primaryApi()` throw.
+  const prsServerId = $derived(
+    scopedProject?.serverId ?? serverConnections.defaultServerId(),
   );
-  const prsServerId = $derived(scopedProject?.serverId ?? "");
+  const prsApi = $derived(
+    prsServerId ? serverConnections.apiFor(prsServerId) : null,
+  );
   function prsCtx(): IpcContext {
     return scopedProject
       ? session.ctxForDirectory(scopedProject.projectKey)
@@ -220,7 +226,6 @@
   const authFailedProject = $derived(
     inboxErrors.find((project) => project.error?.kind === "github-auth") ?? null,
   );
-  const activeLoading = $derived(isAllProjects ? inbox.loading && activeItems.length === 0 : store.loading);
   const activeRefreshing = $derived(isAllProjects ? inbox.loading : store.loading);
 
   const SORT_OPTIONS: { value: PrSortMode; label: string }[] = [
@@ -237,6 +242,9 @@
   // The item list this visit is reading: one project's cache, or every
   // project's last-safe snapshot merged together.
   const activeItems = $derived(isAllProjects ? qualified.items : store.items);
+  const activeLoading = $derived(
+    isAllProjects ? inbox.loading && activeItems.length === 0 : store.loading,
+  );
   const openCount = $derived(
     activeItems.filter((pr) => pr.state === "open").length,
   );
@@ -248,7 +256,9 @@
   // own project in All projects — a bare PR number cannot tell two repos apart.
   const rowContext = $derived<PrRowContext>({
     checks: (pr) => {
-      if (!isAllProjects) return store.checksFor(prsServerId, prsCtx(), pr.number);
+      if (!isAllProjects) {
+        return prsServerId ? store.checksFor(prsServerId, prsCtx(), pr.number) : undefined;
+      }
       const owner = qualified.byPr.get(pr);
       return owner ? store.checksFor(owner.serverId, owner.ctx, pr.number) : undefined;
     },
@@ -288,7 +298,7 @@
   // comes from its own project's graph (`aggregateStackParentOf`); scoped to
   // one project, it is that project's single graph as before.
   const stackGraph = $derived(
-    !isAllProjects && scopedProject && settings.stackedPrsEnabled && stacksReady
+    !isAllProjects && scopedProject && settings.stackedPrsEnabled && stacksReady && prsServerId
       ? stacks.graphFor(prsServerId, scopedProject.projectKey)
       : null,
   );
@@ -453,13 +463,13 @@
   }
 
   /** Which `(api, serverId, ctx)` a row's actions route through — the page's
-   *  single scope, or that row's own project in All projects. */
-  function targetFor(pr: PullRequestSummary): PrTarget {
-    if (!isAllProjects) return { api: prsApi, serverId: prsServerId, ctx: prsCtx() };
-    const owner = qualified.byPr.get(pr);
-    return owner
-      ? { api: owner.api, serverId: owner.serverId, ctx: owner.ctx }
-      : { api: prsApi, serverId: prsServerId, ctx: prsCtx() };
+   *  single scope, or that row's own project in All projects. Null when no
+   *  host is connected to route to, so callers skip rather than throw. */
+  function targetFor(pr: PullRequestSummary): PrTarget | null {
+    const owner = isAllProjects ? qualified.byPr.get(pr) : undefined;
+    if (owner) return { api: owner.api, serverId: owner.serverId, ctx: owner.ctx }
+    if (!prsApi || !prsServerId) return null;
+    return { api: prsApi, serverId: prsServerId, ctx: prsCtx() };
   }
 
   const selectedPr = $derived(selectedKey ? (prByKey(selectedKey) ?? null) : null);
@@ -553,7 +563,7 @@
       session.router.params("prs")?.projectPath ?? null;
     if (!open) return;
     untrack(() => {
-      scopedProjectKey = requestedProjectPath
+      scopedProjectKey = requestedProjectPath && sidebarServerId
         ? projectRefKey({ serverId: sidebarServerId, projectRoot: requestedProjectPath })
         : null;
       void loadActiveScope();
@@ -566,14 +576,19 @@
    *  a workspace with many projects doesn't open every connection at once. */
   async function loadActiveScope(): Promise<void> {
     if (!isAllProjects) {
+      // No connected host is a real state, not an error: nothing loads, and
+      // the page shows its empty surface rather than throwing on `apiFor`.
+      const api = prsApi;
+      const serverId = prsServerId;
+      if (!api || !serverId) return;
       store.filter = { state: fetchScope };
-      void store.loadAll(prsApi, prsServerId, prsCtx());
+      void store.loadAll(api, serverId, prsCtx());
       void store
-        .loadViewer(prsApi, prsServerId, prsCtx())
+        .loadViewer(api, serverId, prsCtx())
         .then((login) => (viewerLogin = login))
         .catch(() => {});
       stacksReady = false;
-      void stacks.load(prsApi, prsServerId, prsCtx()).then(
+      void stacks.load(api, serverId, prsCtx()).then(
         () => (stacksReady = true),
         () => (stacksReady = false),
       );
@@ -608,9 +623,11 @@
   // local metadata after each graph update so target and own-delta guides never
   // borrow one another's timestamp.
   $effect(() => {
-    if (!open || isAllProjects || !stackGraph) return;
+    if (!open || isAllProjects || !stackGraph || !prsApi || !prsServerId) return;
+    const api = prsApi;
+    const serverId = prsServerId;
     untrack(
-      () => void store.loadGuideMetadata(prsApi, prsServerId, prsCtx(), store.items).catch(() => {}),
+      () => void store.loadGuideMetadata(api, serverId, prsCtx(), store.items).catch(() => {}),
     );
   });
 
@@ -682,6 +699,7 @@
     // diff, everything else on Activity.
     store.prReviewTab = tab ?? "activity";
     const target = targetFor(pr);
+    if (!target) return;
     void store.loadEfforts(target.api, target.serverId, target.ctx, [pr.number]);
     store.prefetchReview(target.api, target.serverId, target.ctx, pr.number);
   }
@@ -692,6 +710,7 @@
     if (isAllProjects) aggregateSelectedKey = keyOf(pr);
     else listView.selectedNumber = pr.number;
     const target = targetFor(pr);
+    if (!target) return;
     void store.loadEfforts(target.api, target.serverId, target.ctx, [pr.number]);
   }
 
@@ -730,6 +749,7 @@
       return;
     }
     const target = targetFor(items[0]);
+    if (!target) return;
     void session.openReviewMode(items, target.ctx, target.serverId);
   }
 
@@ -753,6 +773,7 @@
     const numbers = guideEligible.map((pr) => pr.number);
     if (numbers.length === 0) return;
     const target = targetFor(guideEligible[0]);
+    if (!target) return;
     const projectPath = isAllProjects ? target.ctx.session.projectPath ?? null : scopedProject?.projectKey ?? null;
     void store
       .requestGuides(target.api, target.serverId, target.ctx, numbers, {
@@ -792,6 +813,7 @@
       void inbox.loadAll(store, inboxProjects, { state: fetchScope }, { force: true });
       return;
     }
+    if (!prsApi || !prsServerId) return;
     store.filter = { state: fetchScope };
     void store.loadAll(prsApi, prsServerId, prsCtx(), { force: true });
   }
@@ -809,6 +831,7 @@
       void inbox.loadAll(store, inboxProjects, { state: scope });
       return;
     }
+    if (!prsApi || !prsServerId) return;
     store.filter = { state: scope };
     void store.loadAll(prsApi, prsServerId, prsCtx());
   }
@@ -854,8 +877,8 @@
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
-          if (pr) {
-            const target = targetFor(pr);
+          const target = pr ? targetFor(pr) : null;
+          if (pr && target) {
             void store.loadEfforts(target.api, target.serverId, target.ctx, [pr.number]);
           }
           observer.disconnect();
@@ -881,7 +904,7 @@
           }
           return;
         }
-        if (store.hasMore && !store.loadingMore)
+        if (store.hasMore && !store.loadingMore && prsApi && prsServerId)
           void store.loadMore(prsApi, prsServerId, prsCtx());
       },
       { rootMargin: "600px 0px" },
@@ -1025,25 +1048,52 @@
         {#if activeLoading && filtered.length === 0}
           <ListSkeleton identWidth={44} />
         {:else if !isAllProjects && store.error?.kind === "github-auth"}
-          <PageEmpty title="Connect GitHub to load pull requests.">
-            <GithubConnectionRequired serverId={prsServerId} />
+          <PageEmpty
+            icon={GithubLogoIcon}
+            tone="muted"
+            title="Connect GitHub to load pull requests."
+          >
+            {#if prsServerId}
+              <GithubConnectionRequired serverId={prsServerId} layout="stacked" />
+            {/if}
           </PageEmpty>
         {:else if isAllProjects && allProjectsFailed && authFailedProject}
-          <PageEmpty title="Connect GitHub to load pull requests.">
-            <GithubConnectionRequired serverId={authFailedProject.serverId} />
+          <PageEmpty
+            icon={GithubLogoIcon}
+            tone="muted"
+            title="Connect GitHub to load pull requests."
+          >
+            <GithubConnectionRequired
+              serverId={authFailedProject.serverId}
+              layout="stacked"
+            />
           </PageEmpty>
         {:else if !isAllProjects && store.error}
-          <PageEmpty title="Couldn’t load pull requests.">
+          <PageEmpty
+            icon={WarningCircleIcon}
+            tone="muted"
+            title="Couldn’t load pull requests."
+          >
             {store.error.message}
             {#snippet actions()}
-              <Button type="button" variant="outline" onclick={refreshList}>Retry</Button>
+              <Button type="button" variant="outline" onclick={refreshList}>
+                <ArrowsClockwiseIcon size={14} />
+                Retry
+              </Button>
             {/snippet}
           </PageEmpty>
         {:else if isAllProjects && allProjectsFailed}
-          <PageEmpty title="Couldn’t load pull requests.">
+          <PageEmpty
+            icon={WarningCircleIcon}
+            tone="muted"
+            title="Couldn’t load pull requests."
+          >
             {inboxErrors[0]?.error?.message ?? "Every project failed to load."}
             {#snippet actions()}
-              <Button type="button" variant="outline" onclick={refreshList}>Retry</Button>
+              <Button type="button" variant="outline" onclick={refreshList}>
+                <ArrowsClockwiseIcon size={14} />
+                Retry
+              </Button>
             {/snippet}
           </PageEmpty>
         {:else if activeItems.length === 0}
@@ -1231,7 +1281,8 @@
                         }
                         return;
                       }
-                      void store.loadMore(prsApi, prsServerId, prsCtx());
+                      if (prsApi && prsServerId)
+                        void store.loadMore(prsApi, prsServerId, prsCtx());
                     }}
                   >
                     {(isAllProjects ? inboxLoadingMore : store.loadingMore) ? "Loading…" : "Load more pull requests"}

@@ -62,6 +62,9 @@
     const map = new Map<string, Array<[string, string[]]>>()
     for (const [id, def] of entries) {
       const combo = kb.overrides[id] ?? defaultCombo(def)
+      // An unassigned binding has no keys to teach — Settings → Keybindings is
+      // where it is discovered and given one.
+      if (!combo) continue
       const keys = formatCombo(combo)
       let arr = map.get(def.group)
       if (!arr) { arr = []; map.set(def.group, arr) }

@@ -40,6 +40,8 @@
     tabId?: string;
     /** Null in a directory we can't file prompts under — the control disables. */
     projectRoot: string | null;
+    /** The host that owns the project and its saved-prompts file. */
+    serverId: string | null;
     /** This composer is the one the user is typing in. Gates every binding. */
     active: boolean;
     isReadOnly: boolean;
@@ -52,6 +54,7 @@
     prompt: input,
     tabId,
     projectRoot,
+    serverId,
     active,
     isReadOnly,
     anchorEl,
@@ -66,7 +69,7 @@
   let selectedId = $state("");
   let triggerEl = $state<HTMLElement | null>(null);
 
-  const prompts = $derived(savedPrompts.forProject(projectRoot));
+  const prompts = $derived(savedPrompts.forProject(projectRoot, serverId));
   const count = $derived(prompts.length);
   // Every row reserves the thumbnail slot as soon as one row needs it, so the
   // prompt text keeps a single left edge down the list. An all-text list keeps
@@ -78,7 +81,7 @@
     input.text.trim().length > 0 || input.attachments.length > 0,
   );
   const canSave = $derived(
-    !!projectRoot && !isReadOnly && hasDraft,
+    !!projectRoot && !!serverId && !isReadOnly && hasDraft,
   );
   const saveHint = $derived(comboHint("global.save-prompt"));
   const openHint = $derived(comboHint("global.saved-prompts"));
@@ -106,13 +109,13 @@
   // this sheet, and re-reading on open is also what keeps a second window's
   // saves from showing up stale.
   $effect(() => {
-    if (!open || !projectRoot) return;
-    void savedPrompts.load(projectRoot, { force: true });
+    if (!open || !projectRoot || !serverId) return;
+    void savedPrompts.load(projectRoot, serverId, { force: true });
   });
 
   $effect(() => {
-    if (!projectRoot) return;
-    void savedPrompts.load(projectRoot);
+    if (!projectRoot || !serverId) return;
+    void savedPrompts.load(projectRoot, serverId);
   });
 
   // The sheet belongs to the composer it was opened from; once that composer
@@ -149,7 +152,7 @@
   });
 
   async function save() {
-    if (!projectRoot || !hasDraft || isReadOnly) return;
+    if (!projectRoot || !serverId || !hasDraft || isReadOnly) return;
     const prompt: SavedPrompt = {
       id: uuid(),
       projectRoot,
@@ -167,7 +170,7 @@
     onRefocus();
 
     try {
-      await savedPrompts.create(prompt);
+      await savedPrompts.create(prompt, serverId);
       toasts.success("Prompt saved");
     } catch (err) {
       // Give the draft back rather than leaving the composer empty and the
@@ -197,14 +200,14 @@
   }
 
   function remove(prompt: SavedPrompt) {
-    if (!projectRoot) return;
+    if (!projectRoot || !serverId) return;
     if (input.savedPromptId === prompt.id) input.savedPromptId = null;
-    const deleted = savedPrompts.remove(projectRoot, prompt.id);
+    const deleted = savedPrompts.remove(projectRoot, prompt.id, serverId);
     toasts.undo("Saved prompt deleted", () => {
       // Sequenced after the delete so an instant undo can't be overwritten by
       // the delete landing second. Re-created with its original id and
       // timestamp, so it lands back where it was rather than jumping to the top.
-      void deleted.then(() => savedPrompts.create(prompt));
+      void deleted.then(() => savedPrompts.create(prompt, serverId));
     });
   }
 

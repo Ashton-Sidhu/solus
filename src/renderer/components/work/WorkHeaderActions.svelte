@@ -101,7 +101,7 @@
   async function exportToFile() {
     if (!connectionsStore.desktopHandlersAvailable) return;
     // Export targets the user's client-side file picker, not the work's owner host.
-    await serverConnections.primaryApi().saveFileDialog(`${safeFileName()}.md`, currentContent);
+    await serverConnections.localHostApi()?.saveFileDialog(`${safeFileName()}.md`, currentContent);
   }
 
   function handleRestore() {

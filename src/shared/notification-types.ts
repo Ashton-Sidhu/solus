@@ -47,13 +47,10 @@ export function payloadForAttentionEntry(
   return payload
 }
 
-/** A scoped chat route. The `~` suffix is optional so older bare-session routes
- * remain valid while notification clicks can name the host that owns the run. */
-export function notificationSessionRoute(sessionId: string, serverId?: string): string {
-  const session = encodeURIComponent(sessionId)
-  return serverId
-    ? `/chat/${session}~${encodeURIComponent(serverId)}`
-    : `/chat/${session}`
+/** A scoped chat route. A notification click always names the host that owns
+ * the run — a bare session route would resolve against whichever host answers. */
+export function notificationSessionRoute(sessionId: string, serverId: string): string {
+  return `/chat/${encodeURIComponent(sessionId)}~${encodeURIComponent(serverId)}`
 }
 
 function titleForKind(kind: AttentionKind): string {

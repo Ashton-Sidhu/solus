@@ -1,5 +1,5 @@
 import type { AgentId, SessionMeta } from "../../../../shared/types";
-import { resolveSessionMetaRef, stampSessionMeta } from "@client-core/session-meta";
+import { readSessionMeta } from "@client-core/session-meta";
 
 export interface SessionLinkParams {
   provider: AgentId;
@@ -13,17 +13,18 @@ export interface SessionLinkParams {
 
 /** Resolve the linked session's real metadata (cwd/projectPath drive which tab
  *  directory it resumes into). Prefer the index; fall back to the cwd embedded
- *  in the link so cross-project opens still land in the right directory. */
+ *  in the link so cross-project opens still land in the right directory. A
+ *  link without a host (and no transcript host to inherit) is never probed —
+ *  the fallback meta carries no serverId and the resume refuses it. */
 export async function resolveSessionLinkMeta(
   params: SessionLinkParams,
   sourceServerId?: string,
-  resolve: typeof resolveSessionMetaRef = resolveSessionMetaRef,
+  resolve: typeof readSessionMeta = readSessionMeta,
 ): Promise<SessionMeta> {
   const serverId = params.serverId ?? sourceServerId;
-  const resolved = await resolve({ sessionId: params.sessionId, serverId }).catch(() => null);
-  const meta = resolved && serverId && !resolved.serverId
-    ? stampSessionMeta(resolved, serverId)
-    : resolved;
+  const meta = serverId
+    ? await resolve(serverId, params.sessionId).catch(() => null)
+    : null;
   if (meta?.cwd) return meta;
   return (
     meta ?? {

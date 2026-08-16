@@ -1,5 +1,10 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { fade } from "svelte/transition";
+  import {
+    committedRenameValue,
+    focusRenameInputText,
+  } from "../../lib/rename-input";
 
   interface Props {
     /** The name the row currently shows, offered for editing. */
@@ -27,10 +32,21 @@
 
   let draft = $state(value);
   let committed = false;
+  let input = $state<HTMLInputElement | null>(null);
 
   const reduceMotion = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
   ).matches;
+
+  onMount(() => {
+    // Context-menu teardown restores focus to its trigger. Wait until that
+    // completes, then make the rename field the final focus owner. Otherwise
+    // the resulting blur cancels the edit before the user can type.
+    const frame = requestAnimationFrame(() => {
+      if (input) focusRenameInputText(input);
+    });
+    return () => cancelAnimationFrame(frame);
+  });
 
   /** Blur commits, so the two exits (Enter, click away) agree — but Escape
    *  blurs on its way out and must not land as a second, undoing commit.
@@ -39,8 +55,8 @@
   function commit(): void {
     if (committed) return;
     committed = true;
-    const next = draft.trim();
-    if (!next || next === value) onCancel();
+    const next = committedRenameValue(draft, value);
+    if (next === null) onCancel();
     else onCommit(next);
   }
 
@@ -70,19 +86,12 @@
       in:fade={{ duration: reduceMotion ? 0 : 110 }}
     ></span>
   {/if}
-  <!-- svelte-ignore a11y_autofocus -->
   <input
+    bind:this={input}
     class="relative h-full min-w-0 flex-1 bg-transparent px-[0.3125rem] py-0 text-foreground caret-(--solus-accent) outline-none selection:bg-(--solus-accent-soft) {className}"
     bind:value={draft}
-    autofocus
     name="session-name"
     aria-label="Name"
-    onfocus={(event) => {
-      // Select all so a fresh type replaces the name, but keep the view at the
-      // start: a long name scrolled to its tail on open reads as clipped junk.
-      event.currentTarget.select();
-      event.currentTarget.scrollLeft = 0;
-    }}
     onblur={commit}
     onclick={(event) => event.stopPropagation()}
     onkeydown={(event) => {

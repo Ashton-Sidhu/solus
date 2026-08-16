@@ -922,15 +922,18 @@
   });
 
   async function navigateToSourceSession(agentSessionId: string) {
-    const matchingTabId = session.tabIdForAgentSession(agentSessionId);
+    // The source session lives on the same host as the transcript citing it.
+    const matchingTabId = session.tabIdForAgentSession(agentSessionId, sess?.run.serverId);
     if (matchingTabId) {
       session.selectTab(matchingTabId);
       return;
     }
-    // Not open — scan history and resume it.
+    // Not open — scan history on this conversation's host and resume it. The
+    // source session delegated to this one, so it lives on the same host.
+    if (!sess) return;
     const meta = await sourceSessionHistory.findSession(
       agentSessionId,
-      { projectPath: sess?.run.workingDirectory || "~" },
+      { projectPath: sess.run.workingDirectory || "~", serverId: sess.run.serverId },
       session.ctx,
     );
     if (meta) {

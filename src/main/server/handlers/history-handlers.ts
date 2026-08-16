@@ -7,7 +7,7 @@ import type { SolusServer } from '../server'
 import { getIndexedSession, searchIndexedSessions, setSessionCustomTitle } from '../../db/session-indexer'
 import { renamePinnedSession } from '../../sessions/pinned-sessions'
 import { generateSessionMetadata } from '../../sessions/session-title'
-import { updateGeneratedMetadataForSession } from '../../tasks/task-sessions'
+import { updateGeneratedDescriptionForSession } from '../../tasks/task-sessions'
 import { Task } from '../../tasks/task'
 import { tasksForSession } from '../../tasks/task-sessions'
 import { emitChanged } from '../../tasks/task-store'
@@ -169,10 +169,10 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
-  server.register('resolveSessionHandoff', (args) => {
+  server.register('resolveSessionLineage', (args) => {
     const [provider, providerSessionId] = args
     try {
-      return controlPlane.resolveSessionHandoff(provider, providerSessionId)
+      return controlPlane.resolveSessionLineage(provider, providerSessionId)
     } catch (err) {
       log.error('resolve_session_handoff_failed', { error: String(err), provider, providerSessionId })
       return null
@@ -194,7 +194,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       try {
         if (source === 'generated') {
           if (generatedDescription) {
-            taskChanged = !!await updateGeneratedMetadataForSession(sessionId, trimmed, generatedDescription)
+            taskChanged = !!await updateGeneratedDescriptionForSession(sessionId, generatedDescription)
           }
         } else {
           const task = await tasksForSession(sessionId)

@@ -98,9 +98,11 @@ interface SessionTranscriptLoadResult {
   truncated: boolean
 }
 
+// Enum fields degrade alone: an unknown value from a newer host drops that
+// field, not the whole tool-input record (the card would lose its title).
 const createWorkInputSchema = z.object({
   title: z.string().optional(),
-  doc_type: z.enum(['doc', 'slides', 'diagram']).optional(),
+  doc_type: z.enum(['doc', 'slides', 'diagram']).optional().catch(undefined),
 })
 
 const automationInputSchema = z.object({
@@ -109,7 +111,7 @@ const automationInputSchema = z.object({
 })
 
 const artifactInputSchema = z.object({
-  kind: z.enum(['image', 'html']).optional(),
+  kind: z.enum(['image', 'html']).optional().catch(undefined),
   html: z.string().optional(),
   path: z.string().optional(),
 })

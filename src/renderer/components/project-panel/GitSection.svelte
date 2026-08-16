@@ -32,6 +32,7 @@
   import type { PullRequestSummary } from "../../../shared/providers";
   import { serverConnections } from "@client-core/server-connections";
   import { primaryGitAction } from "./lib/git-action-selection";
+  import CommitComposer from "./commit-composer/CommitComposer.svelte";
 
   interface Props {
     /** The tab or draft whose run this section describes — see `ProjectPanel`. */
@@ -46,6 +47,8 @@
   const prApi = $derived(session.apiFor(sourceId));
   const prServerId = $derived(serverConnections.serverIdForApi(prApi));
   const env = $derived(environmentStore.environmentFor(session.runFor(sourceId)));
+  const detailCwd = $derived(env.cwd);
+  const detailServerId = $derived(prServerId);
   const status = $derived(env.status);
   const conflictedFiles = $derived(
     status?.uncommittedChanges.files.filter((file) => file.conflicted) ?? [],
@@ -335,8 +338,8 @@
   // when collapsed — without our own watch the PR row would go blank whenever
   // that section is closed.
   $effect(() => {
-    if (!env.cwd || env.cwd === "~") return;
-    return environmentStore.watchDetails(env.cwd);
+    if (!detailCwd || detailCwd === "~") return;
+    return environmentStore.watchDetails(detailServerId, detailCwd);
   });
 
   // "Discard changes…" arms in place rather than opening a dialog — the menu
@@ -347,6 +350,21 @@
     closeRowMenu();
     confirmingDiscard = false;
     void actions.discard();
+  }
+
+  // The composer is an additive escape hatch beside the one-click rows above:
+  // it opens on demand and unmounts on close, unlike the persistently-mounted
+  // panel content the rest of this component drives.
+  let commitComposerAction = $state<"commit" | "commit_push" | null>(null);
+
+  function openCommitComposer(commitAction: "commit" | "commit_push") {
+    closeRowMenu();
+    commitComposerAction = commitAction;
+  }
+
+  function closeCommitComposer() {
+    commitComposerAction = null;
+    requestInputFocus();
   }
 
   function openPr(pr: PullRequestSummary) {
@@ -655,6 +673,14 @@
           hint: comboHint("orb.commit-push"),
           disabled: !canGit || actions.running,
         })}
+        {@render popRow("Commit with options…", {
+          onclick: () => openCommitComposer("commit"),
+          disabled: !canGit || actions.running || uncommittedFileCount === 0,
+        })}
+        {@render popRow("Commit and push with options…", {
+          onclick: () => openCommitComposer("commit_push"),
+          disabled: !canGit || actions.running || uncommittedFileCount === 0,
+        })}
         {@render popRow(
           actions.synced
             ? "Synced"
@@ -706,6 +732,17 @@
     {/if}
   </Popover.Content>
 </Popover.Root>
+
+{#if commitComposerAction}
+  <CommitComposer
+    {sourceId}
+    action={commitComposerAction}
+    {session}
+    {environmentStore}
+    {actions}
+    onClose={closeCommitComposer}
+  />
+{/if}
 
 <style>
   .menu-list {

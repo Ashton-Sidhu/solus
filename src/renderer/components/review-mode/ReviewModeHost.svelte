@@ -55,11 +55,12 @@
   let postingContext = $state<IpcContext | null>(null);
   let viewer = $state<string | null>(null);
 
-  const reviewServerId = $derived(
-    session.prsStore.reviewModeServerId ??
-      serverConnections.serverIdForApi(serverConnections.primaryApi()),
+  // Review mode is entered through `beginReviewMode`, which always names the
+  // host its queue was built on; a mount without that stamp has nothing to review.
+  const reviewServerId = $derived(session.prsStore.reviewModeServerId);
+  const reviewApi = $derived(
+    reviewServerId ? serverConnections.apiFor(reviewServerId) : null,
   );
-  const reviewApi = $derived(serverConnections.apiFor(reviewServerId));
 
   const state = $derived(store.state);
   const currentEntry = $derived(store.currentEntry);
@@ -94,6 +95,7 @@
   }
 
   async function prepare(number: number): Promise<void> {
+    if (!reviewServerId) return;
     if (prepared.has(number) || preparing.has(number)) return;
     preparing.add(number);
     prepareErrors.delete(number);
@@ -279,6 +281,11 @@
   }
 
   onMount(() => {
+    // Snapshotted for the mount's closures: the stamp never moves while the
+    // queue is open, and the narrowed locals keep every callback host-typed.
+    const api = reviewApi;
+    const serverId = reviewServerId;
+    if (!api || !serverId) return;
     const launchNumbers = [...session.prsStore.reviewModeNumbers];
     items = launchNumbers.map((number) => {
       const item = findSummary(number);
@@ -290,19 +297,19 @@
     postingContext = structuredClone(session.prsStore.reviewModeContext ?? session.ctx);
     const context = postingContext;
     let cancelled = false;
-    void session.prsStore.loadViewer(reviewApi, reviewServerId, context).then((login) => {
+    void session.prsStore.loadViewer(api, serverId, context).then((login) => {
       if (!cancelled) viewer = login;
     }).catch(() => {});
 
-    void session.stacksStore.load(reviewApi, reviewServerId, context)
-      .catch(() => session.stacksStore.graphFor(reviewServerId, context.session.projectPath))
+    void session.stacksStore.load(api, serverId, context)
+      .catch(() => session.stacksStore.graphFor(serverId, context.session.projectPath))
       .then((stackGraph) => {
       if (cancelled) return;
       const basePoster = createReviewDispositionPoster({
         getContext: () => context,
         getReview: (number) => prepared.get(number)?.pr ?? null,
         submit: (ctx, number, review) =>
-          reviewApi.prSubmitReview(ctx, number, review),
+          api.prSubmitReview(ctx, number, review),
       });
       store.start({
         items: items.map((item) => {
@@ -376,7 +383,7 @@
     <div class="grid min-h-0 flex-1 place-items-center text-xs text-(--solus-text-tertiary)" role="status">
       Preparing review queue…
     </div>
-  {:else if state}
+  {:else if state && reviewApi && reviewServerId}
     <div class="flex min-h-0 flex-1">
       <QueueRail
         {rows}

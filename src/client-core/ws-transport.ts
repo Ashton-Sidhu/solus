@@ -12,6 +12,7 @@ import {
   MAX_VOICE_SAMPLES,
 } from '../shared/voice-audio'
 import { z } from 'zod'
+import type { DialOutcome } from './host-supervisor'
 
 /** WebSocket transport shared by the browser client and Electron renderer. */
 
@@ -41,6 +42,9 @@ export interface WsTransportOptions {
   onAuthFailed?: () => void
   /** Confirms that a newly opened socket is still the saved host it names. */
   verifyConnectedHost?: () => Promise<boolean>
+  /** How a dial (or the standing socket) ended — the supervisor's input. The
+   *  transport never schedules its own retries (dispatch-client step 3). */
+  onDialOutcome?: (outcome: DialOutcome) => void
   /** Overrides the default POST to `${serverUrl}/auth/refresh`. */
   refreshToken?: () => Promise<{ result: RefreshResult; sessionToken?: string }>
   /** Keep the local desktop's native picker/path fast path. Browser clients and
@@ -63,6 +67,14 @@ interface RpcResponse {
   result?: RpcInvocationResult
   error?: { message: string }
 }
+
+// The ack envelope is wire input: parse it before touching `error`/`result`.
+// Tolerant on purpose — an unreadable error message degrades to the generic
+// one, and only a non-object ack fails the parse outright.
+const rpcResponseEnvelopeSchema = z.object({
+  result: z.unknown().optional(),
+  error: z.object({ message: z.string().optional().catch(undefined) }).optional().catch(undefined),
+})
 
 type RpcInvocationResult = Awaited<ReturnType<SolusAPI[RpcInvokeMethod]>>
 
@@ -104,7 +116,6 @@ export class WsTransport {
   private hasOpened = false
   private authRefreshAttempted = false
   private authRefreshResetTimer: ReturnType<typeof setTimeout> | null = null
-  private removeLifecycleListeners: (() => void) | null = null
   private wakeProbeInFlight = false
   private connectedGeneration = 0
   private isAcceptedConnection = false
@@ -114,13 +125,21 @@ export class WsTransport {
     this.socket = io(opts.serverUrl, {
       path: '/ws',
       transports: ['websocket'],
-      reconnectionDelay: 1_000,
-      reconnectionDelayMax: 30_000,
+      // The supervisor is the sole retry owner; the socket dials only when told.
+      reconnection: false,
       autoConnect: false,
-      auth: (cb) => cb({ token: this.opts.sessionToken, clientInstanceId: this.clientInstanceId }),
+      // The long-lived credential travels only in HTTP headers. A failed
+      // exchange dials without a credential, so an authenticated host rejects
+      // the socket and the normal refresh path decides whether to retry.
+      auth: (cb) => {
+        void this.fetchWsTicket().then((ticket) => {
+          cb(ticket
+            ? { ticket, clientInstanceId: this.clientInstanceId }
+            : { clientInstanceId: this.clientInstanceId })
+        })
+      },
     })
     this.installSocketListeners()
-    this.installLifecycleListeners()
   }
 
   start(): void {
@@ -141,8 +160,6 @@ export class WsTransport {
     this.destroyed = true
     if (this.authRefreshResetTimer) clearTimeout(this.authRefreshResetTimer)
     this.authRefreshResetTimer = null
-    this.removeLifecycleListeners?.()
-    this.removeLifecycleListeners = null
     this.socket.disconnect()
     this.rejectAllRequests()
     this.events.clear()
@@ -207,6 +224,32 @@ export class WsTransport {
     return () => { if (this.onResetCallback === callback) this.onResetCallback = null }
   }
 
+  /** Late-bound: the supervisor exists only after the transport it drives. */
+  attachDialOutcomeReporter(report: (outcome: DialOutcome) => void): void {
+    this.opts.onDialOutcome = report
+  }
+
+  /** Exchange the bearer credential for one dial's handshake ticket. Null
+   *  means the handshake is credential-free; only a trusted requester or a
+   *  host configured without auth can admit it. */
+  private async fetchWsTicket(): Promise<string | null> {
+    if (!this.opts.sessionToken) return null
+    try {
+      const response = await fetch(`${this.opts.serverUrl}/auth/ws-ticket`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${this.opts.sessionToken}` },
+        signal: AbortSignal.timeout(3_000),
+      })
+      if (!response.ok) return null
+      const body = z.object({ ticket: z.string().min(1).optional().catch(undefined) })
+        .catch({})
+        .parse(await response.json().catch(() => ({})))
+      return body.ticket ?? null
+    } catch {
+      return null
+    }
+  }
+
   private installSocketListeners(): void {
     this.socket.on('connect', () => {
       const generation = ++this.connectedGeneration
@@ -218,15 +261,18 @@ export class WsTransport {
       this.pendingHostEvents = []
       this.logConnection('socket closed', { reason, pendingRequests: this.pendingRequestSummary() })
       this.requeueSentRequests()
-      if (!this.destroyed && !this.blocked) this.setStatus('reconnecting')
-    })
-    this.socket.io.on('reconnect_attempt', (attempt) => {
-      this.attempt = attempt
-      this.setStatus(this.hasOpened ? 'reconnecting' : 'connecting')
+      if (this.destroyed || this.blocked) return
+      this.setStatus('reconnecting')
+      this.opts.onDialOutcome?.({ kind: 'dropped' })
     })
     this.socket.on('connect_error', (error: Error & { data?: { code?: string } }) => {
       this.logConnection('socket connection error', { message: error.message, code: error.data?.code ?? null })
-      if (error.data?.code !== 'UNAUTHORIZED') return
+      if (error.data?.code !== 'UNAUTHORIZED') {
+        // With auto-reconnection off nobody else will ever dial again: the
+        // failed dial is the supervisor's cue to schedule the next one.
+        if (!this.destroyed && !this.blocked) this.opts.onDialOutcome?.({ kind: 'dial-failed' })
+        return
+      }
       if (this.authRefreshAttempted) {
         this.blockAuthFailure()
         return
@@ -248,6 +294,7 @@ export class WsTransport {
     if (this.destroyed || generation !== this.connectedGeneration || !this.socket.connected) return
     if (!accepted) {
       this.destroy('identity-mismatch')
+      this.opts.onDialOutcome?.({ kind: 'identity-mismatch' })
       return
     }
 
@@ -262,6 +309,7 @@ export class WsTransport {
       pendingRequests: this.pendingRequestSummary(),
     })
     if (shouldReset) this.onResetCallback?.()
+    this.opts.onDialOutcome?.({ kind: 'accepted', recovered: this.socket.recovered })
     this.flushQueuedRequests()
     if (this.authRefreshAttempted) {
       if (this.authRefreshResetTimer) clearTimeout(this.authRefreshResetTimer)
@@ -390,8 +438,21 @@ export class WsTransport {
       const current = this.requests.get(id)
       if (!current) return
       this.requests.delete(id)
-      if (response.error) current.reject?.(new Error(response.error.message ?? 'rpc error'))
-      else current.resolve?.(response.result)
+      // This ack runs inside socket.io's packet loop: a malformed ack must
+      // settle this one request as a failed call, never throw into the
+      // transport or leave a hung promise replayed on every reconnect.
+      const envelope = rpcResponseEnvelopeSchema.safeParse(response)
+      if (!envelope.success) {
+        current.reject?.(new Error(`rpc ack for ${request.method} was malformed`))
+        return
+      }
+      if (envelope.data.error) {
+        current.reject?.(new Error(envelope.data.error.message ?? 'rpc error'))
+      } else {
+        // SAFETY: The result carries the invoked method's return type, which
+        // the wire cannot prove and callers' TS types already assumed pre-parse.
+        current.resolve?.(envelope.data.result as RpcInvocationResult)
+      }
     })
   }
 
@@ -427,6 +488,7 @@ export class WsTransport {
     this.socket.disconnect()
     this.setStatus('blocked')
     this.rejectAllRequests()
+    this.opts.onDialOutcome?.({ kind: 'auth-blocked' })
     this.opts.onAuthFailed?.()
   }
 
@@ -467,37 +529,20 @@ export class WsTransport {
     })
   }
 
-  private installLifecycleListeners(): void {
-    if (!('window' in globalThis)) return
-    const onOnline = () => {
-      if (this.status === 'connected') void this.probeConnectedSocket()
-      else this.reconnectNow()
-    }
-    const onVisibilityChange = () => {
-      if ('document' in globalThis && document.visibilityState === 'visible' && this.status === 'connected') {
-        void this.probeConnectedSocket()
-      }
-    }
-
-    window.addEventListener('online', onOnline)
-    if ('document' in globalThis) document.addEventListener('visibilitychange', onVisibilityChange)
-    this.removeLifecycleListeners = () => {
-      window.removeEventListener('online', onOnline)
-      if ('document' in globalThis) document.removeEventListener('visibilitychange', onVisibilityChange)
-    }
-  }
-
-  private async probeConnectedSocket(): Promise<void> {
+  /** Asks the connected socket to prove it is alive. Rejection is a report,
+   *  not an action — the supervisor decides what a failed probe means. The
+   *  stale socket is hung up first so the supervisor's next dial is fresh. */
+  async probe(): Promise<void> {
     if (this.destroyed || this.blocked || this.wakeProbeInFlight) return
     if (!this.socket.connected) {
-      this.reconnectNow()
-      return
+      throw new Error('socket is not connected')
     }
     this.wakeProbeInFlight = true
     try {
       await withTimeout(this.invoke(WAKE_PROBE_METHOD, []), WAKE_PROBE_TIMEOUT_MS)
-    } catch {
-      this.reconnectNow()
+    } catch (error) {
+      this.socket.disconnect()
+      throw error
     } finally {
       this.wakeProbeInFlight = false
     }

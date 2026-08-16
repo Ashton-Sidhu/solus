@@ -17,7 +17,7 @@ export interface PreviewHost {
 }
 
 interface PreviewLoaderDeps {
-  hostFor(serverId: string | undefined): PreviewHost
+  hostFor(serverId: string): PreviewHost
 }
 
 /**
@@ -97,7 +97,18 @@ export class PreviewLoader {
       return
     }
 
-    const cacheKey = `${entry.meta.serverId ?? ''}:${entry.meta.provider}:${entry.meta.projectPath}:${entry.meta.sessionId}`
+    // History entries are host-stamped where host data enters the client; an
+    // entry that somehow lost its stamp has no host to preview from.
+    const metaServerId = entry.meta.serverId
+    if (!metaServerId) {
+      this.#seq++
+      this.loading = false
+      this.snapshot = null
+      this.hiddenCount = undefined
+      return
+    }
+
+    const cacheKey = `${metaServerId}:${entry.meta.provider}:${entry.meta.projectPath}:${entry.meta.sessionId}`
     const cached = this.#cache.get(cacheKey)
     if (cached) {
       this.#seq++
@@ -115,7 +126,7 @@ export class PreviewLoader {
         // Refresh single-session metadata (e.g. a `/rename` since the cached
         // scan) alongside the preview body. `dir` is the real cwd, not the
         // encoded folder. Never let a metadata failure block the preview.
-        const host = this.deps.hostFor(entry.meta.serverId)
+        const host = this.deps.hostFor(metaServerId)
         const [result, info] = await Promise.all([
           host.loadSessionPreview(
             entry.meta.sessionId,
@@ -141,13 +152,8 @@ export class PreviewLoader {
 export function createSessionPreviewStore(): PreviewLoader {
   return new PreviewLoader({
     hostFor: (serverId) => {
-      const resolvedServerId = serverId
-        ? serverConnections.resolveId(serverId)
-        : serverConnections.connectionFor()?.serverId
-      if (!resolvedServerId) throw new Error('Primary Solus connection has not been registered')
-      const api = serverId
-        ? serverConnections.apiFor(resolvedServerId)
-        : serverConnections.primaryApi()
+      const resolvedServerId = serverConnections.resolveId(serverId)
+      const api = serverConnections.apiFor(resolvedServerId)
       return {
         serverId: resolvedServerId,
         loadSessionPreview: api.loadSessionPreview,

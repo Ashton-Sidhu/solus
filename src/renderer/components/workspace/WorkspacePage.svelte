@@ -1,6 +1,5 @@
 <script lang="ts">
   import { serverConnections } from "@client-core/server-connections";
-  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import { tick, untrack } from "svelte";
   import {
     BooksIcon,
@@ -28,6 +27,7 @@
   } from "../../contexts";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import { liveSessionTitle } from "../../lib/sessionUtils";
+  import { SessionUnavailableError } from "../../contexts/workspace/session-errors";
   import {
     useKeybinding,
     useScope,
@@ -124,22 +124,24 @@
   );
   // The switcher's host this page reads/writes projects on. `openProjects` has
   // no host of its own today (a session's `run.serverId` never survives into
-  // it), so every open project is attributed to the primary connection —
-  // exactly how Tasks' `sidebarServerId` resolves the same gap.
-  const sidebarServerId = $derived(
-    serverConnections.connectionFor()?.serverId ?? LOCAL_SERVER_ID,
-  );
+  // it), so every open project is attributed to the default host — exactly how
+  // Tasks' `sidebarServerId` resolves the same gap.
+  const sidebarServerId = $derived(serverConnections.defaultServerId());
   // The union of every open project (as today) and every project the catalog
   // has recorded that isn't already open — a project closed today can still
   // be jumped back into from here.
   const projectOptions = $derived(
     mergeProjectOptions(
       [
-        openProjects.map((project) => ({
-          serverId: sidebarServerId,
-          projectRoot: project.key,
-          label: project.label,
-        })),
+        // With no default host there is nothing to attribute an open project
+        // to; the catalog still carries its own host per entry.
+        sidebarServerId
+          ? openProjects.map((project) => ({
+              serverId: sidebarServerId,
+              projectRoot: project.key,
+              label: project.label,
+            }))
+          : [],
         projectCatalog.entries,
       ],
       (serverId) => serversStore.statusFor(serverId) !== "offline",
@@ -189,10 +191,12 @@
       ? (projectOptions.find(
           (option) => option.projectKey === scopedProject!.key,
         )?.key ??
-          projectRefKey({
-            serverId: sidebarServerId,
-            projectRoot: scopedProject!.key,
-          }))
+          (sidebarServerId
+            ? projectRefKey({
+                serverId: sidebarServerId,
+                projectRoot: scopedProject!.key,
+              })
+            : null))
       : null,
   );
   /** A row names its project only when the ledger spans more than one. */
@@ -455,8 +459,21 @@
   // Only the rows that are actually rendered are looked up — the ledger pages
   // in 80 at a time, so scrolling resolves the next batch rather than the whole
   // history up front.
+  /** The host that owns an artifact's origin session: the plan descriptor's
+   *  stamp (or the plan store's side map), or the work's owner host. */
+  function originServerId(item: WorkspaceItem): string | null {
+    return item.source.kind === "plan"
+      ? (item.source.descriptor.serverId ?? planStore.hostFor(item.id))
+      : session.worksStore.hostFor(item.source.work.id);
+  }
+
   $effect(() => {
-    sessionLabels.ensure(flat.map((item) => item.sessionId));
+    sessionLabels.ensure(
+      flat.map((item) => ({
+        sessionId: item.sessionId,
+        serverId: originServerId(item),
+      })),
+    );
   });
 
   /** What to call the session an artifact came from. A session open in a tab
@@ -464,7 +481,7 @@
   function originLabel(item: WorkspaceItem): string | null {
     if (!item.sessionId) return null;
     return (
-      liveSessionTitle(item.sessionId, session) ??
+      liveSessionTitle(item.sessionId, originServerId(item), session) ??
       sessionLabels.get(item.sessionId)
     );
   }
@@ -611,20 +628,31 @@
     if (!item.sessionId) return;
     const descriptor = item.source.kind === "plan" ? item.source.descriptor : null;
     const work = item.source.kind === "work" ? item.source.work : null;
-    const tabId = await session.resumeSession(
-      {
-        serverId: descriptor?.serverId ?? (work ? session.worksStore.hostFor(work.id) ?? undefined : undefined),
-        provider: descriptor?.provider ?? work?.agentProvider ?? session.settings.activeAgent,
-        sessionId: item.sessionId,
-        slug: null,
-        firstMessage: item.title,
-        lastTimestamp: new Date(item.timestamp).toISOString(),
-        size: 0,
-        cwd: item.cwd,
-        projectPath: descriptor?.projectPath ?? "",
-      },
-      { background: true },
-    );
+    if (descriptor?.sessionAvailable === false) {
+      session.notifySessionUnavailable(descriptor.provider);
+      return;
+    }
+    let tabId: string;
+    try {
+      tabId = await session.resumeSession(
+        {
+          serverId: descriptor?.serverId ?? (work ? session.worksStore.hostFor(work.id) ?? undefined : undefined),
+          provider: descriptor?.provider ?? work?.agentProvider ?? session.settings.activeAgent,
+          sessionId: item.sessionId,
+          slug: null,
+          firstMessage: item.title,
+          lastTimestamp: new Date(item.timestamp).toISOString(),
+          size: 0,
+          cwd: item.cwd,
+          projectPath: descriptor?.projectPath ?? "",
+        },
+        { background: true },
+      );
+    } catch (error) {
+      if (!(error instanceof SessionUnavailableError)) throw error;
+      session.notifySessionUnavailable(descriptor?.provider);
+      return;
+    }
     const resumed = tabId ? session.sessionFor(tabId) : undefined;
     if (resumed) session.openSplitChat(resumed.id);
   }

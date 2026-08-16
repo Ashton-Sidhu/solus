@@ -1,6 +1,13 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { SessionMeta } from '../../../../shared/types'
-import { resolveSessionMetaRef } from '@client-core/session-meta'
+import { readSessionMeta } from '@client-core/session-meta'
+
+export interface SessionLabelRef {
+  sessionId: string | null
+  /** The host that owns the session. A row without one keeps its fallback
+   *  label — the index is never probed across hosts for a name. */
+  serverId: string | null
+}
 
 /**
  * Names for the sessions the ledger's artifacts came from.
@@ -20,19 +27,19 @@ export class SessionLabels {
     return sessionId ? (this.#labels.get(sessionId) ?? null) : null
   }
 
-  /** Resolve every id not already known or in flight. Safe to call on each
+  /** Resolve every ref not already known or in flight. Safe to call on each
    *  render pass; it de-duplicates. */
-  ensure(sessionIds: (string | null)[]): void {
-    for (const id of sessionIds) {
-      if (!id || this.#labels.has(id) || this.#pending.has(id)) continue
-      this.#pending.add(id)
-      void resolveSessionMetaRef({ sessionId: id })
+  ensure(refs: SessionLabelRef[]): void {
+    for (const { sessionId, serverId } of refs) {
+      if (!sessionId || !serverId || this.#labels.has(sessionId) || this.#pending.has(sessionId)) continue
+      this.#pending.add(sessionId)
+      void readSessionMeta(serverId, sessionId)
         .then((meta) => {
           const label = sessionMetaLabel(meta)
-          if (label) this.#labels.set(id, label)
+          if (label) this.#labels.set(sessionId, label)
         })
         .catch(() => {})
-        .finally(() => this.#pending.delete(id))
+        .finally(() => this.#pending.delete(sessionId))
     }
   }
 }

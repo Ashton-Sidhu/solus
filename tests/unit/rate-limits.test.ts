@@ -3,6 +3,7 @@ import {
   decorateRateLimit,
   findResetTimestamp,
   normalizeResetNumber,
+  rateLimitEventFromMessage,
   RateLimitState,
 } from '../../src/main/rate-limits'
 import type { NormalizedEvent } from '../../src/shared/types'
@@ -36,6 +37,20 @@ describe('rate-limit parsing', () => {
     setSystemTime(new Date('2026-01-01T16:00:00-05:00'))
 
     expect(findResetTimestamp('usage limit reached, try again at 3:00 PM')).toBe(Math.ceil(new Date(2026, 0, 2, 15, 0, 0, 0).getTime() / 1000))
+  })
+
+  test('parses Claude session-limit prose with its named time zone', () => {
+    setSystemTime(new Date('2026-08-14T19:14:00Z'))
+
+    expect(rateLimitEventFromMessage(
+      "You've hit your session limit · resets 4pm (America/Toronto)",
+    )).toMatchObject({
+      type: 'rate_limit',
+      status: 'limited',
+      resetsAt: 1786737600,
+      rateLimitType: 'Claude',
+      info: { resetsAt: 1786737600, rateLimitType: 'Claude' },
+    })
   })
 })
 

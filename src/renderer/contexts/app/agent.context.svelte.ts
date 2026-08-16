@@ -38,9 +38,12 @@ export class AgentContext {
   }
 
   /** Also tells the backend someone is watching — its poll self-suspends when
-   *  nobody asks for a while. */
+   *  nobody asks for a while. Reads the new-work default host; other hosts'
+   *  snapshots arrive through the `usage.limitsChanged` topic. */
   async refreshUsage(): Promise<void> {
-    this.applyUsage(await serverConnections.primaryApi().usageLimits())
+    const serverId = serverConnections.defaultServerId()
+    if (!serverId) return
+    this.applyUsage(await serverConnections.apiFor(serverId).usageLimits())
   }
 }
 

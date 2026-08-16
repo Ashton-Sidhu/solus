@@ -1,5 +1,6 @@
 import type { ReviewDraftComment, ReviewState } from "../../../../shared/review";
 import type { DiffComment, IpcContext } from "../../../../shared/types";
+import { uuid } from "../../../../shared/uuid";
 import type { GuideDiffCommentSave } from "../../pr-review/guide/lib/guide-data";
 import type { HostApi } from "@client-core/host-api";
 
@@ -87,7 +88,7 @@ export class ReviewDrafts {
       existing.body = input.body;
       existing.startLine = input.startLine;
     } else {
-      this.drafts.push({ id: crypto.randomUUID(), createdAt: Date.now(), ...input });
+      this.drafts.push({ id: uuid(), createdAt: Date.now(), ...input });
     }
   }
 

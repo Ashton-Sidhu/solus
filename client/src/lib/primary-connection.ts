@@ -4,7 +4,8 @@ import {
   type SavedServer,
 } from '@client-core/server-registry'
 
-/** Activates a primary host by reloading into the normal scoped boot path. */
+/** Used only by HostlessHome: activates a host by reloading into the normal
+ *  scoped boot path. A reload from a page with no workspace loses nothing. */
 export function activateServer(server: SavedServer): void {
   upsertServer(server)
   setActiveServerId(server.id)

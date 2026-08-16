@@ -459,12 +459,16 @@ export class SessionEnvironmentStore {
     this.scheduleDetailsRefresh(serverId, cwd)
   }
 
-  watchDetails(cwd: string): () => void {
-    const serverId = this.boundServerIdFor(cwd)
-    if (!serverId) return () => {}
+  watchDetails(serverId: string, cwd: string): () => void {
     const key = hostKey(serverId, cwd)
-    this.detailWatchers.set(key, (this.detailWatchers.get(key) ?? 0) + 1)
-    void this.refreshStatusForHost(serverId, cwd, { force: true, details: true })
+    const previousCount = this.detailWatchers.get(key) ?? 0
+    this.detailWatchers.set(key, previousCount + 1)
+    // A reactive consumer can unsubscribe and subscribe again while the same
+    // checkout remains visible. Only the first live consumer starts a scan;
+    // later consumers share the same status and refresh timer.
+    if (previousCount === 0) {
+      void this.refreshStatusForHost(serverId, cwd, { force: true, details: true })
+    }
     return () => {
       const remaining = (this.detailWatchers.get(key) ?? 1) - 1
       if (remaining > 0) {

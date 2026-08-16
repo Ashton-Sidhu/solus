@@ -26,11 +26,13 @@ interface ParsedReport {
 const sessionToolInputSchema = z.object({
   session_id: z.string().optional(),
   prompt: z.string().optional(),
-  mode: z.enum(['delegate', 'fire_and_forget']).optional(),
+  // Enum fields degrade alone so an unknown value from a newer host drops
+  // that field, not the whole parsed input.
+  mode: z.enum(['delegate', 'fire_and_forget']).optional().catch(undefined),
   model_id: z.string().optional(),
   reasoning_effort: z.string().optional(),
   cwd: z.string().optional(),
-  delivery: z.enum(['queue', 'steer']).optional(),
+  delivery: z.enum(['queue', 'steer']).optional().catch(undefined),
 })
 
 type SessionToolInput = z.infer<typeof sessionToolInputSchema>

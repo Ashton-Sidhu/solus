@@ -11,6 +11,13 @@ import { PermissionManager } from './claude-permissions'
 import { BaseAgentBackend } from '../base-backend'
 import { encodePathAsFolder } from '../utils'
 import { loadAllAnnotations } from '../../plans/annotations'
+import {
+  isPlanIndexComplete,
+  listIndexedPlans,
+  loadIndexedPlanContent,
+  replaceIndexedPlansForProvider,
+  type IndexedPlanInput,
+} from '../../plans/plan-index'
 import { createLogger } from '../../logger'
 import { getHeadCommit } from '../../git/worktree-manager'
 import { resolveRepoRoot } from '../../git/git-helpers'
@@ -36,6 +43,7 @@ import {
   _sessionListCache,
   _sessionScanInFlight,
   parseJsonlLine,
+  findClaudeForkResumeId,
   resolveClaudeSessionFilePath,
   scanSessionsInDir,
 } from './claude-session-helpers'
@@ -46,6 +54,7 @@ import {
   annotateScanned,
   groupBySession,
   type AnnotatedPlan,
+  type ScannedPlan,
 } from './claude-plan-helpers'
 import { _pluginCmdCache, PLUGIN_CMD_TTL, resolvePluginCommands } from './claude-plugin-helpers'
 import { runBounded } from '../../lib/concurrency'
@@ -152,6 +161,18 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     )
   }
 
+  private async forkResumeId(sessionId: string, projectPath: string): Promise<string | null> {
+    const filePath = this.sessionFilePath(sessionId, projectPath)
+    if (!filePath) return null
+    const lines: string[] = []
+    await new Promise<void>((resolve) => {
+      const rl = createInterface({ input: createReadStream(filePath) })
+      rl.on('line', (line: string) => lines.push(line))
+      rl.on('close', () => resolve())
+    })
+    return findClaudeForkResumeId(lines)
+  }
+
   /** SDK-reported built-in commands for a working directory and model, fetched via a
    *  short-lived streaming query (the only mode that exposes `supportedCommands`)
    *  and serialized across cache misses. No persistent session is kept. */
@@ -205,11 +226,15 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
 
     this.pendingRuns.push(handle)
     void (async () => {
+      const resumeSessionAt = request.forkSession && request.forkExcludeLatestTurn && sessionId
+        ? await this.forkResumeId(sessionId, request.cwd)
+        : null
       const { events, result } = this.agent.run({
         prompt: handle.input,
         cwd: request.cwd,
         sessionId,
         forkSession: request.forkSession,
+        resumeSessionAt: resumeSessionAt ?? undefined,
         model,
         reasoningEffort: request.reasoningEffort,
         fastMode: request.fastMode,
@@ -514,12 +539,16 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
   }
 
   async listPlans(projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]> {
+    if (isPlanIndexComplete('claude-code')) {
+      return listIndexedPlans('claude-code', projectPath, allProjects)
+    }
     const cacheKey = `${allProjects ? 'all' : projectPath || process.cwd()}`
-    const cached = _planListCache.get(cacheKey)
-    if (cached) return cached
 
     const projectsRoot = join(homedir(), '.claude', 'projects')
-    if (!existsSync(projectsRoot)) return []
+    if (!existsSync(projectsRoot)) {
+      if (allProjects) replaceIndexedPlansForProvider('claude-code', [])
+      return []
+    }
 
     // Dedup concurrent cold plan scans of the same scope, exactly as listSessions
     // does: the pill and editor windows both fire listPlans at launch, and each
@@ -530,6 +559,25 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     const scan = (async () => {
       const annotationIndex = await loadAllAnnotations()
       const allScanned: AnnotatedPlan[] = []
+      const indexedPlans: IndexedPlanInput[] = []
+      const collect = (scanned: ScannedPlan[]) => {
+        for (const plan of scanned) {
+          allScanned.push(annotateScanned(plan, annotationIndex))
+          indexedPlans.push({
+            provider: 'claude-code',
+            sessionId: plan.sessionId,
+            planToolUseId: plan.planToolUseId,
+            projectPath: plan.projectPath,
+            cwd: plan.cwd,
+            timestamp: plan.timestamp,
+            title: plan.title,
+            excerpt: plan.excerpt,
+            planFilePath: plan.planFilePath,
+            content: plan.content,
+            derivedStatus: plan.derivedStatus,
+          })
+        }
+      }
 
       if (allProjects) {
         const dirs = await readdir(projectsRoot)
@@ -541,28 +589,26 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
             return
           }
           const fallbackCwd = dir.startsWith('-') ? dir.replaceAll('-', '/') : dir
-          const scanned = await scanPlansInDir(full, dir, fallbackCwd)
-          for (const s of scanned) allScanned.push(annotateScanned(s, annotationIndex))
+          collect(await scanPlansInDir(full, dir, fallbackCwd))
         })
         await runBounded(tasks, 8)
       } else {
         const cwd = projectPath || process.cwd()
         const encodedPath = encodePathAsFolder(cwd)
         const mainDir = join(projectsRoot, encodedPath)
-        const scanned = await scanPlansInDir(mainDir, encodedPath, cwd)
-        for (const s of scanned) allScanned.push(annotateScanned(s, annotationIndex))
+        collect(await scanPlansInDir(mainDir, encodedPath, cwd))
 
         const worktreePrefix = encodedPath + SOLUS_WORKTREE_ENCODED_MARKER
         const worktreeDirs = (await readdir(projectsRoot)).filter((d: string) => d.startsWith(worktreePrefix))
         const tasks = worktreeDirs.map((wt) => async () => {
-          const wtScanned = await scanPlansInDir(join(projectsRoot, wt), wt, cwd)
-          for (const s of wtScanned) allScanned.push(annotateScanned(s, annotationIndex))
+          collect(await scanPlansInDir(join(projectsRoot, wt), wt, cwd))
         })
         await runBounded(tasks, 8)
       }
 
       const descriptors = groupBySession(allScanned)
       descriptors.sort((a, b) => b.timestamp - a.timestamp)
+      if (allProjects) replaceIndexedPlansForProvider('claude-code', indexedPlans)
       _planListCache.set(cacheKey, descriptors)
       return descriptors
     })()
@@ -581,6 +627,8 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
   }
 
   async loadPlanContent(sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null> {
+    const indexed = loadIndexedPlanContent('claude-code', sessionId, planToolUseId)
+    if (indexed !== null) return indexed
     const filePath = this.sessionFilePath(sessionId, projectPath)
     if (!filePath) return null
 

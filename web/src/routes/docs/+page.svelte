@@ -20,7 +20,7 @@
 			{ id: 'diff',            label: 'Diff Panel' },
 			{ id: 'files',           label: 'Opening Changed Files' },
 			{ id: 'review',          label: 'Review Companion' },
-			{ id: 'pull-request-merge', label: 'Merging Pull Requests' },
+			{ id: 'pull-request-merge', label: 'Opening & Merging Pull Requests' },
 		]},
 		{ label: 'Documents & Input', sections: [
 			{ id: 'works',           label: 'Works' },
@@ -266,7 +266,7 @@
 						['Summon', `Press ${kbdHtml('⌥Space')} from any app, pick a project, and describe the change. See <a href="#getting-started" class="text-[#C4973A] no-underline hover:underline">Getting Started</a>.`],
 						['Plan', `For bigger work, have the agent draft a plan and mark it up before any code changes. See <a href="#plans" class="text-[#C4973A] no-underline hover:underline">Working with Plans</a>.`],
 						['Review', `Step through every touched file and send line-level feedback. See <a href="#diff" class="text-[#C4973A] no-underline hover:underline">Diff Panel</a> and <a href="#review" class="text-[#C4973A] no-underline hover:underline">Review Companion</a>.`],
-						['Ship', `Commit and push with ${kbdHtml('⌥⇧C')}, then merge the PR without leaving Solus. See <a href="#pull-request-merge" class="text-[#C4973A] no-underline hover:underline">Merging Pull Requests</a>.`],
+						['Ship', `One action in the Git panel commits, pushes, and opens the pull request — message and description written for you — then merge it without leaving Solus. See <a href="#pull-request-merge" class="text-[#C4973A] no-underline hover:underline">Pull Requests</a>.`],
 						['Automate', `Save the prompts you repeat and run them on a schedule. See <a href="#automations" class="text-[#C4973A] no-underline hover:underline">Automations</a>.`],
 					] as [title, desc]}
 						<li class="flex gap-3">
@@ -342,7 +342,7 @@
 						['Isolate risky work', `Press ${kbdHtml('⌥⇧B')} to run the session on an isolated git worktree; switch worktrees with ${kbdHtml('⌥⇧H')}.`],
 						['Switch branches', `Pick a branch in the git dropdown to check it out for the tab. If a worktree already has that branch, Solus takes you there.`],
 						['Follow the goal', `The project panel shows the session's <strong class="text-[#1A1714] font-medium">Goal</strong> card: status and progress against a token budget. Codex sessions can edit, pause, or clear it there.`],
-						['Ship from the keyboard', `${kbdHtml('⌥⇧C')} commits and pushes the session's changes; ${kbdHtml('⌥⇧.')} pulls to sync.`],
+						['Ship from the keyboard', `${kbdHtml('⌥⇧C')} commits and pushes the session's changes; ${kbdHtml('⌥⇧.')} pulls to sync. The Git panel's primary action goes further — branch, commit, push, and pull request in one step. See <a href="#pull-request-merge" class="text-[#C4973A] no-underline hover:underline">Opening &amp; Merging Pull Requests</a>.`],
 					] as [title, desc]}
 						<li class="flex gap-3">
 							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
@@ -507,6 +507,7 @@
 						['Focus or split', `Press ${kbdHtml('⌥⇧\\')} (or use the pane header action) to move a plan, Work, automation, or review between the focused primary pane and the split side pane.`],
 						['Diffs and files', `${kbdHtml('⌥⇧D')} opens the diff, ${kbdHtml('⌥⇧O')} the files pane, ${kbdHtml('⌥⇧F')} changed files, each beside the conversation so you can inspect code and keep prompting.`],
 						['PR review', 'A pull request opens with the review maximized; use the Chat control to reveal the conversation beside Activity, Guide, and Diff.'],
+						['One commit at a time', 'Click a commit in the Activity timeline and the Diff narrows to that commit\'s own changes. A band names the commit and takes you back to all changes. Inline comments are off while one commit is in view, because comment anchors belong to the full diff.'],
 						['State stays put', 'Closing a pane restores the conversation with scroll position and drafts intact.'],
 					] as [title, desc]}
 						<li class="flex gap-3">
@@ -590,12 +591,37 @@
 			</section>
 
 			<section id="pull-request-merge" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
-				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Merging Pull Requests</h2>
+				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Opening &amp; Merging Pull Requests</h2>
 				<p>
-					Merge a pull request without opening GitHub:
+					Open a pull request and merge it without opening GitHub:
 				</p>
 
-				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">How to use it</h3>
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Publishing the work</h3>
+				<p class="text-base/7 sm:text-[14px]">
+					The Git section of the project panel ({@render kbd('⌥M')}) shows one primary action that
+					reads your branch state and runs every step it needs:
+				</p>
+				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
+					{#each [
+						['On the default branch', `Uncommitted work becomes a feature branch first, then a commit, a push, and a pull request.`],
+						['On a feature branch', `<strong class="text-[#1A1714] font-medium">Commit, push and open PR</strong>, or just <strong class="text-[#1A1714] font-medium">Commit and push</strong> once the pull request exists.`],
+						['Nothing to commit', `Unpushed commits push and open the pull request; a published one opens directly.`],
+						['Behind the upstream', `Sync first (${kbdHtml('⌥⇧.')}) — the action waits until the branch is up to date.`],
+						['Messages are written for you', `The commit message, the branch name, and the pull-request title and description come from the change itself: commit subjects, diff statistics, and the repository pull-request template when there is one. If generation fails, Solus falls back to a plain draft from the same context.`],
+					] as [title, desc]}
+						<li class="flex gap-3">
+							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
+							<span><strong class="text-[#1A1714] font-medium">{title}.</strong> {@html desc}</span>
+						</li>
+					{/each}
+				</ul>
+				<p class="mt-4 text-[14px] text-[#A09488]">
+					{@render kbd('⌥⇧C')} still commits and pushes directly. Writing style, template handling,
+					and the model that writes them live under
+					<strong class="text-[#A09488] font-medium">Settings → Source Control</strong>.
+				</p>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Merging</h3>
 				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
 					{#each [
 						['Open the PR', 'Open the Pull Requests page from the sidebar and select the PR.'],
@@ -990,6 +1016,37 @@ solus claim                           # claim the server from this machine</div>
 						['Default agent', 'The agent for new sessions; unavailable agents are disabled.'],
 						['Rate limit behavior', 'Ask, Queue, Continue, or Stop. See <a href="#rate-limits" class="text-[#C4973A] no-underline hover:underline">Rate Limit Queueing</a>. Tabs can override it.'],
 						['Git worktrees', 'New sessions run in an isolated git worktree; changes merge back when the session completes.'],
+					] as [key, val], i}
+						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''} {i < 2 ? 'border-b border-[rgba(0,0,0,0.04)]' : ''}">
+							<span class="text-base/6 sm:text-[13px] font-medium text-[#1A1714] sm:w-[148px] shrink-0">{key}</span>
+							<span class="text-base/6 sm:text-[13px] text-[#6B6158]">{@html val}</span>
+						</div>
+					{/each}
+				</div>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Text generation</h3>
+				<div class="mt-3 rounded-xl border border-[rgba(0,0,0,0.07)] overflow-hidden">
+					{#each [
+						['Text-generation model', 'The model behind short background writing: session names, metadata, and generated Git messages.'],
+						['Backup text-generation model', 'Used when the first choice is not installed on the host. Solus keeps your selection and reports the model it actually used.'],
+					] as [key, val], i}
+						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''} {i < 1 ? 'border-b border-[rgba(0,0,0,0.04)]' : ''}">
+							<span class="text-base/6 sm:text-[13px] font-medium text-[#1A1714] sm:w-[148px] shrink-0">{key}</span>
+							<span class="text-base/6 sm:text-[13px] text-[#6B6158]">{@html val}</span>
+						</div>
+					{/each}
+				</div>
+				<p class="mt-3 text-[14px] text-[#A09488]">
+					These are host settings: a remote client uses the models installed on the host the
+					session runs on.
+				</p>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Source control</h3>
+				<div class="mt-3 rounded-xl border border-[rgba(0,0,0,0.07)] overflow-hidden">
+					{#each [
+						['Source control writing style', '<strong class="text-[#1A1714] font-medium">Repository conventions</strong> matches each repository\'s recent commit subjects, <strong class="text-[#1A1714] font-medium">Conventional Commits</strong> applies <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">feat:</code> / <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">fix:</code> prefixes, and <strong class="text-[#1A1714] font-medium">Custom instructions</strong> uses your own direction.'],
+						['Follow pull-request templates', 'Structure pull-request descriptions with the repository template when one exists.'],
+						['Source-control writer model', 'Optional override for commits, branch names, and pull requests. Off uses the text-generation model.'],
 					] as [key, val], i}
 						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''} {i < 2 ? 'border-b border-[rgba(0,0,0,0.04)]' : ''}">
 							<span class="text-base/6 sm:text-[13px] font-medium text-[#1A1714] sm:w-[148px] shrink-0">{key}</span>

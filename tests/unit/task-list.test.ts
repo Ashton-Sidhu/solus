@@ -3,7 +3,6 @@ import type { PullRequestSummary } from '../../src/shared/providers'
 import type { Task } from '../../src/shared/task-types'
 import {
   aggregateReviewGuideStatus,
-  belongsToSelectedHost,
   buildProjectSummaries,
   formatCompletedAge,
   formatElapsed,
@@ -67,16 +66,6 @@ describe('sidebar task search', () => {
   })
 })
 
-describe('sidebar host scope', () => {
-  it('shows only work owned by the selected host', () => {
-    expect(belongsToSelectedHost('remote', 'remote')).toBe(true)
-    expect(belongsToSelectedHost('local', 'remote')).toBe(false)
-  })
-
-  it('keeps provisional work visible until its host ownership is known', () => {
-    expect(belongsToSelectedHost(null, 'remote')).toBe(true)
-  })
-})
 
 describe('completed task age', () => {
   const now = Date.parse('2026-08-11T12:00:00Z')
@@ -175,26 +164,34 @@ describe('shouldShowDurableSidebarTask', () => {
     // Status and age describe the task lifecycle, not whether its sidebar row
     // exists. The explicit remove action is the only way a root row leaves —
     // completing one is that same action, which is why nothing here reads status.
-    expect(shouldShowDurableSidebarTask(durableTask('done'), false, false)).toBe(true)
-    expect(shouldShowDurableSidebarTask(durableTask('dropped'), false, false)).toBe(true)
+    expect(shouldShowDurableSidebarTask(durableTask('done'), false, false, true)).toBe(true)
+    expect(shouldShowDurableSidebarTask(durableTask('dropped'), false, false, true)).toBe(true)
   })
 
   it('restores a completed task when one of its sessions is reopened', () => {
     // WHY: completion removes the row by dismissing it, so reopening a session
     // has to bring the task back. Hiding a finished task on status instead left
     // the reopened conversation mounted with no row — and unloaded again.
-    expect(shouldShowDurableSidebarTask(durableTask('done'), true, true)).toBe(true)
+    expect(shouldShowDurableSidebarTask(durableTask('done'), true, true, true)).toBe(true)
   })
 
   it('restores an open task when a new session explicitly reopens it', () => {
     const task = durableTask('in_progress')
-    expect(shouldShowDurableSidebarTask(task, true, false)).toBe(false)
-    expect(shouldShowDurableSidebarTask(task, true, true)).toBe(true)
+    expect(shouldShowDurableSidebarTask(task, true, false, true)).toBe(false)
+    expect(shouldShowDurableSidebarTask(task, true, true, true)).toBe(true)
+  })
+
+  it('keeps a host task closed until this client opens it', () => {
+    // WHY: task data is shared across clients, but sidebar row state is not.
+    // A task created from desktop must not open a row on web.
+    const task = durableTask('in_progress')
+    expect(shouldShowDurableSidebarTask(task, false, false, false)).toBe(false)
+    expect(shouldShowDurableSidebarTask(task, false, true, false)).toBe(true)
   })
 
   it('continues to project child tasks through their root row', () => {
     expect(
-      shouldShowDurableSidebarTask(durableTask('in_progress', { parentId: 'root' }), false, true),
+      shouldShowDurableSidebarTask(durableTask('in_progress', { parentId: 'root' }), false, true, true),
     ).toBe(false)
   })
 })

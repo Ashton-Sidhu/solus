@@ -124,13 +124,17 @@
 
   const session = getWorkspaceContext();
   const store = session.automationsStore;
-  const primaryServerId = serverConnections.connectionFor()?.serverId;
+  // With no owning automation and no origin, the picker starts on the
+  // new-work default host; the menu itself still lists every connected host.
+  const defaultServerId =
+    serverConnections.defaultServerId() ??
+    serverConnections.connectedServerIds()[0];
   let selectedServerId = $state(
     untrack(
       () =>
         store.hostFor(automation?.id) ??
         (originServerId ? serverConnections.resolveId(originServerId) : null) ??
-        primaryServerId ??
+        defaultServerId ??
         "",
     ),
   );

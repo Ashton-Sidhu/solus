@@ -1,4 +1,14 @@
 import type { ConnectionStatus } from '@client-core/ws-transport'
+import type { HostPhase } from '@client-core/host-supervisor'
+import {
+  dismissSkew,
+  forgetSkewDismissals,
+  isSkewDismissed,
+  skewDismissalKey,
+  versionSkewNotice,
+  type VersionSkewNotice,
+} from '@client-core/version-skew'
+import { sendOutbox } from '@client-core/send-outbox'
 import { connectionState, subscribe } from '@client-core/connection-state'
 import { localApi } from '@client-core/local-api'
 import { serverConnections } from '@client-core/server-connections'
@@ -8,6 +18,7 @@ import {
   getActiveServerId,
   loadServers,
   LOCAL_SERVER_ID,
+  onServerRemoving,
   removeServer,
   setActiveServerId,
   touchLastConnected,
@@ -34,6 +45,8 @@ const HOST_PROBE_STALE_MS = 30_000
 const RECENT_PROJECTS_STALE_MS = 30_000
 interface ServerConnectionState {
   transportStatus: ConnectionStatus
+  /** The supervisor's word on this host, when one supervises it. */
+  phase?: HostPhase
   probeStatus?: Extract<ServerItemStatus, 'online' | 'offline'>
   attempt: number
   hasConnected: boolean
@@ -68,6 +81,11 @@ interface RecentProjectsCacheEntry {
 
 class ServersStore {
   local = $state<LocalConnectionInfoLike | null>(null)
+  /** What the local server calls itself — its hostname, from /health. Null
+   *  until the probe answers; the row falls back to a generic label. The row
+   *  deliberately carries no `os`: OS logos mark machines you are not sitting
+   *  at, and the local row keeps the plain device glyph everywhere. */
+  private localIdentity = $state<{ name: string } | null>(null)
   remotes = $state<SavedServer[]>(loadServers())
   activeServerId = $state(connectionState.target?.id ?? getActiveServerId())
   addServerOpen = $state(false)
@@ -93,46 +111,47 @@ class ServersStore {
   private readonly announcedDiscoveredInstallationIds = new Set<string>()
 
   get servers(): ServerItem[] {
-    const local: ServerItem[] = []
+    // Hosts are symmetric rows (dispatch-client step 5): the desktop's own
+    // machine is the one genuinely local row; a web client has no machine of
+    // its own, so every host — including the one it booted against — appears
+    // under its real id. Platform-managed entries (the serving origin) join
+    // from the live connection registry, since they are never persisted.
+    const rows: ServerItem[] = []
     if (this.local) {
-      local.push({
+      rows.push({
         id: LOCAL_SERVER_ID,
-        label: 'This Mac',
+        label: this.localIdentity?.name ?? 'This computer',
         url: `http://127.0.0.1:${this.local.port}`,
         installationId: this.local.installationId,
         local: true,
         status: this.statusFor(LOCAL_SERVER_ID),
       })
-    } else if (this.isWebClient && this.hasPrimaryConnection) {
-      // A web client has no machine of its own: the host it is connected to
-      // plays the local role, so it heads the list as the unmarked case.
-      const active = this.remotes.find((server) => server.id === this.activeServerId)
-      if (active) {
-        local.push({
-          id: LOCAL_SERVER_ID,
-          label: active.label,
-          url: active.url,
-          installationId: active.installationId,
-          os: active.os,
-          local: true,
-          status: this.statusFor(LOCAL_SERVER_ID),
-        })
-      }
     }
-    return [
-      ...local,
-      ...this.remotes
-        .filter((server) => !this.isWebClient || !this.hasPrimaryConnection || server.id !== this.activeServerId)
-        .map((server) => ({
-          id: server.id,
-          label: server.label,
-          url: server.url,
-          installationId: server.installationId,
-          os: server.os,
-          local: false,
-          status: this.statusFor(server.id),
-        })),
-    ]
+    for (const server of this.remotes) {
+      rows.push({
+        id: server.id,
+        label: server.label,
+        url: server.url,
+        installationId: server.installationId,
+        os: server.os,
+        local: false,
+        status: this.statusFor(server.id),
+      })
+    }
+    for (const serverId of serverConnections.connectedServerIds()) {
+      if (serverId === LOCAL_SERVER_ID || rows.some((row) => row.id === serverId)) continue
+      const target = serverConnections.connectionFor(serverId)?.target
+      if (!target || target.local) continue
+      rows.push({
+        id: serverId,
+        label: target.label,
+        url: target.url,
+        installationId: target.installationId,
+        local: false,
+        status: this.statusFor(serverId),
+      })
+    }
+    return rows
   }
 
   /**
@@ -150,20 +169,7 @@ class ServersStore {
     return localApi.getPlatform?.() === 'web'
   }
 
-  private get hasPrimaryConnection(): boolean {
-    return !!serverConnections.connectionFor()
-  }
 
-  /**
-   * The two names the web primary answers to, folded onto the one that has
-   * state: transport status lives under the real server id, while the host
-   * list shows that server as the local row.
-   */
-  private resolveHostId(serverId: string): string {
-    if (this.local || !this.isWebClient || !this.hasPrimaryConnection) return serverId
-    if (serverId === LOCAL_SERVER_ID) return this.activeServerId
-    return serverId
-  }
 
   get activeServer(): ServerItem | null {
     return this.servers.find((server) => server.id === this.activeServerId) ?? this.servers[0] ?? null
@@ -221,6 +227,11 @@ class ServersStore {
       void nativeApi.getLocalConnection().then((local) => {
         this.local = local
         this.updateAutoDiscovery()
+        // The row should carry the machine's real name, not a placeholder —
+        // /health is the one source that knows it.
+        void serverConnections.probeHealth(LOCAL_SERVER_ID).then((health) => {
+          if (health) this.localIdentity = { name: health.name }
+        })
       })
     }
 
@@ -236,6 +247,35 @@ class ServersStore {
       this.setConnectionStatus(serverId, status, attempt)
     })
 
+    // The supervisor's phase outranks the transport status: it is the one
+    // owner of the retry ladder, and `offline` is a phase it can actually
+    // reach — the transport only ever said "reconnecting" forever.
+    serverConnections.onPhaseChange((serverId, phase) => {
+      this.connectionStateFor(serverId).phase = phase
+    })
+
+    // Forgetting a host is total: its skew dismissals and queued sends leave
+    // with it (the session snapshot cache purges itself the same way).
+    onServerRemoving((server) => {
+      forgetSkewDismissals(server.id)
+      sendOutbox.forgetHost(server.id)
+    })
+  }
+
+  /** The per-host version-skew notice, or null when versions match, the host
+   *  has no session record yet, or this exact pairing was dismissed. */
+  versionSkewNoticeFor(serverId: string): VersionSkewNotice | null {
+    const capabilities = serverConnections.cachedCapabilitiesFor(serverId)
+    const host = this.hostFor(serverId)
+    const notice = versionSkewNotice(host?.label ?? serverId, capabilities?.version, capabilities)
+    if (!notice) return null
+    const dismissalKey = skewDismissalKey(serverId, notice.clientVersion, notice.serverVersion)
+    return isSkewDismissed(dismissalKey) ? null : notice
+  }
+
+  dismissVersionSkewNotice(serverId: string): void {
+    const notice = this.versionSkewNoticeFor(serverId)
+    if (notice) dismissSkew(skewDismissalKey(serverId, notice.clientVersion, notice.serverVersion))
   }
 
   refreshServers(): void {
@@ -278,19 +318,18 @@ class ServersStore {
     this.scanInFlight = true
     this.discoveryBusy = true
     try {
-      if (this.isWebClient && !this.hasPrimaryConnection) {
+      if (this.isWebClient && !serverConnections.defaultServerId()) {
         // Without a connected host the stub RPC never resolves. Saved remotes
         // can still answer health checks directly, so retain their reachability.
         await Promise.all(this.remotes.map((server) => this.checkReachable(server.id)))
         return { newServers: 0 }
       }
       // Discovery runs where a network can be scanned: the local app on
-      // desktop, and the connected server's own network on web — so a phone
-      // still sees the hosts sitting next to the machine it is paired with.
-      const discoveryApi = this.local
-        ? serverConnections.apiFor(LOCAL_SERVER_ID)
-        : serverConnections.primaryApi()
-      const discovered = await discoveryApi.discoverServers()
+      // desktop, and the connected default host's own network on web — so a
+      // phone still sees the hosts sitting next to the machine it is paired with.
+      const discoveryServerId = this.local ? LOCAL_SERVER_ID : serverConnections.defaultServerId()
+      if (!discoveryServerId) return { newServers: 0 }
+      const discovered = await serverConnections.apiFor(discoveryServerId).discoverServers()
       const filtered = filterUnsavedDiscoveredServers({
         discovered,
         savedServers: loadServers(),
@@ -318,27 +357,39 @@ class ServersStore {
   }
 
   switchTo(serverId: string): void {
-    serverId = this.resolveHostId(serverId)
-    if (serverId === this.activeServerId) {
-      requestInputFocus()
-      return
-    }
+    // In-place (dispatch-client step 5): hosts are symmetric and already hold
+    // supervised sockets, so "switching" is only the client remembering a
+    // different default for new work. Reloading threw away every mounted pane
+    // to change a preference.
+    serverConnections.setPrimary(serverId)
     setActiveServerId(serverId)
+    this.activeServerId = serverConnections.resolveId(serverId)
     if (serverId !== LOCAL_SERVER_ID) touchLastConnected(serverId)
+    this.refreshServers()
     requestInputFocus()
-    location.reload()
   }
 
   remove(serverId: string): void {
     if (serverId === LOCAL_SERVER_ID) return
     if (serverId === this.activeServerId) {
-      const serverLabel = this.remotes.find((server) => server.id === serverId)?.label ?? 'this host'
-      toasts.error(`Switch to another host before forgetting ${serverLabel}`)
-      requestInputFocus()
-      return
+      // The active host is only the new-work default now: step aside to
+      // another catalog host in place, then forget as usual. Only the last
+      // host has nowhere to step to.
+      const fallbackId = this.local
+        ? LOCAL_SERVER_ID
+        : this.remotes.find((server) => server.id !== serverId)?.id
+      if (!fallbackId) {
+        const serverLabel = this.remotes.find((server) => server.id === serverId)?.label ?? 'this host'
+        toasts.error(`Pair another host before forgetting ${serverLabel}`)
+        requestInputFocus()
+        return
+      }
+      this.switchTo(fallbackId)
     }
     const forgottenInstallationId = this.remotes.find((server) => server.id === serverId)?.installationId
     removeServer(serverId)
+    // No longer a catalog entry, so the eager supervisor leaves with it.
+    serverConnections.release(serverId)
     this.refreshServers()
     requestInputFocus()
     // A forgotten host becomes discoverable again — rescan so it drops straight
@@ -354,12 +405,16 @@ class ServersStore {
    * usually a few seconds of missing network.
    */
   retryActive(): void {
-    serverConnections.connectionFor(this.activeServerId)?.transport.reconnectNow()
+    // The supervisor owns the ladder: a user retry resets it and dials now.
+    serverConnections.dialNow(this.activeServerId)
     requestInputFocus()
   }
 
   /** Falls back to the local host when a remote one cannot be recovered. */
   useLocalHost(): void {
+    // Only a client with a machine of its own has a local host to fall back
+    // to; the web recovery surfaces offer re-pairing instead.
+    if (!serverConnections.localServerId()) return
     this.switchTo(LOCAL_SERVER_ID)
   }
 
@@ -368,8 +423,7 @@ class ServersStore {
    * list and the host page can never disagree about whether a host is up.
    */
   async checkReachable(serverId: string): Promise<boolean> {
-    serverId = this.resolveHostId(serverId)
-    if (this.isWebClient && !this.hasPrimaryConnection && serverId === LOCAL_SERVER_ID) {
+    if (!serverConnections.localServerId() && serverId === LOCAL_SERVER_ID) {
       this.connectionStateFor(serverId).probeStatus = 'offline'
       return false
     }
@@ -398,7 +452,7 @@ class ServersStore {
 
   /** Loads repository identity only from the host that owns the source path. */
   async loadProjectIdentities(serverId: string): Promise<void> {
-    if (this.isWebClient && !this.hasPrimaryConnection && serverId === LOCAL_SERVER_ID) {
+    if (!serverConnections.localServerId() && serverId === LOCAL_SERVER_ID) {
       this.projectIdentitiesByServer[serverId] = []
       return
     }
@@ -417,7 +471,7 @@ class ServersStore {
     if (cached && cached.expiresAt > Date.now()) return cached.projects
 
     let projects: Awaited<ReturnType<SolusAPI['listRecentProjects']>> = []
-    if (this.isWebClient && !this.hasPrimaryConnection && serverId === LOCAL_SERVER_ID) {
+    if (!serverConnections.localServerId() && serverId === LOCAL_SERVER_ID) {
       this.recentProjectsByServer.set(serverId, {
         projects,
         expiresAt: Date.now() + RECENT_PROJECTS_STALE_MS,
@@ -459,11 +513,6 @@ class ServersStore {
 
   hostFor(serverId: string | null | undefined): ServerItem | UnknownRemoteHost | null {
     if (!serverId) return null
-    // On web the active server is listed as the local row, so its real id
-    // resolves to that row rather than reading as a forgotten host.
-    if (!this.local && this.isWebClient && this.hasPrimaryConnection && serverId === this.activeServerId) {
-      serverId = LOCAL_SERVER_ID
-    }
     const host = this.servers.find((server) => server.id === serverId)
     if (host) return host
     if (serverId === LOCAL_SERVER_ID) return null
@@ -471,13 +520,19 @@ class ServersStore {
   }
 
   statusFor(serverId: string): ServerItemStatus {
-    serverId = this.resolveHostId(serverId)
-    const state = this.connectionStatesByServer[serverId]
+        const state = this.connectionStatesByServer[serverId]
+    // The supervisor's phase is authoritative for a supervised host: `offline`
+    // is a real phase now, so the perpetual-"connecting" reading is gone.
+    switch (state?.phase) {
+      case 'connected': return 'online'
+      case 'offline': return 'offline'
+      case 'connecting':
+      case 'reconnecting': return 'connecting'
+      case 'blocked':
+        return state.transportStatus === 'identity-mismatch' ? 'different-server' : 'offline'
+    }
     if (state?.transportStatus === 'connected') return 'online'
     if (state?.transportStatus === 'identity-mismatch') return 'different-server'
-    // A socket retries for as long as a saved host is unavailable. Once the
-    // picker has checked that host and found it unreachable, that fresh result
-    // is more useful than displaying the transport's perpetual "connecting".
     if (state?.probeStatus === 'offline') return 'offline'
     if (state?.transportStatus && state.transportStatus !== 'disconnected') {
       return this.itemStatus(state.transportStatus)

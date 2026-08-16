@@ -1,6 +1,6 @@
 <script lang="ts">
   /** Connections is two pages: the list of everything, and one host. */
-  import { onMount } from "svelte";
+  import { serverConnections } from "@client-core/server-connections";
   import { connectionsStore, serversStore } from "../../contexts";
   import ConnectionsList from "./ConnectionsList.svelte";
   import HostDetail from "./HostDetail.svelte";
@@ -12,11 +12,14 @@
     serversStore.servers.find((server) => server.id === connectionsNav.hostId) ??
       null,
   );
+  const serverId = $derived(host?.id ?? serverConnections.defaultServerId());
 
-  onMount(() => {
-    void connectionsStore.refreshServerMetadata();
+  $effect(() => {
+    const targetServerId = serverId;
+    if (!targetServerId) return;
+    void connectionsStore.refreshServerMetadata(targetServerId);
     const interval = setInterval(
-      () => void connectionsStore.refreshServerMetadata(),
+      () => void connectionsStore.refreshServerMetadata(targetServerId),
       5000,
     );
     return () => clearInterval(interval);
@@ -25,6 +28,6 @@
 
 {#if host}
   <HostDetail {host} />
-{:else}
-  <ConnectionsList />
+{:else if serverId}
+  <ConnectionsList {serverId} />
 {/if}

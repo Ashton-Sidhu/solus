@@ -39,6 +39,9 @@ export interface ProbedServer {
   ok: boolean
   name?: string
   claimable?: boolean
+  /** False when the server accepts connections without pairing (loopback or
+   *  proxied binds) — the served client can then connect with no ceremony. */
+  requireAuth?: boolean
   /** Identifies the host across every address it answers on. */
   installationId?: string
   os?: HostOperatingSystem
@@ -49,17 +52,22 @@ export async function probeServer(url: string, timeoutMs = 3_000): Promise<Probe
   try {
     const response = await fetch(`${url}/health`, { signal: AbortSignal.timeout(timeoutMs) })
     if (!response.ok) return { ok: false }
+    // Forward-compatible: one reshaped field from a newer server degrades to
+    // "absent" instead of failing the probe — a full probe failure here breaks
+    // zero-ceremony boot and misroutes claimable hosts down the pairing path.
     const body = z.object({
-      ok: z.boolean().optional(),
-      name: z.string().optional(),
-      claimable: z.boolean().optional(),
-      installationId: z.string().optional(),
-      os: z.enum(['macos', 'windows', 'linux']).optional(),
-    }).parse(await response.json())
+      ok: z.boolean().optional().catch(undefined),
+      name: z.string().optional().catch(undefined),
+      claimable: z.boolean().optional().catch(undefined),
+      requireAuth: z.boolean().optional().catch(undefined),
+      installationId: z.string().optional().catch(undefined),
+      os: z.enum(['macos', 'windows', 'linux']).optional().catch(undefined),
+    }).catch({}).parse(await response.json())
     return {
       ok: body.ok === true,
       name: body.name,
       claimable: body.claimable,
+      requireAuth: body.requireAuth,
       installationId: body.installationId,
       os: body.os,
     }

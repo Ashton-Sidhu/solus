@@ -37,8 +37,8 @@
      row that competes with the tasks it scopes. -->
 <div
   class="flex flex-shrink-0 items-center {showLabel
-    ? 'h-[2.625rem] gap-[0.5625rem] px-6'
-    : 'h-8 gap-1 px-3.5'}"
+    ? 'h-[2.625rem] gap-[0.5625rem] px-6 @max-[15rem]:px-5'
+    : 'h-8 gap-1 px-3.5 @max-[15rem]:px-2.5'}"
 >
   {#if showLabel}
     <span

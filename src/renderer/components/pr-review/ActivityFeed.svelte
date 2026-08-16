@@ -27,6 +27,7 @@
   import { subscribeAllHosts } from "@client-core/host-events";
   import type { HostApi } from "@client-core/host-api";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
+  import { changedFileTotals } from "../../lib/diff-stats";
   import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
   import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
   import { githubMarkdownRenderers } from "../ui/markdown-renderers";
@@ -221,15 +222,7 @@
   const filesLabel = $derived(
     changedFiles.length === 1 ? "1 file" : `${changedFiles.length} files`,
   );
-  const diffStat = $derived.by(() => {
-    let additions = 0;
-    let deletions = 0;
-    for (const f of changedFiles) {
-      additions += f.additions;
-      deletions += f.deletions;
-    }
-    return { additions, deletions };
-  });
+  const diffStat = $derived(changedFileTotals(changedFiles));
 
   const baseRef = $derived(pr.baseRef ?? detail?.baseRef ?? "");
   const headBranch = $derived(pr.headRef ?? detail?.headRef ?? "");

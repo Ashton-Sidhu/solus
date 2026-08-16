@@ -50,6 +50,7 @@ describe('remote history sources', () => {
       id: 'laptop:/home/me/solus',
       serverId: 'laptop',
       projectPath: '/home/me/solus',
+      repoKey: SOLUS_REPO,
     })
   })
 
@@ -60,7 +61,7 @@ describe('remote history sources', () => {
     const sources = await remoteHistorySources(hosts(), ['/Users/me/solus'])
 
     expect(sources).toEqual([
-      { id: 'laptop:/home/me/solus', serverId: 'laptop', projectPath: '/home/me/solus' },
+      { id: 'laptop:/home/me/solus', serverId: 'laptop', projectPath: '/home/me/solus', repoKey: SOLUS_REPO },
     ])
   })
 
@@ -81,6 +82,7 @@ describe('remote history sources', () => {
       id: 'laptop:/srv/projects/solus-remote/device/github.com/sidhu/solus',
       serverId: 'laptop',
       projectPath: '/srv/projects/solus-remote/device/github.com/sidhu/solus',
+      repoKey: SOLUS_REPO,
     }])
   })
 
@@ -158,7 +160,7 @@ describe('remote history sources', () => {
     }), ['/Users/me/solus'])
 
     expect(sources).toEqual([
-      { id: 'laptop:/home/me/solus', serverId: 'laptop', projectPath: '/home/me/solus' },
+      { id: 'laptop:/home/me/solus', serverId: 'laptop', projectPath: '/home/me/solus', repoKey: SOLUS_REPO },
     ])
   })
 

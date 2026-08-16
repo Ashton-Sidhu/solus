@@ -2,7 +2,6 @@
   import {
     ArrowRightIcon,
     CheckIcon,
-    HardDrivesIcon,
     LinkSimpleIcon,
     WifiHighIcon,
     XIcon,
@@ -17,27 +16,18 @@
     type ServerItem,
   } from "@renderer/contexts";
   import { hostOnboardingStore } from "@renderer/components/servers/host-onboarding.store.svelte";
-  import { serverConnections } from "@client-core/server-connections";
-  import { loadServers } from "@client-core/server-registry";
   import { defaultDeviceLabel, urlHost } from "@client-core/pairing";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
   import { registerBackOverlay } from "../lib/back-stack.svelte";
-  import {
-    addHostFromInput,
-    probeServingOrigin,
-    type OfferedHost,
-  } from "../lib/add-host";
+  import { addHostFromInput } from "../lib/add-host";
+  import { serverConnections } from "@client-core/server-connections";
   import { classifyConnectInput } from "../lib/connect";
-  import { activateServer } from "../lib/primary-connection";
   import { toasts } from "@renderer/lib/toasts";
   import { webState } from "../lib/web-state.svelte";
   import MobileSheet from "./MobileSheet.svelte";
 
   const open = $derived(webState.serverSetupOpen);
   const isMobile = $derived(runtime.isMobileViewport);
-  // A host only ever arrives by page reload, so whether one is connected is
-  // settled at mount — reading it once is the point, not an oversight.
-  const hasHost = !!serverConnections.connectionFor();
 
   const savedHosts = $derived(serversStore.servers);
 
@@ -46,18 +36,10 @@
   let labelInput = $state("");
   let busy = $state(false);
   let smartInputEl: HTMLInputElement | null = $state(null);
-  let codeInputEl: HTMLInputElement | null = $state(null);
-  /** The server that served this page, when it is one we could still add. */
-  let servingHost = $state<OfferedHost | null>(null);
-  /** Set once the user picks a host the surface offered, instead of typing one. */
-  let selectedHost = $state<OfferedHost | null>(null);
 
   // One smart field: a pasted pairing link carries its own token; a bare
-  // address still needs the 6-digit code the host shows in Settings. An offered
-  // host is an address too, so it asks for the same code.
-  const needsCode = $derived(
-    !!selectedHost || classifyConnectInput(smartInput).kind === "address",
-  );
+  // address still needs the 6-digit code the host shows in Settings.
+  const needsCode = $derived(classifyConnectInput(smartInput).kind === "address");
 
   // Reachability is the whole question this surface answers, so re-probe every
   // time it opens instead of trusting the verdict from the last time.
@@ -65,19 +47,10 @@
     if (open) void serversStore.scanForServers();
   });
 
-  // Once a host is connected, discovery runs through it and finds everything
-  // this would — the serving origin is only interesting while nothing is.
-  $effect(() => {
-    if (!open || hasHost) return;
-    void probeServingOrigin(location.origin).then((host) => {
-      servingHost = host;
-    });
-  });
-
   // Desktop opens with the field ready for a pasted link. A phone would only
   // get its keyboard thrown up over the list of hosts.
   $effect(() => {
-    if (!open || isMobile || selectedHost) return;
+    if (!open || isMobile) return;
     const timer = setTimeout(() => smartInputEl?.focus(), 60);
     return () => clearTimeout(timer);
   });
@@ -94,15 +67,10 @@
   }
 
   function chooseHost(host: ServerItem) {
-    // Connected already: switching is a reload onto the other host, and
-    // switchTo no-ops on the host you are working on.
-    if (hasHost) {
-      close();
-      serversStore.switchTo(host.id);
-      return;
-    }
-    const saved = loadServers().find((server) => server.id === host.id);
-    if (saved) activateServer(saved);
+    // In place: the chosen host becomes the new-work default; every host's
+    // sessions stay mounted and connected throughout.
+    close();
+    serversStore.switchTo(host.id);
   }
 
   function pairNearby(host: NearbyHost) {
@@ -110,31 +78,23 @@
     hostOnboardingStore.openForDiscovered(host.server);
   }
 
-  /** Picking an offered host hands it to the form, which only wants the code. */
-  function selectHost(host: OfferedHost) {
-    selectedHost = host;
-    smartInput = "";
-    setTimeout(() => codeInputEl?.focus(), 60);
-  }
-
-  function clearSelectedHost() {
-    selectedHost = null;
-    codeInput = "";
-    setTimeout(() => smartInputEl?.focus(), 60);
-  }
-
   async function submit(event: Event) {
     event.preventDefault();
     busy = true;
     try {
       const server = await addHostFromInput({
-        input: selectedHost?.url ?? smartInput,
+        input: smartInput,
         code: codeInput,
         serverLabel: labelInput,
       });
-      // Activation reloads the page, so `busy` deliberately stays set — the
-      // form must not accept a second submission while that lands.
-      activateServer(server);
+      // In place (dispatch-client step 5): the new host joins the catalog,
+      // gets its eager supervisor, and becomes the new-work default — the
+      // workspace never reloads for a pairing.
+      serversStore.savePairedServer(server);
+      serverConnections.startCatalogSupervisors();
+      serversStore.switchTo(server.id);
+      busy = false;
+      webState.closeServerSetup();
     } catch (err) {
       toasts.error(err instanceof Error ? err.message : String(err));
       busy = false;
@@ -218,40 +178,6 @@
 
 {#snippet body()}
   <div class="flex flex-col gap-4">
-    {#if servingHost && !selectedHost}
-      <section>
-        {@render sectionLabel("On this address")}
-        <div
-          class="flex flex-col overflow-hidden rounded-2xl border border-(--solus-container-border) bg-(--solus-surface-hover)/40 p-1"
-        >
-          <button
-            type="button"
-            class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors duration-[var(--duration-quick)] hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-surface-hover) focus-visible:outline-none"
-            onclick={() => selectHost(servingHost!)}
-          >
-            <HardDrivesIcon
-              size={14}
-              class="shrink-0 text-(--solus-text-tertiary)"
-            />
-            <span class="flex min-w-0 flex-1 flex-col">
-              <span
-                class="truncate text-[0.8125rem] font-medium text-(--solus-text-primary)"
-                >{servingHost.name}</span
-              >
-              <span
-                class="truncate font-mono text-xs text-(--solus-text-tertiary)"
-                >{urlHost(servingHost.url)}</span
-              >
-            </span>
-            <span
-              class="shrink-0 text-xs font-medium text-(--solus-accent)"
-              >Connect</span
-            >
-          </button>
-        </div>
-      </section>
-    {/if}
-
     {#if savedHosts.length > 0}
       <section>
         {@render sectionLabel("Your hosts")}
@@ -276,83 +202,36 @@
           {/each}
         </div>
       </section>
-    {:else if !hasHost && savedHosts.length > 0}
-      <!-- Discovery runs on the connected host's own network, so there is
-           nothing to scan with until one of these answers. -->
-      <p class="px-1 text-xs leading-snug text-(--solus-text-tertiary)">
-        Hosts on your network appear here once you're connected to one.
-      </p>
     {/if}
 
     <section>
-      {@render sectionLabel(
-        savedHosts.length > 0 && !selectedHost ? "Add a host" : "Connect",
-      )}
+      {@render sectionLabel(savedHosts.length > 0 ? "Add a host" : "Connect")}
       <form class="flex flex-col gap-2.5" onsubmit={submit}>
-        {#if selectedHost}
-          <p
-            class="rounded-lg bg-(--solus-surface-hover) px-3 py-2 text-xs leading-relaxed text-(--solus-text-tertiary)"
-          >
-            On {selectedHost.name}, open Solus and go to <strong
-              class="font-medium text-(--solus-text-secondary)"
-              >Settings → Connections</strong
-            > for the 6-digit code.
-          </p>
+        <p
+          class="rounded-lg bg-(--solus-surface-hover) px-3 py-2 text-xs leading-relaxed text-(--solus-text-tertiary)"
+        >
+          On your computer, open Solus and go to <strong
+            class="font-medium text-(--solus-text-secondary)"
+            >Settings → Connections</strong
+          >. Scan the QR code, or paste the pairing link or address here.
+        </p>
 
-          <!-- The chosen host reads as a settled selection, not a filled-in
-               field: the address is no longer the question. -->
-          <div
-            class="flex items-center gap-3 rounded-lg border border-(--solus-container-border) bg-(--solus-accent-light) px-3 py-2.5"
+        <label class="block">
+          <span
+            class="text-xs font-medium text-(--solus-text-secondary)"
+            >Pairing link or address</span
           >
-            <HardDrivesIcon
-              size={14}
-              class="shrink-0 text-(--solus-accent)"
-            />
-            <span class="flex min-w-0 flex-1 flex-col">
-              <span
-                class="truncate text-[0.8125rem] font-medium text-(--solus-text-primary)"
-                >{selectedHost.name}</span
-              >
-              <span
-                class="truncate font-mono text-xs text-(--solus-text-tertiary)"
-                >{urlHost(selectedHost.url)}</span
-              >
-            </span>
-            <button
-              type="button"
-              class="shrink-0 rounded-md px-1.5 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
-              onclick={clearSelectedHost}
-            >
-              Change
-            </button>
-          </div>
-        {:else}
-          <p
-            class="rounded-lg bg-(--solus-surface-hover) px-3 py-2 text-xs leading-relaxed text-(--solus-text-tertiary)"
-          >
-            On your computer, open Solus and go to <strong
-              class="font-medium text-(--solus-text-secondary)"
-              >Settings → Connections</strong
-            >. Scan the QR code, or paste the pairing link or address here.
-          </p>
-
-          <label class="block">
-            <span
-              class="text-xs font-medium text-(--solus-text-secondary)"
-              >Pairing link or address</span
-            >
-            <input
-              bind:this={smartInputEl}
-              bind:value={smartInput}
-              type="text"
-              class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 text-[0.8125rem] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"
-              placeholder="192.168.1.42:51234 or pairing link"
-              autocomplete="off"
-              autocapitalize="off"
-              spellcheck="false"
-            />
-          </label>
-        {/if}
+          <input
+            bind:this={smartInputEl}
+            bind:value={smartInput}
+            type="text"
+            class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 text-[0.8125rem] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"
+            placeholder="192.168.1.42:51234 or pairing link"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+          />
+        </label>
 
         {#if needsCode}
           <label class="block">
@@ -361,7 +240,6 @@
               >Code</span
             >
             <input
-              bind:this={codeInputEl}
               bind:value={codeInput}
               type="text"
               class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 font-mono text-[0.8125rem] tracking-[0.16em] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"

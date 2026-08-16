@@ -305,10 +305,6 @@
           <div class:tab-hidden={!conversationPoolVisible}>
               <div class="relative" style="{showPillDiagram || pillGoalSessionId ? 'height:var(--pill-body-max)' : 'max-height:var(--pill-body-max)'}">
                 {#if pillGoalSessionId}
-                  <PaneChrome
-                    onClose={() => { router.close("goal"); requestInputFocus() }}
-                    closeLabel="Close goal"
-                  />
                   <!-- The pill has no project rail, so the goal card the rail
                        hosts in editor mode fills the pill body instead. -->
                   <div class="h-full overflow-y-auto p-2 pt-10">
@@ -319,15 +315,18 @@
                       onCleared={() => { router.close("goal"); requestInputFocus() }}
                     />
                   </div>
+                  <PaneChrome
+                    onClose={() => { router.close("goal"); requestInputFocus() }}
+                    closeLabel="Close goal"
+                  />
                 {/if}
                 {#if showPillDiagram}
                   <!-- The diagram renders in the pill body rather than as a
                        portaled modal, so its close lives in the shared pane
-                       chrome cluster like it does in editor mode. -->
-                  <PaneChrome
-                    onClose={() => { session.closeWorkModal(); requestInputFocus() }}
-                    closeLabel="Close diagram"
-                  />
+                       chrome cluster like it does in editor mode. The cluster
+                       renders after the shell: its toolbar is a window drag
+                       region, and a drag rect later in the DOM would re-cover
+                       the cluster's no-drag holes. -->
                   {#await import("../diagram/DiagramShell.svelte")}
                     <DiagramShellSkeleton />
                   {:then diagramModule}
@@ -341,6 +340,10 @@
                       onClose={() => { session.closeWorkModal(); requestInputFocus() }}
                     />
                   {/await}
+                  <PaneChrome
+                    onClose={() => { session.closeWorkModal(); requestInputFocus() }}
+                    closeLabel="Close diagram"
+                  />
                 {/if}
                 <!-- Persistent conversation pool: hidden (not unmounted) while a
                      diagram overlays, so closing it reveals the conversation

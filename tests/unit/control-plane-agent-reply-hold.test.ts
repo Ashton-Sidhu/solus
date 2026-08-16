@@ -103,6 +103,21 @@ class FakeBackend extends EventEmitter implements AgentBackend {
     this.emit('exit', sessionId, 0, null)
   }
 
+  rateLimit(sessionId: string): void {
+    const handle = this.handles.get(sessionId)
+    if (!handle) throw new Error(`Unknown session ${sessionId}`)
+    this.emit('normalized', sessionId, {
+      type: 'rate_limit',
+      status: 'limited',
+      resetsAt: Math.ceil(Date.now() / 1000) + 3_600,
+      rateLimitType: 'test-limit',
+      isUsingOverage: false,
+    } satisfies NormalizedEvent)
+    handle._rejectRun(new Error('Provider rate limited'))
+    this.running.delete(sessionId)
+    this.emit('error', sessionId, new Error('Provider rate limited'))
+  }
+
   cancelSession(sessionId: string): boolean {
     if (!this.running.delete(sessionId)) return false
     this.handles.get(sessionId)?.abortController.abort()
@@ -335,6 +350,34 @@ describe('ControlPlane agent reply hold', () => {
     env.backend.complete('caller', 'Dispatched')
     await caller.done
     expect(env.statuses.filter((event) => event.sessionId === 'caller').at(-1)?.status).toBe('completed')
+  })
+
+  test('keeps a peer watch parked when the provider rate limits its run', async () => {
+    // WHY: a rate-limited attempt is still pending work. Reporting its rejected
+    // provider call as a failed peer makes the caller session look errored while
+    // Solus is waiting to retry the same prompt.
+    const env = setup()
+    planes.push(env.plane)
+    await startSession(env.plane, 'caller', 'test')
+    const peer = await startSession(env.plane, 'peer')
+    env.plane.watchSessionSettled('peer', 'caller', {
+      exchangeId: 'exchange-1',
+      dispatchedAt: Date.now(),
+      notifyModel: true,
+      runKey: 'active',
+    })
+
+    env.backend.rateLimit('peer')
+    await peer.done.catch(() => {})
+    await Promise.resolve()
+
+    expect(env.statuses.filter((event) => event.sessionId === 'peer').at(-1)?.status).toBe('rate_limited')
+    expect(watchCount(env.plane, 'caller')).toBe(1)
+    expect(env.events.some(({ event }) =>
+      event.type === 'agent_conversation_update'
+      && event.update.phase === 'settled'
+      && event.update.status === 'failed'
+    )).toBe(false)
   })
 
   test('the tab Stop action disarms a held reply and settles its exchange card', async () => {

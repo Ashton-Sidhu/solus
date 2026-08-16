@@ -43,7 +43,9 @@
   const codeFileLabel = $derived(codeFileLinkLabel(text, fileRef?.line));
   // The destination comes from the codec; only the chip's own decoration is
   // read off the href here, and a plan's approval status is the whole of it.
-  const linkRoute = $derived(routeForHref(href, { title }));
+  const linkRoute = $derived(
+    routeForHref(href, { title, serverId: sessionLinkContext?.serverId() }),
+  );
   const planStatus = $derived.by<Status>(() => {
     try {
       const status = new URL(href).searchParams.get("status");

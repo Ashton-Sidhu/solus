@@ -2583,10 +2583,33 @@ button.solus-token {
 .prose-transcript h1,
 .prose-transcript h2 {
   margin: 1.375rem 0 0.4375rem;
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
-  font-weight: 500;
   line-height: 1.35;
   color: var(--solus-text-primary);
+}
+.prose-transcript h1 {
+  font-size: calc(1.25rem * var(--solus-font-scale, 1));
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.prose-transcript h1::after {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 0.0625rem;
+  margin-top: 0.625rem;
+  border-radius: 9999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--foreground) 18%, transparent),
+    color-mix(in oklch, var(--foreground) 7%, transparent) 70%,
+    transparent
+  );
+}
+.prose-transcript h2 {
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-weight: 500;
 }
 .prose-transcript h3,
 .prose-transcript h4,

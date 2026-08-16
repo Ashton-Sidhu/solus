@@ -359,7 +359,7 @@
        a centreline. The crumb has no container of its own — it is plain text on
        the band, and the only affordance is the hover wash under each part. -->
   <div
-    class="workspace-titlebar crumb-band @container z-[3] flex items-center gap-px text-sm {variant ===
+    class="workspace-titlebar crumb-band @container z-[3] flex items-center gap-px text-sm @max-[52rem]:text-[0.8125rem] {variant ===
  'inline'
  ? 'crumb-band--inline relative h-full min-w-0 flex-1 px-1'
  : 'absolute inset-x-0 top-1 h-[2.875rem] pr-3.5'}"
@@ -374,7 +374,7 @@
       <!-- The band, not the list, owns the type scale and the neutral colour:
            each crumb states its own, and the leaf stays full-contrast. -->
       <Breadcrumb.List
-        class="min-w-0 flex-nowrap gap-px text-sm text-foreground"
+        class="min-w-0 flex-nowrap gap-px text-sm text-foreground @max-[52rem]:text-[0.8125rem]"
       >
         <Breadcrumb.Item
           class="relative shrink-0"
@@ -404,7 +404,7 @@
           </Breadcrumb.Link>
           {#if menu === "project"}
             <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
-              <div class="menu-surface w-[18.25rem] p-[0.3125rem]">
+              <div class="menu-surface w-[min(18.25rem,calc(100vw-2rem))] p-[0.3125rem]">
                 <div class={menuHeading}>Projects</div>
                 {#each sidebarStore.projectSummaries as project (project.projectKey)}
                   {@const note = projectNote(project.waiting, project.failed)}
@@ -474,7 +474,7 @@
           <!-- Hover to switch: a crumb is a menu. The menu stays open while the
                pointer is inside it, so switching is hover, read, click. -->
           <Breadcrumb.Item
-            class="relative min-w-0 max-w-[12rem] shrink @max-[68rem]:max-w-[8rem] @max-[52rem]:max-w-[6rem]"
+            class="relative min-w-0 max-w-[clamp(6rem,16cqw,12rem)] shrink"
             onmouseenter={openTaskPicker}
             onmouseleave={() => (menu = null)}
           >
@@ -514,7 +514,7 @@
             </Breadcrumb.Link>
             {#if menu === "task"}
               <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
-                <div class="menu-surface w-[19.75rem] overflow-hidden p-0">
+                <div class="menu-surface w-[min(19.75rem,calc(100vw-2rem))] overflow-hidden p-0">
                   <Command.Root shouldFilter={false}>
                     <MenuSearch
                       bind:value={taskQuery}
@@ -614,7 +614,7 @@
         <Breadcrumb.Item
           class="relative min-w-0 shrink {renamingTabId === tabId
  ? 'w-[min(20rem,42vw)]'
- : 'max-w-[20rem] @max-[68rem]:max-w-[12rem] @max-[52rem]:max-w-[9rem]'}"
+ : 'max-w-[clamp(9rem,28cqw,20rem)]'}"
           onmouseenter={() => {
             if (renamingTabId !== tabId) menu = "session";
           }}
@@ -628,7 +628,7 @@
               <SessionNameInput
                 value={current?.label ?? leafLabels.session}
                 variant="band"
-                class="text-sm font-medium "
+                class="text-sm font-medium @max-[52rem]:text-[0.8125rem]"
                 onCommit={(next) => {
                   void session.renameTab(tabId, next);
                   renamingTabId = null;
@@ -677,7 +677,7 @@
           {/if}
           {#if menu === "session"}
             <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
-              <div class="menu-surface w-[18rem] p-[0.3125rem]">
+              <div class="menu-surface w-[min(18rem,calc(100vw-2rem))] p-[0.3125rem]">
                 <div class={menuHeading}>Sessions</div>
                 {#each sessions as child (child.sessionId ?? child.tabId ?? child.taskId)}
                   {@const status = taskStatusFor(child.attention)}

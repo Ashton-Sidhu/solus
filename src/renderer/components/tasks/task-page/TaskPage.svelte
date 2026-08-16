@@ -15,7 +15,7 @@
   import { localApi } from "@client-core/local-api";
   import { serverConnections } from "@client-core/server-connections";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
-  import { resolveSessionMetaRef } from "@client-core/session-meta";
+  import { readSessionMeta } from "@client-core/session-meta";
   import { setMarkdownImageContext } from "../../conversation/lib/markdown-image";
   import {
     useKeybinding,
@@ -338,7 +338,7 @@
       serverId ? serverConnections.resolveId(serverId) : undefined,
     );
     if (openTab) return openTab;
-    const meta = await resolveSessionMetaRef({ sessionId, serverId });
+    const meta = serverId ? await readSessionMeta(serverId, sessionId) : null;
     return meta ? await session.resumeSession(meta) : null;
   }
 
@@ -364,10 +364,8 @@
   async function stopSession(sessionId: string) {
     try {
       const serverId = store.hostFor(taskId);
-      const api = serverId
-        ? serverConnections.apiFor(serverId)
-        : serverConnections.primaryApi();
-      await api.stopSession(sessionId);
+      if (!serverId) return;
+      await serverConnections.apiFor(serverId).stopSession(sessionId);
     } catch (err) {
       toastError("stop session", err);
     }

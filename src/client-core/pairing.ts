@@ -1,24 +1,28 @@
-import { uuid } from '../shared/uuid'
 import { z } from 'zod'
 import type { SavedServer } from './server-registry'
 import type { HostOperatingSystem, SshBootstrapCredential } from '../shared/types'
 import { localApi } from './local-api'
 
-const serverErrorSchema = z.object({ error: z.string().optional() })
+// Handshake decoding is forward-compatible: a field a newer server reshapes
+// (an unknown `os`, a structured error) degrades to "absent" instead of
+// failing the response — a decode error here would block pairing entirely.
+const tolerantString = z.string().optional().catch(undefined)
+const tolerantOs = z.enum(['macos', 'windows', 'linux']).optional().catch(undefined)
+const serverErrorSchema = z.object({ error: tolerantString }).catch({})
 const pairResponseSchema = z.object({
-  sessionToken: z.string().optional(),
-  installationId: z.string().optional(),
-  os: z.enum(['macos', 'windows', 'linux']).optional(),
-})
+  sessionToken: tolerantString,
+  installationId: tolerantString,
+  os: tolerantOs,
+}).catch({})
 const claimResponseSchema = z.object({
-  ok: z.boolean().optional(),
-  sessionToken: z.string().optional(),
-  ownerDeviceId: z.string().optional(),
-  claimedAt: z.number().optional(),
-  installationId: z.string().optional(),
-  fingerprint: z.string().optional(),
-  os: z.enum(['macos', 'windows', 'linux']).optional(),
-})
+  ok: z.boolean().optional().catch(undefined),
+  sessionToken: tolerantString,
+  ownerDeviceId: tolerantString,
+  claimedAt: z.number().optional().catch(undefined),
+  installationId: tolerantString,
+  fingerprint: tolerantString,
+  os: tolerantOs,
+}).catch({})
 
 export interface ParsedPairLink {
   url: string
@@ -35,7 +39,7 @@ export interface PairServerInput {
 export interface PairServerResult {
   server: SavedServer
   sessionToken: string
-  installationId?: string
+  installationId: string
 }
 
 export interface ClaimServerInput {
@@ -118,11 +122,12 @@ export async function pairServer(input: PairServerInput): Promise<PairServerResu
     throw new Error(body.error ?? `Pair failed (${res.status})`)
   }
 
-  const body = pairResponseSchema.parse(await res.json())
+  const body = pairResponseSchema.parse(await res.json().catch(() => ({})))
   if (!body.sessionToken) throw new Error('Pair response did not include a session token')
+  if (!body.installationId) throw new Error('Pair response did not include an installation id')
 
   const server: SavedServer = {
-    id: body.installationId ?? uuid(),
+    id: body.installationId,
     label: input.serverLabel || urlHost(url),
     url,
     sessionToken: body.sessionToken,
@@ -149,7 +154,7 @@ export async function claimServer(input: ClaimServerInput): Promise<ClaimServerR
     throw new Error(body.error ?? `Claim failed (${res.status})`)
   }
 
-  const body = claimResponseSchema.parse(await res.json())
+  const body = claimResponseSchema.parse(await res.json().catch(() => ({})))
   if (body.ok !== true) throw new Error('Claim response did not confirm ownership')
   if (!body.sessionToken) throw new Error('Claim response did not include a session token')
   if (!body.ownerDeviceId) throw new Error('Claim response did not include an owner device id')
@@ -185,7 +190,7 @@ export function saveBootstrappedServer(
 ): SavedServer {
   const url = normalizeServerUrl(urlInput)
   return {
-    id: credential.installationId || uuid(),
+    id: credential.installationId,
     label: serverLabel || urlHost(url),
     url,
     sessionToken: credential.sessionToken,

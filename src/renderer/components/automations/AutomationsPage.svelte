@@ -44,10 +44,16 @@
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
   const store = session.automationsStore;
+  // The full-page catalog has no narrower owner, so the new-work default host
+  // is its explicit scope; with no host connected there is nothing to list.
   const selectedServerId = $derived(
-    serverConnections.resolveId(serversStore.activeServerId),
+    serverConnections.defaultServerId() ??
+      serverConnections.connectedServerIds()[0] ??
+      null,
   );
-  const hostItems = $derived(store.itemsForHost(selectedServerId));
+  const hostItems = $derived(
+    selectedServerId ? store.itemsForHost(selectedServerId) : [],
+  );
 
   const open = $derived(session.router.at("automations"));
   // Editor mode opens the builder in the side panel; pill mode has no pane, so it
@@ -181,7 +187,9 @@
   ] satisfies Array<{ value: StatusFilter; label: string; short?: string; count: number }>));
 
   const isInitialLoading = $derived(
-    !store.hasLoadedHost(selectedServerId) && store.isLoadingHost(selectedServerId),
+    !!selectedServerId &&
+      !store.hasLoadedHost(selectedServerId) &&
+      store.isLoadingHost(selectedServerId),
   );
   // The zero-state owns the page, so the header hides its New button and the
   // command bar (search/filter noise with nothing to filter) while it shows.
@@ -283,10 +291,11 @@
       // names one (e.g. from the project panel or a "Sent via automation"
       // badge); the bare route lands on the list.
       const focusId = session.router.params("automations")?.automationId;
-      if (focusId) {
-        void store.loadAll(selectedServerId).then(() => {
+      if (focusId && selectedServerId) {
+        const scopeServerId = selectedServerId;
+        void store.loadAll(scopeServerId).then(() => {
           const target = store
-            .itemsForHost(selectedServerId)
+            .itemsForHost(scopeServerId)
             .find((automation) => automation.id === focusId);
           view = target
             ? { kind: "edit", automation: target }
@@ -294,7 +303,7 @@
         });
       } else {
         view = { kind: "list" };
-        void store.loadAll(selectedServerId);
+        if (selectedServerId) void store.loadAll(selectedServerId);
         if (!runtime.shouldSuppressFocus) {
           void tick().then(() => searchEl?.focus());
         }

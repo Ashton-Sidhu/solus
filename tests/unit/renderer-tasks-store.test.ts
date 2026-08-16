@@ -675,6 +675,46 @@ describe('renderer task hydration', () => {
     expect(store.tasks.map(({ id }) => id)).toEqual(['task-1'])
   })
 
+  test('bounds concurrent RPCs when a large task deletion commits', async () => {
+    // WHY: one RPC per selected task can exceed the transport's in-flight
+    // request limit. A large selection must drain through a small worker pool.
+    installStateRune()
+    const tasks = Array.from({ length: 105 }, (_, index) => ({
+      ...task(),
+      id: `task-${index + 1}`,
+    }))
+    let activeDeletes = 0
+    let maximumActiveDeletes = 0
+    const deletedIds: string[] = []
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        solus: {
+          tasksSidebarSnapshot: async () => ({ tasks, sessionsByTask: {} }),
+          tasksDelete: async (taskId: string) => {
+            activeDeletes++
+            maximumActiveDeletes = Math.max(maximumActiveDeletes, activeDeletes)
+            await Promise.resolve()
+            deletedIds.push(taskId)
+            activeDeletes--
+          },
+        },
+      },
+    })
+
+    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+    const pending = store.softRemove(tasks.map(({ id }) => id))
+
+    await store.commitPending(pending)
+
+    expect(deletedIds).toHaveLength(105)
+    expect(new Set(deletedIds).size).toBe(105)
+    expect(maximumActiveDeletes).toBeLessThanOrEqual(8)
+  })
+
   test('publishes a newly posted GitHub comment into open task details', async () => {
     // WHY: posting upstream can replace the issue row successfully while the
     // open activity feed still points at its earlier hydrated detail snapshot.

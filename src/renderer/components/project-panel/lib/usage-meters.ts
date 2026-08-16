@@ -12,7 +12,9 @@ export interface UsageMeter {
   resetText: string | null
 }
 
-/** One provider's quota, with the windows it actually reports. */
+/** One provider's quota, with the windows it actually reports. An empty
+ *  `meters` only ever accompanies `stale` — the read failed and the row states
+ *  that, rather than disappearing. */
 export interface ProviderUsage {
   provider: string
   label: string
@@ -119,7 +121,9 @@ function meter(key: UsageMeter['key'], label: string, window: UsageWindow | null
 /**
  * Quota rows for every agent the backend currently offers. A provider that
  * reports no quota (unavailable, or not subscription-metered) is dropped
- * entirely — an empty meter would read as "no quota left".
+ * entirely — an empty meter would read as "no quota left". A provider whose
+ * read failed keeps its row with no meters, because "we could not read this"
+ * and "this has no quota" are different answers to the same glance.
  */
 export function providerUsage(
   agents: AgentMetadata[],
@@ -137,7 +141,7 @@ export function providerUsage(
       meter('fiveHour', 'Session', limits.fiveHour, now),
       meter('weekly', 'Weekly', limits.weekly, now),
     ].filter((entry): entry is UsageMeter => entry !== null)
-    if (meters.length === 0) continue
+    if (meters.length === 0 && !limits.stale) continue
     rows.push({ provider: agent.id, label: agent.label, stale: limits.stale, meters })
   }
   return rows

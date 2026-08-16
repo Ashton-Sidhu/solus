@@ -77,6 +77,7 @@ function approvalContext() {
         agentChangedTo,
       })
     },
+    notifySessionUnavailable: () => {},
     sendMessage: () => {},
   }
 
@@ -176,6 +177,23 @@ describe('plan revision', () => {
 })
 
 describe('plan approval session choice', () => {
+  test('does not approve into another tab when the saved plan session is gone', async () => {
+    const { ctx, session, resetCount } = approvalContext()
+    Object.assign(ctx.planStore, { previewDescriptor: {
+      provider: 'claude-code',
+      sessionId: 'agent-session-1',
+      sessionAvailable: false,
+    } })
+
+    await approvePlanWithModel(ctx as any, 'plan-1', 'auto')
+
+    // WHY: a missing source session used to leave resume on the current tab;
+    // approval then submitted the saved plan into that unrelated conversation.
+    expect(resetCount()).toBe(0)
+    expect(session.agentSessionId).toBe('agent-session-1')
+    expect(ctx.planStore.plans['plan-1'].status).toBe('pending')
+  })
+
   test('starts a new agent session by default', async () => {
     const { ctx, session, resetCount } = approvalContext()
 

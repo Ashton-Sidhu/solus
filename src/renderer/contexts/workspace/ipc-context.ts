@@ -80,6 +80,7 @@ export class IpcContextBuilder {
     const sessionExtras = session
       ? {
           forked: session.forked ?? false,
+          forkExcludeLatestTurn: session.forkExcludeLatestTurn,
           // Deep plain-object copy: session.prReview is a Svelte $state proxy with a
           // nested headRepo, and proxies aren't structured-cloneable over IPC. A
           // shallow spread wouldn't unwrap headRepo; this file is plain .ts so no

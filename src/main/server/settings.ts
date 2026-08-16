@@ -29,6 +29,7 @@ const sourceControlWritingSchema = z.object({
 }).strict()
 const persistedServerSettingsSchema = z.object({
   remoteAccess: z.boolean().optional(),
+  trustLocalNetwork: z.boolean().optional(),
   agentTaskLifecyclePolicy: z.enum(['none', 'moderate', 'autonomous']).optional(),
   analytics: z.boolean().optional(),
   name: z.string().optional(),
@@ -41,6 +42,9 @@ const persistedServerSettingsSchema = z.object({
 
 export interface ServerSettings {
   remoteAccess: boolean
+  /** Requesters from private-range (RFC1918) addresses skip pairing. Off by
+   *  default: a shared network is not an identity unless the owner says so. */
+  trustLocalNetwork: boolean
   agentTaskLifecyclePolicy: AgentTaskLifecyclePolicy
   /** Absent means analytics remain enabled for installations created before this setting. */
   analytics?: boolean
@@ -63,6 +67,7 @@ const DEFAULT_TEXT_GENERATION_MODELS = {
 
 const DEFAULT_SETTINGS: ServerSettings = {
   remoteAccess: true,
+  trustLocalNetwork: false,
   agentTaskLifecyclePolicy: 'moderate',
   textGenerationModel: { provider: 'codex', model: DEFAULT_TEXT_GENERATION_MODELS.codex },
   backupTextGenerationModel: {
@@ -84,6 +89,7 @@ export function getServerSettings(): ServerSettings {
       const parsed = persistedServerSettingsSchema.parse(JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8')))
       _settings = {
         remoteAccess: parsed?.remoteAccess === true,
+        trustLocalNetwork: parsed?.trustLocalNetwork === true,
         agentTaskLifecyclePolicy: normalizeAgentTaskLifecyclePolicy(parsed?.agentTaskLifecyclePolicy),
         analytics: parsed.analytics,
         name: normalizeServerName(parsed?.name),
@@ -110,6 +116,13 @@ export function getServerSettings(): ServerSettings {
 export function setRemoteAccess(remoteAccess: boolean): ServerSettings {
   _settings = { ...getServerSettings(), remoteAccess }
   persistSettings(_settings)
+  return _settings
+}
+
+export function setTrustLocalNetwork(trustLocalNetwork: boolean): ServerSettings {
+  _settings = { ...getServerSettings(), trustLocalNetwork }
+  persistSettings(_settings)
+  log.info('trust_local_network_changed', { trustLocalNetwork })
   return _settings
 }
 

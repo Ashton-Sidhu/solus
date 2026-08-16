@@ -215,9 +215,13 @@
     const pullRequest = session.prsStore.items.find(
       (item) => item.number === number,
     );
-    const clientApi = serverConnections.primaryApi();
+    // PR navigation opens on the client's own machine when there is one; a web
+    // client has none, so the new-work default host stands in.
+    const clientServerId =
+      serverConnections.localServerId() ?? serverConnections.defaultServerId();
+    if (!clientServerId) return;
     const target = prNavigationTarget({
-      clientServerId: serverConnections.serverIdForApi(clientApi),
+      clientServerId,
       projectDirectory: task.projectKey,
       taskServerId: session.tasksStore.hostFor(task.taskId),
       attemptServerId: task.serverId,
@@ -810,7 +814,7 @@
       overpowering the navigation below it. -->
 
   <Sidebar.Group class="flex-shrink-0 p-0">
-    <Sidebar.GroupContent class="px-3.5">
+    <Sidebar.GroupContent class="px-3.5 @max-[15rem]:px-2.5">
       <Sidebar.Menu class="gap-0.5">
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
@@ -826,7 +830,7 @@
             <span class="flex shrink-0 items-center"
               ><BooksIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.875rem]">Workspace</span>
+            <span class="flex-1 text-left text-[0.875rem] @max-[15rem]:text-[0.8125rem]">Workspace</span>
             <span
               class="shrink-0 font-mono text-menu-meta opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
               >{comboHint("global.toggle-workspace")}</span
@@ -847,7 +851,7 @@
             <span class="flex shrink-0 items-center"
               ><ArrowsClockwiseIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.875rem]">Automations</span>
+            <span class="flex-1 text-left text-[0.875rem] @max-[15rem]:text-[0.8125rem]">Automations</span>
             <span
               class="shrink-0 font-mono text-menu-meta opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
               >{comboHint("global.toggle-automations")}</span
@@ -868,7 +872,7 @@
             <span class="flex shrink-0 items-center"
               ><GitPullRequestIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.875rem]">Pull requests</span>
+            <span class="flex-1 text-left text-[0.875rem] @max-[15rem]:text-[0.8125rem]">Pull requests</span>
             {#if needsReviewCount > 0}
               <span
                 class="shrink-0 font-mono text-menu-meta text-muted-foreground opacity-60 tabular-nums"
@@ -893,7 +897,7 @@
             <span class="flex shrink-0 items-center"
               ><ListChecksIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.875rem]">Tasks</span>
+            <span class="flex-1 text-left text-[0.875rem] @max-[15rem]:text-[0.8125rem]">Tasks</span>
             <span
               class="shrink-0 font-mono text-menu-meta opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
               >{comboHint("global.toggle-tasks")}</span
@@ -912,7 +916,7 @@
             <span class="flex shrink-0 items-center"
               ><ClockIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.875rem]">History</span>
+            <span class="flex-1 text-left text-[0.875rem] @max-[15rem]:text-[0.8125rem]">History</span>
             <span
               class="shrink-0 font-mono text-menu-meta opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
               >{comboHint("global.session-picker")}</span
@@ -925,7 +929,7 @@
 
   <!-- One of the two hairlines in the whole panel. -->
   <div
-    class="mx-3.5 mt-[1.125rem] h-[0.03125rem] flex-shrink-0 bg-sidebar-border"
+    class="mx-3.5 mt-[1.125rem] h-[0.03125rem] flex-shrink-0 bg-sidebar-border @max-[15rem]:mx-2.5"
   ></div>
 
   <!-- Drafts are their own section above the tasks, not rows inside that list:
@@ -937,7 +941,7 @@
     <div class="flex max-h-[10.5rem] flex-shrink-0 flex-col">
       <TaskListHeader label="Drafts" count={sidebarStore.draftRows.length} />
       <div
-        class="min-h-0 overflow-y-auto px-3.5 pb-1 [scrollbar-gutter:stable]"
+        class="min-h-0 overflow-y-auto px-3.5 pb-1 [scrollbar-gutter:stable] @max-[15rem]:px-2.5"
         style="overscroll-behavior-y:contain"
       >
         <div
@@ -1031,7 +1035,7 @@
 
   {#if selectedTaskIds.size > 0}
     <div
-      class="mx-3.5 mb-2 flex min-h-9 items-center gap-1 rounded-lg border border-border bg-popover px-2 shadow-sm"
+      class="mx-3.5 mb-2 flex min-h-9 items-center gap-1 rounded-lg border border-border bg-popover px-2 shadow-sm @max-[15rem]:mx-2.5"
     >
       <span class="mr-auto text-xs font-medium"
         >{selectedTaskIds.size} selected</span
@@ -1087,7 +1091,7 @@
        costs the same 8px whether or not the bar is there, and nothing moves. -->
   <div
     bind:this={scrollEl}
-    class="@container min-h-0 flex-1 overflow-y-auto px-3.5 pb-3.5 [scrollbar-gutter:stable]"
+    class="@container min-h-0 flex-1 overflow-y-auto px-3.5 pb-3.5 [scrollbar-gutter:stable] @max-[15rem]:px-2.5"
     style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
   >
     <div
@@ -1170,7 +1174,7 @@
 
   <!-- The panel's second and last hairline. -->
   <Sidebar.Footer
-    class="relative flex-shrink-0 border-t border-t-sidebar-border px-3.5 pt-2.5 pb-3.5"
+    class="relative flex-shrink-0 border-t border-t-sidebar-border px-3.5 pt-2.5 pb-3.5 @max-[15rem]:px-2.5"
   >
     <Sidebar.Menu class="gap-0.5">
       {#if sidebarStore.pinnedSessions.length > 0}
@@ -1182,7 +1186,7 @@
             <span class="flex shrink-0 items-center"
               ><PushPinIcon size={14} weight="fill" /></span
             >
-            <span class="flex-1 text-left text-[0.875rem]">Saved sessions</span>
+            <span class="flex-1 text-left text-[0.875rem] @max-[15rem]:text-[0.8125rem]">Saved sessions</span>
             <span
               class="shrink-0 font-mono text-menu-meta text-muted-foreground opacity-60 tabular-nums"
               >{sidebarStore.pinnedSessions.length}</span
@@ -1252,7 +1256,7 @@
             class="flex shrink-0 items-center motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:rotate-90"
             ><BooksIcon size={14} /></span
           >
-          <span class="flex-1 text-left text-[0.875rem]">Docs</span>
+          <span class="flex-1 text-left text-[0.875rem] @max-[15rem]:text-[0.8125rem]">Docs</span>
         </Sidebar.MenuButton>
       </Sidebar.MenuItem>
       <Sidebar.MenuItem>
@@ -1269,7 +1273,7 @@
             class="flex shrink-0 items-center motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:rotate-90"
             ><GearIcon size={14} /></span
           >
-          <span class="flex-1 text-left text-[0.875rem]">Settings</span>
+          <span class="flex-1 text-left text-[0.875rem] @max-[15rem]:text-[0.8125rem]">Settings</span>
           <span
             class="shrink-0 font-mono text-menu-meta opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
             >{comboHint("global.settings")}</span

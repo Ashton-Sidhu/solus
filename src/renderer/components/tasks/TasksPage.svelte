@@ -1,6 +1,5 @@
 <script lang="ts">
   import { serverConnections } from "@client-core/server-connections";
-  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import { localApi } from "@client-core/local-api";
   import { tick } from "svelte";
   import {
@@ -107,19 +106,21 @@
   // The switcher shows the deduplicated union of the sidebar's live projects
   // (the selected host only) and every project the catalog has ever recorded,
   // across every host — a project closed today still shows up here.
-  const sidebarServerId = $derived(
-    serverConnections.connectionFor()?.serverId ?? LOCAL_SERVER_ID,
-  );
+  const sidebarServerId = $derived(serverConnections.defaultServerId());
   const projectOptions = $derived<ListProjectOption[]>(
     mergeProjectOptions(
       [
-        sessionSidebar.projectSummaries
-          .filter((project) => project.projectKey !== "~")
-          .map((project) => ({
-            serverId: sidebarServerId,
-            projectRoot: project.projectKey,
-            label: project.label,
-          })),
+        // With no default host there is nothing to attribute a sidebar project
+        // to; the catalog still carries its own host per entry.
+        sidebarServerId
+          ? sessionSidebar.projectSummaries
+              .filter((project) => project.projectKey !== "~")
+              .map((project) => ({
+                serverId: sidebarServerId,
+                projectRoot: project.projectKey,
+                label: project.label,
+              }))
+          : [],
         projectCatalog.entries,
       ],
       (serverId) => serversStore.statusFor(serverId) !== "offline",
@@ -142,14 +143,14 @@
   const activeProjectOptionKey = $derived(
     cwd
       ? (projectOptions.find((option) => option.projectKey === cwd)?.key ??
-          projectRefKey({ serverId: sidebarServerId, projectRoot: cwd }))
+          (sidebarServerId
+            ? projectRefKey({ serverId: sidebarServerId, projectRoot: cwd })
+            : ""))
       : "",
   );
   const projectTasks = $derived(store.tasksForProject(cwd));
   const projectServerId = $derived(
-    store.hostForProject(cwd) ??
-      serverConnections.connectionFor()?.serverId ??
-      null,
+    store.hostForProject(cwd) ?? serverConnections.defaultServerId(),
   );
   const projectHost = $derived(
     projectServerId

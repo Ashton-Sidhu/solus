@@ -192,6 +192,26 @@ describe('ClaudeTurnNormalizer', () => {
     expect(normalizer.summary.sawRateLimit).toBe(true)
   })
 
+  test('normalizes Claude terminal session-limit errors as rate limits', () => {
+    setSystemTime(new Date('2026-08-14T19:14:00Z'))
+    const normalizer = new ClaudeTurnNormalizer()
+
+    const events = normalizer.push({
+      type: 'result',
+      subtype: 'error_during_execution',
+      is_error: true,
+      duration_ms: 1,
+      num_turns: 1,
+      errors: ["You've hit your session limit · resets 4pm (America/Toronto)"],
+      total_cost_usd: 0,
+      session_id: 'claude-session-1',
+      usage: {},
+    })
+
+    expect(events[0]).toMatchObject({ type: 'rate_limit', resetsAt: 1786737600 })
+    expect(normalizer.summary.sawRateLimit).toBe(true)
+  })
+
   test('emits nothing after interrupt', async () => {
     const [first, second] = await readClaudeFixture('claude-main-thread.jsonl')
     const normalizer = new ClaudeTurnNormalizer()

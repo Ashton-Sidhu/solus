@@ -79,7 +79,7 @@
     </Tabs.Content>
     {#if isActive}
       <Tabs.Content value="access" class="mt-5 flex flex-col gap-7">
-        <HostDetailAccess />
+        <HostDetailAccess serverId={host.id} />
       </Tabs.Content>
     {/if}
   </Tabs.Root>

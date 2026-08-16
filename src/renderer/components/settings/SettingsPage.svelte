@@ -179,12 +179,13 @@
     session.settingsTab === "general" ||
       session.settingsTab === "projects" ||
       session.settingsTab === "source-control" ||
+      session.settingsTab === "providers" ||
       session.settingsTab === "tools" ||
       session.settingsTab === "skills" ||
       session.settingsTab === "voice",
   );
   let selectedSettingsServerId = $state(
-    serverConnections.connectionFor()?.serverId ?? "",
+    serverConnections.defaultServerId() ?? "",
   );
   const settingsHosts = $derived.by(() => {
     void serversStore.servers;
@@ -210,7 +211,7 @@
   $effect(() => {
     if (selectedSettingsHost) return;
     selectedSettingsServerId =
-      serverConnections.connectionFor()?.serverId ?? settingsHosts[0]?.serverId ?? "";
+      serverConnections.defaultServerId() ?? settingsHosts[0]?.serverId ?? "";
   });
 
   let searchQuery = $state("");
@@ -298,8 +299,8 @@
     />
   {:else if session.settingsTab === "experimental"}
     <SettingsTabExperimental {searchQuery} />
-  {:else if session.settingsTab === "providers"}
-    <SettingsTabProviders />
+  {:else if session.settingsTab === "providers" && selectedSettingsHost}
+    <SettingsTabProviders serverId={selectedSettingsHost.serverId} />
   {:else if session.settingsTab === "api-access"}
     <ConnectionsPanel />
   {:else if session.settingsTab === "tools" && selectedSettingsHost && selectedSettingsApi}
@@ -454,7 +455,7 @@
               <!-- A group name is the level above the rows, so it starts on the
                    icons' column rather than on the labels'. -->
               <Sidebar.GroupLabel
-                class="h-[2.125rem] pr-2.5 pl-[1.375rem] text-xs font-medium uppercase text-muted-foreground"
+                class="h-[2.125rem] pr-2.5 pl-[0.625rem] text-xs font-medium uppercase text-muted-foreground"
                 >{section.group}</Sidebar.GroupLabel
               >
               <Sidebar.GroupContent>

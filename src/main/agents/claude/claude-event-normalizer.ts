@@ -1,7 +1,7 @@
 import type { ContextUsage, NormalizedEvent, UsageData } from '../../../shared/types'
 import type { ClaudeEvent, StreamEvent, InitEvent, StatusEvent, AssistantEvent, UserEvent, ResultEvent, RateLimitEvent, PermissionEvent, ContentBlock, ContentDelta, ClaudeUsageData } from '../../../shared/claude-types'
 import type { TurnNormalizer, TurnSummary } from '../turn-normalizer'
-import { normalizeResetNumber } from '../../rate-limits'
+import { normalizeResetNumber, rateLimitEventFromMessage } from '../../rate-limits'
 import { parentSubagentEvent, type SubagentTranscriptEvent } from '../subagent-events'
 import { claudeToolResultText } from './claude-subagent-protocol'
 import { z } from 'zod'
@@ -490,9 +490,12 @@ function normalizeResult(event: ResultEvent): NormalizedEvent[] {
   if (isTaskNotificationResult(event) && !event.is_error && event.subtype === 'success') return []
 
   if (event.is_error || event.subtype !== 'success') {
+    const message = resultErrorMessage(event)
+    const rateLimit = rateLimitEventFromMessage(message)
+    if (rateLimit) return [rateLimit]
     return [{
       type: 'error',
-      message: resultErrorMessage(event),
+      message,
       isError: true,
       sessionId: event.session_id,
     }]

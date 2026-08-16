@@ -3,6 +3,14 @@ import { CodexRpcError, getCodexAppServerClient } from './codex-agent'
 import { encodePathAsFolder } from '../utils'
 import { createLogger, isDebugEnabled } from '../../logger'
 import { loadAllAnnotations } from '../../plans/annotations'
+import {
+  isPlanIndexComplete,
+  listIndexedPlans,
+  loadIndexedPlanContent,
+  replaceIndexedPlansForProvider,
+  replaceIndexedPlansForSession,
+  type IndexedPlanInput,
+} from '../../plans/plan-index'
 import { getHeadCommit } from '../../git/worktree-manager'
 import { resolveRepoRoot } from '../../git/git-helpers'
 import { initSessionBase, snapshotTurn } from '../../git/session-snapshots'
@@ -43,6 +51,7 @@ import type {
   CodexThreadGoalResponse,
   CodexThreadListResponse,
   CodexThreadReadResponse,
+  CodexThreadResumeResponse,
   CodexThreadStartParams,
   CodexThreadStartResponse,
   CodexTurnStartParams,
@@ -65,6 +74,7 @@ import {
 import {
   approvalPolicyFor,
   codexSpawnedThreadLinks,
+  codexForkCutoffTurnId,
   codexTurnToMessages,
   codexTurnsToMessages,
   codexThreadBelongsToProject,
@@ -100,6 +110,10 @@ function isSteerTurnBoundaryError(error: Error): boolean {
   if (!(error instanceof CodexRpcError)) return false
   if (steerTurnBoundarySchema.safeParse(error.data).success) return true
   return /expected turn .*no longer active|active turn .*not steerable/i.test(error.message)
+}
+
+function isThreadNotLoadedError(error: Error): error is CodexRpcError {
+  return error instanceof CodexRpcError && /thread not loaded/i.test(error.message)
 }
 
 /** Max concurrent thread/read calls while indexing Codex message bodies. Keeps a
@@ -316,7 +330,20 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
       let response: CodexThreadStartResponse
       if (request.forkSession && threadId) {
-        response = await this.client.request<CodexThreadStartResponse>('thread/fork', { threadId })
+        let lastTurnId: string | undefined
+        if (request.forkExcludeLatestTurn) {
+          const source = await this.client.request<CodexThreadReadResponse>('thread/read', {
+            threadId,
+            includeTurns: true,
+          })
+          const turns = source.thread?.turns ?? []
+          const activeTurnId = this.activeRuns.get(threadId)?.turnId ?? null
+          lastTurnId = codexForkCutoffTurnId(turns, activeTurnId)
+        }
+        response = await this.client.request<CodexThreadStartResponse>('thread/fork', {
+          threadId,
+          lastTurnId,
+        })
         threadId = response.thread.id
       } else if (!threadId) {
         try {
@@ -551,10 +578,17 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     if (sessions.length > 0) {
       cacheIndexedSessions(sessions)
       this.mergeSessionListCache(sessions)
+      const threadsById = new Map(candidates.map((thread) => [thread.id!, thread]))
+      const planAnnotations = await loadAllAnnotations()
       // Throttle the thread/read fan-out: a new user's first sweep can span
       // thousands of threads, and reading them all at once spikes the RPC channel.
       await runWithConcurrency(sessions, CODEX_INDEX_READ_CONCURRENCY, async (session) => {
         try {
+          const thread = threadsById.get(session.sessionId)
+          if (thread) {
+            const plans = await scanCodexPlans(thread, planAnnotations)
+            replaceIndexedPlansForSession('codex', session.sessionId, plans.map(indexedCodexPlan))
+          }
           const response: CodexThreadReadResponse = await this.client.request('thread/read', {
             threadId: session.sessionId,
             includeTurns: true,
@@ -633,11 +667,24 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
   }
 
+  private async readThread(sessionId: string): Promise<CodexThreadReadResponse | CodexThreadResumeResponse> {
+    try {
+      return await this.client.request('thread/read', {
+        threadId: sessionId,
+        includeTurns: true,
+      })
+    } catch (error) {
+      // `thread/read` only reads a thread that app-server already holds in
+      // memory. History rows also name dormant threads persisted on disk, so
+      // load those through the protocol's disk-backed resume path before the
+      // picker asks for their transcript preview.
+      if (!(error instanceof Error) || !isThreadNotLoadedError(error)) throw error
+      return this.client.request('thread/resume', { threadId: sessionId })
+    }
+  }
+
   async loadSession(sessionId: string, _projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {
-    const response: CodexThreadReadResponse = await this.client.request('thread/read', {
-      threadId: sessionId,
-      includeTurns: true,
-    })
+    const response = await this.readThread(sessionId)
     return codexTurnsToMessages(response.thread?.turns ?? [], limit)
   }
 
@@ -648,6 +695,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   async listPlans(projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]> {
+    if (isPlanIndexComplete('codex')) {
+      return listIndexedPlans('codex', projectPath, allProjects)
+    }
     const cacheKey = allProjects ? 'all' : projectPath || process.cwd()
     return this.planListCache.getOrLoad(cacheKey, async () => {
       const projectRoot = projectPath?.replace(/\/$/, '')
@@ -664,6 +714,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         scanned.push(...await scanCodexPlans(thread, annotations))
       })
 
+      if (allProjects) {
+        replaceIndexedPlansForProvider('codex', scanned.map(indexedCodexPlan))
+      }
       return groupCodexPlansBySession(scanned)
     })
   }
@@ -675,6 +728,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   async loadPlanContent(sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null> {
+    const indexed = loadIndexedPlanContent('codex', sessionId, planToolUseId)
+    if (indexed !== null) return indexed
     const threads = await this.listAllThreads(projectPath.replace(/\/$/, ''))
     const thread = threads.find((candidate) => candidate.id === sessionId)
     if (!thread) return null
@@ -1215,5 +1270,20 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     } while (cursor)
 
     return threads
+  }
+}
+
+function indexedCodexPlan(plan: ScannedCodexPlan): IndexedPlanInput {
+  return {
+    provider: 'codex',
+    sessionId: plan.sessionId,
+    planToolUseId: plan.planToolUseId,
+    projectPath: plan.projectPath,
+    cwd: plan.cwd,
+    timestamp: plan.timestamp,
+    title: plan.title,
+    excerpt: plan.excerpt,
+    content: plan.planContent,
+    derivedStatus: plan.derivedStatus,
   }
 }

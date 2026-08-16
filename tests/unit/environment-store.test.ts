@@ -74,7 +74,7 @@ describe('Git state initialization', () => {
     serverConnections.registerPrimary(
       'test-primary',
       window.solus as never,
-      { destroy: () => {}, events: { subscribe: () => () => {} } } as never,
+      { destroy: () => {}, attachDialOutcomeReporter: () => {}, events: { subscribe: () => () => {} } } as never,
       {
         id: 'test-primary',
         label: 'Test primary',
@@ -300,7 +300,7 @@ describe('Git state initialization', () => {
     const primaryApi: HostApi = serverConnections.registerPrimary(
       'test-primary',
       window.solus as never,
-      { destroy: () => {}, events: { subscribe: () => () => {} } } as never,
+      { destroy: () => {}, attachDialOutcomeReporter: () => {}, events: { subscribe: () => () => {} } } as never,
       {
         id: 'test-primary',
         label: 'Test primary',

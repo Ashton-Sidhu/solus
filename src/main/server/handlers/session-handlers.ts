@@ -6,6 +6,7 @@ import { promisify } from 'util'
 import { z } from 'zod'
 import { WORKSPACE_DIR } from '../../workspace'
 import type { ControlPlane } from '../../control-plane'
+import { activityLeases } from '../activity-leases'
 import type { AgentId, AgentMetadata, IpcContext } from '../../../shared/types'
 import { AGENT_BIN } from '../../../shared/types'
 import { findOnPath, getCliEnv, warmCliPath } from '../../cli-env'
@@ -226,6 +227,16 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
       log.error('prompt_failed', { sessionId, error: msg })
       throw err
     }
+  })
+
+  server.register('activityLease', (args, handlerCtx) => {
+    const [foreground] = args
+    // Foreground evidence gates watch-fired freshness work (dispatch-client
+    // step 7); a returning lease flushes whatever went stale in the dark.
+    const hadLease = activityLeases.hasForegroundLease()
+    activityLeases.report(handlerCtx.clientId ?? 'unknown-client', foreground === true)
+    if (!hadLease && foreground === true) controlPlane.flushDeferredGitRefreshes()
+    return { ok: true }
   })
 
   server.register('retry', async (args, handlerCtx) => {

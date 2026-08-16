@@ -17,6 +17,7 @@ export function runInputFromContext(ctx: IpcContext): SessionRunInput {
     provider: session.provider ?? settings.activeAgent,
     agentSessionId: session.agentSessionId,
     forked: session.forked ?? false,
+    forkExcludeLatestTurn: session.forkExcludeLatestTurn ?? false,
     workingDirectory: session.workingDirectory,
     projectPath: session.projectPath,
     additionalDirs: session.additionalDirs,

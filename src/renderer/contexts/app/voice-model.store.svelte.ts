@@ -5,7 +5,7 @@ import type { HostApi } from '@client-core/host-api'
 import { SvelteMap } from 'svelte/reactivity'
 
 export class VoiceModelStore {
-  /** Primary-host state used by client-adjacent transcription controls. */
+  /** Default-host mirror used by client-adjacent transcription controls. */
   status = $state<VoiceModelStatus>({ state: 'checking' })
   private readonly statusByHost = new SvelteMap<string, VoiceModelStatus>()
 
@@ -18,24 +18,17 @@ export class VoiceModelStore {
 
   apply(status: VoiceModelStatus, serverId?: string): void {
     if (serverId) this.statusByHost.set(serverId, status)
-    if (!serverId || serverConnections.connectionFor()?.serverId === serverId) {
+    if (!serverId || serverConnections.defaultServerId() === serverId) {
       this.status = status
     }
   }
 
-  async refresh(): Promise<void> {
-    const serverId = serverConnections.connectionFor()?.serverId
-    if (!serverId || (await serverConnections.capabilitiesFor(serverId)).voiceModel !== true) {
-      this.apply({ state: 'error', error: 'Voice model is not supported on this host.' }, serverId)
-      return
-    }
-    this.apply(await serverConnections.primaryApi().voiceModelStatus(), serverId)
+  async refresh(serverId: string): Promise<void> {
+    await this.refreshFor(serverId, serverConnections.apiFor(serverId))
   }
 
-  async retry(): Promise<void> {
-    const serverId = serverConnections.connectionFor()?.serverId
-    if (!serverId || (await serverConnections.capabilitiesFor(serverId)).voiceModel !== true) return
-    this.apply(await serverConnections.primaryApi().voiceModelRetry(), serverId)
+  async retry(serverId: string): Promise<void> {
+    await this.retryFor(serverId, serverConnections.apiFor(serverId))
   }
 
   statusFor(serverId: string): VoiceModelStatus {

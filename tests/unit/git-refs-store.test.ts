@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { hostKey } from '../../src/client-core/host-key'
 import { serverConnections } from '../../src/client-core/server-connections'
+import type { HostApi } from '../../src/client-core/host-api'
 import type { IpcContext } from '../../src/shared/types'
 
 const previousWindow = globalThis.window
@@ -15,10 +16,14 @@ afterEach(() => {
 
 describe('SessionEnvironmentStore refs', () => {
   test('reports a partial refresh failure without erasing the last known worktrees', async () => {
-    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
-      <T>(value: T) => value,
-      { snapshot: <T>(value: T) => value },
-    )
+    Object.defineProperty(globalThis, '$state', {
+      configurable: true,
+      writable: true,
+      value: Object.assign(
+        <T>(value: T) => value,
+        { snapshot: <T>(value: T) => value },
+      ),
+    })
     Object.defineProperty(globalThis, 'window', {
       configurable: true,
       writable: true,
@@ -70,7 +75,7 @@ describe('SessionEnvironmentStore refs', () => {
     serverConnections.registerPrimary(
       'dispatch-test-host',
       api as never,
-      { destroy: () => {}, events: { subscribe: () => () => {} } } as never,
+      { destroy: () => {}, attachDialOutcomeReporter: () => {}, events: { subscribe: () => () => {} } } as never,
       {
         id: 'dispatch-test-host',
         label: 'Dispatch test host',
@@ -110,5 +115,45 @@ describe('SessionEnvironmentStore refs', () => {
     ])
     expect(store.dispatchBranchesFor(run)).toEqual(['main', 'release'])
     expect(branchOptions).toContainEqual({ remoteOnly: true })
+  })
+})
+
+describe('SessionEnvironmentStore detail watches', () => {
+  test('shares one initial detail refresh for every consumer of a checkout', async () => {
+    // WHY: reactive component re-entry and multiple mounted surfaces can watch
+    // the same checkout. Only the 0 -> 1 watcher transition may start host work.
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    let calls = 0
+    const api = {
+      gitRefreshState: async () => {
+        calls += 1
+        return null
+      },
+    }
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    // SAFETY: this test exercises only gitRefreshState; the fake implements that
+    // exact HostApi method and no other store path can reach the omitted methods.
+    store.bindCwd('host-a', '/repo', api as HostApi)
+
+    const stopFirst = store.watchDetails('host-a', '/repo')
+    const stopSecond = store.watchDetails('host-a', '/repo')
+    await Bun.sleep(0)
+    expect(calls).toBe(1)
+
+    stopFirst()
+    const stopThird = store.watchDetails('host-a', '/repo')
+    await Bun.sleep(0)
+    expect(calls).toBe(1)
+
+    stopSecond()
+    stopThird()
+    const stopAfterIdle = store.watchDetails('host-a', '/repo')
+    await Bun.sleep(0)
+    expect(calls).toBe(2)
+    stopAfterIdle()
   })
 })

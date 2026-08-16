@@ -33,14 +33,16 @@ export class ToolsStore {
     if (this.detectedToolsInFlight && !opts.force) return this.detectedToolsInFlight
 
     this.detectedToolsLoading = true
-    const serverId = serverConnections.connectionFor()?.serverId
+    // Editors and terminals installed on the client's own machine; a web
+    // client has no local host and reports none.
+    const serverId = serverConnections.localServerId()
     const promise = (async () => {
       if (!serverId) return emptyDetectedTools()
       const capabilities = await serverConnections.capabilitiesFor(serverId)
       if (capabilities.editors === undefined) {
         return emptyDetectedTools()
       }
-      const result = await serverConnections.primaryApi().detectEditors()
+      const result = await serverConnections.apiFor(serverId).detectEditors()
       return {
         editors: result.editors.filter((editor) => capabilities.editors?.includes(editor.id)),
         terminals: result.terminals,

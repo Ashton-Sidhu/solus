@@ -85,7 +85,7 @@ export interface TaskLinkOptions {
  * never the instance.
  *
  * Collection- and session-scoped work (`listTasks`, `createTask`,
- * `tasksForSession`, `prepareSessionTask`, `updateGeneratedMetadataForSession`,
+ * `tasksForSession`, `prepareSessionTask`, `updateGeneratedDescriptionForSession`,
  * `onTasksChanged`) is not about one task and stays as free functions in
  * `task-store.ts` / `task-sessions.ts`.
  */
