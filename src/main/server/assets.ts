@@ -8,7 +8,8 @@ import type { AssetCreateUrlResult } from '../../shared/rpc'
 import type { IpcContext } from '../../shared/types'
 import { dataDir } from '../platform/paths'
 import { parseByteRange } from './byte-range'
-import { isInsideRoot, resolvePreviewPath } from './handlers/lib/file-preview'
+import { resolvePreviewPath } from './handlers/lib/file-preview'
+import { isInsideRoot } from '../paths'
 
 export const ASSET_URL_TTL_MS = 60 * 60 * 1000
 

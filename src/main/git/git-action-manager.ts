@@ -11,6 +11,7 @@ import type {
   GitCheckout,
 } from '../../shared/types'
 import { runAsync } from './exec'
+import { toRootRelativePath } from '../paths'
 import { authorPullRequest, type PullRequestWriter } from './pull-request-authoring'
 import { z } from 'zod'
 
@@ -42,26 +43,11 @@ function wantsPullRequest(action: GitAction): boolean {
   return action === 'create_pull_request' || action === 'commit_push_pull_request'
 }
 
-/** Repository-relative, posix-normalized, and free of traversal — the shape a
- *  selective commit path must have before it ever reaches `git`. */
-function normalizeRepoRelativePath(raw: string): string {
-  if (!raw.trim()) throw new Error('A selected file path cannot be empty.')
-  const posixPath = raw.replace(/\\/g, '/').trim()
-  if (posixPath.startsWith('/') || /^[A-Za-z]:/.test(posixPath)) {
-    throw new Error(`File path must be relative to the repository: ${raw}`)
-  }
-  const normalized = path.posix.normalize(posixPath)
-  if (normalized === '.' || normalized.split('/').includes('..')) {
-    throw new Error(`File path is outside the repository: ${raw}`)
-  }
-  return normalized
-}
-
-function normalizeSelectedFilePaths(paths: string[]): string[] {
+function normalizeSelectedFilePaths(workTree: string, paths: string[]): string[] {
   if (paths.length === 0) throw new Error('Select at least one file to commit.')
   const seen = new Set<string>()
   for (const raw of paths) {
-    const normalized = normalizeRepoRelativePath(raw)
+    const normalized = toRootRelativePath(workTree, raw)
     if (seen.has(normalized)) throw new Error(`Duplicate file selected: ${normalized}`)
     seen.add(normalized)
   }
@@ -219,7 +205,7 @@ async function runGitActionUnlocked(
   if ((request.commitMessage !== undefined || request.filePaths !== undefined) && !commitRequested) {
     throw new Error('A commit message or file selection is only valid for a commit action.')
   }
-  const selectedFilePaths = request.filePaths !== undefined ? normalizeSelectedFilePaths(request.filePaths) : undefined
+  const selectedFilePaths = request.filePaths !== undefined ? normalizeSelectedFilePaths(cwd, request.filePaths) : undefined
   const manualCommitMessage = request.commitMessage?.trim() ? validateCommitMessage(request.commitMessage) : undefined
   const initialDirty = await workingTreeIsDirty(cwd)
   if (commitRequested && !initialDirty) {

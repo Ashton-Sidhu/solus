@@ -128,6 +128,15 @@ describe('selective commit', () => {
     await expect(
       runGitAction(commitAction({ filePaths: ['a.txt', 'a.txt'] }), mainCheckout, repo, baseOptions()),
     ).rejects.toThrow()
+    // Escapes that only appear after resolution — a traversal that climbs back
+    // out through a legitimate-looking prefix — must be rejected too.
+    await expect(
+      runGitAction(commitAction({ filePaths: ['sub/../../escape.txt'] }), mainCheckout, repo, baseOptions()),
+    ).rejects.toThrow()
+    // ...while a traversal that stays inside resolves to its plain path.
+    await expect(
+      runGitAction(commitAction({ filePaths: ['a.txt', 'sub/../a.txt'] }), mainCheckout, repo, baseOptions()),
+    ).rejects.toThrow(/[Dd]uplicate/)
 
     // None of the rejected attempts touched the repository.
     expect(git(repo, ['rev-list', '--count', 'HEAD'])).toBe('1')

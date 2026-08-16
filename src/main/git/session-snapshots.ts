@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { lstat, readlink } from 'fs/promises'
-import { isAbsolute, join, relative, resolve, sep } from 'path'
+import { join, resolve } from 'path'
 import { createHash, randomUUID } from 'crypto'
 import { createLogger } from '../logger'
+import { isInsideRoot } from '../paths'
 import { runAsync } from './exec'
 import type {
   ChangedFileStat,
@@ -654,8 +655,7 @@ async function readWorktreeFile(
   path: string,
 ): Promise<DiffFileContent | null> {
   const absolutePath = resolve(workTree, path)
-  const relativePath = relative(workTree, absolutePath)
-  if (relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) return null
+  if (!isInsideRoot(workTree, absolutePath)) return null
 
   try {
     const fileStat = await lstat(absolutePath)
