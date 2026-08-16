@@ -13,6 +13,7 @@ import { applyCloneProtocol } from '../server/handlers/setup-commands'
 import { runAsync } from './exec'
 import { createGitAskpassHelper, gitAuthEnv } from './git-auth-env'
 import { parseRemoteUrl } from './git-helpers'
+import { hasAnyCommit } from './git-init'
 
 const githubStatusErrorSchema = z.object({ status: z.number().optional() })
 
@@ -84,8 +85,7 @@ async function pushInitialCommits(
   protocol: 'https' | 'ssh',
   token: string | null,
 ): Promise<GithubPublishPushStep> {
-  const hasCommits = await runAsync('git', ['rev-parse', '--verify', 'HEAD'], cwd).then(() => true).catch(() => false)
-  if (!hasCommits) return { status: 'skipped_no_commits' }
+  if (!await hasAnyCommit(cwd)) return { status: 'skipped_no_commits' }
 
   const isHttps = protocol === 'https'
   const askpass = isHttps && token ? await createGitAskpassHelper() : null

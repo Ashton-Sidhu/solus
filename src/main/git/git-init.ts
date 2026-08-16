@@ -23,6 +23,11 @@ export async function initRepository(cwd: string): Promise<GitInitRepositoryResu
   return { defaultBranch }
 }
 
+/** Whether the checkout has any commit yet — false for an unborn HEAD. */
+export async function hasAnyCommit(cwd: string): Promise<boolean> {
+  return runAsync('git', ['rev-parse', '--verify', 'HEAD'], cwd).then(() => true).catch(() => false)
+}
+
 /**
  * Whether `cwd` is a Git repository, and if so whether it has any commits and
  * a primary remote. `GitState`/`GitIdentity` collapse "no repository" and "a
@@ -35,7 +40,7 @@ export async function computeGitRepositoryStatus(cwd: string): Promise<GitReposi
     return { isRepository: false, hasCommits: false, branch: null, primaryRemoteName: null, primaryRemoteUrl: null }
   }
   const [hasCommits, branch, remoteUrl] = await Promise.all([
-    runAsync('git', ['rev-parse', '--verify', 'HEAD'], cwd).then(() => true).catch(() => false),
+    hasAnyCommit(cwd),
     runAsync('git', ['symbolic-ref', '--short', 'HEAD'], cwd).catch(() => null),
     runAsync('git', ['remote', 'get-url', 'origin'], cwd).catch(() => null),
   ])
