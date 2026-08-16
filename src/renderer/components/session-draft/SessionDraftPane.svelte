@@ -8,7 +8,6 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { cn } from "../../lib/utils";
   import { startsWorktree } from "../../contexts/workspace/run-config";
-  import type { PickerSelection } from "../pickers/lib/picker-selection";
   import type { PluginCommandsResult } from "../../../shared/types";
   import type { SessionDraft } from "../../contexts/workspace/session-draft.svelte";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
@@ -19,6 +18,7 @@
   import InputBarHeader from "../input/InputBarHeader.svelte";
   import InputToolbar from "../input/InputToolbar.svelte";
   import { draftPluginCommandScope } from "./lib/plugin-command-scope";
+  import { draftModelSelection } from "./lib/draft-selection";
 
   let {
     params,
@@ -116,41 +116,11 @@
   });
 
   // The model chip's detached mode edits a plain selection rather than a
-  // session's config — which is exactly what a draft has. These accessors make
-  // the draft's run that selection, so the agent and model picked before Send
-  // are the ones the session starts with, and no started session is touched.
-  const modelSelection: PickerSelection = {
-    get provider() {
-      return (
-        draft?.run.provider ??
-        session.defaultRunConfig.provider ??
-        theme.activeAgent
-      );
-    },
-    set provider(next) {
-      if (draft) draft.run = { ...draft.run, provider: next };
-    },
-    get modelId() {
-      return draft?.run.modelConfig?.modelId ?? null;
-    },
-    set modelId(next) {
-      if (draft)
-        draft.run = {
-          ...draft.run,
-          modelConfig: { ...draft.run.modelConfig, modelId: next },
-        };
-    },
-    get reasoningEffort() {
-      return draft?.run.modelConfig?.reasoningEffort ?? "high";
-    },
-    set reasoningEffort(next) {
-      if (draft)
-        draft.run = {
-          ...draft.run,
-          modelConfig: { ...draft.run.modelConfig, reasoningEffort: next },
-        };
-    },
-  };
+  // session's config — which is exactly what a draft has.
+  const modelSelection = draftModelSelection(
+    () => draft ?? null,
+    () => session.defaultRunConfig.provider ?? theme.activeAgent,
+  );
 
   /**
    * Send is the moment a draft stops being one: the session is created, its tab

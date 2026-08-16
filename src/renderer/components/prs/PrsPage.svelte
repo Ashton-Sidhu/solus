@@ -75,6 +75,10 @@
     type QualifiedProject,
   } from "./lib/pr-cross-project";
   import GithubConnectionRequired from "./GithubConnectionRequired.svelte";
+  import {
+    prInboxFailure,
+    type PrInboxFailure,
+  } from "./lib/pr-inbox-failure";
   import PrDetailPanel from "./PrDetailPanel.svelte";
   import PrContextMenu from "./PrContextMenu.svelte";
 
@@ -213,19 +217,8 @@
   const qualified = $derived(flattenQualifiedProjects(qualifiedProjects));
   const aggregateKeyFor = $derived(qualifiedKeyOf(qualified.byPr));
   const aggregateStackParentOf = $derived(qualifiedStackParentOf(stacks, qualified.byPr));
-  const inboxErrors = $derived(
-    inbox.projects.filter((project) => project.error !== null),
-  );
   const inboxHasMore = $derived(inbox.projects.some((project) => project.hasMore));
   const inboxLoadingMore = $derived(inbox.projects.some((project) => project.loading && project.loadedAt > 0));
-  // A partial failure must not hide the projects that did load — the error
-  // page only replaces the list when literally nothing came back.
-  const allProjectsFailed = $derived(
-    isAllProjects && inbox.projects.length > 0 && inboxErrors.length === inbox.projects.length,
-  );
-  const authFailedProject = $derived(
-    inboxErrors.find((project) => project.error?.kind === "github-auth") ?? null,
-  );
   const activeRefreshing = $derived(isAllProjects ? inbox.loading : store.loading);
 
   const SORT_OPTIONS: { value: PrSortMode; label: string }[] = [
@@ -247,6 +240,14 @@
   );
   const openCount = $derived(
     activeItems.filter((pr) => pr.state === "open").length,
+  );
+  // A failed project keeps its last-safe rows, so a failure is only visible if
+  // it is said out loud: a banner when something did load, the page's own
+  // surface when nothing did.
+  const inboxFailure = $derived(
+    isAllProjects
+      ? prInboxFailure(inbox.projects, activeItems.length > 0)
+      : ({ kind: "none", placement: "none" } satisfies PrInboxFailure),
   );
 
   // ── The shared row grammar's view of a PR ──
@@ -1045,6 +1046,33 @@
     >
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div bind:this={listEl} onkeydown={onListKeydown} role="presentation">
+        {#if inboxFailure.placement === "banner"}
+          <!-- Partial failure: the rows that did load stay, and this line
+               carries the part that didn't. -->
+          <div class="px-3 pt-3">
+            <div
+              class="flex items-center gap-2.5 rounded-2xl border border-border bg-card px-3.5 py-3 text-[0.8125rem]"
+              role="alert"
+            >
+              {#if inboxFailure.kind === "github-auth"}
+                <GithubConnectionRequired serverId={inboxFailure.serverId} />
+              {:else}
+                <span class="min-w-0 flex-1 truncate"
+                  >{inboxFailure.summary}</span
+                >
+                <Button
+                  type="button"
+                  variant="ghost"
+                  class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-3 text-[0.8125rem] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  onclick={refreshList}
+                >
+                  <ArrowsClockwiseIcon size={12} class="shrink-0" />
+                  Retry
+                </Button>
+              {/if}
+            </div>
+          </div>
+        {/if}
         {#if activeLoading && filtered.length === 0}
           <ListSkeleton identWidth={44} />
         {:else if !isAllProjects && store.error?.kind === "github-auth"}
@@ -1057,14 +1085,14 @@
               <GithubConnectionRequired serverId={prsServerId} layout="stacked" />
             {/if}
           </PageEmpty>
-        {:else if isAllProjects && allProjectsFailed && authFailedProject}
+        {:else if inboxFailure.kind === "github-auth" && inboxFailure.placement === "page"}
           <PageEmpty
             icon={GithubLogoIcon}
             tone="muted"
             title="Connect GitHub to load pull requests."
           >
             <GithubConnectionRequired
-              serverId={authFailedProject.serverId}
+              serverId={inboxFailure.serverId}
               layout="stacked"
             />
           </PageEmpty>
@@ -1082,13 +1110,13 @@
               </Button>
             {/snippet}
           </PageEmpty>
-        {:else if isAllProjects && allProjectsFailed}
+        {:else if inboxFailure.kind === "generic" && inboxFailure.placement === "page"}
           <PageEmpty
             icon={WarningCircleIcon}
             tone="muted"
             title="Couldn’t load pull requests."
           >
-            {inboxErrors[0]?.error?.message ?? "Every project failed to load."}
+            {inboxFailure.detail}
             {#snippet actions()}
               <Button type="button" variant="outline" onclick={refreshList}>
                 <ArrowsClockwiseIcon size={14} />

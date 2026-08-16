@@ -177,10 +177,6 @@
               style="stroke-dashoffset:{100 - progressFraction * 100}"
             />
           </svg>
-          <!-- The dial only renders in compact/pill mode, where "12/12" cannot fit
-               inside the ring. The arc carries the fraction; the aria-label on the
-               button and the hover popover carry the total. -->
-          <span class="pt-count tabular-nums">{progress.currentStep}</span>
         </span>
         <span class="pt-text">
           <span class="pt-count-text tabular-nums"
@@ -332,17 +328,6 @@
     stroke-width: 2.75;
     stroke-linecap: round;
     transition: stroke-dashoffset 0.7s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  .pt-count {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(0.75rem * var(--orb-scale));
-    font-weight: 500;
-    line-height: 1;
-    color: var(--solus-text-secondary);
   }
   .pt-sep {
     margin: 0 0.0313rem;

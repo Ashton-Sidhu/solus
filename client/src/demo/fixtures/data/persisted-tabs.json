@@ -1,17 +1,21 @@
 {
-  "version": 1,
-  "activeTabId": "demo-tab-webhooks",
+  "version": 2,
+  "activeTabId": "demo-tab-ratelimit",
   "tabOrder": [
     "demo-tab-webhooks",
     "demo-tab-ratelimit",
     "demo-tab-billing",
     "demo-tab-new"
   ],
+  "location": "",
   "tabs": [
     {
       "tabId": "demo-tab-webhooks",
       "sessionId": "demo-conv-webhooks",
       "title": "Fix flaky retry logic in webhook delivery",
+      "titleCustom": false,
+      "serverId": "local",
+      "taskServerId": "local",
       "agentSessionId": "demo-session-webhooks",
       "provider": "claude-code",
       "workingDirectory": "/home/demo/acme",
@@ -21,7 +25,8 @@
         "targetBranch": "main",
         "repoRoot": "/home/demo/acme"
       },
-      "worktreeBaseBranch": "main",
+      "worktreeBaseBranch": null,
+      "worktreeRequested": false,
       "modelConfig": {
         "modelId": "claude-sonnet-5",
         "reasoningEffort": "high",
@@ -35,6 +40,9 @@
       "tabId": "demo-tab-ratelimit",
       "sessionId": "demo-conv-ratelimit",
       "title": "Add rate limiting to the API",
+      "titleCustom": false,
+      "serverId": "local",
+      "taskServerId": "local",
       "agentSessionId": "demo-session-ratelimit",
       "provider": "claude-code",
       "workingDirectory": "/home/demo/acme",
@@ -44,7 +52,8 @@
         "targetBranch": "main",
         "repoRoot": "/home/demo/acme"
       },
-      "worktreeBaseBranch": "main",
+      "worktreeBaseBranch": null,
+      "worktreeRequested": false,
       "modelConfig": {
         "modelId": "claude-sonnet-5",
         "reasoningEffort": "high",
@@ -58,6 +67,9 @@
       "tabId": "demo-tab-billing",
       "sessionId": "demo-conv-billing",
       "title": "Migrate billing to usage-based pricing",
+      "titleCustom": false,
+      "serverId": "local",
+      "taskServerId": "local",
       "agentSessionId": "demo-session-billing",
       "provider": "claude-code",
       "workingDirectory": "/home/demo/acme",
@@ -67,7 +79,8 @@
         "targetBranch": "main",
         "repoRoot": "/home/demo/acme"
       },
-      "worktreeBaseBranch": "main",
+      "worktreeBaseBranch": null,
+      "worktreeRequested": false,
       "modelConfig": {
         "modelId": "claude-opus-4-8",
         "reasoningEffort": "high",
@@ -81,6 +94,9 @@
       "tabId": "demo-tab-new",
       "sessionId": "demo-conv-new",
       "title": "New session",
+      "titleCustom": false,
+      "serverId": "local",
+      "taskServerId": "local",
       "agentSessionId": null,
       "provider": null,
       "workingDirectory": "/home/demo/acme",
@@ -90,7 +106,8 @@
         "targetBranch": "main",
         "repoRoot": "/home/demo/acme"
       },
-      "worktreeBaseBranch": "main",
+      "worktreeBaseBranch": null,
+      "worktreeRequested": false,
       "modelConfig": {
         "modelId": "claude-sonnet-5",
         "reasoningEffort": "high",

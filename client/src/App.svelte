@@ -154,10 +154,11 @@
     if (session.hydrating) return;
     const tabs = snapshotPersistedTabs(session);
     const snapshot: PersistedTabs = {
-      version: 1,
+      version: 2,
       activeTabId: session.activeTabId,
       tabOrder: [...session.tabOrder],
       tabs,
+      location: session.router.serialized,
     };
     savePersistedTabs(snapshot);
   });

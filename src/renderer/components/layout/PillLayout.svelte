@@ -11,9 +11,11 @@
   import {
     getWorkspaceContext,
     getPlanStore,
+    getSettingsContext,
     getWindowContext,
     runtime,
   } from "../../contexts";
+  import { draftModelSelection } from "../session-draft/lib/draft-selection";
   import PaneChrome from "../ui/PaneChrome.svelte";
   // Eager, unlike the surfaces below: these are what cover an async boundary,
   // so they cannot sit behind one themselves.
@@ -24,6 +26,7 @@
   import PrsPageSkeleton from "../prs/PrsPageSkeleton.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { isHomeVisible, retainedConversationTabIds } from "./lib/workspace-body";
+  import { pillComposerTarget } from "./lib/pill-composer";
 
   interface Props {
     active?: boolean;
@@ -35,6 +38,7 @@
 
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
+  const theme = getSettingsContext();
   const windowCtx = getWindowContext();
 
   const clamp = (v: number, min: number, max: number) =>
@@ -75,7 +79,30 @@
   let inputFocused = $state(false);
   const pickerOpen = $derived(!isEditorMode && session.sessionPickerOpen);
   const taskPickerOpen = $derived(!isEditorMode && session.taskPickerOpen);
-  let prompt = $derived(session.inputFor(session.activeTabId));
+  // The pill has no route outlet: it renders one fixed set of surfaces, so a
+  // draft reaches it as the thing its dock composes for rather than as a pane.
+  // Without this the bar keeps speaking for the tab the draft covered, and a
+  // new session started in the pill would send its first message into the last
+  // conversation instead.
+  // Read off the leading pane's own content rather than what is visible in it:
+  // Settings or a plan layered over the draft still leaves the dock composing
+  // for that draft, the same rule `composingDraftIds` follows.
+  const pillDraft = $derived.by(() => {
+    const base = router.leadingPane.base;
+    return base?.name === "draft"
+      ? (session.sessionDrafts.get(base.params.draftId) ?? null)
+      : null;
+  });
+  const pillDraftSelection = draftModelSelection(
+    () => pillDraft,
+    () => session.defaultRunConfig.provider ?? theme.activeAgent,
+  );
+  const pillComposer = $derived(
+    pillComposerTarget(pillDraft, session.activeSession, session.activeTabId),
+  );
+  let prompt = $derived(
+    pillDraft ? pillDraft.prompt : session.inputFor(session.activeTabId),
+  );
 
   // A tab that has not started a conversation has nothing above the bar to
   // show, so a new tab leaves the pill as just the bar rather than opening onto
@@ -85,7 +112,7 @@
     session.tasksStore.snoozeReminderForSession(pillSession?.agentSessionId),
   );
   const pillHomeVisible = $derived(
-    !pillSession || isHomeVisible(pillSession, !!pillSnoozeReminder),
+    !!pillDraft || !pillSession || isHomeVisible(pillSession, !!pillSnoozeReminder),
   );
   const pillSurfaceOpen = $derived(
     router.at("settings") ||
@@ -179,6 +206,32 @@
     return () =>
       window.removeEventListener("solus:toggle-session-picker", handler);
   });
+
+  /**
+   * Send is the moment the pill's draft stops being one: the session is
+   * created, its tab mounts, and `createSession` hands the leading pane back to
+   * the conversation pool. The prompt object goes into the new tab, so the text
+   * the bar clears after this is the same object the send just read.
+   */
+  function startPillDraft(text: string): boolean {
+    const draft = pillDraft;
+    if (!draft) return false;
+    const tabId = session.startSessionDraft(draft.id, { via: "click" });
+    if (!tabId) return false;
+    return session.sendMessage(text, undefined, tabId);
+  }
+
+  /** A draft has no tab for the workspace attach handler to address, so files
+   *  picked while composing one land on the draft's own prompt. */
+  async function attachPillDraftFile() {
+    const draft = pillDraft;
+    if (!draft) return;
+    const files = await session
+      .apiForRun(draft.run)
+      .attachFiles(session.ctxForDirectory(draft.run.workingDirectory));
+    if (!files || files.length === 0) return;
+    for (const file of files) draft.prompt.attachments.push(file);
+  }
 
   async function duplicatePillWork(workId: string) {
     const duplicated = await session.worksStore.duplicate(workId);
@@ -419,20 +472,30 @@
         <TabStrip />
 
         <div class="px-1.5 pb-1.5 pt-1">
+          <!-- Addressed by what it composes for: a draft has no session and no
+               tab, so both go unset and Send mints them instead. -->
           <InputBar
             mode="pill"
-            sessionId={session.activeSession?.id ?? null}
-            tabId={session.activeTabId}
+            sessionId={pillComposer.sessionId}
+            tabId={pillComposer.tabId}
             isPrimary
-            run={session.activeSession?.run}
+            run={pillComposer.run}
+            onDispatch={pillDraft ? startPillDraft : undefined}
             bind:prompt
           >
             {#snippet leadingActions()}
               <InputToolbar
                 mode="pill"
-                tabId={session.activeTabId}
+                tabId={pillComposer.tabId}
                 isPrimary
-                {onAttachFile}
+                run={pillDraft ? pillDraft.run : undefined}
+                onRun={pillDraft
+                  ? (next) => {
+                      if (pillDraft) pillDraft.run = next;
+                    }
+                  : undefined}
+                selection={pillDraft ? pillDraftSelection : undefined}
+                onAttachFile={pillDraft ? attachPillDraftFile : onAttachFile}
                 {onScreenshot}
                 {onDesignMode}
               />

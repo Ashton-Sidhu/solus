@@ -52,6 +52,37 @@ describe('SessionEnvironmentStore refs', () => {
     })
   })
 
+  test('reports a local refs scan as loading until the branches arrive', async () => {
+    // WHY: a first scan of a cold repo is slow enough that a picker with no
+    // cached refs would otherwise claim the repo has no branches.
+    Object.defineProperty(globalThis, '$state', {
+      configurable: true,
+      writable: true,
+      value: Object.assign(
+        <T>(value: T) => value,
+        { snapshot: <T>(value: T) => value },
+      ),
+    })
+    let finishBranchLoad!: (branches: string[]) => void
+    const branchLoad = new Promise<string[]>((resolve) => { finishBranchLoad = resolve })
+    const api = {
+      worktreeListProject: async () => [],
+      worktreeBranches: async () => branchLoad,
+    }
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    store.bindCwd('loading-host', '/repo', api as never)
+
+    expect(store.refsLoadingFor('/repo')).toBe(false)
+    const refresh = store.refreshRefs('/repo', { session: {} } as IpcContext, { force: true })
+    expect(store.refsLoadingFor('/repo')).toBe(true)
+
+    finishBranchLoad(['main', 'feature'])
+    expect(await refresh).toBe(true)
+    expect(store.refsLoadingFor('/repo')).toBe(false)
+    expect(store.refsFor('/repo').branches).toEqual(['main', 'feature'])
+  })
+
   test('loads device-scoped target worktrees and source origin branches', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,

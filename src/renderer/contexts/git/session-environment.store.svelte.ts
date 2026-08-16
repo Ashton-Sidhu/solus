@@ -107,6 +107,7 @@ export class SessionEnvironmentStore {
   private workspace: SessionEnvironmentWorkspace | null = null
   private inflight = new Map<string, Promise<GitFacetOutcome>>()
   private refsInflight = new Map<string, Promise<GitFacetOutcome>>()
+  private refsLoading = new SvelteSet<string>()
   private lastRefresh = new Map<string, number>()
   private detailsLastRefresh = new Map<string, number>()
   private refsLastRefresh = new Map<string, number>()
@@ -585,8 +586,12 @@ export class SessionEnvironmentStore {
             : undefined
         return { ok, error: ok ? undefined : gitErrorText(rejected) }
       })
-      .finally(() => this.refsInflight.delete(key))
+      .finally(() => {
+        this.refsInflight.delete(key)
+        this.refsLoading.delete(key)
+      })
     this.refsInflight.set(key, promise)
+    this.refsLoading.add(key)
     return promise
   }
 
@@ -594,6 +599,15 @@ export class SessionEnvironmentStore {
     if (!projectRoot) return { worktrees: [], branches: [] }
     const serverId = this.boundServerIdFor(projectRoot)
     return serverId ? this.refsForHost(serverId, projectRoot) : { worktrees: [], branches: [] }
+  }
+
+  /** Whether a worktree/branch scan is in flight for this project, so a picker
+   *  that has nothing cached yet can say it is loading rather than say the repo
+   *  has no branches. */
+  refsLoadingFor(projectRoot: string | null | undefined): boolean {
+    if (!projectRoot) return false
+    const serverId = this.boundServerIdFor(projectRoot)
+    return serverId ? this.refsLoading.has(hostKey(serverId, projectRoot)) : false
   }
 
   /** Existing isolated worktrees from this device's checkout on the selected
