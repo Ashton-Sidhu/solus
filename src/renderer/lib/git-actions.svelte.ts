@@ -49,7 +49,10 @@ export class GitActions {
     return this.session.apiFor(this.sourceId)
   }
 
-  async run(action: GitAction, options: { createFeatureBranch?: boolean } = {}): Promise<void> {
+  async run(
+    action: GitAction,
+    options: { createFeatureBranch?: boolean; filePaths?: string[]; commitMessage?: string } = {},
+  ): Promise<void> {
     const target = this.target()
     if (this.running || !target.gitContext || !target.cwd || target.cwd === '~') return
     const api = this.api()
@@ -83,6 +86,8 @@ export class GitActions {
         action,
       }
       if (options.createFeatureBranch) request.createFeatureBranch = true
+      if (options.filePaths) request.filePaths = options.filePaths
+      if (options.commitMessage) request.commitMessage = options.commitMessage
       const result = await api.gitRunAction($state.snapshot(target.ctx), request)
       this.lastResult = result
       const pullRequest = result.pullRequest

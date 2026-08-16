@@ -10,7 +10,7 @@ import { getMimeType } from 'hono/utils/mime'
 import { getRequestListener } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import formidable, { type File as FormidableFile } from 'formidable'
-import { resolve as pathResolve, relative as pathRelative, isAbsolute, sep } from 'path'
+import { resolve as pathResolve, isAbsolute } from 'path'
 import { hostname, tmpdir } from 'os'
 import { z } from 'zod'
 import { claimOwnership, consumePairToken, generatePairToken, getInstallationId, getOwnershipState, getServerFingerprint, isClaimable, issueSessionToken, issueWsTicket, listRevokedDevices, openClaimWindow, refreshSessionToken, revokeDevice, verifyClaimOpenAdminRequest, verifySessionToken } from './auth'
@@ -18,6 +18,7 @@ import { listReachableEndpoints } from './endpoints'
 import { createTokenBucketRateLimiter } from './rate-limit'
 import { filePathsToAttachments } from './attachment-utils'
 import { createLogger } from '../logger'
+import { isInsideRoot } from '../paths'
 import { completeGoogleOAuthCallback } from '../google/oauth'
 import { listProjects } from '../project-config/projects-manifest'
 import { readWav } from '../transcription/wav'
@@ -420,11 +421,6 @@ async function resolveKnownProjectFile(rawPath: string): Promise<string | null> 
   }
 
   return null
-}
-
-function isInsideRoot(root: string, target: string): boolean {
-  const rel = pathRelative(root, target)
-  return rel === '' || (!!rel && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
 }
 
 // Caps for the authenticated /upload endpoint. The server can bind to LAN/tailnet,

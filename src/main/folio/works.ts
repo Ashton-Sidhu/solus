@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { readFile, writeFile, mkdir, rm } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { z } from 'zod'
 import { createLogger } from '../logger'
@@ -9,6 +9,7 @@ import { getDb, withTx } from '../db'
 import { workPreview } from '../../shared/work-preview'
 import { git } from '../git/exec'
 import { solusDir } from '../platform/paths'
+import { isInsideRoot } from '../paths'
 import type { AgentId, Work, WorkMeta, WorksManifest, WorkPrevious, WorkStorage } from '../../shared/types'
 
 export type { Work, WorkMeta, WorksManifest, WorkPrevious }
@@ -286,8 +287,7 @@ function projectRootForCwd(cwd?: string): string | null {
 }
 
 function assertInsideProject(projectRoot: string, target: string): void {
-  const rel = relative(resolve(projectRoot), resolve(target))
-  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+  if (!isInsideRoot(projectRoot, target)) {
     throw new Error(`Path escapes project root: ${target}`)
   }
 }

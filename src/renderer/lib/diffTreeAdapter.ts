@@ -1,6 +1,7 @@
 import type { GitStatusEntry, GitStatus, FileTreeRowDecorationRenderer } from '@pierre/trees'
 import type { FileDiffMetadata } from '@pierre/diffs'
 import type { DiffComment } from '../../shared/types'
+import type { DiffStats } from './diff-stats'
 
 type DiffFileStatus = 'A' | 'M' | 'D' | 'R'
 
@@ -11,10 +12,7 @@ const STATUS_MAP = {
   R: 'renamed',
 } satisfies Record<DiffFileStatus, GitStatus>
 
-export interface DiffStats {
-  additions: number
-  deletions: number
-}
+export type { DiffStats } from './diff-stats'
 
 export interface DiffHeaderStats extends DiffStats {
   files: number

@@ -195,4 +195,53 @@ describe('GitActions unified action', () => {
     })
     expect(typeof receivedRequest.actionId).toBe('string')
   })
+
+  test('forwards a selective commit\'s file paths and manual message, and omits them when unset', async () => {
+    installState()
+    let receivedRequest: any
+    const solus = {
+      gitRunAction: async (_ctx: unknown, request: unknown) => {
+        receivedRequest = request
+        return actionResult()
+      },
+    }
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        matchMedia: () => ({ matches: false, addEventListener: () => {} }),
+        dispatchEvent: () => true,
+        solus,
+      },
+    })
+    testServerConnections.registerPrimary('local', solus)
+    const { GitActions } = await import('../../src/renderer/lib/git-actions.svelte')
+    const run = sessionRun()
+    const actions = new GitActions(
+      {
+        runFor: () => run,
+        apiFor: () => window.solus,
+        ctxForEnvironment: () => ({ session: { sessionId: 'tab-1' } }),
+      } as any,
+      'tab-1',
+      {
+        environmentFor: () => ({ cwd: '/repo', checkout: run.gitContext }),
+        refreshEnvironment: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
+        statusFor: () => null,
+      } as any,
+    )
+
+    await actions.run('commit', { filePaths: ['a.txt', 'b.txt'], commitMessage: 'my subject' })
+    expect(receivedRequest).toMatchObject({
+      action: 'commit',
+      filePaths: ['a.txt', 'b.txt'],
+      commitMessage: 'my subject',
+    })
+
+    // The one-click path (no options) must not send either field — legacy
+    // "stage everything, auto-generate" behavior depends on their absence.
+    await actions.run('commit_push')
+    expect(receivedRequest.filePaths).toBeUndefined()
+    expect(receivedRequest.commitMessage).toBeUndefined()
+  })
 })

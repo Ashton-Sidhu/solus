@@ -3,6 +3,7 @@ import { homedir } from 'os'
 import { join, extname, relative, resolve } from 'path'
 import type { FilePreviewRequest, FilePreviewResult, IpcContext } from '../../../../shared/types'
 import { mimeTypeForExtension } from '../../attachment-utils'
+import { isInsideRoot } from '../../../paths'
 
 export function resolvePreviewPath(rawPath: string, cwd: string | undefined): string {
   if (rawPath.startsWith('~/')) return join(homedir(), rawPath.slice(2))
@@ -19,16 +20,6 @@ export function projectRootForRequest(ctx: IpcContext, cwd?: string): string | n
       ? ctx.session.workingDirectory
       : undefined)
   return raw ? resolvePreviewPath(raw, undefined) : null
-}
-
-export function isInsideRoot(root: string, target: string): boolean {
-  const pathFromRoot = relative(root, target)
-  return pathFromRoot === '' || (
-    !!pathFromRoot &&
-    pathFromRoot !== '..' &&
-    !pathFromRoot.startsWith('../') &&
-    !pathFromRoot.startsWith('/')
-  )
 }
 
 function isBinaryBuffer(buffer: Buffer): boolean {
