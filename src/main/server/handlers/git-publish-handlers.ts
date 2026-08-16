@@ -47,7 +47,7 @@ export function registerGitPublishHandlers(server: SolusServer): void {
     // Publish is reachable from a dispatched session, whose checkout commits and
     // pushes as the paired device. Creating the repository as the host owner
     // would file the client's work under the wrong account.
-    const token = await githubTokenForCheckout(cwd)
+    const token = githubTokenForCheckout(cwd)
     if (!token) {
       throw new Error(isRemoteDispatchCheckoutPath(cwd)
         ? 'Connect GitHub on the device that dispatched this session before publishing.'

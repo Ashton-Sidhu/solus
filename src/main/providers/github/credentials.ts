@@ -1,6 +1,4 @@
-import { execFile } from 'child_process'
-import { isRemoteDispatchCheckoutPath } from '../../../shared/types'
-import { getCliEnv } from '../../cli-env'
+import { dispatchCheckoutDeviceId } from '../../project-config/dispatch-checkouts'
 import { loadDelegation } from './delegation-store'
 import { loadToken } from './token-store'
 
@@ -29,33 +27,13 @@ export function delegatedGithubToken(deviceId: string): string | null {
 }
 
 /**
- * The credential a checkout operates under. Asks git rather than re-deriving
- * it, so the answer is by construction the same one the checkout's own
- * credential helper hands a `git push` — a dispatch checkout has a delegated
- * helper written into its local config, and linked worktrees inherit it.
+ * The credential a checkout operates under — the same one its git credential
+ * helper hands a `git push`, since a dispatch checkout is cloned for exactly
+ * one paired device and configured to push as it. Null when that device has no
+ * stored delegation: a dispatch checkout must never borrow the host's own
+ * credential, which would file the client's work under the wrong account.
  */
-export async function githubTokenForCheckout(cwd: string): Promise<string | null> {
-  const configured = await askGitForToken(cwd)
-  if (configured) return configured
-  // No helper answered. Falling back to the host's own credential is right for
-  // an ordinary project but is exactly the substitution to avoid on a dispatch
-  // checkout, whose work belongs to the device that dispatched it.
-  return isRemoteDispatchCheckoutPath(cwd) ? null : hostGithubToken()
-}
-
-/** `git credential fill` speaks the same key=value protocol on stdin and stdout. */
-function askGitForToken(cwd: string): Promise<string | null> {
-  return new Promise((resolve) => {
-    const child = execFile(
-      'git',
-      ['-C', cwd, 'credential', 'fill'],
-      { encoding: 'utf-8', timeout: 10_000, env: getCliEnv({ GIT_TERMINAL_PROMPT: '0' }) },
-      (error, stdout) => {
-        if (error) return resolve(null)
-        const password = stdout.split('\n').find((line) => line.startsWith('password='))
-        resolve(password ? password.slice('password='.length) || null : null)
-      },
-    )
-    child.stdin?.end('protocol=https\nhost=github.com\n\n')
-  })
+export function githubTokenForCheckout(cwd: string): string | null {
+  const deviceId = dispatchCheckoutDeviceId(cwd)
+  return deviceId ? delegatedGithubToken(deviceId) : hostGithubToken()
 }
