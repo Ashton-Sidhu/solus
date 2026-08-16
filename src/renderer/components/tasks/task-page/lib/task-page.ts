@@ -122,6 +122,27 @@ export function taskPageCapabilities(task: Task): TaskPageCapabilities {
   }
 }
 
+// ── Subtasks ──
+
+export interface TaskSubtaskRow {
+  task: Task
+  statusLabel: string
+  sessionLabel: string
+}
+
+/** Shape one durable child task for the parent task page. The detail RPC
+ * already returns these records; this keeps the page from dropping that part
+ * of the task model while the session sidebar shows the same children. */
+export function taskSubtaskRow(task: Task, sessionCount: number): TaskSubtaskRow {
+  return {
+    task,
+    statusLabel: STATUS_META[task.status].label,
+    sessionLabel: sessionCount === 0
+      ? 'No sessions'
+      : `${sessionCount} session${sessionCount === 1 ? '' : 's'}`,
+  }
+}
+
 // ── Priority ──
 
 /** Three ascending bars, filled up to the level. Urgent fills in the failure

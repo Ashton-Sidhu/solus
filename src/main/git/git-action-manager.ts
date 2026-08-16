@@ -262,12 +262,20 @@ async function runGitActionUnlocked(
     let commitStep: GitActionResult['commit'] = { status: 'skipped' }
     if (commitRequested) {
       currentPhase = 'commit'
-      options.publish({ ...baseEvent, kind: 'phase_started', phase: currentPhase, label: 'Committing…' })
+      // Writing the message is the slow part of a commit, so it reports itself.
+      const commitSubject = async (): Promise<string> => {
+        const known = manualCommitMessage ?? generatedSubject
+        if (known) return known
+        options.publish({ ...baseEvent, kind: 'phase_started', phase: 'commit', label: 'Generating commit message…' })
+        return sanitizeCommitSubject(await options.generateCommitSubject(cwd))
+      }
       if (selectedFilePaths) {
-        const subject = manualCommitMessage ?? generatedSubject ?? sanitizeCommitSubject(await options.generateCommitSubject(cwd))
+        const subject = await commitSubject()
+        options.publish({ ...baseEvent, kind: 'phase_started', phase: currentPhase, label: 'Committing…' })
         commitStep = await commitSelectedFiles(cwd, selectedFilePaths, subject)
       } else if (await workingTreeIsDirty(cwd)) {
-        const subject = manualCommitMessage ?? generatedSubject ?? sanitizeCommitSubject(await options.generateCommitSubject(cwd))
+        const subject = await commitSubject()
+        options.publish({ ...baseEvent, kind: 'phase_started', phase: currentPhase, label: 'Committing…' })
         await runAsync('git', ['add', '-A'], cwd)
         await runAsync('git', ['commit', '-m', subject], cwd)
         const sha = await runAsync('git', ['rev-parse', 'HEAD'], cwd)

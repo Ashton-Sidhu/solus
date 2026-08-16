@@ -18,8 +18,10 @@
     orderSessionLinks,
     railLinkList,
     railSessionRow,
+    railSubtaskRow,
   } from "./lib/rail-task-card";
   import { linkedPrNavigationTarget } from "../tasks/task-page/lib/linked-pr-navigation";
+  import TaskStatusGlyph from "../tasks/TaskStatusGlyph.svelte";
 
   interface Props {
     /** The task the rail's session is working. */
@@ -62,6 +64,21 @@
 
   const attempts = $derived(
     orderSessionLinks(store.sessionsByTask.get(task.id) ?? [], currentSessionId),
+  );
+
+  // The rail follows one session, but its task may belong to a larger durable
+  // task family. Read siblings from the global snapshot so every child stays
+  // visible here even before it starts its first session.
+  const taskFamilyRootId = $derived(task.parentId ?? task.id);
+  const subtasks = $derived(store.byParent.get(taskFamilyRootId) ?? []);
+  const subtaskRows = $derived(
+    subtasks.map((subtask) =>
+      railSubtaskRow(
+        subtask,
+        task.id,
+        store.sessionsByTask.get(subtask.id)?.length ?? 0,
+      ),
+    ),
   );
   // Only "what is this session doing right now" is read live — everything else
   // comes off the link, so a closed attempt still renders a full row. The live
@@ -195,6 +212,11 @@
         }),
       );
   }
+
+  function openSubtask(taskId: string) {
+    session.goToTask(taskId, "click");
+    requestInputFocus();
+  }
 </script>
 
 <!-- Two lists and nothing else: one line per session, one line per linked
@@ -207,9 +229,49 @@
      and Git. That 8px is the card's text measure, so the group labels and every
      row label set on the same left edge. -->
 <div class="mb-2 flex flex-col {task.status === 'done' ? 'opacity-[.62]' : ''}">
+  {#if subtaskRows.length}
+    <div class="flex items-center gap-2 px-2 pb-1">
+      <span class="text-menu-meta font-medium text-(--solus-text-tertiary) uppercase">
+        Subtasks
+      </span>
+      <span class="text-menu-meta tabular-nums text-(--solus-text-tertiary) opacity-70">
+        {subtaskRows.length}
+      </span>
+    </div>
+    <div class="flex flex-col gap-px">
+      {#each subtaskRows as row (row.task.id)}
+        <button
+          type="button"
+          class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-left text-menu text-(--solus-text-secondary) transition-colors duration-150 @max-[15rem]:text-xs hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {row.current
+            ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
+            : ''} {row.dimmed ? 'opacity-[.62] hover:opacity-100' : ''}"
+          onclick={() => openSubtask(row.task.id)}
+          aria-label={`Open subtask ${row.task.title}`}
+        >
+          <TaskStatusGlyph status={row.task.status} size={13} />
+          <span class="min-w-0 flex-1 truncate">{row.task.title}</span>
+          <span
+            class="shrink-0 text-menu-meta text-(--solus-text-tertiary)"
+            title={row.sessionLabel}
+          >
+            {row.statusLabel}
+          </span>
+        </button>
+      {/each}
+    </div>
+    <div
+      class="mx-2 mt-2 mb-1.5 h-px bg-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
+      aria-hidden="true"
+    ></div>
+  {/if}
+
   <div class="mt-0.5 flex flex-col gap-px">
-    {#each sessionRows as row (row.sessionId)}
-      {@const StatusIcon = row.icon}
+    <!-- Six attempts stay visible at once. Older attempts scroll inside this
+         group so a long history cannot take over the project rail; New session
+         stays pinned below the history. -->
+    <div class="max-h-48 overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:w-0">
+      {#each sessionRows as row (row.sessionId)}
+        {@const StatusIcon = row.icon}
       <!-- State is the leading glyph and nothing else; elapsed reads at rest
            and hands its slot to the actions on hover, so the row keeps one
            value column and never changes height. -->
@@ -275,8 +337,9 @@
           </TooltipUI.Trigger>
           <TooltipUI.Content value="Open in split" />
         </TooltipUI.Root>
-      </div>
-    {/each}
+        </div>
+      {/each}
+    </div>
 
     <button
       type="button"

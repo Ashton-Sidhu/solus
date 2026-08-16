@@ -153,6 +153,19 @@
       newTabProjectPanelPoppedOut,
     ),
   );
+  // The rail animates only while the user is moving it. Every other move — the
+  // pane taking a draft, releasing one — arrives with a surface that is mounting
+  // in those same frames, and animating the rail's width there re-runs style and
+  // layout for the whole workspace on every one of the 240ms.
+  let railAnimating = $state(false);
+  let railAnimateTimer: ReturnType<typeof setTimeout> | undefined;
+  function animateRailMove() {
+    railAnimating = true;
+    clearTimeout(railAnimateTimer);
+    railAnimateTimer = setTimeout(() => (railAnimating = false), 300);
+  }
+  $effect(() => () => clearTimeout(railAnimateTimer));
+
   // Popping the rail out on a fresh tab is intentionally transient. Starting
   // that session or moving to another tab returns control to the normal rule.
   $effect(() => {
@@ -351,6 +364,7 @@
   // user is in. The tab strip's button only ever reaches the leading pane — it
   // lives in that pane's chrome; the split chat carries its own toggle.
   function toggleProjectPanel(isSplit = false) {
+    animateRailMove();
     if (isSplit) {
       settings.update({
         splitProjectPanelOpen: !settings.splitProjectPanelOpen,
@@ -643,6 +657,7 @@
   class="workspace-body flex flex-1 min-w-0 min-h-0"
   class:is-resizing={isResizingSecondary}
   class:sidebar-snap={sidebarSnapForOverlay}
+  class:rail-animating={railAnimating}
   class:sidebar-collapsed={!sidebarOpen}
   class:page-flush={pageFlush}
   class:project-panel-open={railOpen}
@@ -826,7 +841,10 @@
                      pane minimizes it temporarily without changing the user's
                      persisted preference. -->
                 {#if enableProjectPanel && hasMountedProjectRail}
-                  <div class="contents" class:mode-hidden={!locationChromeVisible}>
+                  <div
+                    class="project-rail contents"
+                    class:mode-hidden={!locationChromeVisible}
+                  >
                     <ProjectPanel
                       sourceId={leadingDraft?.id ?? session.activeTabId}
                       {active}
@@ -1048,6 +1066,13 @@
      frame for 240ms. */
   .workspace-body.sidebar-snap :global(.workspace-rail-pane),
   .workspace-body.sidebar-snap :global(.side-panel-shell) {
+    transition: none;
+  }
+  /* The rail's width transition relayouts the whole workspace on every frame,
+     so it runs only while the user is moving the rail (⌥M, the chrome button).
+     A rail moved by the pane instead — taking a draft, releasing one — lands in
+     one layout pass, beside the composer mounting in those same frames. */
+  .workspace-body:not(.rail-animating) .project-rail :global(.side-panel-shell) {
     transition: none;
   }
   /* While the OS window frame is resizing (maximize, restore, edge drags —

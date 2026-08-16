@@ -110,4 +110,48 @@ describe("toast service", () => {
     expect(toasts.dismiss(id)).toBe(true)
     expect(dismissed).toEqual([id])
   })
+
+  test("keeps a progress toast on screen with a close button while work runs", () => {
+    const progress = toasts.progress("Committing…")
+
+    // Sonner drops its close button on loading toasts, so this must stay a
+    // default toast wearing the spinner class.
+    expect(calls[0]).toMatchObject({ kind: "default", message: "Committing…" })
+    expect(calls[0].options?.class).toBe("solus-toast-progress")
+    expect(calls[0].options?.closeButton).toBe(true)
+    expect(calls[0].options?.duration).toBe(Number.POSITIVE_INFINITY)
+
+    progress.dismiss()
+    expect(dismissed).toEqual([calls[0].options?.id ?? 1])
+  })
+
+  test("reuses the progress slot so the result replaces the spinner in place", () => {
+    const progress = toasts.progress("Committing…")
+    const slotId = calls[0].options?.id ?? 1
+
+    progress.update("Pushing…")
+    expect(calls[1]).toMatchObject({ kind: "default", message: "Pushing…" })
+    expect(calls[1].options?.id).toBe(slotId)
+
+    progress.success("Committed and pushed", { description: "feat: ship it" })
+    expect(calls[2]).toMatchObject({
+      kind: "success",
+      message: "Committed and pushed",
+      options: { id: slotId, description: "feat: ship it", closeButton: true },
+    })
+    // The spinner must not survive into the success toast.
+    expect(calls[2].options?.class).toBeUndefined()
+    expect(calls).toHaveLength(3)
+  })
+
+  test("a failed operation ends the progress toast as an error", () => {
+    const progress = toasts.progress("Opening pull request…")
+    progress.error("Git action failed", { description: "gh: not authenticated" })
+
+    expect(calls[1]).toMatchObject({
+      kind: "error",
+      message: "Git action failed",
+      options: { description: "gh: not authenticated", closeButton: true },
+    })
+  })
 })

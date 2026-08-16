@@ -16,6 +16,7 @@ import type { Automation } from '../../../../shared/types'
 import type { Task, TaskLink, TaskLinkKind, TaskSessionLink } from '../../../../shared/task-types'
 import { sessionDisplayName, type AttentionState } from '../../../lib/sessionUtils'
 import { clockTime } from '../../automations/lib/automation-format'
+import { STATUS_META } from '../../tasks/lib/tasks-api'
 import { linkRow } from '../../tasks/task-page/lib/task-page'
 
 /** A Phosphor icon component, named the way `MenuRow` names its own. */
@@ -167,6 +168,54 @@ export function orderSessionLinks(
     if (b.sessionId === currentSessionId) return 1
     return b.linkedAt - a.linkedAt
   })
+}
+
+export interface RailTaskAttempt {
+  task: Task
+  link: TaskSessionLink
+}
+
+/** Collect every attempt in one durable task family. A parent attempt and its
+ * child-task attempts belong in the same project-rail history even though the
+ * session-link store correctly keeps them under different task ids. */
+export function taskFamilyAttempts(
+  tasks: Task[],
+  linksFor: (taskId: string) => TaskSessionLink[],
+  currentSessionId: string | null,
+): RailTaskAttempt[] {
+  const taskById = new Map(tasks.map((task) => [task.id, task]))
+  const links = tasks.flatMap((task) => linksFor(task.id))
+  return orderSessionLinks(links, currentSessionId).flatMap((link) => {
+    const task = taskById.get(link.taskId)
+    return task ? [{ task, link }] : []
+  })
+}
+
+export interface RailSubtaskRow {
+  task: Task
+  statusLabel: string
+  sessionLabel: string
+  current: boolean
+  dimmed: boolean
+}
+
+/** A durable child stays visible even before it has a session. The focused
+ * child gets the same resting wash as the focused attempt, while completed
+ * siblings step back without disappearing from the task family. */
+export function railSubtaskRow(
+  task: Task,
+  currentTaskId: string,
+  sessionCount: number,
+): RailSubtaskRow {
+  return {
+    task,
+    statusLabel: STATUS_META[task.status].label,
+    sessionLabel: sessionCount === 0
+      ? 'No sessions'
+      : `${sessionCount} session${sessionCount === 1 ? '' : 's'}`,
+    current: task.id === currentTaskId,
+    dimmed: task.status === 'done' || task.status === 'dropped',
+  }
 }
 
 /** Type glyphs, again the app's own rather than the mock's: a PR reads as it

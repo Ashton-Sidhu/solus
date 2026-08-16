@@ -87,9 +87,10 @@
 
   <!-- An attempt is a small story, not a table cell: the card gives each one two
        lines, so the title reads as a title and the facts that tell two attempts
-       of the same task apart — agent, machine, when — sit under it. -->
+       of the same task apart — agent, machine, when — sit under it. The card is
+       bounded so a long history does not push the rest of the task off the page. -->
   <div
-    class="overflow-hidden rounded-xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
+    class="max-h-[min(22rem,42vh)] overflow-y-auto overscroll-contain rounded-xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:w-0"
   >
     {#each rows as row, index (row.sessionId)}
       <div

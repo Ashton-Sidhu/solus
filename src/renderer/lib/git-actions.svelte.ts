@@ -15,6 +15,22 @@ import type { HostApi } from '@client-core/host-api'
 import { hostPolicy } from '@client-core/host-policy'
 import { serverConnections } from '@client-core/server-connections'
 
+/** Opening title of the progress toast, before the server reports a phase. */
+function startingLabel(action: GitAction, createFeatureBranch: boolean): string {
+  if (createFeatureBranch) return 'Preparing feature branch…'
+  switch (action) {
+    case 'commit':
+      return 'Committing…'
+    case 'commit_push':
+      return 'Committing and pushing…'
+    case 'push':
+      return 'Pushing…'
+    case 'create_pull_request':
+    case 'commit_push_pull_request':
+      return 'Opening pull request…'
+  }
+}
+
 export class GitActions {
   running = $state(false)
   activeAction = $state<GitAction | null>(null)
@@ -68,6 +84,7 @@ export class GitActions {
     }
     this.lastResult = null
     this.actionError = null
+    const progress = toasts.progress(startingLabel(action, options.createFeatureBranch === true))
     const unsubscribe = serverConnections.eventsForApi(api).subscribe(
       'git.actionProgressed',
       (event: GitActionProgressEvent) => {
@@ -75,6 +92,7 @@ export class GitActions {
         if (event.kind === 'phase_started') {
           this.activePhase = event.phase
           this.activeLabel = event.label
+          progress.update(event.label)
         } else if (event.kind === 'failed') {
           this.actionError = event.message
         }
@@ -93,17 +111,23 @@ export class GitActions {
       const pullRequest = result.pullRequest
       if (pullRequest.status !== 'skipped') {
         this.prUrl = pullRequest.url
-        toasts.success(pullRequest.status === 'created' ? 'Pull request created' : 'Pull request is ready')
+        progress.success(pullRequest.status === 'created' ? 'Pull request created' : 'Pull request is ready', {
+          description: pullRequest.title,
+        })
       } else if (result.push.status === 'pushed') {
-        toasts.success(result.commit.status === 'created' ? 'Committed and pushed' : 'Pushed')
+        progress.success(result.commit.status === 'created' ? 'Committed and pushed' : 'Pushed', {
+          description: result.commit.status === 'created' ? result.commit.subject : undefined,
+        })
       } else if (result.commit.status === 'created') {
-        toasts.success('Committed')
+        progress.success('Committed', { description: result.commit.subject })
       } else if (result.commit.status === 'skipped_no_changes') {
-        toasts.info('Nothing to commit.')
+        progress.info('Nothing to commit.')
+      } else {
+        progress.dismiss()
       }
     } catch (error) {
       this.actionError = error instanceof Error ? error.message : String(error)
-      toasts.error('Git action failed', { description: this.actionError })
+      progress.error('Git action failed', { description: this.actionError })
     } finally {
       unsubscribe()
       await this.environmentStore.refreshEnvironment(this.session, {
@@ -162,10 +186,12 @@ export class GitActions {
     this.syncing = true
     this.synced = false
     this.syncError = null
+    const progress = toasts.progress('Syncing with remote…')
     try {
       const result = await this.api().gitSync(target.ctx)
       if (result.success) {
         this.synced = true
+        progress.success('Synced with remote')
         if (this.syncTimer) clearTimeout(this.syncTimer)
         this.syncTimer = setTimeout(() => {
           this.synced = false
@@ -173,11 +199,11 @@ export class GitActions {
         }, 1800)
       } else {
         this.syncError = result.error || 'Sync failed'
-        toasts.error("Couldn't sync with remote", { description: this.syncError })
+        progress.error("Couldn't sync with remote", { description: this.syncError })
       }
     } catch (error) {
       this.syncError = error instanceof Error ? error.message : String(error)
-      toasts.error("Couldn't sync with remote", { description: this.syncError })
+      progress.error("Couldn't sync with remote", { description: this.syncError })
     } finally {
       if (target.cwd) {
         await this.environmentStore.refreshEnvironment(this.session, {

@@ -2,6 +2,7 @@
   import { CheckIcon, MinusIcon } from "phosphor-svelte";
   import type { SessionProgress } from "../../../shared/types";
   import * as Popover from "../ui/popover";
+  import { dialCountFontRem } from "./lib/orb-progress-dial";
 
   interface Props {
     progress: SessionProgress;
@@ -27,6 +28,10 @@
 
   let stepsLeft = $derived(
     progress.todos.filter((t) => t.status !== "completed").length,
+  );
+
+  let dialFontRem = $derived(
+    dialCountFontRem(progress.currentStep, progress.totalSteps),
   );
 
   let stepsListEl: HTMLUListElement | null = $state(null);
@@ -177,6 +182,13 @@
               style="stroke-dashoffset:{100 - progressFraction * 100}"
             />
           </svg>
+          <span
+            class="pt-count tabular-nums"
+            style="font-size:calc({dialFontRem}rem * var(--orb-scale))"
+            >{progress.currentStep}<span class="pt-sep"
+              >/</span
+            >{progress.totalSteps}</span
+          >
         </span>
         <span class="pt-text">
           <span class="pt-count-text tabular-nums"
@@ -329,9 +341,23 @@
     stroke-linecap: round;
     transition: stroke-dashoffset 0.7s cubic-bezier(0.16, 1, 0.3, 1);
   }
+  .pt-count {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: var(--solus-text-secondary);
+  }
   .pt-sep {
     margin: 0 0.0313rem;
     color: var(--solus-text-tertiary);
+  }
+  .pt-count .pt-sep {
+    margin: 0;
   }
   .pt-arc-live {
     animation: ring-glow 2.6s ease-in-out infinite;
