@@ -9,6 +9,7 @@ import type { SolusServer, HandlerCtx } from '../server'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { getCliEnv } from '../../cli-env'
 import { runAsync } from '../../git/exec'
+import { createGitAskpassHelper, gitAuthEnv, type GitAuthEnv } from '../../git/git-auth-env'
 import { loadToken as loadGithubToken } from '../../providers/github/token-store'
 import { saveDelegation } from '../../providers/github/delegation-store'
 import { GitHubAuth } from '../../providers/github/auth'
@@ -19,7 +20,6 @@ import { getServerSettings, setProjectsBaseDirectory, setServerName } from '../s
 import { WORKSPACE_DIR } from '../../workspace'
 import { expandHome } from './lib/host-path'
 import { sshConnectionOptions } from './lib/ssh-options'
-import { writeTempSecretScript } from './lib/temp-secret-script'
 import {
   agentInstallCompatibilityError,
   applyCloneProtocol,
@@ -87,18 +87,6 @@ interface LineBuffer {
   write(chunk: Buffer | string): void
   flush(): void
 }
-
-/**
- * `GIT_ASKPASS` is called once per prompt with the prompt text as argv[1]; the
- * answer goes to stdout. Keeping both values in the environment means the token
- * never reaches argv, the remote URL, or `.git/config`.
- */
-const GIT_ASKPASS_SCRIPT = `#!/bin/sh
-case "$1" in
-  Username*|username*) printf '%s\\n' "$SOLUS_GIT_USERNAME" ;;
-  *) printf '%s\\n' "$SOLUS_GIT_PASSWORD" ;;
-esac
-`
 
 interface ProcessCommandSpec {
   command: string
@@ -993,19 +981,11 @@ async function attemptClone(opts: {
     args: ['clone', '--progress', attemptUrl, basename(targetPath)],
     display: `git clone --progress ${attemptUrl} ${basename(targetPath)}`,
   }
-  const env = askpass && token
-    ? {
-        GIT_ASKPASS: askpass.path,
-        GIT_TERMINAL_PROMPT: '0',
-        SOLUS_GIT_USERNAME: 'x-access-token',
-        SOLUS_GIT_PASSWORD: token.accessToken,
-      }
-    : isHttps
-      ? { GIT_TERMINAL_PROMPT: '0' }
-      : {
-          GIT_TERMINAL_PROMPT: '0',
-          GIT_SSH_COMMAND: `ssh ${sshConnectionOptions().join(' ')}`,
-        }
+  const env = gitAuthEnv({
+    isHttps,
+    token: token?.accessToken ?? null,
+    askpassPath: askpass?.path ?? null,
+  })
   emitLog({ step, line: `Cloning ${attemptUrl} into ${targetPath}` })
   await runSetupProcess({
     step,
@@ -1018,14 +998,6 @@ async function attemptClone(opts: {
     env,
   })
   return isHttps ? (token ? 'token' : 'anonymous') : 'ssh'
-}
-
-/**
- * A 0700 temp helper that feeds git the selected HTTPS token. It is written per
- * clone and removed in a `finally`, so no credential outlives the process.
- */
-async function createGitAskpassHelper(): Promise<{ directory: string; path: string }> {
-  return writeTempSecretScript('solus-git-askpass-', 'git-askpass.sh', GIT_ASKPASS_SCRIPT)
 }
 
 /** A destination that already holds files is never clobbered — the user chooses. */
@@ -1062,7 +1034,7 @@ async function runSetupProcess(opts: {
   emitLog(event: SetupLogEvent): void
   cwd?: string
   /** Secrets belong here, never in `spec.args` — argv is world-readable. */
-  env?: Record<string, string>
+  env?: GitAuthEnv
   stdin?: 'ignore' | 'pipe'
   /** Interactive commands get their own process group so cancellation reaches CLI wrappers and children. */
   detached?: boolean

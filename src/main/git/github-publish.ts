@@ -9,22 +9,10 @@ import type {
 } from '../../shared/types'
 import type { GitHubClient } from '../providers/github/octokit'
 import { githubApiErrorMessage } from '../providers/github/provider'
-import { writeTempSecretScript } from '../server/handlers/lib/temp-secret-script'
-import { sshConnectionOptions } from '../server/handlers/lib/ssh-options'
+import { applyCloneProtocol } from '../server/handlers/setup-commands'
 import { runAsync } from './exec'
+import { createGitAskpassHelper, gitAuthEnv } from './git-auth-env'
 import { parseRemoteUrl } from './git-helpers'
-
-/**
- * `GIT_ASKPASS` is called once per prompt with the prompt text as argv[1]; the
- * answer goes to stdout. Keeping both values in the environment means the
- * token never reaches argv, the remote URL, or `.git/config`.
- */
-const GIT_ASKPASS_SCRIPT = `#!/bin/sh
-case "$1" in
-  Username*|username*) printf '%s\\n' "$SOLUS_GIT_USERNAME" ;;
-  *) printf '%s\\n' "$SOLUS_GIT_PASSWORD" ;;
-esac
-`
 
 const githubStatusErrorSchema = z.object({ status: z.number().optional() })
 
@@ -68,7 +56,12 @@ async function ensureGitRemote(
   const existingUrl = await runAsync('git', ['remote', 'get-url', remoteName], cwd).catch(() => null)
   if (existingUrl) {
     const parsed = parseRemoteUrl(existingUrl)
-    const matches = !!parsed && `${parsed.owner}/${parsed.repo}`.toLowerCase() === expectedFullName.toLowerCase()
+    // The host is part of the identity: `gitlab.com/acme/widgets` is a
+    // different repository from `github.com/acme/widgets`, and publishing
+    // must never treat one as the other.
+    const matches = !!parsed
+      && parsed.host.toLowerCase() === 'github.com'
+      && `${parsed.owner}/${parsed.repo}`.toLowerCase() === expectedFullName.toLowerCase()
     if (!matches) {
       return { status: 'failed', error: `Remote "${remoteName}" already points to ${existingUrl}, not ${expectedFullName}.` }
     }
@@ -94,20 +87,9 @@ async function pushInitialCommits(
   const hasCommits = await runAsync('git', ['rev-parse', '--verify', 'HEAD'], cwd).then(() => true).catch(() => false)
   if (!hasCommits) return { status: 'skipped_no_commits' }
 
-  const askpass = protocol === 'https' && token
-    ? await writeTempSecretScript('solus-git-askpass-', 'git-askpass.sh', GIT_ASKPASS_SCRIPT)
-    : null
-  const env = askpass
-    ? {
-        GIT_ASKPASS: askpass.path,
-        GIT_TERMINAL_PROMPT: '0',
-        SOLUS_GIT_USERNAME: 'x-access-token',
-        // SAFETY: `askpass` is only set when `token` is non-null (see the ternary above).
-        SOLUS_GIT_PASSWORD: token!,
-      }
-    : protocol === 'https'
-      ? { GIT_TERMINAL_PROMPT: '0' }
-      : { GIT_TERMINAL_PROMPT: '0', GIT_SSH_COMMAND: `ssh ${sshConnectionOptions().join(' ')}` }
+  const isHttps = protocol === 'https'
+  const askpass = isHttps && token ? await createGitAskpassHelper() : null
+  const env = gitAuthEnv({ isHttps, token, askpassPath: askpass?.path ?? null })
   try {
     await runAsync('git', ['push', '-u', remoteName, branch], cwd, { env })
     return { status: 'pushed', branch }
@@ -140,9 +122,9 @@ export async function publishRepositoryToGithub(
     return { success: false, repository, remote: { status: 'skipped' }, push: { status: 'skipped' } }
   }
 
-  const remoteUrl = options.protocol === 'ssh'
-    ? `git@github.com:${repository.fullName}.git`
-    : `https://github.com/${repository.fullName}.git`
+  // GitHub hands back the HTTPS clone URL; the same retargeting the clone flow
+  // uses turns it into the protocol the user picked.
+  const remoteUrl = applyCloneProtocol(repository.url, options.protocol)
   const remote = await ensureGitRemote(options.cwd, remoteName, remoteUrl, repository.fullName)
   if (remote.status === 'failed') {
     return { success: false, repository, remote, push: { status: 'skipped' } }

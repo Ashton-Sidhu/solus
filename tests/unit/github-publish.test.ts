@@ -176,6 +176,56 @@ describe('publishRepositoryToGithub', () => {
     expect(output.calls.some((c) => c.args[0] === 'push')).toBe(false)
   })
 
+  test('rejects a same-path remote on a different host', () => {
+    // WHY: gitlab.com/acme/widgets is not github.com/acme/widgets. Comparing
+    // owner/repo alone would silently publish over another host's remote.
+    const output = run(`
+      mock.module('./src/main/git/exec', () => ({
+        git: () => '',
+        runAsync: async (bin, args) => {
+          calls.push({ bin, args })
+          if (args[0] === 'remote' && args[1] === 'get-url') return 'https://gitlab.com/acme/widgets.git'
+          return ''
+        },
+      }))
+      ${FAKE_CLIENT}
+      const { publishRepositoryToGithub } = await import('./src/main/git/github-publish')
+      const result = await publishRepositoryToGithub({
+        client, cwd: '/repo', owner: 'acme', name: 'widgets', private: true,
+        remoteName: 'origin', protocol: 'https', token: 'gh-token',
+      })
+      console.log(JSON.stringify({ calls, result }))
+    `)
+    expect(output.result).toMatchObject({ success: false, remote: { status: 'failed' } })
+    expect(output.calls.some((c) => c.args[0] === 'remote' && c.args[1] === 'add')).toBe(false)
+  })
+
+  test('builds an SSH remote from the repository clone URL when SSH is chosen', () => {
+    const output = run(`
+      mock.module('./src/main/git/exec', () => ({
+        git: () => '',
+        runAsync: async (bin, args) => {
+          calls.push({ bin, args })
+          if (args[0] === 'remote' && args[1] === 'get-url') throw new Error('No such remote')
+          if (args[0] === 'symbolic-ref') return 'main'
+          if (args[0] === 'rev-parse' && args.includes('--verify')) return 'abc123'
+          return ''
+        },
+      }))
+      ${FAKE_CLIENT}
+      const { publishRepositoryToGithub } = await import('./src/main/git/github-publish')
+      const result = await publishRepositoryToGithub({
+        client, cwd: '/repo', owner: 'acme', name: 'widgets', private: true,
+        remoteName: 'origin', protocol: 'ssh', token: 'gh-token',
+      })
+      console.log(JSON.stringify({ calls, result }))
+    `)
+    expect(output.result).toMatchObject({
+      success: true,
+      remote: { status: 'added', url: 'git@github.com:acme/widgets.git' },
+    })
+  })
+
   test('surfaces a push failure while keeping the created repository URL', () => {
     const output = run(`
       mock.module('./src/main/git/exec', () => ({

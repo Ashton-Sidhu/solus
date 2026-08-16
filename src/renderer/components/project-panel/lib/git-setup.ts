@@ -1,12 +1,5 @@
 import type { GithubPublishRepositoryResult } from '../../../../shared/types'
 
-/** A reasonable default repository name from the folder being published. */
-export function repoNameFromCwd(cwd: string): string {
-  const base = cwd.replace(/\/+$/, '').split('/').pop() ?? 'project'
-  const cleaned = base.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '')
-  return cleaned || 'project'
-}
-
 /** The stage that failed, in the order Publish runs them — for the retry label. */
 export function publishFailureStage(result: GithubPublishRepositoryResult): 'repository' | 'remote' | 'push' | null {
   if (result.repository.status === 'failed') return 'repository'

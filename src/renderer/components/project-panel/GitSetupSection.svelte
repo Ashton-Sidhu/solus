@@ -13,8 +13,8 @@
     publishFailureMessage,
     publishFailureStage,
     publishRepositoryUrl,
-    repoNameFromCwd,
   } from "./lib/git-setup";
+  import { repoNameFromPath } from "../servers/lib/clone-url";
 
   interface Props {
     /** The tab or draft whose project this section describes. */
@@ -84,7 +84,7 @@
   $effect(() => {
     if (!formOpen || ownerPrefilled || !api) return;
     ownerPrefilled = true;
-    if (!name) name = repoNameFromCwd(cwd);
+    if (!name) name = repoNameFromPath(cwd);
     void api.providerViewer(ctx).then((login) => {
       if (!owner) owner = login;
     }).catch(() => {});
