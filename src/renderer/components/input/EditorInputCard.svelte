@@ -36,6 +36,7 @@
   const targetTabId = $derived(tabId ?? session.activeTabId);
   const sess = $derived(session.sessionFor(targetTabId));
   const started = $derived(hasSessionStarted(sess));
+  let prompt = $derived(session.inputFor(targetTabId));
 
   // The workspace dock (no tab of its own) steps aside while a draft holds the
   // leading pane: the draft's composer is the primary then, and it — not this
@@ -84,7 +85,7 @@
       {isPrimary}
       {paneId}
       run={sess?.run}
-      prompt={session.inputFor(targetTabId)}
+      bind:prompt
     >
       {#snippet leadingActions(savedPromptsControl)}
         <InputToolbar

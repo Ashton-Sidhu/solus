@@ -1796,7 +1796,21 @@ export class WorkspaceContext {
     track('tab_closed', { via })
     // Closing the last tab lands on the draft you would have opened next, so no
     // surface has to describe a workspace with nothing in it.
-    if (this.tabOrder.length === 0) this.openSessionDraft({ via })
+    if (this.tabOrder.length === 0 && this.router.leadingPane.base?.name !== 'draft') {
+      this.openSessionDraft({ via })
+    }
+  }
+
+  /** Clear a conversation and remove its tab, then keep the focused pane on the
+   *  dedicated draft surface. The draft is created first so it inherits the
+   *  session's project and run configuration before the tab is removed. */
+  clearTabToDraft(tabId: string, via: Via = 'click'): void {
+    const draft = this.openSessionDraft({ via, sourceTabId: tabId })
+    this.clearTab(tabId)
+    this.closeTab(tabId, via)
+    // Closing a split tab also closes its pane. Reopen the inherited draft in
+    // whichever pane now owns focus; leading-pane clears are already a no-op.
+    this.openDraft(draft.id, via)
   }
 
   clearTab(tabId?: string): void {

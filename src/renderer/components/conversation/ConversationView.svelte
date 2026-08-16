@@ -66,6 +66,7 @@
     itemKey,
     needsLiveRow,
     runIsLive,
+    shouldAnimateTurnEntry,
     stabilizeTurns,
     type GroupedItem,
     type Turn,
@@ -665,9 +666,8 @@
     previousTurns = next;
     return next;
   });
-  // Scrollback and history loads must not replay two hundred entry animations;
-  // only the turns at the live end of the transcript animate in.
-  const animatedTurnStart = $derived(Math.max(0, turns.length - 2));
+  // Scrollback and history loads mount completed turns as one stable transcript.
+  // Only new work at the live edge may animate in.
   // Successful and historical work stays compact. The latest failed work opens
   // by default so its commands are immediately available; an explicit user
   // choice then wins and survives transcript re-renders.
@@ -1071,7 +1071,11 @@
                 : 'space-y-2'}"
             >
               {#each turns as turn, turnIdx (turn.id)}
-                {@const skipMotion = turnIdx < animatedTurnStart}
+                {@const skipMotion = !shouldAnimateTurnEntry(
+                  turn,
+                  turnIdx,
+                  turns.length,
+                )}
                 {@const isLastTurn = turnIdx === turns.length - 1}
                 {@const expanded =
                   turnExpansion.get(turn.id) ??

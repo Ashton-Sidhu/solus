@@ -5,6 +5,58 @@ export type GitPrimaryAction =
   | { kind: 'view'; label: string; url: string }
   | { kind: 'disabled'; label: string; reason: string }
 
+/** One publish step the "Commit and push" row bundles, offered on its own from
+ *  that row's caret menu. A step that cannot apply stays visible and disabled
+ *  with its reason, so the menu reports the branch's state rather than hiding it. */
+export interface GitPublishStep {
+  key: 'push' | 'create_pull_request'
+  label: string
+  action: GitAction
+  disabled: boolean
+  reason?: string
+}
+
+export function publishStepStates(status: GitState | null | undefined): GitPublishStep[] {
+  const unavailable = !status
+    ? 'Git status is unavailable.'
+    : !status.branch
+      ? 'Detached HEAD cannot publish.'
+      : null
+  const isDefaultBranch = !!status && status.branch === status.targetBranch
+  const targetAhead = status?.targetAheadCount ?? 0
+  // Without an upstream nothing has ever been published, so commits measured
+  // against the target branch are what a push would carry.
+  const hasUnpushedCommits = !!status && (status.upstreamRef ? status.aheadCount > 0 : targetAhead > 0)
+
+  const pushReason =
+    unavailable ??
+    (status && status.behindCount > 0
+      ? 'The branch is behind its upstream — sync first.'
+      : hasUnpushedCommits
+        ? undefined
+        : 'There is nothing to push.')
+  const pullRequestReason =
+    unavailable ??
+    (status?.prUrl
+      ? 'This branch already has a pull request.'
+      : isDefaultBranch
+        ? 'Open a pull request from a feature branch.'
+        : targetAhead > 0
+          ? undefined
+          : 'This branch has no commits to open.')
+
+  return [
+    { key: 'push', label: 'Push', action: 'push', disabled: !!pushReason, reason: pushReason },
+    {
+      key: 'create_pull_request',
+      label: 'Create PR',
+      action: 'create_pull_request',
+      disabled: !!pullRequestReason,
+      reason: pullRequestReason,
+    },
+  ]
+}
+
 export function primaryGitAction(status: GitState | null | undefined): GitPrimaryAction {
   if (!status) return { kind: 'disabled', label: 'Pull requests', reason: 'Git status is unavailable.' }
   if (!status.branch) return { kind: 'disabled', label: 'Pull requests', reason: 'Detached HEAD cannot open a pull request.' }

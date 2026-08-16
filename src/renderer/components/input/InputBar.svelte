@@ -819,8 +819,12 @@
       ipcContext: targetTabId
         ? session.ctxFor(targetTabId)
         : session.ctxForDirectory(composerCwd),
-      clearTab: () => {
-        if (targetTabId) session.clearTab(targetTabId);
+      clearCurrentConversation: () => {
+        if (targetTabId) {
+          session.clearTabToDraft(targetTabId, "keybinding");
+        } else {
+          session.openSessionDraft({ via: "keybinding" });
+        }
       },
       addSystemMessage: (message) => {
         if (targetTabId) session.addSystemMessage(message, targetTabId);
