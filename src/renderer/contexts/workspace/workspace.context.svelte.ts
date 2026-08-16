@@ -253,6 +253,7 @@ export class WorkspaceContext {
       },
       refreshGitRefs: (projectRoot, ctx) => { void this.environment.refreshRefs(projectRoot, ctx, { force: true }) },
       refreshGitState: (opts) => this.environment.refreshEnvironment(this, opts),
+      selectTab: (tabId) => this.selectTab(tabId),
     })
     this.lifecycle = new WorkspaceLifecycleStore({
       registry: this.registry,

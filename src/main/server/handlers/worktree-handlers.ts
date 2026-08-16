@@ -1,7 +1,7 @@
 import { writeFile } from 'fs/promises'
 import type { ControlPlane } from '../../control-plane'
-import { gitCheckoutFromState, type IpcContext, type GitCheckoutBranchResult } from '../../../shared/types'
-import { discardChanges, syncWithOrigin, listBranches, listProjectWorktrees, getWorkingBranch, getDefaultBranch, restoreWorktree, createWorktree, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT } from '../../git/worktree-manager'
+import { gitCheckoutFromState, type IpcContext, type GitCheckoutBranchResult, type PrRepoCheckoutResult } from '../../../shared/types'
+import { discardChanges, syncWithOrigin, listBranches, listProjectWorktrees, getWorkingBranch, getDefaultBranch, restoreWorktree, createWorktree, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT, checkoutPrInRepo, type PrRepoCheckoutBlockReason } from '../../git/worktree-manager'
 import { runGitAction } from '../../git/git-action-manager'
 import { runAsync } from '../../git/exec'
 import { computeGitIdentity, computeGitState, resolveRepoRoot } from '../../git/git-helpers'
@@ -14,6 +14,7 @@ import { LOCAL_DEVICE_LABEL, type HandlerCtx, type SolusServer } from '../server
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { resolveSourceControlWritingPolicy } from '../../git/source-control-writing'
 import { getServerSettings, resolveSourceControlWriterModel } from '../settings'
+import { reviewTargetFor } from './provider-handlers'
 
 const log = createLogger('main', 'worktree-handlers')
 
@@ -52,6 +53,21 @@ async function repoRootForCtx(ctx: IpcContext): Promise<string | null> {
   const workTree = gitContext?.worktreePath || ctx.session.workingDirectory
   if (!workTree || workTree === '~') return null
   return resolveRepoRoot(workTree)
+}
+
+function prRepoCheckoutBlockedMessage(reason: PrRepoCheckoutBlockReason, worktreePath?: string): string {
+  switch (reason) {
+    case 'stale-head':
+      return 'This pull request changed. Refresh it and try again.'
+    case 'dirty':
+      return 'Commit or discard local changes before checking out this pull request here.'
+    case 'conflicted':
+      return 'Resolve merge conflicts before checking out this pull request here.'
+    case 'branch-in-use':
+      return worktreePath
+        ? `This branch is already checked out at ${worktreePath}.`
+        : 'This branch is already checked out in another worktree.'
+  }
 }
 
 export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps): void {
@@ -214,6 +230,45 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
       return { success: true, gitContext }
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : 'Checkout failed' }
+    }
+  })
+
+  server.register('prCheckoutInRepo', async (args): Promise<PrRepoCheckoutResult> => {
+    const [ctx, target] = args
+    log.info('rpc_pr_checkout_in_repo', { sessionId: ctx.session.sessionId, prNumber: target.number })
+    try {
+      const { repo, provider } = await reviewTargetFor(ctx)
+      if (repo.host !== target.host || repo.owner !== target.owner || repo.repo !== target.repo) {
+        return { success: false, reason: 'generic', error: 'The pull request does not belong to this project.' }
+      }
+      const detail = await provider.review.getPullRequest(repo, target.number)
+      if (detail.headSha !== target.headSha) {
+        return { success: false, reason: 'stale-head', error: 'This pull request changed. Refresh it and try again.' }
+      }
+      const cwd = ctx.session.workingDirectory
+      if (!cwd || cwd === '~') return { success: false, reason: 'generic', error: 'No active git repository for this tab' }
+      const repoRoot = await resolveRepoRoot(cwd)
+      if (!repoRoot) return { success: false, reason: 'generic', error: 'Not a git repository' }
+
+      const outcome = await checkoutPrInRepo(repoRoot, target.number, target.headSha, {
+        headRef: detail.headRef,
+        isFork: detail.headRepo.isFork,
+      })
+      if (outcome.outcome === 'blocked') {
+        return {
+          success: false,
+          reason: outcome.reason,
+          worktreePath: outcome.worktreePath,
+          error: prRepoCheckoutBlockedMessage(outcome.reason, outcome.worktreePath),
+        }
+      }
+
+      const gitContext = gitCheckoutFromState(await computeGitState(repoRoot))
+      if (!gitContext) return { success: false, reason: 'generic', error: 'Checkout succeeded but branch status could not be resolved' }
+      controlPlane.setSessionGitEnvironment(ctx.session.sessionId, repoRoot, gitContext)
+      return { success: true, gitContext }
+    } catch (err) {
+      return { success: false, reason: 'generic', error: err instanceof Error ? err.message : 'Checkout failed' }
     }
   })
 

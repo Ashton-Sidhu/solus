@@ -138,6 +138,42 @@ export interface CreateWorktreeOptions {
   signal?: AbortSignal
 }
 
+/** The linked worktree that currently holds `branch`, excluding `projectPath`
+ *  itself. A branch can be checked out in only one worktree, so every checkout
+ *  that wants to own a branch consults this first — to reuse the holder, or to
+ *  refuse because another worktree already has it. */
+export function otherWorktreeHoldingBranch(projectPath: string, branch: string): WorktreeEntry | undefined {
+  const projectRealPath = realpathSync(projectPath)
+  return listProjectWorktrees(projectPath).find((worktree) => {
+    if (worktree.branch !== branch) return false
+    try {
+      return realpathSync(worktree.path) !== projectRealPath
+    } catch {
+      return false
+    }
+  })
+}
+
+/** The local branch a PR checks out onto. Same-repository PRs live on their real
+ *  head branch so agent commits update the PR; fork PRs get a local
+ *  `solus/pr-<n>` review branch the base repo can own. */
+export function prCheckoutBranch(prNumber: number, source: PrCheckoutSource): string {
+  return source.isFork ? `solus/pr-${prNumber}` : source.headRef
+}
+
+/** Resolve a PR's local branch name and fetch its head into the repository.
+ *  Shared by the worktree checkout and the current-repository checkout. */
+export async function fetchPrHead(
+  projectPath: string,
+  prNumber: number,
+  source: PrCheckoutSource,
+): Promise<{ branch: string; headSha: string }> {
+  const fetchRef = source.isFork ? `pull/${prNumber}/head` : source.headRef
+  await runAsync('git', ['fetch', 'origin', fetchRef], projectPath)
+  const headSha = await runAsync('git', ['rev-parse', 'FETCH_HEAD'], projectPath)
+  return { branch: prCheckoutBranch(prNumber, source), headSha }
+}
+
 /** Materialize one origin branch as the branch of an isolated dispatch
  * worktree. Unlike `createWorktree`, this does not invent a prompt-derived
  * branch: the selected branch is the environment the remote session requested. */
@@ -146,15 +182,7 @@ export async function ensureBranchWorktree(
   branch: string,
 ): Promise<GitCheckout> {
   await runAsync('git', ['check-ref-format', '--branch', branch], projectPath)
-  const projectRealPath = realpathSync(projectPath)
-  const existing = listProjectWorktrees(projectPath).find((worktree) => {
-    if (worktree.branch !== branch) return false
-    try {
-      return realpathSync(worktree.path) !== projectRealPath
-    } catch {
-      return false
-    }
-  })
+  const existing = otherWorktreeHoldingBranch(projectPath, branch)
   if (existing) {
     return {
       repoRoot: projectPath,
@@ -477,13 +505,8 @@ export async function fetchAndCheckoutPr(
   baseRef: string,
   source: PrCheckoutSource,
 ): Promise<PrWorktree> {
-  const reviewBranch = `solus/pr-${prNumber}`
-  const branch = source.isFork ? reviewBranch : source.headRef
+  const { branch, headSha } = await fetchPrHead(projectPath, prNumber, source)
   const worktreePath = path.join(projectPath, SOLUS_WORKTREE_DIR, `pr-${prNumber}`)
-
-  const fetchRef = source.isFork ? `pull/${prNumber}/head` : source.headRef
-  await runAsync('git', ['fetch', 'origin', fetchRef], projectPath)
-  const headSha = await runAsync('git', ['rev-parse', 'FETCH_HEAD'], projectPath)
 
   const worktrees = listProjectWorktrees(projectPath)
   const existing = worktrees.find((worktree) => worktree.branch === branch)
@@ -578,6 +601,82 @@ export async function fetchAndCheckoutPr(
   )
 
   return { worktreePath: resolvedWorktreePath, branch: resolvedBranch, baseSha, headSha, reused: !!existingWorktreePath }
+}
+
+export type PrRepoCheckoutBlockReason = 'stale-head' | 'dirty' | 'conflicted' | 'branch-in-use'
+
+export interface PrRepoCheckoutBlocked {
+  outcome: 'blocked'
+  reason: PrRepoCheckoutBlockReason
+  /** Set when `reason` is `'branch-in-use'`. */
+  worktreePath?: string
+}
+
+export interface PrRepoCheckoutReady {
+  outcome: 'ready'
+  branch: string
+  headSha: string
+}
+
+export type PrRepoCheckoutOutcome = PrRepoCheckoutBlocked | PrRepoCheckoutReady
+
+/**
+ * Explicitly switch the repository itself onto a pull request's head, for the
+ * "check out in the current repository" destination. Unlike `fetchAndCheckoutPr`
+ * (which reuses an in-progress checkout as-is, dirty or not), this destination
+ * changes the one working copy the caller has: it never proceeds past a dirty
+ * or conflicted tree, and never forces a local branch that carries commits the
+ * PR revision doesn't — those are the caller's own work, left untouched.
+ */
+export async function checkoutPrInRepo(
+  repoRoot: string,
+  prNumber: number,
+  expectedHeadSha: string,
+  source: PrCheckoutSource,
+): Promise<PrRepoCheckoutOutcome> {
+  if (await runAsync('git', ['diff', '--name-only', '--diff-filter=U'], repoRoot)) {
+    return { outcome: 'blocked', reason: 'conflicted' }
+  }
+  if (await runAsync('git', ['status', '--porcelain'], repoRoot)) {
+    return { outcome: 'blocked', reason: 'dirty' }
+  }
+
+  // The branch name is deterministic and independent of the fetch, so the
+  // branch-in-use guard can run before touching the network.
+  const branch = prCheckoutBranch(prNumber, source)
+  const inUse = otherWorktreeHoldingBranch(repoRoot, branch)
+  if (inUse) return { outcome: 'blocked', reason: 'branch-in-use', worktreePath: inUse.path }
+
+  const { headSha: fetchedHeadSha } = await fetchPrHead(repoRoot, prNumber, source)
+  if (fetchedHeadSha !== expectedHeadSha) return { outcome: 'blocked', reason: 'stale-head' }
+
+  const currentBranch = getWorkingBranch(repoRoot)
+  const hasLocalBranch = await runAsync('git', ['show-ref', '--verify', `refs/heads/${branch}`], repoRoot).then(
+    () => true,
+    () => false,
+  )
+
+  if (hasLocalBranch) {
+    const localHead = await runAsync('git', ['rev-parse', `refs/heads/${branch}`], repoRoot)
+    if (localHead !== fetchedHeadSha) {
+      const canFastForward = await runAsync(
+        'git',
+        ['merge-base', '--is-ancestor', localHead, fetchedHeadSha],
+        repoRoot,
+      ).then(() => true, () => false)
+      if (!canFastForward) {
+        throw new Error(`The local ${branch} branch has commits that aren't on this pull request. Resolve that first.`)
+      }
+      if (currentBranch === branch) await runAsync('git', ['merge', '--ff-only', 'FETCH_HEAD'], repoRoot)
+      else await runAsync('git', ['branch', '-f', branch, fetchedHeadSha], repoRoot)
+    }
+  } else {
+    await runAsync('git', ['branch', branch, fetchedHeadSha], repoRoot)
+  }
+
+  if (currentBranch !== branch) await runAsync('git', ['checkout', branch], repoRoot)
+
+  return { outcome: 'ready', branch, headSha: fetchedHeadSha }
 }
 
 export function listProjectWorktrees(projectPath: string): WorktreeEntry[] {

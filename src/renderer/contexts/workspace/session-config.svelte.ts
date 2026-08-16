@@ -55,6 +55,9 @@ export interface SessionConfigControllerDeps {
   rekeyTaskSessionBinding(sourceSessionId: string, targetSessionId: string, serverId?: string): void
   refreshGitRefs(projectRoot: string, ctx: IpcContext): void
   refreshGitState(opts: { sourceId?: string; cwd?: string; worktreeRequested?: boolean }): Promise<GitRefreshResult>
+  /** Bring an already-open tab to the front — the "matching tab" half of
+   *  activating a checkout. */
+  selectTab?(tabId: string): void
 }
 
 export class SessionConfigController {
@@ -399,6 +402,32 @@ export class SessionConfigController {
     } finally {
       this.switchingBranch = false
     }
+  }
+
+  /**
+   * Land the "check out in the current repository" destination once the
+   * server has already fetched the exact head and switched the repo's
+   * branch: bring an already-matching tab to the front, or open a fresh
+   * draft there. Never retargets a tab whose session has already started —
+   * a live conversation keeps running where it is, and only a draft or a
+   * tab that already matches this checkout is touched.
+   */
+  activatePrRepoCheckout(gitContext: GitCheckout, fallbackProjectPath: string | null): void {
+    const projectRoot = gitContext.repoRoot ?? fallbackProjectPath
+    if (!projectRoot) return
+    const matchingTabId = this.deps.registry.tabOrder.find((tabId) => {
+      const session = this.deps.registry.sessionFor(tabId)
+      return session?.run.workingDirectory === projectRoot && session.run.gitContext?.branch === gitContext.branch
+    })
+    if (matchingTabId) {
+      this.deps.selectTab?.(matchingTabId)
+    } else {
+      this.globalDefaults.workingDirectory = projectRoot
+      this.globalDefaults.gitContext = gitContext
+      this.deps.refreshPluginCommands(projectRoot)
+      this.deps.openSessionDraft(projectRoot)
+    }
+    this.deps.refreshGitRefs(projectRoot, this.deps.ctxForDirectory(projectRoot))
   }
 
   async setBaseDirectory(dir: string, sourceId?: string): Promise<void> {
