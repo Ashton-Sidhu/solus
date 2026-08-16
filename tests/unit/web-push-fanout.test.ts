@@ -112,7 +112,11 @@ describe('push click host resolution', () => {
     }, servers)).toBe('/chat/session-1~host-b')
   })
 
-  test('falls back to the legacy unscoped route for an unknown old host', () => {
-    expect(routeForPushClick({ sessionId: 'session-1' }, servers)).toBe('/chat/session-1')
+  test('refuses to route when the push names no known host', () => {
+    // WHY: dispatch-client step 1 — a host-less chat route would resolve
+    // against whichever host answers first. A push for a host this client no
+    // longer knows opens the app plain instead.
+    expect(routeForPushClick({ sessionId: 'session-1' }, servers)).toBeNull()
+    expect(routeForPushClick({ sessionId: 'session-1', installationId: 'install-gone' }, servers)).toBeNull()
   })
 })

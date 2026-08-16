@@ -65,7 +65,9 @@
   const settings = getSettingsContext();
   const statusBar = getStatusBarContext();
   const attachmentServerId = $derived(
-    session.activeSession?.run.serverId ?? LOCAL_SERVER_ID,
+    session.activeSession?.run.serverId ??
+      serverConnections.defaultServerId() ??
+      LOCAL_SERVER_ID,
   );
   const attachmentCapabilities = $derived(
     hostCapabilitiesStore.for(attachmentServerId),

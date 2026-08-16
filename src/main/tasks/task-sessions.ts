@@ -197,15 +197,15 @@ const LINK_SELECT = `
     sessions.server_id AS session_server_id,
     sessions.last_timestamp AS last_activity_at
   FROM task_session_links
-  LEFT JOIN session_handoff_members AS active_handoff
-    ON active_handoff.handoff_id = task_session_links.session_id
-    AND active_handoff.position = (
+  LEFT JOIN session_lineage_members AS active_lineage
+    ON active_lineage.session_id = task_session_links.session_id
+    AND active_lineage.position = (
       SELECT MAX(position)
-      FROM session_handoff_members
-      WHERE handoff_id = task_session_links.session_id
+      FROM session_lineage_members
+      WHERE session_id = task_session_links.session_id
     )
   LEFT JOIN sessions
-    ON sessions.session_id = COALESCE(active_handoff.provider_session_id, task_session_links.session_id)
+    ON sessions.session_id = COALESCE(active_lineage.provider_session_id, task_session_links.session_id)
 `
 
 /** Move the existing task attempt onto the stable Solus id when that session
@@ -288,8 +288,8 @@ export async function tasksForSession(sessionId: string): Promise<TaskForSession
   return { task, parent, subtasks, siblings, attempts }
 }
 
-function promptTitle(input: { prompt?: string; title?: string }): string {
-  const firstLine = (input.title ?? input.prompt?.split(/\r?\n/).find((line) => line.trim()) ?? '').trim()
+function promptTitle(prompt?: string): string {
+  const firstLine = (prompt?.split(/\r?\n/).find((line) => line.trim()) ?? '').trim()
   if (!firstLine) return 'Untitled task'
   return Array.from(firstLine).slice(0, MAX_PROMPT_TITLE_LENGTH).join('')
 }
@@ -306,7 +306,6 @@ interface PrepareSessionTaskInput {
   projectKey?: string | null
   worktreeKey?: string | null
   prompt?: string
-  title?: string
   branch?: string | null
   originSessionId?: string | null
 }
@@ -354,7 +353,7 @@ export async function prepareSessionTask(input: PrepareSessionTaskInput): Promis
       task = taskFromRow(updated)
     } else {
       task = writeTask(db, {
-        title: promptTitle(input),
+        title: promptTitle(input.prompt),
         projectKey,
         parentId: parentTaskId,
         status: 'in_progress',
@@ -384,17 +383,16 @@ export async function prepareSessionTask(input: PrepareSessionTaskInput): Promis
   return task
 }
 
-/** Generated scaffolding is bookkeeping the user did not ask for, so it does
- * not add title/body activity events. The description fills only an empty body:
- * a task-page edit that wins the background-generation race is authoritative. */
-export async function updateGeneratedMetadataForSession(
+/** Generated scaffolding can describe a session-born task, but the task name is
+ * deterministic from its first message and is never agent-generated. The
+ * description fills only an empty body, so a task-page edit that wins the
+ * background-generation race is authoritative. */
+export async function updateGeneratedDescriptionForSession(
   sessionId: string,
-  title: string,
   description: string,
 ): Promise<Task | null> {
-  const generatedTitle = title.trim()
   const generatedDescription = description.trim()
-  if (!generatedTitle || !generatedDescription) return null
+  if (!generatedDescription) return null
   const task = withTx(() => {
     const db = database()
     const row = idRowSchema.nullish().parse(db.prepare(`
@@ -403,19 +401,19 @@ export async function updateGeneratedMetadataForSession(
       JOIN task_session_links ON task_session_links.task_id = tasks.id
       WHERE task_session_links.session_id = ?
         AND task_session_links.role = 'working'
-        AND tasks.title_source = 'prompt'
+        AND tasks.source = 'session'
+        AND tasks.origin_session_id = task_session_links.session_id
+        AND TRIM(tasks.body) = ''
       ORDER BY task_session_links.linked_at DESC
       LIMIT 1
     `).get(sessionId))
     if (!row) return null
     db.prepare(`
       UPDATE tasks SET
-        title = ?,
-        title_source = 'generated',
-        body = CASE WHEN TRIM(body) = '' THEN ? ELSE body END,
+        body = ?,
         updated_at = ?
-      WHERE id = ? AND title_source = 'prompt'
-    `).run(generatedTitle, generatedDescription, Date.now(), row.id)
+      WHERE id = ? AND TRIM(body) = ''
+    `).run(generatedDescription, Date.now(), row.id)
     return taskFromRow(requireTask(row.id, db))
   })
   if (task) emitChanged()

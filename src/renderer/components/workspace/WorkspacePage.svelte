@@ -22,6 +22,7 @@
   } from "../../contexts";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import { liveSessionTitle } from "../../lib/sessionUtils";
+  import { SessionUnavailableError } from "../../contexts/workspace/session-errors";
   import {
     useKeybinding,
     useScope,
@@ -387,8 +388,21 @@
   // Only the rows that are actually rendered are looked up — the ledger pages
   // in 80 at a time, so scrolling resolves the next batch rather than the whole
   // history up front.
+  /** The host that owns an artifact's origin session: the plan descriptor's
+   *  stamp (or the plan store's side map), or the work's owner host. */
+  function originServerId(item: WorkspaceItem): string | null {
+    return item.source.kind === "plan"
+      ? (item.source.descriptor.serverId ?? planStore.hostFor(item.id))
+      : session.worksStore.hostFor(item.source.work.id);
+  }
+
   $effect(() => {
-    sessionLabels.ensure(flat.map((item) => item.sessionId));
+    sessionLabels.ensure(
+      flat.map((item) => ({
+        sessionId: item.sessionId,
+        serverId: originServerId(item),
+      })),
+    );
   });
 
   /** What to call the session an artifact came from. A session open in a tab
@@ -396,7 +410,7 @@
   function originLabel(item: WorkspaceItem): string | null {
     if (!item.sessionId) return null;
     return (
-      liveSessionTitle(item.sessionId, session) ??
+      liveSessionTitle(item.sessionId, originServerId(item), session) ??
       sessionLabels.get(item.sessionId)
     );
   }
@@ -543,20 +557,31 @@
     if (!item.sessionId) return;
     const descriptor = item.source.kind === "plan" ? item.source.descriptor : null;
     const work = item.source.kind === "work" ? item.source.work : null;
-    const tabId = await session.resumeSession(
-      {
-        serverId: descriptor?.serverId ?? (work ? session.worksStore.hostFor(work.id) ?? undefined : undefined),
-        provider: descriptor?.provider ?? work?.agentProvider ?? session.settings.activeAgent,
-        sessionId: item.sessionId,
-        slug: null,
-        firstMessage: item.title,
-        lastTimestamp: new Date(item.timestamp).toISOString(),
-        size: 0,
-        cwd: item.cwd,
-        projectPath: descriptor?.projectPath ?? "",
-      },
-      { background: true },
-    );
+    if (descriptor?.sessionAvailable === false) {
+      session.notifySessionUnavailable(descriptor.provider);
+      return;
+    }
+    let tabId: string;
+    try {
+      tabId = await session.resumeSession(
+        {
+          serverId: descriptor?.serverId ?? (work ? session.worksStore.hostFor(work.id) ?? undefined : undefined),
+          provider: descriptor?.provider ?? work?.agentProvider ?? session.settings.activeAgent,
+          sessionId: item.sessionId,
+          slug: null,
+          firstMessage: item.title,
+          lastTimestamp: new Date(item.timestamp).toISOString(),
+          size: 0,
+          cwd: item.cwd,
+          projectPath: descriptor?.projectPath ?? "",
+        },
+        { background: true },
+      );
+    } catch (error) {
+      if (!(error instanceof SessionUnavailableError)) throw error;
+      session.notifySessionUnavailable(descriptor?.provider);
+      return;
+    }
     const resumed = tabId ? session.sessionFor(tabId) : undefined;
     if (resumed) session.openSplitChat(resumed.id);
   }

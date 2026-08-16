@@ -40,6 +40,9 @@
   const comments = $derived(plan.comments);
   const isBookmarked = $derived(plan.bookmarked);
   const isPreview = $derived(!!planStore.previewDescriptor);
+  const sourceSessionAvailable = $derived(
+    planStore.previewDescriptor?.sessionAvailable !== false,
+  );
 
   const planRevisions = $derived(planStore.plansForSession(plan.sessionId));
   const revisionCount = $derived(planRevisions.length);
@@ -242,7 +245,8 @@
         <DropdownMenu.Label>Plan actions</DropdownMenu.Label>
         {#if isPreview}
           <DropdownMenu.Item onSelect={() => { const d = planStore.previewDescriptor; if (d) session.resumeSessionFromDescriptor(d); }}>
-            <ArrowUpRightIcon size={14} /><span class="flex-1 text-left">Open session</span>{#if !isMobile}<span class="ml-auto"><Kbd variant="inline">⌥O</Kbd></span>{/if}
+            {#if sourceSessionAvailable}<ArrowUpRightIcon size={14} />{:else}<XCircleIcon size={14} class="text-(--solus-status-error)" />{/if}
+            <span class="flex-1 text-left">{sourceSessionAvailable ? "Open session" : "Session no longer available"}</span>{#if !isMobile}<span class="ml-auto"><Kbd variant="inline">⌥O</Kbd></span>{/if}
           </DropdownMenu.Item>
           <DropdownMenu.Separator />
         {/if}

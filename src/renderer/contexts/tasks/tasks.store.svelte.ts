@@ -22,6 +22,7 @@ import { resolveTaskSnoozeReminder, type TaskSnoozeReminder } from './task-snooz
 import type { HostApi } from '@client-core/host-api'
 
 const INVALIDATION_DEBOUNCE_MS = 100
+const TASK_DELETE_CONCURRENCY = 8
 
 /**
  * Global, local-first task state shared by every renderer surface. Local tasks
@@ -162,12 +163,14 @@ export class TasksStore {
 
   /**
    * The RPC surface that owns a task. A task the store has not placed yet — a
-   * deep link, or an id typed into a tool — falls back to the primary host,
+   * deep link, or an id typed into a tool — falls back to the default host,
    * which is where a single-host user's tasks all are anyway.
    */
   private apiForTask(taskId?: string | null): HostApi {
-    const serverId = taskId ? this.hostByTaskId.get(taskId) : undefined
-    return serverId ? serverConnections.apiFor(serverId) : serverConnections.primaryApi()
+    const serverId = (taskId ? this.hostByTaskId.get(taskId) : undefined)
+      ?? serverConnections.defaultServerId()
+    if (!serverId) throw new Error('Primary Solus connection has not been registered')
+    return serverConnections.apiFor(serverId)
   }
 
   /** Which host a task lives on, for a caller that has to name it explicitly. */
@@ -271,9 +274,9 @@ export class TasksStore {
     if (pending) return pending
     const load = (async () => {
       try {
-        const serverId = opts?.serverId ?? this.hostForProject(cwd)
-        const api = serverId ? serverConnections.apiFor(serverId) : serverConnections.primaryApi()
-        const status = await api.tasksProviderStatus(cwd, opts)
+        const serverId = opts?.serverId ?? this.hostForProject(cwd) ?? serverConnections.defaultServerId()
+        if (!serverId) throw new Error('Primary Solus connection has not been registered')
+        const status = await serverConnections.apiFor(serverId).tasksProviderStatus(cwd, opts)
         this.providerStatusByCwd.set(cwd, status)
         return status
       } catch (err) {
@@ -391,9 +394,9 @@ export class TasksStore {
     this.upstreamErrorByProject.delete(projectKey)
     const load = (async () => {
       try {
-        const serverId = opts?.serverId ?? this.hostForProject(projectKey)
-        const api = serverId ? serverConnections.apiFor(serverId) : serverConnections.primaryApi()
-        const upstream = await api.tasksListUpstream(projectKey, opts)
+        const serverId = opts?.serverId ?? this.hostForProject(projectKey) ?? serverConnections.defaultServerId()
+        if (!serverId) throw new Error('Primary Solus connection has not been registered')
+        const upstream = await serverConnections.apiFor(serverId).tasksListUpstream(projectKey, opts)
         this.upstreamTasksByProject.set(projectKey, upstream.tasks)
         if (upstream.fromCache) this.upstreamFromCacheByProject.set(projectKey, true)
         else this.upstreamFromCacheByProject.delete(projectKey)
@@ -507,7 +510,9 @@ export class TasksStore {
    * answers when it did not, so a session restored from disk never renders as
    * a loose row beside a parent whose subtasks are missing. */
   private async hydrateSessionTree(sessionId: string, serverId?: string): Promise<Task | null> {
-    const api = serverId ? serverConnections.apiFor(serverId) : serverConnections.primaryApi()
+    const ownerServerId = serverId ?? serverConnections.defaultServerId()
+    if (!ownerServerId) return null
+    const api = serverConnections.apiFor(ownerServerId)
     const tree = await api.tasksForSession(sessionId).catch(() => null)
     if (!tree) return null
     for (const task of [tree.parent, tree.task, ...tree.subtasks, ...tree.siblings]) {
@@ -588,12 +593,12 @@ export class TasksStore {
   }
 
   /** `serverId` is the host the task belongs to — the one that owns the project
-   *  it was created from. Omitted, it lands on the primary host. */
+   *  it was created from. Omitted, it lands on the default host. */
   async create(input: TaskCreateInput, serverId?: string): Promise<Task> {
-    const host = serverId ?? this.hostForProject(input.projectKey)
-    const api = host ? serverConnections.apiFor(host) : serverConnections.primaryApi()
-    const created = await api.tasksCreate(input)
-    if (host) this.hostByTaskId.set(created.id, host)
+    const host = serverId ?? this.hostForProject(input.projectKey) ?? serverConnections.defaultServerId()
+    if (!host) throw new Error('Primary Solus connection has not been registered')
+    const created = await serverConnections.apiFor(host).tasksCreate(input)
+    this.hostByTaskId.set(created.id, host)
     this.replace(created.id, created)
     return created
   }
@@ -839,13 +844,29 @@ export class TasksStore {
   }
 
   async commitPending(pending: Task[]): Promise<void> {
-    const results = await Promise.allSettled(pending.map((task) => this.apiForTask(task.id).tasksDelete(task.id)))
+    const failureByIndex = new Map<number, unknown>()
+    let nextIndex = 0
+    const workers = Array.from(
+      { length: Math.min(TASK_DELETE_CONCURRENCY, pending.length) },
+      async () => {
+        while (nextIndex < pending.length) {
+          const index = nextIndex++
+          const task = pending[index]
+          try {
+            await this.apiForTask(task.id).tasksDelete(task.id)
+          } catch (reason) {
+            failureByIndex.set(index, reason)
+          }
+        }
+      },
+    )
+    await Promise.all(workers)
     for (const task of pending) this.pendingDeleteIds.delete(task.id)
-    const failed = pending.filter((_, index) => results[index].status === 'rejected')
+    const failed = pending.filter((_, index) => failureByIndex.has(index))
     if (failed.length) {
       this.restorePending(failed)
-      const first = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
-      throw first?.reason ?? new Error('Delete failed')
+      const firstFailureIndex = pending.findIndex((_, index) => failureByIndex.has(index))
+      throw failureByIndex.get(firstFailureIndex) ?? new Error('Delete failed')
     }
   }
 }

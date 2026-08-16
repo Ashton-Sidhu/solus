@@ -1,5 +1,6 @@
 <script lang="ts">
   import { localApi } from "@client-core/local-api";
+  import { serverConnections } from "@client-core/server-connections";
   /**
    * "Connect where your work lives." Both rows drive the connections the rest of
    * the app already uses — GitHub's device flow and the Cloudflare token form —
@@ -26,6 +27,7 @@
   import OnboardingStageActions from "./OnboardingStageActions.svelte";
 
   const session = getWorkspaceContext();
+  const serverId = serverConnections.defaultServerId();
 
   /** Open only while the user is actually pasting a token. */
   let cloudflareFormOpen = $state(false);
@@ -55,8 +57,9 @@
   );
 
   onMount(() => {
-    void connectionsStore.refreshProviderStatus(session.ctx);
-    void cloudflareStore.ensureStatus();
+    if (!serverId) return;
+    void connectionsStore.refreshProviderStatus(serverId, session.ctx);
+    void cloudflareStore.ensureStatus(serverId);
     return connectionsStore.listenForProviderDeviceCodes();
   });
 
@@ -90,7 +93,7 @@
           : "available"}
       statusText="Connecting…"
       actionLabel={githubConnected ? undefined : "Connect"}
-      onaction={() => void connectionsStore.connectProvider(session.ctx)}
+      onaction={() => serverId && void connectionsStore.connectProvider(serverId, session.ctx)}
       expanded={!!connectionsStore.providerPrompt}
     >
       {#snippet mark()}
@@ -135,7 +138,7 @@
                 variant="ghost"
                 class="text-muted-foreground"
                 onclick={() =>
-                  void connectionsStore.cancelProviderConnect(session.ctx)}
+                  serverId && void connectionsStore.cancelProviderConnect(serverId, session.ctx)}
               >
                 Cancel
               </Button>
@@ -166,10 +169,13 @@
         <!-- Cloudflare has no browser handshake to hand off to: it wants a
              scoped API token, so the row opens the same form Settings uses
              rather than pretending a one-click connect exists. -->
+        {#if serverId}
         <CloudflareConnectForm
+          {serverId}
           autofocus
           onconnected={() => (cloudflareFormOpen = false)}
         />
+        {/if}
         <button
           type="button"
           class="mt-2 h-7 rounded-md text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground"

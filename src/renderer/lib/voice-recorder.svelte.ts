@@ -1,7 +1,18 @@
 import { track } from './analytics'
 import { disposePcmCaptureResources, PcmCapture, type PcmChunk } from './pcm-capture'
 import { serverConnections } from '@client-core/server-connections'
+import type { HostApi } from '@client-core/host-api'
 import { z } from 'zod'
+
+// The mic is the client's; transcription runs on the local machine when there
+// is one, else the new-work default host. The recorder is an app-global
+// singleton with no run context, so the choice is made here, per call.
+function transcriptionHostApi(): HostApi | null {
+  const localHostApi = serverConnections.localHostApi()
+  if (localHostApi) return localHostApi
+  const defaultServerId = serverConnections.defaultServerId()
+  return defaultServerId ? serverConnections.apiFor(defaultServerId) : null
+}
 
 // Audio is held back from the buffer until a chunk crosses this rms — leading
 // mic-onset noise/breath decodes as garbage punctuation (a stray "?"). Same
@@ -103,7 +114,7 @@ export class VoiceRecorder {
 
     // The ~1s worker fork + ONNX session load overlaps the recording itself
     // instead of adding to post-stop transcription latency.
-    void serverConnections.primaryApi().warmTranscription?.().catch(() => {})
+    void transcriptionHostApi()?.warmTranscription?.().catch(() => {})
 
     let stream: MediaStream
     try {
@@ -275,7 +286,9 @@ export class VoiceRecorder {
     const transcribeStartedAt = performance.now()
     let allowAutoRearm = false
     try {
-      const result = await serverConnections.primaryApi().transcribeAudio(pending.samples)
+      const host = transcriptionHostApi()
+      if (!host) throw new Error('No host is connected for transcription')
+      const result = await host.transcribeAudio(pending.samples)
       this.#logDevTranscriptionSession({
         transcript: result.transcript,
         startedAtIso: pending.startedAtIso,
@@ -359,7 +372,7 @@ export class VoiceRecorder {
     }
 
     console.debug('[Solus][VoiceTranscription]', row)
-    void serverConnections.primaryApi().logVoiceTranscription(row)
+    void transcriptionHostApi()?.logVoiceTranscription(row)
   }
 }
 
@@ -453,7 +466,7 @@ function microphoneUnsupportedMessage(): string | null {
 }
 
 function supportsBatchTranscription(): boolean {
-  return !!serverConnections.primaryApi().transcribeAudio && 'AudioWorkletNode' in globalThis
+  return !!transcriptionHostApi()?.transcribeAudio && 'AudioWorkletNode' in globalThis
 }
 
 function navigatorWithLegacyMedia(): LegacyNavigator {

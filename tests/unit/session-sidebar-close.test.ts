@@ -8,10 +8,11 @@ import {
 type SidebarStoreHarness = Pick<SessionSidebarStore, 'closeTask' | 'closeChild' | 'closeProject' | 'runningTaskCountIn' | 'renameTask' | 'restoreTask'> & {
   doneTaskIds: Set<string>
   dismissedRowKeys: Set<string>
+  openTaskIds: Set<string>
   closedTabIds: string[]
   unloadedCompletedTaskIds: Set<string>
   closeTabs: (tabIds: string[]) => void
-  hostTasks: SidebarTask[]
+  catalogTasks: SidebarTask[]
   session: unknown
   tabIdBySessionId: Map<string, string>
   renameSession: (tabId: string) => Promise<void>
@@ -21,6 +22,7 @@ function sidebarStoreForDismissal(): SidebarStoreHarness {
   const store = Object.create(SessionSidebarStore.prototype) as SidebarStoreHarness
   store.doneTaskIds = new Set<string>()
   store.dismissedRowKeys = new Set<string>()
+  store.openTaskIds = new Set<string>()
   store.closedTabIds = []
   store.unloadedCompletedTaskIds = new Set<string>()
   store.closeTabs = (tabIds: string[]) => {
@@ -78,6 +80,7 @@ describe('session sidebar dismissal', () => {
     // WHY: removing a row is presentation state only. It must not complete or
     // otherwise change the task's workflow status.
     const store = sidebarStoreForDismissal()
+    store.openTaskIds.add('root')
 
     store.closeTask({
       id: 'root',
@@ -87,6 +90,7 @@ describe('session sidebar dismissal', () => {
 
     expect(store.closedTabIds).toEqual(['root-tab', 'child-tab'])
     expect([...(store.dismissedRowKeys as Set<string>)]).toEqual(['root'])
+    expect([...store.openTaskIds]).toEqual([])
   })
 
   test('restoring a task restores its full linked session tree', () => {
@@ -116,6 +120,7 @@ describe('session sidebar dismissal', () => {
     store.restoreTask('root')
 
     expect([...(store.dismissedRowKeys as Set<string>)]).toEqual(['unrelated'])
+    expect([...store.openTaskIds]).toEqual(['root'])
   })
 })
 
@@ -128,7 +133,7 @@ describe('session sidebar project dismissal', () => {
     // exactly the rows under it — a project close that reached a neighbouring
     // project would unload conversations the user never pointed at.
     const store = sidebarStoreForDismissal()
-    store.hostTasks = [taskIn('/repo', 'one'), taskIn('/other', 'two'), taskIn('/repo', 'three')]
+    store.catalogTasks = [taskIn('/repo', 'one'), taskIn('/other', 'two'), taskIn('/repo', 'three')]
 
     store.closeProject('/repo')
 
@@ -140,7 +145,7 @@ describe('session sidebar project dismissal', () => {
     // WHY: it is what decides whether the close asks first, so counting another
     // project's run would make a quiet project prompt for nothing.
     const store = sidebarStoreForDismissal()
-    store.hostTasks = [
+    store.catalogTasks = [
       taskIn('/repo', 'one', 'running'),
       taskIn('/repo', 'two'),
       taskIn('/other', 'three', 'running'),

@@ -26,7 +26,7 @@
   const session = getWorkspaceContext();
 
   $effect(() => {
-    if (open) void serversStore.probeRunOnServers();
+    if (open) void serversStore.probeHosts();
   });
 
   const activeId = $derived(serversStore.activeServer?.id ?? null);
@@ -83,12 +83,12 @@
       {/if}
       <button class={listRow} onclick={() => connect(server.id)}>
         <span class={listIcon}>
-          {#if server.os}
-            <HostOperatingSystemIcon os={server.os} size={14} />
-          {:else if server.local}
+          <!-- The OS logo marks a machine you dispatch to; the host you are
+               on keeps the plain device glyph. -->
+          {#if server.local}
             <HardDrivesIcon size={14} />
           {:else}
-            <HostOperatingSystemIcon size={14} />
+            <HostOperatingSystemIcon os={server.os} size={14} />
           {/if}
         </span>
         <span class="flex-1 min-w-0 flex flex-col gap-px">

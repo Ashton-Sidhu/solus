@@ -25,10 +25,22 @@ export function registerUsageHandlers(server: SolusServer, deps: { controlPlane:
 
   // Keep the last-good numbers and say they're old. Dropping them would leave a
   // watching UI blank on a single transient failure.
+  //
+  // With nothing cached there are no numbers to keep, but the provider still
+  // has to appear: Claude's `/usage` report carries its quota from an account
+  // endpoint that can answer empty or rate-limited, and a boot inside such a
+  // window would otherwise remove the whole row — indistinguishable from a
+  // provider that has no quota at all. Seed a windowless snapshot so the row
+  // survives and reads as unavailable until a read succeeds.
   const markStale = (agentId: AgentId, reason: string): void => {
     log.warn('usage_refresh_failed', { agentId, reason })
     const cached = cache.get(agentId)
-    if (cached) cached.stale = true
+    if (cached) {
+      cached.stale = true
+      return
+    }
+    // fetchedAt stays 0: no read has ever landed for this provider.
+    cache.set(agentId, { provider: agentId, fiveHour: null, weekly: null, planType: null, fetchedAt: 0, stale: true })
   }
 
   const refreshAll = (): Promise<void> => {

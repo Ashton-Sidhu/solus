@@ -1,5 +1,6 @@
 import type { EditorId, HostCapabilities } from '../shared/types'
 import { z } from 'zod'
+import { forwardCompatibleArray } from './forward-compat'
 
 export const HOST_BOOLEAN_CAPABILITY_KEYS = [
   'attachUpload',
@@ -15,19 +16,27 @@ export type HostBooleanCapability = (typeof HOST_BOOLEAN_CAPABILITY_KEYS)[number
 export type HostSettingsSurface = 'skills' | 'tools' | 'voice'
 
 const editorIdSchema = z.enum(['vscode', 'vim', 'nvim', 'helix'])
+// Every field degrades alone: an advertisement from a newer host (an unknown
+// editor id, a reshaped value) must never blank the entire capability record —
+// that reads as "everything unsupported" across the whole app.
+const tolerantBoolean = z.boolean().optional().catch(undefined)
 const hostCapabilitiesSchema = z.object({
-  attachUpload: z.boolean().optional(),
-  assetUrls: z.boolean().optional(),
-  skillsInstall: z.boolean().optional(),
-  skillsSearch: z.boolean().optional(),
-  voiceModel: z.boolean().optional(),
-  automations: z.boolean().optional(),
-  githubProvider: z.boolean().optional(),
-  editors: z.array(editorIdSchema).optional(),
+  version: z.string().optional().catch(undefined),
+  attachUpload: tolerantBoolean,
+  assetUrls: tolerantBoolean,
+  skillsInstall: tolerantBoolean,
+  skillsSearch: tolerantBoolean,
+  voiceModel: tolerantBoolean,
+  automations: tolerantBoolean,
+  githubProvider: tolerantBoolean,
+  editors: forwardCompatibleArray(editorIdSchema).optional().catch(undefined),
 })
 
-/** Keep only protocol fields this client understands. */
-export function normalizeHostCapabilities(value: z.input<typeof hostCapabilitiesSchema>): HostCapabilities {
+/** Keep only protocol fields this client understands. This function is the
+ *  I/O boundary: the advertisement may come from a newer host, so no shape
+ *  can be assumed before the schema runs. */
+// oxlint-disable-next-line anti-slop/no-unknown-parameters
+export function normalizeHostCapabilities(value: unknown): HostCapabilities {
   const parsed = hostCapabilitiesSchema.safeParse(value)
   return parsed.success ? parsed.data : {}
 }

@@ -1,5 +1,5 @@
 import { createAppContext } from '../app/create-app-context'
-import type { AgentId, WireNormalizedEvent, EnrichedError, Message, Tab, Prompt, Session, SessionSpec, RunConfig, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, ModelConfig, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, WorktreeEntry, StatusCardState, PrReviewContext, PromptDelivery, ThreadGoal, ThreadGoalSetRequest } from '../../../shared/types'
+import type { AgentId, WireNormalizedEvent, EnrichedError, Message, Tab, Prompt, Session, SessionSpec, RunConfig, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, OutboundPrompt, ModelConfig, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, WorktreeEntry, StatusCardState, PrReviewContext, PromptDelivery, ThreadGoal, ThreadGoalSetRequest } from '../../../shared/types'
 import type { PrReviewTarget } from '../../../shared/providers'
 import type { PullRequestSummary } from '../../../shared/providers'
 import type { SolusEventMap, Via } from '../../../shared/analytics-events'
@@ -57,6 +57,7 @@ import { gitCheckoutFromState, isSessionBusyStatus, isSolusWorktreePath, isSteer
 import { syncPendingInputFromEvent, loadSessionTranscript, RESTORED_TRANSCRIPT_LIMIT } from './session-transcript'
 import { addDiffComment, updateDiffComment, removeDiffComment, restoreDiffComment, clearDiffComments, setDiffCommentDraft, updateDiffCommentDraftValue, setDiffGeneralComment, submitDiffFeedback, submitDiffFeedbackToNewSession } from './session-diff-feedback'
 import { clearPlanWaiting, openPlanModal, closePlanModal, requestConversationScrollToBottom, approvePlanWithModel, rejectPlan, openPlanFromDescriptor, closePlanPreview, resumeSessionFromDescriptor, loadPlanContent, type ApprovePlanOptions } from './session-plan-operations'
+import { SessionUnavailableError, unavailableSessionMessage } from './session-errors'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { projectDirLabel } from '../../lib/paths'
@@ -66,7 +67,9 @@ import { serverConnections } from '@client-core/server-connections'
 import { LOCAL_SERVER_ID } from '@client-core/server-registry'
 import type { HostApi } from '@client-core/host-api'
 import { localApi } from '@client-core/local-api'
-import { readSessionMeta, resolveSessionMetaRef } from '@client-core/session-meta'
+import { readSessionMeta } from '@client-core/session-meta'
+import { classifySendFailure, sendOutbox, type OutboxRecord } from '@client-core/send-outbox'
+import { hostKey } from '@client-core/host-key'
 import { buildPrCommentsFixPrompt, type PrFixFeedback } from './pr-fix-session'
 import { isPristineSplitTab } from '../../lib/split-chat'
 import {
@@ -239,7 +242,7 @@ export class WorkspaceContext {
       draftFor: (sourceId) => this.sessionDrafts.get(sourceId),
       ctx: (tabId) => tabId ? this.ctxFor(tabId) : this.ctx,
       ctxForDirectory: (dir) => this.ctxForDirectory(dir),
-      apiFor: (tabId) => tabId ? this.apiFor(tabId) : serverConnections.primaryApi(),
+      apiFor: (tabId) => tabId ? this.apiFor(tabId) : this.defaultHostApi(),
       apiForRun: (run) => this.apiForRun(run),
       refreshPluginCommands: (dir, tabId) => { void this.refreshPluginCommands(dir, tabId) },
       rekeyTaskSessionBinding: (sourceSessionId, targetSessionId, serverId) => {
@@ -581,9 +584,12 @@ export class WorkspaceContext {
 
   /** Where a *provider's* session is showing. A work item, a task link and a
    *  resume all name an agent session id; a fork inherits its source's, so this
-   *  finds the branch too. */
-  tabIdForAgentSession(agentSessionId: string): string | undefined {
-    return this.registry.tabIdsByAgentSession.get(agentSessionId)?.[0]
+   *  finds the branch too. The host is part of the question — a dispatched
+   *  session's clone shares the provider id — so a caller without one gets no
+   *  match rather than another host's conversation. */
+  tabIdForAgentSession(agentSessionId: string, serverId: string | undefined): string | undefined {
+    if (!serverId) return undefined
+    return this.registry.tabIdsByAgentSession.get(hostKey(serverId, agentSessionId))?.[0]
   }
 
   /** The chat bound to a work item, if one is open. */
@@ -602,17 +608,22 @@ export class WorkspaceContext {
     return this.sessionFor(sourceId)?.run ?? this.sessionDrafts.get(sourceId)?.run
   }
 
+  /** The new-work default host, for deliberately session-less operations. */
+  private defaultHostApi(): HostApi {
+    const serverId = serverConnections.defaultServerId()
+    if (!serverId) throw new Error('Primary Solus connection has not been registered')
+    return serverConnections.apiFor(serverId)
+  }
+
   /** Resolve the RPC surface that owns a run — the machine it runs on. */
   apiForRun(run: RunConfig | undefined): HostApi {
-    const resolvedId = run?.serverId
-      ? serverConnections.resolveId(run.serverId)
-      : serverConnections.connectionFor()?.serverId
-    if (!resolvedId) return serverConnections.primaryApi()
+    if (!run) return this.defaultHostApi()
+    const resolvedId = serverConnections.resolveId(run.serverId)
     const api = serverConnections.apiFor(resolvedId)
     serverConnections.retain(resolvedId)
-    this.environment.bindCwd(resolvedId, run?.workingDirectory, api)
-    this.environment.bindCwd(resolvedId, run?.gitContext?.repoRoot, api)
-    this.environment.bindCwd(resolvedId, run?.gitContext?.worktreePath, api)
+    this.environment.bindCwd(resolvedId, run.workingDirectory, api)
+    this.environment.bindCwd(resolvedId, run.gitContext?.repoRoot, api)
+    this.environment.bindCwd(resolvedId, run.gitContext?.worktreePath, api)
     return api
   }
 
@@ -626,12 +637,12 @@ export class WorkspaceContext {
     return this.apiForRun(this.sessions[sessionId]?.run)
   }
 
-  /** Resolve a host from a stateful IPC context, or choose primary for a
-   *  deliberately session-less operation. */
+  /** Resolve a host from a stateful IPC context, or choose the new-work
+   *  default host for a deliberately session-less operation. */
   apiForContext(ctx: IpcContext): HostApi {
     return ctx.session.sessionId
       ? this.apiForSession(ctx.session.sessionId)
-      : serverConnections.primaryApi()
+      : this.defaultHostApi()
   }
 
   serverIdForContext(ctx: IpcContext): string {
@@ -837,18 +848,23 @@ export class WorkspaceContext {
   }
 
   /**
-   * Re-key a session onto the id the host resolved for it. Only the from-disk
-   * resume path needs this: a fresh session's uuid has never left this renderer
-   * and so cannot collide, but a provider thread read off disk may already be
-   * open on another client, which named it first.
+   * Re-key a session onto the id the host resolved for it. Every from-disk path
+   * needs this — resume, restore, and reconnect alike: a fresh session's uuid has
+   * never left this renderer and so cannot collide, but a provider thread read off
+   * disk may already be open on another client, which named it first. Skipping the
+   * adoption leaves the two clients holding different addresses for one session,
+   * so each one only ever sees the turns it started.
    *
    * Safe precisely because it runs before anything is published under the local
    * id — the session is empty, unbound, and not yet streaming.
    */
-  private adoptSessionId(tabId: string, resolvedSessionId: string): void {
+  adoptSessionId(tabId: string, resolvedSessionId: string): void {
     const tab = this.tabs[tabId]
     const session = tab ? this.sessions[tab.sessionId] : undefined
     if (!tab || !session || session.id === resolvedSessionId) return
+    // Another local session already answers to that id. Re-keying would evict a
+    // live object out from under whichever tabs point at it, so leave both alone.
+    if (this.sessions[resolvedSessionId]) return
     delete this.sessions[session.id]
     session.id = resolvedSessionId
     this.sessions[resolvedSessionId] = session
@@ -891,7 +907,10 @@ export class WorkspaceContext {
     const sessionId = this.tabs[tabId]?.sessionId
     if (this.window.viewMode !== 'editor') {
       if (!sessionId) return
-      this.router.navigate({ name: 'goal', params: { sessionId } }, { target: 'aside' })
+      this.router.navigate(
+        { name: 'goal', params: { sessionId, serverId: this.sessions[sessionId]?.run.serverId } },
+        { target: 'aside' },
+      )
       this.geometry.open(this.router.focusedPaneId, 0.34)
       return
     }
@@ -1086,7 +1105,9 @@ export class WorkspaceContext {
 
   /** The host new sessions land on when nothing else names one. */
   get fallbackServerId(): string {
-    return serverConnections.connectionFor()?.serverId ?? LOCAL_SERVER_ID
+    return serverConnections.defaultServerId()
+      ?? serverConnections.localServerId()
+      ?? LOCAL_SERVER_ID
   }
 
   /**
@@ -1320,7 +1341,7 @@ export class WorkspaceContext {
     const modelConfig = this.defaultModelConfigFor(provider)
     const api = serverId
       ? serverConnections.apiFor(serverId)
-      : serverConnections.primaryApi()
+      : this.defaultHostApi()
     const request = automationDraftSessionRequest(prompt, cwd, provider, modelConfig)
     const { agentSessionId } = await api.createHeadlessSession(request)
     return agentSessionId
@@ -1397,6 +1418,7 @@ export class WorkspaceContext {
     const forkedSession = makeSession(this.settings, {
       agentSessionId: sourceSession.agentSessionId,
       forked: true,
+      forkExcludeLatestTurn: sourceIsRunning && inFlightFrom !== -1,
       forkedFromSessionId: sourceSession.agentSessionId,
       messages: [...copiedMessages, forkInfoMsg],
       additionalDirs: [...sourceSession.additionalDirs],
@@ -1597,7 +1619,12 @@ export class WorkspaceContext {
    *  The split pane is already the narrow half, so it starts without its project
    *  rail — the user opens it deliberately from there. */
   openSplitChat(sessionId: string): void {
-    const pane = this.router.navigate(chatRoute(sessionId), { target: 'aside' })
+    // The route is persisted and restored: it must name the session's host or
+    // a restore resolves the bare id against whichever host answers first.
+    const pane = this.router.navigate(
+      chatRoute(sessionId, this.sessions[sessionId]?.run.serverId),
+      { target: 'aside' },
+    )
     this.geometry.open(pane.id)
     if (this.settings.splitProjectPanelOpen) this.settings.update({ splitProjectPanelOpen: false })
   }
@@ -1654,6 +1681,7 @@ export class WorkspaceContext {
     if (sess?.agentSessionId) {
       writeSessionHandoff({
         sessionId: sess.agentSessionId,
+        serverId: sess.run.serverId,
         provider: sess.run.provider ?? this.settings.activeAgent,
         cwd: sess.run.workingDirectory,
         title: sess.title ?? null,
@@ -1805,19 +1833,17 @@ export class WorkspaceContext {
     meta: SessionMeta,
     opts?: { background?: boolean; intoTabId?: string },
   ): Promise<string> {
-    if (!meta.serverId) {
-      const resolved = await resolveSessionMetaRef({ sessionId: meta.sessionId })
-      if (!resolved) throw new Error(`Session ${meta.sessionId} was not found on a connected host`)
-      meta = { ...meta, ...resolved }
-    }
+    // A session ref crossing the client names its host — there is no probe.
+    if (!meta.serverId) throw new Error(`Session ${meta.sessionId} names no host`)
     const selectedProvider = meta.provider ?? this.settings.activeAgent
-    const selectedApi = serverConnections.apiFor(meta.serverId ?? LOCAL_SERVER_ID)
-    const handoff = await selectedApi.resolveSessionHandoff(selectedProvider, meta.sessionId)
-    const stableSessionId = handoff?.handoffId ?? meta.sessionId
+    const selectedApi = serverConnections.apiFor(meta.serverId)
+    const handoff = await selectedApi.resolveSessionLineage(selectedProvider, meta.sessionId)
+    const stableSessionId = handoff?.sessionId ?? meta.sessionId
     const activeMember = handoff?.active
     let activeProviderSessionId: string | null = meta.sessionId
     if (activeMember?.providerSessionId) {
-      const activeMeta = await selectedApi.getSessionInfo(activeMember.providerSessionId).catch(() => null)
+      const activeMeta = await selectedApi.getSessionInfo(activeMember.providerSessionId)
+      if (!activeMeta) throw new SessionUnavailableError(activeMember.providerSessionId)
       meta = {
         ...meta,
         ...activeMeta,
@@ -1830,6 +1856,10 @@ export class WorkspaceContext {
     } else if (activeMember) {
       meta = { ...meta, provider: activeMember.provider, cwd: activeMember.cwd }
       activeProviderSessionId = null
+    } else {
+      const sourceMeta = await selectedApi.getSessionInfo(meta.sessionId)
+      if (!sourceMeta) throw new SessionUnavailableError(meta.sessionId)
+      meta = { ...meta, ...sourceMeta, serverId: meta.serverId }
     }
     const background = opts?.background ?? false
     const intoTabId = opts?.intoTabId
@@ -1890,7 +1920,7 @@ export class WorkspaceContext {
       if (!session || !tab) throw new Error('The resumed session tab was not created')
       session.run.provider = provider
       session.agentSessionId = activeProviderSessionId
-      session.handoffId = handoff?.handoffId
+      session.handoffId = handoff?.sessionId
       session.readOnlyReason = null
       session.loadingHistory = true
       session.title = title
@@ -1905,7 +1935,7 @@ export class WorkspaceContext {
       const session = targetSession!
       session.run.provider = provider
       session.agentSessionId = activeProviderSessionId
-      session.handoffId = handoff?.handoffId
+      session.handoffId = handoff?.sessionId
       // Taking over an empty tab moves it to the session's host. Safe only
       // because takeover already requires a tab that has started nothing.
       if (meta.serverId) session.run.serverId = meta.serverId
@@ -2140,8 +2170,27 @@ export class WorkspaceContext {
 
   private promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; taskId?: string; parentTaskId?: string; skipTaskCreation?: boolean; goalObjective?: string }): void {
     const api = this.apiFor(tabId)
-    const watchedSessionId = this.sessionFor(tabId)?.id
-    if (!watchedSessionId) return
+    const promptSession = this.sessionFor(tabId)
+    const watchedSessionId = promptSession?.id
+    if (!promptSession || !watchedSessionId) return
+    // Durability before dispatch (dispatch-client step 6): the send is queued
+    // on the session's host before the wire is trusted with it. Acceptance
+    // removes it; a dead transport leaves it for the drain.
+    const outboxServerId = promptSession.run.serverId
+    if (options.clientPromptId) {
+      sendOutbox.enqueue(outboxServerId, {
+        clientPromptId: options.clientPromptId,
+        sessionId: watchedSessionId,
+        text: options.displayPrompt,
+        enqueuedAt: Date.now(),
+        payload: {
+          prompt: options.prompt,
+          displayPrompt: options.displayPrompt,
+          delivery: options.delivery,
+          imageAttachments: options.imageAttachments,
+        },
+      })
+    }
     // Watch before prompting, or the run's own events would have nowhere to go.
     api.watchSession({ sessionId: watchedSessionId })
       .then(() => this.config.pendingSessionStartTarget(tabId))
@@ -2161,11 +2210,23 @@ export class WorkspaceContext {
         // avoid a phantom run that can never be cancelled.
         const session = this.sessionFor(tabId)
         if (!session) return
-        return api.prompt(this.ctxFor(tabId), resolved)
+        return api.prompt(this.ctxFor(tabId), resolved).then(() => {
+          // The host accepted the prompt: its durable copy has done its job.
+          if (options.clientPromptId) sendOutbox.remove(outboxServerId, options.clientPromptId)
+        })
       })
       .catch((err: Error) => {
         const session = this.sessionFor(tabId)
         if (options.clientPromptId) {
+          if (classifySendFailure(err) === 'transient') {
+            // The transport died under the send: the outbox entry stays for
+            // the drain, and the pending bubble keeps standing — "failed"
+            // would be a lie about a message that will still deliver.
+            return
+          }
+          // The host answered "no": the in-session failed prompt owns the
+          // retry UX, so the durable copy retires with the error shown there.
+          sendOutbox.remove(outboxServerId, options.clientPromptId)
           const outbound = session?.outboundPrompts.find(
             (prompt) => prompt.clientPromptId === options.clientPromptId,
           )
@@ -2178,6 +2239,25 @@ export class WorkspaceContext {
           this.handleError(session.id, { message: err.message, stderrTail: [], exitCode: null, elapsedMs: 0, toolCallCount: 0 })
         }
       })
+  }
+
+  /** Replay one drained outbox record through the live prompt path. The tab
+   *  must still be mounted — a queued send for a closed conversation is
+   *  abandoned work, not a surprise message. */
+  async redeliverOutboxPrompt(serverId: string, record: OutboxRecord): Promise<void> {
+    const tabId = this.tabIdForSession(record.sessionId)
+    if (!tabId || !record.payload) {
+      sendOutbox.remove(serverId, record.clientPromptId)
+      return
+    }
+    const result = await this.apiFor(tabId).prompt(this.ctxFor(tabId), {
+      prompt: record.payload.prompt,
+      displayPrompt: record.payload.displayPrompt || record.text,
+      clientPromptId: record.clientPromptId,
+      delivery: record.payload.delivery === 'steer' ? 'steer' : 'queue',
+      imageAttachments: record.payload.imageAttachments,
+    })
+    if (result.disposition === 'duplicate') return
   }
 
   /**
@@ -2299,7 +2379,7 @@ export class WorkspaceContext {
 
     if (
       localApi.getPlatform() === 'web'
-      && !serverConnections.connectionFor()
+      && !serverConnections.defaultServerId()
       && !session.run.pendingHostDispatch
     ) {
       window.dispatchEvent(new CustomEvent('solus:open-server-connect'))
@@ -2365,7 +2445,7 @@ export class WorkspaceContext {
 
     if (isBusy) {
       session.title = title
-      const outbound: QueuedPromptSnapshot = {
+      const outbound: OutboundPrompt = {
         clientPromptId,
         text: prompt,
         state: isSteerableStatus(session.status) && delivery === 'steer' ? 'steering' : 'queueing',
@@ -2661,6 +2741,11 @@ export class WorkspaceContext {
   closePlanPreview(): void { closePlanPreview(this) }
   async resumeSessionFromDescriptor(d: PlanDescriptor): Promise<void> { return resumeSessionFromDescriptor(this, d) }
   async loadPlanContent(d: PlanDescriptor): Promise<string> { return loadPlanContent(this, d) }
+  notifySessionUnavailable(provider?: AgentId): void {
+    toasts.error('Session no longer available', {
+      description: unavailableSessionMessage(provider),
+    })
+  }
 
   /** Open a work as an artifact. By default it takes the Focus pane (or the
    *  secondary slot if one is already open); `secondary: true` forces it beside
@@ -2723,7 +2808,7 @@ export class WorkspaceContext {
     const sess = this.sessionFor(this.activeTabId)
     const cwd = sess?.run.workingDirectory ?? this.globalDefaults.workingDirectory ?? '~'
     const provider: AgentId = sess?.run.provider ?? 'claude-code'
-    const api = sess ? this.apiFor(this.activeTabId) : serverConnections.primaryApi()
+    const api = sess ? this.apiFor(this.activeTabId) : this.defaultHostApi()
     const work = await api.createWork(title, type, content, workPreview(type, content), undefined, provider, cwd)
     this.worksStore.works[work.id] = work
     this.worksStore.rememberHost(work.id, sess?.run.serverId ?? serverConnections.serverIdForApi(api))
@@ -2745,8 +2830,8 @@ export class WorkspaceContext {
     this.openWork(workId, 'aside')
     void this.worksStore.ensureContent(workId, 'open-chat-for-work', this.sessionFor(this.activeTabId)?.run.workingDirectory)
     if (mode === 'resume' && resumeSid) {
-      // find an open tab with this session, else resume from history
-      const openTab = this.tabIdForAgentSession(resumeSid)
+      // find an open tab with this session on the work's own host, else resume
+      const openTab = this.tabIdForAgentSession(resumeSid, this.worksStore.hostFor(workId) ?? undefined)
       if (openTab) { this.selectTab(openTab); targetTabId = openTab; resumed = true }
       else {
         targetTabId = await this.resumeSession({
@@ -2822,7 +2907,10 @@ export class WorkspaceContext {
 
   /** Open a plan as the single artifact. */
   openPlan(planId: string, target: 'focused' | 'aside' = 'focused'): void {
-    const pane = this.router.navigate({ name: 'plan', params: { planId } }, { target: this.artifactTarget(target) })
+    const pane = this.router.navigate(
+      { name: 'plan', params: { planId, serverId: this.planStore.hostFor(planId) ?? undefined } },
+      { target: this.artifactTarget(target) },
+    )
     if (target === 'aside') this.geometry.open(pane.id)
   }
 
@@ -2891,7 +2979,11 @@ export class WorkspaceContext {
   /** Open one task's page. Its own route, so it deep-links, joins history and
    *  can be opened in a split. */
   goToTask(taskId: string, via: Via = 'palette'): void {
-    this.showPage({ name: 'task', params: { taskId } }, via, 'tasks')
+    this.showPage(
+      { name: 'task', params: { taskId, serverId: this.tasksStore.hostFor(taskId) ?? undefined } },
+      via,
+      'tasks',
+    )
   }
 
   openTasks(via: Via = 'click'): void {
@@ -2952,7 +3044,9 @@ export class WorkspaceContext {
 
   toggleAutomations(via: Via = 'click'): void {
     if (this.togglePage({ name: 'automations', params: {} }, via, 'automations')) {
-      void this.automationsStore.loadAll(serverConnections.connectionFor()?.serverId)
+      // Unscoped: the store fans out over every connected host (dispatch-client
+      // step 5 — the page aggregates the catalog, not the boot host).
+      void this.automationsStore.loadAll()
     }
   }
 
@@ -2962,7 +3056,7 @@ export class WorkspaceContext {
   openAutomations(focusId?: string | null, via: Via = 'click'): void {
     if (focusId && this.window.viewMode === 'editor') this.openAutomationBuilder(focusId)
     else this.showPage({ name: 'automations', params: { automationId: focusId ?? undefined } }, via, 'automations')
-    void this.automationsStore.loadAll(serverConnections.connectionFor()?.serverId)
+    void this.automationsStore.loadAll()
   }
 
   /** Open one automation as the single artifact. `aside` puts it beside the
@@ -2982,7 +3076,7 @@ export class WorkspaceContext {
     )
     if (target === 'aside') this.geometry.open(pane.id)
     this.isExpanded = true
-    void this.automationsStore.loadAll(serverId ?? serverConnections.connectionFor()?.serverId)
+    void this.automationsStore.loadAll(serverId)
   }
 
   // ─── Diff comments (on Tab — UI-only) ───
@@ -3380,7 +3474,10 @@ export class WorkspaceContext {
     // so another relative `aside` would mean the leading pane and put the same
     // conversation on both sides. Target the existing secondary by id instead.
     const target = this.router.asidePanes[0]?.id ?? 'aside'
-    const pane = this.router.navigate(chatRoute(sessionId), { target })
+    const pane = this.router.navigate(
+      chatRoute(sessionId, this.sessions[sessionId]?.run.serverId),
+      { target },
+    )
     this.geometry.open(pane.id, 0.5)
     this.isExpanded = true
   }
@@ -3389,7 +3486,14 @@ export class WorkspaceContext {
    *  change read together. Closing it returns the review to Activity. */
   openPrDiff(number: number, ctx: IpcContext = this.ctx): void {
     const pane = this.router.navigate(
-      { name: 'prDiff', params: { number, cwd: ctx.session.projectPath ?? ctx.session.workingDirectory ?? undefined } },
+      {
+        name: 'prDiff',
+        params: {
+          number,
+          cwd: ctx.session.projectPath ?? ctx.session.workingDirectory ?? undefined,
+          serverId: this.sessions[ctx.session.sessionId]?.run.serverId,
+        },
+      },
       { target: 'aside' },
     )
     this.geometry.open(pane.id, 0.5)
@@ -3467,8 +3571,9 @@ export class WorkspaceContext {
         })
         return
       case 'chat': {
-        // A chat names a session of ours; a notification or a deep link may name
-        // the provider's instead, so both indexes get a look.
+        // A chat names a session of ours; a notification or a deep link may
+        // name the provider's instead. Our ids resolve hostless (client-minted,
+        // collision-free); a provider id resolves only with the route's host.
         const sessionId = ref.params.sessionId
         const tabId = sessionId
           ? ref.params.serverId
@@ -3480,12 +3585,12 @@ export class WorkspaceContext {
                 undefined,
                 ref.params.serverId,
               )
-            : this.tabIdForSession(sessionId)
-              ?? findOpenTabForSession(sessionId, this.tabs, this.sessions, this.tabOrder)
+            : this.tabIdForSession(sessionId) ?? null
           : null
         if (tabId && this.tabs[tabId]) this.selectTab(tabId)
-        else if (sessionId) {
-          void resolveSessionMetaRef({ sessionId, serverId: ref.params.serverId }).then((meta) => {
+        else if (sessionId && ref.params.serverId) {
+          // A route without a host cannot be resolved — no probe, no guess.
+          void readSessionMeta(ref.params.serverId, sessionId).then((meta) => {
             if (meta) void this.resumeSession(meta)
           })
         }
@@ -3540,7 +3645,10 @@ export class WorkspaceContext {
   openSubagent(tabId: string, messageId: string): void {
     const sessionId = this.tabs[tabId]?.sessionId
     if (!sessionId) return
-    this.showViewer({ name: 'subagent', params: { sessionId, messageId } })
+    this.showViewer({
+      name: 'subagent',
+      params: { sessionId, messageId, serverId: this.sessions[sessionId]?.run.serverId },
+    })
   }
 
   /** Viewers cover a companion pane and size themselves; a diff opened over a

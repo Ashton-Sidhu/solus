@@ -8,7 +8,7 @@ mock.module('@client-core/server-connections', () => ({
   serverConnections: serverConnectionsMock,
 }))
 
-const api = () => serverConnectionsMock.primaryApi()
+const api = () => serverConnectionsMock.apiFor('local')
 const serverId = 'local'
 
 const previousWindow = globalThis.window

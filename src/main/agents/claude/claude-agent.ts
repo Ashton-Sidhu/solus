@@ -127,6 +127,8 @@ export interface ClaudeRunOptions {
   onTurnComplete?: (sessionId: string, opts: { partial: boolean; userMessagePreview: string; editedFiles: string[] }) => Promise<string[] | null>
   /** When true, the SDK creates a new forked session branching from opts.sessionId. */
   forkSession?: boolean
+  /** Assistant message UUID through which the resumed fork includes history. */
+  resumeSessionAt?: string
 }
 
 export interface ClaudeRunResult {
@@ -187,6 +189,7 @@ export class ClaudeAgent {
 
     if (opts.sessionId) {
       claudeOptions.resume = opts.sessionId
+      if (opts.resumeSessionAt) claudeOptions.resumeSessionAt = opts.resumeSessionAt
       if (opts.forkSession) {
         claudeOptions.forkSession = true
       }

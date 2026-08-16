@@ -12,11 +12,17 @@
   import { relativeTime } from "../../lib/relative-time";
   import PairCodePanel from "./PairCodePanel.svelte";
 
+  interface Props {
+    serverId: string;
+  }
+
+  let { serverId }: Props = $props();
+
   const connections = connectionsStore;
 </script>
 
 <SettingsSection label="Pairing">
-  <PairCodePanel />
+  <PairCodePanel {serverId} />
   <SettingsRow
     label="Approve new devices"
     description="Ask before a paired device is allowed to connect."
@@ -58,7 +64,7 @@
           <Button
             variant="ghost"
             size="sm"
-            onclick={() => void connections.revokeDevice(session.deviceId!)}
+            onclick={() => void connections.revokeDevice(serverId, session.deviceId!)}
             class="text-(--solus-text-tertiary) opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-(--solus-status-error)"
           >
             <TrashIcon size={13} />

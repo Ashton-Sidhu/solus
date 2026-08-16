@@ -20,7 +20,6 @@
   import {
     ArrowsClockwiseIcon,
     CheckIcon,
-    ClockIcon,
     PlusIcon,
     SidebarSimpleIcon,
     WarningCircleIcon,
@@ -114,9 +113,7 @@
   const panelSession = $derived(session.sessionFor(sourceId));
   const panelRun = $derived(session.runFor(sourceId));
   const panelServerId = $derived(
-    panelRun?.serverId
-      ? serverConnections.resolveId(panelRun.serverId)
-      : serverConnections.connectionFor()?.serverId ?? null,
+    panelRun?.serverId ? serverConnections.resolveId(panelRun.serverId) : null,
   );
   const panelEnvironment = $derived(environmentStore.environmentFor(panelRun));
 
@@ -206,7 +203,8 @@
   useKeybinding(
     "orb.sync",
     () => {
-      if (gitCtx) void gitActionsFor(sourceId, session, environmentStore).sync();
+      if (gitCtx)
+        void gitActionsFor(sourceId, session, environmentStore).sync();
     },
     { enabled: () => focused },
   );
@@ -214,7 +212,9 @@
     "orb.commit-push",
     () => {
       if (gitCtx)
-        void gitActionsFor(sourceId, session, environmentStore).run("commit_push");
+        void gitActionsFor(sourceId, session, environmentStore).run(
+          "commit_push",
+        );
     },
     { enabled: () => focused },
   );
@@ -231,13 +231,11 @@
   function completeTask() {
     const task = panelTask;
     if (!task) return;
-    void session.tasksStore
-      .setStatus(task.id, "done")
-      .catch((err) =>
-        toasts.error("Couldn't complete the task", {
-          description: err instanceof Error ? err.message : String(err),
-        }),
-      );
+    void session.tasksStore.setStatus(task.id, "done").catch((err) =>
+      toasts.error("Couldn't complete the task", {
+        description: err instanceof Error ? err.message : String(err),
+      }),
+    );
     requestInputFocus();
   }
 
@@ -293,7 +291,9 @@
       title={remoteHostAffinity.tooltip}
     >
       <HostIcon size={11} class={remoteHostAffinity.className} />
-      <span class="max-w-24 truncate">{remoteHost.label}</span>
+      <span class="max-w-24 truncate @max-[15rem]:max-w-16"
+        >{remoteHost.label}</span
+      >
     </span>
   {/if}
 {/snippet}
@@ -377,18 +377,6 @@
       }}
     >
       <CheckIcon size={12} />
-    </button>
-    <!-- Snooze has no behaviour behind it yet — the same placeholder the
-         sidebar's task row keeps, so the header geometry is not re-tuned the
-         day tasks can be snoozed. -->
-    <button
-      class="tiny-icon"
-      type="button"
-      title="Snooze"
-      aria-label="Snooze task"
-      onclick={(e) => e.stopPropagation()}
-    >
-      <ClockIcon size={12} />
     </button>
   </span>
 {/snippet}
@@ -508,6 +496,15 @@
     overflow-y: auto;
     overscroll-behavior-y: contain;
     scrollbar-gutter: stable;
+  }
+
+  /* At the rail's narrow laptop measure the fixed gutter is a large share of
+     the column, so the cards give chrome back to their content. */
+  @container (max-width: 15rem) {
+    .project-sections {
+      gap: 0.375rem;
+      padding: 0.375rem;
+    }
   }
 
   .tiny-icon {

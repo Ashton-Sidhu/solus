@@ -163,13 +163,16 @@ function parseCustomReference(label: string, href: string): ReferenceToken | nul
     const sessionId = stringParam(url, "sessionId");
     const provider = url.searchParams.get("provider");
     if (!sessionId || !provider || !isAgentId(provider) || !AGENT_IDS.has(provider)) return null;
-    return {
+    const token: SessionReferenceToken = {
       kind: "session",
       sessionId,
       provider,
       title,
       cwd: url.searchParams.get("cwd") ?? "",
     };
+    const serverId = url.searchParams.get("serverId");
+    if (serverId) token.serverId = serverId;
+    return token;
   }
 
   if (url.protocol === "task:") {
@@ -227,6 +230,7 @@ export function serializeReferenceToken(token: ReferenceToken): string {
         provider: token.provider,
         cwd: token.cwd,
       });
+      if (token.serverId) params.set("serverId", token.serverId);
       return `[${escapeLabel(token.title)}](session://ref?${params})`;
     }
     case "task": {

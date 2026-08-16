@@ -46,6 +46,8 @@
   const prApi = $derived(session.apiFor(sourceId));
   const prServerId = $derived(serverConnections.serverIdForApi(prApi));
   const env = $derived(environmentStore.environmentFor(session.runFor(sourceId)));
+  const detailCwd = $derived(env.cwd);
+  const detailServerId = $derived(prServerId);
   const status = $derived(env.status);
   const conflictedFiles = $derived(
     status?.uncommittedChanges.files.filter((file) => file.conflicted) ?? [],
@@ -335,8 +337,8 @@
   // when collapsed — without our own watch the PR row would go blank whenever
   // that section is closed.
   $effect(() => {
-    if (!env.cwd || env.cwd === "~") return;
-    return environmentStore.watchDetails(env.cwd);
+    if (!detailCwd || detailCwd === "~") return;
+    return environmentStore.watchDetails(detailServerId, detailCwd);
   });
 
   // "Discard changes…" arms in place rather than opening a dialog — the menu

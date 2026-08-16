@@ -197,12 +197,28 @@ export interface CodexThreadSummary {
 }
 
 export interface CodexTurnHistory {
+  id?: string
   status?: string | null
   error?: unknown
   startedAt?: number | string | null
   completedAt?: number | string | null
   durationMs?: number | null
   items?: CodexHistoryItem[]
+}
+
+/** Select the last source turn that a live-session fork may include. If the
+ * active turn is not in thread/read yet, the final returned turn is still safe. */
+export function codexForkCutoffTurnId(
+  turns: CodexTurnHistory[],
+  activeTurnId: string | null,
+): string | undefined {
+  if (turns.length === 0) return undefined
+  if (activeTurnId) {
+    const activeIndex = turns.findIndex((turn) => turn.id === activeTurnId)
+    if (activeIndex === -1) return turns[turns.length - 1]?.id
+    return activeIndex > 0 ? turns[activeIndex - 1]?.id : undefined
+  }
+  return turns.length > 1 ? turns[turns.length - 2]?.id : undefined
 }
 
 export type CodexHistoryItem = {

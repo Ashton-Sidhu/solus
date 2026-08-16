@@ -34,13 +34,6 @@
   }
 </script>
 
-<PaneChrome
-  onClose={close}
-  onOpenInSplit={pane.moveAcross}
-  isLeading={pane.isLeading}
-  closeLabel="Close plan"
-  closeTestId="plan-modal-close"
-/>
 <!-- The pane opens on the plan id before its body is off disk, so "no plan yet"
      is the loading state, not an empty pane. The open path retracts the pane if
      the read comes back with nothing. -->
@@ -54,3 +47,12 @@
 {:else}
   <PlanModalSkeleton inline />
 {/if}
+<!-- After the content: the skeleton header is a window drag region, and a drag
+     rect later in the DOM would re-cover this cluster's no-drag holes. -->
+<PaneChrome
+  onClose={close}
+  onOpenInSplit={pane.moveAcross}
+  isLeading={pane.isLeading}
+  closeLabel="Close plan"
+  closeTestId="plan-modal-close"
+/>

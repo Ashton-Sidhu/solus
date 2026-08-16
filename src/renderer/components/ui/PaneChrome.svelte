@@ -9,14 +9,18 @@
   } from "phosphor-svelte";
   import { PAGE_ICON_BTN } from "../../lib/page-chrome";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
-  import FrameExpandButton from "../layout/FrameExpandButton.svelte";
 
   /** The pane's only chrome: a floating icon cluster over the top-right of the
    *  content. Every surface below the top rail is content now, so pane-level
    *  controls (open-in-split, maximize, close) live here instead of in a
    *  per-surface header bar. Mirrors PageShell's corner chrome, and the room it
    *  occupies is published as `--solus-pane-chrome-inset` by the pane columns so
-   *  an in-content top strip can reserve space for it. */
+   *  an in-content top strip can reserve space for it.
+   *
+   *  Hosts must render this AFTER the surface content, not before it. Window
+   *  drag rects are collected in DOM order and applied union-then-subtract in
+   *  that same order, so a `workspace-titlebar` row rendered after this cluster
+   *  re-covers its no-drag holes and swallows every click as a window move. */
   interface Props {
     onClose: () => void;
     /** Present when the content can move between panes. */
@@ -101,8 +105,6 @@
       <TooltipUI.Content value={maximized ? "Restore panel (⌥M)" : "Maximize (⌥M)"} />
     </TooltipUI.Root>
   {/if}
-
-  <FrameExpandButton variant="projectPanel" />
 
   <button
     type="button"

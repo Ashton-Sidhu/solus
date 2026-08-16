@@ -195,6 +195,22 @@ async function detectTailscaleEndpoint(port: number): Promise<ReachableEndpoint 
   return tailnetEndpointFromStatus(await readTailscaleStatus(), port)
 }
 
+/**
+ * Every address on this machine's tailnet — its own and its peers'. Membership
+ * in the user's tailnet is what "trusted network" means for requester auth:
+ * these devices already share a private, identity-checked network.
+ */
+export async function tailnetAddresses(): Promise<Set<string>> {
+  const status = await readTailscaleStatus()
+  const out = new Set<string>()
+  if (!status) return out
+  for (const address of status.Self?.TailscaleIPs ?? []) out.add(address)
+  for (const peer of Object.values(status.Peer ?? {})) {
+    for (const address of peer.TailscaleIPs ?? []) out.add(address)
+  }
+  return out
+}
+
 export function tailnetEndpointFromStatus<T>(value: T, port: number): ReachableEndpoint | null {
   const parsed = tailscaleStatusSchema.safeParse(value)
   const ipv4 = parsed.success

@@ -20,13 +20,14 @@
   import { Input } from "../ui/input";
 
   interface Props {
+    serverId: string;
     /** Puts the caret in the token field as the form appears. */
     autofocus?: boolean;
     /** Fires once the profile is connected, after the field has been cleared. */
     onconnected?: () => void;
   }
 
-  let { autofocus = false, onconnected }: Props = $props();
+  let { serverId, autofocus = false, onconnected }: Props = $props();
 
   let token = $state("");
   let manualAccountId = $state("");
@@ -44,7 +45,7 @@
   async function submit(accountId?: string) {
     const apiToken = token.trim();
     if (!apiToken || cloudflareStore.connecting) return;
-    const connected = await cloudflareStore.connect(apiToken, accountId);
+    const connected = await cloudflareStore.connect(serverId, apiToken, accountId);
     if (connected) {
       token = "";
       manualAccountId = "";

@@ -1,5 +1,6 @@
 import posthog from 'posthog-js'
 import type { SolusEventMap } from '../../shared/analytics-events'
+import { uuid } from '../../shared/uuid'
 
 const POSTHOG_KEY = import.meta.env.VITE_POSTHOG_KEY
 const POSTHOG_HOST = import.meta.env.VITE_POSTHOG_HOST ?? 'https://us.i.posthog.com'
@@ -9,7 +10,7 @@ let initialized = false
 function getOrCreateAnonId(): string {
   let id = localStorage.getItem(ANON_ID_KEY)
   if (!id) {
-    id = crypto.randomUUID()
+    id = uuid()
     localStorage.setItem(ANON_ID_KEY, id)
   }
   return id

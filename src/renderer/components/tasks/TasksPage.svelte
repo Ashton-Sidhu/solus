@@ -108,9 +108,7 @@
   );
   const projectTasks = $derived(store.tasksForProject(cwd));
   const projectServerId = $derived(
-    store.hostForProject(cwd) ??
-      serverConnections.connectionFor()?.serverId ??
-      null,
+    store.hostForProject(cwd) ?? serverConnections.defaultServerId(),
   );
   const projectHost = $derived(
     projectServerId

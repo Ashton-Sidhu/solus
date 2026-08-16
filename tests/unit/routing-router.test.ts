@@ -87,6 +87,38 @@ describe('reading the location', () => {
     expect(parseRef(serializeRef(ref))).toEqual(ref)
   })
 
+  test('every session-shaped route round-trips its host through one grammar', () => {
+    // WHY: dispatch-client step 1 — a restored or deep-linked location must
+    // name the host that owns the id, and `<id>~<serverId>` is the one codec
+    // for all of them; a second grammar would fork parsing forever.
+    const refs: RouteRef[] = [
+      { name: 'chat', params: { sessionId: 'sess-1', serverId: 'host-a' } },
+      { name: 'plan', params: { planId: 'sess-1__tool-1', serverId: 'host-a' } },
+      { name: 'task', params: { taskId: 'task-1', serverId: 'host-a' } },
+      { name: 'goal', params: { sessionId: 'sess-1', serverId: 'host-a' } },
+      { name: 'subagent', params: { sessionId: 'sess-1', messageId: 'msg-1', serverId: 'host-a' } },
+      { name: 'automation', params: { automationId: 'auto-1', serverId: 'host-a' } },
+      { name: 'prDiff', params: { number: 7, cwd: '/work/solus', serverId: 'host-a' } },
+    ]
+    for (const ref of refs) {
+      expect(parseRef(serializeRef(ref))).toEqual(ref)
+    }
+  })
+
+  test('the same routes still parse without a host', () => {
+    // A host-less segment is a valid location (`plan/` mid-stream, a legacy
+    // task link); it parses with no serverId rather than failing the pane.
+    const refs: RouteRef[] = [
+      { name: 'task', params: { taskId: 'task-1' } },
+      { name: 'goal', params: { sessionId: 'sess-1' } },
+      { name: 'subagent', params: { sessionId: 'sess-1', messageId: 'msg-1' } },
+      { name: 'prDiff', params: { number: 7 } },
+    ]
+    for (const ref of refs) {
+      expect(parseRef(serializeRef(ref))).toEqual(ref)
+    }
+  })
+
   test('`at` answers for a destination wherever it is showing', () => {
     const router = new RouterStore()
     router.navigate(PLAN, { target: 'aside' })

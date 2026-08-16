@@ -1,7 +1,6 @@
 <script lang="ts">
   import { localApi } from "@client-core/local-api";
   import { ArrowSquareOutIcon, SignOutIcon } from "phosphor-svelte";
-  import { onMount } from "svelte";
   import {
     cloudflareStore,
     CLOUDFLARE_TOKEN_URL,
@@ -12,8 +11,14 @@
   import { Button } from "../ui/button";
   import CloudflareConnectForm from "./CloudflareConnectForm.svelte";
 
-  onMount(() => {
-    void cloudflareStore.ensureStatus();
+  interface Props {
+    serverId: string;
+  }
+
+  let { serverId }: Props = $props();
+
+  $effect(() => {
+    void cloudflareStore.ensureStatus(serverId);
   });
 
   const accountDescription = $derived.by(() => {
@@ -28,13 +33,13 @@
   });
 
   async function disconnect() {
-    await cloudflareStore.disconnect();
+    await cloudflareStore.disconnect(serverId);
     requestInputFocus();
   }
 </script>
 
 {#snippet connectForm()}
-  <CloudflareConnectForm onconnected={() => requestInputFocus()} />
+  <CloudflareConnectForm {serverId} onconnected={() => requestInputFocus()} />
 {/snippet}
 
 <SettingsSection label="Cloudflare">

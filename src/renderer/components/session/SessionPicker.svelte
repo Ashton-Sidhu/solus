@@ -14,7 +14,9 @@
     getStatusBarContext,
     runtime,
     createSessionHistoryStore,
+    serversStore,
   } from "../../contexts";
+  import { hostSyncNotes } from "./lib/host-sync-notes";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import { getPopoverLayer, useClickOutside } from "../popoverLayer.svelte";
   import { portal } from "../portal";
@@ -48,6 +50,7 @@
   import Kbd from "../ui/Kbd.svelte";
   import { worktreeProjectRoot, type SessionMeta } from "../../../shared/types";
   import { serverConnections } from "@client-core/server-connections";
+  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import { subscribeAllHosts } from "@client-core/host-events";
 
   interface Props {
@@ -70,6 +73,10 @@
   let searchEl: HTMLInputElement | null = $state(null);
   let popoverEl: HTMLDivElement | null = $state(null);
   let showHistorySkeleton = $state(false);
+  /** Hosts whose rows are cached or errored — the list must say so. */
+  const degradedHostNotes = $derived(
+    hostSyncNotes(history.hostStates, (serverId) => serversStore.hostFor(serverId)?.label ?? null),
+  );
   let skeletonTimer: ReturnType<typeof setTimeout> | null = null;
   const history = createSessionHistoryStore();
   const historySessions = $derived(history.sessions);
@@ -102,7 +109,12 @@
   });
   const historyScopeKey = $derived(historyScopeRoots.join("\n"));
   const historySources = $derived(
-    sessionHistorySourcesFromRoots(historyScopeRoots),
+    // The scan the picker runs directly: the client's own machine when it has
+    // one, else the new-work default host. Every source names its host.
+    sessionHistorySourcesFromRoots(
+      historyScopeRoots,
+      serverConnections.localServerId() ?? serverConnections.defaultServerId() ?? LOCAL_SERVER_ID,
+    ),
   );
   const historyScopeLabel = $derived.by(() => {
     if (historyScopeRoots.length > 1)
@@ -420,10 +432,13 @@
       "session.indexChanged",
       (serverId, event) => {
         if (!open || event.provider !== "codex") return;
-        // The picker scope uses paths from the primary host. Preserve its narrow
-        // refresh, but reload for a remote event because that host can use a
-        // different path for the same repository.
-        if (serverId !== serverConnections.connectionFor()?.serverId) {
+        // The picker's scope paths belong to the host it scans directly (the
+        // client's machine, else the new-work default). Preserve that host's
+        // narrow refresh; reload for any other host's event, because it can
+        // use a different path for the same repository.
+        const scanHostId =
+          serverConnections.localServerId() ?? serverConnections.defaultServerId();
+        if (serverId !== scanHostId) {
           void loadHistory(historySources, historyScopeKey);
           return;
         }
@@ -613,6 +628,14 @@
           class="inline-block w-[1em] overflow-hidden align-bottom animate-[scanning-ellipsis_1.4s_steps(4,end)_infinite]"
           >…</span
         >
+      {/if}
+      {#if degradedHostNotes.length > 0}
+        <span
+          class="ml-2 truncate align-bottom text-xs opacity-75"
+          title={degradedHostNotes.map((note) => note.text).join(", ")}
+        >
+          · {degradedHostNotes.map((note) => note.text).join(", ")}
+        </span>
       {/if}
     </span>
     <div class="flex items-center gap-3.5 max-md:hidden">

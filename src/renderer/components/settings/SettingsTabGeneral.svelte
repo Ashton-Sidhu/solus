@@ -148,7 +148,7 @@
 
   async function commitProjectsBaseDirectory(next: string) {
     projectsBasePickerOpen = false;
-    await connectionsStore.setProjectsBaseDirectory(next);
+    await connectionsStore.setProjectsBaseDirectory(serverId, next);
     requestInputFocus();
   }
 
@@ -765,4 +765,6 @@
   initialPath={projectsBaseDirectory || undefined}
   title="Projects start in"
   actionLabel="Start here"
+  {api}
+  {serverId}
 />

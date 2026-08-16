@@ -1,4 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity'
+import { hostKey } from '@client-core/host-key'
 import type { Prompt, Session, Tab } from '../../../shared/types'
 import { branchKeyFor } from '../../lib/sessionUtils'
 import { makePrompt } from './session.factories'
@@ -39,6 +40,9 @@ export class TabRegistry {
    * forked conversation is the same agent session under a new renderer id, so a
    * work item or task link — which only ever knows the provider's id — resolves
    * through here.
+   *
+   * Keys are host-scoped: a dispatched session gives a second host a clone
+   * under the same provider id, and those are two conversations, not one.
    */
   get tabIdsByAgentSession(): Map<string, string[]> {
     const index = new Map<string, string[]>()
@@ -47,10 +51,11 @@ export class TabRegistry {
       if (!session) continue
       for (const agentId of [session.agentSessionId, session.forkedFromSessionId]) {
         if (!agentId) continue
-        const listening = index.get(agentId)
+        const key = hostKey(session.run.serverId, agentId)
+        const listening = index.get(key)
         if (listening) {
           if (!listening.includes(tabId)) listening.push(tabId)
-        } else index.set(agentId, [tabId])
+        } else index.set(key, [tabId])
       }
     }
     return index

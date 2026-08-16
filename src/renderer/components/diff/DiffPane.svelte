@@ -22,13 +22,6 @@
   );
 </script>
 
-<PaneChrome
-  onClose={pane.closeOverlay}
-  onToggleMaximize={pane.toggleMaximize}
-  maximized={pane.maximized}
-  isLeading={pane.isLeading}
-  closeLabel="Close diff panel"
-/>
 {#await import("./DiffPanel.svelte")}
   <div
     class="grid h-full min-h-32 w-full place-items-center text-xs text-(--solus-text-tertiary)"
@@ -58,3 +51,12 @@
     {navigationRequestId}
   />
 {/await}
+<!-- After the content: the toolbar above is a window drag region, and a drag
+     rect later in the DOM would re-cover this cluster's no-drag holes. -->
+<PaneChrome
+  onClose={pane.closeOverlay}
+  onToggleMaximize={pane.toggleMaximize}
+  maximized={pane.maximized}
+  isLeading={pane.isLeading}
+  closeLabel="Close diff panel"
+/>

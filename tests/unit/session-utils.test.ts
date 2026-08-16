@@ -69,17 +69,17 @@ describe('formatDiffInlineComments', () => {
 })
 
 describe('findOpenTabForSession', () => {
-  test('reuses the existing tab for a session instead of opening a duplicate', () => {
-    const tabs = {
-      'tab-1': { id: 'tab-1', sessionId: 'local-session-1' },
-    }
-    const sessions = {
-      'local-session-1': {
-        agentSessionId: 'agent-session-1',
-        run: { provider: 'codex' },
-      },
-    }
+  const tabs = {
+    'tab-1': { id: 'tab-1', sessionId: 'local-session-1' },
+  }
+  const sessions = {
+    'local-session-1': {
+      agentSessionId: 'agent-session-1',
+      run: { provider: 'codex', serverId: 'host-a' },
+    },
+  }
 
+  test('reuses the existing tab for a host-scoped provider session', () => {
     expect(
       findOpenTabForSession(
         'agent-session-1',
@@ -87,7 +87,26 @@ describe('findOpenTabForSession', () => {
         sessions as any,
         ['tab-1'],
         'codex',
+        'host-a',
       ),
+    ).toBe('tab-1')
+  })
+
+  test('a provider id never matches without its host, or with the wrong one', () => {
+    // WHY: dispatch-client step 1 — provider ids are host-minted and collide
+    // across hosts (the same repo, cloned twice). A bare provider id must not
+    // steal another host's tab.
+    expect(
+      findOpenTabForSession('agent-session-1', tabs as any, sessions as any, ['tab-1'], 'codex'),
+    ).toBeNull()
+    expect(
+      findOpenTabForSession('agent-session-1', tabs as any, sessions as any, ['tab-1'], 'codex', 'host-b'),
+    ).toBeNull()
+  })
+
+  test('our own session id still matches hostless — it is client-minted', () => {
+    expect(
+      findOpenTabForSession('local-session-1', tabs as any, sessions as any, ['tab-1']),
     ).toBe('tab-1')
   })
 })

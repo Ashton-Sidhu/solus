@@ -33,18 +33,22 @@ describe('host keys', () => {
 })
 
 describe('host policy', () => {
-  test('uses the connection registry to identify the client machine', () => {
-    // WHY: web aliases its primary host to "local", while desktop has a real
-    // local target. Call sites must not repeat or diverge from that policy.
-    const connections = serverConnections as unknown as { resolveId: (serverId: string) => string }
-    const originalResolveId = connections.resolveId
-    connections.resolveId = (serverId) => serverId === 'local' ? 'web-primary' : serverId
+  test('only the registered local target is the client machine', () => {
+    // WHY: dispatch-client step 5 — the web alias is gone. A browser has no
+    // machine of its own, so nothing is "local" there; on desktop only the
+    // registered local target is, and call sites must not diverge from that.
+    const connections = serverConnections as unknown as { localServerId: () => string | null }
+    const originalLocalServerId = connections.localServerId
+    connections.localServerId = () => 'desktop-local'
     try {
-      expect(hostPolicy.isClientMachine('web-primary')).toBe(true)
+      expect(hostPolicy.isClientMachine('desktop-local')).toBe(true)
       expect(hostPolicy.isClientMachine('remote')).toBe(false)
       expect(hostPolicy.isClientMachine(undefined)).toBe(false)
+      // Web: no registered local target means no client machine at all.
+      connections.localServerId = () => null
+      expect(hostPolicy.isClientMachine('remote')).toBe(false)
     } finally {
-      connections.resolveId = originalResolveId
+      connections.localServerId = originalLocalServerId
     }
   })
 })

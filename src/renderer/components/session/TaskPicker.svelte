@@ -2,6 +2,7 @@
   import { tick } from "svelte";
   import { fly } from "svelte/transition";
   import {
+    CaretRightIcon,
     ListChecksIcon,
     MagnifyingGlassIcon,
     XIcon,
@@ -23,6 +24,7 @@
     type ConversationBounds,
   } from "../pickers/lib/conversation-bounds";
   import { relativeTime, STATUS_META } from "../tasks/lib/tasks-api";
+  import { isDone } from "../tasks/lib/tasks-list-view";
   import {
     linkedTableLinks,
     linkRow,
@@ -50,6 +52,7 @@
   const layer = getPopoverLayer();
   let query = $state("");
   let selectedIndex = $state(0);
+  let completedExpanded = $state(false);
   let searchEl = $state<HTMLInputElement | null>(null);
   let pickerEl = $state<HTMLDivElement | null>(null);
   let viewportWidth = $state(0);
@@ -72,8 +75,17 @@
         .includes(needle),
     );
   });
+  const openTasks = $derived(filteredTasks.filter((task) => !isDone(task)));
+  const completedTasks = $derived(filteredTasks.filter(isDone));
+  // Finished work is history: it stays folded away until asked for, except when
+  // it is the only thing a search matched — an empty list would read as "no
+  // results" while the match sat hidden one row below.
+  const completedVisible = $derived(completedExpanded || openTasks.length === 0);
+  const visibleTasks = $derived(
+    completedVisible ? [...openTasks, ...completedTasks] : openTasks,
+  );
   const selectedTask = $derived(
-    filteredTasks[Math.min(selectedIndex, filteredTasks.length - 1)] ?? null,
+    visibleTasks[Math.min(selectedIndex, visibleTasks.length - 1)] ?? null,
   );
 
   // Works, plans and automations only come from a detail read, so the preview
@@ -137,6 +149,7 @@
     wasOpen = true;
     query = "";
     selectedIndex = 0;
+    completedExpanded = false;
     void session.tasksStore.ensureLoaded();
     blurActiveTextInputOnMobile();
     tick().then(() => {
@@ -165,13 +178,24 @@
     return task.projectKey.replace(/\/$/, "").split("/").at(-1) || task.projectKey;
   }
 
+  function toggleCompleted(): void {
+    completedExpanded = !completedVisible;
+    // Folding the section away must not leave the selection on a hidden row.
+    selectedIndex = Math.min(selectedIndex, visibleTasks.length - 1);
+  }
+
   function handleKeyDown(event: KeyboardEvent): void {
     if (event.key === "Escape") {
       event.preventDefault();
       close();
     } else if (event.key === "ArrowDown" || (event.key === "Tab" && !event.shiftKey)) {
       event.preventDefault();
-      selectedIndex = Math.min(selectedIndex + 1, filteredTasks.length - 1);
+      // Walking off the end of the open work is how the keyboard reaches the
+      // folded section, so no shortcut is needed to unfold it.
+      if (selectedIndex >= visibleTasks.length - 1 && completedTasks.length && !completedVisible) {
+        completedExpanded = true;
+      }
+      selectedIndex = Math.min(selectedIndex + 1, visibleTasks.length - 1);
     } else if (event.key === "ArrowUp" || (event.key === "Tab" && event.shiftKey)) {
       event.preventDefault();
       selectedIndex = Math.max(selectedIndex - 1, 0);
@@ -189,6 +213,30 @@
 </script>
 
 <svelte:window bind:innerWidth={viewportWidth} />
+
+{#snippet sectionHeading(label: string, count: number)}
+  <div class="flex h-8 items-center gap-1.5 px-3 text-(--solus-text-tertiary)">
+    <span class="text-xs font-normal uppercase">{label}</span>
+    <span class="font-mono text-xs tabular-nums opacity-70">{count}</span>
+  </div>
+{/snippet}
+
+{#snippet taskRow(task: Task, index: number, done: boolean)}
+  <button
+    type="button"
+    role="option"
+    aria-selected={index === selectedIndex}
+    class="flex h-[46px] w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 text-left transition-[background-color,color] duration-100 {index === selectedIndex ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)' : 'text-(--solus-text-secondary) hover:bg-(--solus-surface-hover)'} {done ? 'opacity-60' : ''}"
+    onclick={() => select(task)}
+    onpointerenter={() => (selectedIndex = index)}
+  >
+    <ListChecksIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
+    <span class="min-w-0 flex-1">
+      <span class="block truncate text-[0.8125rem] font-medium">{task.title}</span>
+      <span class="block truncate text-xs text-(--solus-text-tertiary)">{projectLabel(task)}</span>
+    </span>
+  </button>
+{/snippet}
 
 {#snippet pickerContent()}
   <div
@@ -219,22 +267,38 @@
           {session.tasksStore.loading ? "Loading tasks…" : `No tasks match “${query}”`}
         </div>
       {:else}
-        {#each filteredTasks as task, index (task.id)}
+        {#if openTasks.length}
+          {@render sectionHeading("Open", openTasks.length)}
+          {#each openTasks as task, index (task.id)}
+            {@render taskRow(task, index, false)}
+          {/each}
+        {/if}
+        {#if completedTasks.length && !openTasks.length}
+          <!-- Nothing to fold behind: the section is the whole list, so the
+               heading answers what these rows are instead of offering a
+               toggle that cannot change anything. -->
+          {@render sectionHeading("Completed", completedTasks.length)}
+        {:else if completedTasks.length}
           <button
             type="button"
-            role="option"
-            aria-selected={index === selectedIndex}
-            class="flex h-[46px] w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 text-left transition-[background-color,color] duration-100 {index === selectedIndex ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)' : 'text-(--solus-text-secondary) hover:bg-(--solus-surface-hover)'}"
-            onclick={() => select(task)}
-            onpointerenter={() => (selectedIndex = index)}
+            class="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-lg px-3 text-left text-(--solus-text-tertiary) transition-[background-color,color] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) {openTasks.length ? 'mt-1' : ''}"
+            aria-expanded={completedVisible}
+            onclick={toggleCompleted}
           >
-            <ListChecksIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
-            <span class="min-w-0 flex-1">
-              <span class="block truncate text-[0.8125rem] font-medium">{task.title}</span>
-              <span class="block truncate text-xs text-(--solus-text-tertiary)">{projectLabel(task)}</span>
-            </span>
+            <CaretRightIcon
+              size={11}
+              weight="bold"
+              class="shrink-0 transition-transform duration-150 {completedVisible ? 'rotate-90' : ''}"
+            />
+            <span class="text-xs font-normal uppercase">Completed</span>
+            <span class="font-mono text-xs tabular-nums opacity-70">{completedTasks.length}</span>
           </button>
-        {/each}
+        {/if}
+        {#if completedVisible}
+          {#each completedTasks as task, index (task.id)}
+            {@render taskRow(task, openTasks.length + index, true)}
+          {/each}
+        {/if}
       {/if}
     </div>
     <div class="relative min-w-0 flex-1 overflow-y-auto bg-[color-mix(in_srgb,var(--solus-surface-primary)_5%,transparent)] p-7 shadow-[inset_0.0625rem_0_0_0_color-mix(in_srgb,var(--solus-popover-border)_45%,transparent)] max-md:hidden">

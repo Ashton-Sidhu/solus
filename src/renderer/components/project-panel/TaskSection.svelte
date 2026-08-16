@@ -4,6 +4,7 @@
   import { getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {
+    attemptServerId,
     findOpenTabForSession,
     getAttentionState,
     openSessionFor,
@@ -11,7 +12,7 @@
   } from "../../lib/sessionUtils";
   import { toasts } from "../../lib/toasts";
   import { serverConnections } from "@client-core/server-connections";
-  import { resolveSessionMetaRef } from "@client-core/session-meta";
+  import { readSessionMeta } from "@client-core/session-meta";
   import * as TooltipUI from "../ui/tooltip";
   import {
     orderSessionLinks,
@@ -67,7 +68,11 @@
   // read is its own derived so the ticking clock below can't invalidate it.
   const liveAttempts = $derived(
     attempts.map((link) => {
-      const open = openSessionFor(link.sessionId, session);
+      const open = openSessionFor(
+        link.sessionId,
+        attemptServerId({ link, taskServerId: store.hostFor(task.id) }),
+        session,
+      );
       return {
         link,
         title: open ? sessionTitle(open.session) : null,
@@ -128,7 +133,7 @@
       serverId ? serverConnections.resolveId(serverId) : undefined,
     );
     if (openTab) return openTab;
-    const meta = await resolveSessionMetaRef({ sessionId, serverId });
+    const meta = serverId ? await readSessionMeta(serverId, sessionId) : null;
     return meta ? await session.resumeSession(meta) : null;
   }
 
@@ -209,7 +214,7 @@
            and hands its slot to the actions on hover, so the row keeps one
            value column and never changes height. -->
       <div
-        class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-xs text-(--solus-text-secondary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {row.current
+        class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-menu text-(--solus-text-secondary) transition-colors duration-150 @max-[15rem]:text-xs hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {row.current
  ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
  : ''} {row.dimmed ? 'opacity-[.62] hover:opacity-100' : ''}"
         role="button"
@@ -275,7 +280,7 @@
 
     <button
       type="button"
-      class="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-xs text-(--solus-text-secondary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
+      class="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-menu text-(--solus-text-secondary) transition-colors duration-150 @max-[15rem]:text-xs hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
       onclick={newSession}
     >
       <PlusIcon size={13} class="shrink-0" />
@@ -308,7 +313,7 @@
         {@const KindIcon = row.icon}
         <button
           type="button"
-          class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-xs text-(--solus-text-secondary) transition-[background-color,color,opacity] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {row.dimmed
+          class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-menu text-(--solus-text-secondary) transition-[background-color,color,opacity] duration-150 @max-[15rem]:text-xs hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {row.dimmed
  ? 'opacity-[.62] hover:opacity-100'
  : ''}"
           title="{row.kindLabel} · {row.label}"

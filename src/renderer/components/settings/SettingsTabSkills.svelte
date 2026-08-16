@@ -131,9 +131,9 @@
           workspace.activeSession?.run.workingDirectory ??
           workspace.globalDefaults.workingDirectory;
         const activeTabId = workspace.activeTabId;
-        const activeServerId = activeTabId
-          ? workspace.runFor(activeTabId)?.serverId
-          : serverConnections.connectionFor()?.serverId;
+        const activeServerId =
+          (activeTabId ? workspace.runFor(activeTabId)?.serverId : undefined) ??
+          serverConnections.defaultServerId();
         if (activeServerId === serverId) {
           void workspace.refreshPluginCommands(cwd, activeTabId || undefined);
         }

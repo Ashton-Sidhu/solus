@@ -366,11 +366,14 @@ export function findOpenTabForSession(
     const tab = tabs[tabId]
     if (!tab) continue
     const sess = sessions[tab.sessionId]
-    if (
-      (tab.sessionId === sessionId || sess?.agentSessionId === sessionId)
-      && (!provider || sess.run.provider === provider)
-      && (!serverId || sess.run.serverId === serverId)
-    ) return tabId
+    if (!sess) continue
+    if (provider && sess.run.provider !== provider) continue
+    if (serverId && sess.run.serverId !== serverId) continue
+    // Our own session ids are client-minted and collision-free, so they match
+    // without a host. Provider ids are host-minted and can collide across
+    // hosts, so an agent-session match requires the caller to name the host.
+    if (tab.sessionId === sessionId) return tabId
+    if (sess.agentSessionId === sessionId && serverId) return tabId
   }
   return null
 }
@@ -387,9 +390,11 @@ export interface OpenSessionLookup {
 
 /** The mounted tab running a provider session, paired with its live state.
  *  Null when the session has no tab open — the ordinary case for a task's
- *  earlier attempts, which are read from their durable link instead. */
+ *  earlier attempts, which are read from their durable link instead. The
+ *  caller names the attempt's host: provider ids only match host-scoped. */
 export function openSessionFor(
   sessionId: string,
+  serverId: string | null,
   workspace: OpenSessionLookup,
 ): { tabId: string; tab: Tab; session: Session } | null {
   const tabId = findOpenTabForSession(
@@ -397,6 +402,8 @@ export function openSessionFor(
     workspace.tabs,
     workspace.sessions,
     workspace.tabOrder,
+    undefined,
+    serverId ?? undefined,
   )
   if (!tabId) return null
   const tab = workspace.tabs[tabId]
@@ -410,9 +417,10 @@ export function openSessionFor(
  *  outranks the title stored on the durable link. */
 export function liveSessionTitle(
   sessionId: string,
+  serverId: string | null,
   workspace: OpenSessionLookup,
 ): string | null {
-  const open = openSessionFor(sessionId, workspace)
+  const open = openSessionFor(sessionId, serverId, workspace)
   return open ? sessionTitle(open.session) : null
 }
 

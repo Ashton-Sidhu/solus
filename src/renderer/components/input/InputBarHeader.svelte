@@ -158,13 +158,17 @@
 
   $effect(() => {
     if (isPinned) return;
-    const handler = () => {
+    const handler = (event: Event) => {
       if (windowCtx.viewMode !== "editor" || !hasGitRepository) return;
       if (gitOpen) {
         gitOpen = false;
       } else {
         branchTooltipOpen = false;
-        gitInitialView = "worktrees";
+        // The worktree shortcut opens the worktree list; the branch shortcut
+        // asks for the branch list instead.
+        const detail: { view?: "worktrees" | "branches" } | undefined =
+          event instanceof CustomEvent ? event.detail : undefined;
+        gitInitialView = detail?.view === "branches" ? "branches" : "worktrees";
         gitOpen = true;
       }
     };

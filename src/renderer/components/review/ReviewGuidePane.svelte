@@ -140,34 +140,6 @@
 </script>
 
 <section class="relative flex h-full min-h-0 flex-col bg-(--solus-container-bg)">
-  <PaneChrome
-    {onClose}
-    {onOpenInSplit}
-    {isLeading}
-    closeLabel="Close review guide"
-  >
-    {#snippet trailing()}
-      {#if !isDemo}
-        <TooltipUI.Root>
-          <TooltipUI.Trigger>
-            {#snippet child({ props })}
-              <button
-                {...props}
-                type="button"
-                class={PAGE_ICON_BTN}
-                onclick={() => loader.refresh()}
-                aria-label="Regenerate review guide"
-              >
-                <ArrowsClockwiseIcon size={15} />
-              </button>
-            {/snippet}
-          </TooltipUI.Trigger>
-          <TooltipUI.Content value={"Regenerate review"} />
-        </TooltipUI.Root>
-      {/if}
-    {/snippet}
-  </PaneChrome>
-
   <div
     class="workspace-titlebar h-(--solus-chrome-row-h) shrink-0"
     aria-hidden="true"
@@ -201,4 +173,34 @@
       </div>
     </div>
   {/if}
+
+  <!-- After the content: the chrome row above is a window drag region, and a
+       drag rect later in the DOM would re-cover this cluster's no-drag holes. -->
+  <PaneChrome
+    {onClose}
+    {onOpenInSplit}
+    {isLeading}
+    closeLabel="Close review guide"
+  >
+    {#snippet trailing()}
+      {#if !isDemo}
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props })}
+              <button
+                {...props}
+                type="button"
+                class={PAGE_ICON_BTN}
+                onclick={() => loader.refresh()}
+                aria-label="Regenerate review guide"
+              >
+                <ArrowsClockwiseIcon size={15} />
+              </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Regenerate review"} />
+        </TooltipUI.Root>
+      {/if}
+    {/snippet}
+  </PaneChrome>
 </section>

@@ -5,12 +5,14 @@
   import { SvelteSet } from "svelte/reactivity";
   import {
     GitPullRequestIcon,
+    GithubLogoIcon,
     ArrowsClockwiseIcon,
     BookOpenTextIcon,
     CircleNotchIcon,
     PlayIcon,
     UserIcon,
     WarningIcon,
+    WarningCircleIcon,
   } from "phosphor-svelte";
   import type { PullRequestSummary } from "../../../shared/providers";
   import type { IpcContext } from "../../../shared/types";
@@ -125,8 +127,8 @@
   }
 
   // A project-scoped page follows the focused session for that project. A bare
-  // standalone list has no checkout owner to infer, so primary is the explicit
-  // default that preserves the single-host behavior.
+  // standalone list has no checkout owner to infer, so the new-work default
+  // host is the explicit choice — and with no host connected, nothing loads.
   const prsSourceTabId = $derived.by(() => {
     if (!activeProjectPath) return null;
     const focusedTabId = session.focusedChatTabId ?? session.activeTabId;
@@ -137,10 +139,14 @@
         run?.workingDirectory === activeProjectPath;
     }) ?? null;
   });
-  const prsApi = $derived(
-    prsSourceTabId ? session.apiFor(prsSourceTabId) : serverConnections.primaryApi(),
+  const prsApi = $derived.by(() => {
+    if (prsSourceTabId) return session.apiFor(prsSourceTabId);
+    const defaultServerId = serverConnections.defaultServerId();
+    return defaultServerId ? serverConnections.apiFor(defaultServerId) : null;
+  });
+  const prsServerId = $derived(
+    prsApi ? serverConnections.serverIdForApi(prsApi) : null,
   );
-  const prsServerId = $derived(serverConnections.serverIdForApi(prsApi));
 
   const projectOptions = $derived(
     sessionSidebar.projectSummaries
@@ -171,7 +177,8 @@
   // falls back to "nobody is me", which under-fills the Yours filter rather than
   // mislabelling someone else's PR as yours.
   const rowContext = $derived<PrRowContext>({
-    checks: (number) => store.checksFor(prsServerId, prsCtx(), number),
+    checks: (number) =>
+      prsServerId ? store.checksFor(prsServerId, prsCtx(), number) : undefined,
     isMine: (pr) => !!viewerLogin && pr.author === viewerLogin,
   });
 
@@ -193,7 +200,9 @@
     if (listView.minesOnly) rows = rows.filter((pr) => rowContext.isMine(pr));
     if (listView.failingOnly) {
       rows = rows.filter((pr) => {
-        const checks = store.checksFor(prsServerId, prsCtx(), pr.number);
+        const checks = prsServerId
+          ? store.checksFor(prsServerId, prsCtx(), pr.number)
+          : undefined;
         return (
           !!checks &&
           checks.headSha === pr.headSha &&
@@ -205,7 +214,7 @@
   });
 
   const stackGraph = $derived(
-    settings.stackedPrsEnabled && stacksReady
+    settings.stackedPrsEnabled && stacksReady && prsServerId
       ? stacks.graphFor(prsServerId, activeProjectPath)
       : null,
   );
@@ -278,7 +287,9 @@
       count: splitList
         ? undefined
         : searched.filter((pr) => {
-            const checks = store.checksFor(prsServerId, prsCtx(), pr.number);
+            const checks = prsServerId
+              ? store.checksFor(prsServerId, prsCtx(), pr.number)
+              : undefined;
             return (
               !!checks &&
               checks.headSha === pr.headSha &&
@@ -440,17 +451,19 @@
         requestedProjectPath && requestedProjectPath !== currentProjectPath
           ? requestedProjectPath
           : null;
-      store.filter = { state: fetchScope };
-      void store.loadAll(prsApi, prsServerId, prsCtx());
-      void store
-        .loadViewer(prsApi, prsServerId, prsCtx())
-        .then((login) => (viewerLogin = login))
-        .catch(() => {});
-      stacksReady = false;
-      void stacks.load(prsApi, prsServerId, prsCtx()).then(
-        () => (stacksReady = true),
-        () => (stacksReady = false),
-      );
+      if (prsApi && prsServerId) {
+        store.filter = { state: fetchScope };
+        void store.loadAll(prsApi, prsServerId, prsCtx());
+        void store
+          .loadViewer(prsApi, prsServerId, prsCtx())
+          .then((login) => (viewerLogin = login))
+          .catch(() => {});
+        stacksReady = false;
+        void stacks.load(prsApi, prsServerId, prsCtx()).then(
+          () => (stacksReady = true),
+          () => (stacksReady = false),
+        );
+      }
       restoreReadingPosition();
     });
   });
@@ -475,9 +488,11 @@
   // local metadata after each graph update so target and own-delta guides never
   // borrow one another's timestamp.
   $effect(() => {
-    if (!open || !stackGraph) return;
+    if (!open || !stackGraph || !prsApi || !prsServerId) return;
+    const api = prsApi;
+    const serverId = prsServerId;
     untrack(
-      () => void store.loadGuideMetadata(prsApi, prsServerId, prsCtx(), store.items).catch(() => {}),
+      () => void store.loadGuideMetadata(api, serverId, prsCtx(), store.items).catch(() => {}),
     );
   });
 
@@ -491,16 +506,18 @@
     store.resetListView();
     store.needsReviewOnly = false;
     store.filter = { state: "open" };
-    void store.loadAll(prsApi, prsServerId, prsCtx());
-    void store
-      .loadViewer(prsApi, prsServerId, prsCtx())
-      .then((login) => (viewerLogin = login))
-      .catch(() => {});
-    stacksReady = false;
-    void stacks.load(prsApi, prsServerId, prsCtx()).then(
-      () => (stacksReady = true),
-      () => (stacksReady = false),
-    );
+    if (prsApi && prsServerId) {
+      void store.loadAll(prsApi, prsServerId, prsCtx());
+      void store
+        .loadViewer(prsApi, prsServerId, prsCtx())
+        .then((login) => (viewerLogin = login))
+        .catch(() => {});
+      stacksReady = false;
+      void stacks.load(prsApi, prsServerId, prsCtx()).then(
+        () => (stacksReady = true),
+        () => (stacksReady = false),
+      );
+    }
     void tick().then(() => searchEl?.focus());
   }
 
@@ -532,6 +549,7 @@
     // The row's verb picks the landing tab: a row that says Review opens on the
     // diff, everything else on Activity.
     store.prReviewTab = tab ?? "activity";
+    if (!prsApi || !prsServerId) return;
     void store.loadEfforts(prsApi, prsServerId, prsCtx(), [pr.number]);
     store.prefetchReview(prsApi, prsServerId, prsCtx(), pr.number);
   }
@@ -540,6 +558,7 @@
    *  Enter opens the row, so walking the list costs no requests. */
   function highlightPr(pr: PullRequestSummary) {
     listView.selectedNumber = pr.number;
+    if (!prsApi || !prsServerId) return;
     void store.loadEfforts(prsApi, prsServerId, prsCtx(), [pr.number]);
   }
 
@@ -561,7 +580,7 @@
 
   function openReviewMode() {
     const items = selected.length > 0 ? selected : filtered;
-    if (items.length === 0) return;
+    if (items.length === 0 || !prsServerId) return;
     void session.openReviewMode(items, prsCtx(), prsServerId);
   }
 
@@ -579,7 +598,7 @@
 
   function generateGuides() {
     const numbers = guideEligible.map((pr) => pr.number);
-    if (numbers.length === 0) return;
+    if (numbers.length === 0 || !prsApi || !prsServerId) return;
     const projectPath = activeProjectPath;
     void store
       .requestGuides(prsApi, prsServerId, prsCtx(), numbers, {
@@ -615,6 +634,7 @@
   }
 
   function refreshList() {
+    if (!prsApi || !prsServerId) return;
     store.filter = { state: fetchScope };
     void store.loadAll(prsApi, prsServerId, prsCtx(), { force: true });
   }
@@ -627,7 +647,7 @@
     const refetch = scope !== fetchScope;
     store.needsReviewOnly = false;
     listView.statusKeys = next;
-    if (!refetch) return;
+    if (!refetch || !prsApi || !prsServerId) return;
     store.filter = { state: scope };
     void store.loadAll(prsApi, prsServerId, prsCtx());
   }
@@ -675,7 +695,9 @@
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
-          void store.loadEfforts(prsApi, prsServerId, prsCtx(), [number]);
+          if (prsApi && prsServerId) {
+            void store.loadEfforts(prsApi, prsServerId, prsCtx(), [number]);
+          }
           observer.disconnect();
         }
       },
@@ -691,7 +713,7 @@
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
-        if (store.hasMore && !store.loadingMore)
+        if (store.hasMore && !store.loadingMore && prsApi && prsServerId)
           void store.loadMore(prsApi, prsServerId, prsCtx());
       },
       { rootMargin: "600px 0px" },
@@ -832,14 +854,31 @@
         {#if store.loading && filtered.length === 0}
           <ListSkeleton identWidth={44} />
         {:else if store.error?.kind === "github-auth"}
-          <PageEmpty title="Connect GitHub to load pull requests.">
-            <GithubConnectionRequired serverId={prsServerId} />
+          <PageEmpty
+            icon={GithubLogoIcon}
+            tone="muted"
+            title="Connect GitHub to load pull requests."
+          >
+            {#if prsServerId}
+              <GithubConnectionRequired serverId={prsServerId} layout="stacked" />
+            {/if}
           </PageEmpty>
         {:else if store.error}
-          <PageEmpty title="Couldn’t load pull requests.">
+          <PageEmpty
+            icon={WarningCircleIcon}
+            tone="muted"
+            title="Couldn’t load pull requests."
+          >
             {store.error.message}
             {#snippet actions()}
-              <Button type="button" variant="outline" onclick={refreshList}>Retry</Button>
+              <Button
+                type="button"
+                variant="outline"
+                onclick={refreshList}
+              >
+                <ArrowsClockwiseIcon size={14} />
+                Retry
+              </Button>
             {/snippet}
           </PageEmpty>
         {:else if store.items.length === 0}
@@ -1018,7 +1057,10 @@
                     type="button"
                     class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-[0.8125rem] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={store.loadingMore}
-                    onclick={() => void store.loadMore(prsApi, prsServerId, prsCtx())}
+                    onclick={() => {
+                      if (prsApi && prsServerId)
+                        void store.loadMore(prsApi, prsServerId, prsCtx());
+                    }}
                   >
                     {store.loadingMore ? "Loading…" : "Load more pull requests"}
                   </Button>
@@ -1031,7 +1073,7 @@
     </ListPage>
     </div>
 
-    {#if openNumber !== null}
+    {#if openNumber !== null && prsApi && prsServerId}
       <div
         class="flex flex-col bg-background {panelFullScreen
           ? 'absolute inset-0 z-20'

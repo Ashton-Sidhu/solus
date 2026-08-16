@@ -38,7 +38,11 @@
   // one live fact the row acts on (Stop). Everything else comes off the link.
   const rows = $derived(
     sessions.map((link) => {
-      const open = openSessionFor(link.sessionId, session);
+      const linkServerId = attemptServerId({
+        link,
+        taskServerId: session.tasksStore.hostFor(link.taskId),
+      });
+      const open = openSessionFor(link.sessionId, linkServerId, session);
       const host = serversStore.hostFor(
         attemptServerId({
           link,

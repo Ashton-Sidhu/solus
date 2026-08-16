@@ -377,7 +377,7 @@ export interface PrepareSessionTaskRequest {
   parentTaskId?: string | null
   projectKey?: string | null
   worktreeKey?: string | null
-  /** The first prompt, which names the task until generation replaces it. */
+  /** The first prompt, whose first non-empty line deterministically names the task. */
   prompt?: string
   branch?: string | null
   /** Also return a `TaskSnapshot` of the minted/bound task. Set by a client

@@ -1,11 +1,18 @@
+import { SvelteMap } from 'svelte/reactivity'
 import type { AgentId, IpcContext, SessionMeta, SessionStatus } from '../../../shared/types'
 import { serverConnections } from '@client-core/server-connections'
+import { onServerRemoving } from '@client-core/server-registry'
+import { sessionSnapshotCache } from '@client-core/session-snapshot-cache'
+import type { DomainSyncState } from '@client-core/freshness'
 import {
   HistorySessionOrder,
   SessionHistoryLoader,
   type SessionHistoryLoaderOptions,
   type SessionHistorySource,
 } from '../../lib/sessionPickerHistory'
+
+// Forgetting a host is total: its last-known session snapshot leaves with it.
+onServerRemoving((server) => sessionSnapshotCache.forgetHost(server.id))
 
 interface SessionHistoryStoreLoadOptions {
   sources: SessionHistorySource[]
@@ -31,29 +38,26 @@ export function updateSessionHistoryStatus(
 
 function defaultHistoryLoaderOptions(): SessionHistoryLoaderOptions {
   return {
+    // Every source names its host — there is no primary fallback to inherit.
     hostFor: (serverId) => {
-      const resolvedServerId = serverId
-        ? serverConnections.resolveId(serverId)
-        : serverConnections.connectionFor()?.serverId
-      if (!resolvedServerId) throw new Error('Primary Solus connection has not been registered')
-      const api = serverId
-        ? serverConnections.apiFor(resolvedServerId)
-        : serverConnections.primaryApi()
-      const events = serverId
-        ? serverConnections.eventsFor(resolvedServerId)
-        : serverConnections.eventsForPrimary()
+      const resolvedServerId = serverConnections.resolveId(serverId)
       return {
         serverId: resolvedServerId,
-        listSessions: api.listSessions,
-        onSessionScan: (listener) => events.subscribe('session.scanProgressed', listener),
+        listSessions: serverConnections.apiFor(resolvedServerId).listSessions,
+        onSessionScan: (listener) =>
+          serverConnections.eventsFor(resolvedServerId).subscribe('session.scanProgressed', listener),
       }
     },
+    snapshotCache: sessionSnapshotCache,
   }
 }
 
 export class SessionHistoryStore {
   sessions = $state<SessionMeta[]>([])
   loading = $state(false)
+  /** The freshness ladder per host in the current scope. A spinner may only
+   *  claim `synchronizing`; an offline host's rows render under `cached`. */
+  hostStates = new SvelteMap<string, DomainSyncState>()
 
   #order = new HistorySessionOrder()
   #loader: SessionHistoryLoader
@@ -69,7 +73,10 @@ export class SessionHistoryStore {
     this.#loader.cancel()
     this.loading = false
     this.#scopeKey = null
-    if (options.clear) this.clear()
+    if (options.clear) {
+      this.hostStates.clear()
+      this.clear()
+    }
   }
 
   clear(): void {
@@ -97,6 +104,7 @@ export class SessionHistoryStore {
     const seq = ++this.#loadSeq
     this.#scopeKey = scopeKey ?? null
     this.loading = true
+    this.hostStates.clear()
 
     try {
       const sessions = await this.#loader.load({
@@ -108,6 +116,10 @@ export class SessionHistoryStore {
           if (!this.#isCurrent(seq, scopeKey)) return
           this.merge(batch)
           onBatch?.(this.sessions)
+        },
+        onHostState: (serverId, state) => {
+          if (!this.#isCurrent(seq, scopeKey)) return
+          this.hostStates.set(serverId, state)
         },
       })
       if (!this.#isCurrent(seq, scopeKey)) return []
@@ -126,7 +138,7 @@ export class SessionHistoryStore {
 
   async findSession(
     sessionId: string,
-    source: { projectPath: string; provider?: AgentId },
+    source: { projectPath: string; provider?: AgentId; serverId: string },
     ctx: IpcContext,
   ): Promise<SessionMeta | null> {
     const sessions = await this.load({
@@ -135,6 +147,7 @@ export class SessionHistoryStore {
           id: source.projectPath,
           projectPath: source.projectPath,
           provider: source.provider,
+          serverId: source.serverId,
         },
       ],
       ctx,

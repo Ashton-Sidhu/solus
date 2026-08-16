@@ -37,7 +37,7 @@ Before later verification turns, check this instance's lock PID and health and r
 
 ## Drive with Playwright
 
-Write a short disposable TypeScript script that imports `openApp` from `scripts/agent/open-app.ts`, then run it with `bun <script>`. The helper seeds the saved loopback server before page boot so the web client skips ConnectFlow.
+Write a short disposable TypeScript script that imports `openApp` from `scripts/agent/open-app.ts`, then run it with `bun <script>`. The helper seeds the saved loopback server before page boot so the web client connects to it immediately instead of booting hostless.
 
 ```ts
 import { mkdir } from 'node:fs/promises'

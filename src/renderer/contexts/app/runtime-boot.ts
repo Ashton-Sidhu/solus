@@ -3,6 +3,8 @@ import { bootstrapRuntimeTabs } from '../workspace/session-bootstrap'
 import type { SessionSidebarStore } from '../workspace/session-sidebar.store.svelte'
 import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
 import { serverConnections } from '@client-core/server-connections'
+import { sendOutbox } from '@client-core/send-outbox'
+import { startActivityLeaseHeartbeat } from '@client-core/activity-lease'
 
 /** Ignore expected connection gaps while still surfacing unrelated read failures. */
 export function logConnectionReadError(operation: string, error: Parameters<typeof String>[0]): void {
@@ -10,10 +12,11 @@ export function logConnectionReadError(operation: string, error: Parameters<type
   console.error(`${operation} failed`, error)
 }
 
-/** Refresh the renderer's system-theme state from the active transport. */
+/** Refresh the renderer's system-theme state from the client machine's own
+ *  host. Web has no local host and reads the OS theme via media query instead. */
 export function refreshTheme(setSystemTheme: (isDark: boolean) => void): void {
-  serverConnections.primaryApi()
-    .getTheme()
+  serverConnections.localHostApi()
+    ?.getTheme()
     .then(({ isDark }: { isDark: boolean }) => setSystemTheme(isDark))
     .catch((error) => logConnectionReadError('getTheme', error))
 }
@@ -33,6 +36,22 @@ export function initializeRuntime(
       void sidebarStore.loadPinnedSessions()
     })
     .catch((error) => logConnectionReadError('session runtime initialization', error))
+
+  // Pins federate across hosts, so a host that connects after boot has to
+  // contribute its own rows too — not only the hosts present at bootstrap.
+  serverConnections.onConnectionCreated(() => {
+    void sidebarStore.loadPinnedSessions()
+  })
+
+  // The durable send outbox drains when a host's supervisor reports live:
+  // queued work survives a dead host and delivers on the next session.
+  serverConnections.onPhaseChange((serverId, phase) => {
+    if (phase !== 'connected') return
+    void sendOutbox.drain(serverId, (record) => session.redeliverOutboxPrompt(serverId, record))
+  })
+
+  // Hosts skip watch-fired freshness work while no client is foregrounded.
+  startActivityLeaseHeartbeat()
 }
 
 /** Detect reconnect edges after the first connected state has been observed. */

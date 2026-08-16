@@ -113,10 +113,11 @@ export class WorksStore {
   }
 
   /** Legacy work ids can arrive from old transcript links before any list read
-   *  places them. Primary fallback preserves that single-host cold path only. */
+   *  places them. The default host preserves that single-host cold path only. */
   private apiForWork(workId: string): HostApi {
-    const serverId = this.hostByWorkId.get(workId)
-    return serverId ? serverConnections.apiFor(serverId) : serverConnections.primaryApi()
+    const serverId = this.hostByWorkId.get(workId) ?? serverConnections.defaultServerId()
+    if (!serverId) throw new Error('Primary Solus connection has not been registered')
+    return serverConnections.apiFor(serverId)
   }
 
   annotationComments(workId: string): PlanComment[] {

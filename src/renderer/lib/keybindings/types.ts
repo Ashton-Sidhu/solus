@@ -35,7 +35,12 @@ export type Scope =
   | 'onboarding'
 
 export type BindingDef = {
-  combo: KeyCombo
+  /**
+   * `null` ships the action unassigned: it appears in Settings → Keybindings so
+   * a user can give it a key, but nothing fires until they do. Use it for a
+   * surface that is reachable by pointer and has no obvious free combo left.
+   */
+  combo: KeyCombo | null
   /**
    * Web-safe default, used in the web shell when `combo` is a browser-reserved
    * combo (⌘T/⌘W/⌘N/…) the page can't preventDefault. Falls back to `combo`.

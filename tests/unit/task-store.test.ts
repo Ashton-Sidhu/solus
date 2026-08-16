@@ -513,6 +513,31 @@ describe('session minting and durable links', () => {
     expect((await taskSessions.taskSessions(task!.id))[task!.id]).toHaveLength(1)
   })
 
+  test('task attempts read session metadata through the stable lineage id', async () => {
+    const task = await taskSessions.prepareSessionTask({
+      sessionId: 'stable-session',
+      projectKey: '/workspace/solus',
+      prompt: 'A task with a stable session id',
+    })
+    db.getDb().prepare(`
+      INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp)
+      VALUES (?, ?, ?, ?, ?)
+    `).run('provider-session', 'codex', 'First provider message', 'Provider session title', 1_725_000_000_000)
+    db.getDb().prepare(`
+      INSERT INTO session_lineage_members(
+        session_id, position, provider, provider_session_id, cwd, started_at, ended_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('stable-session', 0, 'codex', 'provider-session', '/workspace/solus', 1, null, 1)
+
+    expect((await taskSessions.taskSessions(task!.id))[task!.id]).toEqual([
+      expect.objectContaining({
+        sessionId: 'stable-session',
+        sessionTitle: 'Provider session title',
+        provider: 'codex',
+      }),
+    ])
+  })
+
   test('performs no write for any dispatch with an existing provider session', async () => {
     // WHY: this structural gate keeps every pre-Phase-1 session outside the new
     // task system forever; follow-up prompts must not repair or backfill it.
@@ -529,28 +554,26 @@ describe('session minting and durable links', () => {
     expect(await taskSessions.tasksForSession('legacy-solus-session')).toBeNull()
   })
 
-  test('generated titles replace prompt titles once and manual rename wins', async () => {
+  test('generated session metadata preserves the deterministic first-message task title', async () => {
     const task = await taskSessions.prepareSessionTask({
       sessionId: 'session-title',
       projectKey: '/workspace/solus',
       worktreeKey: 'title-work',
       prompt: 'Raw first prompt',
     })
-    expect(await taskSessions.updateGeneratedMetadataForSession(
+    expect(await taskSessions.updateGeneratedDescriptionForSession(
       'session-title',
-      'Generated session title',
       'A generated task description.',
     )).toMatchObject({
       id: task!.id,
-      title: 'Generated session title',
-      titleSource: 'generated',
+      title: 'Raw first prompt',
+      titleSource: 'prompt',
       body: 'A generated task description.',
     })
 
     await (await tasks.Task.byId(task!.id)).update({ title: 'Human title' })
-    expect(await taskSessions.updateGeneratedMetadataForSession(
+    expect(await taskSessions.updateGeneratedDescriptionForSession(
       'session-title',
-      'Late generated title',
       'Late generated description.',
     )).toBeNull()
     expect((await tasks.Task.byId(task!.id)).record()).toMatchObject({ title: 'Human title', titleSource: 'manual' })
@@ -563,13 +586,33 @@ describe('session minting and durable links', () => {
     })
     await (await tasks.Task.byId(task!.id)).update({ body: 'Human-authored description' })
 
-    expect(await taskSessions.updateGeneratedMetadataForSession(
+    expect(await taskSessions.updateGeneratedDescriptionForSession(
       'session-description-race',
-      'Generated title',
       'Generated description',
-    )).toMatchObject({
-      title: 'Generated title',
+    )).toBeNull()
+    expect((await tasks.Task.byId(task!.id)).record()).toMatchObject({
+      title: 'Raw first prompt',
       body: 'Human-authored description',
+    })
+  })
+
+  test('automatic metadata from a new linked session does not rename its parent task', async () => {
+    // WHY: creating a subtask session can add another attempt link. Its generated
+    // name belongs to that session or its own child task, not the existing parent.
+    const task = await taskSessions.prepareSessionTask({
+      sessionId: 'origin-session',
+      prompt: 'Original task title',
+    })
+    await (await tasks.Task.byId(task!.id)).linkSession('linked-session', 'working')
+
+    expect(await taskSessions.updateGeneratedDescriptionForSession(
+      'linked-session',
+      'Linked session description.',
+    )).toBeNull()
+    expect((await tasks.Task.byId(task!.id)).record()).toMatchObject({
+      title: 'Original task title',
+      titleSource: 'prompt',
+      body: '',
     })
   })
 

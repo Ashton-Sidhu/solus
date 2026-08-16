@@ -198,6 +198,9 @@
         ? worktreeProjectRoot(composerCwd)
         : null),
   );
+  const composerServerId = $derived(
+    run?.serverId ?? serverConnections.defaultServerId(),
+  );
 
   // ─── Prompt history ───
 
@@ -1059,8 +1062,12 @@
     }
     const sentSavedPromptId = prompt.savedPromptId;
     prompt.savedPromptId = null;
-    if (sentSavedPromptId && composerProjectRoot) {
-      void savedPrompts.remove(composerProjectRoot, sentSavedPromptId);
+    if (sentSavedPromptId && composerProjectRoot && composerServerId) {
+      void savedPrompts.remove(
+        composerProjectRoot,
+        sentSavedPromptId,
+        composerServerId,
+      );
     }
 
     if (options.refocus !== false) {
@@ -1304,6 +1311,7 @@
       {prompt}
       tabId={targetTabId}
       projectRoot={composerProjectRoot}
+      serverId={composerServerId}
       active={isActiveMode && receivesFocusedInput}
       {isReadOnly}
       anchorEl={composerRootEl}

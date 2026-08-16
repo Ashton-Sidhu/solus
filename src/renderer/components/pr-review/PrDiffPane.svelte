@@ -10,7 +10,6 @@
   import StackDiffBanner from "./StackDiffBanner.svelte";
   import { existingPrReviewState } from "./lib/pr-review.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { serverConnections } from "@client-core/server-connections";
 
   // The review's change, popped out beside it. Reading a diff is a two-handed
   // job — the conversation on one side, the code on the other — so this is a
@@ -26,12 +25,17 @@
   const pane = paneActions(paneId);
 
   // Never created here: this pane exists only alongside a review that already
-  // opened, and state it invented would have no worktree to read.
+  // opened, and state it invented would have no worktree to read. The review's
+  // host comes from the open review route, or this pane's own params; with
+  // neither there is no review state to find.
   const reviewServerId = $derived(
-    session.router.params("prReview")?.serverId ??
-      serverConnections.serverIdForApi(serverConnections.primaryApi()),
+    session.router.params("prReview")?.serverId ?? params.serverId ?? null,
   );
-  const review = $derived(existingPrReviewState(reviewServerId, params.cwd ?? "", params.number));
+  const review = $derived(
+    reviewServerId
+      ? existingPrReviewState(reviewServerId, params.cwd ?? "", params.number)
+      : undefined,
+  );
   const pr = $derived<PrReviewTarget | null>(review?.pr ?? null);
   const checkout = $derived(review?.checkout ?? null);
 
@@ -54,14 +58,6 @@
     requestInputFocus();
   }
 </script>
-
-<PaneChrome
-  onClose={close}
-  onToggleMaximize={pane.toggleMaximize}
-  maximized={pane.maximized}
-  isLeading={pane.isLeading}
-  closeLabel="Close diff"
-/>
 
 {#if review && pr}
   <div class="flex h-full min-h-0 flex-col">
@@ -162,3 +158,13 @@
     </div>
   </div>
 {/if}
+
+<!-- After the content: the chrome rows above are window drag regions, and a
+     drag rect later in the DOM would re-cover this cluster's no-drag holes. -->
+<PaneChrome
+  onClose={close}
+  onToggleMaximize={pane.toggleMaximize}
+  maximized={pane.maximized}
+  isLeading={pane.isLeading}
+  closeLabel="Close diff"
+/>

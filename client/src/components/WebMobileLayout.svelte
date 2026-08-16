@@ -6,10 +6,8 @@
     CaretDownIcon,
     GitBranchIcon,
     GitForkIcon,
-    PlugsIcon,
     XIcon,
   } from "phosphor-svelte";
-  import { serverConnections } from "@client-core/server-connections";
   import InputBar from "@renderer/components/input/InputBar.svelte";
   import InputBarHeader from "@renderer/components/input/InputBarHeader.svelte";
   import GitDropdown from "@renderer/components/GitDropdown.svelte";
@@ -34,7 +32,6 @@
   import MobileServerSheet from "./MobileServerSheet.svelte";
   import { virtualKeyboard } from "../lib/virtual-keyboard.svelte";
   import { registerBackOverlay } from "../lib/back-stack.svelte";
-  import { webState } from "../lib/web-state.svelte";
 
   interface Props {
     chatContent: Snippet;
@@ -101,10 +98,6 @@
     const host = serversStore.hostFor(sess?.run.serverId);
     return host && !host.local ? host.label : null;
   });
-  // Nothing runs until a host is chosen, so the strip carries the way to fix
-  // that. A host only ever arrives by page reload, so this is settled at mount.
-  const noHost = !serverConnections.connectionFor();
-
   let goalCollapsed = $state(false);
   let plusMenuOpen = $state(false);
   let sidebarDrawerOpen = $state(false);
@@ -232,17 +225,8 @@
       </button>
     </div>
 
-    {#if branch || noHost || (sessionStarted && hostGlyph)}
+    {#if branch || (sessionStarted && hostGlyph)}
       <div class="mh-navbar-strip">
-        {#if noHost}
-          <button
-            class="mh-navbar-chip"
-            onclick={() => webState.openServerSetup()}
-          >
-            <PlugsIcon size={14} />
-            <span>No host</span>
-          </button>
-        {/if}
         {#if sessionStarted && hostGlyph && hostName}
           {@const HostIcon = hostGlyph.icon}
           <span class="mh-navbar-chip mh-navbar-chip--inert" title={hostGlyph.tooltip}>

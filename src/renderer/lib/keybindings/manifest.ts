@@ -97,6 +97,7 @@ export const KEYBINDINGS = {
   // ── File editor ────────────────────────────────────────────────────────────
   'file-editor.close':            { combo: { code: 'Escape' },                             scope: 'file-editor',        label: 'Close file',               group: 'Editor' },
   'file-editor.save':             { combo: { alt: true, code: 'KeyS' },                    scope: 'file-editor',        label: 'Save file',                group: 'Editor' },
+  'file-editor.toggle-markdown':  { combo: { alt: true, code: 'KeyM' },                    scope: 'file-editor',        label: 'Toggle Markdown view',     group: 'Editor' },
 
   // ── Files pane ─────────────────────────────────────────────────────────────
   'files-pane.close':             { combo: { code: 'Escape' },                             scope: 'files-pane',         label: 'Close files',              group: 'Panel' },
@@ -104,6 +105,7 @@ export const KEYBINDINGS = {
   'files-pane.focus-search':      { combo: { code: 'Slash' },                              scope: 'files-pane',         label: 'Focus search',             group: 'Navigate' },
   'files-pane.next-file':         { combo: { alt: true, code: 'KeyJ' },                    scope: 'files-pane',         label: 'Next file',                group: 'Navigate' },
   'files-pane.prev-file':         { combo: { alt: true, code: 'KeyK' },                    scope: 'files-pane',         label: 'Previous file',            group: 'Navigate' },
+  'files-pane.toggle-markdown':   { combo: { alt: true, code: 'KeyM' },                    scope: 'files-pane',         label: 'Toggle Markdown view',     group: 'Editor' },
 
   // ── Workspace (plans + docs + diagrams ledger) ─────────────────────────────
   'workspace.close':              { combo: { code: 'Escape' },                             scope: 'workspace',          label: 'Close',                    group: 'Workspace' },
@@ -221,6 +223,28 @@ export const KEYBINDINGS = {
 
   // ── Shortcuts help modal ───────────────────────────────────────────────────
   'shortcuts-help.close':         { combo: { code: 'Escape' },                             scope: 'shortcuts-help',     label: 'Close',                    group: 'Modal' },
+
+  // ── Unassigned by default ──────────────────────────────────────────────────
+  // Menus and pages that are only reachable by pointer or through the command
+  // palette. They ship with no combo so they claim no key from anyone, and are
+  // listed in Settings → Keybindings for a user who reaches for one often
+  // enough to want a key of their own. They join the sections above by `group`,
+  // so declaration here keeps them out of the way without moving them in the UI.
+  'global.switch-branch':         { combo: null,                                           scope: 'global',             label: 'Switch branch',            group: 'Git' },
+  'global.new-session-worktree':  { combo: null,                                           scope: 'global',             label: 'New session in new worktree', group: 'Git' },
+  'global.new-session-in':        { combo: null,                                           scope: 'global',             label: 'New session in branch or worktree…', group: 'Git' },
+  'global.working-tree-diff':     { combo: null,                                           scope: 'global',             label: 'View working tree diff',   group: 'Git' },
+  'global.open-prs':              { combo: null,                                           scope: 'global',             label: 'Open pull requests',       group: 'Pull Requests' },
+  'global.review-pr':             { combo: null,                                           scope: 'global',             label: 'Review pull request…',     group: 'Pull Requests' },
+  'global.open-plan':             { combo: null,                                           scope: 'global',             label: 'Open plan…',               group: 'Navigation' },
+  'global.open-document':         { combo: null,                                           scope: 'global',             label: 'Open document…',           group: 'Navigation' },
+  'global.open-automation':       { combo: null,                                           scope: 'global',             label: 'Open automation…',         group: 'Navigation' },
+  'global.open-task':             { combo: null,                                           scope: 'global',             label: 'Open task…',               group: 'Navigation' },
+  'global.create-task-in':        { combo: null,                                           scope: 'global',             label: 'Create task in project…',  group: 'Tasks' },
+  'global.permission-menu':       { combo: null,                                           scope: 'global',             label: 'Open permission mode menu', group: 'Agent' },
+  'global.add-server':            { combo: null,                                           scope: 'global',             label: 'Add server',               group: 'General' },
+  'global.switch-server':         { combo: null,                                           scope: 'global',             label: 'Switch server…',           group: 'General' },
+  'global.find-hosts':            { combo: null,                                           scope: 'global',             label: 'Find hosts nearby',        group: 'General' },
 } as const satisfies Record<string, BindingDef>
 
 export type BindingId = keyof typeof KEYBINDINGS
@@ -236,7 +260,9 @@ export function bindingsForScope(scope: string): Array<[BindingId, BindingDef]> 
  * Platform-aware combo hint for inline UI labels/tooltips (e.g. "⌘B").
  * Reflects the effective default for the current platform; ignores user
  * overrides (matching how these static hints behaved before they were editable).
+ * Empty for a binding that ships unassigned.
  */
 export function comboHint(id: BindingId): string {
-  return formatCombo(defaultCombo(KEYBINDINGS[id])).join('')
+  const combo = defaultCombo(KEYBINDINGS[id])
+  return combo ? formatCombo(combo).join('') : ''
 }

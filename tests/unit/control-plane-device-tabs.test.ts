@@ -14,7 +14,6 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 let ControlPlane: typeof import('../../src/main/control-plane')['ControlPlane']
 let solusToolbox: typeof import('../../src/main/agents/tools/solus-toolbox')['solusToolbox']
 let closeDb: typeof import('../../src/main/db')['closeDb']
-let listTasks: typeof import('../../src/main/tasks/task-store')['listTasks']
 type ControlPlaneInstance = import('../../src/main/control-plane').ControlPlane
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir = ''
@@ -24,7 +23,6 @@ beforeAll(async () => {
   ;({ ControlPlane } = await import('../../src/main/control-plane'))
   ;({ solusToolbox } = await import('../../src/main/agents/tools/solus-toolbox'))
   ;({ closeDb } = await import('../../src/main/db'))
-  ;({ listTasks } = await import('../../src/main/tasks/task-store'))
 })
 
 afterAll(() => {
@@ -196,8 +194,17 @@ function setup(options: {
 } = {}) {
   const backends = (options.backendIds ?? ['codex']).map((id) => new FakeBackend(id))
   const backend = backends[0]
+  const preparedTaskPrompts: string[] = []
   const controlPlane = new ControlPlane(new Map(backends.map((entry) => [entry.id, entry])), {
     buildHandoff: options.buildHandoff,
+    // WHY: these tests verify session routing and lifecycle behavior. Letting
+    // each fake first turn use the process-wide task store leaks fixture prompts
+    // such as "Start working" into a developer's real task database when this
+    // file shares a Bun process with code that opened that database first.
+    prepareSessionTask: async (input) => {
+      preparedTaskPrompts.push(input.prompt)
+      return null
+    },
   })
   // The routing layer publishes to `clientsWatching` minus/only the named
   // client; recording it here is what lets a test assert fan-out by client.
@@ -267,6 +274,7 @@ function setup(options: {
     events,
     errors,
     statuses,
+    preparedTaskPrompts,
     seedSession,
     registerWatch,
     emitAssistant,
@@ -488,7 +496,7 @@ describe('ControlPlane headless sessions', () => {
   test('runs an automation without minting a task while keeping task tools available to the agent', async () => {
     const env = setup()
     planes.push(env.controlPlane)
-    const taskIdsBeforeRun = (await listTasks()).tasks.map((task) => task.id)
+    const preparedTaskCountBeforeRun = env.preparedTaskPrompts.length
 
     const lifecycle = await env.controlPlane.startAutomationSession({
       prompt: 'Run unattended',
@@ -509,7 +517,7 @@ describe('ControlPlane headless sessions', () => {
     // WHY: firing an automation is not itself task creation. The unattended
     // agent may still decide its work merits a task and call the explicit tool.
     expect(selectedNames).toContain('create_task')
-    expect((await listTasks()).tasks.map((task) => task.id)).toEqual(taskIdsBeforeRun)
+    expect(env.preparedTaskPrompts).toHaveLength(preparedTaskCountBeforeRun)
     for (const automationToolName of [
       'create_automation',
       'list_automations',
@@ -1191,9 +1199,90 @@ describe('ControlPlane device-scoped tab watches', () => {
     expect(terminalEvents.some((event) => event.type === 'prompt_queued')).toBe(false)
   })
 
-  test('a dropped socket drops only that client\'s watch', () => {
-    // WHY: with no grace machinery left, a disconnect is immediate and total for
-    // that connection and invisible to every other one.
+  test('a client joining mid-turn is replayed the turn, not just its text', () => {
+    // WHY: the desktop starts a turn and the web opens the same session while it is
+    // still running. Durable history on disk has no unsettled turn in it, so unless
+    // the in-flight turn is replayed the joining client sits on a hole where the
+    // tool calls should be — the two conversation views disagree for a whole turn.
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.seedSession('session-1')
+    env.registerWatch('ws:desktop', 'session-1')
+
+    env.backend.emit('normalized', 'session-1', {
+      type: 'tool_call', toolName: 'Read', toolId: 'call-1', index: 0,
+    } satisfies NormalizedEvent)
+    env.backend.emit('normalized', 'session-1', {
+      type: 'tool_call_complete', toolId: 'call-1', index: 0,
+    } satisfies NormalizedEvent)
+    env.emitAssistant('session-1', 'partway through')
+    env.events.length = 0
+
+    // The late joiner attaches while the turn is still running.
+    env.registerWatch('ws:web', 'session-1')
+
+    const toWeb = env.events.filter((e) => e.clients.length === 1 && e.clients[0] === 'ws:web')
+    expect(toWeb.map((e) => e.event.type)).toEqual([
+      'tool_call',
+      'tool_call_complete',
+      'assistant_message',
+    ])
+    // And only to the joiner — the desktop already has all of it.
+    expect(toWeb.every((e) => !e.clients.includes('ws:desktop'))).toBe(true)
+  })
+
+  test('a settled turn is not replayed to the next client that joins', () => {
+    // WHY: once a turn settles, the provider transcript on disk is the source. A
+    // stale replay log would double every message the joiner already loaded.
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.seedSession('session-1')
+    env.registerWatch('ws:desktop', 'session-1')
+    env.emitAssistant('session-1', 'finished work')
+
+    env.backend.emit('exit', 'session-1', 0, null)
+    env.backend.running.add('session-1')
+    env.events.length = 0
+
+    env.registerWatch('ws:web', 'session-1')
+    const toWeb = env.events.filter((e) => e.clients.length === 1 && e.clients[0] === 'ws:web')
+    expect(toWeb.filter((e) => e.event.type === 'assistant_message')).toHaveLength(0)
+  })
+
+  test('two clients resuming one provider thread converge on one session id', () => {
+    // WHY: desktop and web each read the same thread off disk and each mint a
+    // local uuid for it. Main answers both with one id; a client that keeps its
+    // own instead of adopting the answer receives only the turns it started,
+    // which is the "same session, different state on each device" bug.
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.seedSession('session-1')
+
+    const desktopSessionId = env.controlPlane.watchSession(
+      { sessionId: 'desktop-local-uuid', agentSessionId: 'session-1' },
+      'ws:desktop',
+    ).sessionId
+    const webSessionId = env.controlPlane.watchSession(
+      { sessionId: 'web-local-uuid', agentSessionId: 'session-1' },
+      'ws:web',
+    ).sessionId
+
+    expect(webSessionId).toBe(desktopSessionId)
+    expect(webSessionId).not.toBe('web-local-uuid')
+
+    env.events.length = 0
+    env.emitAssistant('session-1', 'streamed to both')
+
+    const delivered = env.events.filter((e) => e.event.type === 'assistant_message')
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0].sessionId).toBe(desktopSessionId)
+    expect([...delivered[0].clients].sort()).toEqual(['ws:desktop', 'ws:web'])
+  })
+
+  test('an expired client drops only that client\'s watch', () => {
+    // WHY: expiry is the transport giving up on recovering a stream. It is total
+    // for that connection and invisible to every other one. A bare disconnect
+    // does not reach here at all — see the reconnect test below.
     const env = setup()
     planes.push(env.controlPlane)
     env.seedSession('session-1')
@@ -1201,7 +1290,7 @@ describe('ControlPlane device-scoped tab watches', () => {
     env.registerWatch('ws:b', 'session-1')
     env.events.length = 0
 
-    env.controlPlane.handleClientDisconnected('ws:a')
+    env.controlPlane.handleClientExpired('ws:a')
     env.emitAssistant('session-1', 'after disconnect')
 
     const delivered = env.events.filter((e) => e.event.type === 'assistant_message')
@@ -1209,7 +1298,7 @@ describe('ControlPlane device-scoped tab watches', () => {
     expect(delivered[0].clients).toEqual(['ws:b'])
   })
 
-  test('a dropped socket does not resolve the session\'s attention', () => {
+  test('an expired client does not resolve the session\'s attention', () => {
     // WHY: a session awaiting input still needs you when your laptop is shut —
     // that is exactly what the offline push notification assumes. Only the user
     // closing the last view dismisses it.
@@ -1219,7 +1308,7 @@ describe('ControlPlane device-scoped tab watches', () => {
     const sessionId = env.registerWatch('ws:a', 'session-1')
     env.controlPlane.attention.set({ sessionId: 'session-1', kind: 'question', summary: 'Question: choose one' })
 
-    env.controlPlane.handleClientDisconnected('ws:a')
+    env.controlPlane.handleClientExpired('ws:a')
     expect(env.controlPlane.attention.get('session-1')).toBeDefined()
 
     env.controlPlane.unwatchSession(sessionId, 'ws:a')

@@ -332,6 +332,55 @@ export function refreshSessionToken(token: string, now = Date.now()): string | n
   return signSessionToken(session.deviceId, session.deviceLabel, now)
 }
 
+/** Five minutes: long enough to open a socket, useless to a log scraper. */
+export const WS_TICKET_TTL_MS = 5 * 60 * 1000
+
+/** A `ws.`-prefixed signature domain: a leaked ticket can never pass where a
+ *  session token is expected, and vice versa. */
+const WS_TICKET_PREFIX = 'ws'
+
+/**
+ * A short-lived, single-purpose WebSocket ticket (dispatch-client step 4):
+ * the long-lived session token only ever travels in HTTP headers, and only
+ * this derived ticket rides the socket handshake.
+ */
+export function issueWsTicket(sessionToken: string, now = Date.now()): string | null {
+  const session = verifySessionToken(sessionToken, now)
+  if (!session) return null
+  const keys = loadOrCreateKeys()
+  const labelB64 = Buffer.from(session.deviceLabel).toString('base64url')
+  const payload = `${WS_TICKET_PREFIX}.${session.deviceId}.${now}.${labelB64}`
+  const sig = createHmac('sha256', keys.signingKey).update(payload).digest('base64url')
+  return `${payload}.${sig}`
+}
+
+export function verifyWsTicket(ticket: string, now = Date.now()): SessionToken | null {
+  const keys = loadOrCreateKeys()
+  loadRevokedDevices()
+  const parts = ticket.split('.')
+  if (parts.length !== 5 || parts[0] !== WS_TICKET_PREFIX) return null
+  const [, deviceId, issuedAtStr, labelB64, sig] = parts
+
+  const issuedAt = Number(issuedAtStr)
+  if (!Number.isFinite(issuedAt)) return null
+  if (now - issuedAt > WS_TICKET_TTL_MS) return null
+  if (issuedAt > now + 60_000) return null
+
+  const expected = createHmac('sha256', keys.signingKey)
+    .update(`${WS_TICKET_PREFIX}.${deviceId}.${issuedAtStr}.${labelB64}`)
+    .digest('base64url')
+  const sigBuf = Buffer.from(sig)
+  const expBuf = Buffer.from(expected)
+  if (sigBuf.length !== expBuf.length || !timingSafeEqual(sigBuf, expBuf)) return null
+  if (_revokedDevices.has(deviceId)) return null
+
+  return {
+    deviceId,
+    deviceLabel: Buffer.from(labelB64, 'base64url').toString('utf-8'),
+    issuedAt,
+  }
+}
+
 export function revokeDevice(deviceId: string): void {
   loadRevokedDevices()
   _revokedDevices.add(deviceId)

@@ -20,6 +20,8 @@ mock.module('../../src/client-core/server-connection', () => ({
         startedTransports.push(target.id)
         options.onStatusChange?.('connecting', 0)
       },
+      probe: async () => {},
+      attachDialOutcomeReporter: () => {},
       destroy: () => destroyedTransports.push(target.id),
     }
     const api = {
@@ -41,10 +43,7 @@ const remoteTarget: SolusServerTarget = {
 }
 
 describe('saved server identity', () => {
-  test('distinguishes a backfill from a match and a mismatch', () => {
-    // WHY: only an absent saved identity may adopt the server's report. Once
-    // saved, a different report means the address now reaches another host.
-    expect(installationIdDecision(undefined, 'reported')).toBe('absent')
+  test('distinguishes a match from an address that now reaches another host', () => {
     expect(installationIdDecision('reported', 'reported')).toBe('match')
     expect(installationIdDecision('saved', 'reported')).toBe('mismatch')
   })
@@ -92,8 +91,14 @@ describe('primary server connection ownership', () => {
   test('destroys a displaced transport when reconnecting to the same host', () => {
     const connections = new ServerConnections()
     const destroyed: string[] = []
-    const first = { destroy: () => destroyed.push('first') } as unknown as WsTransport
-    const second = { destroy: () => destroyed.push('second') } as unknown as WsTransport
+    const first = {
+      destroy: () => destroyed.push('first'),
+      attachDialOutcomeReporter: () => {},
+    } as unknown as WsTransport
+    const second = {
+      destroy: () => destroyed.push('second'),
+      attachDialOutcomeReporter: () => {},
+    } as unknown as WsTransport
     const api = {} as SolusAPI
     const target: SolusServerTarget = {
       id: 'server',
@@ -111,32 +116,26 @@ describe('primary server connection ownership', () => {
   })
 })
 
-describe('host capability cache', () => {
-  test('caches successful records until the TTL expires and ignores unknown keys', async () => {
-    // WHY: capability probes are shared by many mounted surfaces. They must not
-    // fan out duplicate RPCs, while a later probe must observe a host upgrade.
-    let now = 1_000
+describe('session-scoped host capabilities', () => {
+  test('one load answers every caller for the session; unknown keys are dropped', async () => {
+    // WHY: dispatch-client step 3 — capabilities are session-scoped. Many
+    // mounted surfaces share one load, and no TTL ever refetches behind the
+    // session's back.
     let calls = 0
-    const originalNow = Date.now
-    Date.now = () => now
-    capabilityLoaders.set('cap-ttl', async () => {
+    capabilityLoaders.set('cap-session', async () => {
       calls++
       return { attachUpload: true, futureFlag: true }
     })
     const connections = new ServerConnections()
-    connections.registerTarget({ ...remoteTarget, id: 'cap-ttl' })
+    connections.registerTarget({ ...remoteTarget, id: 'cap-session' })
 
     try {
-      expect(await connections.capabilitiesFor('cap-ttl')).toEqual({ attachUpload: true })
-      expect(await connections.capabilitiesFor('cap-ttl')).toEqual({ attachUpload: true })
+      expect(await connections.capabilitiesFor('cap-session')).toEqual({ attachUpload: true })
+      expect(await connections.capabilitiesFor('cap-session')).toEqual({ attachUpload: true })
       expect(calls).toBe(1)
-      now += 60_001
-      await connections.capabilitiesFor('cap-ttl')
-      expect(calls).toBe(2)
     } finally {
-      Date.now = originalNow
-      capabilityLoaders.delete('cap-ttl')
-      connections.release('cap-ttl')
+      capabilityLoaders.delete('cap-session')
+      connections.release('cap-session')
     }
   })
 
@@ -159,9 +158,10 @@ describe('host capability cache', () => {
     connections.release('cap-old')
   })
 
-  test('invalidates capabilities when the transport reconnects', async () => {
-    // WHY: the same saved host can restart on a newer Solus build. Its next
-    // socket generation must advertise the upgraded surface immediately.
+  test('a dropped session clears the record; the next session reloads it', async () => {
+    // WHY: the same saved host can restart on a newer Solus build. The
+    // capability record belongs to one server session: absent while
+    // disconnected (hide, never probe), reloaded when the next session opens.
     let calls = 0
     capabilityLoaders.set('cap-reconnect', async () => ({
       attachUpload: ++calls > 1,
@@ -171,8 +171,12 @@ describe('host capability cache', () => {
 
     expect(connections.capability('cap-reconnect', 'attachUpload')).toBeUndefined()
     expect((await connections.capabilitiesFor('cap-reconnect')).attachUpload).toBe(false)
-    connections.updateStatus('cap-reconnect', 'reconnecting')
+
+    const supervisor = connections.connectionFor('cap-reconnect')!.supervisor
+    supervisor.report({ kind: 'dropped' })
     expect(connections.capability('cap-reconnect', 'attachUpload')).toBeUndefined()
+
+    supervisor.report({ kind: 'accepted', recovered: false })
     expect((await connections.capabilitiesFor('cap-reconnect')).attachUpload).toBe(true)
     expect(calls).toBe(2)
     capabilityLoaders.delete('cap-reconnect')

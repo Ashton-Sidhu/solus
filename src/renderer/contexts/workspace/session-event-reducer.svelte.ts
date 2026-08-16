@@ -178,7 +178,10 @@ export class SessionEventReducer {
         session.sessionModel = event.model
         session.run.sessionSkills = event.skills
         if (event.handoffFrom) session.handoffFrom = event.handoffFrom
-        if (session.forked) session.forked = false
+        if (session.forked) {
+          session.forked = false
+          session.forkExcludeLatestTurn = false
+        }
         if (session.boundWorkId) {
           this.deps.worksStore.linkSession(session.run.workingDirectory, session.boundWorkId, event.sessionId)
         }

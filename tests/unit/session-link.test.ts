@@ -28,11 +28,12 @@ describe("session links", () => {
       projectRoot: "/repo",
     };
 
-    const resolved = await resolveSessionLinkMeta(
-      params,
-      "studio",
-      async () => indexed,
-    );
+    // The double mirrors readSessionMeta's contract: it stamps the host it
+    // was dialled with onto the meta it returns.
+    const resolved = await resolveSessionLinkMeta(params, "studio", async (serverId) => {
+      indexed.serverId = serverId;
+      return indexed;
+    });
 
     expect(resolved).toBe(indexed);
     expect(resolved.serverId).toBe("studio");
@@ -60,17 +61,30 @@ describe("session links", () => {
     );
     expect(parsed?.serverId).toBe("laptop");
 
-    let resolvedServerId: string | null | undefined;
+    let dialledServerId: string | undefined;
     const resolved = await resolveSessionLinkMeta(
       parsed!,
       "studio",
-      async (ref) => {
-        resolvedServerId = ref.serverId;
+      async (serverId) => {
+        dialledServerId = serverId;
         return null;
       },
     );
 
-    expect(resolvedServerId).toBe("laptop");
+    expect(dialledServerId).toBe("laptop");
     expect(resolved.serverId).toBe("laptop");
+  });
+
+  test("a link with no host and no transcript host never dials the index", async () => {
+    // WHY: dispatch-client step 1 — the cross-host probe is gone. A hostless
+    // link yields a hostless fallback meta, which the resume path refuses.
+    let dialled = 0;
+    const resolved = await resolveSessionLinkMeta(params, undefined, async () => {
+      dialled += 1;
+      return null;
+    });
+
+    expect(dialled).toBe(0);
+    expect(resolved.serverId).toBeUndefined();
   });
 });

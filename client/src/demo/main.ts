@@ -2,7 +2,6 @@ import { mount } from 'svelte'
 import App from '../App.svelte'
 import '../../../src/renderer/index.css'
 import { setConnectionState, subscribe } from '@client-core/connection-state'
-import { setTabPersistenceServerInstallationId } from '@renderer/contexts/workspace/tab-persistence'
 import { webState } from '../lib/web-state.svelte'
 import { createDemoSolusApi } from './api'
 import { demoFixtures } from './fixtures'
@@ -69,7 +68,6 @@ serverConnections.registerPrimary('demo', demoApi, {
   local: false,
 })
 
-setTabPersistenceServerInstallationId(DEMO_INSTALLATION_ID)
 seedDemoStorage(fixtures)
 
 subscribe(({ status, attempt }) => webState.setConnectionStatus(status, attempt))
