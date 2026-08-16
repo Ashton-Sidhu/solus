@@ -41,8 +41,12 @@ export class CommitComposerState {
     this.selected.clear()
   }
 
-  get selectedPaths(): string[] {
+  get selectedFiles(): ChangedFileStat[] {
     return orderedSelection(this.files, this.selected)
+  }
+
+  get selectedPaths(): string[] {
+    return this.selectedFiles.map((file) => file.path)
   }
 
   get canSubmit(): boolean {

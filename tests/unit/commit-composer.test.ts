@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { ChangedFileStat } from '../../src/shared/git-types'
-import { diffTotals, orderedSelection } from '../../src/renderer/components/project-panel/commit-composer/lib/commit-composer'
+import { orderedSelection } from '../../src/renderer/components/project-panel/commit-composer/lib/commit-composer'
+import { changedFileTotals } from '../../src/renderer/lib/diff-stats'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 let CommitComposerState: typeof import(
@@ -26,14 +27,14 @@ const files: ChangedFileStat[] = [
 ]
 
 describe('orderedSelection', () => {
-  test('returns selected paths in the file list\'s own order', () => {
+  test('returns selected files in the list\'s own order', () => {
     const selected = new Set(['c.txt', 'a.txt'])
-    expect(orderedSelection(files, selected)).toEqual(['a.txt', 'c.txt'])
+    expect(orderedSelection(files, selected).map((file) => file.path)).toEqual(['a.txt', 'c.txt'])
   })
 
   test('drops a selected path the file list no longer contains', () => {
     const selected = new Set(['a.txt', 'stale.txt'])
-    expect(orderedSelection(files, selected)).toEqual(['a.txt'])
+    expect(orderedSelection(files, selected).map((file) => file.path)).toEqual(['a.txt'])
   })
 
   test('returns an empty array when nothing is selected', () => {
@@ -41,13 +42,13 @@ describe('orderedSelection', () => {
   })
 })
 
-describe('diffTotals', () => {
+describe('changedFileTotals', () => {
   test('sums additions and deletions across files', () => {
-    expect(diffTotals(files)).toEqual({ additions: 5, deletions: 6 })
+    expect(changedFileTotals(files)).toEqual({ additions: 5, deletions: 6 })
   })
 
   test('is zero for an empty file list', () => {
-    expect(diffTotals([])).toEqual({ additions: 0, deletions: 0 })
+    expect(changedFileTotals([])).toEqual({ additions: 0, deletions: 0 })
   })
 })
 

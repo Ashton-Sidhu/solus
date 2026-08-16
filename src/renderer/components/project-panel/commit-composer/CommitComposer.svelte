@@ -11,7 +11,8 @@
   import type { GitActions } from "../../../lib/git-actions.svelte";
   import type { GitAction } from "../../../../shared/types";
   import { CommitComposerState } from "./lib/commit-composer.svelte";
-  import { diffTotals, STATUS_TONE_CLASS } from "./lib/commit-composer";
+  import { STATUS_TONE_CLASS } from "./lib/commit-composer";
+  import { changedFileTotals } from "../../../lib/diff-stats";
 
   interface Props {
     /** The tab or draft whose environment this composer commits — see `GitSection`. */
@@ -38,9 +39,7 @@
     );
   });
 
-  const selectedTotals = $derived(
-    diffTotals(composer.files.filter((file) => composer.selected.has(file.path))),
-  );
+  const selectedTotals = $derived(changedFileTotals(composer.selectedFiles));
 
   let messageEl = $state<HTMLTextAreaElement | null>(null);
   $effect(() => {
