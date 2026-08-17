@@ -87,7 +87,7 @@
     "onnxruntime-node": "^1.27.0",
     "posthog-js": "^1.411.0",
     "posthog-node": "^5.47.10",
-    "shiki": "^4.4.1",
+    "shiki": "^4.4.3",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
     "svelte-tiny-virtual-list": "^3.0.1",
