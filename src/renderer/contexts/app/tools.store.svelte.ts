@@ -1,4 +1,4 @@
-import type { DetectedEditor, DetectedTerminal } from '../../../shared/types'
+import type { DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId } from '../../../shared/types'
 import { serverConnections } from '@client-core/server-connections'
 import type { HostApi } from '@client-core/host-api'
 import { SvelteMap } from 'svelte/reactivity'
@@ -66,6 +66,37 @@ export class ToolsStore {
         if (this.detectedToolsInFlight === promise) this.detectedToolsInFlight = null
       })
     this.detectedToolsInFlight = promise
+    return promise
+  }
+
+  /**
+   * The terminal "Open in terminal" would use right now — the one already
+   * holding the shared tmux session, or the configured fallback. It changes
+   * whenever the user opens or closes a terminal, so surfaces refresh it rather
+   * than caching it for the session: `refreshResolvedTerminal` always re-asks.
+   */
+  resolvedTerminal = $state<ResolvedTerminal | null>(null)
+
+  private resolvedTerminalInFlight: Promise<ResolvedTerminal | null> | null = null
+
+  async refreshResolvedTerminal(fallbackTerminalId: TerminalAppId | null): Promise<ResolvedTerminal | null> {
+    if (this.resolvedTerminalInFlight) return this.resolvedTerminalInFlight
+    // Terminals only launch on the machine the client runs on; a web client has
+    // no local host and so has nothing to resolve.
+    const serverId = serverConnections.localServerId()
+    const promise = (async () => {
+      if (!serverId) return null
+      return serverConnections.apiFor(serverId).resolveTerminal(fallbackTerminalId)
+    })()
+      .then((resolved) => {
+        this.resolvedTerminal = resolved
+        return resolved
+      })
+      .catch(() => null)
+      .finally(() => {
+        if (this.resolvedTerminalInFlight === promise) this.resolvedTerminalInFlight = null
+      })
+    this.resolvedTerminalInFlight = promise
     return promise
   }
 

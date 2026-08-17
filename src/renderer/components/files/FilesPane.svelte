@@ -1,17 +1,25 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { FileTree } from "@pierre/trees";
+  import { onMount, type Snippet } from "svelte";
+  import {
+    FileTree,
+    type ContextMenuItem,
+    type FileTreeCompositionOptions,
+    type FileTreeRenameEvent,
+  } from "@pierre/trees";
   import {
     ArrowClockwiseIcon,
     CaretLeftIcon,
+    FilePlusIcon,
     FloppyDiskIcon,
     FolderIcon,
+    FolderPlusIcon,
     SidebarSimpleIcon,
     WarningCircleIcon,
   } from "phosphor-svelte";
   import Icon from "@iconify/svelte";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
-  import type { IpcContext } from "../../../shared/types";
+  import { Button } from "../ui/button";
+  import type { IpcContext, ProjectFileMutation } from "../../../shared/types";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { fileTypeIcon } from "../../lib/fileTypeIcon";
   import { ensureIconCollections } from "../diagram/iconify";
@@ -32,6 +40,20 @@
     type MarkdownFileViewMode,
   } from "./lib/markdown-file";
   import FilesPaneSkeleton from "./FilesPaneSkeleton.svelte";
+  import FilesTreeContextMenu from "./FilesTreeContextMenu.svelte";
+  import {
+    addTreePath,
+    canonicalTreePath,
+    creationDirectoryFor,
+    entryDisplayName,
+    isFolderPath,
+    parentDirectoryOf,
+    placeholderEntryPath,
+    removeTreePath,
+    renameTreePath,
+    type FileTreeEntryKind,
+  } from "./lib/file-tree-mutations";
+  import { toasts } from "../../lib/toasts";
   import { getWorkspaceContext, runtime } from "../../contexts";
   import * as Resizable from "../ui/resizable";
   import {
@@ -56,16 +78,9 @@
   // Match the PR-review guide's file header: an extension badge plus a
   // dir/name split. Uppercase extension, shown as a small badge.
   function ext(path: string): string {
-    const name = path.split("/").pop() ?? path;
+    const name = entryDisplayName(path);
     const dot = name.lastIndexOf(".");
     return dot > 0 ? name.slice(dot + 1).toUpperCase() : "·";
-  }
-  function fileName(path: string): string {
-    return path.split("/").pop() ?? path;
-  }
-  function dirName(path: string): string {
-    const i = path.lastIndexOf("/");
-    return i > 0 ? path.slice(0, i + 1) : "";
   }
 
   let treeCollapsed = $state(false);
@@ -99,7 +114,10 @@
   let loading = $state(false);
   let error = $state<string | null>(null);
   let root = $state("");
-  let files = $state<string[]>([]);
+  // Everything the tree draws: indexed files plus the folders no file reveals.
+  // Folder entries carry a trailing slash, which is how the tree tells them apart.
+  let treePaths = $state<string[]>([]);
+  const filePaths = $derived(treePaths.filter((path) => !isFolderPath(path)));
   let selectedPath = $state<string | null>(null);
   let selectedContents = $state<string | null>(null);
   let selectedSize = $state<number | null>(null);
@@ -111,7 +129,16 @@
   let markdownViewMode = $state<MarkdownFileViewMode>("rendered");
   let treeHost: HTMLDivElement | undefined = $state();
   let treeInstance: FileTree | null = $state(null);
-  let treeFiles: string[] | null = null;
+  let renderedTreePaths: string[] | null = null;
+  // The row the user picked, which is where the header's create buttons act.
+  // `null` means nothing is picked and they act on the project root — the pane
+  // opens a file on its own, so the open file is not evidence of a choice.
+  let pickedPath = $state<string | null>(null);
+  const newEntryDirectory = $derived(
+    pickedPath ? creationDirectoryFor(pickedPath, isFolderPath(pickedPath)) : "",
+  );
+  let contextMenu = $state<{ x: number; y: number; path: string; isFolder: boolean } | null>(null);
+  let closeTreeContextMenu: ((options?: { restoreFocus?: boolean }) => void) | null = null;
   const isSelectedMarkdown = $derived(
     selectedPath ? isMarkdownFile(selectedPath) : false,
   );
@@ -199,17 +226,19 @@
   async function loadFiles() {
     loading = true;
     error = null;
-    const result = await workspace.apiForSession(ctx.session.sessionId).listProjectFiles(ctx, { cwd });
+    const result = await workspace
+      .apiForSession(ctx.session.sessionId)
+      .listProjectFiles(ctx, { cwd, includeEmptyDirectories: true });
     if (result.ok) {
       root = result.root;
-      files = result.files;
+      treePaths = [...result.files, ...(result.emptyDirectories ?? [])];
       if (!selectedPath || !result.files.includes(selectedPath)) {
         selectedPath = result.files[0] ?? null;
         if (selectedPath) void openFile(selectedPath);
       }
     } else {
       error = result.error;
-      files = [];
+      treePaths = [];
       selectedPath = null;
       selectedContents = null;
     }
@@ -244,39 +273,166 @@
   }
 
   function moveSelection(delta: number) {
-    if (files.length === 0) return;
-    const base = selectedPath ? files.indexOf(selectedPath) : -1;
-    const next = Math.min(files.length - 1, Math.max(0, (base === -1 ? 0 : base) + delta));
-    void openFile(files[next]);
+    if (filePaths.length === 0) return;
+    const base = selectedPath ? filePaths.indexOf(selectedPath) : -1;
+    const next = Math.min(filePaths.length - 1, Math.max(0, (base === -1 ? 0 : base) + delta));
+    void openFile(filePaths[next]);
   }
+
+  // The tree notifies selection listeners synchronously from inside `select()`
+  // and `deselect()`, so this flag reliably marks the resulting callback as the
+  // pane's own bookkeeping rather than a row the user picked.
+  let isSyncingTreeSelection = false;
 
   function syncTreeSelection(path: string) {
     if (!treeInstance) return;
-    const current = treeInstance.getSelectedPaths();
-    if (current.length === 1 && current[0] === path) {
+    isSyncingTreeSelection = true;
+    try {
+      const current = treeInstance.getSelectedPaths();
+      if (current.length === 1 && current[0] === path) {
+        treeInstance.scrollToPath(path, { offset: "nearest" });
+        return;
+      }
+      for (const currentPath of current) treeInstance.getItem(currentPath)?.deselect();
+      treeInstance.getItem(path)?.select();
       treeInstance.scrollToPath(path, { offset: "nearest" });
+    } finally {
+      isSyncingTreeSelection = false;
+    }
+  }
+
+  async function mutate(mutation: ProjectFileMutation): Promise<boolean> {
+    const result = await workspace
+      .apiForSession(ctx.session.sessionId)
+      .mutateProjectFile(ctx, { cwd: root || cwd, mutation });
+    if (!result.ok) toasts.error(result.error);
+    return result.ok;
+  }
+
+  /**
+   * Create the entry under a placeholder name, then hand the user its rename
+   * input. Deferring the write until they commit a name looks tidier but leaves
+   * the row describing nothing: the tree treats an unchanged name as a no-op and
+   * never reports it, so the row would survive with no file behind it.
+   */
+  async function startCreate(directory: string, kind: FileTreeEntryKind) {
+    if (!treeInstance) return;
+    const placeholder = placeholderEntryPath(directory, kind, new Set(treePaths));
+    const created = await mutate(
+      kind === "folder"
+        ? { op: "createFolder", path: placeholder }
+        : { op: "createFile", path: placeholder },
+    );
+    if (!created || !treeInstance) return;
+    addTreePath(treePaths, placeholder);
+    treeInstance.add(placeholder);
+    if (kind === "file") void openFile(placeholder);
+    // `startRenaming` expands the ancestors it needs, so the input is on screen.
+    treeInstance.startRenaming(placeholder);
+  }
+
+  // The tree has already moved the row by the time this runs, so a failed disk
+  // write has to put it back rather than merely report itself.
+  function handleTreeRename(event: FileTreeRenameEvent) {
+    void commitTreeRename(
+      canonicalTreePath(event.sourcePath, event.isFolder),
+      canonicalTreePath(event.destinationPath, event.isFolder),
+    );
+  }
+
+  async function commitTreeRename(source: string, destination: string) {
+    if (!(await mutate({ op: "rename", path: source, toPath: destination }))) {
+      treeInstance?.move(destination, source);
       return;
     }
-    for (const currentPath of current) treeInstance.getItem(currentPath)?.deselect();
-    treeInstance.getItem(path)?.select();
-    treeInstance.scrollToPath(path, { offset: "nearest" });
+
+    const moved = renameTreePath(treePaths, source, destination);
+    // The open file keeps its buffer and simply answers to the new path.
+    const followed = selectedPath ? moved.find((entry) => entry.from === selectedPath) : undefined;
+    if (followed) selectedPath = followed.to;
+    if (pickedPath === source) pickedPath = destination;
+  }
+
+  async function deleteEntry(path: string) {
+    const isFolder = isFolderPath(path);
+    if (!(await mutate({ op: "delete", path }))) return;
+    treeInstance?.remove(path, isFolder ? { recursive: true } : undefined);
+    const removed = selectedPath !== null
+      && (selectedPath === path || (isFolder && selectedPath.startsWith(path)));
+    // A pick naming something deleted would send the next create into a folder
+    // that is gone, so it falls back to the project root.
+    if (pickedPath !== null && (pickedPath === path || pickedPath.startsWith(path))) {
+      pickedPath = null;
+    }
+    removeTreePath(treePaths, path);
+    toasts.success(`Deleted ${entryDisplayName(path)}`);
+    if (!removed) return;
+    selectedPath = null;
+    selectedContents = null;
+    const next = filePaths[0];
+    if (next) void openFile(next);
+  }
+
+  function openContextMenu(
+    item: ContextMenuItem,
+    x: number,
+    y: number,
+    close: (options?: { restoreFocus?: boolean }) => void,
+  ) {
+    closeTreeContextMenu = close;
+    contextMenu = {
+      x,
+      y,
+      path: canonicalTreePath(item.path, item.kind === "directory"),
+      isFolder: item.kind === "directory",
+    };
+  }
+
+  function closeContextMenu() {
+    contextMenu = null;
+    // The tree keeps its row in a "menu open" state until it is told otherwise.
+    const close = closeTreeContextMenu;
+    closeTreeContextMenu = null;
+    close?.({ restoreFocus: false });
+  }
+
+  /** Right-click plus a per-row button. Touch has no right-click and no hover,
+   *  so on a phone the button is the only way in and has to stay on screen. */
+  function treeComposition(): FileTreeCompositionOptions {
+    return {
+      contextMenu: {
+        enabled: true,
+        triggerMode: "both",
+        buttonVisibility: runtime.isMobileViewport ? "always" : "when-needed",
+        onOpen: (item, context) =>
+          openContextMenu(item, context.anchorRect.left, context.anchorRect.bottom, context.close),
+        onClose: () => {
+          closeTreeContextMenu = null;
+          contextMenu = null;
+        },
+      },
+    };
   }
 
   function mountTree() {
     if (!treeHost || treeInstance) return;
     const tree = new FileTree({
-      paths: files,
+      paths: treePaths,
       flattenEmptyDirectories: true,
       initialExpansion: "closed",
       search: true,
       searchBlurBehavior: "retain",
+      renaming: { onRename: handleTreeRename, onError: (message) => toasts.error(message) },
+      composition: treeComposition(),
       onSelectionChange: (selectedPaths) => {
         const next = selectedPaths[0] ?? null;
         const item = next ? tree.getItem(next) : null;
+        const isDirectory = item?.isDirectory() === true;
+        if (next && !isSyncingTreeSelection) pickedPath = canonicalTreePath(next, isDirectory);
         // A directory row click already toggles expansion natively; only clear
         // the directory's selection so the open file keeps its highlight.
-        if (item?.isDirectory()) {
-          item.deselect();
+        if (isDirectory) {
+          item?.deselect();
           if (selectedPath) syncTreeSelection(selectedPath);
           return;
         }
@@ -309,12 +465,30 @@
     treeInstance = tree;
   }
 
+  // Clicking the tree's empty space unpicks the current row, which is the only
+  // way back to the project root once a row has been picked. The listener goes
+  // on the host rather than the markup because rows live in the tree's shadow
+  // DOM: the click is composed, so the row is found in the composed path.
+  function unpickOnBackgroundClick(event: MouseEvent) {
+    const onRow = event
+      .composedPath()
+      .some((node) => node instanceof HTMLElement && node.dataset.type === "item");
+    if (!onRow) pickedPath = null;
+  }
+
   onMount(() => {
     mountTree();
     return () => {
       treeInstance?.cleanUp();
       treeInstance = null;
     };
+  });
+
+  $effect(() => {
+    const host = treeHost;
+    if (!host) return;
+    host.addEventListener("click", unpickOnBackgroundClick);
+    return () => host.removeEventListener("click", unpickOnBackgroundClick);
   });
 
   // Re-clamp when the pane itself resizes so a stored width can't squeeze the
@@ -335,16 +509,53 @@
       mountTree();
       return;
     }
-    if (treeFiles !== files) {
-      treeFiles = files;
-      treeInstance.resetPaths(files);
+    // Identity, not contents: a mutation the tree performed itself is written
+    // back into `treePaths` in place, and re-seeding the tree from it would
+    // throw away the row's expansion and rename state for nothing.
+    if (renderedTreePaths !== treePaths) {
+      renderedTreePaths = treePaths;
+      treeInstance.resetPaths(treePaths);
     }
   });
 
+  // The row's menu button has to become permanent when the pane crosses into a
+  // touch layout, where nothing hovers it into view.
   $effect(() => {
-    if (selectedPath && files.includes(selectedPath)) syncTreeSelection(selectedPath);
+    const composition = treeComposition();
+    treeInstance?.setComposition(composition);
+  });
+
+  $effect(() => {
+    if (selectedPath && filePaths.includes(selectedPath)) syncTreeSelection(selectedPath);
   });
 </script>
+
+<!-- The three plain header controls differ only in label, icon, and handler.
+     The tree toggle stays written out: it alone carries a pressed state and a
+     label that changes with it. -->
+{#snippet newFileIcon()}<FilePlusIcon />{/snippet}
+{#snippet newFolderIcon()}<FolderPlusIcon />{/snippet}
+{#snippet refreshIcon()}<ArrowClockwiseIcon />{/snippet}
+
+{#snippet chromeAction(label: string, onclick: () => void, icon: Snippet)}
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
+        <Button
+          {...tooltipProps}
+          variant="ghost"
+          size="icon-xs"
+          class="size-(--solus-tap-target) pointer-fine:size-6 text-(--solus-text-tertiary)"
+          aria-label={label}
+          {onclick}
+        >
+          {@render icon()}
+        </Button>
+      {/snippet}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content value={label} />
+  </TooltipUI.Root>
+{/snippet}
 
 <div
   class="flex h-full min-h-0 min-w-0 flex-col border-l border-(--solus-container-border) bg-(--solus-container-bg)"
@@ -356,30 +567,34 @@
   <div
     class="workspace-titlebar flex h-(--solus-chrome-row-h) shrink-0 items-center gap-2 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
-    <TooltipUI.Root>
-      <TooltipUI.Trigger>
-        {#snippet child({ props: tooltipProps })}
-          <button {...tooltipProps}
-      type="button"
-      class="flex size-(--solus-tap-target) shrink-0 cursor-pointer items-center justify-center rounded-md transition-[background-color,color,scale] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent) {treeCollapsed ? 'text-(--solus-text-tertiary)' : 'text-(--solus-text-primary)'}"
-      aria-label={treeCollapsed ? "Show file tree" : "Hide file tree"}
-      aria-pressed={!treeCollapsed}
-      onclick={toggleTree}
-    >
-      <SidebarSimpleIcon size={13} weight="bold" />
-    </button>
-        {/snippet}
-      </TooltipUI.Trigger>
-      <TooltipUI.Content value={treeCollapsed ? "Show file tree (⌥T)" : "Hide file tree (⌥T)"} />
-    </TooltipUI.Root>
-    <button
-      type="button"
-      class="flex size-(--solus-tap-target) shrink-0 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
-      aria-label="Refresh files"
-      onclick={() => void loadFiles()}
-    >
-      <ArrowClockwiseIcon size={13} />
-    </button>
+    <!-- One cluster so the four controls read as a toolbar; the row's own
+         `gap-2` then only separates them from the path line. The box shrinks to
+         the icon on a fine pointer and keeps the full tap target on a coarse one. -->
+    <div class="flex shrink-0 items-center gap-0.5">
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <Button
+              {...tooltipProps}
+              variant="ghost"
+              size="icon-xs"
+              class="size-(--solus-tap-target) pointer-fine:size-6 {treeCollapsed
+                ? 'text-(--solus-text-tertiary)'
+                : 'text-(--solus-text-primary)'}"
+              aria-label={treeCollapsed ? "Show file tree" : "Hide file tree"}
+              aria-pressed={!treeCollapsed}
+              onclick={toggleTree}
+            >
+              <SidebarSimpleIcon weight="bold" />
+            </Button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={treeCollapsed ? "Show file tree (⌥T)" : "Hide file tree (⌥T)"} />
+      </TooltipUI.Root>
+      {@render chromeAction("New file", () => void startCreate(newEntryDirectory, "file"), newFileIcon)}
+      {@render chromeAction("New folder", () => void startCreate(newEntryDirectory, "folder"), newFolderIcon)}
+      {@render chromeAction("Refresh files", () => void loadFiles(), refreshIcon)}
+    </div>
     {#if selectedPath}
       {@const icon = fileTypeIcon(selectedPath)}
       {#if icon}
@@ -392,8 +607,8 @@
         </span>
       {/if}
       <div class="min-w-0 flex-1 truncate font-mono text-[0.8125rem]">
-        <span class="text-(--solus-text-tertiary)">{dirName(selectedPath)}</span>
-        <span class="text-(--solus-text-primary)">{fileName(selectedPath)}</span>
+        <span class="text-(--solus-text-tertiary)">{parentDirectoryOf(selectedPath)}</span>
+        <span class="text-(--solus-text-primary)">{entryDisplayName(selectedPath)}</span>
       </div>
     {:else}
       <FolderIcon size={13} weight="duotone" class="shrink-0 text-(--solus-text-tertiary)" />
@@ -470,14 +685,14 @@
           <TooltipUI.Content value={"Hide file tree (⌥T)"} />
         </TooltipUI.Root>
         <div class="min-h-0 flex-1 overflow-hidden">
-          {#if loading && files.length === 0}
+          {#if loading && treePaths.length === 0}
             <FilesPaneSkeleton variant="tree" />
           {:else if error}
             <div class="flex gap-2 p-3 text-xs text-(--solus-status-error)">
               <WarningCircleIcon size={14} weight="fill" class="mt-0.5 shrink-0" />
               <span class="min-w-0">{error}</span>
             </div>
-          {:else if files.length === 0}
+          {:else if treePaths.length === 0}
             <div class="p-3 text-xs text-(--solus-text-tertiary)">No files found.</div>
           {:else}
             <div
@@ -499,7 +714,7 @@
 
     <Resizable.Pane order={2} minSize={runtime.isMobileViewport ? 45 : 0}>
       <section class="flex h-full min-h-0 min-w-0 flex-col">
-        {#if fileLoading || (loading && files.length === 0)}
+        {#if fileLoading || (loading && treePaths.length === 0)}
           <FilesPaneSkeleton variant="editor" />
         {:else if fileError}
           <div class="flex flex-1 items-center justify-center p-6 text-center text-xs text-(--solus-status-error)">
@@ -545,6 +760,19 @@
     </Resizable.Pane>
   </Resizable.PaneGroup>
 </div>
+
+{#if contextMenu}
+  {@const target = contextMenu}
+  <FilesTreeContextMenu
+    x={target.x}
+    y={target.y}
+    name={entryDisplayName(target.path)}
+    onCreate={(kind) => void startCreate(creationDirectoryFor(target.path, target.isFolder), kind)}
+    onRename={() => treeInstance?.startRenaming(target.path)}
+    onDelete={() => void deleteEntry(target.path)}
+    onClose={closeContextMenu}
+  />
+{/if}
 
 <style>
   .tree-pane {

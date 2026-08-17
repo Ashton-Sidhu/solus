@@ -26,7 +26,6 @@
   import PrsPageSkeleton from "../prs/PrsPageSkeleton.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { isHomeVisible, retainedConversationTabIds } from "./lib/workspace-body";
-  import { pillComposerTarget } from "./lib/pill-composer";
 
   interface Props {
     active?: boolean;
@@ -96,9 +95,6 @@
   const pillDraftSelection = draftModelSelection(
     () => pillDraft,
     () => session.defaultRunConfig.provider ?? theme.activeAgent,
-  );
-  const pillComposer = $derived(
-    pillComposerTarget(pillDraft, session.activeSession, session.activeTabId),
   );
   let prompt = $derived(
     pillDraft ? pillDraft.prompt : session.inputFor(session.activeTabId),
@@ -476,17 +472,18 @@
                tab, so both go unset and Send mints them instead. -->
           <InputBar
             mode="pill"
-            sessionId={pillComposer.sessionId}
-            tabId={pillComposer.tabId}
+            sessionId={pillDraft ? null : (session.activeSession?.id ?? null)}
+            tabId={pillDraft ? undefined : session.activeTabId}
             isPrimary
-            run={pillComposer.run}
+            run={pillDraft ? pillDraft.run : session.activeSession?.run}
             onDispatch={pillDraft ? startPillDraft : undefined}
             bind:prompt
           >
             {#snippet leadingActions()}
               <InputToolbar
                 mode="pill"
-                tabId={pillComposer.tabId}
+                tabId={pillDraft ? undefined : session.activeTabId}
+                draftId={pillDraft?.id}
                 isPrimary
                 run={pillDraft ? pillDraft.run : undefined}
                 onRun={pillDraft

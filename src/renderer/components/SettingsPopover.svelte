@@ -7,7 +7,6 @@
     MicrophoneIcon,
     TextAaIcon,
     CodeIcon,
-    TerminalWindowIcon,
     CaretDownIcon,
     CheckIcon,
     ClockCountdownIcon,
@@ -33,10 +32,12 @@
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { cn } from "@renderer/lib/utils.js";
   import { menuRowVariants } from "./ui/menu";
+  import AppLogo from "./settings/AppLogo.svelte";
   import { requestInputFocus } from "../lib/inputFocus";
   import { Button } from "./ui/button";
   import { Switch } from "./ui/switch";
   import { Input } from "./ui/input";
+  import type { TerminalAppId } from "../../shared/types";
 
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
@@ -58,6 +59,15 @@
   let agentOpen = $state(false);
   let editorOpen = $state(false);
   let terminalOpen = $state(false);
+  const selectedTerminal = $derived<TerminalAppId>(
+    theme.fallbackTerminal ?? "default-terminal",
+  );
+  const selectedEditorApp = $derived(
+    tools.detectedEditors.find((e) => e.id === theme.defaultEditor),
+  );
+  const selectedTerminalApp = $derived(
+    tools.detectedTerminals.find((t) => t.id === selectedTerminal),
+  );
   let rateLimitOpen = $state(false);
 
   let triggerEl: HTMLButtonElement | null = $state(null);
@@ -176,8 +186,8 @@
     requestInputFocus();
   }
 
-  function selectTerminal(terminalId: string) {
-    theme.update({ defaultTerminal: terminalId });
+  function selectTerminal(terminalId: TerminalAppId) {
+    theme.update({ fallbackTerminal: terminalId });
     terminalOpen = false;
     requestInputFocus();
   }
@@ -497,7 +507,7 @@
 
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-2 min-w-0">
-            <CodeIcon size={14} class="text-(--solus-text-tertiary)" />
+            <AppLogo id={theme.defaultEditor} kind="editor" size={14} />
             <div class="text-xs font-medium text-(--solus-text-primary)">
               Editor
             </div>
@@ -538,6 +548,7 @@
                       data-menu-current={selected === editor.id ? "" : undefined}
                       class={cn(menuRowVariants({ indicator: "trailing" }), "w-full")}
                     >
+                      <AppLogo id={editor.id} kind="editor" size={13} />
                       <span class="min-w-0 flex-1 truncate text-left">{editor.name}</span>
                       {#if selected === editor.id}<CheckIcon
                           size={14}
@@ -557,12 +568,14 @@
 
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-2 min-w-0">
-            <TerminalWindowIcon
-              size={14}
-              class="text-(--solus-text-tertiary)"
-            />
-            <div class="text-xs font-medium text-(--solus-text-primary)">
-              Terminal
+            <AppLogo id={selectedTerminal} kind="terminal" size={14} />
+            <div class="min-w-0">
+              <div class="text-xs font-medium text-(--solus-text-primary)">
+                Fallback terminal
+              </div>
+              <div class="text-[0.6875rem] text-(--solus-text-tertiary)">
+                Used only when no terminal holds the solus tmux session
+              </div>
             </div>
           </div>
           <div class="relative">
@@ -576,12 +589,12 @@
               class="flex items-center gap-1 text-xs rounded-full px-2 py-0.5 transition-colors font-secondary text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
             >
               {tools.detectedTerminals.find(
-                (t) => t.id === (theme.defaultTerminal ?? "default-terminal"),
+                (t) => t.id === (theme.fallbackTerminal ?? "default-terminal"),
               )?.name ?? "Default"}
               <CaretDownIcon size={14} style="opacity:0.6" />
             </button>
             {#if terminalOpen}
-              {@const selected = theme.defaultTerminal ?? "default-terminal"}
+              {@const selected = theme.fallbackTerminal ?? "default-terminal"}
               <div
                 class="rounded-2xl bg-(--solus-popover-bg) border border-(--solus-popover-border)"
                 style="
@@ -602,6 +615,7 @@
                       data-menu-current={selected === terminal.id ? "" : undefined}
                       class={cn(menuRowVariants({ indicator: "trailing" }), "w-full")}
                     >
+                      <AppLogo id={terminal.id} kind="terminal" size={13} />
                       <span class="min-w-0 flex-1 truncate text-left">{terminal.name}</span>
                       {#if selected === terminal.id}<CheckIcon
                           size={14}

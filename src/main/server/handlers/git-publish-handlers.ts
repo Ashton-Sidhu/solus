@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { isRemoteDispatchCheckoutPath, projectScopeOf, type GitInitRepositoryResult, type GithubPublishRepositoryResult, type GitRepositoryStatus } from '../../../shared/types'
+import { projectScopeOf, type GitInitRepositoryResult, type GithubPublishRepositoryResult, type GitRepositoryStatus } from '../../../shared/types'
 import type { SolusServer } from '../server'
 import { createLogger } from '../../logger'
 import { computeGitRepositoryStatus, initRepository } from '../../git/git-init'
@@ -47,12 +47,8 @@ export function registerGitPublishHandlers(server: SolusServer): void {
     // Publish is reachable from a dispatched session, whose checkout commits and
     // pushes as the paired device. Creating the repository as the host owner
     // would file the client's work under the wrong account.
-    const token = await githubTokenForCheckout(cwd)
-    if (!token) {
-      throw new Error(isRemoteDispatchCheckoutPath(cwd)
-        ? 'Connect GitHub on the device that dispatched this session before publishing.'
-        : 'Connect GitHub on this host before publishing.')
-    }
+    const token = githubTokenForCheckout(cwd)
+    if (!token) throw new Error('Connect GitHub on this host before publishing.')
 
     // A 401 on someone else's credential must not clear the host's stored token,
     // so only the host's own token gets the shared, cached client.

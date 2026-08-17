@@ -156,6 +156,15 @@
     color: var(--solus-text-primary);
   }
 
+  /* The composing-session chip is an indicator, not a tab: only its discard
+     button is interactive, so it takes neither the pointer nor the hover wash
+     every real tab answers a click with. */
+  .tab-item.tab-item-draft,
+  .tab-item.tab-item-draft:hover {
+    cursor: default;
+    background: transparent;
+  }
+
   .tab-item:focus-visible {
     box-shadow:
       0 0 0 0.125rem var(--solus-input-focus-ring),

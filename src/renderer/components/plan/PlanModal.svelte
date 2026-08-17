@@ -216,7 +216,7 @@
       onclick={() => (commentsRailOpen = !commentsRailOpen)}
       class="plan-soft-pill"
       class:plan-soft-pill--active={commentsRailOpen}
-      title={commentsRailOpen ? "Hide comments (⌥M)" : "Show comments (⌥M)"}
+      title={commentsRailOpen ? "Hide comments (⌥T)" : "Show comments (⌥T)"}
       aria-label={commentsRailOpen ? "Hide comments" : "Show comments"}
     >
       <span class="plan-soft-pill__swatch" aria-hidden="true"></span>

@@ -57,7 +57,31 @@ to the session task.
 
 ## Client behavior
 
-Desktop, web, and mobile use the same status-aware primary action:
+Desktop, web, and mobile read one Git model. It reports a readiness stage, and
+the rows keep their positions at each stage. Only the primary action and the
+menu contents change:
+
+- **no-repository** — the folder is not a Git repository. Each action is
+  disabled and gives that reason.
+- **local-only** — the repository has no remote. Commits are possible; pushes,
+  pull requests, and sync are not.
+- **published** — the repository has a remote. Each action applies.
+
+A repository probe that has not answered keeps the published stage, so the rows
+do not flash through a state the project may not be in.
+
+The Commit row commits and pushes in one click on a published project, and
+commits only on a local-only project. It generates the message and includes
+every change. Its caret menu holds the same steps by hand:
+
+- **Commit…** opens a composer that lists the changed files with their status
+  and line totals. The user selects a subset and can type a message. The
+  composer sends the same intent with `filePaths` and `commitMessage`. It is
+  disabled when the working tree is clean.
+- **Commit only** commits without a push, on a published project.
+- **Push** pushes the commits that are not published yet.
+
+The Pull requests row keeps the status-aware primary action:
 
 - Dirty work on the target branch creates a feature branch, commits, pushes,
   and opens a pull request.
@@ -66,12 +90,19 @@ Desktop, web, and mobile use the same status-aware primary action:
 - A published pull request opens directly, or pushes pending commits first.
 - A branch behind its upstream must sync before it can publish.
 
-The primary action stays one click: it commits every change and generates the
-message. Beside it, **Commit with options…** and **Commit and push with
-options…** open a composer that lists the changed files with their status and
-line totals. The user selects a subset and can type a message. The composer
-sends the same intent with `filePaths` and `commitMessage`. It is disabled when
-the working tree is clean.
+On a local-only project this row owns publication, because publication creates
+the remote the pull request needs. **Publish to GitHub…** opens a dialog for
+the repository name, an optional organization, a private switch, and an SSH
+switch. The project folder name fills the name field. An empty organization
+publishes under the account that the checkout's credential authenticates as —
+for a dispatched session, the device that dispatched it, not the host. When the
+host has no GitHub connection, the row reads **Connect GitHub…** and the dialog
+asks for that connection first.
+
+A step that cannot apply stays visible and disabled with its reason, so a menu
+reports the project's state rather than hides it. The mobile sheet gives the
+same primary actions and the same publish dialog; it does not include the
+commit composer.
 
 Clients show the phase labels from the host event. They refresh detailed Git
 state after completion or failure.

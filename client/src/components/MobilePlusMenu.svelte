@@ -27,7 +27,10 @@
     serversStore,
   } from "@renderer/contexts";
   import { gitActionsFor } from "@renderer/lib/git-actions.svelte";
-  import { gitPublishModel } from "@renderer/components/project-panel/lib/git-action-selection";
+  import {
+    gitPublishModel,
+    isPullRequestRunning,
+  } from "@renderer/components/project-panel/lib/git-action-selection";
   import { repositorySetupStore } from "@renderer/contexts/git/repository-setup.store.svelte";
   import PublishRepositoryDialog from "@renderer/components/project-panel/publish-repository/PublishRepositoryDialog.svelte";
   import { buildAgentAvailabilityRows } from "@renderer/lib/agentAvailability";
@@ -157,9 +160,7 @@
         actions.activeAction === "commit_push_pull_request"),
   );
   const isPullRequestActionRunning = $derived(
-    actions.running &&
-      (actions.activeAction === "create_pull_request" ||
-        actions.activeAction === "commit_push_pull_request"),
+    actions.running && isPullRequestRunning(actions.activeAction, actions.activePhase),
   );
 
   $effect(() => {

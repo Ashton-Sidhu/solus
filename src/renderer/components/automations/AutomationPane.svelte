@@ -42,6 +42,8 @@
   <PaneChrome
     onClose={pane.close}
     onOpenInSplit={pane.moveAcross}
+    onToggleMaximize={pane.toggleMaximize}
+    maximized={pane.maximized}
     isLeading={pane.isLeading}
     closeLabel="Close automation"
   />

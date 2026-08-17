@@ -25,7 +25,6 @@ import { type Task, type TaskSnapshot } from '../../../shared/task-types'
 import { writeSessionHandoff } from './active-session-pointer'
 import { toasts } from '../../lib/toasts'
 import { RouterStore } from './routing/router.store.svelte'
-import { PaneGeometryStore } from './routing/pane-geometry.store.svelte'
 import { visibleRef, type NavTarget, type PaneId } from './routing/location'
 import { CHAT_ROUTE, chatRoute, type RouteRef, type SettingsTab } from './routing/route-registry'
 import { WorkStreamTracker } from './work-stream-tracker.svelte'
@@ -187,8 +186,10 @@ export class WorkspaceContext {
   /** Where the workspace is: which routes are in which panes, plus history.
    *  Global — not per-tab. */
   router = new RouterStore()
-  /** How wide those panes are, and whether one is maximized. */
-  geometry = new PaneGeometryStore()
+  /** The one pane, if any, drawn over the whole window. Geometry rather than
+   *  location: it survives navigation inside the pane and clears when the pane
+   *  closes. Pane widths are PaneForge's own business — see WorkspaceBody. */
+  maximizedPaneId = $state<PaneId | null>(null)
   ui: WorkspaceUiStore
   config: SessionConfigController
   onTurnSettled?: (sessionId: string, cwd: string | null) => void
@@ -911,11 +912,11 @@ export class WorkspaceContext {
     const sessionId = this.tabs[tabId]?.sessionId
     if (this.window.viewMode !== 'editor') {
       if (!sessionId) return
-      this.router.navigate(
+      const pane = this.router.navigate(
         { name: 'goal', params: { sessionId, serverId: this.sessions[sessionId]?.run.serverId } },
         { target: 'aside' },
       )
-      this.geometry.open(this.router.focusedPaneId, 0.34)
+      pane.defaultSize = 34
       return
     }
     const isSplit = tabId === this.splitChatTabId
@@ -1625,11 +1626,10 @@ export class WorkspaceContext {
   openSplitChat(sessionId: string): void {
     // The route is persisted and restored: it must name the session's host or
     // a restore resolves the bare id against whichever host answers first.
-    const pane = this.router.navigate(
+    this.router.navigate(
       chatRoute(sessionId, this.sessions[sessionId]?.run.serverId),
       { target: 'aside' },
     )
-    this.geometry.open(pane.id)
     if (this.settings.splitProjectPanelOpen) this.settings.update({ splitProjectPanelOpen: false })
   }
 
@@ -2795,8 +2795,7 @@ export class WorkspaceContext {
   /** Open a work as the single artifact. `aside` puts it beside the
    *  conversation; otherwise it takes the focused pane. */
   openWork(workId: string, target: 'focused' | 'aside' = 'focused'): void {
-    const pane = this.router.navigate({ name: 'work', params: { workId } }, { target: this.artifactTarget(target) })
-    if (target === 'aside') this.geometry.open(pane.id)
+    this.router.navigate({ name: 'work', params: { workId } }, { target: this.artifactTarget(target) })
   }
 
   closeWorkModal(): void {
@@ -2930,11 +2929,10 @@ export class WorkspaceContext {
 
   /** Open a plan as the single artifact. */
   openPlan(planId: string, target: 'focused' | 'aside' = 'focused'): void {
-    const pane = this.router.navigate(
+    this.router.navigate(
       { name: 'plan', params: { planId, serverId: this.planStore.hostFor(planId) ?? undefined } },
       { target: this.artifactTarget(target) },
     )
-    if (target === 'aside') this.geometry.open(pane.id)
   }
 
   /** An artifact opening fresh covers the conversation; `aside` puts it beside
@@ -3113,11 +3111,10 @@ export class WorkspaceContext {
     const serverId = sourceId ? this.runFor(sourceId)?.serverId : undefined
     const params: Extract<RouteRef, { name: 'automation' }>['params'] = { automationId }
     if (serverId) params.serverId = serverId
-    const pane = this.router.navigate(
+    this.router.navigate(
       { name: 'automation', params },
       { target: this.artifactTarget(target) },
     )
-    if (target === 'aside') this.geometry.open(pane.id)
     this.isExpanded = true
     void this.automationsStore.loadAll(serverId)
   }
@@ -3299,7 +3296,6 @@ export class WorkspaceContext {
       target: opts.target ?? this.router.leadingPane.id,
       via: opts.via,
     })
-    if (pane.id !== this.router.leadingPane.id) this.geometry.open(pane.id)
     this.isExpanded = true
     track('surface_viewed', { surface: 'pr_review', via: opts.via })
     this.prsStore.prefetchReview(api, serverId, ctx, number)
@@ -3521,7 +3517,7 @@ export class WorkspaceContext {
       chatRoute(sessionId, this.sessions[sessionId]?.run.serverId),
       { target },
     )
-    this.geometry.open(pane.id, 0.5)
+    pane.defaultSize = 50
     this.isExpanded = true
   }
 
@@ -3539,7 +3535,7 @@ export class WorkspaceContext {
       },
       { target: 'aside' },
     )
-    this.geometry.open(pane.id, 0.5)
+    pane.defaultSize = 50
     this.isExpanded = true
   }
 
@@ -3698,9 +3694,8 @@ export class WorkspaceContext {
    *  review guide splits evenly so both halves stay readable. */
   private showViewer(ref: RouteRef): void {
     const pane = this.router.navigate(ref, { target: 'aside' })
-    const wideByDefault =
-      ref.name === 'diff' && this.router.leadingPane.base?.name === 'review' ? 0.5 : 0.6
-    this.geometry.open(pane.id, wideByDefault)
+    pane.defaultSize =
+      ref.name === 'diff' && this.router.leadingPane.base?.name === 'review' ? 50 : 60
   }
 
   // ─── Reviews ───

@@ -7,7 +7,7 @@ import type { SolusServer } from '../server'
 import { getIndexedSession, searchIndexedSessions, setSessionCustomTitle } from '../../db/session-indexer'
 import { renamePinnedSession } from '../../sessions/pinned-sessions'
 import { generateSessionMetadata } from '../../sessions/session-title'
-import { updateGeneratedDescriptionForSession } from '../../tasks/task-sessions'
+import { updateGeneratedMetadataForSession } from '../../tasks/task-sessions'
 import { emitChanged } from '../../tasks/task-store'
 import { takeSessionScanBatch } from '../session-scan'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
@@ -191,7 +191,11 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     try {
       if (source === 'generated') {
         if (trimmed && generatedDescription) {
-          taskCatalogChanged = !!await updateGeneratedDescriptionForSession(sessionId, generatedDescription)
+          taskCatalogChanged = !!await updateGeneratedMetadataForSession(
+            sessionId,
+            trimmed,
+            generatedDescription,
+          )
         }
       } else {
         // Session names and task names have separate owners. The task snapshot

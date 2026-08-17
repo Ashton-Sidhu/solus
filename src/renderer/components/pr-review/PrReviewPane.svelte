@@ -1139,7 +1139,6 @@
             onClose={() => select(showingFullDiff ? "activity" : "guide")}
             embedded
             hasHostHeaderRow={!headless}
-            {onToggleMaximize}
             initialScope={diffScope}
             commentingDisabled={!!commitScope}
             commitSha={commitScope?.sha ?? null}

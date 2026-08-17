@@ -5,14 +5,17 @@ import { existsSync, writeFileSync, readFileSync, statSync } from 'fs'
 import { appendFile, mkdir, readFile as readBinaryFile, readdir, realpath, stat, writeFile as writeTextFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { execFile, execFileSync } from 'child_process'
-import type { AgentId, ProjectContentSearchResult, WriteFileResult, FileMatch, DetectedEditor, DetectedTerminal, EditorId } from '../../../shared/types'
+import type { AgentId, ProjectContentSearchResult, WriteFileResult, FileMatch, DetectedEditor, DetectedTerminal } from '../../../shared/types'
 import { AGENT_BIN } from '../../../shared/types'
 import { MAX_VOICE_WAV_BYTES } from '../../../shared/voice-audio'
 import { expandHome } from './lib/host-path'
 import { transcribeAudio, warmTranscription } from '../../transcription'
 import { readWav } from '../../transcription/wav'
 import { getVoiceModelStatus, retryParakeetModel } from '../../model-downloader'
-import { launchInTerminal } from '../../terminal-launcher'
+import { launchInTerminal, resolveTerminal, terminalDisplayName } from '../../terminal-launcher'
+import { findAppBundle } from '../../mac-apps'
+import { EDITOR_APPS, editorApp } from '../../editor-apps'
+import { TERMINAL_APPS } from '../../terminal-apps'
 import { getCliEnv } from '../../cli-env'
 import { createLogger } from '../../logger'
 import { solusDir } from '../../platform/paths'
@@ -90,6 +93,15 @@ function runScreencapture(args: string[], timeout: number): Promise<void> {
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+/** The resolved path of a shell command, or null when it is not installed. */
+function whichBin(bin: string): string | null {
+  try {
+    return execFileSync('/usr/bin/which', [bin], { encoding: 'utf8', timeout: 2000, env: getCliEnv() }).trim() || null
+  } catch {
+    return null
+  }
 }
 
 function buildAgentTerminalCommand(agentId: AgentId, agentBin: string, sessionId: string | null): string {
@@ -519,8 +531,8 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
       ? ctx.session.workingDirectory
       : process.cwd()
     const command = buildAgentTerminalCommand(agentId, agentBin, sessionId)
-    const terminalId = ctx.settings.defaultTerminal ?? 'default-terminal'
-    const launcher = launchInTerminal({ command, terminalId, cwd: projectPath })
+    const fallbackTerminalId = ctx.settings.fallbackTerminal ?? 'default-terminal'
+    const launcher = launchInTerminal({ command, fallbackTerminalId, cwd: projectPath })
     deps.hideAppWindow()
     return launcher
   })
@@ -532,38 +544,49 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     if (!existsSync(targetPath) || !statSync(targetPath).isDirectory()) return false
 
     const shellPath = process.env.SHELL || '/bin/zsh'
-    const terminalId = ctx.settings.defaultTerminal ?? 'default-terminal'
+    const fallbackTerminalId = ctx.settings.fallbackTerminal ?? 'default-terminal'
     const launcher = launchInTerminal({
       command: `exec ${shellQuote(shellPath)} -l`,
-      terminalId,
+      fallbackTerminalId,
       cwd: targetPath,
     })
     deps.hideAppWindow()
     return launcher
   })
 
+  server.register('resolveTerminal', (args) => {
+    const [fallbackTerminalId] = args
+    return resolveTerminal(fallbackTerminalId ?? 'default-terminal')
+  })
+
   server.register('detectEditors', () => {
     log.info('rpc_detect_editors')
 
     const editors: DetectedEditor[] = []
-    const probes: Array<{ id: EditorId; name: string; bin: string; isTerminal: boolean }> = [
-      { id: 'vscode', name: 'VS Code', bin: 'code', isTerminal: false },
-      { id: 'vim', name: 'Vim', bin: 'vim', isTerminal: true },
-      { id: 'nvim', name: 'Neovim', bin: 'nvim', isTerminal: true },
-      { id: 'helix', name: 'Helix', bin: 'hx', isTerminal: true },
-    ]
-    for (const p of probes) {
-      try {
-        const binPath = execFileSync('/usr/bin/which', [p.bin], { encoding: 'utf8', timeout: 2000, env: getCliEnv() }).trim()
-        if (binPath) editors.push({ id: p.id, name: p.name, isTerminal: p.isTerminal, binPath })
-      } catch {}
+    for (const app of EDITOR_APPS) {
+      // Either proof of installation counts. Most GUI editors ship their shell
+      // command as an opt-in step, so requiring it hid apps the user has.
+      const binPath = whichBin(app.bin)
+      const appPath = app.macAppBundle ? findAppBundle(app.macAppBundle) : null
+      if (!binPath && !appPath) continue
+      editors.push({ id: app.id, name: app.name, isTerminal: app.isTerminal, binPath })
     }
 
-    const terminals: DetectedTerminal[] = [{ id: 'default-terminal', name: 'Default Terminal' }]
-    if (process.platform === 'darwin') {
-      if (existsSync('/Applications/Ghostty.app')) terminals.push({ id: 'ghostty', name: 'Ghostty' })
-    } else {
-      try { execFileSync('/usr/bin/which', ['ghostty'], { encoding: 'utf8', timeout: 2000 }); terminals.push({ id: 'ghostty', name: 'Ghostty' }) } catch {}
+    const terminals: DetectedTerminal[] = []
+    for (const app of TERMINAL_APPS) {
+      // The system terminal has no bundle to probe: it is the one that is
+      // always there, and on macOS it has a name of its own.
+      if (app.id === 'default-terminal') {
+        terminals.push({ id: app.id, name: terminalDisplayName(app) })
+        continue
+      }
+      if (process.platform === 'darwin') {
+        if (app.macAppBundle && findAppBundle(app.macAppBundle)) {
+          terminals.push({ id: app.id, name: app.name })
+        }
+        continue
+      }
+      if (whichBin(app.linuxBin)) terminals.push({ id: app.id, name: app.name })
     }
 
     log.info('editors_detected', { editors: editors.map(e => e.id), terminals: terminals.map(t => t.id) })
@@ -574,17 +597,30 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     const [ctx, request] = args
     const { filePaths } = request
     const editorId = ctx.settings.defaultEditor ?? request.editorId
-    const terminalId = ctx.settings.defaultTerminal ?? request.terminalId
+    const fallbackTerminalId = ctx.settings.fallbackTerminal ?? request.fallbackTerminalId
     const cwd = request.cwd || (filePaths.length > 0 ? dirname(filePaths[0]) : undefined)
-    log.info('rpc_open_in_editor', { editorId, terminalId, cwd, filePaths })
+    log.info('rpc_open_in_editor', { editorId, fallbackTerminalId, cwd, filePaths })
 
-    if (editorId === 'vscode') {
+    const app = editorApp(editorId)
+    if (!app) { log.warn('unknown_editor', { editorId }); return false }
+
+    if (!app.isTerminal) {
+      const appPath = app.macAppBundle ? findAppBundle(app.macAppBundle) : null
+      // `open -a` both launches and raises, so the bundle path needs no separate
+      // activate step the way the shell command does.
+      const [bin, binArgs] = whichBin(app.bin)
+        ? [app.bin, [...(app.args ?? []), ...filePaths]]
+        : appPath
+          ? ['open', ['-a', appPath, ...filePaths]]
+          : [null, []]
+      if (!bin) { log.warn('editor_not_installed', { editorId }); return false }
+
       return new Promise<boolean>((resolve) => {
-        execFile('code', filePaths, (err: Error | null) => {
-          if (err) { log.error('open_vscode_failed', { error: err.message }); resolve(false) }
+        execFile(bin, binArgs, (err: Error | null) => {
+          if (err) { log.error('open_editor_failed', { editorId, error: err.message }); resolve(false) }
           else {
-            if (process.platform === 'darwin') {
-              execFile('/usr/bin/osascript', ['-e', 'tell application "Visual Studio Code" to activate'], () => {})
+            if (process.platform === 'darwin' && bin !== 'open' && appPath) {
+              execFile('open', ['-a', appPath], () => {})
             }
             resolve(true)
           }
@@ -592,14 +628,10 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
       })
     }
 
-    const binMap = { vim: 'vim', nvim: 'nvim', helix: 'hx' } satisfies Partial<Record<EditorId, string>>
-    const bin = binMap[editorId]
-    if (!bin) { log.warn('unknown_editor', { editorId }); return false }
-
     const escapedPaths = filePaths.map(p => `"${p.replace(/"/g, '\\"')}"`)
-    const command = `${bin} ${escapedPaths.join(' ')}`
+    const command = [app.bin, ...(app.args ?? []), ...escapedPaths].join(' ')
 
-    const launched = launchInTerminal({ command, terminalId: terminalId || 'default-terminal', cwd })
+    const launched = launchInTerminal({ command, fallbackTerminalId: fallbackTerminalId || 'default-terminal', cwd })
     deps.hideAppWindow()
     return launched
   })

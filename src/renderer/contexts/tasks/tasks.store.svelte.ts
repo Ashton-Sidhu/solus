@@ -354,14 +354,23 @@ export class TasksStore {
           const links: Record<string, TaskSessionLink[]> = {}
           for (const { serverId, snapshot } of ok) {
             for (const task of snapshot.tasks) {
+              // Two catalog hosts can serve one task store — a desktop host and
+              // a standalone server over the same data directory both report the
+              // same ULIDs. The task is one task: it belongs to the host that
+              // claimed it first (the primary leads `connectedServerIds`), and
+              // listing it twice would route its writes by the losing host and
+              // break the sidebar's keyed rows outright.
+              if (this.hostByTaskId.has(task.id)) continue
               this.hostByTaskId.set(task.id, serverId)
               if (!this.pendingDeleteIds.has(task.id)) merged.push(task)
             }
+            // Sessions and PR links follow the task to the host that won it, so
+            // a row never shows one host's attempts under another host's task.
             for (const [taskId, list] of Object.entries(snapshot.sessionsByTask)) {
-              links[taskId] = list
+              if (!(taskId in links)) links[taskId] = list
             }
             for (const [taskId, pr] of Object.entries(snapshot.prLinksByTask ?? {})) {
-              this.prLinkByTask.set(taskId, pr)
+              if (!this.prLinkByTask.has(taskId)) this.prLinkByTask.set(taskId, pr)
             }
           }
           this.tasks.splice(0, this.tasks.length, ...merged)

@@ -35,6 +35,7 @@ async function main(): Promise<void> {
     await buildServerBundle(staging)
     await buildCliBundle(staging)
     copyClient(staging)
+    copyBundledPlugins(staging)
     writeLaunchers(staging)
     writeNativeNote(staging)
 
@@ -150,6 +151,12 @@ async function buildCliBundle(staging: string): Promise<void> {
 
 function copyClient(staging: string): void {
   cpSync(join(repoRoot, 'dist', 'client'), join(staging, 'libexec', 'client'), { recursive: true })
+}
+
+/** The server links these into the state dir on boot, so they must ship where
+ *  bundledResourcesDir() looks: `$SOLUS_INSTALL_DIR/resources`. */
+function copyBundledPlugins(staging: string): void {
+  cpSync(join(repoRoot, 'resources', 'plugins'), join(staging, 'resources', 'plugins'), { recursive: true })
 }
 
 function writeLaunchers(staging: string): void {

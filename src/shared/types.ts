@@ -1548,7 +1548,8 @@ export interface SettingsCtx {
   voiceModeEnabled: boolean
   vadSilenceMs: number
   defaultEditor: EditorId | null
-  defaultTerminal: TerminalAppId | null
+  /** Terminal opened only when no terminal is attached to the shared tmux session. */
+  fallbackTerminal: TerminalAppId | null
   activeAgent: AgentId
   /** Effective review-companion choices used by foreground and background guide generation. */
   reviewAgent: AgentId | null
@@ -1996,14 +1997,49 @@ export interface ProjectConfig {
 
 // ─── Editor / Terminal Types ───
 
-export type EditorId = 'vscode' | 'vim' | 'nvim' | 'helix'
-export type TerminalAppId = 'default-terminal' | 'ghostty'
+/**
+ * Every editor and terminal Solus knows, as runtime values. These are the one
+ * source of truth: the ids are validated at the client I/O boundary and
+ * persisted in settings, and a second hand-written copy of either list silently
+ * dropped every id it had not heard of — which is how newly added editors
+ * reached the host but never the Settings dropdown.
+ */
+export const EDITOR_IDS = [
+  'vscode',
+  'cursor',
+  'zed',
+  'sublime',
+  'intellij',
+  'pycharm',
+  'webstorm',
+  'goland',
+  'datagrip',
+  'dataspell',
+  'phpstorm',
+  'rubymine',
+  'vim',
+  'nvim',
+  'helix',
+  'emacs',
+] as const
+export type EditorId = (typeof EDITOR_IDS)[number]
+
+export const TERMINAL_APP_IDS = [
+  'default-terminal',
+  'ghostty',
+  'iterm2',
+  'wezterm',
+  'kitty',
+  'alacritty',
+] as const
+export type TerminalAppId = (typeof TERMINAL_APP_IDS)[number]
 
 export interface DetectedEditor {
   id: EditorId
   name: string
   isTerminal: boolean
-  binPath: string
+  /** Shell command, when one is installed. */
+  binPath: string | null
 }
 
 export interface DetectedTerminal {
@@ -2011,16 +2047,26 @@ export interface DetectedTerminal {
   name: string
 }
 
+/** Which terminal "Open in terminal" will use right now. */
+export interface ResolvedTerminal {
+  /** Catalog id when Solus knows the app, null for one it can only detect. */
+  id: TerminalAppId | null
+  name: string
+  /** `attached` when a terminal already holds the shared tmux session. */
+  source: 'attached' | 'fallback'
+}
+
 export interface TerminalLaunchRequest {
   command: string
-  terminalId: TerminalAppId
+  /** Terminal to open only when no terminal is attached to the shared tmux session. */
+  fallbackTerminalId: TerminalAppId
   cwd?: string
 }
 
 export interface OpenInEditorRequest {
   filePaths: string[]
   editorId: EditorId
-  terminalId?: TerminalAppId
+  fallbackTerminalId?: TerminalAppId
   cwd?: string
 }
 
@@ -2031,6 +2077,8 @@ export interface FilePreviewRequest {
 
 export interface ProjectFilesRequest {
   cwd?: string
+  /** The files pane also draws folders, so it needs the ones no file reveals. */
+  includeEmptyDirectories?: boolean
 }
 
 export type ProjectFilesResult =
@@ -2038,6 +2086,9 @@ export type ProjectFilesResult =
       ok: true
       root: string
       files: string[]
+      /** Root-relative, trailing-slash directory paths holding no indexed file.
+       *  Present only when the request asked for them. */
+      emptyDirectories?: string[]
       truncated: boolean
       source: 'index'
     }
@@ -2107,6 +2158,34 @@ export type WriteFileResult =
       path: string
       error: string
       conflict?: boolean
+    }
+
+/**
+ * A structural change to the project's file tree. Paths are root-relative and
+ * posix-separated; a folder path may carry a trailing slash. `createFile` and
+ * `createFolder` never overwrite — an existing entry is reported as an error so
+ * the tree can put the user back in the rename input.
+ */
+export type ProjectFileMutation =
+  | { op: 'createFile'; path: string }
+  | { op: 'createFolder'; path: string }
+  | { op: 'rename'; path: string; toPath: string }
+  | { op: 'delete'; path: string }
+
+export interface ProjectFileMutationRequest {
+  cwd?: string
+  mutation: ProjectFileMutation
+}
+
+export type ProjectFileMutationResult =
+  | {
+      ok: true
+      /** Root-relative path the entry now lives at; empty for a delete. */
+      path: string
+    }
+  | {
+      ok: false
+      error: string
     }
 
 /** A file-autocomplete result row, fully resolved by the backend. */
