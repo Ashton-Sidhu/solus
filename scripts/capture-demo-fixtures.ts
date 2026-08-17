@@ -5,7 +5,7 @@ import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { Database, type SQLQueryBindings } from 'bun:sqlite'
-import type { ChangedFileStat, GitProjectStatus } from '../src/shared/git-types'
+import type { ChangedFileStat, GitState, UncommittedFile } from '../src/shared/git-types'
 import type { ReviewGuide } from '../src/shared/review'
 import type { SessionLoadMessage } from '../src/shared/session-history'
 import type { Task, TaskCommentData, TaskSessionLink } from '../src/shared/task-types'
@@ -197,10 +197,23 @@ async function captureSessions(args: Args): Promise<DemoFixtures['sessions']> {
   return sessions.sort((a, b) => a.meta.sessionId.localeCompare(b.meta.sessionId))
 }
 
-function parseNumstat(text: string): ChangedFileStat[] {
+function parseNameStatus(text: string): Map<string, ChangedFileStat['status']> {
+  const statuses = new Map<string, ChangedFileStat['status']>()
+  for (const line of text.split('\n').filter(Boolean)) {
+    const [code, ...paths] = line.split('\t')
+    const status: ChangedFileStat['status'] =
+      code?.startsWith('R') ? 'R' : code === 'A' ? 'A' : code === 'D' ? 'D' : 'M'
+    const path = paths[paths.length - 1]
+    if (path) statuses.set(path, status)
+  }
+  return statuses
+}
+
+function parseNumstat(text: string, statuses?: Map<string, ChangedFileStat['status']>): ChangedFileStat[] {
   return text.split('\n').filter(Boolean).map((line) => {
     const [additions, deletions, ...pathParts] = line.split('\t')
-    return { path: pathParts.join('\t'), additions: Number(additions) || 0, deletions: Number(deletions) || 0 }
+    const path = pathParts.join('\t')
+    return { path, additions: Number(additions) || 0, deletions: Number(deletions) || 0, status: statuses?.get(path) ?? 'M' as const }
   }).sort((a, b) => a.path.localeCompare(b.path))
 }
 
@@ -209,15 +222,16 @@ function captureDiffs(args: Args): DemoFixtures['diffs'] {
   if (args.base) variants.push([`base:${args.base}`, [args.base]])
   return Object.fromEntries(variants.map(([key, revision]) => {
     const patch = git(args.workspace, ['diff', '--binary', '--no-ext-diff', ...revision])
-    const stats = parseNumstat(git(args.workspace, ['diff', '--numstat', '--no-ext-diff', ...revision]))
+    const statuses = parseNameStatus(git(args.workspace, ['diff', '--name-status', '--no-ext-diff', ...revision]))
+    const stats = parseNumstat(git(args.workspace, ['diff', '--numstat', '--no-ext-diff', ...revision]), statuses)
     return [key, { patch, stats, turnSnapshots: [], changedFiles: stats.map(({ path }) => path) }]
   }))
 }
 
-function captureGitStatus(args: Args): GitProjectStatus {
+function captureGitStatus(args: Args): GitState {
   const text = git(args.workspace, ['status', '--porcelain=v2', '--branch'])
   let branch: string | null = null
-  const files: GitProjectStatus['files'] = []
+  const files: UncommittedFile[] = []
   for (const line of text.split('\n')) {
     if (line.startsWith('# branch.head ')) branch = line.slice('# branch.head '.length) === '(detached)' ? null : line.slice('# branch.head '.length)
     else if (line.startsWith('? ') || line.startsWith('! ')) files.push({ path: line.slice(2), conflicted: false })
@@ -233,13 +247,29 @@ function captureGitStatus(args: Args): GitProjectStatus {
   }
   const stats = parseNumstat(git(args.workspace, ['diff', 'HEAD', '--numstat', '--no-ext-diff']))
   const mergeHead = git(args.workspace, ['rev-parse', '--git-path', 'MERGE_HEAD']).trim()
+  const tryGit = (gitArgs: string[]): string | null => {
+    try { return git(args.workspace, gitArgs).trim() } catch { return null }
+  }
+  const targetBranch = args.base ?? 'main'
+  const upstreamRef = tryGit(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])
+  const [behindCount, aheadCount] = (tryGit(['rev-list', '--left-right', '--count', '@{u}...HEAD']) ?? '0\t0')
+    .split('\t').map((count) => Number(count) || 0)
   return {
-    repoRoot: git(args.workspace, ['rev-parse', '--show-toplevel']).trim(), branch,
-    targetBranch: args.base ?? 'main',
-    files: files.sort((a, b) => a.path.localeCompare(b.path)),
-    insertions: stats.reduce((sum, file) => sum + file.additions, 0),
-    deletions: stats.reduce((sum, file) => sum + file.deletions, 0),
-    mergeInProgress: existsSync(isAbsolute(mergeHead) ? mergeHead : join(args.workspace, mergeHead)),
+    repoRoot: git(args.workspace, ['rev-parse', '--show-toplevel']).trim(),
+    headSha: git(args.workspace, ['rev-parse', 'HEAD']).trim(),
+    branch,
+    targetBranch,
+    uncommittedChanges: {
+      files: files.sort((a, b) => a.path.localeCompare(b.path)),
+      hasMoreFiles: false,
+      insertions: stats.reduce((sum, file) => sum + file.additions, 0),
+      deletions: stats.reduce((sum, file) => sum + file.deletions, 0),
+      mergeInProgress: existsSync(isAbsolute(mergeHead) ? mergeHead : join(args.workspace, mergeHead)),
+    },
+    upstreamRef,
+    aheadCount: aheadCount ?? 0,
+    behindCount: behindCount ?? 0,
+    targetAheadCount: Number(tryGit(['rev-list', '--count', `${targetBranch}..HEAD`])) || 0,
   }
 }
 
@@ -336,7 +366,7 @@ function rowToTask(row: DbRow): Task {
     parentId: row.parent_id ? String(row.parent_id) : undefined, dueDate: row.due_date ? String(row.due_date) : undefined,
     priority: row.priority as Task['priority'], branch: row.branch ? String(row.branch) : undefined,
     pr: parseJson(row.pr, undefined), canEditPlanningFields: true,
-    updatedAt: new Date(Number(row.updated_at)).toISOString(), raw: parseJson(row.raw, null),
+    updatedAt: Number(row.updated_at), raw: parseJson(row.raw, null),
   }
 }
 
@@ -357,7 +387,13 @@ function captureTasks(workspace: string, db: Database | null): DemoFixtures['tas
   const sessions: Record<string, TaskSessionLink[]> = {}
   for (const row of query(db, 'SELECT * FROM task_session_links WHERE project_key = ? ORDER BY linked_at, rowid', [key])) {
     const id = String(row.task_id)
-    ;(sessions[id] ??= []).push({ sessionId: String(row.session_id), linkedAt: Number(row.linked_at) })
+    ;(sessions[id] ??= []).push({
+      sessionId: String(row.session_id),
+      sessionTitle: row.session_title ? String(row.session_title) : null,
+      provider: row.provider ? String(row.provider) : null,
+      lastActivityAt: row.last_activity_at ? Number(row.last_activity_at) : null,
+      linkedAt: Number(row.linked_at),
+    })
   }
   return { list: { tasks: tasks.sort((a, b) => a.id.localeCompare(b.id)), fromCache: false, fetchedAt }, details, comments, sessions }
 }
@@ -401,6 +437,15 @@ async function capturePr(workspace: string): Promise<DemoFixtures['pr']> {
       updatedAt: timestamp, draft: false, labels: [], additions: 0, deletions: 0, body: '', baseRef: 'main',
       headRef: 'demo', baseSha: emptyGuide.baseSha, headSha: emptyGuide.headSha, changedFiles: 0,
       mergeable: null, mergeStateStatus: null, headRepo: { owner: 'acme', repo: 'acme', isFork: false },
+      capabilities: {
+        diff: true, diffFileContents: true, inlineComments: true, threadReplies: true, threadResolution: true,
+        reviewVerdicts: ['comment', 'approve', 'request-changes'], actions: ['merge'],
+        mergeMethods: ['merge', 'squash', 'rebase'], reviewerRequests: false, reviewerCandidates: false,
+      },
+      viewerPermissions: {
+        actions: ['merge'], reviewVerdicts: ['comment', 'approve', 'request-changes'],
+        comment: true, resolveThreads: true, requestReviewers: false,
+      },
     }, commits: [], reviewers: [] }, changedFiles: [], threads: [], guide: emptyGuide, filePatches: {},
   }
 }
@@ -464,10 +509,12 @@ async function main(): Promise<void> {
         version: 'demo', projectPath: DEMO_PROJECT, homePath: '/home/demo', workspacePath: DEMO_PROJECT,
         agents: [{ id: 'claude-code', label: 'Claude Code', models: [], defaultModel: '', available: true }],
       },
-      persistedTabs: { version: 1, activeTabId: null, tabOrder: [], tabs: [] },
+      persistedTabs: { version: 1, activeTabId: '', tabOrder: [], tabs: [] },
       sessions, plans, works: await captureWorks(args.workspace, db), pr: await capturePr(args.workspace),
       tasks: captureTasks(args.workspace, db), automations: captureAutomations(args.workspace, db),
       diffs: captureDiffs(args), gitStatus: captureGitStatus(args), replayScript: [],
+      // The browsable project tree is authored in client/src/demo/fixtures/project-files.ts.
+      files: { root: DEMO_PROJECT, files: [], contents: {} },
     }
     const captured = normalizeAndSanitize(fixtures, args.workspace)
     await mkdir(args.out, { recursive: true })

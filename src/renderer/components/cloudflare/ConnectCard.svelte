@@ -29,6 +29,7 @@
   let { tabId }: Props = $props();
 
   const session = getWorkspaceContext();
+  const serverId = $derived(session.sessionFor(tabId)?.run.serverId);
   const connected = $derived(cloudflareStore.connected);
 
   let cardEl = $state<HTMLDivElement | null>(null);
@@ -50,7 +51,7 @@
   // is the card's; the conversation's own Escape bindings keep it otherwise.
   function handleKeydown(event: KeyboardEvent) {
     if (event.key !== "Escape") return;
-    if (!cardEl?.contains(event.target as Node)) return;
+    if (!(event.target instanceof Node) || !cardEl?.contains(event.target)) return;
     event.preventDefault();
     dismiss();
   }
@@ -111,7 +112,9 @@
           </button>
         </div>
 
-        <CloudflareConnectForm autofocus />
+        {#if serverId}
+          <CloudflareConnectForm {serverId} autofocus />
+        {/if}
 
         <p class="text-xs text-muted-foreground opacity-80">
           Paste the token here, not into the chat.

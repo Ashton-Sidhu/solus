@@ -121,19 +121,28 @@ class WebPushState {
       userVisibleOnly: true,
       applicationServerKey: base64UrlToUint8Array(publicKey),
     })
-    const json = subscription.toJSON() as WebPushSubscriptionJSON
-    if (!json.endpoint || !json.keys?.auth || !json.keys?.p256dh) {
+    const serialized = subscription.toJSON()
+    if (!serialized.endpoint || !serialized.keys?.auth || !serialized.keys?.p256dh) {
       throw new Error('Push subscription is missing browser keys')
     }
+    const json: WebPushSubscriptionJSON = {
+      endpoint: serialized.endpoint,
+      keys: { auth: serialized.keys.auth, p256dh: serialized.keys.p256dh },
+    }
+    if (serialized.expirationTime !== undefined) json.expirationTime = serialized.expirationTime
     await api.pushSubscribe(json)
   }
 
   private hosts(): PushHostRef[] {
-    const primary = serverConnections.connectionFor()
-    return pushHostRefs(loadServers(), primary ? {
-      serverId: primary.serverId,
-      ...(primary.target.installationId ? { installationId: primary.target.installationId } : {}),
-    } : null)
+    // The serving-origin host may be unsaved, so it is added beside the saved list.
+    const bootServerId = serverConnections.defaultServerId()
+    const boot = bootServerId ? serverConnections.connectionFor(bootServerId) : undefined
+    let bootHost: PushHostRef | null = null
+    if (boot) {
+      bootHost = { serverId: boot.serverId }
+      if (boot.target.installationId) bootHost.installationId = boot.target.installationId
+    }
+    return pushHostRefs(loadServers(), bootHost)
   }
 
   private async reconcile(removingServerId?: string): Promise<void> {
@@ -237,8 +246,7 @@ function keysEqual(left: ArrayBuffer | null, right: Uint8Array): boolean {
 }
 
 function isPushSupported(): boolean {
-  return typeof window !== 'undefined'
-    && window.isSecureContext
+  return window.isSecureContext
     && 'Notification' in window
     && 'serviceWorker' in navigator
     && 'PushManager' in window

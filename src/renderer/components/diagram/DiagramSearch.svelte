@@ -34,8 +34,8 @@
 
     const first = matched[0]
     if (first) {
-      const w = (first.measured?.width ?? first.width ?? 200) as number
-      const h = (first.measured?.height ?? first.height ?? 80) as number
+      const w = Number(first.measured?.width ?? first.width ?? 200)
+      const h = Number(first.measured?.height ?? first.height ?? 80)
       void flow.setCenter(first.position.x + w / 2, first.position.y + h / 2, {
         zoom: 1.2,
         duration: 300,

@@ -164,7 +164,7 @@ export function entryTimestamp(entry: PickerEntry): number {
   if (entry.kind === 'open') {
     const msgs = entry.session.messages
     for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i].timestamp) return msgs[i].timestamp as number
+      if (msgs[i].timestamp) return msgs[i].timestamp
     }
     return 0
   }
@@ -229,14 +229,14 @@ export const STATUS_GROUP_ORDER: StatusGroupKey[] = [
   'waiting', 'rate-limited', 'running', 'completed', 'error', 'idle'
 ]
 
-export const STATUS_GROUP_LABELS: Record<StatusGroupKey, string> = {
+export const STATUS_GROUP_LABELS = {
   'waiting': 'Waiting for input',
   'rate-limited': 'Rate limited',
   'running': 'Running',
   'completed': 'Completed',
   'error': 'Error',
   'idle': 'Idle',
-}
+} satisfies Record<StatusGroupKey, string>
 
 export function getStatusGroupKey(sess: Session, tab: Tab, plans?: Record<string, Plan>): StatusGroupKey {
   const attention = getAttentionState(sess, tab, plans)
@@ -252,10 +252,10 @@ export type UnreadGroupKey = 'unread' | 'read'
 
 export const UNREAD_GROUP_ORDER: UnreadGroupKey[] = ['unread', 'read']
 
-export const UNREAD_GROUP_LABELS: Record<UnreadGroupKey, string> = {
+export const UNREAD_GROUP_LABELS = {
   'unread': 'Unread',
   'read': 'Read',
-}
+} satisfies Record<UnreadGroupKey, string>
 
 export function getUnreadGroupKey(sess: Session, tab: Tab, plans?: Record<string, Plan>): UnreadGroupKey {
   return getAttentionState(sess, tab, plans) === 'unread' ? 'unread' : 'read'
@@ -265,13 +265,15 @@ export type TabGroupSection = { key: string; tabIds: string[] }
 export type TabResolver = (tabId: string) => { sess: Session; tab: Tab } | null
 
 /** Per-mode bucketing rule: the section order and how a tab maps to a section. */
-const GROUP_DEFS: Record<'status' | 'unread', {
+interface TabGroupDefinition {
   order: readonly string[]
   keyOf: (sess: Session, tab: Tab, plans?: Record<string, Plan>) => string
-}> = {
+}
+
+const GROUP_DEFS = {
   status: { order: STATUS_GROUP_ORDER, keyOf: getStatusGroupKey },
   unread: { order: UNREAD_GROUP_ORDER, keyOf: getUnreadGroupKey },
-}
+} satisfies Record<'status' | 'unread', TabGroupDefinition>
 
 /**
  * Bucket tab IDs into ordered grouping sections — the single source of truth for
@@ -364,11 +366,14 @@ export function findOpenTabForSession(
     const tab = tabs[tabId]
     if (!tab) continue
     const sess = sessions[tab.sessionId]
-    if (
-      sess?.agentSessionId === sessionId
-      && (!provider || sess.run.provider === provider)
-      && (!serverId || sess.run.serverId === serverId)
-    ) return tabId
+    if (!sess) continue
+    if (provider && sess.run.provider !== provider) continue
+    if (serverId && sess.run.serverId !== serverId) continue
+    // Our own session ids are client-minted and collision-free, so they match
+    // without a host. Provider ids are host-minted and can collide across
+    // hosts, so an agent-session match requires the caller to name the host.
+    if (tab.sessionId === sessionId) return tabId
+    if (sess.agentSessionId === sessionId && serverId) return tabId
   }
   return null
 }
@@ -385,9 +390,11 @@ export interface OpenSessionLookup {
 
 /** The mounted tab running a provider session, paired with its live state.
  *  Null when the session has no tab open — the ordinary case for a task's
- *  earlier attempts, which are read from their durable link instead. */
+ *  earlier attempts, which are read from their durable link instead. The
+ *  caller names the attempt's host: provider ids only match host-scoped. */
 export function openSessionFor(
   sessionId: string,
+  serverId: string | null,
   workspace: OpenSessionLookup,
 ): { tabId: string; tab: Tab; session: Session } | null {
   const tabId = findOpenTabForSession(
@@ -395,6 +402,8 @@ export function openSessionFor(
     workspace.tabs,
     workspace.sessions,
     workspace.tabOrder,
+    undefined,
+    serverId ?? undefined,
   )
   if (!tabId) return null
   const tab = workspace.tabs[tabId]
@@ -408,9 +417,10 @@ export function openSessionFor(
  *  outranks the title stored on the durable link. */
 export function liveSessionTitle(
   sessionId: string,
+  serverId: string | null,
   workspace: OpenSessionLookup,
 ): string | null {
-  const open = openSessionFor(sessionId, workspace)
+  const open = openSessionFor(sessionId, serverId, workspace)
   return open ? sessionTitle(open.session) : null
 }
 

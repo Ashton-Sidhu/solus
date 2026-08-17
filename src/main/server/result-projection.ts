@@ -5,7 +5,11 @@ export const ERROR_HEAD_MAX_BYTES = 2 * 1024
 
 const AGENT_SESSION_ID = /sessionId=([0-9a-f-]{36})/
 
-export function serializedBytes(value: unknown): number {
+interface AgentConversationProjection {
+  agentConversationResult?: AgentConversationResultProjection
+}
+
+export function serializedBytes<T>(value: T): number {
   return Buffer.byteLength(JSON.stringify(value))
 }
 
@@ -13,21 +17,23 @@ export function projectSessionEvent(event: NormalizedEvent): WireNormalizedEvent
   if (event.type === 'tool_result') {
     if (event.isAsyncLaunch && !event.isError) return null
     if (event.isSubagentReport || event.toolUseId === event.parentToolUseId) {
-      return {
+      const projected: WireNormalizedEvent = {
         type: 'subagent_report',
         toolUseId: event.toolUseId,
         text: event.content,
-        ...(event.isError ? { isError: true } : {}),
       }
+      if (event.isError) projected.isError = true
+      return projected
     }
-    return {
+    const projected: WireNormalizedEvent = {
       type: 'tool_result',
       toolUseId: event.toolUseId,
-      ...(event.parentToolUseId ? { parentToolUseId: event.parentToolUseId } : {}),
       status: event.isError ? 'error' : 'ok',
-      ...(event.isError ? { errorHead: utf8Head(event.content) } : {}),
       contentBytes: Buffer.byteLength(event.content),
     }
+    if (event.parentToolUseId) projected.parentToolUseId = event.parentToolUseId
+    if (event.isError) projected.errorHead = utf8Head(event.content)
+    return projected
   }
 
   if (event.type === 'tool_call' || event.type === 'tool_call_update') {
@@ -55,14 +61,15 @@ export function projectSessionHistory(messages: SessionLoadMessage[]): WireSessi
       if (message.toolResultForId && subagentToolIds.has(message.toolResultForId)) {
         return { ...base, content: '', report: message.content, status }
       }
-      return {
+      const projected: WireSessionLoadMessage = {
         ...base,
         content: '',
         status,
-        ...(toolResultIsError ? { errorHead: utf8Head(message.content) } : {}),
         contentBytes: Buffer.byteLength(message.content),
-        ...agentConversationProjection(toolName, message.content),
       }
+      if (toolResultIsError) projected.errorHead = utf8Head(message.content)
+      Object.assign(projected, agentConversationProjection(toolName, message.content))
+      return projected
     }
 
     if (message.role !== 'tool' || !message.content) return message
@@ -71,14 +78,15 @@ export function projectSessionHistory(messages: SessionLoadMessage[]): WireSessi
       return { ...message, content: '', report: message.content, status: message.toolStatus === 'error' ? 'error' : 'ok' }
     }
 
-    return {
+    const projected: WireSessionLoadMessage = {
       ...message,
       content: '',
       status: message.toolStatus === 'error' ? 'error' : 'ok',
-      ...(message.toolStatus === 'error' ? { errorHead: utf8Head(message.content) } : {}),
       contentBytes: Buffer.byteLength(message.content),
-      ...agentConversationProjection(message.toolName, message.content),
     }
+    if (message.toolStatus === 'error') projected.errorHead = utf8Head(message.content)
+    Object.assign(projected, agentConversationProjection(message.toolName, message.content))
+    return projected
   })
 }
 
@@ -92,7 +100,7 @@ function isSubagentTool(message: Pick<SessionLoadMessage, 'isSubagent' | 'toolNa
 function agentConversationProjection(
   toolName: string | undefined,
   content: string,
-): { agentConversationResult?: AgentConversationResultProjection } {
+): AgentConversationProjection {
   if (!toolName) return {}
   if (toolName.endsWith('create_session')) {
     const agentSessionId = content.match(AGENT_SESSION_ID)?.[1]

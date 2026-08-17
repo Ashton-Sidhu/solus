@@ -1,5 +1,6 @@
 import { GitHubAuth } from '../../providers/github/auth'
 import { buildClient } from '../../providers/github/octokit'
+import { z } from 'zod'
 import type {
   CandidateTicket,
   ExternalTaskStatus,
@@ -9,26 +10,32 @@ import type {
   Task,
   TaskCandidateOptions,
   TaskCommentData,
-  TaskPriority,
   TicketPatch,
 } from '../../../shared/task-types'
 import { GitHubTaskProvider } from '../providers/github'
 import type { TaskSyncAdapter } from './types'
 
-function repositoryRef(externalKey: string): { host: string; owner: string; repo: string } {
+interface GitHubRepositoryRef {
+  host: string
+  owner: string
+  repo: string
+}
+
+const taskRawSchema = z.object({
+  comments: z.array(z.object({
+    id: z.string().optional(),
+    author: z.object({ login: z.string() }).nullable(),
+    body: z.string(),
+    createdAt: z.string(),
+  })).optional(),
+})
+
+function repositoryRef(externalKey: string): GitHubRepositoryRef {
   const [owner, repo, ...extra] = externalKey.split('/')
   if (!owner || !repo || extra.length) {
     throw new Error(`Invalid GitHub task scope: ${externalKey}`)
   }
   return { host: 'github.com', owner, repo }
-}
-
-function issueNumber(externalId: string): number {
-  const number = Number(externalId)
-  if (!Number.isSafeInteger(number) || number <= 0) {
-    throw new Error(`Invalid GitHub issue number: ${externalId}`)
-  }
-  return number
 }
 
 function externalStatus(task: Task): ExternalTaskStatus {
@@ -38,8 +45,9 @@ function externalStatus(task: Task): ExternalTaskStatus {
 }
 
 function commentsFromTask(task: Task): NormalizedTaskComment[] {
-  const raw = task.raw as { comments?: TaskCommentData[] } | null | undefined
-  return (raw?.comments ?? []).flatMap((comment) => {
+  const parsed = taskRawSchema.safeParse(task.raw)
+  const comments: TaskCommentData[] = parsed.success ? parsed.data.comments ?? [] : []
+  return comments.flatMap((comment) => {
     if (!comment.id) return []
     return [{
       externalId: comment.id,
@@ -92,12 +100,12 @@ export class GitHubTaskSyncAdapter implements TaskSyncAdapter {
 
   async pushFields(ref: ExternalTicketRef, patch: TicketPatch): Promise<NormalizedTicket> {
     const provider = providerFor(ref.externalKey)
-    const task = await provider.updateTask(ref.externalId, {
-      ...(patch.title === undefined ? {} : { title: patch.title }),
-      ...(patch.body === undefined ? {} : { body: patch.body }),
-      ...(patch.labels === undefined ? {} : { labels: patch.labels }),
-      ...(patch.status === undefined ? {} : { status: localStatus(patch.status) }),
-    })
+    const update: Parameters<GitHubTaskProvider['updateTask']>[1] = {}
+    if (patch.title !== undefined) update.title = patch.title
+    if (patch.body !== undefined) update.body = patch.body
+    if (patch.labels !== undefined) update.labels = patch.labels
+    if (patch.status !== undefined) update.status = localStatus(patch.status)
+    const task = await provider.updateTask(ref.externalId, update)
     return normalizeTask(task, { ...ref, url: task.url ?? ref.url })
   }
 
@@ -157,8 +165,7 @@ export class GitHubTaskSyncAdapter implements TaskSyncAdapter {
         status: externalStatus(task),
         labels: task.labels,
         externalUpdatedAt: new Date(task.updatedAt).toISOString(),
-        priorityHint: task.priority as TaskPriority | undefined,
+        priorityHint: task.priority,
       }))
   }
 }
-

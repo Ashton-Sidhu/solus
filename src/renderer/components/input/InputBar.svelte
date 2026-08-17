@@ -26,6 +26,7 @@
     PlanReference,
     Prompt,
     PromptDelivery,
+    PluginCommandsResult,
     RunConfig,
     WorkReference,
     SessionReference,
@@ -93,6 +94,9 @@
      *  same shape in the same position, so @-file search and saved prompts find
      *  their project without asking which of the two they were handed. */
     run?: RunConfig;
+    /** Commands resolved for this composer. Drafts supply their picker-scoped
+     *  result because they have no session cache of their own. */
+    pluginCommands?: PluginCommandsResult;
     /** The unsent message this bar edits. Passed in rather than resolved here,
      *  so the bar never needs to know whether it belongs to a conversation or to
      *  a composer that has no session yet. Mutated in place. */
@@ -114,6 +118,7 @@
     isPrimary = false,
     paneId,
     run,
+    pluginCommands: suppliedPluginCommands,
     prompt = $bindable(),
     onDispatch,
     leadingActions,
@@ -177,7 +182,7 @@
   const attachments = $derived(prompt.attachments);
   const voiceModeEnabled = $derived(theme.voiceModeEnabled);
   const pluginCommands = $derived(
-    sess?.pluginCommands ?? session.pluginCommands,
+    suppliedPluginCommands ?? sess?.pluginCommands ?? session.pluginCommands,
   );
   // Working directory driving @-file search and plan/work lookup in the composer.
   const composerCwd = $derived(
@@ -192,6 +197,9 @@
       (composerCwd && composerCwd !== "~"
         ? worktreeProjectRoot(composerCwd)
         : null),
+  );
+  const composerServerId = $derived(
+    run?.serverId ?? serverConnections.defaultServerId(),
   );
 
   // ─── Prompt history ───
@@ -474,7 +482,7 @@
       return;
     }
 
-    const active = document.activeElement as HTMLElement | null;
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (
       active &&
       active !== document.body &&
@@ -524,7 +532,7 @@
 
   $effect(() => {
     const handleFocusRequest = (event: Event) => {
-      const detail = (event as CustomEvent<{ tabId?: string }>).detail;
+      const detail = event instanceof CustomEvent ? event.detail : undefined;
       const requestedTabId = detail?.tabId;
       if (
         requestedTabId === undefined
@@ -582,7 +590,9 @@
     const error = voice.error;
     if (error === prevVoiceError) return;
     prevVoiceError = error;
-    if (error && isActiveMode && ownsVoice) toasts.error(error);
+    if (error && isActiveMode && ownsVoice) {
+      toasts.error("Dictation unavailable", { description: error });
+    }
   });
 
   $effect(() => {
@@ -809,8 +819,12 @@
       ipcContext: targetTabId
         ? session.ctxFor(targetTabId)
         : session.ctxForDirectory(composerCwd),
-      clearTab: () => {
-        if (targetTabId) session.clearTab(targetTabId);
+      clearCurrentConversation: () => {
+        if (targetTabId) {
+          session.clearTabToDraft(targetTabId, "keybinding");
+        } else {
+          session.openSessionDraft({ via: "keybinding" });
+        }
       },
       addSystemMessage: (message) => {
         if (targetTabId) session.addSystemMessage(message, targetTabId);
@@ -1052,8 +1066,12 @@
     }
     const sentSavedPromptId = prompt.savedPromptId;
     prompt.savedPromptId = null;
-    if (sentSavedPromptId && composerProjectRoot) {
-      void savedPrompts.remove(composerProjectRoot, sentSavedPromptId);
+    if (sentSavedPromptId && composerProjectRoot && composerServerId) {
+      void savedPrompts.remove(
+        composerProjectRoot,
+        sentSavedPromptId,
+        composerServerId,
+      );
     }
 
     if (options.refocus !== false) {
@@ -1188,7 +1206,7 @@
         if (!blob) return;
         const reader = new FileReader();
         reader.onload = async () => {
-          const dataUrl = reader.result as string;
+          const dataUrl = String(reader.result ?? "");
           const api = session.apiForRun(run);
           const ctx = targetTabId
             ? session.ctxFor(targetTabId)
@@ -1297,6 +1315,7 @@
       {prompt}
       tabId={targetTabId}
       projectRoot={composerProjectRoot}
+      serverId={composerServerId}
       active={isActiveMode && receivesFocusedInput}
       {isReadOnly}
       anchorEl={composerRootEl}

@@ -3,8 +3,20 @@ export const RESPONSE_RECEIPT_MAX_ENTRIES = 100
 export const RESPONSE_RECEIPT_MAX_BYTES = 16 * 1024 * 1024
 export const RESPONSE_RECEIPT_MAX_ENTRY_BYTES = 4 * 1024 * 1024
 export const RESPONSE_RECEIPT_MAX_IN_FLIGHT = 64
-export const RESPONSE_RECEIPT_GLOBAL_MAX_IN_FLIGHT = RESPONSE_RECEIPT_MAX_IN_FLIGHT
+// Editor, Pill, web, and mobile clients can issue independent boot reads at the
+// same time. Keep the per-client guard strict without letting one busy surface
+// consume the whole host budget and reject routine reads from every other one.
+export const RESPONSE_RECEIPT_GLOBAL_MAX_IN_FLIGHT = RESPONSE_RECEIPT_MAX_IN_FLIGHT * 4
 export const RESPONSE_RECEIPT_GLOBAL_MAX_BYTES = RESPONSE_RECEIPT_MAX_BYTES
+
+export interface ResponseReceiptBudgetStats {
+  inFlight: number
+  settledBytes: number
+}
+
+export interface ResponseReceiptCacheStats extends ResponseReceiptBudgetStats {
+  entries: number
+}
 
 export class ResponseReceiptBudget {
   private inFlight = 0
@@ -35,7 +47,7 @@ export class ResponseReceiptBudget {
     this.settledBytes = Math.max(0, this.settledBytes - bytes)
   }
 
-  stats(): { inFlight: number; settledBytes: number } {
+  stats(): ResponseReceiptBudgetStats {
     return { inFlight: this.inFlight, settledBytes: this.settledBytes }
   }
 }
@@ -48,25 +60,35 @@ interface Receipt<T> {
 }
 
 /** Conservative, allocation-light estimate of the graph a settled Promise retains. */
-export function estimateRetainedBytes(value: unknown, ceiling = Number.POSITIVE_INFINITY): number {
+export function estimateRetainedBytes<Value>(value: Value, ceiling = Number.POSITIVE_INFINITY): number {
   const seen = new WeakSet<object>()
   let bytes = 0
 
+  // This walker measures arbitrary settled RPC payloads — there is no domain
+  // schema at this boundary, and dispatching through zod here (the rule-clean
+  // alternative it replaces) allocated four schemas plus an object clone per
+  // visited node on every settled response.
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters
   const visit = (candidate: unknown): void => {
     if (bytes > ceiling || candidate == null) return
-    if (typeof candidate === 'string') {
-      bytes += 16 + candidate.length * 2
-      return
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof
+    switch (typeof candidate) {
+      case 'string':
+        bytes += 16 + candidate.length * 2
+        return
+      case 'number':
+      case 'bigint':
+        bytes += 8
+        return
+      case 'boolean':
+        bytes += 4
+        return
+      case 'object':
+        break
+      default:
+        return
     }
-    if (typeof candidate === 'number' || typeof candidate === 'bigint') {
-      bytes += 8
-      return
-    }
-    if (typeof candidate === 'boolean') {
-      bytes += 4
-      return
-    }
-    if (typeof candidate !== 'object' || seen.has(candidate)) return
+    if (seen.has(candidate)) return
     seen.add(candidate)
     bytes += 48
 
@@ -156,7 +178,7 @@ export class ResponseReceiptCache<T> {
     for (const [requestId, receipt] of this.entries) this.deleteReceipt(requestId, receipt)
   }
 
-  stats(): { entries: number; inFlight: number; settledBytes: number } {
+  stats(): ResponseReceiptCacheStats {
     let inFlight = 0
     let settledBytes = 0
     for (const receipt of this.entries.values()) {
@@ -177,6 +199,10 @@ export class ResponseReceiptCache<T> {
       this.deleteReceipt(requestId, receipt)
       return
     }
+    // Free expired receipts before asking the shared budget for room — the
+    // estimator measures real payload sizes, so a stale burst must not make
+    // the budget refuse (and drop dedup for) a fresh settle it could hold.
+    this.prune()
     if (this.sharedBudget && !this.sharedBudget.tryRetain(retainedBytes)) {
       this.deleteReceipt(requestId, receipt)
       return

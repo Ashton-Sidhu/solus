@@ -41,7 +41,7 @@ const IMPLEMENT_PREFIX = 'Implement this plan:\n\n'
 const PERMISSION_BOUNDARY =
   'is waiting on a TOOL PERMISSION request, which only a human can grant. Agents cannot approve another agent\'s Bash/Write/MCP access. Ask the user to answer it in that session, or use stop_session.'
 
-const answerSessionShape = {
+const answerSessionFields = {
   session_id: z.string().describe('The paused session to answer. Cannot be your own session.'),
   answers: z
     .array(
@@ -55,7 +55,7 @@ const answerSessionShape = {
     .describe('Omit to READ the pending questions (their keys, text and valid option labels) without answering. Pass them to answer.'),
 }
 
-const reviewPlanShape = {
+const reviewPlanFields = {
   session_id: z.string().describe('The session whose plan you are reviewing. Cannot be your own session.'),
   decision: z
     .enum(['approve', 'request_changes'])
@@ -64,6 +64,18 @@ const reviewPlanShape = {
   comment: z.string().optional().describe('Your review note. Required for request_changes; it is what the peer revises against.'),
   revised_plan: z.string().optional().describe('With `approve`: the full plan text to implement INSTEAD of the one the peer wrote. Use it to edit rather than to re-litigate.'),
 }
+
+const sessionReviewToolArgsSchema = z.object({
+  session_id: z.string().optional(),
+  answers: z.array(z.object({
+    key: z.string(),
+    choice: z.string(),
+    comment: z.string().optional(),
+  })).optional(),
+  decision: z.enum(['approve', 'request_changes']).optional(),
+  comment: z.string().optional(),
+  revised_plan: z.string().optional(),
+})
 
 const ANSWER_SESSION_DESC =
   "Answer a question another Solus session is parked on, so it can continue without a human. Call it with only session_id first: that returns each pending question's key, text and valid option labels and changes nothing. Then call it again with `answers` to send them. Use this whenever an agent-conversation card shows a peer waiting on a question. Plans go to review_plan instead; tool permission requests are human-only and are refused."
@@ -139,18 +151,20 @@ async function recordPlanDecision(
   const existing = await loadAnnotations(meta.sessionId, plan.planToolUseId)
   const title = extractPlanTitle(plan.planContent)
   const author = await callerAgent(deps.ctx)
-  const thread: PlanComment[] = comment
-    ? [{
+  const thread: PlanComment[] = []
+  if (comment) {
+    const planComment: PlanComment = {
         // Anchored on the plan's own title line so the note lands somewhere real
         // in the rail; a review of the whole plan has no quoted selection.
         id: randomUUID(),
         selectedText: title,
         comment,
         author: 'solus',
-        ...(author ? { authorAgent: author } : {}),
         createdAt: Date.now(),
-      }]
-    : []
+    }
+    if (author) planComment.authorAgent = author
+    thread.push(planComment)
+  }
   const annotations: PlanAnnotations = {
     version: 1,
     sessionId: meta.sessionId,
@@ -161,9 +175,9 @@ async function recordPlanDecision(
     status,
     comments: [...(existing?.comments ?? []), ...thread],
     bookmarked: existing?.bookmarked ?? false,
-    ...(existing?.bookmarkedAt === undefined ? {} : { bookmarkedAt: existing.bookmarkedAt }),
     updatedAt: Date.now(),
   }
+  if (existing?.bookmarkedAt !== undefined) annotations.bookmarkedAt = existing.bookmarkedAt
   await saveAnnotations(annotations)
   getSessionController()?.invalidatePlanCaches(meta.sessionId)
   notifyAnnotationsChanged({ kind: 'plan', targetId: `${meta.sessionId}__${plan.planToolUseId}` })
@@ -176,28 +190,17 @@ export interface SessionReviewToolResult {
   text: string
 }
 
-interface SessionAnswerInput {
-  key?: unknown
-  choice?: unknown
-  comment?: unknown
-}
-
-interface SessionReviewToolArgs {
-  session_id?: unknown
-  answers?: SessionAnswerInput[]
-  decision?: unknown
-  comment?: unknown
-  revised_plan?: unknown
-}
+type SessionReviewToolArgs = z.infer<typeof sessionReviewToolArgsSchema>
 
 export async function executeSessionReviewTool(
   name: string,
-  args: SessionReviewToolArgs,
+  args: z.input<typeof sessionReviewToolArgsSchema>,
   deps: SessionToolDeps = {},
 ): Promise<SessionReviewToolResult> {
   try {
-    if (name === 'answer_session') return await answerSession(args, deps)
-    if (name === 'review_plan') return await reviewPlan(args, deps)
+    const parsed = sessionReviewToolArgsSchema.parse(args)
+    if (name === 'answer_session') return await answerSession(parsed, deps)
+    if (name === 'review_plan') return await reviewPlan(parsed, deps)
     return { ok: false, text: `Unknown session review tool: ${name}` }
   } catch (err: any) {
     log.error('session_review_tool_failed', { tool: name, error: err instanceof Error ? err.message : String(err) })
@@ -241,7 +244,7 @@ async function answerSession(args: SessionReviewToolArgs, deps: SessionToolDeps)
     if (!question) {
       return { ok: false, text: `No pending question with key "${key}". Valid keys: ${[...byKey.keys()].map((k) => `"${k}"`).join(', ')}.` }
     }
-    const choice = String(entry.choice ?? '').trim()
+    const choice = entry.choice.trim()
     if (question.options.length) {
       // A label the card never offered would reach the provider as free text and
       // silently mean something else, so it is refused rather than passed on.
@@ -254,7 +257,7 @@ async function answerSession(args: SessionReviewToolArgs, deps: SessionToolDeps)
         return { ok: false, text: `Question "${key}" is single-select — pass one option label, not ${picked.length}.` }
       }
     }
-    const comment = typeof entry.comment === 'string' ? entry.comment : undefined
+    const comment = entry.comment
     if (!choice && !comment?.trim()) {
       return { ok: false, text: `Question "${key}" needs a choice or a comment. Send an empty choice only to hand the decision back deliberately.` }
     }
@@ -296,7 +299,7 @@ async function reviewPlan(args: SessionReviewToolArgs, deps: SessionToolDeps): P
     return { ok: false, text: `Session ${sessionLink(meta)} is waiting on a question, not a plan. Use answer_session.` }
   }
 
-  const decision = args.decision === undefined ? null : String(args.decision)
+  const decision = args.decision ?? null
   if (!decision) {
     const drive = pending.blocking
       ? 'Its run is held open on this plan, so approving lets it implement in place, keeping everything it explored.'
@@ -310,11 +313,11 @@ async function reviewPlan(args: SessionReviewToolArgs, deps: SessionToolDeps): P
     return { ok: false, text: "review_plan decision must be 'approve' or 'request_changes'." }
   }
 
-  const comment = typeof args.comment === 'string' ? args.comment.trim() : ''
+  const comment = args.comment?.trim() ?? ''
   if (decision === 'request_changes' && !comment) {
     return { ok: false, text: 'review_plan requires a comment with request_changes — it is the only thing the peer has to revise against.' }
   }
-  const revisedPlan = typeof args.revised_plan === 'string' && args.revised_plan.trim() ? args.revised_plan : undefined
+  const revisedPlan = args.revised_plan?.trim() ? args.revised_plan : undefined
 
   const controller = getSessionController()!
   if (decision === 'approve') {
@@ -359,11 +362,11 @@ async function reviewPlan(args: SessionReviewToolArgs, deps: SessionToolDeps): P
 
 // ─── Tool definitions ───
 
-function reviewAgentTool(name: string, description: string, inputShape: z.ZodRawShape): AgentTool {
+function reviewAgentTool(name: string, description: string, inputFields: AgentTool['inputFields']): AgentTool {
   return {
     name,
     description,
-    inputShape,
+    inputFields,
     requiresApproval: false,
     execute: async (args, context) => executeSessionReviewTool(name, args, {
       ctx: {
@@ -376,5 +379,5 @@ function reviewAgentTool(name: string, description: string, inputShape: z.ZodRaw
   }
 }
 
-export const answerSessionAgentTool = reviewAgentTool('answer_session', ANSWER_SESSION_DESC, answerSessionShape)
-export const reviewPlanAgentTool = reviewAgentTool('review_plan', REVIEW_PLAN_DESC, reviewPlanShape)
+export const answerSessionAgentTool = reviewAgentTool('answer_session', ANSWER_SESSION_DESC, answerSessionFields)
+export const reviewPlanAgentTool = reviewAgentTool('review_plan', REVIEW_PLAN_DESC, reviewPlanFields)

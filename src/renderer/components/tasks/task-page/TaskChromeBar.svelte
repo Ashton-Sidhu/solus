@@ -70,7 +70,7 @@
 {/snippet}
 
 <div
-  class="flex h-(--solus-chrome-row-h,2.75rem) shrink-0 items-center gap-1 pr-3.5 pl-[max(1.125rem,var(--solus-chrome-lead-inset,0px))]"
+  class="workspace-titlebar flex h-(--solus-chrome-row-h,2.75rem) shrink-0 items-center gap-1 pr-3.5 pl-[max(1.125rem,var(--solus-chrome-lead-inset,0px))]"
 >
   <button
     type="button"

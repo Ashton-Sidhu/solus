@@ -18,10 +18,16 @@ import { type SettingsContext, type AgentContext } from '../contexts'
  * we mirror the main model picker (status-bar.context) and fall back to the
  * agent/model default whenever the override doesn't match.
  */
+export interface ResolvedReviewAgent {
+  agent: AgentId
+  model: string | null
+  reasoningEffort: ReasoningEffort | null
+}
+
 export function resolveReviewAgent(
   settings: SettingsContext,
   agents: AgentContext,
-): { agent: AgentId; model: string | null; reasoningEffort: ReasoningEffort | null } {
+): ResolvedReviewAgent {
   const agent = settings.reviewAgent ?? settings.activeAgent
   const meta = agents.metadata[agent] ?? null
   const models = meta?.models ?? []

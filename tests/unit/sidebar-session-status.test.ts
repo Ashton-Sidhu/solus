@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { SidebarSessionStatusFeed } from '../../src/renderer/components/session/lib/sidebar-session-status'
 
 describe('sidebar session status feed', () => {
-  test('uses the provider session id for a tool-created unmounted session', () => {
+  test('keeps provider and stable session aliases on one timer', () => {
     // WHY: create_session rows are keyed by the provider session id, while the
     // global event is addressed by a different Solus session id.
     const feed = new SidebarSessionStatusFeed()
@@ -18,7 +18,10 @@ describe('sidebar session status feed', () => {
       attention: 'running',
       runStartedAt: 1_000,
     })
-    expect(feed.stateFor('studio', 'solus-session')).toBeNull()
+    expect(feed.stateFor('studio', 'solus-session')).toEqual({
+      attention: 'running',
+      runStartedAt: 1_000,
+    })
   })
 
   test('keeps the same timer start across one busy turn and clears it on settlement', () => {
@@ -34,6 +37,27 @@ describe('sidebar session status feed', () => {
 
     feed.apply('studio', { ...event, status: 'completed', at: 4_000 })
     expect(feed.stateFor('studio', 'provider-session')).toBeNull()
+    expect(feed.stateFor('studio', 'solus-session')).toBeNull()
+  })
+
+  test('clears a provider timer when a handoff settles the stable session', () => {
+    // WHY: the provider id becomes null during a handoff. The stable id must
+    // still stop the row that has just moved to the handoff identity.
+    const feed = new SidebarSessionStatusFeed()
+    feed.apply('studio', {
+      sessionId: 'solus-session',
+      agentSessionId: 'provider-session',
+      status: 'running',
+      at: 1_000,
+    })
+    feed.apply('studio', {
+      sessionId: 'solus-session',
+      agentSessionId: null,
+      status: 'idle',
+      at: 2_000,
+    })
+
+    expect(feed.stateFor('studio', 'solus-session')).toBeNull()
   })
 
   test('does not mix equal provider session ids from different hosts', () => {

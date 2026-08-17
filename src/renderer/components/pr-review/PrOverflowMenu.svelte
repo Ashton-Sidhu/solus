@@ -57,9 +57,9 @@
     try {
       await onLifecycleAction(action);
     } catch (error) {
-      toasts.error(
-        `Couldn't update the pull request: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      toasts.error("Couldn't update the pull request", {
+        description: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       lifecycleAction = null;
       requestInputFocus();

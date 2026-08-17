@@ -33,6 +33,22 @@ export { TasksStore } from './tasks/tasks.store.svelte'
 /** Known projects and per-project configuration. */
 export { projectsStore } from './projects/projects.store.svelte'
 export { getProjectConfigStore } from './projects/project-config.store.svelte'
+export { getTextGenerationSettingsStore } from './projects/text-generation-settings.store.svelte'
+
+/** Workspace-wide catalog of every project opened/cloned/adopted/run — the
+ *  union source for page-scope project pickers (Tasks, PRs, Workspace, Automations). */
+export { projectCatalog, ProjectCatalogStore } from './projects/project-catalog.store.svelte'
+export {
+  mergeProjectOptions,
+  normalizeProjectRoot,
+  projectRefKey,
+} from './projects/project-catalog'
+export type {
+  ProjectCatalogEntry,
+  ProjectOptionSource,
+  ProjectPickerOption,
+  ProjectRef,
+} from './projects/project-catalog'
 
 /** Composer drafts parked for later, scoped per project. */
 export { savedPrompts } from './saved-prompts/saved-prompts.store.svelte'

@@ -18,6 +18,12 @@
   import { pairQrSvgPath } from "./lib/qrcode";
   import { liveActivityClock } from "../../lib/shared-clock";
 
+  interface Props {
+    serverId: string;
+  }
+
+  let { serverId }: Props = $props();
+
   const connections = connectionsStore;
   let copiedField = $state<string | null>(null);
 
@@ -27,11 +33,11 @@
     tailnet: GlobeIcon,
   } as const;
 
-  const endpointPriority: Record<ConnectionEndpoint["kind"], number> = {
+  const endpointPriority = {
     tailnet: 0,
     lan: 1,
     loopback: 2,
-  };
+  } satisfies Record<ConnectionEndpoint["kind"], number>;
 
   function pairLinkFor(endpoint: ConnectionEndpoint): string {
     const pair = connections.activePair;
@@ -89,7 +95,7 @@
     description="Use a one-time code for web, mobile, or environments without SSH."
   >
     {#snippet control()}
-      <Button size="sm" onclick={() => void connections.generatePairToken()}>
+      <Button size="sm" onclick={() => void connections.generatePairToken(serverId)}>
         <PlusIcon size={14} weight="bold" />
         Generate pair code
       </Button>
@@ -132,7 +138,7 @@
         <Button
           variant="ghost"
           size="icon-sm"
-          onclick={() => void connections.generatePairToken()}
+          onclick={() => void connections.generatePairToken(serverId)}
           class="text-(--solus-text-tertiary)"
           aria-label={pairExpired
             ? "Generate new pair code"

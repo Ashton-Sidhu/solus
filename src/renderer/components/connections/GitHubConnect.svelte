@@ -16,6 +16,12 @@
   import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
 
+  interface Props {
+    serverId: string;
+  }
+
+  let { serverId }: Props = $props();
+
   const session = getWorkspaceContext();
   const connections = connectionsStore;
 
@@ -43,36 +49,35 @@
       Promise.resolve().then(() => modalEl?.focus());
   });
 
-  async function refresh() {
-    await connections.refreshProviderStatus(session.ctx);
-  }
+  $effect(() => {
+    void connections.refreshProviderStatus(serverId, session.ctx);
+  });
 
   // The device code arrives mid-`providerConnect` as a broadcast, so the modal
   // can show it while the connect promise keeps polling.
   onMount(() => {
-    void refresh();
     return connections.listenForProviderDeviceCodes();
   });
 
   async function connect() {
     try {
-      await connections.connectProvider(session.ctx);
+      await connections.connectProvider(serverId, session.ctx);
     } catch (error) {
-      toasts.error(
-        `Couldn't connect to GitHub: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      toasts.error("Couldn't connect to GitHub", {
+        description: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
   // Esc/Cancel aborts the main-side poll immediately; the store swallows the
   // expected cancellation rejection from connect().
   async function cancel() {
-    await connections.cancelProviderConnect(session.ctx);
+    await connections.cancelProviderConnect(serverId, session.ctx);
     requestInputFocus();
   }
 
   async function disconnect() {
-    await connections.disconnectProvider(session.ctx);
+    await connections.disconnectProvider(serverId, session.ctx);
     requestInputFocus();
   }
 

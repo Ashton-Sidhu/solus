@@ -86,10 +86,12 @@ export function isSelfOrDescendant(
   return false;
 }
 
+export interface BoxCentre { cx: number; cy: number }
+
 export function centreOf(
   n: Node,
   byId: Map<string, Node>,
-): { cx: number; cy: number } {
+): BoxCentre {
   const b = absoluteBox(n, byId);
   return { cx: b.x + b.w / 2, cy: b.y + b.h / 2 };
 }
@@ -263,11 +265,12 @@ export function detachChildrenOf(source: Node[], groupIds: Set<string>): Node[] 
     }
     const newParentId = ancestor?.id;
     const { parentId: _p, ...rest } = n;
-    return {
+    const flattened: Node = {
       ...rest,
-      ...(newParentId ? { parentId: newParentId } : {}),
       position: { x, y },
       data: { ...n.data, parentId: newParentId },
     };
+    if (newParentId) flattened.parentId = newParentId;
+    return flattened;
   });
 }

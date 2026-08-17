@@ -3,13 +3,15 @@ import {
   flushDrafts,
   initDraftState,
   loadDismissedSidebarRowKeys,
+  loadOpenSidebarTaskIds,
   loadDrafts,
   loadPersistedTabs,
   patchActiveDraft,
   persistDismissedSidebarRow,
+  persistOpenSidebarTaskIds,
+  removeDismissedSidebarRows,
   removePersistedTab,
   savePersistedTabsDebounced,
-  setTabPersistenceServerInstallationId,
   type PersistedTabs,
 } from '../../src/renderer/contexts/workspace/tab-persistence'
 
@@ -46,12 +48,15 @@ const originalLocalStorage = (globalThis as any).localStorage
 
 function sampleSnapshot(): PersistedTabs {
   return {
-    version: 1,
+    version: 2,
     activeTabId: 'tab-1',
     tabOrder: ['tab-1'],
     tabs: [{
       tabId: 'tab-1',
+      sessionId: 'session-1',
       title: 'Local work',
+      titleCustom: false,
+      serverId: 'local',
       agentSessionId: null,
       provider: null,
       handoffFrom: { provider: 'codex', sessionId: 'previous-session' },
@@ -59,10 +64,13 @@ function sampleSnapshot(): PersistedTabs {
       additionalDirs: [],
       gitContext: null,
       worktreeBaseBranch: null,
+      worktreeRequested: false,
+      taskServerId: 'local',
       modelConfig: {} as any,
       permissionMode: 'ask',
       hasUnread: false,
     }],
+    location: 'chat/session-1~local',
   }
 }
 
@@ -79,55 +87,53 @@ describe('tab persistence server scoping', () => {
       },
       configurable: true,
     })
-    setTabPersistenceServerInstallationId(null, { migrateLegacy: false })
   })
 
   afterEach(() => {
-    setTabPersistenceServerInstallationId(null, { migrateLegacy: false })
     Object.defineProperty(globalThis, 'window', { value: originalWindow, configurable: true })
     Object.defineProperty(globalThis, 'localStorage', { value: originalLocalStorage, configurable: true })
   })
 
-  test('migrates existing desktop snapshots into the local installation key', () => {
+  test('does not adopt a retired per-installation snapshot', () => {
+    // WHY: the dispatch client has one client-wide namespace. Keeping the old
+    // host-scoped read would make the boot host ambient again.
     const snapshot = sampleSnapshot()
-    storage.setItem('solus-open-tabs:editor', JSON.stringify(snapshot))
-
-    setTabPersistenceServerInstallationId('local-install', { migrateLegacy: true })
-
-    expect(loadPersistedTabs()).toEqual(snapshot)
-    expect(storage.getItem('solus-open-tabs:local-install:editor')).toBe(JSON.stringify(snapshot))
-    expect(storage.getItem('solus-open-tabs:editor')).toBeNull()
-  })
-
-  test('does not migrate legacy snapshots for a non-migration server scope', () => {
-    storage.setItem('solus-open-tabs:editor', JSON.stringify(sampleSnapshot()))
-
-    setTabPersistenceServerInstallationId('remote-install', { migrateLegacy: false })
+    storage.setItem('solus-open-tabs:local-install:editor', JSON.stringify(snapshot))
 
     expect(loadPersistedTabs()).toBeNull()
-    expect(storage.getItem('solus-open-tabs:editor')).not.toBeNull()
+    expect(storage.getItem('solus-open-tabs:editor')).toBeNull()
+    expect(storage.getItem('solus-open-tabs:local-install:editor')).toBe(JSON.stringify(snapshot))
   })
 
-  test('recovers the prior tab when a partial snapshot omitted its active selection', () => {
+  test('every boot host reads the same client-wide tab set', () => {
+    // WHY: tabs each name their own host; which host the boot chose must not
+    // decide which conversations reappear.
+    const snapshot = sampleSnapshot()
+    savePersistedTabsDebounced(snapshot)
+    removePersistedTab('none', 'tab-1')
+
+    expect(loadPersistedTabs()).not.toBeNull()
+  })
+
+  test('rejects an incomplete snapshot instead of guessing its selection', () => {
     const snapshot = sampleSnapshot()
     const { activeTabId: _activeTabId, tabOrder: _tabOrder, ...partialSnapshot } = snapshot
     storage.setItem('solus-open-tabs:editor', JSON.stringify(partialSnapshot))
 
-    expect(loadPersistedTabs()).toEqual(snapshot)
+    expect(loadPersistedTabs()).toBeNull()
   })
 
-  test('writes drafts under the active installation key so servers do not share input text', () => {
-    setTabPersistenceServerInstallationId('local-install', { migrateLegacy: true })
+  test('writes drafts to the client-wide key — the draft follows its tab, not a host', () => {
     initDraftState(loadDrafts())
 
     patchActiveDraft('tab-1', 'tab draft', 'active draft')
     flushDrafts()
 
-    expect(storage.getItem('solus-tab-drafts:local-install:editor')).toBe(JSON.stringify({
+    expect(storage.getItem('solus-tab-drafts:editor')).toBe(JSON.stringify({
       activeInputText: 'active draft',
       tabs: { 'tab-1': 'tab draft' },
     }))
-    expect(storage.getItem('solus-tab-drafts:editor')).toBeNull()
+    expect(storage.getItem('solus-tab-drafts:local-install:editor')).toBeNull()
   })
 
   test('removes a closed tab from the queued snapshot immediately', () => {
@@ -135,7 +141,6 @@ describe('tab persistence server scoping', () => {
     snapshot.activeTabId = 'tab-2'
     snapshot.tabOrder.push('tab-2')
     snapshot.tabs.push({ ...snapshot.tabs[0], tabId: 'tab-2', title: 'Other work' })
-    setTabPersistenceServerInstallationId('local-install', { migrateLegacy: true })
 
     savePersistedTabsDebounced(snapshot)
     removePersistedTab('tab-1', 'tab-2')
@@ -152,8 +157,7 @@ describe('tab persistence server scoping', () => {
     snapshot.activeTabId = 'tab-2'
     snapshot.tabOrder.push('tab-2')
     snapshot.tabs.push({ ...snapshot.tabs[0], tabId: 'tab-2', title: 'Other work' })
-    setTabPersistenceServerInstallationId('local-install', { migrateLegacy: true })
-    storage.setItem('solus-open-tabs:local-install:editor', JSON.stringify(snapshot))
+    storage.setItem('solus-open-tabs:editor', JSON.stringify(snapshot))
 
     removePersistedTab('tab-1', 'tab-2')
 
@@ -164,19 +168,37 @@ describe('tab persistence server scoping', () => {
     })
   })
 
-  test('persists dismissed sidebar tasks in the active server and window scope', () => {
-    setTabPersistenceServerInstallationId('local-install', { migrateLegacy: true })
+  test('persists dismissed sidebar tasks in the client-wide window scope', () => {
 
     persistDismissedSidebarRow('root-task')
     persistDismissedSidebarRow('root-task')
     persistDismissedSidebarRow('task:child-task')
 
     expect(loadDismissedSidebarRowKeys()).toEqual(['root-task', 'task:child-task'])
-    expect(storage.getItem('solus-dismissed-sidebar-tasks:local-install:editor')).toBe(
+    expect(storage.getItem('solus-dismissed-sidebar-tasks:editor')).toBe(
       JSON.stringify(['root-task', 'task:child-task']),
     )
+  })
 
-    setTabPersistenceServerInstallationId('remote-install', { migrateLegacy: false })
-    expect(loadDismissedSidebarRowKeys()).toEqual([])
+  test('restores selected sidebar rows without restoring unrelated rows', () => {
+    // WHY: the task picker reverses dismissal for one task tree. It must not
+    // reopen other tasks the user deliberately removed from the sidebar.
+    persistDismissedSidebarRow('root-task')
+    persistDismissedSidebarRow('session:attempt')
+    persistDismissedSidebarRow('unrelated-task')
+
+    removeDismissedSidebarRows(['root-task', 'session:attempt'])
+
+    expect(loadDismissedSidebarRowKeys()).toEqual(['unrelated-task'])
+  })
+
+  test('persists the task rows opened by this client', () => {
+    // WHY: host task data is shared, but each client must restore only its own
+    // open sidebar rows after a cold start.
+    expect(loadOpenSidebarTaskIds()).toBeNull()
+
+    persistOpenSidebarTaskIds(['task-one', 'task-two'])
+
+    expect(loadOpenSidebarTaskIds()).toEqual(['task-one', 'task-two'])
   })
 })

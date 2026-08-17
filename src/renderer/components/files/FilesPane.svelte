@@ -23,6 +23,14 @@
   import FilePreviewStream, {
     type FileSaveState,
   } from "../artifact/FilePreviewStream.svelte";
+  import SegmentedControl from "../ui/SegmentedControl.svelte";
+  import MarkdownFileSurface from "./MarkdownFileSurface.svelte";
+  import {
+    initialMarkdownFileViewMode,
+    isMarkdownFile,
+    persistMarkdownFileViewMode,
+    type MarkdownFileViewMode,
+  } from "./lib/markdown-file";
   import FilesPaneSkeleton from "./FilesPaneSkeleton.svelte";
   import { getWorkspaceContext, runtime } from "../../contexts";
   import * as Resizable from "../ui/resizable";
@@ -100,9 +108,20 @@
   let fileLoading = $state(false);
   let fileError = $state<string | null>(null);
   let saveState = $state<FileSaveState>("idle");
+  let markdownViewMode = $state<MarkdownFileViewMode>("rendered");
   let treeHost: HTMLDivElement | undefined = $state();
   let treeInstance: FileTree | null = $state(null);
   let treeFiles: string[] | null = null;
+  const isSelectedMarkdown = $derived(
+    selectedPath ? isMarkdownFile(selectedPath) : false,
+  );
+  const markdownViewOptions: {
+    value: MarkdownFileViewMode;
+    label: string;
+  }[] = [
+    { value: "rendered", label: "Rendered" },
+    { value: "source", label: "Source" },
+  ];
 
   const statusLabel = $derived.by(() => {
     if (selectedTruncated) return "Truncated — read only";
@@ -125,6 +144,7 @@
   useKeybinding("files-pane.next-file", () => moveSelection(1));
   useKeybinding("files-pane.prev-file", () => moveSelection(-1));
   useKeybinding("files-pane.toggle-tree", () => toggleTree());
+  useKeybinding("files-pane.toggle-markdown", () => toggleMarkdownView());
 
   function closePane() {
     onClose();
@@ -136,6 +156,16 @@
     if (treeCollapsed) treePane?.collapse();
     else treePane?.expand();
     requestInputFocus();
+  }
+
+  function selectMarkdownView(mode: MarkdownFileViewMode) {
+    markdownViewMode = mode;
+    persistMarkdownFileViewMode(mode);
+  }
+
+  function toggleMarkdownView() {
+    if (!isSelectedMarkdown) return;
+    selectMarkdownView(markdownViewMode === "rendered" ? "source" : "rendered");
   }
 
   // Clamp the tree width to its bounds, but never so wide that the editor falls
@@ -188,6 +218,7 @@
 
   async function openFile(path: string) {
     selectedPath = path;
+    markdownViewMode = initialMarkdownFileViewMode(path);
     syncTreeSelection(path);
     selectedContents = null;
     selectedSize = null;
@@ -205,6 +236,7 @@
       // save the truncation back over the original.
       selectedReadOnly = result.isReadOnly;
       selectedTruncated = result.truncated === true;
+      if (selectedTruncated) markdownViewMode = "source";
     } else {
       fileError = result.error;
     }
@@ -322,7 +354,7 @@
        controls sit at its left and the pane's close lives in the floating
        PaneChrome cluster, which the right gutter reserves room for. -->
   <div
-    class="flex h-(--solus-chrome-row-h) shrink-0 items-center gap-2 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
+    class="workspace-titlebar flex h-(--solus-chrome-row-h) shrink-0 items-center gap-2 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <TooltipUI.Root>
       <TooltipUI.Trigger>
@@ -368,6 +400,16 @@
       <div class="min-w-0 flex-1 truncate font-mono text-[0.8125rem] text-(--solus-text-primary)">
         Files
       </div>
+    {/if}
+    {#if isSelectedMarkdown}
+      <SegmentedControl
+        options={markdownViewOptions}
+        isActive={(mode) => markdownViewMode === mode}
+        onSelect={selectMarkdownView}
+        ariaLabel="Markdown file view"
+        variant="bar"
+        compact
+      />
     {/if}
     {#if statusLabel}
       <div class="flex shrink-0 items-center gap-1 text-xs font-medium {statusClass}" role="status">
@@ -464,19 +506,36 @@
             {fileError}
           </div>
         {:else if selectedPath && selectedContents !== null}
-          <FilePreviewStream
-            api={workspace.apiForSession(ctx.session.sessionId)}
-            {ctx}
-            cwd={root || cwd}
-            filePath={selectedPath}
-            displayPath={selectedPath}
-            contents={selectedContents}
-            isReadOnly={selectedReadOnly}
-            {isDark}
-            onSaveStateChange={(state) => {
-              saveState = state;
-            }}
-          />
+          {#if isSelectedMarkdown}
+            <MarkdownFileSurface
+              api={workspace.apiForSession(ctx.session.sessionId)}
+              {ctx}
+              cwd={root || cwd}
+              filePath={selectedPath}
+              displayPath={selectedPath}
+              contents={selectedContents}
+              isReadOnly={selectedReadOnly}
+              {isDark}
+              mode={markdownViewMode}
+              onSaveStateChange={(state) => {
+                saveState = state;
+              }}
+            />
+          {:else}
+            <FilePreviewStream
+              api={workspace.apiForSession(ctx.session.sessionId)}
+              {ctx}
+              cwd={root || cwd}
+              filePath={selectedPath}
+              displayPath={selectedPath}
+              contents={selectedContents}
+              isReadOnly={selectedReadOnly}
+              {isDark}
+              onSaveStateChange={(state) => {
+                saveState = state;
+              }}
+            />
+          {/if}
         {:else}
           <div class="flex flex-1 items-center justify-center text-xs text-(--solus-text-tertiary)">
             Select a file to edit.

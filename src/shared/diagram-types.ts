@@ -21,10 +21,10 @@ const VALID_CARDINALITY = new Set(['1-1', '1-n', 'n-1', 'n-n'])
 
 const VALID_EDGE_DASH = new Set(['solid', 'dashed', 'dotted'])
 
-export const DIAGRAM_NODE_SHAPES = ['rectangle', 'circle', 'diamond'] as const
-export type DiagramNodeShape = (typeof DIAGRAM_NODE_SHAPES)[number]
+export const DIAGRAM_NODE_SILHOUETTES = ['rectangle', 'circle', 'diamond'] as const
+export type DiagramNodeSilhouette = (typeof DIAGRAM_NODE_SILHOUETTES)[number]
 
-const VALID_SHAPE = new Set<DiagramNodeShape>(DIAGRAM_NODE_SHAPES)
+const VALID_SILHOUETTE = new Set<DiagramNodeSilhouette>(DIAGRAM_NODE_SILHOUETTES)
 
 /**
  * A typed column of a data-model entity. A node carrying `fields` renders as an
@@ -70,12 +70,12 @@ export interface DiagramNode {
    */
   color?: string
   /**
-   * Outline shape of the node card. 'rectangle' (the default) is the rounded
+   * Outline silhouette of the node card. 'rectangle' (the default) is the rounded
    * card; 'circle' and 'diamond' are decorative silhouettes that only apply to
    * simple label nodes (a node with badges/fields/body etc. stays a rectangle).
    * Invalid values are stripped; groups never carry it.
    */
-  shape?: DiagramNodeShape
+  silhouette?: DiagramNodeSilhouette
   /**
    * Pins this node to the back layer (below other nodes and edges). Set via the
    * "Send to back" action — handy for pushing a group container behind the
@@ -137,7 +137,7 @@ export interface DiagramEdge {
    * orthogonal step, 'step' is a sharp-cornered orthogonal step, 'straight' is a
    * direct line between endpoints. Omitted = 'smooth'.
    */
-  shape?: 'smooth' | 'step' | 'straight'
+  route?: 'smooth' | 'step' | 'straight'
   /** Smooth-step bend offset in canvas px. Omitted = xyflow default. */
   bendOffset?: number
   animated?: boolean
@@ -150,8 +150,23 @@ export interface DiagramDoc {
   edges: DiagramEdge[]
 }
 
+interface LegacyDiagramNode extends DiagramNode {
+  "shape"?: DiagramNodeSilhouette
+  detail?: LegacyDiagramDoc
+}
+
+interface LegacyDiagramEdge extends DiagramEdge {
+  "shape"?: DiagramEdge['route']
+}
+
+interface LegacyDiagramDoc {
+  nodes: LegacyDiagramNode[]
+  edges: LegacyDiagramEdge[]
+}
+
 export function parseDiagram(json: string): DiagramDoc {
-  const parsed = JSON.parse(json) as DiagramDoc
+  // SAFETY: normalizeDoc validates the structural invariants before the parsed value escapes.
+  const parsed = JSON.parse(json) as LegacyDiagramDoc
   if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) {
     throw new Error('Invalid diagram: missing nodes or edges arrays')
   }
@@ -162,15 +177,18 @@ export function parseDiagram(json: string): DiagramDoc {
 // Normalize one doc level (the root or a node's `detail`): repair anything
 // recoverable rather than throwing, because this also runs on persisted
 // content at load time — a throw there blanks the canvas.
-function normalizeDoc(doc: DiagramDoc, allowDetail: boolean): void {
+function normalizeDoc(doc: LegacyDiagramDoc, allowDetail: boolean): void {
   // xyflow requires unique, non-empty node ids and crashes rendering on
   // duplicates — keep the first occurrence, drop the rest. A non-string label
   // would throw inside layout's width estimate, so coerce it.
   const ids = new Set<string>()
   doc.nodes = doc.nodes.filter((n) => {
-    if (!n || typeof n.id !== 'string' || !n.id || ids.has(n.id)) return false
+    const id = z.string().min(1).safeParse(n?.id)
+    if (!n || !id.success || ids.has(id.data)) return false
+    n.id = id.data
     ids.add(n.id)
-    if (typeof n.label !== 'string') n.label = ''
+    const label = z.string().safeParse(n.label)
+    if (!label.success) n.label = ''
     return true
   })
   // A parentId pointing at a node that doesn't exist would never resolve in
@@ -185,15 +203,20 @@ function normalizeDoc(doc: DiagramDoc, allowDetail: boolean): void {
   const edgeIds = new Set<string>()
   doc.edges = doc.edges.filter((e) => {
     if (!e || !ids.has(e.source) || !ids.has(e.target)) return false
-    if (typeof e.id === 'string' && e.id) {
-      if (edgeIds.has(e.id)) return false
-      edgeIds.add(e.id)
+    const id = z.string().min(1).safeParse(e.id)
+    if (id.success) {
+      e.id = id.data
+      if (edgeIds.has(id.data)) return false
+      edgeIds.add(id.data)
     }
     return true
   })
   for (const edge of doc.edges) {
+    const legacyRoute = edge['shape']
+    if (!edge.route && legacyRoute) edge.route = legacyRoute
+    delete edge['shape']
     if (edge.cardinality && !VALID_CARDINALITY.has(edge.cardinality)) delete edge.cardinality
-    // 'solid' survives, unlike node shape's 'rectangle': it is a meaningful
+    // 'solid' survives, unlike a node silhouette's 'rectangle': it is a meaningful
     // override of the kind-derived dash, not a restatement of the default.
     if (edge.dash && !VALID_EDGE_DASH.has(edge.dash)) delete edge.dash
   }
@@ -227,20 +250,23 @@ export function findParentCycleBreaks(nodes: { id: string; parentId?: string }[]
 // nested `detail` sub-diagram. `allowDetail` enforces the one-level rule: a node
 // inside a detail doc may not itself carry a detail, so any deeper nesting is
 // stripped here.
-function normalizeNodes(nodes: DiagramNode[], allowDetail: boolean): void {
+function normalizeNodes(nodes: LegacyDiagramNode[], allowDetail: boolean): void {
   // Detach nodes whose parentId forms a cycle before anything walks the chain —
   // a persisted cycle would otherwise freeze the app the moment it loads.
   const cut = findParentCycleBreaks(nodes)
   if (cut.size) for (const node of nodes) if (cut.has(node.id)) delete node.parentId
   for (const node of nodes) {
+    const legacySilhouette = node['shape']
+    if (!node.silhouette && legacySilhouette) node.silhouette = legacySilhouette
+    delete node['shape']
     if (node.actions) {
       node.actions = node.actions.filter((a) => a.action?.do && VALID_ACTION_DO.has(a.action.do))
     }
-    // Shape is a card-only affordance: groups are pure containers, and any
+    // A silhouette is a card-only affordance: groups are pure containers, and any
     // value outside the supported set is dropped so the renderer only sees one
     // it knows. 'rectangle' is the implicit default, so strip it too — keep data sparse.
-    if (node.shape && (node.group || !VALID_SHAPE.has(node.shape) || node.shape === 'rectangle')) {
-      delete node.shape
+    if (node.silhouette && (node.group || !VALID_SILHOUETTE.has(node.silhouette) || node.silhouette === 'rectangle')) {
+      delete node.silhouette
     }
     if (node.fields) {
       // Groups are pure containers — they never carry entity fields.
@@ -281,3 +307,4 @@ export function summarizeDiagram(doc: DiagramDoc): string {
   if (!clusters) return summary
   return `${summary} · ${clusters} ${clusters === 1 ? 'cluster' : 'clusters'}`
 }
+import { z } from 'zod'

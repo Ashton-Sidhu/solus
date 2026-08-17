@@ -353,7 +353,7 @@ import { ghostCompletion, showGhost } from "./lib/ghost-completion";
   });
 
   $effect(() => {
-    referenceConfig;
+    void referenceConfig;
     if (!view) return;
     view.dispatch({
       effects: referenceCompartment.reconfigure(

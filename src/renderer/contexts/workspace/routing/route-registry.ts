@@ -1,5 +1,6 @@
 import type { Component } from 'svelte'
 import type { DiffScope } from '../../../../shared/types'
+import type { PrReviewTarget } from '../../../../shared/providers'
 import type { HostApi } from '@client-core/host-api'
 import { serverConnections } from '@client-core/server-connections'
 
@@ -22,6 +23,7 @@ import { serverConnections } from '@client-core/server-connections'
 export type SettingsTab =
   | 'general'
   | 'instructions'
+  | 'source-control'
   | 'review'
   | 'providers'
   | 'api-access'
@@ -35,6 +37,7 @@ export type SettingsTab =
 const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
   'general',
   'instructions',
+  'source-control',
   'review',
   'providers',
   'api-access',
@@ -62,7 +65,7 @@ export interface RouteParams {
    *  because a location must stay serializable. */
   draft: { draftId: string }
   tasks: Record<string, never>
-  task: { taskId: string }
+  task: { taskId: string; serverId?: string }
   prs: { projectPath?: string }
   /** The query surface over the host's `metrics.db`. */
   insights: Record<string, never>
@@ -73,12 +76,12 @@ export interface RouteParams {
   settings: { tab?: SettingsTab; projectCwd?: string }
   folio: Record<string, never>
   automations: { automationId?: string }
-  plan: { planId: string | null }
+  plan: { planId: string | null; serverId?: string }
   work: { workId: string }
   automation: { automationId: string | null; serverId?: string }
   /** A goal belongs to a thread, so the pane names the session — not whichever
    *  tab happened to open it, which may since have closed. */
-  goal: { sessionId: string }
+  goal: { sessionId: string; serverId?: string }
   review: { key: string; scope: 'branch' | 'session'; sourceTabId?: string }
   prReview: {
     number: number
@@ -88,7 +91,7 @@ export interface RouteParams {
     /** Present for a host URL so a number can never open in the wrong repo. */
     expectedRepo?: { host: string; owner: string; repo: string }
   }
-  prDiff: { number: number; cwd?: string }
+  prDiff: { number: number; cwd?: string; serverId?: string }
   // The working directory and checkout a viewer runs against are derived from
   // its source tab's environment, not carried: they are live Git state, and a
   // route that pinned them would go stale the moment the branch moved.
@@ -100,7 +103,7 @@ export interface RouteParams {
   fileEditor: { sourceId: string; path: string; line?: number }
   /** A sub-agent's nested transcript hangs off a message, and messages belong
    *  to the conversation. */
-  subagent: { sessionId: string; messageId: string }
+  subagent: { sessionId: string; messageId: string; serverId?: string }
 }
 
 export type RouteName = keyof RouteParams
@@ -142,7 +145,7 @@ export interface RouteDescriptor<K extends RouteName> {
    *  itself (`chat`, whose pool is hoisted out of the pane loop). */
   component?: () => Promise<{ default: Component<any> }>
   /** Params → live payload, fetched on entry and held in the router's LRU. */
-  resolve?: (params: RouteParams[K], ctx: RouteResolveContext) => Promise<unknown>
+  resolve?: (params: RouteParams[K], ctx: RouteResolveContext) => Promise<PrReviewTarget>
 }
 
 /** What a descriptor's `resolve` is handed: the IPC surface plus the caller's
@@ -161,6 +164,23 @@ function defineRoutes(routes: RouteTable): RouteTable {
 const optional = (value: string): string | undefined => value || undefined
 
 /**
+ * The one grammar for a host-scoped id: `<id>~<serverId>` inside the id's own
+ * segment, so multi-segment routes stay `/`-splittable. `~` never appears in
+ * the ids Solus mints, and the last `~` wins on parse.
+ */
+function serializeScopedId(id: string, serverId?: string): string {
+  return serverId ? `${id}~${serverId}` : id
+}
+
+function parseScopedId(segment: string): { id: string; serverId?: string } {
+  const separator = segment.lastIndexOf('~')
+  if (separator === -1) return { id: segment }
+  const serverId = segment.slice(separator + 1)
+  const id = segment.slice(0, separator)
+  return serverId ? { id, serverId } : { id }
+}
+
+/**
  * A diff scope inside one path segment. `~` separates a scope's own fields, so
  * the segment never collides with the `/` the codec splits on or with the file
  * path that follows it.
@@ -177,12 +197,13 @@ function parseDiffScope(segment: string | undefined): DiffScope {
   if (kind === 'working-tree') return { kind: 'working-tree' }
   if (kind === 'turn' && /^\d+$/.test(fields[0] ?? '')) return { kind: 'turn', index: Number(fields[0]) }
   if (kind === 'pr' && fields[0]) {
-    return {
+    const scope: DiffScope = {
       kind: 'pr',
       baseSha: fields[0],
-      ...(fields[1] ? { ownDeltaBaseSha: fields[1] } : {}),
-      ...(/^\d+$/.test(fields[2] ?? '') ? { parentPr: Number(fields[2]) } : {}),
     }
+    if (fields[1]) scope.ownDeltaBaseSha = fields[1]
+    if (/^\d+$/.test(fields[2] ?? '')) scope.parentPr = Number(fields[2])
+    return scope
   }
   return { kind: 'session' }
 }
@@ -190,14 +211,12 @@ function parseDiffScope(segment: string | undefined): DiffScope {
 export const ROUTES = defineRoutes({
   chat: {
     parse: (s) => {
-      const separator = s.lastIndexOf('~')
-      return separator > 0
-        ? { sessionId: optional(s.slice(0, separator)), serverId: optional(s.slice(separator + 1)) }
+      const { id, serverId } = parseScopedId(s)
+      return serverId && id
+        ? { sessionId: id, serverId }
         : { sessionId: optional(s) }
     },
-    serialize: (p) => p.sessionId
-      ? `${p.sessionId}${p.serverId ? `~${p.serverId}` : ''}`
-      : '',
+    serialize: (p) => p.sessionId ? serializeScopedId(p.sessionId, p.serverId) : '',
     placement: 'any',
     // The pool owns a chat's lifecycle: the leading pane renders it hidden
     // rather than unmounted, so navigation never tears a conversation down.
@@ -228,8 +247,12 @@ export const ROUTES = defineRoutes({
   // beside it: the page is the full-width two-column detail, and its own
   // breadcrumb is the way back.
   task: {
-    parse: (s) => (s ? { taskId: s } : null),
-    serialize: (p) => p.taskId,
+    parse: (s) => {
+      const { id, serverId } = parseScopedId(s)
+      if (!id) return null
+      return serverId ? { taskId: id, serverId } : { taskId: id }
+    },
+    serialize: (p) => serializeScopedId(p.taskId, p.serverId),
     placement: 'any',
     exclusiveGroup: 'page',
     ownsTitlebarChrome: true,
@@ -267,7 +290,7 @@ export const ROUTES = defineRoutes({
     component: () => import('../../../components/insights/TurnDetailPage.svelte'),
   },
   reviewMode: {
-    parse: () => ({}) as Record<string, never>,
+    parse: () => ({}),
     serialize: () => '',
     placement: 'any',
     exclusiveGroup: 'page',
@@ -296,7 +319,7 @@ export const ROUTES = defineRoutes({
     component: () => import('../../../components/settings/SettingsPage.svelte'),
   },
   folio: {
-    parse: () => ({}) as Record<string, never>,
+    parse: () => ({}),
     serialize: () => '',
     placement: 'any',
     exclusiveGroup: 'page',
@@ -318,8 +341,11 @@ export const ROUTES = defineRoutes({
   plan: {
     // A streamed plan has no id yet — the gallery preview fills the pane — so
     // an empty segment is a valid location, not a parse failure.
-    parse: (s) => ({ planId: s || null }),
-    serialize: (p) => p.planId ?? '',
+    parse: (s) => {
+      const { id, serverId } = parseScopedId(s)
+      return serverId ? { planId: id || null, serverId } : { planId: s || null }
+    },
+    serialize: (p) => serializeScopedId(p.planId ?? '', p.serverId),
     placement: 'any',
     exclusiveGroup: 'artifact',
     component: () => import('../../../components/plan/PlanPane.svelte'),
@@ -333,25 +359,21 @@ export const ROUTES = defineRoutes({
   },
   automation: {
     parse: (s) => {
-      const [first, second] = s.split('/')
-      if (first?.startsWith('host~')) {
-        return {
-          automationId: second || null,
-          serverId: optional(first.slice('host~'.length)),
-        }
-      }
-      return { automationId: s || null }
+      const { id, serverId } = parseScopedId(s)
+      return serverId ? { automationId: id || null, serverId } : { automationId: s || null }
     },
-    serialize: (p) => p.serverId
-      ? [`host~${p.serverId}`, p.automationId ?? ''].join('/').replace(/\/$/, '')
-      : p.automationId ?? '',
+    serialize: (p) => serializeScopedId(p.automationId ?? '', p.serverId),
     placement: 'any',
     exclusiveGroup: 'artifact',
     component: () => import('../../../components/automations/AutomationPane.svelte'),
   },
   goal: {
-    parse: (s) => (s ? { sessionId: s } : null),
-    serialize: (p) => p.sessionId,
+    parse: (s) => {
+      const { id, serverId } = parseScopedId(s)
+      if (!id) return null
+      return serverId ? { sessionId: id, serverId } : { sessionId: id }
+    },
+    serialize: (p) => serializeScopedId(p.sessionId, p.serverId),
     placement: 'aside',
     defaultWeight: 0.34,
     // No component: the goal surface only exists in the shells that have no
@@ -372,20 +394,20 @@ export const ROUTES = defineRoutes({
   },
   prReview: {
     parse: (s) => {
-      const [number, ...rest] = s.split('/')
+      const [head, ...rest] = s.split('/')
+      const { id: number, serverId } = parseScopedId(head)
       if (!/^\d+$/.test(number)) return null
-      const hostSegment = rest[0]?.startsWith('host~') ? rest.shift() : undefined
-      const serverId = optional(hostSegment?.slice('host~'.length) ?? '')
       const cwd = optional(rest.join('/'))
-      return {
+      const params: RouteParams['prReview'] = {
         number: Number(number),
-        ...(serverId ? { serverId } : {}),
-        ...(cwd ? { cwd } : {}),
       }
+      if (serverId) params.serverId = serverId
+      if (cwd) params.cwd = cwd
+      return params
     },
     // The title is display-only: it is superseded by the resolved review, so it
     // stays out of the URL rather than becoming a stale thing to keep in sync.
-    serialize: (p) => [String(p.number), p.serverId ? `host~${p.serverId}` : null, p.cwd]
+    serialize: (p) => [serializeScopedId(String(p.number), p.serverId), p.cwd]
       .filter((segment) => segment != null)
       .join('/'),
     // A pull request is a place inside the list, not a panel beside it: opening
@@ -413,11 +435,18 @@ export const ROUTES = defineRoutes({
   },
   prDiff: {
     parse: (s) => {
-      const [number, ...rest] = s.split('/')
+      const [head, ...rest] = s.split('/')
+      const { id: number, serverId } = parseScopedId(head)
       if (!/^\d+$/.test(number)) return null
-      return { number: Number(number), cwd: optional(rest.join('/')) }
+      const params: RouteParams['prDiff'] = { number: Number(number) }
+      if (serverId) params.serverId = serverId
+      const cwd = optional(rest.join('/'))
+      if (cwd) params.cwd = cwd
+      return params
     },
-    serialize: (p) => (p.cwd ? `${p.number}/${p.cwd}` : String(p.number)),
+    serialize: (p) => [serializeScopedId(String(p.number), p.serverId), p.cwd ?? '']
+      .join('/')
+      .replace(/\/+$/, ''),
     // The review leads; its diff pops out beside it, so the activity feed and
     // the change are readable together. Shares the aside with the review's chat.
     placement: 'aside',
@@ -467,17 +496,24 @@ export const ROUTES = defineRoutes({
   },
   subagent: {
     parse: (s) => {
-      const [sessionId, messageId] = s.split('/')
-      return sessionId && messageId ? { sessionId, messageId } : null
+      const [sessionSegment, messageId] = s.split('/')
+      if (!sessionSegment || !messageId) return null
+      const { id, serverId } = parseScopedId(sessionSegment)
+      if (!id) return null
+      return serverId ? { sessionId: id, messageId, serverId } : { sessionId: id, messageId }
     },
-    serialize: (p) => `${p.sessionId}/${p.messageId}`,
+    serialize: (p) => `${serializeScopedId(p.sessionId, p.serverId)}/${p.messageId}`,
     placement: 'overlay',
     defaultWeight: 0.6,
     component: () => import('../../../components/conversation/SubagentHostPane.svelte'),
   },
 })
 
-export const ROUTE_NAMES = Object.keys(ROUTES) as RouteName[]
+function isRouteName(value: string): value is RouteName {
+  return Object.prototype.hasOwnProperty.call(ROUTES, value)
+}
+
+export const ROUTE_NAMES = Object.keys(ROUTES).filter(isRouteName)
 
 export function descriptorFor<K extends RouteName>(name: K): RouteDescriptor<K> {
   return ROUTES[name]
@@ -491,16 +527,18 @@ export function sameRoute(a: RouteRef | null, b: RouteRef | null): boolean {
 }
 
 export function serializeRef(ref: RouteRef): string {
-  const segment = (ROUTES[ref.name].serialize as (p: unknown) => string)(ref.params)
+  // SAFETY: A RouteRef couples each route name to the matching parameter type.
+  const segment = (ROUTES[ref.name].serialize as (params: RouteParams[RouteName]) => string)(ref.params)
   return segment ? `${ref.name}/${segment}` : ref.name
 }
 
 /** Total: unparseable input yields null so the caller can drop one pane. */
 export function parseRef(text: string): RouteRef | null {
   const slash = text.indexOf('/')
-  const name = (slash === -1 ? text : text.slice(0, slash)) as RouteName
-  if (!Object.prototype.hasOwnProperty.call(ROUTES, name)) return null
+  const name = slash === -1 ? text : text.slice(0, slash)
+  if (!isRouteName(name)) return null
   const params = ROUTES[name].parse(slash === -1 ? '' : text.slice(slash + 1))
+  // SAFETY: The selected descriptor parses the parameter type paired with name.
   return params ? ({ name, params } as RouteRef) : null
 }
 
@@ -522,5 +560,8 @@ export function isArtifactRoute(ref: RouteRef | null | undefined): boolean {
 export const CHAT_ROUTE: RouteRef<'chat'> = { name: 'chat', params: {} }
 
 export function chatRoute(sessionId?: string, serverId?: string): RouteRef<'chat'> {
-  return { name: 'chat', params: sessionId ? { sessionId, ...(serverId ? { serverId } : {}) } : {} }
+  const params: RouteParams['chat'] = {}
+  if (sessionId) params.sessionId = sessionId
+  if (serverId) params.serverId = serverId
+  return { name: 'chat', params }
 }

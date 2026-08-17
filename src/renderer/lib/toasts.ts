@@ -16,8 +16,10 @@ export interface ToastAction {
 
 /** A single transient toast. */
 export interface ToastSpec {
-  /** The line shown to the user, e.g. "Comment deleted" or "Saved". */
+  /** Short title shown to the user, e.g. "Comment deleted" or "Saved". */
   message: string
+  /** Supporting detail shown below the title. */
+  description?: string
   /** Visual tone. Defaults to "info". */
   variant?: ToastVariant
   /** How long the toast stays before auto-dismissing, in ms. */
@@ -30,6 +32,26 @@ export interface ToastSpec {
   /** Called when the toast auto-dismisses, is replaced, or is manually dismissed.
    *  NOT called when the user activates {@link action}. */
   onDismiss?: () => void
+  /** Show Sonner's close (×) affordance in the corner of the toast. */
+  closeButton?: boolean
+  /** Reuse an existing toast slot so this toast replaces it in place. */
+  id?: ToastId
+  /** Class on the toast element. Absent clears the class of a reused slot. */
+  class?: string
+}
+
+/** Live handle on a running operation's toast. */
+export interface ProgressToast {
+  /** Replace the running title, e.g. when the operation reaches a new phase. */
+  update(message: string): void
+  /** Replace the running toast with a success toast. */
+  success(message: string, opts?: ToastOptions): void
+  /** Replace the running toast with an error toast. */
+  error(message: string, opts?: ToastOptions): void
+  /** Replace the running toast with a neutral toast. */
+  info(message: string, opts?: ToastOptions): void
+  /** Remove the running toast without a terminal message. */
+  dismiss(): void
 }
 
 interface ActiveToast {
@@ -79,6 +101,10 @@ class ToastService {
     this.#active = active
 
     const toastOptions: ExternalToast = {
+      id: spec.id,
+      class: spec.class,
+      closeButton: spec.closeButton,
+      description: spec.description,
       duration: spec.duration,
       onDismiss: () => this.#settle(active, true),
       onAutoClose: () => this.#settle(active, true),
@@ -117,9 +143,10 @@ class ToastService {
   }
 
   error(message: string, opts?: ToastOptions): ToastId {
+    const copy = opts?.description ? `${message}\n${opts.description}` : message
     const copyAction: ToastAction = {
       label: "Copy",
-      onAction: () => void copyText(message),
+      onAction: () => void copyText(copy),
     }
 
     if (opts?.actions?.length) {
@@ -135,6 +162,53 @@ class ToastService {
 
   info(message: string, opts?: ToastOptions): ToastId {
     return this.show({ ...opts, message, variant: "info" })
+  }
+
+  /** Show a spinner toast that stays until the caller settles it. */
+  progress(message: string): ProgressToast {
+    this.#commitActive()
+
+    const active: ActiveToast = { settled: false }
+    this.#active = active
+
+    // Sonner hides its close button on "loading" toasts, so this is a plain
+    // toast that the Toaster draws a spinner on.
+    const render = (title: string) => {
+      if (active.settled) return
+      active.id = toast(title, {
+        id: active.id,
+        class: "solus-toast-progress",
+        duration: Number.POSITIVE_INFINITY,
+        closeButton: true,
+        onDismiss: () => this.#settle(active, true),
+      })
+    }
+    render(message)
+
+    // Hand the toast slot to the terminal toast so it morphs in place instead
+    // of the user seeing the spinner vanish and a second toast fly in.
+    const settleWith = (variant: ToastVariant, terminalMessage: string, opts?: ToastOptions) => {
+      const slotId = this.#active === active ? active.id : undefined
+      this.#settle(active, false)
+      this.show({ ...opts, message: terminalMessage, variant, closeButton: true, id: slotId })
+    }
+
+    return {
+      update: (next: string) => render(next),
+      success: (terminalMessage, opts) => settleWith("success", terminalMessage, opts),
+      error: (terminalMessage, opts) => {
+        const slotId = this.#active === active ? active.id : undefined
+        this.#settle(active, false)
+        this.error(terminalMessage, { ...opts, closeButton: true, id: slotId })
+      },
+      info: (terminalMessage, opts) => settleWith("info", terminalMessage, opts),
+      dismiss: () => {
+        const wasActive = this.#active === active
+        const slotId = active.id
+        this.#settle(active, false)
+        if (wasActive && slotId !== undefined) toast.dismiss(slotId)
+      },
+    }
   }
 
   /** Show an Undo toast. The commit runs only if the undo window lapses. */
@@ -170,7 +244,7 @@ class ToastService {
     const active = this.#active
     if (!active?.action || active.action.label !== "Undo") return
     if (event.shiftKey || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") return
-    const target = event.target as HTMLElement | null
+    const target = event.target instanceof HTMLElement ? event.target : null
     if (target && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName))) return
 
     event.preventDefault()

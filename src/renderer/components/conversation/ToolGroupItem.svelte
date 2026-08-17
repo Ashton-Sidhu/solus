@@ -13,6 +13,7 @@
     getToolDescription,
     getToolDescriptionFromParsed,
     liveActivityLabel,
+    parseToolInput,
     participleFor,
     type ParsedToolInput,
   } from "./lib/activity-summary";
@@ -65,11 +66,7 @@
       if (!tool.toolInput || tool.toolStatus === "running") return null;
       const cached = parseCache.get(tool);
       if (cached !== undefined) return cached;
-      let parsed: ParsedToolInput | null = null;
-      try {
-        const value: unknown = JSON.parse(tool.toolInput);
-        parsed = value !== null && typeof value === "object" ? value as ParsedToolInput : null;
-      } catch {}
+      const parsed = parseToolInput(tool.toolInput);
       parseCache.set(tool, parsed);
       return parsed;
     }),

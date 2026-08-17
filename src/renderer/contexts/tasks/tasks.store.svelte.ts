@@ -22,6 +22,7 @@ import { resolveTaskSnoozeReminder, type TaskSnoozeReminder } from './task-snooz
 import type { HostApi } from '@client-core/host-api'
 
 const INVALIDATION_DEBOUNCE_MS = 100
+const TASK_DELETE_CONCURRENCY = 8
 
 /**
  * Global, local-first task state shared by every renderer surface. Local tasks
@@ -89,6 +90,11 @@ export class TasksStore {
   private loadPromise: Promise<void> | null = null
   private providerStatusLoadsByCwd = new Map<string, Promise<TaskProviderStatus>>()
   private upstreamLoadsByProject = new Map<string, Promise<void>>()
+  private detailLoadsByTask = new Map<string, Promise<TaskDetails>>()
+  /** Detail payloads are larger than sidebar rows. Only surfaces that are on
+   * screen retain them for invalidation refreshes; hidden mounted tabs keep
+   * their cached value and catch up when they become visible again. */
+  private detailWatchCounts = new Map<string, number>()
   private invalidationTimer: ReturnType<typeof setTimeout> | null = null
   private subscribedServerIds = new Set<string>()
   /** Changes whenever the set of hosts included in a sidebar snapshot changes. */
@@ -136,22 +142,35 @@ export class TasksStore {
       this.invalidationTimer = setTimeout(() => {
         this.invalidationTimer = null
         void this.load()
-        // The broadcast carries no payload, so an open detail surface re-reads
-        // its own task: another actor (an agent linking a doc mid-session) does
-        // not otherwise reach it.
-        for (const taskId of this.detailsByTask.keys()) void this.loadDetails(taskId)
+        // The broadcast carries no payload, so visible detail surfaces re-read
+        // their own task. Hidden tabs stay mounted and can leave many cached
+        // details behind; refreshing that full cache creates an RPC burst for
+        // work the user cannot see.
+        for (const taskId of this.detailWatchCounts.keys()) void this.loadDetails(taskId)
       }, INVALIDATION_DEBOUNCE_MS)
     })
   }
 
+  /** Keep one task detail current while a surface that renders it is visible. */
+  watchDetails(taskId: string): () => void {
+    this.detailWatchCounts.set(taskId, (this.detailWatchCounts.get(taskId) ?? 0) + 1)
+    return () => {
+      const nextCount = (this.detailWatchCounts.get(taskId) ?? 1) - 1
+      if (nextCount > 0) this.detailWatchCounts.set(taskId, nextCount)
+      else this.detailWatchCounts.delete(taskId)
+    }
+  }
+
   /**
    * The RPC surface that owns a task. A task the store has not placed yet — a
-   * deep link, or an id typed into a tool — falls back to the primary host,
+   * deep link, or an id typed into a tool — falls back to the default host,
    * which is where a single-host user's tasks all are anyway.
    */
   private apiForTask(taskId?: string | null): HostApi {
-    const serverId = taskId ? this.hostByTaskId.get(taskId) : undefined
-    return serverId ? serverConnections.apiFor(serverId) : serverConnections.primaryApi()
+    const serverId = (taskId ? this.hostByTaskId.get(taskId) : undefined)
+      ?? serverConnections.defaultServerId()
+    if (!serverId) throw new Error('Primary Solus connection has not been registered')
+    return serverConnections.apiFor(serverId)
   }
 
   /** Which host a task lives on, for a caller that has to name it explicitly. */
@@ -233,6 +252,16 @@ export class TasksStore {
     return taskId ? (this.tasks.find((task) => task.id === taskId) ?? null) : null
   }
 
+  /** All session links shown under this task in the session tree. */
+  attemptsForTask(taskId: string): TaskSessionLink[] {
+    const task = this.taskForId(taskId)
+    if (!task) return this.sessionsByTask.get(taskId) ?? []
+    const rootId = task.parentId ?? task.id
+    const taskIds = [rootId, ...(this.byParent.get(rootId) ?? []).map((child) => child.id)]
+    const links = taskIds.flatMap((id) => this.sessionsByTask.get(id) ?? [])
+    return [...new Map(links.map((link) => [link.sessionId, link])).values()]
+  }
+
   snoozeReminderForSession(sessionId: string | null | undefined): TaskSnoozeReminder | null {
     return resolveTaskSnoozeReminder(this.taskForSession(sessionId), this.lifecycleNow)
   }
@@ -255,9 +284,9 @@ export class TasksStore {
     if (pending) return pending
     const load = (async () => {
       try {
-        const serverId = opts?.serverId ?? this.hostForProject(cwd)
-        const api = serverId ? serverConnections.apiFor(serverId) : serverConnections.primaryApi()
-        const status = await api.tasksProviderStatus(cwd, opts)
+        const serverId = opts?.serverId ?? this.hostForProject(cwd) ?? serverConnections.defaultServerId()
+        if (!serverId) throw new Error('Primary Solus connection has not been registered')
+        const status = await serverConnections.apiFor(serverId).tasksProviderStatus(cwd, opts)
         this.providerStatusByCwd.set(cwd, status)
         return status
       } catch (err) {
@@ -318,18 +347,18 @@ export class TasksStore {
           if (hostGeneration !== this.hostGeneration) continue
 
           const failed = snapshots.filter((entry) => 'error' in entry)
-          const ok = snapshots.filter((entry) => 'snapshot' in entry)
+          const ok = snapshots.filter((entry): entry is { serverId: string; snapshot: TaskSidebarSnapshot } => 'snapshot' in entry)
           this.hostByTaskId.clear()
           this.prLinkByTask.clear()
           const merged: Task[] = []
           const links: Record<string, TaskSessionLink[]> = {}
-          for (const { serverId, snapshot } of ok as Array<{ serverId: string; snapshot: TaskSidebarSnapshot }>) {
+          for (const { serverId, snapshot } of ok) {
             for (const task of snapshot.tasks) {
               this.hostByTaskId.set(task.id, serverId)
               if (!this.pendingDeleteIds.has(task.id)) merged.push(task)
             }
             for (const [taskId, list] of Object.entries(snapshot.sessionsByTask)) {
-              links[taskId] = list as TaskSessionLink[]
+              links[taskId] = list
             }
             for (const [taskId, pr] of Object.entries(snapshot.prLinksByTask ?? {})) {
               this.prLinkByTask.set(taskId, pr)
@@ -375,9 +404,9 @@ export class TasksStore {
     this.upstreamErrorByProject.delete(projectKey)
     const load = (async () => {
       try {
-        const serverId = opts?.serverId ?? this.hostForProject(projectKey)
-        const api = serverId ? serverConnections.apiFor(serverId) : serverConnections.primaryApi()
-        const upstream = await api.tasksListUpstream(projectKey, opts)
+        const serverId = opts?.serverId ?? this.hostForProject(projectKey) ?? serverConnections.defaultServerId()
+        if (!serverId) throw new Error('Primary Solus connection has not been registered')
+        const upstream = await serverConnections.apiFor(serverId).tasksListUpstream(projectKey, opts)
         this.upstreamTasksByProject.set(projectKey, upstream.tasks)
         if (upstream.fromCache) this.upstreamFromCacheByProject.set(projectKey, true)
         else this.upstreamFromCacheByProject.delete(projectKey)
@@ -436,6 +465,40 @@ export class TasksStore {
     ])
   }
 
+  /** Move one mounted attempt from its provider id to the stable handoff id on
+   * the same frame as the provider switch. A dispatched session's execution
+   * host cannot edit the task host, so forward the same re-key to that host. */
+  rekeySessionBinding(
+    sourceSessionId: string,
+    targetSessionId: string,
+    taskServerId?: string,
+  ): void {
+    if (sourceSessionId === targetSessionId) return
+    const taskId = this.taskIdBySessionId.get(sourceSessionId)
+    if (taskId) {
+      this.taskIdBySessionId.delete(sourceSessionId)
+      this.taskIdBySessionId.set(targetSessionId, taskId)
+
+      const attempts = this.sessionsByTask.get(taskId)
+      if (attempts) {
+        const sourceIndex = attempts.findIndex((attempt) => attempt.sessionId === sourceSessionId)
+        if (sourceIndex !== -1) {
+          const targetIndex = attempts.findIndex((attempt) => attempt.sessionId === targetSessionId)
+          if (targetIndex === -1) attempts[sourceIndex].sessionId = targetSessionId
+          else attempts.splice(sourceIndex, 1)
+        }
+      }
+    }
+
+    if (!taskServerId) return
+    void serverConnections.apiFor(taskServerId)
+      .tasksRekeySession(sourceSessionId, targetSessionId)
+      .then(() => this.refreshSessionBinding(targetSessionId, taskServerId))
+      .catch((error) => {
+        console.warn('[Solus] Task session handoff re-key failed on the task host.', error)
+      })
+  }
+
   /** Hydrate the complete lightweight tree for an opened session even when the
    * global snapshot already knows its owner. The targeted read carries sibling
    * subtasks and every linked session's display metadata; none of it requires a
@@ -457,7 +520,9 @@ export class TasksStore {
    * answers when it did not, so a session restored from disk never renders as
    * a loose row beside a parent whose subtasks are missing. */
   private async hydrateSessionTree(sessionId: string, serverId?: string): Promise<Task | null> {
-    const api = serverId ? serverConnections.apiFor(serverId) : serverConnections.primaryApi()
+    const ownerServerId = serverId ?? serverConnections.defaultServerId()
+    if (!ownerServerId) return null
+    const api = serverConnections.apiFor(ownerServerId)
     const tree = await api.tasksForSession(sessionId).catch(() => null)
     if (!tree) return null
     for (const task of [tree.parent, tree.task, ...tree.subtasks, ...tree.siblings]) {
@@ -538,12 +603,12 @@ export class TasksStore {
   }
 
   /** `serverId` is the host the task belongs to — the one that owns the project
-   *  it was created from. Omitted, it lands on the primary host. */
+   *  it was created from. Omitted, it lands on the default host. */
   async create(input: TaskCreateInput, serverId?: string): Promise<Task> {
-    const host = serverId ?? this.hostForProject(input.projectKey)
-    const api = host ? serverConnections.apiFor(host) : serverConnections.primaryApi()
-    const created = await api.tasksCreate(input)
-    if (host) this.hostByTaskId.set(created.id, host)
+    const host = serverId ?? this.hostForProject(input.projectKey) ?? serverConnections.defaultServerId()
+    if (!host) throw new Error('Primary Solus connection has not been registered')
+    const created = await serverConnections.apiFor(host).tasksCreate(input)
+    this.hostByTaskId.set(created.id, host)
     this.replace(created.id, created)
     return created
   }
@@ -659,6 +724,19 @@ export class TasksStore {
       .tasksLinkSession(taskId, sessionId, 'working', execution, branch)
   }
 
+  /** Detach a session from its task, on the host that owns that task. The
+   * attempt row is removed in place so every mounted surface drops it on this
+   * frame; the next authoritative snapshot agrees rather than restores it. */
+  async unlinkSession(taskId: string, sessionId: string): Promise<void> {
+    await this.apiForTask(taskId).tasksUnlinkSession(taskId, sessionId)
+    const attempts = this.sessionsByTask.get(taskId)
+    const index = attempts?.findIndex((attempt) => attempt.sessionId === sessionId) ?? -1
+    if (attempts && index !== -1) attempts.splice(index, 1)
+    if (this.taskIdBySessionId.get(sessionId) === taskId) {
+      this.taskIdBySessionId.delete(sessionId)
+    }
+  }
+
   /** Attach a doc, plan, PR or automation to a task. */
   async link(id: string, input: TaskLinkInput): Promise<TaskDetails> {
     const details = await this.apiForTask(id).tasksLink(id, input)
@@ -674,20 +752,28 @@ export class TasksStore {
 
   /** The detail read behind the task page: comments, links and activity, none
    * of which the flat `tasks` list carries. */
-  async loadDetails(id: string, projectKey?: string): Promise<TaskDetails> {
-    const task = this.taskById(id, projectKey)
-    if (task ? task.providerId !== 'local' : await this.isUpstreamId(id, projectKey)) {
-      const cwd = task?.projectKey ?? projectKey
-      if (!cwd) throw new Error(`Project not found for upstream task ${id}.`)
-      const updated = await this.apiForTask(id).tasksGetUpstream(cwd, id)
-      this.replace(id, updated)
-      const details = upstreamTaskDetails(updated, this.tasksForProject(cwd))
-      this.detailsByTask.set(id, details)
+  loadDetails(id: string, projectKey?: string): Promise<TaskDetails> {
+    const pending = this.detailLoadsByTask.get(id)
+    if (pending) return pending
+    const load = (async () => {
+      const task = this.taskById(id, projectKey)
+      if (task ? task.providerId !== 'local' : await this.isUpstreamId(id, projectKey)) {
+        const cwd = task?.projectKey ?? projectKey
+        if (!cwd) throw new Error(`Project not found for upstream task ${id}.`)
+        const updated = await this.apiForTask(id).tasksGetUpstream(cwd, id)
+        this.replace(id, updated)
+        const details = upstreamTaskDetails(updated, this.tasksForProject(cwd))
+        this.detailsByTask.set(id, details)
+        return details
+      }
+      const details = await this.apiForTask(id).tasksGet(id)
+      this.reconcileDetails(details)
       return details
-    }
-    const details = await this.apiForTask(id).tasksGet(id)
-    this.reconcileDetails(details)
-    return details
+    })().finally(() => {
+      if (this.detailLoadsByTask.get(id) === load) this.detailLoadsByTask.delete(id)
+    })
+    this.detailLoadsByTask.set(id, load)
+    return load
   }
 
   /** A directly opened task the store has never listed: an issue-number id in a
@@ -717,10 +803,9 @@ export class TasksStore {
     this.replace(details.task.id, details.task)
     const pr = details.links.find((link) => link.kind === 'pr' && Number.isSafeInteger(Number(link.targetKey)))
     if (pr) {
-      this.prLinkByTask.set(details.task.id, {
-        number: Number(pr.targetKey),
-        ...(pr.url ? { url: pr.url } : {}),
-      })
+      const prLink: TaskSidebarPrLink = { number: Number(pr.targetKey) }
+      if (pr.url) prLink.url = pr.url
+      this.prLinkByTask.set(details.task.id, prLink)
     } else {
       this.prLinkByTask.delete(details.task.id)
     }
@@ -769,13 +854,29 @@ export class TasksStore {
   }
 
   async commitPending(pending: Task[]): Promise<void> {
-    const results = await Promise.allSettled(pending.map((task) => this.apiForTask(task.id).tasksDelete(task.id)))
+    const failureByIndex = new Map<number, unknown>()
+    let nextIndex = 0
+    const workers = Array.from(
+      { length: Math.min(TASK_DELETE_CONCURRENCY, pending.length) },
+      async () => {
+        while (nextIndex < pending.length) {
+          const index = nextIndex++
+          const task = pending[index]
+          try {
+            await this.apiForTask(task.id).tasksDelete(task.id)
+          } catch (reason) {
+            failureByIndex.set(index, reason)
+          }
+        }
+      },
+    )
+    await Promise.all(workers)
     for (const task of pending) this.pendingDeleteIds.delete(task.id)
-    const failed = pending.filter((_, index) => results[index].status === 'rejected')
+    const failed = pending.filter((_, index) => failureByIndex.has(index))
     if (failed.length) {
       this.restorePending(failed)
-      const first = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
-      throw first?.reason ?? new Error('Delete failed')
+      const firstFailureIndex = pending.findIndex((_, index) => failureByIndex.has(index))
+      throw failureByIndex.get(firstFailureIndex) ?? new Error('Delete failed')
     }
   }
 }

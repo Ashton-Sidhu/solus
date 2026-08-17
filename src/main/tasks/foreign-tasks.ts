@@ -6,7 +6,37 @@ import type {
   WorkCreateOpPayload,
   WorkUpdateOpPayload,
 } from '../../shared/outbox-types'
-import type { TaskLink, TaskLinkedItemSnapshot, TaskSnapshot, TaskStatus } from '../../shared/task-types'
+import type { TaskLink, TaskLinkedItemSnapshot, TaskSnapshot } from '../../shared/task-types'
+import { z } from 'zod'
+
+const workCreatePayloadSchema = z.object({
+  taskId: z.string(),
+  title: z.string(),
+  docType: z.enum(['doc', 'slides', 'diagram']),
+  content: z.string(),
+  agentProvider: z.string().optional(),
+  originSessionId: z.string().optional(),
+  cwd: z.string().optional(),
+})
+
+const workUpdatePayloadSchema = z.object({
+  taskId: z.string(),
+  content: z.string(),
+  title: z.string().optional(),
+})
+
+const taskCommentPayloadSchema = z.object({
+  body: z.string(),
+  author: z.string(),
+  originSessionId: z.string().optional(),
+})
+
+const taskStatusPayloadSchema = z.object({
+  status: z.enum(['inbox', 'todo', 'in_progress', 'in_review', 'done', 'dropped']),
+  actorLabel: z.string().optional(),
+})
+
+const taskIdPayloadSchema = z.object({ taskId: z.string() })
 
 /**
  * Foreign tasks on the execution host: the per-session snapshot a dispatched
@@ -38,8 +68,8 @@ export function setForeignTaskSnapshot(sessionId: string, snapshot: TaskSnapshot
   // a still-pending create/update must stay visible on the fresh snapshot the
   // owner host rendered before the op drained.
   for (const op of pendingOutboxOpsForDomain('works')) {
-    const payload = op.payload as { taskId?: string } | undefined
-    if (payload?.taskId === snapshot.details.task.id) applyWorkOpToSnapshot(overlaid, op)
+    const payload = taskIdPayloadSchema.safeParse(op.payload)
+    if (payload.success && payload.data.taskId === snapshot.details.task.id) applyWorkOpToSnapshot(overlaid, op)
   }
   snapshotsBySession.set(sessionId, overlaid)
 }
@@ -101,7 +131,9 @@ function applyWorkOpToSnapshot(snapshot: TaskSnapshot, op: OutboxOp): void {
   snapshot.linked ??= []
   const existing = snapshot.linked.find((item) => item.kind === 'work' && item.key === op.resourceId)
   if (op.name === 'create') {
-    const payload = op.payload as WorkCreateOpPayload
+    const parsed = workCreatePayloadSchema.safeParse(op.payload)
+    if (!parsed.success) return
+    const payload: WorkCreateOpPayload = parsed.data
     if (existing) {
       existing.title = payload.title
       existing.content = payload.content
@@ -118,7 +150,9 @@ function applyWorkOpToSnapshot(snapshot: TaskSnapshot, op: OutboxOp): void {
     return
   }
   if (op.name === 'update' && existing) {
-    const payload = op.payload as WorkUpdateOpPayload
+    const parsed = workUpdatePayloadSchema.safeParse(op.payload)
+    if (!parsed.success) return
+    const payload: WorkUpdateOpPayload = parsed.data
     existing.content = payload.content
     if (payload.title !== undefined) existing.title = payload.title
   }
@@ -140,7 +174,9 @@ export function applyOpToForeignTask(sessionId: string | undefined, op: OutboxOp
 
 function applyOpToSnapshot(snapshot: TaskSnapshot, op: OutboxOp): void {
   if (op.name === 'comment') {
-    const payload = op.payload as TaskCommentOpPayload
+    const parsed = taskCommentPayloadSchema.safeParse(op.payload)
+    if (!parsed.success) return
+    const payload: TaskCommentOpPayload = parsed.data
     snapshot.details.comments.push({
       id: op.id,
       taskId: snapshot.details.task.id,
@@ -153,7 +189,9 @@ function applyOpToSnapshot(snapshot: TaskSnapshot, op: OutboxOp): void {
     return
   }
   if (op.name === 'set-status') {
-    const payload = op.payload as TaskSetStatusOpPayload
-    snapshot.details.task.status = payload.status as TaskStatus
+    const parsed = taskStatusPayloadSchema.safeParse(op.payload)
+    if (!parsed.success) return
+    const payload: TaskSetStatusOpPayload = parsed.data
+    snapshot.details.task.status = payload.status
   }
 }

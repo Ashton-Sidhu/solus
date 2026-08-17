@@ -31,9 +31,7 @@
   const visible = $derived(items.length >= 3 && hasRoomForRail(paneWidth));
   const rightOffset = $derived(railRightOffset(paneWidth));
 
-  const reduceMotion =
-    typeof window !== "undefined" &&
-    !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // id→element index, built once per items/DOM change with a single querySelectorAll
   // rather than one full-subtree querySelector per user message per scroll frame. A

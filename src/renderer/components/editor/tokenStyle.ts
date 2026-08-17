@@ -31,8 +31,8 @@ export function tokenClassName(variant: TokenVariant, mono = false): string {
  */
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
-type SvgChild = (string | Record<string, string> | SvgChild)[]
-type IconArray = [string, Record<string, string>, ...SvgChild[]]
+export type SvgSpec = [string, Record<string, string>, ...(string | SvgSpec)[]]
+export type IconArray = SvgSpec
 
 const SVG_ATTRS = {
   viewBox: '0 0 24 24',
@@ -43,7 +43,7 @@ const SVG_ATTRS = {
   'stroke-linejoin': 'round',
 } as const
 
-export const TOKEN_ICONS: Record<'plan' | 'planAccepted' | 'planRejected' | 'work' | 'pr' | 'session' | 'task' | 'automation', IconArray> = {
+export const TOKEN_ICONS = {
   // message-square
   session: [`${SVG_NS} svg`, { ...SVG_ATTRS },
     ['path', { d: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' }],
@@ -90,4 +90,4 @@ export const TOKEN_ICONS: Record<'plan' | 'planAccepted' | 'planRejected' | 'wor
   automation: [`${SVG_NS} svg`, { ...SVG_ATTRS },
     ['path', { d: 'M13 2 4 14h7l-1 8 9-12h-7z' }],
   ],
-}
+} satisfies Record<'plan' | 'planAccepted' | 'planRejected' | 'work' | 'pr' | 'session' | 'task' | 'automation', IconArray>

@@ -1,4 +1,4 @@
-import type { GitCheckout, ModelConfig, PendingHostDispatch, RunConfig } from '../../../shared/types'
+import type { GitCheckout, ModelConfig, PendingHostDispatch, RunConfig, WorktreeEntry } from '../../../shared/types'
 import { MODEL_PROFILES, worktreeProjectRoot } from '../../../shared/types'
 
 /**
@@ -57,7 +57,7 @@ export function inheritRunConfig(
 /** The reasoning effort a model ships with, or null when it declares none. */
 function modelDefaultEffort(run: RunConfig): RunConfig['modelConfig']['reasoningEffort'] | null {
   if (!run.modelConfig.modelId || !run.provider) return null
-  const profiles = MODEL_PROFILES[run.provider as keyof typeof MODEL_PROFILES]
+  const profiles = MODEL_PROFILES[run.provider]
   return profiles?.[run.modelConfig.modelId]?.defaultReasoningEffort ?? null
 }
 
@@ -84,7 +84,7 @@ export function cycledModelId(
  * values over would run the new model against limits it never declared.
  */
 export function modelConfigForModel(run: RunConfig, modelId: string): ModelConfig {
-  const profile = MODEL_PROFILES[run.provider as keyof typeof MODEL_PROFILES]?.[modelId]
+  const profile = run.provider ? MODEL_PROFILES[run.provider]?.[modelId] : undefined
   return {
     modelId,
     reasoningEffort: profile?.defaultReasoningEffort ?? 'high',
@@ -97,7 +97,7 @@ const PERMISSION_MODES = ['ask', 'auto', 'plan'] as const
 
 /** The permission mode after `mode`, wrapping ask → auto → plan → ask. */
 export function nextPermissionMode(mode: RunConfig['permissionMode']): RunConfig['permissionMode'] {
-  const idx = PERMISSION_MODES.indexOf(mode as (typeof PERMISSION_MODES)[number])
+  const idx = PERMISSION_MODES.indexOf(mode)
   return PERMISSION_MODES[(idx + 1) % PERMISSION_MODES.length]
 }
 
@@ -186,19 +186,12 @@ export function isDispatch(run: RunConfig | undefined | null): boolean {
 /**
  * Whether this run will branch its own worktree before the agent starts.
  *
- * A dispatch aimed at a base checkout always does, whatever the user's
- * preference says: that checkout sits on a machine nobody is watching, so a
- * collision there has no one to untangle it. A dispatch already pointed *into*
- * a session worktree — a draft continuing where a dispatched session works — is
- * not that case: the worktree is being watched from right here, and forcing a
- * second one off it would break parity with the same gesture on a local
- * session. Everything else is the user's own choice, recorded in `worktree` —
- * present the moment isolation is asked for, whether or not the branch to fork
- * from is known yet. A project that merely happens to live on a remote host is
- * no different from a local one here.
+ * A dispatch always uses a worktree. `worktree` requests a new one; a selected
+ * pending target worktree is already isolated and therefore needs no creation.
  */
 export function startsWorktree(run: RunConfig | undefined | null): boolean {
   if (!run) return false
+  if (run.pendingHostDispatch?.intent === 'dispatch' && run.pendingHostDispatch.worktree) return false
   return (isDispatch(run) && !run.gitContext?.worktreePath) || !!run.worktree
 }
 
@@ -220,8 +213,8 @@ export function withHost(
   const next: RunConfig = {
     ...run,
     serverId,
-    ...(opts.path ? { workingDirectory: opts.path } : {}),
   }
+  if (opts.path) next.workingDirectory = opts.path
   if (!movingHosts) return next
   // The old host's base branch named a branch over there, so a worktree survives
   // the move as a request with its answer dropped.
@@ -255,5 +248,42 @@ export function withPendingHost(
   return {
     ...run,
     pendingHostDispatch: target && target.serverId !== run.serverId ? target : null,
+  }
+}
+
+/** Choose where a pending remote dispatch works. An existing worktree records
+ * its exact target-host path. Null returns to creating a new isolated worktree. */
+export function withDispatchWorktree(run: RunConfig, worktree: WorktreeEntry | null): RunConfig {
+  const pending = run.pendingHostDispatch
+  if (pending?.intent !== 'dispatch') return run
+  const pendingHostDispatch: PendingHostDispatch = {
+    serverId: pending.serverId,
+    intent: 'dispatch',
+    repoKey: pending.repoKey,
+  }
+  if (worktree) {
+    pendingHostDispatch.worktree = { path: worktree.path, branch: worktree.branch }
+  }
+  return {
+    ...run,
+    worktree: worktree ? null : { baseBranch: null },
+    pendingHostDispatch,
+  }
+}
+
+/** Materialize an origin branch as a target-host worktree. This records only
+ * intent; it never checks out the branch in the source repository. */
+export function withDispatchBaseBranch(run: RunConfig, baseBranch: string): RunConfig {
+  const pending = run.pendingHostDispatch
+  if (pending?.intent !== 'dispatch') return run
+  return {
+    ...run,
+    worktree: { baseBranch },
+    pendingHostDispatch: {
+      serverId: pending.serverId,
+      intent: 'dispatch',
+      repoKey: pending.repoKey,
+      baseBranch,
+    },
   }
 }

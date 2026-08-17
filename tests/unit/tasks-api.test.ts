@@ -17,6 +17,17 @@ function task(id: string, status: Task['status'], providerId: Task['providerId']
 }
 
 describe('buildBoard', () => {
+  test('orders columns as a left-to-right workflow', () => {
+    // WHY: a Kanban board must move from ready work through active work and
+    // review to completion. Attention-based list ordering is confusing here.
+    expect(buildBoard([]).map((column) => column.status)).toEqual([
+      'todo',
+      'in_progress',
+      'in_review',
+      'done',
+    ])
+  })
+
   test('every lifecycle status lands in a column', () => {
     // WHY: the board has four columns for six statuses; inbox folds into todo
     // and dropped into done, or those tasks would silently vanish when the

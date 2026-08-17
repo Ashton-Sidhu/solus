@@ -41,7 +41,7 @@
    *  Re-wrapping the callback whenever `items` changes forces the rebuild. */
   const sizeForIndex = $derived.by(() => {
     void items;
-    return typeof itemSize === "function"
+    return itemSize instanceof Function
       ? (index: number) => itemSize(index)
       : itemSize;
   });

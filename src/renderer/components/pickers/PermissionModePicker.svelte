@@ -6,6 +6,15 @@
   import { requestInputFocus } from '../../lib/inputFocus'
   import * as DropdownMenu from '../ui/dropdown-menu'
 
+  type PermissionMode = 'ask' | 'auto' | 'plan'
+
+  interface PermissionOption {
+    id: PermissionMode
+    label: string
+    icon: typeof ShieldCheckIcon
+    weight: IconWeight
+  }
+
   const session = getWorkspaceContext()
   const agent = getAgentContext()
   const statusBar = getStatusBarContext()
@@ -25,6 +34,7 @@
   let { compact = false, tabId, run, onRun, isPrimary = false }: Props = $props();
 
   let open = $state(false)
+  let triggerEl: HTMLButtonElement | null = $state(null)
 
   const ctx = $derived(onRun ? statusBar.ctxForRun(run) : statusBar.ctxFor(tabId ?? session.activeTabId))
   const permissionMode = $derived(ctx.permissionMode)
@@ -42,27 +52,47 @@
     if (activeAgent === 'claude-code' && permissionMode === 'plan') return 'Claude plan mode'
     return 'Permission mode'
   })
-  const permissionOptions = $derived([
-    { id: 'ask', label: 'Ask', icon: ShieldCheckIcon, weight: 'regular' as IconWeight },
-    { id: 'auto', label: 'Auto', icon: ShieldCheckIcon, weight: 'fill' as IconWeight },
-    { id: 'plan', label: 'Plan', icon: PencilIcon, weight: (isPlan ? 'fill' : 'regular') as IconWeight },
-  ].filter((opt) => opt.id !== 'plan' || supportsPlan))
+  const permissionOptions = $derived(([
+    { id: 'ask', label: 'Ask', icon: ShieldCheckIcon, weight: 'regular' },
+    { id: 'auto', label: 'Auto', icon: ShieldCheckIcon, weight: 'fill' },
+    { id: 'plan', label: 'Plan', icon: PencilIcon, weight: isPlan ? 'fill' : 'regular' },
+  ] satisfies PermissionOption[]).filter((opt) => opt.id !== 'plan' || supportsPlan))
 
   function handleToggle() {
     if (!supportsPermissions) return
     open = !open
   }
 
-  function selectPermissionMode(mode: 'ask' | 'auto' | 'plan') {
-    if (onRun) onRun({ ...(run as RunConfig), permissionMode: mode })
+  function selectPermissionMode(mode: PermissionMode) {
+    if (onRun && run) onRun({ ...run, permissionMode: mode })
     else session.setPermissionMode(mode, tabId)
     open = false
     if (isPrimary) requestInputFocus()
   }
+
+  // Same shape as the model chip's shortcut: the picker for the addressed tab
+  // opens, and only the copy in the visible layout (both stay mounted).
+  function openFromShortcut(targetTabId?: string) {
+    if (onRun) return
+    if (targetTabId === undefined ? !isPrimary : targetTabId !== tabId) return
+    if (!supportsPermissions) return
+    if (triggerEl && triggerEl.offsetParent === null) return
+    open = true
+  }
+
+  $effect(() => {
+    const handler = (event: Event) => {
+      const detail: { tabId?: string } | undefined =
+        event instanceof CustomEvent ? event.detail : undefined
+      openFromShortcut(detail?.tabId)
+    }
+    window.addEventListener('solus:toggle-permission-menu', handler)
+    return () => window.removeEventListener('solus:toggle-permission-menu', handler)
+  })
 </script>
 
 <DropdownMenu.Root bind:open onOpenChange={(next) => { if (!next && isPrimary) requestInputFocus() }}>
-  <DropdownMenu.Trigger disabled={!supportsPermissions}>
+  <DropdownMenu.Trigger disabled={!supportsPermissions} bind:ref={triggerEl}>
     {#snippet child({ props })}
       <TooltipUI.Root>
         <TooltipUI.Trigger>
@@ -88,7 +118,7 @@
       {#each permissionOptions as opt (opt.id)}
         {@const Icon = opt.icon}
         {@const isChecked = permissionMode === opt.id}
-        <DropdownMenu.RadioItem value={opt.id} class="gap-2.5 pl-1.5" onSelect={() => selectPermissionMode(opt.id as 'ask' | 'auto' | 'plan')}>
+        <DropdownMenu.RadioItem value={opt.id} class="gap-2.5 pl-1.5" onSelect={() => selectPermissionMode(opt.id)}>
           <span class="flex size-6 shrink-0 items-center justify-center rounded-lg transition-colors {isChecked ? 'bg-[color-mix(in_srgb,var(--solus-accent)_16%,transparent)] text-(--solus-accent)' : 'bg-(--solus-surface-hover)'}">
             <Icon size={13} weight={opt.weight} class="size-3.5" />
           </span>

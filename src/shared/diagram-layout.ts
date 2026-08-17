@@ -22,7 +22,9 @@ const FIELD_ROW_H = 18
 // time and excluded. Width is clamped to the card's [min-width:12rem /
 // max-width:18rem] range (192–288px); entities (nodes with `fields`) carry
 // `name : type` rows that are wider, so they get a roomier max.
-function estimateNodeSize(node: DiagramNode): { w: number; h: number } {
+interface EstimatedNodeSize { w: number; h: number }
+
+function estimateNodeSize(node: DiagramNode): EstimatedNodeSize {
   const isEntity = !!node.fields?.length && !node.group
   let contentPx = node.label.length * 7 + 56  // 56px: icon (24) + gaps + horizontal padding
   if (isEntity) {

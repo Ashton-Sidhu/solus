@@ -1,10 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { z } from 'zod'
 import type { Server as HttpServer } from 'http'
 import { SolusServer } from './server'
 import { buildHttpServer } from './http'
-import { getServerSettings, setRemoteAccess } from './settings'
+import { getServerSettings, setRemoteAccess, setTrustLocalNetwork } from './settings'
 import { isLoopbackHost, resolveEffectiveServerOptions } from './bind-policy'
+import { isTrustedRequesterAddress } from './trusted-requesters'
 import { attachWebSocketTransport } from '../transports/websocket'
 import { ResponseReceiptBudget } from '../transports/response-receipt-cache'
 import { ClientEventRegistry } from '../events/client-event-registry'
@@ -16,6 +18,7 @@ import type { AgentId, IpcContext } from '../../shared/types'
 import { registerWindowHandlers, type WindowDeps } from './handlers/window-handlers'
 import { enrichAgentMetadata, registerSessionHandlers, type SessionDeps } from './handlers/session-handlers'
 import { registerWorktreeHandlers } from './handlers/worktree-handlers'
+import { registerGitPublishHandlers } from './handlers/git-publish-handlers'
 import { registerFilesystemHandlers } from './handlers/filesystem-handlers'
 import { registerHistoryHandlers } from './handlers/history-handlers'
 import type { FileDeps } from './handlers/file-handlers'
@@ -110,14 +113,20 @@ interface LockFileBody {
   startedAt: number
 }
 
+const lockFileSchema = z.object({
+  pid: z.number().int().positive(),
+  port: z.number().int().positive(),
+  host: z.string(),
+  startedAt: z.number(),
+}).strict()
+const systemErrorSchema = z.object({ code: z.string().optional() })
+
 function readLock(): LockFileBody | null {
   const lockFile = join(solusDir(), 'server.lock')
   if (!existsSync(lockFile)) return null
   try {
     const raw = readFileSync(lockFile, 'utf-8')
-    const parsed = JSON.parse(raw) as LockFileBody
-    if (!parsed?.pid) return null
-    return parsed
+    return lockFileSchema.parse(JSON.parse(raw))
   } catch {
     return null
   }
@@ -186,9 +195,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     agentIdFromContext: opts.agentIdFromContext,
   }
   registerSessionHandlers(server, sessionDeps)
-  registerSettingsHandlers(server)
+  registerSettingsHandlers(server, { controlPlane: opts.controlPlane })
 
-  registerWorktreeHandlers(server, { controlPlane: opts.controlPlane })
+  registerWorktreeHandlers(server, { controlPlane: opts.controlPlane, events })
+  registerGitPublishHandlers(server)
   // Browsing a host's filesystem must work headless — that is the whole point
   // of pairing a server that has no window.
   registerFilesystemHandlers(server)
@@ -246,14 +256,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   // Agent-conversation cards drive sessions that have no bound tab in the renderer.
   server.register('promptSession', async (args) => {
-    const [sessionId, prompt, delivery] = args as [unknown, unknown, unknown]
-    if (typeof sessionId !== 'string' || !sessionId.trim()) throw new Error('promptSession requires a session id')
-    if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('promptSession requires a non-empty prompt')
+    const [sessionId, prompt, delivery] = args
+    if (!sessionId.trim()) throw new Error('promptSession requires a session id')
+    if (!prompt.trim()) throw new Error('promptSession requires a non-empty prompt')
     return opts.controlPlane.promptSession(sessionId, prompt, delivery === 'steer' ? 'steer' : 'queue')
   })
   server.register('stopSession', async (args) => {
-    const [sessionId] = args as [unknown]
-    if (typeof sessionId !== 'string' || !sessionId.trim()) throw new Error('stopSession requires a session id')
+    const [sessionId] = args
+    if (!sessionId.trim()) throw new Error('stopSession requires a session id')
     return opts.controlPlane.stopSession(sessionId)
   })
   // Local, in-process automation scheduler. Fires time-based triggers while the
@@ -325,16 +335,20 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // One publish per watching client. Two panes on one renderer are one client
   // and receive one payload; desktop and web are two, with the same payload.
   opts.controlPlane.on('event', (sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
-    if (isDebugEnabled) {
-      log.debug('session_event_bytes', {
-        sessionId,
-        eventType: event.type,
-        ...('toolName' in event && event.toolName ? { toolName: event.toolName } : {}),
-        bytes: serializedBytes(event),
-      })
-    }
     const projectedEvent = projectSessionEvent(event)
     if (!projectedEvent) return
+    // Measure the projected event — the payload that actually ships to clients.
+    // Serializing the raw event would re-inflate the tool bodies projection
+    // exists to strip, on every single event.
+    if (isDebugEnabled) {
+      const details = {
+        sessionId,
+        eventType: event.type,
+        bytes: serializedBytes(projectedEvent),
+      }
+      if ('toolName' in event && event.toolName) Object.assign(details, { toolName: event.toolName })
+      log.debug('session_event_bytes', details)
+    }
     let clients = opts.controlPlane.clientsWatching(sessionId)
     if (to?.only) clients = clients.filter((clientId) => clientId === to.only)
     if (to?.except) clients = clients.filter((clientId) => clientId !== to.except)
@@ -361,19 +375,24 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     staticDir: opts.staticDir,
     getHost: () => host,
     getPort: () => actualPort,
+    requireAuth: () => requireAuth,
+    isTrustedRequester: isTrustedRequesterAddress,
     transcribeAudio: opts.transcribeAudio,
   })
   const responseReceiptBudget = new ResponseReceiptBudget()
   let ws = attachWebSocketTransport(http, server, {
     clientEvents,
     requireAuth: () => requireAuth,
+    isTrustedRequester: isTrustedRequesterAddress,
     responseBudget: responseReceiptBudget,
     onClientConnected: ({ clientId }) => {
       checksHandlers.handleClientConnected(clientId)
     },
-    onClientDisconnected: ({ clientId, deviceId }) => {
-      opts.controlPlane.handleClientDisconnected(clientId)
+    onClientDisconnected: ({ clientId }) => {
       checksHandlers.handleClientDisconnected(clientId)
+    },
+    onClientExpired: ({ clientId }) => {
+      opts.controlPlane.handleClientExpired(clientId)
     },
   })
   let sessionIndexPollTimer: ReturnType<typeof setTimeout> | null = null
@@ -386,7 +405,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       sessionIndexPollTimer = null
       void pollSessionIndexes()
     }, delay + jitter)
-    ;(sessionIndexPollTimer as unknown as { unref?: () => void }).unref?.()
+    sessionIndexPollTimer.unref()
   }
 
   async function pollSessionIndexes(): Promise<void> {
@@ -440,9 +459,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
           http.once('listening', onListening)
           http.listen(nextPort, host)
         })
-        return (http.address() as any)?.port ?? nextPort
+        const address = http.address()
+        return address && 'port' in address ? address.port : nextPort
       } catch (err) {
-        const code = (err as NodeJS.ErrnoException)?.code
+        const parsed = systemErrorSchema.safeParse(err)
+        const code = parsed.success ? parsed.data.code : undefined
         if (code !== 'EADDRINUSE' || i === MAX_PORT_RETRIES) throw err
         log.info('port_in_use_retrying', { port: nextPort, nextPort: nextPort + 1 })
         nextPort += 1
@@ -500,13 +521,16 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     ws = attachWebSocketTransport(http, server, {
       clientEvents,
       requireAuth: () => requireAuth,
+      isTrustedRequester: isTrustedRequesterAddress,
       responseBudget: responseReceiptBudget,
       onClientConnected: ({ clientId }) => {
         checksHandlers.handleClientConnected(clientId)
       },
-      onClientDisconnected: ({ clientId, deviceId }) => {
-        opts.controlPlane.handleClientDisconnected(clientId)
+      onClientDisconnected: ({ clientId }) => {
         checksHandlers.handleClientDisconnected(clientId)
+      },
+      onClientExpired: ({ clientId }) => {
+        opts.controlPlane.handleClientExpired(clientId)
       },
     })
     lock = acquireLock(host, actualPort)
@@ -515,7 +539,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
 
   registerConnectionsHandlers(server, {
-    getServerInfo: () => ({ host, port: actualPort, allowLan: !isLoopbackHost(host), remoteAccess: getServerSettings().remoteAccess, requireAuth }),
+    getServerInfo: () => ({ host, port: actualPort, allowLan: !isLoopbackHost(host), remoteAccess: getServerSettings().remoteAccess, requireAuth, trustLocalNetwork: getServerSettings().trustLocalNetwork }),
     getActiveSessions: () => [...ws.sessions.values()].map(s => ({
       id: s.id,
       deviceLabel: s.deviceLabel,
@@ -528,6 +552,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       await rebind(next.remoteAccess)
       return { ...next, host, port: actualPort, allowLan: !isLoopbackHost(host), requireAuth }
     },
+    // Trust is evaluated per request, so no rebind: the next connection
+    // attempt simply reads the new policy.
+    setTrustLocalNetwork: (trustLocalNetwork) => ({
+      trustLocalNetwork: setTrustLocalNetwork(trustLocalNetwork).trustLocalNetwork,
+    }),
   })
 
   log.info('server_listening', { host, port: actualPort })

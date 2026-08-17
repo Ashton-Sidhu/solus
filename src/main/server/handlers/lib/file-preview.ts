@@ -1,12 +1,14 @@
 import { open, readFile, realpath, stat } from 'fs/promises'
-import { homedir } from 'os'
-import { join, extname, relative, resolve } from 'path'
+import { extname, relative, resolve } from 'path'
 import type { FilePreviewRequest, FilePreviewResult, IpcContext } from '../../../../shared/types'
 import { mimeTypeForExtension } from '../../attachment-utils'
+import { isInsideRoot } from '../../../paths'
+import { expandHome } from './host-path'
 
+/** Unlike `expandHome`, a bare relative path resolves against the *request's*
+ *  cwd rather than the server process's. Only the `~` rule is shared. */
 export function resolvePreviewPath(rawPath: string, cwd: string | undefined): string {
-  if (rawPath.startsWith('~/')) return join(homedir(), rawPath.slice(2))
-  if (rawPath === '~') return homedir()
+  if (rawPath === '~' || rawPath.startsWith('~/')) return expandHome(rawPath)
   if (rawPath.startsWith('/')) return resolve(rawPath)
   return resolve(cwd || process.cwd(), rawPath)
 }
@@ -19,16 +21,6 @@ export function projectRootForRequest(ctx: IpcContext, cwd?: string): string | n
       ? ctx.session.workingDirectory
       : undefined)
   return raw ? resolvePreviewPath(raw, undefined) : null
-}
-
-export function isInsideRoot(root: string, target: string): boolean {
-  const pathFromRoot = relative(root, target)
-  return pathFromRoot === '' || (
-    !!pathFromRoot &&
-    pathFromRoot !== '..' &&
-    !pathFromRoot.startsWith('../') &&
-    !pathFromRoot.startsWith('/')
-  )
 }
 
 function isBinaryBuffer(buffer: Buffer): boolean {
@@ -88,21 +80,22 @@ export async function readFilePreview(
       ? await readFilePrefix(target, PREVIEW_MAX_BYTES, PREVIEW_MAX_BYTES)
       : await readFile(target)
     const outsideRoot = !root || !isInsideRoot(root, target)
-    return {
+    const result: FilePreviewResult = {
       ok: true,
       path: target,
-      displayPath: outsideRoot ? target : relative(root!, target),
+      displayPath: outsideRoot || !root ? target : relative(root, target),
       contents: buffer.toString('utf-8'),
       size: fileStat.size,
       isReadOnly: outsideRoot || truncated,
-      ...(truncated ? { truncated } : {}),
       mimeType: mimeTypeForExtension(extname(target).toLowerCase()),
     }
-  } catch (error: any) {
+    if (truncated) result.truncated = true
+    return result
+  } catch (error) {
     return {
       ok: false,
       path: target,
-      error: error?.message ?? String(error),
+      error: error instanceof Error ? error.message : String(error),
     }
   }
 }

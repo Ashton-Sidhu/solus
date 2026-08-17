@@ -36,7 +36,7 @@
       }
       const node = ed.view.domAtPos(ed.state.selection.from).node;
       const el = (node instanceof Element ? node : node.parentElement)?.closest("table");
-      const nextTable = (el as HTMLTableElement | null) ?? null;
+      const nextTable = el instanceof HTMLTableElement ? el : null;
       table = nextTable;
       geometry = measureTableGrips(nextTable);
     };

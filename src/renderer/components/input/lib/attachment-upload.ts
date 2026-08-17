@@ -1,9 +1,11 @@
 import type { HostApi } from '@client-core/host-api'
 import type { Attachment, IpcContext } from '../../../../shared/types'
+import { uuid } from '../../../../shared/uuid'
 import {
   MAX_ATTACHMENT_UPLOAD_BYTES,
   MAX_ATTACHMENT_UPLOAD_COUNT,
 } from '../../../../shared/rpc'
+import { z } from 'zod'
 
 function assertUploadCount(count: number): void {
   if (count > MAX_ATTACHMENT_UPLOAD_COUNT) {
@@ -21,9 +23,11 @@ export function readFileDataUrl(file: Blob): Promise<string> {
   assertUploadSize(file.size)
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = () => typeof reader.result === 'string'
-      ? resolve(reader.result)
-      : reject(new Error('Unable to read attachment.'))
+    reader.onload = () => {
+      const result = z.string().safeParse(reader.result)
+      if (result.success) resolve(result.data)
+      else reject(new Error('Unable to read attachment.'))
+    }
     reader.onerror = () => reject(reader.error ?? new Error('Unable to read attachment.'))
     reader.readAsDataURL(file)
   })
@@ -45,17 +49,18 @@ export async function uploadFileObjects(
     const mime = file.type || 'application/octet-stream'
     const dataUrl = await readFileDataUrl(file)
     const hostPath = await api.attachUpload(ctx, { name: file.name, mime, dataUrl })
-    attachments.push({
-      id: crypto.randomUUID(),
+    const attachment: Attachment = {
+      id: uuid(),
       type: isImageMime(mime) ? 'image' : 'file',
       name: file.name,
       path: hostPath,
       hostPath,
       hostServerId: serverId,
       mimeType: mime,
-      ...(isImageMime(mime) ? { dataUrl } : {}),
       size: file.size,
-    })
+    }
+    if (isImageMime(mime)) attachment.dataUrl = dataUrl
+    attachments.push(attachment)
   }
   return attachments
 }
@@ -80,13 +85,14 @@ export async function uploadLocalAttachments(
       mime,
       dataUrl: bytes.dataUrl,
     })
-    uploaded.push({
+    const uploadedAttachment: Attachment = {
       ...attachment,
       hostPath,
       hostServerId: serverId,
-      ...(attachment.type === 'image' ? { dataUrl: bytes.dataUrl } : {}),
       size: bytes.size,
-    })
+    }
+    if (attachment.type === 'image') uploadedAttachment.dataUrl = bytes.dataUrl
+    uploaded.push(uploadedAttachment)
   }
   return uploaded
 }
@@ -117,7 +123,7 @@ export function pastedImageAttachment(dataUrl: string, serverId: string): Attach
   assertUploadSize(size)
   const name = `pasted image.${extension}`
   return {
-    id: crypto.randomUUID(),
+    id: uuid(),
     type: 'image',
     name,
     path: name,

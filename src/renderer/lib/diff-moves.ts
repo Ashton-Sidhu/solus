@@ -287,7 +287,7 @@ export function detectMovedBlocks(files: FileDiffMetadata[]): DiffMoveAnalysis {
   for (const origin of deletions) {
     for (const destination of additionsByKey.get(exactKey(origin.lines)) ?? []) {
       if (sameChange(origin, destination)) continue
-      const pairs = origin.lines.map((_, index) => [index, index] as [number, number])
+      const pairs = origin.lines.map((_, index): [number, number] => [index, index])
       possible.push({ origin, destination, alignment: { pairs, score: 1 }, exact: true })
       exactOrigins.add(origin)
       exactDestinations.add(destination)

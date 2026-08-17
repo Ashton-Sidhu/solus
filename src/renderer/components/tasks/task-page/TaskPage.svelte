@@ -15,7 +15,7 @@
   import { localApi } from "@client-core/local-api";
   import { serverConnections } from "@client-core/server-connections";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
-  import { resolveSessionMetaRef } from "@client-core/session-meta";
+  import { readSessionMeta } from "@client-core/session-meta";
   import { setMarkdownImageContext } from "../../conversation/lib/markdown-image";
   import {
     useKeybinding,
@@ -43,7 +43,11 @@
   import TaskSessionsList from "./TaskSessionsList.svelte";
   import TaskSidebar from "./TaskSidebar.svelte";
 
-  let { params, paneId }: RouteSurfaceProps<"task"> = $props();
+  let {
+    params,
+    paneId,
+    surfaceVisible = true,
+  }: RouteSurfaceProps<"task"> = $props();
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
@@ -159,12 +163,19 @@
   let loadedId: string | null = null;
   $effect(() => {
     const id = taskId;
-    if (!id || id === loadedId) return;
-    loadedId = id;
-    void store.ensureLoaded().catch(() => {});
-    void store
-      .loadDetails(id, projectCwd)
-      .catch((err) => toastError("open task", err));
+    if (!id || !surfaceVisible) {
+      loadedId = null;
+      return;
+    }
+    const stopWatching = store.watchDetails(id);
+    if (id !== loadedId) {
+      loadedId = id;
+      void store.ensureLoaded().catch(() => {});
+      void store
+        .loadDetails(id, projectCwd)
+        .catch((err) => toastError("open task", err));
+    }
+    return stopWatching;
   });
 
   // ── Prev/next follow the Tasks page's own ordering, so "next" is the row the
@@ -183,10 +194,10 @@
       : null,
   );
 
-  function toastError(action: string, err: unknown) {
-    toasts.error(
-      `Couldn't ${action}: ${err instanceof Error ? err.message : String(err)}`,
-    );
+  function toastError(action: string, err: Parameters<typeof String>[0]) {
+    toasts.error(`Couldn't ${action}`, {
+      description: err instanceof Error ? err.message : String(err),
+    });
   }
 
   function save(patch: TaskUpdatePatch) {
@@ -327,7 +338,7 @@
       serverId ? serverConnections.resolveId(serverId) : undefined,
     );
     if (openTab) return openTab;
-    const meta = await resolveSessionMetaRef({ sessionId, serverId });
+    const meta = serverId ? await readSessionMeta(serverId, sessionId) : null;
     return meta ? await session.resumeSession(meta) : null;
   }
 
@@ -344,13 +355,18 @@
     if (revealed) session.openSplitChat(revealed.id);
   }
 
+  function unlinkSession(sessionId: string) {
+    void store
+      .unlinkSession(taskId, sessionId)
+      .catch((err) => toastError("unlink this session", err));
+  }
+
+
   async function stopSession(sessionId: string) {
     try {
       const serverId = store.hostFor(taskId);
-      const api = serverId
-        ? serverConnections.apiFor(serverId)
-        : serverConnections.primaryApi();
-      await api.stopSession(sessionId);
+      if (!serverId) return;
+      await serverConnections.apiFor(serverId).stopSession(sessionId);
     } catch (err) {
       toastError("stop session", err);
     }
@@ -456,6 +472,7 @@
               onOpen={openSession}
               onOpenSplit={openSessionSplit}
               onStop={stopSession}
+              onUnlink={unlinkSession}
               onNewSession={() => void session.openTaskSession(task)}
             />
           {/if}

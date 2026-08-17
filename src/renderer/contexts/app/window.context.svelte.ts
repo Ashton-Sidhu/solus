@@ -1,5 +1,5 @@
 import { createAppContext } from './create-app-context'
-import { MOBILE_QUERY } from './runtime.svelte'
+import { MOBILE_QUERY } from './viewport'
 import { localApi } from '@client-core/local-api'
 import { serverConnections } from '@client-core/server-connections'
 
@@ -21,10 +21,8 @@ export class WindowContext {
   constructor() {
     this.platform = localApi.getPlatform()
     this.viewMode = this.loadViewMode()
-    // Publish the macOS-editor flag once: it drives the titlebar safe-area vars
-    // (see --solus-traffic-light-inset in index.css) so all chrome reserves the
-    // window-control region from one place. Each Electron window is mode-locked,
-    // so this never has to change for the window's lifetime.
+    // The editor overlays native traffic lights on renderer content. Publish
+    // one document flag so its shared chrome geometry switches on together.
     if (this.isMac && this.viewMode === 'editor') {
       document.documentElement.classList.add('is-mac-editor')
     }
@@ -34,8 +32,11 @@ export class WindowContext {
     // derived chains reading workAreaWidth/Height don't re-run on every tick.
     let raf = 0
     // Flag the document as actively resizing so expensive per-frame paint work
-    // (notably backdrop-filter blur) can switch off for the duration of the
-    // drag and back on shortly after it settles — the main cause of resize jank.
+    // (notably backdrop-filter blur) and size-reactive layout transitions
+    // (sidebar/rail widths, tab widths — which would retarget every frame and
+    // rubber-band behind the window edge) can switch off for the duration of
+    // the drag and back on shortly after it settles — the main causes of
+    // resize jank.
     let resizeIdle = 0
     const root = document.documentElement
     window.addEventListener('resize', () => {
@@ -76,7 +77,7 @@ export class WindowContext {
    *  surface the other mode's window (creating it on first use). */
   async setViewMode(mode: ViewMode): Promise<void> {
     if (this.isWeb) return
-    await serverConnections.primaryApi().switchMode(mode)
+    await serverConnections.localHostApi()?.switchMode(mode)
   }
 }
 

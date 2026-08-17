@@ -17,10 +17,21 @@
     SunIcon,
     DotOutlineIcon,
   } from "phosphor-svelte";
-  import type { Task } from "../../../shared/task-types";
+  import type { Task, TaskStatus } from "../../../shared/task-types";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as ContextMenu from "../ui/context-menu";
+  import TaskStatusGlyph from "../tasks/TaskStatusGlyph.svelte";
+  import { STATUS_META } from "../tasks/lib/tasks-api";
+
+  const TASK_STATUSES: TaskStatus[] = [
+    "inbox",
+    "todo",
+    "in_progress",
+    "in_review",
+    "done",
+    "dropped",
+  ];
 
   interface Props {
     x: number;
@@ -35,7 +46,8 @@
     onOpenTask: () => void;
     onOpenSource?: () => void;
     onStartRename?: () => void;
-    onToggleDone: () => void;
+    onToggleDone?: () => void;
+    onSetStatus?: (status: TaskStatus) => void;
     onSnooze?: () => void;
     onWake?: () => void;
     onMarkUnread?: () => void;
@@ -68,6 +80,7 @@
     onOpenSource,
     onStartRename,
     onToggleDone,
+    onSetStatus,
     onSnooze,
     onWake,
     onMarkUnread,
@@ -162,10 +175,30 @@
         Stop run
       </ContextMenu.Item>
     {/if}
-    <ContextMenu.Item onSelect={() => select(onToggleDone)}>
-      <CheckIcon />
-      {task.status === "done" ? "Reopen task" : "Mark done"}
-    </ContextMenu.Item>
+    {#if onSetStatus}
+      <ContextMenu.Sub>
+        <ContextMenu.SubTrigger>
+          <TaskStatusGlyph status={task.status} size={14} />
+          Set status
+        </ContextMenu.SubTrigger>
+        <ContextMenu.SubContent>
+          {#each TASK_STATUSES as status}
+            <ContextMenu.Item onSelect={() => select(() => onSetStatus?.(status))}>
+              <TaskStatusGlyph {status} size={14} />
+              {STATUS_META[status].label}
+              {#if task.status === status}
+                <CheckIcon class="ml-auto" />
+              {/if}
+            </ContextMenu.Item>
+          {/each}
+        </ContextMenu.SubContent>
+      </ContextMenu.Sub>
+    {:else if onToggleDone}
+      <ContextMenu.Item onSelect={() => select(onToggleDone)}>
+        <CheckIcon />
+        {task.status === "done" ? "Reopen task" : "Mark done"}
+      </ContextMenu.Item>
+    {/if}
     {#if onWake}
       <ContextMenu.Item onSelect={() => select(onWake)}>
         <SunIcon />

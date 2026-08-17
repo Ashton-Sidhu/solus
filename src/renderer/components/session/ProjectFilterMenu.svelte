@@ -25,7 +25,8 @@
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     event.preventDefault();
     const rows = [...(rowsEl?.querySelectorAll("button") ?? [])];
-    const from = event.target as HTMLButtonElement;
+    if (!(event.target instanceof HTMLButtonElement)) return;
+    const from = event.target;
     const step = event.key === "ArrowDown" ? 1 : -1;
     rows[(rows.indexOf(from) + step + rows.length) % rows.length]?.focus();
   }

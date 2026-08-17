@@ -184,5 +184,4 @@ export type ClaudeEvent = InitEvent | StatusEvent | StreamEvent | AssistantEvent
 
 export interface UnknownEvent {
   type: string
-  [key: string]: unknown
 }

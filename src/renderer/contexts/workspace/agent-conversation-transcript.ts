@@ -1,4 +1,5 @@
 import type { AgentConversationRef, AgentExchange, Message } from '../../../shared/types'
+import { z } from 'zod'
 import type { AgentConversationResultProjection } from '../../../shared/session-history'
 import { nextMsgId } from './session.utils'
 
@@ -22,15 +23,19 @@ interface ParsedReport {
   body: string
 }
 
-interface SessionToolInput {
-  session_id?: unknown
-  prompt?: unknown
-  mode?: unknown
-  model_id?: unknown
-  reasoning_effort?: unknown
-  cwd?: unknown
-  delivery?: unknown
-}
+const sessionToolInputSchema = z.object({
+  session_id: z.string().optional(),
+  prompt: z.string().optional(),
+  // Enum fields degrade alone so an unknown value from a newer host drops
+  // that field, not the whole parsed input.
+  mode: z.enum(['delegate', 'fire_and_forget']).optional().catch(undefined),
+  model_id: z.string().optional(),
+  reasoning_effort: z.string().optional(),
+  cwd: z.string().optional(),
+  delivery: z.enum(['queue', 'steer']).optional().catch(undefined),
+})
+
+type SessionToolInput = z.infer<typeof sessionToolInputSchema>
 
 /** Parse a persisted `[session report]` user turn (session-report.ts formats).
  *  Null means "not a report" — the caller renders the row as ordinary text. */
@@ -76,11 +81,11 @@ export class AgentConversationTranscriptBuilder {
   ): void {
     let input: SessionToolInput = {}
     try {
-      input = JSON.parse(toolInput || '{}')
+      input = sessionToolInputSchema.parse(JSON.parse(toolInput || '{}'))
     } catch {}
 
     if (toolName.endsWith('stop_session')) {
-      const agentSessionId = typeof input.session_id === 'string' ? input.session_id : null
+      const agentSessionId = input.session_id ?? null
       const message = agentSessionId ? this.latestByAgent.get(agentSessionId) : undefined
       if (message?.agentConversationRef) message.agentConversationRef.closedByAgent = true
       return
@@ -90,22 +95,22 @@ export class AgentConversationTranscriptBuilder {
       const agentSessionId = result?.agentSessionId
       if (!agentSessionId) return
       this.openExchange(agentSessionId, {
-        prompt: typeof input.prompt === 'string' ? input.prompt : '',
+        prompt: input.prompt ?? '',
         origin: 'created',
         fireAndForget: input.mode === 'fire_and_forget',
-        model: typeof input.model_id === 'string' ? input.model_id : undefined,
-        reasoningEffort: typeof input.reasoning_effort === 'string' ? input.reasoning_effort : undefined,
-        cwd: typeof input.cwd === 'string' ? input.cwd : '',
+        model: input.model_id,
+        reasoningEffort: input.reasoning_effort,
+        cwd: input.cwd ?? '',
         timestamp,
       })
       return
     }
 
-    const agentSessionId = typeof input.session_id === 'string' ? input.session_id : null
+    const agentSessionId = input.session_id ?? null
     if (!agentSessionId) return
     if (toolName.endsWith('prompt_session')) {
       this.openExchange(agentSessionId, {
-        prompt: typeof input.prompt === 'string' ? input.prompt : '',
+        prompt: input.prompt ?? '',
         origin: 'prompted',
         delivery: input.delivery === 'steer' ? 'steer' : undefined,
         cwd: '',

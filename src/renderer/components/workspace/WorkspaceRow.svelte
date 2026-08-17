@@ -50,6 +50,7 @@
      *  Hovering never selects, so this is the whole of what hover does. */
     onPeek?: (row: HTMLElement) => void;
     onPeekLeave?: () => void;
+    onContextMenu?: (event: MouseEvent) => void;
   }
 
   let {
@@ -65,6 +66,7 @@
     onOpenSessionSplit,
     onPeek,
     onPeekLeave,
+    onContextMenu,
   }: Props = $props();
 
   const statusLabel = $derived(
@@ -108,6 +110,7 @@
   aria-selected={selected}
   tabindex="-1"
   onclick={onOpen}
+  oncontextmenu={onContextMenu}
   onpointerenter={(e) => {
     if (e.pointerType === "mouse") onPeek?.(e.currentTarget as HTMLElement);
   }}

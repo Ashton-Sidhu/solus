@@ -19,7 +19,7 @@
 		{
 			anchor: "plans",
 			title: "Reviewable plans",
-			desc: "The agent drafts before it executes. Comment inline on any selection, then approve — works with every model.",
+			desc: "The agent drafts before it executes. Comment inline on any selection, then approve. Works with every model.",
 		},
 		{
 			anchor: "diff",
@@ -29,7 +29,7 @@
 		{
 			anchor: "review",
 			title: "Review companion",
-			desc: "A second agent reviews your branch and writes a guided report — click a finding to land on the exact hunk.",
+			desc: "A second agent reviews your branch and writes a guided report. Click a finding to land on the exact hunk.",
 		},
 		{
 			anchor: "pull-request-merge",
@@ -44,7 +44,7 @@
 		{
 			anchor: "tasks",
 			title: "Tasks",
-			desc: "A project board of local tickets and GitHub Issues — start a session straight from a task.",
+			desc: "A project board of local tickets and GitHub Issues. Start a session straight from a task.",
 		},
 		{
 			anchor: "automations",
@@ -59,12 +59,12 @@
 		{
 			anchor: "delegated-agents",
 			title: "Delegated agents",
-			desc: "Agents spawn subagents — Claude delegating to Codex and back — with live activity rendered inline.",
+			desc: "Agents spawn subagents, like Claude delegating to Codex and back, with live activity rendered inline.",
 		},
 		{
 			anchor: "voice",
 			title: "Voice input",
-			desc: "Push-to-talk or a continuous hands-free loop, transcribed locally — audio never leaves your machine.",
+			desc: "Push-to-talk or a continuous hands-free loop, transcribed locally. Audio never leaves your machine.",
 		},
 		{
 			anchor: "design-mode",
@@ -290,13 +290,13 @@
 	<!-- Quiet title block -->
 	<div class="v2-text">
 		<h1 class="v2-title">
-			The best way<span class="v2-title-accent"
-				>to ship with coding agents.</span
+			The best Agentic Editor <span class="v2-title-accent"
+				>for building software.</span
 			>
 		</h1>
 		<p class="v2-sub">
-			Plan, review, and ship agent work with Claude Code or Codex — from your
-			desktop, your browser, or your phone, without changing editors.
+			Plan, review, and ship work with Claude Code or Codex from your desktop,
+			browser, or phone.
 		</p>
 		<div class="v2-cta-row">
 			<button onclick={downloadApp} class="v2-cta-primary">
@@ -313,49 +313,48 @@
 				</svg>
 				Download for macOS
 			</button>
+			<button
+				onclick={copyBrew}
+				class="group inline-flex items-center gap-2 px-3.5 py-2.5 rounded-full cursor-pointer max-sm:hidden
+				       bg-black/[0.04] hover:bg-black/[0.06] border border-black/[0.06]
+				       font-[family-name:var(--font-mono)] text-[12px] text-[#6B6158] transition-colors"
+				aria-label="Copy Homebrew install command"
+			>
+				<span class="select-none text-[#A09488]">$</span>
+				{BREW_COMMAND}
+				{#if brewCopied}
+					<svg
+						width="12"
+						height="12"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="#4A9E6B"
+						stroke-width="2.5"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg
+					>
+				{:else}
+					<svg
+						width="12"
+						height="12"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						class="opacity-40 group-hover:opacity-70 transition-opacity"
+						aria-hidden="true"
+						><rect x="9" y="9" width="11" height="11" rx="2" /><path
+							d="M5 15V5a2 2 0 0 1 2-2h10"
+						/></svg
+					>
+				{/if}
+			</button>
 		</div>
-		<button
-			onclick={copyBrew}
-			class="group inline-flex items-center gap-2 mt-3 px-3.5 py-2 rounded-lg cursor-pointer
-			       bg-black/[0.04] hover:bg-black/[0.06] border border-black/[0.06]
-			       font-[family-name:var(--font-mono)] text-[12px] text-[#6B6158] transition-colors"
-			aria-label="Copy Homebrew install command"
-		>
-			<span class="select-none text-[#A09488]">$</span>
-			{BREW_COMMAND}
-			{#if brewCopied}
-				<svg
-					width="12"
-					height="12"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="#4A9E6B"
-					stroke-width="2.5"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg
-				>
-			{:else}
-				<svg
-					width="12"
-					height="12"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2"
-					stroke-linecap="round"
-					class="opacity-40 group-hover:opacity-70 transition-opacity"
-					aria-hidden="true"
-					><rect x="9" y="9" width="11" height="11" rx="2" /><path
-						d="M5 15V5a2 2 0 0 1 2-2h10"
-					/></svg
-				>
-			{/if}
-		</button>
 		<ul class="v2-trust" aria-label="What Solus is">
 			<li>Keyboard-first</li>
-			<li>Claude Code &amp; Codex — your subscriptions</li>
-			<li>macOS app · web &amp; mobile · Linux server</li>
+			<li>Uses your existing subscriptions</li>
 			<li>
 				<a
 					href="https://github.com/Ashton-Sidhu/solus"
@@ -383,7 +382,7 @@
 	<DemoSection />
 </section>
 
-<!-- The workflow — three acts -->
+<!-- The workflow: three acts -->
 <section
 	id="workflow"
 	class="px-10 py-[160px] max-[1800px]:py-[110px] max-lg:px-6 max-lg:py-20"
@@ -404,7 +403,7 @@
 			<p
 				class="reveal reveal-d2 text-base/7 sm:text-[16px] max-[1440px]:sm:text-[15px] leading-[1.75] text-[#6B6158] max-w-[52ch] text-pretty"
 			>
-				Solus maps agent work onto the way software actually gets built — hand
+				Solus maps agent work onto the way software actually gets built. Hand
 				work off like you would to a teammate, gate it twice, land it clean.
 			</p>
 		</div>
@@ -434,8 +433,8 @@
 			<p
 				class="reveal reveal-d2 text-base/7 sm:text-[16px] max-[1440px]:sm:text-[15px] leading-[1.75] text-[#6B6158] max-w-[52ch] text-pretty"
 			>
-				Solus is keyboard-first. The whole flow — invoke, ask, review, dismiss —
-				fits in four chords you'll never have to look up again.
+				Solus is keyboard-first. Summon, delegate, review, and dismiss all fit
+				in four chords you'll never have to look up again.
 			</p>
 		</div>
 
@@ -448,18 +447,16 @@
 				</div>
 				<div class="po-cheat-body">
 					<div class="po-cheat-num">01</div>
-					<h3 class="po-cheat-title">Toggle</h3>
+					<h3 class="po-cheat-title">Summon</h3>
 					<p class="po-cheat-desc">
-						Bring Solus to front. From anywhere, in any app.
+						Bring Solus above whatever you're doing, in any app.
 					</p>
 				</div>
 			</div>
 
 			<div class="po-cheat-card">
 				<div class="po-cheat-chord">
-					<kbd class="po-cheat-kbd">⌥</kbd>
-					<span class="po-cheat-plus">+</span>
-					<kbd class="po-cheat-kbd">⇧</kbd>
+					<kbd class="po-cheat-kbd">⌘</kbd>
 					<span class="po-cheat-plus">+</span>
 					<kbd class="po-cheat-kbd">T</kbd>
 				</div>
@@ -484,7 +481,7 @@
 					<div class="po-cheat-num">03</div>
 					<h3 class="po-cheat-title">Editor mode</h3>
 					<p class="po-cheat-desc">
-						Expand to plan view, diff review, or the full session.
+						Expand the pill into the full workspace: plans, diffs, panes.
 					</p>
 				</div>
 			</div>
@@ -497,7 +494,7 @@
 					<div class="po-cheat-num">04</div>
 					<h3 class="po-cheat-title">Dismiss</h3>
 					<p class="po-cheat-desc">
-						Send Solus back. Editor takes over — exactly where you left off.
+						Send Solus back. Your editor takes over exactly where you left off.
 					</p>
 				</div>
 			</div>
@@ -506,17 +503,17 @@
 		<div class="po-cheat-meta reveal reveal-d3">
 			<div class="po-cheat-meta-stat">
 				<span class="po-cheat-meta-n">0.2s</span>
-				<span class="po-cheat-meta-l">overlay → typing</span>
+				<span class="po-cheat-meta-l">summon → typing</span>
 			</div>
 			<div class="po-cheat-meta-sep" aria-hidden="true"></div>
 			<div class="po-cheat-meta-stat">
-				<span class="po-cheat-meta-n">3</span>
-				<span class="po-cheat-meta-l">keystrokes per request</span>
+				<span class="po-cheat-meta-n">1 key</span>
+				<span class="po-cheat-meta-l">back to your editor</span>
 			</div>
 			<div class="po-cheat-meta-sep" aria-hidden="true"></div>
 			<div class="po-cheat-meta-stat">
 				<span class="po-cheat-meta-n">∞</span>
-				<span class="po-cheat-meta-l">tabs in flight</span>
+				<span class="po-cheat-meta-l">sessions in flight</span>
 			</div>
 		</div>
 	</div>
@@ -543,9 +540,8 @@
 			<p
 				class="reveal reveal-d2 text-base/7 sm:text-[16px] max-[1440px]:sm:text-[15px] leading-[1.75] text-[#6B6158] max-w-[52ch] text-pretty"
 			>
-				Every surface agent work touches — plans, diffs, pull requests, tasks,
-				schedules — lives in one keyboard-first workspace. Each one links to its
-				docs.
+				Plans, diffs, pull requests, tasks, and schedules all live in one
+				keyboard-first workspace. Each feature links to its docs.
 			</p>
 		</div>
 
@@ -622,7 +618,7 @@
 		<p
 			class="reveal reveal-d2 text-base/7 sm:text-[16px] max-[1440px]:sm:text-[15px] leading-[1.65] text-[#6B6158]"
 		>
-			Delegate, review, ship — built by engineers, for engineers.
+			Delegate, review, and ship. Built by engineers, for engineers.
 		</p>
 
 		<div class="reveal reveal-d3 flex flex-col gap-3 mt-1">
@@ -640,19 +636,6 @@
 				</svg>
 				Download for macOS
 			</button>
-			<p class="text-[12px] text-[#6B6158]">
-				Free during beta. macOS 12 Monterey or later, Apple Silicon.
-			</p>
-			<p
-				class="text-[12px] text-[#6B6158] font-[family-name:var(--font-mono)] leading-relaxed"
-			>
-				<span class="text-[#A09488]">$</span> {BREW_COMMAND}<br />
-				<span class="text-[#A09488]">$</span> brew install
-				Ashton-Sidhu/tap/solus-server
-				<span class="font-[family-name:var(--font-sans)] text-[#A09488]"
-					>— headless server for Linux or any always-on box</span
-				>
-			</p>
 		</div>
 	</div>
 </section>

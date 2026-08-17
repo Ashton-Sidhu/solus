@@ -1,5 +1,6 @@
 import { Notification } from 'electron'
 import type { ClientNotificationRequest } from '../shared/notification-types'
+import { z } from 'zod'
 
 const DEDUP_TTL_MS = 5 * 60_000
 const shownAtByKey = new Map<string, number>()
@@ -8,10 +9,10 @@ const shownAtByKey = new Map<string, number>()
  * renderer manager; main only validates, deduplicates across mounted windows,
  * displays, and routes clicks back to the renderer. */
 export function showDesktopNotification(
-  input: unknown,
+  input: ClientNotificationRequest,
   onClick: (route: string) => void,
 ): boolean {
-  if (!Notification.isSupported() || !isClientNotificationRequest(input)) return false
+  if (!Notification.isSupported()) return false
 
   const now = Date.now()
   for (const [key, shownAt] of shownAtByKey) {
@@ -26,14 +27,12 @@ export function showDesktopNotification(
   return true
 }
 
-function isClientNotificationRequest(input: unknown): input is ClientNotificationRequest {
-  if (!input || typeof input !== 'object') return false
-  const value = input as Partial<ClientNotificationRequest>
-  return typeof value.title === 'string'
-    && typeof value.body === 'string'
-    && typeof value.sessionId === 'string'
-    && typeof value.kind === 'string'
-    && typeof value.entryKey === 'string'
-    && typeof value.route === 'string'
-    && typeof value.dedupKey === 'string'
-}
+export const clientNotificationRequestSchema = z.object({
+  title: z.string(),
+  body: z.string(),
+  sessionId: z.string(),
+  kind: z.enum(['question', 'needs_approval', 'failed', 'finished']),
+  entryKey: z.string(),
+  route: z.string(),
+  dedupKey: z.string(),
+})

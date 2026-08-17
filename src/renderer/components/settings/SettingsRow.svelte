@@ -14,6 +14,8 @@
     control?: Snippet;
     /** Full-width block below the label/control line. */
     body?: Snippet;
+    /** Keep a supplied body mounted only when its owning setting needs it. */
+    bodyVisible?: boolean;
     /**
      * A setting the layout already accounts for but nothing backs yet. Drawn
      * dimmed, badged, and inert in one place, so every placeholder in Solus
@@ -31,6 +33,7 @@
     labelExtra,
     control,
     body,
+    bodyVisible = true,
     comingSoon = false,
     testId,
   }: Props = $props();
@@ -51,7 +54,7 @@
           <span>{label}{@render labelExtra?.()}</span>
           {#if comingSoon}
             <span
-              class="rounded-full border border-border px-1.5 py-px text-xs font-medium uppercase text-muted-foreground"
+              class="shrink-0 whitespace-nowrap rounded-full border border-border px-1.5 py-px text-[0.6875rem] leading-[1.5] font-medium uppercase tracking-[0.04em] text-muted-foreground sm:text-[0.625rem]"
             >
               Coming soon
             </span>
@@ -69,7 +72,7 @@
         <div class="shrink-0" inert={comingSoon}>{@render control()}</div>
       {/if}
     </div>
-    {#if body}
+    {#if body && bodyVisible}
       <div class="mt-3">{@render body()}</div>
     {/if}
   </div>

@@ -1,12 +1,13 @@
 /** Unified settings context: theme + editor/terminal/agent + rate-limit + worktree toggle. */
 
+import { z } from 'zod'
+
 import { createAppContext } from './create-app-context'
 import type { AgentId, AppCodeFontFamily, AppFontFamily, EditorId, ReasoningEffort, SettingsCtx, TerminalAppId } from '../../../shared/types'
-import { REASONING_EFFORT_LABELS } from '../../../shared/types'
 import type { KeyCombo } from '../../lib/keybindings/types'
 import { KEYBINDINGS } from '../../lib/keybindings/manifest'
 import { setAnalyticsEnabled } from '../../lib/analytics'
-import { MOBILE_QUERY } from './runtime.svelte'
+import { MOBILE_QUERY } from './viewport'
 import { localApi } from '@client-core/local-api'
 import { serverConnections } from '@client-core/server-connections'
 import { clampZoomFactor, stepZoomFactor, ZOOM_FACTOR_DEFAULT } from '../../../shared/zoom'
@@ -15,7 +16,7 @@ export type ThemeMode = 'system' | 'light' | 'dark'
 
 export type RateLimitBehavior = 'ask' | 'queue' | 'continue' | 'stop'
 export type ProjectPanelSectionId = 'goal' | 'environment' | 'git' | 'task' | 'automations'
-const DEFAULT_PROJECT_PANEL_COLLAPSED: Record<ProjectPanelSectionId, boolean> = {
+const DEFAULT_PROJECT_PANEL_COLLAPSED = {
   // The section only exists while a goal is set, so it opens on arrival — a
   // collapsed default would hide the thing the user just asked to see.
   goal: false,
@@ -25,7 +26,7 @@ const DEFAULT_PROJECT_PANEL_COLLAPSED: Record<ProjectPanelSectionId, boolean> = 
   // arrival — the same reasoning as the goal section above.
   task: false,
   automations: true,
-}
+} as const satisfies Record<ProjectPanelSectionId, boolean>
 
 export const TAB_GROUP_MODES = ['flat', 'status', 'unread'] as const
 export type TabGroupMode = (typeof TAB_GROUP_MODES)[number]
@@ -100,7 +101,7 @@ function applyTheme(isDark: boolean): void {
 }
 
 const BASE_FONT_SIZE = 13
-const DEFAULT_FONT_SIZE = typeof window !== 'undefined' && window.matchMedia(MOBILE_QUERY).matches ? 11 : 13
+const DEFAULT_FONT_SIZE = globalThis.matchMedia?.(MOBILE_QUERY).matches ? 11 : 13
 
 function applyFontSize(size: number): void {
   document.documentElement.style.setProperty('--solus-font-scale', String(size / BASE_FONT_SIZE))
@@ -112,7 +113,7 @@ function applyZoomFactor(factor: number): void {
   localApi.setZoomFactor?.(factor)
 }
 
-const IS_MAC_OS = typeof navigator !== 'undefined' && /Macintosh|Mac OS X/.test(navigator.userAgent)
+const IS_MAC_OS = /Macintosh|Mac OS X/.test(globalThis.navigator?.userAgent ?? '')
 const DEFAULT_APP_FONT_FAMILY: AppFontFamily = IS_MAC_OS ? 'sf-pro-text' : 'inter'
 
 // `weight` is the body weight tuned for crispest rendering of each typeface at
@@ -167,107 +168,83 @@ function applyCodeFontSize(size: number): void {
 
 const SETTINGS_KEY = 'solus-settings'
 
-const VALID_EDITORS: EditorId[] = ['vscode', 'vim', 'nvim', 'helix']
-const VALID_TERMINALS: TerminalAppId[] = ['default-terminal', 'ghostty']
-const VALID_AGENTS: AgentId[] = ['claude-code', 'codex', 'opencode']
-const VALID_FONT_FAMILIES = APP_FONT_FAMILIES.map((option) => option.id)
-const VALID_CODE_FONT_FAMILIES = APP_CODE_FONT_FAMILIES.map((option) => option.id)
+const VALID_EDITORS = ['vscode', 'vim', 'nvim', 'helix'] as const satisfies readonly EditorId[]
+const VALID_TERMINALS = ['default-terminal', 'ghostty'] as const satisfies readonly TerminalAppId[]
+const VALID_AGENTS = ['claude-code', 'codex', 'opencode'] as const satisfies readonly AgentId[]
 /**
  * Drop unknown binding ids and malformed combos so a stale or hand-edited
  * localStorage blob can't break the dispatcher. Each value must be a combo with
  * a string `code`; the modifier flags, if present, must be booleans.
  */
-function sanitizeKeybindings(value: unknown): Record<string, KeyCombo> {
-  const out: Record<string, KeyCombo> = {}
-  if (!value || typeof value !== 'object') return out
-  const MOD_KEYS = ['alt', 'shift', 'meta', 'ctrl', 'mod'] as const
-  for (const [id, raw] of Object.entries(value)) {
-    if (!(id in KEYBINDINGS)) continue
-    if (!raw || typeof raw !== 'object') continue
-    const r = raw as { code?: unknown; alt?: unknown; shift?: unknown; meta?: unknown; ctrl?: unknown; mod?: unknown }
-    if (typeof r.code !== 'string' || !r.code) continue
-    if (MOD_KEYS.some((k) => Reflect.get(r, k) !== undefined && typeof Reflect.get(r, k) !== 'boolean')) continue
-    const combo: KeyCombo = { code: r.code }
-    for (const k of MOD_KEYS) if (Reflect.get(r, k) === true) combo[k] = true
-    out[id] = combo
-  }
-  return out
-}
+const keyComboSchema = z.object({
+  code: z.string().min(1),
+  alt: z.boolean().optional(),
+  shift: z.boolean().optional(),
+  meta: z.boolean().optional(),
+  ctrl: z.boolean().optional(),
+  mod: z.boolean().optional(),
+})
 
-/**
- * Drop non-string values so a hand-edited/stale blob can't break dispatch.
- */
-function loadStringRecord(value: unknown): Record<string, string> {
-  const out: Record<string, string> = {}
-  if (!value || typeof value !== 'object') return out
-  for (const [id, text] of Object.entries(value)) {
-    if (typeof text === 'string') out[id] = text
+const keybindingsSchema = z.record(z.string(), keyComboSchema).transform((bindings) => {
+  const valid: Record<string, KeyCombo> = {}
+  for (const [id, combo] of Object.entries(bindings)) {
+    if (id in KEYBINDINGS) valid[id] = combo
   }
-  return out
-}
+  return valid
+})
 
-function loadBooleanRecord(value: unknown): Record<string, boolean> {
-  const out: Record<string, boolean> = {}
-  if (!value || typeof value !== 'object') return out
-  for (const [key, enabled] of Object.entries(value)) {
-    if (typeof enabled === 'boolean') out[key] = enabled
-  }
-  return out
-}
+const projectPanelCollapsedSchema = z.object({
+  goal: z.boolean().optional(),
+  environment: z.boolean().optional(),
+  git: z.boolean().optional(),
+  task: z.boolean().optional(),
+  automations: z.boolean().optional(),
+}).transform((collapsed) => ({ ...DEFAULT_PROJECT_PANEL_COLLAPSED, ...collapsed }))
 
-function loadProjectPanelCollapsed(value: unknown): Record<ProjectPanelSectionId, boolean> {
-  const collapsed = { ...DEFAULT_PROJECT_PANEL_COLLAPSED }
-  if (!value || typeof value !== 'object') return collapsed
-  for (const id of Object.keys(DEFAULT_PROJECT_PANEL_COLLAPSED) as ProjectPanelSectionId[]) {
-    const next = Reflect.get(value, id)
-    if (typeof next === 'boolean') collapsed[id] = next
-  }
-  return collapsed
-}
+const savedSettingsSchema = z.object({
+  themeMode: z.enum(['light', 'dark', 'system']).catch('light'),
+  soundEnabled: z.boolean().catch(true),
+  voiceModeEnabled: z.boolean().catch(false),
+  autoSendVoiceTranscripts: z.boolean().catch(false),
+  vadSilenceMs: z.number().transform((value) => Math.max(1000, Math.min(8000, value))).catch(1500),
+  defaultEditor: z.enum(VALID_EDITORS).nullable().catch(null),
+  defaultTerminal: z.enum(VALID_TERMINALS).nullable().catch(null),
+  activeAgent: z.enum(VALID_AGENTS).catch('claude-code'),
+  defaultModels: z.record(z.string(), z.string()).catch({}),
+  reviewAgent: z.enum(VALID_AGENTS).nullable().catch(null),
+  reviewModel: z.string().nullable().catch(null),
+  reviewReasoning: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode']).nullable().catch(null),
+  stackedPrsEnabled: z.boolean().catch(false),
+  generatePrGuidesOnOpen: z.boolean().catch(false),
+  reviewWarmingByProject: z.record(z.string(), z.boolean()).catch({}),
+  rateLimitBehavior: z.enum(['ask', 'queue', 'continue', 'stop']).catch('ask'),
+  worktreeEnabled: z.boolean().catch(false),
+  autoRenameSessions: z.boolean().catch(true),
+  showDiffSummaryAfterTurn: z.boolean().catch(true),
+  fontFamily: z.enum(['inter', 'dm-sans', 'system', 'geist', 'lora', 'sf-pro-text', 'sf-mono']).catch(DEFAULT_APP_FONT_FAMILY),
+  fontSize: z.number().min(8).catch(DEFAULT_FONT_SIZE),
+  zoomFactor: z.number().transform(clampZoomFactor).catch(ZOOM_FACTOR_DEFAULT),
+  codeFontFamily: z.enum(['sf-mono', 'geist-mono', 'fira-code', 'cascadia-code', 'jetbrains-mono', 'system-mono']).catch('jetbrains-mono'),
+  codeFontSize: z.number().min(8).catch(DEFAULT_CODE_FONT_SIZE),
+  extraInstructions: z.string().catch(''),
+  modelInstructions: z.record(z.string(), z.string()).catch({}),
+  keybindings: keybindingsSchema.catch({}),
+  analyticsEnabled: z.boolean().catch(true),
+  projectPanelOpen: z.boolean().catch(false),
+  splitProjectPanelOpen: z.boolean().catch(false),
+  projectPanelCollapsed: projectPanelCollapsedSchema.catch(DEFAULT_PROJECT_PANEL_COLLAPSED),
+  splitProjectPanelCollapsed: projectPanelCollapsedSchema.catch(DEFAULT_PROJECT_PANEL_COLLAPSED),
+  tabGroupMode: z.enum(TAB_GROUP_MODES).catch('flat'),
+  sidebarProjectFilter: z.string().nullable().catch(null),
+  onboardingCompleted: z.boolean().catch(true),
+})
 
 function loadSettings(): SettingsFields {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
     if (raw) {
-      const parsed = JSON.parse(raw)
-      return {
-        themeMode: (['light', 'dark', 'system'].includes(parsed.themeMode) ? parsed.themeMode : 'light') as ThemeMode,
-        soundEnabled: typeof parsed.soundEnabled === 'boolean' ? parsed.soundEnabled : true,
-        voiceModeEnabled: typeof parsed.voiceModeEnabled === 'boolean' ? parsed.voiceModeEnabled : false,
-        autoSendVoiceTranscripts: typeof parsed.autoSendVoiceTranscripts === 'boolean' ? parsed.autoSendVoiceTranscripts : false,
-        vadSilenceMs: typeof parsed.vadSilenceMs === 'number' ? Math.max(1000, Math.min(8000, parsed.vadSilenceMs)) : 1500,
-        defaultEditor: VALID_EDITORS.includes(parsed.defaultEditor) ? parsed.defaultEditor : null,
-        defaultTerminal: VALID_TERMINALS.includes(parsed.defaultTerminal) ? parsed.defaultTerminal : null,
-        activeAgent: VALID_AGENTS.includes(parsed.activeAgent) ? parsed.activeAgent : 'claude-code',
-        defaultModels: loadStringRecord(parsed.defaultModels),
-        reviewAgent: VALID_AGENTS.includes(parsed.reviewAgent) ? parsed.reviewAgent : null,
-        reviewModel: typeof parsed.reviewModel === 'string' ? parsed.reviewModel : null,
-        reviewReasoning: parsed.reviewReasoning in REASONING_EFFORT_LABELS ? parsed.reviewReasoning : null,
-        stackedPrsEnabled: typeof parsed.stackedPrsEnabled === 'boolean' ? parsed.stackedPrsEnabled : false,
-        generatePrGuidesOnOpen: typeof parsed.generatePrGuidesOnOpen === 'boolean' ? parsed.generatePrGuidesOnOpen : false,
-        reviewWarmingByProject: loadBooleanRecord(parsed.reviewWarmingByProject),
-        rateLimitBehavior: (['ask', 'queue', 'continue', 'stop'].includes(parsed.rateLimitBehavior) ? parsed.rateLimitBehavior : 'ask') as RateLimitBehavior,
-        worktreeEnabled: typeof parsed.worktreeEnabled === 'boolean' ? parsed.worktreeEnabled : false,
-        autoRenameSessions: typeof parsed.autoRenameSessions === 'boolean' ? parsed.autoRenameSessions : true,
-        showDiffSummaryAfterTurn: typeof parsed.showDiffSummaryAfterTurn === 'boolean' ? parsed.showDiffSummaryAfterTurn : true,
-        fontFamily: VALID_FONT_FAMILIES.includes(parsed.fontFamily) ? parsed.fontFamily : DEFAULT_APP_FONT_FAMILY,
-        fontSize: typeof parsed.fontSize === 'number' && parsed.fontSize >= 8 ? parsed.fontSize : DEFAULT_FONT_SIZE,
-        zoomFactor: typeof parsed.zoomFactor === 'number' ? clampZoomFactor(parsed.zoomFactor) : ZOOM_FACTOR_DEFAULT,
-        codeFontFamily: VALID_CODE_FONT_FAMILIES.includes(parsed.codeFontFamily) ? parsed.codeFontFamily : 'jetbrains-mono',
-        codeFontSize: typeof parsed.codeFontSize === 'number' && parsed.codeFontSize >= 8 ? parsed.codeFontSize : DEFAULT_CODE_FONT_SIZE,
-        extraInstructions: typeof parsed.extraInstructions === 'string' ? parsed.extraInstructions : '',
-        modelInstructions: loadStringRecord(parsed.modelInstructions),
-        keybindings: sanitizeKeybindings(parsed.keybindings),
-        analyticsEnabled: typeof parsed.analyticsEnabled === 'boolean' ? parsed.analyticsEnabled : true,
-        projectPanelOpen: typeof parsed.projectPanelOpen === 'boolean' ? parsed.projectPanelOpen : false,
-        splitProjectPanelOpen:
-          typeof parsed.splitProjectPanelOpen === 'boolean' ? parsed.splitProjectPanelOpen : false,
-        projectPanelCollapsed: loadProjectPanelCollapsed(parsed.projectPanelCollapsed),
-        splitProjectPanelCollapsed: loadProjectPanelCollapsed(parsed.splitProjectPanelCollapsed),
-        tabGroupMode: ((TAB_GROUP_MODES as readonly string[]).includes(parsed.tabGroupMode) ? parsed.tabGroupMode : 'flat') as TabGroupMode,
-        sidebarProjectFilter: typeof parsed.sidebarProjectFilter === 'string' ? parsed.sidebarProjectFilter : null,
-        onboardingCompleted: typeof parsed.onboardingCompleted === 'boolean' ? parsed.onboardingCompleted : true,
-      }
+      const parsed = savedSettingsSchema.safeParse(JSON.parse(raw))
+      if (parsed.success) return parsed.data
     }
   } catch {}
   return {
@@ -402,9 +379,9 @@ export class SettingsContext {
     window.addEventListener('storage', (e) => {
       if (e.key !== SETTINGS_KEY || !e.newValue) return
       try {
-        const parsed = JSON.parse(e.newValue)
-        if (typeof parsed.zoomFactor !== 'number') return
-        const next = clampZoomFactor(parsed.zoomFactor)
+        const parsed = z.object({ zoomFactor: z.number() }).safeParse(JSON.parse(e.newValue))
+        if (!parsed.success) return
+        const next = clampZoomFactor(parsed.data.zoomFactor)
         if (next === this.zoomFactor) return
         this.zoomFactor = next
         applyZoomFactor(next)
@@ -511,7 +488,7 @@ export class SettingsContext {
       this.analyticsEnabled = patch.analyticsEnabled
       setAnalyticsEnabled(patch.analyticsEnabled!)
       if (localApi.getPlatform() !== 'web') {
-        void serverConnections.primaryApi().setAnalyticsConsent(patch.analyticsEnabled!).catch(() => {})
+        void serverConnections.localHostApi()?.setAnalyticsConsent(patch.analyticsEnabled!).catch(() => {})
       }
     }
     if (patch.projectPanelOpen !== undefined) this.projectPanelOpen = patch.projectPanelOpen

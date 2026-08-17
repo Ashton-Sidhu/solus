@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { isInsideRoot, readFilePreview } from '../../src/main/server/handlers/lib/file-preview'
+import { readFilePreview } from '../../src/main/server/handlers/lib/file-preview'
+import { isInsideRoot } from '../../src/main/paths'
 import type { IpcContext } from '../../src/shared/types'
 
 describe('file preview paths', () => {

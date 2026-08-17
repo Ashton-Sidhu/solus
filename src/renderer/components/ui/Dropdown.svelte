@@ -96,21 +96,35 @@
   $effect(() => {
     if (!open || !triggerEl) return
 
-    window.addEventListener('resize', updatePosition)
-    window.addEventListener('scroll', updatePosition, true)
+    // Scroll can fire several times per frame from nested scrollers; coalesce
+    // the getBoundingClientRect into at most one layout read per frame.
+    let rafId = 0
+    const queueUpdatePosition = () => {
+      if (rafId) return
+      rafId = requestAnimationFrame(() => {
+        rafId = 0
+        updatePosition()
+      })
+    }
+    window.addEventListener('resize', queueUpdatePosition)
+    window.addEventListener('scroll', queueUpdatePosition, { capture: true, passive: true })
 
     return () => {
-      window.removeEventListener('resize', updatePosition)
-      window.removeEventListener('scroll', updatePosition, true)
+      cancelAnimationFrame(rafId)
+      window.removeEventListener('resize', queueUpdatePosition)
+      window.removeEventListener('scroll', queueUpdatePosition, true)
     }
   })
 </script>
 
 {#if open && layer.el}
+  <!-- Enter belongs to menu-surface's menu-pop-in keyframe; an in: transition
+       here would write inline styles the CSS animation overrides. Only the
+       exit is ours. -->
   <div
     bind:this={popoverEl}
     use:portal={layer.el}
-    transition:fly={{
+    out:fly={{
       x: align === 'left' ? 4 : 0,
       y: align === 'top' ? 4 : align === 'left' ? 0 : -4,
       duration: 120,

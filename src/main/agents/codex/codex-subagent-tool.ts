@@ -9,7 +9,7 @@ import { SPAN_SERVICES } from '../../observability/registries'
 
 // Keys deliberately line up with the renderer's parseSubagentInput
 // (description / prompt / model / reasoning_effort) so the card's row renders.
-const codexSubagentShape = {
+const codexSubagentFields = {
   prompt: z
     .string()
     .describe(
@@ -46,7 +46,7 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher): Agent
   return {
     name: 'codex_subagent',
     description: CODEX_SUBAGENT_DESC,
-    inputShape: codexSubagentShape,
+    inputFields: codexSubagentFields,
     requiresApproval: false,
     execute: async (args, context) => {
       const parentToolUseId = context.parentToolUseId()

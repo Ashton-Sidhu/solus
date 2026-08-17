@@ -98,6 +98,20 @@ describe('native task migration', () => {
 })
 
 describe('native task CRUD', () => {
+  test('lists more than 99 tasks without truncation', async () => {
+    // WHY: the global task picker consumes this complete native snapshot. A
+    // hidden two-digit boundary would make older work impossible to search.
+    const creations = Array.from({ length: 105 }, (_, index) =>
+      taskStore.createTask({
+        title: `Searchable task ${index + 1}`,
+        projectKey: '/workspace/solus',
+      }),
+    )
+    await Promise.all(creations)
+
+    expect((await taskStore.listTasks()).tasks).toHaveLength(105)
+  })
+
   test('restores a number-only PR link for the sidebar after restart', async () => {
     // WHY: agent link_task calls can identify a PR by number without a URL.
     // The durable edge, not the renderer PR list, must restore the chip.
@@ -140,6 +154,21 @@ describe('native task CRUD', () => {
     } finally {
       unsubscribe()
     }
+  })
+
+  test('files a worktree session under its base project', async () => {
+    // WHY: conflict-resolution sessions execute in a managed PR worktree, but
+    // the project-scoped sidebar must still include their task row.
+    const task = await taskSessions.prepareSessionTask({
+      projectKey: '/workspace/solus/.solus-worktrees/pr-47',
+      worktreeKey: '/workspace/solus::solus/pr-47 (worktree)',
+      prompt: 'Resolve the PR conflicts',
+    })
+
+    expect(task).toMatchObject({
+      projectKey: '/workspace/solus',
+      worktreeKey: '/workspace/solus::solus/pr-47 (worktree)',
+    })
   })
 
   test('stores the six-state lifecycle and global inbox independently of project paths', async () => {
@@ -433,6 +462,39 @@ describe('session minting and durable links', () => {
     ])
   })
 
+  test('unlinking a session removes the attempt and records who detached what', async () => {
+    // WHY: linking a session has always had no way out. Unlink must remove
+    // exactly one attempt row, keep the activity feed able to say which
+    // session left by name, and stay silent when there is nothing to remove.
+    const task = await taskSessions.prepareSessionTask({
+      sessionId: 'session-to-unlink',
+      projectKey: '/workspace/solus',
+      prompt: 'Attempt that gets detached',
+    })
+    db.getDb().prepare(`
+      INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp)
+      VALUES (?, ?, ?, ?, ?)
+    `).run('session-to-unlink', 'claude-code', 'First message', 'Detached session', 1_725_000_000_000)
+
+    const bag = await tasks.Task.byId(task!.id)
+    await bag.unlinkSession('session-to-unlink')
+
+    expect((await taskSessions.taskSessions(task!.id))[task!.id]).toBeUndefined()
+    const unlinked = (await bag.details()).events.filter((event) => event.kind === 'unlinked')
+    expect(unlinked).toEqual([
+      expect.objectContaining({
+        targetKind: 'session',
+        targetKey: 'session-to-unlink',
+        targetTitle: 'Detached session',
+        actor: 'user',
+      }),
+    ])
+
+    // A second unlink is a no-op: no error, and no second history entry.
+    await bag.unlinkSession('session-to-unlink')
+    expect((await bag.details()).events.filter((event) => event.kind === 'unlinked')).toHaveLength(1)
+  })
+
   test('the detail read carries no session links at all', async () => {
     // WHY: a task's attempts have exactly one reader, `taskSessions()`, whose
     // join is what gives every link its display metadata. A second copy on the
@@ -451,6 +513,31 @@ describe('session minting and durable links', () => {
     expect((await taskSessions.taskSessions(task!.id))[task!.id]).toHaveLength(1)
   })
 
+  test('task attempts read session metadata through the stable lineage id', async () => {
+    const task = await taskSessions.prepareSessionTask({
+      sessionId: 'stable-session',
+      projectKey: '/workspace/solus',
+      prompt: 'A task with a stable session id',
+    })
+    db.getDb().prepare(`
+      INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp)
+      VALUES (?, ?, ?, ?, ?)
+    `).run('provider-session', 'codex', 'First provider message', 'Provider session title', 1_725_000_000_000)
+    db.getDb().prepare(`
+      INSERT INTO session_lineage_members(
+        session_id, position, provider, provider_session_id, cwd, started_at, ended_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('stable-session', 0, 'codex', 'provider-session', '/workspace/solus', 1, null, 1)
+
+    expect((await taskSessions.taskSessions(task!.id))[task!.id]).toEqual([
+      expect.objectContaining({
+        sessionId: 'stable-session',
+        sessionTitle: 'Provider session title',
+        provider: 'codex',
+      }),
+    ])
+  })
+
   test('performs no write for any dispatch with an existing provider session', async () => {
     // WHY: this structural gate keeps every pre-Phase-1 session outside the new
     // task system forever; follow-up prompts must not repair or backfill it.
@@ -467,28 +554,26 @@ describe('session minting and durable links', () => {
     expect(await taskSessions.tasksForSession('legacy-solus-session')).toBeNull()
   })
 
-  test('generated titles replace prompt titles once and manual rename wins', async () => {
+  test('generated session metadata preserves the deterministic first-message task title', async () => {
     const task = await taskSessions.prepareSessionTask({
       sessionId: 'session-title',
       projectKey: '/workspace/solus',
       worktreeKey: 'title-work',
       prompt: 'Raw first prompt',
     })
-    expect(await taskSessions.updateGeneratedMetadataForSession(
+    expect(await taskSessions.updateGeneratedDescriptionForSession(
       'session-title',
-      'Generated session title',
       'A generated task description.',
     )).toMatchObject({
       id: task!.id,
-      title: 'Generated session title',
-      titleSource: 'generated',
+      title: 'Raw first prompt',
+      titleSource: 'prompt',
       body: 'A generated task description.',
     })
 
     await (await tasks.Task.byId(task!.id)).update({ title: 'Human title' })
-    expect(await taskSessions.updateGeneratedMetadataForSession(
+    expect(await taskSessions.updateGeneratedDescriptionForSession(
       'session-title',
-      'Late generated title',
       'Late generated description.',
     )).toBeNull()
     expect((await tasks.Task.byId(task!.id)).record()).toMatchObject({ title: 'Human title', titleSource: 'manual' })
@@ -501,14 +586,74 @@ describe('session minting and durable links', () => {
     })
     await (await tasks.Task.byId(task!.id)).update({ body: 'Human-authored description' })
 
-    expect(await taskSessions.updateGeneratedMetadataForSession(
+    expect(await taskSessions.updateGeneratedDescriptionForSession(
       'session-description-race',
-      'Generated title',
       'Generated description',
-    )).toMatchObject({
-      title: 'Generated title',
+    )).toBeNull()
+    expect((await tasks.Task.byId(task!.id)).record()).toMatchObject({
+      title: 'Raw first prompt',
       body: 'Human-authored description',
     })
+  })
+
+  test('automatic metadata from a new linked session does not rename its parent task', async () => {
+    // WHY: creating a subtask session can add another attempt link. Its generated
+    // name belongs to that session or its own child task, not the existing parent.
+    const task = await taskSessions.prepareSessionTask({
+      sessionId: 'origin-session',
+      prompt: 'Original task title',
+    })
+    await (await tasks.Task.byId(task!.id)).linkSession('linked-session', 'working')
+
+    expect(await taskSessions.updateGeneratedDescriptionForSession(
+      'linked-session',
+      'Linked session description.',
+    )).toBeNull()
+    expect((await tasks.Task.byId(task!.id)).record()).toMatchObject({
+      title: 'Original task title',
+      titleSource: 'prompt',
+      body: '',
+    })
+  })
+
+  test('manual session rename does not rename a task shared by other sessions', async () => {
+    // WHY: the sidebar can group several distinct attempts under one task. A
+    // session rename belongs to one attempt and must not replace the shared
+    // row's task title or make its sibling sessions appear to share a name.
+    const task = await taskSessions.prepareSessionTask({
+      sessionId: 'first-session',
+      prompt: 'Shared task title',
+    })
+    await (await tasks.Task.byId(task!.id)).linkSession('second-session', 'working')
+    db.getDb().prepare(`
+      INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp)
+      VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)
+    `).run(
+      'first-session', 'codex', 'First prompt', 'First session name', 1,
+      'second-session', 'codex', 'Second prompt', 'Second session name', 2,
+    )
+
+    const { SolusServer } = await import('../../src/main/server/server')
+    const { registerHistoryHandlers } = await import('../../src/main/server/handlers/history-handlers')
+    const { HostEventPublisher } = await import('../../src/main/events/host-event-publisher')
+    const { ClientEventRegistry } = await import('../../src/main/events/client-event-registry')
+    const server = new SolusServer()
+    // SAFETY: this test invokes only setSessionTitle, whose handler does not
+    // read ControlPlane. The empty object prevents unrelated handler work.
+    const controlPlane = {} as never
+    registerHistoryHandlers(server, {
+      controlPlane,
+      events: new HostEventPublisher(new ClientEventRegistry()),
+      agentIdFromContext: () => 'codex',
+    })
+
+    await server.handle('setSessionTitle', ['second-session', 'Renamed second session', 'manual'])
+
+    expect((await tasks.Task.byId(task!.id)).record()).toMatchObject({
+      title: 'Shared task title',
+    })
+    expect((await taskSessions.taskSessions(task!.id))[task!.id].map((link) => link.sessionTitle))
+      .toEqual(['First session name', 'Renamed second session'])
   })
 
   test('explicit binding stamps provenance on the attempt', async () => {

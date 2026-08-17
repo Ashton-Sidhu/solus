@@ -1,6 +1,6 @@
 import { serverConnections } from '@client-core/server-connections'
 import { LOCAL_SERVER_ID } from '@client-core/server-registry'
-import type { GithubDelegatedCredential, IpcContext, PendingHostDispatch, ProjectIdentity, RunConfig, Session } from '../../../shared/types'
+import { worktreeProjectRoot, type GithubDelegatedCredential, type IpcContext, type PendingHostDispatch, type ProjectIdentity, type RunConfig, type Session } from '../../../shared/types'
 import type { SolusAPI } from '../../../preload'
 import { hasSessionStarted } from '../../lib/sessionUtils'
 import {
@@ -66,6 +66,14 @@ export function moveTabToHost(opts: MoveTabToHostOptions): MoveTabToHostResult {
   const previousServerId = session.run.serverId
   const movingHosts = previousServerId !== serverId
   if (movingHosts && !path) return { ok: false, reason: 'no-path-on-host' }
+  const selectedDispatchWorktree = intent === 'dispatch'
+    && session.run.pendingHostDispatch?.intent === 'dispatch'
+    ? session.run.pendingHostDispatch.worktree
+    : undefined
+  const selectedDispatchBaseBranch = intent === 'dispatch'
+    && session.run.pendingHostDispatch?.intent === 'dispatch'
+    ? session.run.pendingHostDispatch.baseBranch
+    : undefined
   const sourceProjectPath = session.run.projectGroupPath
     ?? session.run.gitContext?.repoRoot
     ?? session.run.workingDirectory
@@ -78,6 +86,19 @@ export function moveTabToHost(opts: MoveTabToHostOptions): MoveTabToHostResult {
   session.run = intent === 'dispatch'
     ? withHost(session.run, serverId, { path })
     : withProjectHost(session.run, serverId, { path })
+  const selectedDispatchBranch = selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch
+  if (selectedDispatchBranch && path) {
+    // Preserve the selected path as a worktree while the target host resolves
+    // its full Git identity. Without this provisional context the refresh would
+    // treat the exact worktree path as a plain branch checkout.
+    session.run.gitContext = {
+      repoRoot: worktreeProjectRoot(path),
+      branch: selectedDispatchBranch,
+      targetBranch: selectedDispatchBranch,
+      worktreePath: path,
+    }
+    session.run.worktree = null
+  }
 
   if (!movingHosts) return { ok: true }
   if (repoKey && sourceProjectPath && sourceProjectPath !== '~') {
@@ -136,6 +157,12 @@ export function shouldShowRunOnPicker(input: RunOnPickerVisibility): boolean {
   )
 }
 
+/** The combined menu has one selected destination row. A remote host owns that
+ * selection, so its default new-worktree shape must not add a second check. */
+export function isNewWorktreeStartSelected(onRemoteHost: boolean, startsNewWorktree: boolean): boolean {
+  return !onRemoteHost && startsNewWorktree
+}
+
 /** Explains why this checkout cannot create a worktree. */
 export function worktreeBlockedReason(canToggleWorktree: boolean): string | null {
   if (canToggleWorktree) return null
@@ -182,10 +209,10 @@ export function withLocalStart(
 }
 
 /**
- * Queue a repository dispatch and select the fresh worktree it requires.
+ * Queue a repository dispatch and select a fresh worktree by default.
  *
- * The host and checkout shape are one picker choice here: a dispatched clone
- * must not reuse the unattended base checkout on the target host.
+ * Selecting an existing target worktree later changes this from creation to
+ * reuse, but the dispatched session remains isolated in either case.
  */
 export function withRemoteDispatch(
   run: RunConfig,
@@ -245,22 +272,29 @@ export async function prepareHostCheckout(
   },
   serverId: string,
   repoKey: string,
+  worktreePath?: string,
+  baseBranch?: string,
 ): Promise<PreparedHostCheckout> {
   const cloneUrl = cloneUrlForRepoKey(repoKey)
   if (!cloneUrl) throw new Error('This repository does not have a cloneable remote.')
-  // A web client has no local credential store of its own: there, LOCAL_SERVER_ID
-  // resolves onto the target itself, and the host uses its own token as before.
+  // Credential delegation carries the client machine's GitHub token to the
+  // dispatch target. A web client has no machine (and no credential store) of
+  // its own, so the target host uses its own token as before.
+  const clientMachineServerId = serverConnections.localServerId()
   let credential: GithubDelegatedCredential | undefined
-  if (serverConnections.resolveId(LOCAL_SERVER_ID) !== serverId) {
+  if (clientMachineServerId && clientMachineServerId !== serverId) {
     try {
       credential = await apis.local.githubExportCredential()
     } catch (error) {
       console.warn('[Solus] GitHub credential delegation failed; using the target host credential.', error)
     }
   }
-  const result = await apis.target.setupPrepareProject({
+  const request = {
     cloneUrl,
-    ...(credential ? { credential } : {}),
-  })
+  }
+  if (credential) Object.assign(request, { credential })
+  if (worktreePath) Object.assign(request, { worktreePath })
+  if (baseBranch) Object.assign(request, { baseBranch })
+  const result = await apis.target.setupPrepareProject(request)
   return { path: result.path, action: result.action }
 }

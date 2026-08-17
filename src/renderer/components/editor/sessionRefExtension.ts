@@ -35,14 +35,15 @@ export const SessionRefExtension = Node.create({
   },
 
   parseMarkdown(token) {
-    const url = new URL(token.href as string)
+    const url = new URL(String(token.href))
     return {
       type: 'sessionReference',
       attrs: {
         sessionId: url.searchParams.get('sessionId'),
         provider: url.searchParams.get('provider'),
+        serverId: url.searchParams.get('serverId'),
         cwd: url.searchParams.get('cwd') || '',
-        title: (token.text || '').replace(/\\([\[\]])/g, '$1'),
+        title: (token.text || '').replaceAll('\\[', '[').replaceAll('\\]', ']'),
       },
     }
   },
@@ -52,6 +53,7 @@ export const SessionRefExtension = Node.create({
       kind: 'session',
       sessionId: node.attrs?.sessionId,
       provider: node.attrs?.provider,
+      serverId: node.attrs?.serverId ?? undefined,
       cwd: node.attrs?.cwd ?? '',
       title: node.attrs?.title ?? '',
     })
@@ -61,6 +63,7 @@ export const SessionRefExtension = Node.create({
     return {
       sessionId: { default: null },
       provider: { default: null },
+      serverId: { default: null },
       title: { default: '' },
       cwd: { default: '' },
     }

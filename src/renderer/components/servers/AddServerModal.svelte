@@ -88,7 +88,7 @@
       serversStore.savePairedServer(result.server);
       paired = result.server;
     } catch (err) {
-      toasts.error(`Couldn't pair server: ${messageFor(err)}`);
+      toasts.error("Couldn't pair server", { description: messageFor(err) });
     } finally {
       busy = false;
     }

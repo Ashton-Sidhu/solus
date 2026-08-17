@@ -1,10 +1,11 @@
 import { open, readdir, stat as fsStat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { z } from 'zod'
 import type { SessionMeta } from '../../../shared/types'
 import type { SessionLoadMessage } from '../../../shared/session-history'
 import { runBounded } from '../../lib/concurrency'
-import { stripInjectedContext } from '../utils'
+import { encodePathAsFolder, stripInjectedContext } from '../utils'
 import { MemoryCache } from '../../../shared/cache'
 import { claudeToolResultText, parseClaudeTaskNotification } from './claude-subagent-protocol'
 
@@ -37,6 +38,87 @@ const CMD_ARGS_REGEX = /<command-args>([\s\S]*?)<\/command-args>/
 const CMD_ARGS_BLOCK_REGEX = /<command-args>[\s\S]*?<\/command-args>/g
 const CMD_NAME_REGEX = /<command-name>\s*([^<\s]+)\s*<\/command-name>/
 
+/**
+ * Find a Claude transcript by the caller's path first, then by the path recorded
+ * by the session index. Claude can move a transcript into an agent worktree
+ * after the session starts, while a restored tab still carries the project root.
+ */
+export function resolveClaudeSessionFilePath(
+  projectsRoot: string,
+  sessionId: string,
+  requestedProjectPath: string,
+  indexedProjectPath?: () => string | undefined,
+): string | null {
+  const filePathFor = (projectPath: string): string => {
+    const folderName = projectPath.startsWith('-')
+      ? projectPath
+      : encodePathAsFolder(projectPath)
+    return join(projectsRoot, folderName, `${sessionId}.jsonl`)
+  }
+
+  const requestedFilePath = filePathFor(requestedProjectPath)
+  if (existsSync(requestedFilePath)) return requestedFilePath
+
+  const fallbackProjectPath = indexedProjectPath?.()
+  if (!fallbackProjectPath || fallbackProjectPath === requestedProjectPath) return null
+  const fallbackFilePath = filePathFor(fallbackProjectPath)
+  return existsSync(fallbackFilePath) ? fallbackFilePath : null
+}
+
+const claudeTextBlockSchema = z.object({ type: z.literal('text'), text: z.string() })
+const claudeToolResultBlockSchema = z.object({
+  type: z.literal('tool_result'),
+  tool_use_id: z.string().optional(),
+  content: z.union([
+    z.string(),
+    z.array(z.object({ text: z.string().optional() })),
+  ]).optional(),
+})
+const claudeToolUseBlockSchema = z.object({
+  type: z.literal('tool_use'),
+  name: z.string().optional(),
+  id: z.string().optional(),
+  input: z.object({
+    plan: z.string().optional(),
+    planFilePath: z.string().optional(),
+  }).passthrough().optional(),
+})
+const claudeThinkingBlockSchema = z.object({
+  type: z.literal('thinking'),
+  thinking: z.string(),
+})
+const claudeContentBlockSchema = z.discriminatedUnion('type', [
+  claudeTextBlockSchema,
+  claudeToolResultBlockSchema,
+  claudeToolUseBlockSchema,
+  claudeThinkingBlockSchema,
+])
+const claudeTranscriptLineSchema = z.object({
+  type: z.string().optional(),
+  uuid: z.string().optional(),
+  timestamp: z.union([z.string(), z.number()]).optional(),
+  slug: z.string().optional(),
+  cwd: z.string().optional(),
+  isSidechain: z.boolean().optional(),
+  isMeta: z.boolean().optional(),
+  parent_tool_use_id: z.string().optional(),
+  message: z.object({
+    content: z.union([z.string(), z.array(claudeContentBlockSchema)]).optional(),
+  }).optional(),
+  toolUseResult: z.object({
+    isAsync: z.boolean().optional(),
+    status: z.string().optional(),
+  }).optional(),
+})
+
+export interface SessionHeadMeta {
+  validated: boolean
+  slug: string | null
+  firstMessage: string | null
+  cwd: string | null
+  isSidechain: boolean
+}
+
 function extractPromptText(content: string): string {
   const args = content.match(CMD_ARGS_REGEX)?.[1]?.trim()
   if (args) return args
@@ -49,18 +131,20 @@ function extractPromptText(content: string): string {
   return stripped || commandName || ''
 }
 
-export function parseHeadMeta(lines: string[]): {
-  validated: boolean
-  slug: string | null
-  firstMessage: string | null
-  cwd: string | null
-  isSidechain: boolean
-} {
-  const meta = { validated: false, slug: null as string | null, firstMessage: null as string | null, cwd: null as string | null, isSidechain: false }
+export function parseHeadMeta(lines: string[]): SessionHeadMeta {
+  const meta: SessionHeadMeta = {
+    validated: false,
+    slug: null,
+    firstMessage: null,
+    cwd: null,
+    isSidechain: false,
+  }
 
   for (const line of lines) {
     try {
-      const obj = JSON.parse(line)
+      const parsed = claudeTranscriptLineSchema.safeParse(JSON.parse(line))
+      if (!parsed.success) continue
+      const obj = parsed.data
       if (obj.isSidechain) {
         meta.isSidechain = true
         break
@@ -72,12 +156,13 @@ export function parseHeadMeta(lines: string[]): {
       if (obj.cwd && !meta.cwd) meta.cwd = obj.cwd
       if (obj.type === 'user' && !meta.firstMessage && !obj.isMeta) {
         const content = obj.message?.content
-        if (typeof content === 'string') {
-          const text = stripInjectedContext(extractPromptText(content))
+        const textContent = z.string().safeParse(content)
+        if (textContent.success) {
+          const text = stripInjectedContext(extractPromptText(textContent.data))
           meta.firstMessage = text.substring(0, 100) || null
         } else if (Array.isArray(content)) {
-          const textPart = content.find((p: any) => p.type === 'text')
-          const raw = typeof textPart?.text === 'string' ? extractPromptText(textPart.text) : ''
+          const textPart = content.find((part) => part.type === 'text')
+          const raw = textPart?.type === 'text' ? extractPromptText(textPart.text) : ''
           const text = stripInjectedContext(raw)
           meta.firstMessage = text.substring(0, 100) || null
         }
@@ -93,7 +178,7 @@ export async function readSessionHeadMeta(filePath: string): Promise<ReturnType<
   try {
     const stat = await fh.stat()
     let windowBytes = Math.min(HEAD_BYTES, stat.size, MAX_SESSION_HEAD_BYTES)
-    let meta!: ReturnType<typeof parseHeadMeta>
+    let meta: SessionHeadMeta
     while (true) {
       const headBuf = Buffer.allocUnsafe(windowBytes)
       const { bytesRead } = await fh.read(headBuf, 0, windowBytes, 0)
@@ -110,15 +195,17 @@ export async function readSessionHeadMeta(filePath: string): Promise<ReturnType<
 
 export function parseJsonlLine(line: string): SessionLoadMessage | null {
   try {
-    const obj = JSON.parse(line)
+    const parsed = claudeTranscriptLineSchema.safeParse(JSON.parse(line))
+    if (!parsed.success) return null
+    const obj = parsed.data
     // Sub-agent (Agent/Task) activity is recorded with the spawning tool's id, so
     // history replay can divert it into that tool's nested transcript.
     const parentToolUseId: string | undefined = obj.parent_tool_use_id || undefined
     if (obj.type === 'user') {
       if (obj.isMeta) return null
       const content = obj.message?.content
-      if (Array.isArray(content) && content.every((b: any) => b.type === 'tool_result')) {
-        const result = content.find((b: any) => typeof b.tool_use_id === 'string')
+      if (Array.isArray(content) && content.every((block) => block.type === 'tool_result')) {
+        const result = content.find((block) => block.type === 'tool_result' && block.tool_use_id)
         if (!result) return null
         // A backgrounded sub-agent answers its tool call at *launch* with metadata
         // the SDK forbids surfacing ("Async agent launched successfully…"); its real
@@ -138,8 +225,9 @@ export function parseJsonlLine(line: string): SessionLoadMessage | null {
       // <task-notification> user message carrying the spawning tool's id and the
       // agent's final output. Route it into that tool's nested transcript so reload
       // rebuilds the sub-agent card instead of leaking the result as a user bubble.
-      if (typeof content === 'string' && content.includes('<task-notification>')) {
-        const notification = parseClaudeTaskNotification(content)
+      const stringContent = z.string().safeParse(content)
+      if (stringContent.success && stringContent.data.includes('<task-notification>')) {
+        const notification = parseClaudeTaskNotification(stringContent.data)
         if (notification) {
           return {
             role: 'assistant',
@@ -153,16 +241,16 @@ export function parseJsonlLine(line: string): SessionLoadMessage | null {
       }
 
       let text = ''
-      if (typeof content === 'string') {
+      if (stringContent.success) {
         // Claude Code injects context continuation summaries as plain-string user messages
         // when the context window fills up. These are not real user input — skip them.
-        if (content.includes('This session is being continued from a previous conversation')) return null
+        if (stringContent.data.includes('This session is being continued from a previous conversation')) return null
         // Skill commands are stored as XML. Prefer user args, then fall back to the command.
-        text = extractPromptText(content)
+        text = extractPromptText(stringContent.data)
       } else if (Array.isArray(content)) {
         text = content
-          .filter((b: any) => b.type === 'text')
-          .map((b: any) => b.text)
+          .filter((block) => block.type === 'text')
+          .map((block) => block.type === 'text' ? block.text : '')
           .join('\n')
       }
       if (text) {
@@ -198,7 +286,7 @@ export function parseJsonlLine(line: string): SessionLoadMessage | null {
               parentToolUseId,
               timestamp: new Date(obj.timestamp).getTime(),
             }
-          } else if (block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking.trim()) {
+          } else if (block.type === 'thinking' && block.thinking.trim()) {
             // Extended-thinking spans (Claude writes them on their own assistant
             // line). Carried for provider handoffs; display surfaces skip this role.
             return { role: 'reasoning', content: block.thinking, parentToolUseId, timestamp: new Date(obj.timestamp).getTime() }
@@ -208,6 +296,29 @@ export function parseJsonlLine(line: string): SessionLoadMessage | null {
     }
   } catch {}
   return null
+}
+
+/** Find the assistant message immediately before the latest real user prompt.
+ * Claude's resumeSessionAt option accepts only an assistant SDK message UUID. */
+export function findClaudeForkResumeId(lines: string[]): string | null {
+  let lastAssistantId: string | null = null
+  let resumeId: string | null = null
+
+  for (const line of lines) {
+    try {
+      const parsed = claudeTranscriptLineSchema.safeParse(JSON.parse(line))
+      if (!parsed.success) continue
+      const transcriptLine = parsed.data
+      if (transcriptLine.isSidechain || transcriptLine.parent_tool_use_id) continue
+      if (transcriptLine.type === 'assistant' && transcriptLine.uuid) {
+        lastAssistantId = transcriptLine.uuid
+        continue
+      }
+      if (parseJsonlLine(line)?.role === 'user') resumeId = lastAssistantId
+    } catch {}
+  }
+
+  return resumeId
 }
 
 export async function scanSessionsInDir(

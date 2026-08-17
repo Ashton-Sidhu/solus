@@ -99,7 +99,9 @@ export class InsightsStore {
   private loadToken = 0
 
   private get api(): HostApi {
-    return this.serverId ? serverConnections.apiFor(this.serverId) : serverConnections.primaryApi()
+    const serverId = this.serverId ?? serverConnections.defaultServerId()
+    if (!serverId) throw new Error('No Solus connection has been registered')
+    return serverConnections.apiFor(serverId)
   }
 
   /** Points the store at a host. A different host is a different database, so

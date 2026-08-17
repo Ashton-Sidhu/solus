@@ -524,8 +524,7 @@ html.js .reveal.visible { opacity: 1; transform: translateY(0); }
   .hero.v2 { padding: 96px 24px 56px; gap: 36px; }
 }
 @media (min-width: 640px) {
-  .v2-cta-primary { padding: 11px 20px; font-size: 14px; }
-  .v2-meta { font-size: 13px; }
+  .v2-cta-primary { padding: 11px 22px 11px 18px; font-size: 14px; }
 }
 @media (max-width: 640px) {
   .hero.v2 { padding: 88px 16px 40px; gap: 24px; }
@@ -536,17 +535,25 @@ html.js .reveal.visible { opacity: 1; transform: translateY(0); }
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 12px;
-  max-width: 580px;
+  gap: 14px;
+}
+.v2-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #B08D3E;
 }
 .v2-title {
   font-family: var(--font-display);
-  font-size: clamp(22px, 2.3vw, 32px);
+  font-size: clamp(30px, 4vw, 46px);
   font-weight: 600;
-  line-height: 1.18;
-  letter-spacing: -0.022em;
+  line-height: 1.1;
+  letter-spacing: -0.032em;
   color: var(--color-text-primary);
   margin: 0;
+  max-width: 26ch;
   text-wrap: balance;
 }
 .v2-title-accent {
@@ -559,17 +566,14 @@ html.js .reveal.visible { opacity: 1; transform: translateY(0); }
   line-height: 1.55;
   color: var(--color-text-secondary);
   margin: 0;
-  max-width: 480px;
+  max-width: 52ch;
   text-wrap: pretty;
-}
-@media (min-width: 640px) {
-  .v2-sub { font-size: 14px; }
 }
 .v2-cta-row {
   display: flex;
   align-items: center;
-  gap: 18px;
-  margin-top: 14px;
+  gap: 12px;
+  margin-top: 12px;
   flex-wrap: wrap;
   justify-content: center;
 }
@@ -577,7 +581,7 @@ html.js .reveal.visible { opacity: 1; transform: translateY(0); }
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  padding: 13px 22px;
+  padding: 13px 24px 13px 19px;
   border-radius: 999px;
   background: linear-gradient(145deg, #e08868 0%, #d97757 40%, #c96442 100%);
   color: #fff;
@@ -599,10 +603,6 @@ html.js .reveal.visible { opacity: 1; transform: translateY(0); }
 }
 .v2-cta-primary:active {
   transform: scale(0.98);
-}
-.v2-meta {
-  font-size: 13px;
-  color: var(--color-text-secondary);
 }
 .v2-trust {
   display: flex;
@@ -694,33 +694,27 @@ html.js .reveal.visible { opacity: 1; transform: translateY(0); }
 .po-cheat {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-}
-@media (max-width: 900px) {
-  .po-cheat { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 540px) {
-  .po-cheat { grid-template-columns: 1fr; }
 }
 .po-cheat-card {
   display: flex;
   flex-direction: column;
   gap: 24px;
-  padding: 28px 22px 22px;
-  border-radius: 16px;
-  background: rgba(255,255,255,0.55);
-  border: 1px solid rgba(0,0,0,0.07);
-  box-shadow:
-    0 1px 0 rgba(255,255,255,0.7) inset,
-    0 8px 24px -10px rgba(70,55,35,0.10);
-  transition: transform 200ms ease, background 200ms ease, box-shadow 200ms ease;
+  padding: 0 30px;
 }
-.po-cheat-card:hover {
-  transform: translateY(-2px);
-  background: rgba(255,255,255,0.85);
-  box-shadow:
-    0 1px 0 rgba(255,255,255,0.7) inset,
-    0 14px 32px -10px rgba(70,55,35,0.18);
+.po-cheat-card:first-child { padding-left: 0; }
+.po-cheat-card:last-child { padding-right: 0; }
+.po-cheat-card + .po-cheat-card { border-left: 1px solid rgba(0,0,0,0.09); }
+@media (max-width: 900px) {
+  .po-cheat { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 40px; }
+  .po-cheat-card:nth-child(odd) { padding-left: 0; border-left: 0; }
+  .po-cheat-card:nth-child(even) { padding-right: 0; }
+}
+@media (max-width: 540px) {
+  .po-cheat { grid-template-columns: 1fr; row-gap: 0; }
+  .po-cheat-card { padding: 26px 0; }
+  .po-cheat-card:first-child { padding-top: 0; }
+  .po-cheat-card:last-child { padding-bottom: 0; }
+  .po-cheat-card + .po-cheat-card { border-left: 0; border-top: 1px solid rgba(0,0,0,0.09); }
 }
 .po-cheat-chord {
   display: inline-flex;
@@ -769,6 +763,7 @@ html.js .reveal.visible { opacity: 1; transform: translateY(0); }
 }
 @media (max-width: 720px) {
   .po-cheat-meta { flex-wrap: wrap; gap: 16px; }
+  .po-cheat-meta-sep { display: none; }
 }
 .po-cheat-meta-stat {
   display: inline-flex;
@@ -1162,9 +1157,8 @@ html.js .reveal.visible { opacity: 1; transform: translateY(0); }
    LAPTOP + MOBILE CONTENT SIZING (≤ 1440px)
 ===================================================================== */
 @media (max-width: 1440px) {
-  .v2-sub { font-size: 13px; }
+  .v2-sub { font-size: 15px; }
   .v2-cta-primary { font-size: 13px; }
-  .v2-meta { font-size: 12px; }
   .po-cheat-title { font-size: 20px; }
   .po-cheat-desc { font-size: 13px; }
   .po-cheat-meta-n { font-size: 20px; }

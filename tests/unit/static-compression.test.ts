@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import type { Server } from 'http'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -38,6 +38,49 @@ describe('bundled client compression', () => {
     expect(range.status).toBe(206)
     expect(range.headers.get('content-encoding')).toBeNull()
     expect(await range.text()).toBe(source.slice(0, 10))
+  })
+})
+
+describe('stale build requests', () => {
+  test('404s a missing build file instead of serving the SPA shell as script', async () => {
+    const staticDir = mkdtempSync(join(tmpdir(), 'solus-static-'))
+    cleanups.push(() => rmSync(staticDir, { recursive: true, force: true }))
+    writeFileSync(join(staticDir, 'index.html'), '<!doctype html><title>Solus</title>')
+
+    const { server, baseUrl } = await listen(staticDir)
+    cleanups.push(() => server.close())
+
+    // A tab on a previous build asks for a chunk this build no longer has.
+    // Answering with index.html makes the browser reject HTML as a module
+    // rather than report the chunk as gone.
+    const staleChunk = await fetch(`${baseUrl}/assets/await-M_YOPC_y.js`)
+    expect(staleChunk.status).toBe(404)
+    expect(staleChunk.headers.get('content-type')).not.toContain('text/html')
+
+    // Client-side routes still resolve to the shell.
+    const route = await fetch(`${baseUrl}/claim`)
+    expect(route.status).toBe(200)
+    expect(route.headers.get('content-type')).toContain('text/html')
+  })
+
+  test('revalidates the entry document while hashed assets stay immutable', async () => {
+    const staticDir = mkdtempSync(join(tmpdir(), 'solus-static-'))
+    cleanups.push(() => rmSync(staticDir, { recursive: true, force: true }))
+    writeFileSync(join(staticDir, 'index.html'), '<!doctype html><title>Solus</title>')
+    mkdirSync(join(staticDir, 'assets'))
+    writeFileSync(join(staticDir, 'assets', 'index-lLoEVyX3.js'), 'export const build = 1\n')
+
+    const { server, baseUrl } = await listen(staticDir)
+    cleanups.push(() => server.close())
+
+    // index.html names the current hashes, so a reload must never reuse the
+    // cached copy that names the previous build's chunks.
+    const shell = await fetch(`${baseUrl}/`)
+    expect(shell.headers.get('cache-control')).toBe('no-cache')
+
+    const asset = await fetch(`${baseUrl}/assets/index-lLoEVyX3.js`)
+    expect(asset.status).toBe(200)
+    expect(asset.headers.get('cache-control')).toContain('immutable')
   })
 })
 

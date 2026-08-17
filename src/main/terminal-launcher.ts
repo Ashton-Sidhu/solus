@@ -103,10 +103,10 @@ function launchOnLinux(command: string, terminalId: TerminalAppId, cwd?: string)
   }
 }
 
-const LAUNCHERS: Record<TerminalAppId, (command: string, cwd?: string) => boolean> = {
+const LAUNCHERS = {
   'default-terminal': launchInDefaultTerminal,
   'ghostty': launchInGhostty,
-}
+} satisfies Record<TerminalAppId, (command: string, cwd?: string) => boolean>
 
 export function launchInTerminal(request: TerminalLaunchRequest): boolean {
   const { command, terminalId, cwd } = request

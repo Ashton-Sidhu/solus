@@ -1,5 +1,5 @@
 import { createAppContext } from '../app/create-app-context'
-import type { AgentId, WireNormalizedEvent, EnrichedError, Message, Tab, Prompt, Session, SessionSpec, RunConfig, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, ModelConfig, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, StatusCardState, PrReviewContext, PromptDelivery, ThreadGoal, ThreadGoalSetRequest } from '../../../shared/types'
+import type { AgentId, WireNormalizedEvent, EnrichedError, Message, Tab, Prompt, Session, SessionSpec, RunConfig, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, OutboundPrompt, ModelConfig, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, WorktreeEntry, StatusCardState, PrReviewContext, PromptDelivery, ThreadGoal, ThreadGoalSetRequest } from '../../../shared/types'
 import type { PrReviewTarget } from '../../../shared/providers'
 import type { PullRequestSummary } from '../../../shared/providers'
 import type { SolusEventMap, Via } from '../../../shared/analytics-events'
@@ -17,6 +17,8 @@ import { automationDraftSessionRequest } from '../automations/automation-draft-s
 import { TasksStore } from '../tasks/tasks.store.svelte'
 import { OutboxStore } from '../outbox/outbox.store.svelte'
 import { PrsStore, type PrReviewTab } from '../prs/prs.store.svelte'
+import { PrInboxStore } from '../prs/pr-inbox.store.svelte'
+import { projectCatalog } from '../projects/project-catalog.store.svelte'
 import { prSurfaceError } from '../../components/prs/lib/pr-surface-error'
 import { StacksStore } from '../prs/stacks.store.svelte'
 import { type Task, type TaskSnapshot } from '../../../shared/task-types'
@@ -45,6 +47,7 @@ import {
   existingTaskId,
   parentTaskId,
   requestedTaskTarget,
+  taskBindingSessionId,
 } from './session-draft.svelte'
 import { isDispatch, projectRootOf, startsWorktree } from './run-config'
 import { removeDraft, removePersistedTab } from './tab-persistence'
@@ -52,10 +55,11 @@ import { applySessionTitleChange } from './session-title-change'
 import { applyRuntimeConfig, findLastUserIndex, nextMsgId } from './session.utils'
 import type { DiffScope } from '../../../shared/git-types'
 import type { FilePreviewRequest } from '../../lib/filePreview'
-import { gitCheckoutFromState, isSessionBusyStatus, isSolusWorktreePath, isSteerableStatus, worktreeProjectRoot } from '../../../shared/types'
+import { gitCheckoutFromState, isSessionBusyStatus, isSolusWorktreePath, isSteerableStatus, projectScopeOf, worktreeProjectRoot } from '../../../shared/types'
 import { syncPendingInputFromEvent, loadSessionTranscript, RESTORED_TRANSCRIPT_LIMIT } from './session-transcript'
 import { addDiffComment, updateDiffComment, removeDiffComment, restoreDiffComment, clearDiffComments, setDiffCommentDraft, updateDiffCommentDraftValue, setDiffGeneralComment, submitDiffFeedback, submitDiffFeedbackToNewSession } from './session-diff-feedback'
 import { clearPlanWaiting, openPlanModal, closePlanModal, requestConversationScrollToBottom, approvePlanWithModel, rejectPlan, openPlanFromDescriptor, closePlanPreview, resumeSessionFromDescriptor, loadPlanContent, type ApprovePlanOptions } from './session-plan-operations'
+import { SessionUnavailableError, unavailableSessionMessage } from './session-errors'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { projectDirLabel } from '../../lib/paths'
@@ -65,7 +69,9 @@ import { serverConnections } from '@client-core/server-connections'
 import { LOCAL_SERVER_ID } from '@client-core/server-registry'
 import type { HostApi } from '@client-core/host-api'
 import { localApi } from '@client-core/local-api'
-import { readSessionMeta, resolveSessionMetaRef } from '@client-core/session-meta'
+import { readSessionMeta } from '@client-core/session-meta'
+import { classifySendFailure, sendOutbox, type OutboxRecord } from '@client-core/send-outbox'
+import { hostKey } from '@client-core/host-key'
 import { buildPrCommentsFixPrompt, type PrFixFeedback } from './pr-fix-session'
 import { isPristineSplitTab } from '../../lib/split-chat'
 import {
@@ -82,8 +88,21 @@ import {
   reviewGuideStore,
   sessionGuideIdentity,
 } from '../../components/review/review-guide.store.svelte'
+import { z } from 'zod'
 
-const devSessionLogging = Boolean((import.meta as any).env?.DEV)
+const devSessionLogging = Boolean(import.meta.env.DEV)
+const outboxTaskPayloadSchema = z.object({ taskId: z.string().optional() })
+
+interface PersistedSessionDrafts {
+  version: 1
+  order: string[]
+  drafts: Record<string, SessionSpec>
+}
+
+function configuredAgent(value: string): AgentId {
+  if (value === 'codex' || value === 'opencode') return value
+  return 'claude-code'
+}
 
 function logDevSessionState(eventType: string, session: Session): void {
   if (!devSessionLogging) return
@@ -156,6 +175,7 @@ export class WorkspaceContext {
   automationsStore = new AutomationsStore()
   tasksStore = new TasksStore()
   prsStore = new PrsStore()
+  prInboxStore = new PrInboxStore()
   stacksStore = new StacksStore()
   /** The outbox courier: drains cross-host writes recorded on any connected
    *  host to the host that owns each resource (ADR-0007). */
@@ -201,8 +221,11 @@ export class WorkspaceContext {
     // owner.
     this.outboxStore.registerOwnerResolver('works', (_workId, ops) => {
       const taskId = ops
-        .map((op) => (op.payload as { taskId?: string } | null)?.taskId)
-        .find((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0)
+        .flatMap((op) => {
+          const parsed = outboxTaskPayloadSchema.safeParse(op.payload)
+          return parsed.success && parsed.data.taskId ? [parsed.data.taskId] : []
+        })
+        .at(0)
       return taskId ? this.tasksStore.ownerHostForTask(taskId) : Promise.resolve(undefined)
     })
     // A goal belongs to a thread, so GoalSync names sessions. The RPC surface
@@ -222,11 +245,15 @@ export class WorkspaceContext {
       draftFor: (sourceId) => this.sessionDrafts.get(sourceId),
       ctx: (tabId) => tabId ? this.ctxFor(tabId) : this.ctx,
       ctxForDirectory: (dir) => this.ctxForDirectory(dir),
-      apiFor: (tabId) => tabId ? this.apiFor(tabId) : serverConnections.primaryApi(),
+      apiFor: (tabId) => tabId ? this.apiFor(tabId) : this.defaultHostApi(),
       apiForRun: (run) => this.apiForRun(run),
       refreshPluginCommands: (dir, tabId) => { void this.refreshPluginCommands(dir, tabId) },
+      rekeyTaskSessionBinding: (sourceSessionId, targetSessionId, serverId) => {
+        this.tasksStore.rekeySessionBinding(sourceSessionId, targetSessionId, serverId)
+      },
       refreshGitRefs: (projectRoot, ctx) => { void this.environment.refreshRefs(projectRoot, ctx, { force: true }) },
       refreshGitState: (opts) => this.environment.refreshEnvironment(this, opts),
+      selectTab: (tabId) => this.selectTab(tabId),
     })
     this.lifecycle = new WorkspaceLifecycleStore({
       registry: this.registry,
@@ -379,6 +406,8 @@ export class WorkspaceContext {
   set isExpanded(value: boolean) { this.ui.isExpanded = value }
   get sessionPickerOpen(): boolean { return this.ui.sessionPickerOpen }
   set sessionPickerOpen(value: boolean) { this.ui.sessionPickerOpen = value }
+  get taskPickerOpen(): boolean { return this.ui.taskPickerOpen }
+  set taskPickerOpen(value: boolean) { this.ui.taskPickerOpen = value }
   /** The active tab's task environment, including its base project and checkout. */
   get taskCreationContext(): TaskCreationContext | null {
     const session = this.activeSession
@@ -559,9 +588,12 @@ export class WorkspaceContext {
 
   /** Where a *provider's* session is showing. A work item, a task link and a
    *  resume all name an agent session id; a fork inherits its source's, so this
-   *  finds the branch too. */
-  tabIdForAgentSession(agentSessionId: string): string | undefined {
-    return this.registry.tabIdsByAgentSession.get(agentSessionId)?.[0]
+   *  finds the branch too. The host is part of the question — a dispatched
+   *  session's clone shares the provider id — so a caller without one gets no
+   *  match rather than another host's conversation. */
+  tabIdForAgentSession(agentSessionId: string, serverId: string | undefined): string | undefined {
+    if (!serverId) return undefined
+    return this.registry.tabIdsByAgentSession.get(hostKey(serverId, agentSessionId))?.[0]
   }
 
   /** The chat bound to a work item, if one is open. */
@@ -580,17 +612,22 @@ export class WorkspaceContext {
     return this.sessionFor(sourceId)?.run ?? this.sessionDrafts.get(sourceId)?.run
   }
 
+  /** The new-work default host, for deliberately session-less operations. */
+  private defaultHostApi(): HostApi {
+    const serverId = serverConnections.defaultServerId()
+    if (!serverId) throw new Error('Primary Solus connection has not been registered')
+    return serverConnections.apiFor(serverId)
+  }
+
   /** Resolve the RPC surface that owns a run — the machine it runs on. */
   apiForRun(run: RunConfig | undefined): HostApi {
-    const resolvedId = run?.serverId
-      ? serverConnections.resolveId(run.serverId)
-      : serverConnections.connectionFor()?.serverId
-    if (!resolvedId) return serverConnections.primaryApi()
+    if (!run) return this.defaultHostApi()
+    const resolvedId = serverConnections.resolveId(run.serverId)
     const api = serverConnections.apiFor(resolvedId)
     serverConnections.retain(resolvedId)
-    this.environment.bindCwd(resolvedId, run?.workingDirectory, api)
-    this.environment.bindCwd(resolvedId, run?.gitContext?.repoRoot, api)
-    this.environment.bindCwd(resolvedId, run?.gitContext?.worktreePath, api)
+    this.environment.bindCwd(resolvedId, run.workingDirectory, api)
+    this.environment.bindCwd(resolvedId, run.gitContext?.repoRoot, api)
+    this.environment.bindCwd(resolvedId, run.gitContext?.worktreePath, api)
     return api
   }
 
@@ -604,12 +641,12 @@ export class WorkspaceContext {
     return this.apiForRun(this.sessions[sessionId]?.run)
   }
 
-  /** Resolve a host from a stateful IPC context, or choose primary for a
-   *  deliberately session-less operation. */
+  /** Resolve a host from a stateful IPC context, or choose the new-work
+   *  default host for a deliberately session-less operation. */
   apiForContext(ctx: IpcContext): HostApi {
     return ctx.session.sessionId
       ? this.apiForSession(ctx.session.sessionId)
-      : serverConnections.primaryApi()
+      : this.defaultHostApi()
   }
 
   serverIdForContext(ctx: IpcContext): string {
@@ -775,6 +812,10 @@ export class WorkspaceContext {
     this.lifecycle.hydrateStaticInfoFromCache()
   }
 
+  async refreshAgentAvailability(): Promise<void> {
+    return this.lifecycle.refreshAgentAvailability()
+  }
+
   async refreshPluginCommands(workingDirectory: string, tabId?: string): Promise<void> {
     return this.lifecycle.refreshPluginCommands(workingDirectory, tabId)
   }
@@ -811,18 +852,23 @@ export class WorkspaceContext {
   }
 
   /**
-   * Re-key a session onto the id the host resolved for it. Only the from-disk
-   * resume path needs this: a fresh session's uuid has never left this renderer
-   * and so cannot collide, but a provider thread read off disk may already be
-   * open on another client, which named it first.
+   * Re-key a session onto the id the host resolved for it. Every from-disk path
+   * needs this — resume, restore, and reconnect alike: a fresh session's uuid has
+   * never left this renderer and so cannot collide, but a provider thread read off
+   * disk may already be open on another client, which named it first. Skipping the
+   * adoption leaves the two clients holding different addresses for one session,
+   * so each one only ever sees the turns it started.
    *
    * Safe precisely because it runs before anything is published under the local
    * id — the session is empty, unbound, and not yet streaming.
    */
-  private adoptSessionId(tabId: string, resolvedSessionId: string): void {
+  adoptSessionId(tabId: string, resolvedSessionId: string): void {
     const tab = this.tabs[tabId]
     const session = tab ? this.sessions[tab.sessionId] : undefined
     if (!tab || !session || session.id === resolvedSessionId) return
+    // Another local session already answers to that id. Re-keying would evict a
+    // live object out from under whichever tabs point at it, so leave both alone.
+    if (this.sessions[resolvedSessionId]) return
     delete this.sessions[session.id]
     session.id = resolvedSessionId
     this.sessions[resolvedSessionId] = session
@@ -865,7 +911,10 @@ export class WorkspaceContext {
     const sessionId = this.tabs[tabId]?.sessionId
     if (this.window.viewMode !== 'editor') {
       if (!sessionId) return
-      this.router.navigate({ name: 'goal', params: { sessionId } }, { target: 'aside' })
+      this.router.navigate(
+        { name: 'goal', params: { sessionId, serverId: this.sessions[sessionId]?.run.serverId } },
+        { target: 'aside' },
+      )
       this.geometry.open(this.router.focusedPaneId, 0.34)
       return
     }
@@ -990,7 +1039,7 @@ export class WorkspaceContext {
     const activeSession = this.activeSession
     const inheritedDir = cwd ?? (activeSession?.run.workingDirectory || this.globalDefaults.workingDirectory || defaultDir)
     const sourceConfig = activeSession?.run.modelConfig ?? this.globalDefaults.modelConfig
-    const provider = (activeSession?.run.provider ?? this.settings.activeAgent) as AgentId
+    const provider = activeSession?.run.provider ?? configuredAgent(this.settings.activeAgent)
     const inheritedModelConfig = {
       ...sourceConfig,
       reasoningEffort: this.defaultReasoningEffortFor(provider, sourceConfig.modelId),
@@ -1060,7 +1109,9 @@ export class WorkspaceContext {
 
   /** The host new sessions land on when nothing else names one. */
   get fallbackServerId(): string {
-    return serverConnections.connectionFor()?.serverId ?? LOCAL_SERVER_ID
+    return serverConnections.defaultServerId()
+      ?? serverConnections.localServerId()
+      ?? LOCAL_SERVER_ID
   }
 
   /**
@@ -1115,7 +1166,7 @@ export class WorkspaceContext {
       worktree: this.settings.worktreeEnabled ? { baseBranch: defaults.worktreeBaseBranch } : null,
       modelConfig: defaults.modelConfig,
       permissionMode: defaults.permissionMode,
-      provider: this.settings.activeAgent as AgentId,
+      provider: configuredAgent(this.settings.activeAgent),
       serverId: this.fallbackServerId,
       // Nothing has dispatched yet, so a new run owns its own tasks.
       taskServerId: this.fallbackServerId,
@@ -1161,11 +1212,12 @@ export class WorkspaceContext {
     // environment refresh lands.
     if (cwd !== undefined || options.gitContext !== undefined) {
       const base = anchor ?? this.defaultRunConfig
-      return {
+      const inherited: RunConfig = {
         ...base,
-        ...(cwd !== undefined ? { workingDirectory: cwd } : {}),
         gitContext: options.gitContext !== undefined ? options.gitContext : null,
       }
+      if (cwd !== undefined) inherited.workingDirectory = cwd
+      return inherited
     }
     return anchor
   }
@@ -1226,7 +1278,7 @@ export class WorkspaceContext {
    *  offer it back. */
   discardSessionDraft(draftId: string): SessionSpec | null {
     const spec = this.sessionDrafts.get(draftId)?.spec
-    const discarded = spec ? ($state.snapshot(spec) as SessionSpec) : null
+    const discarded = spec ? $state.snapshot(spec) : null
     this.dropDraft(draftId)
     for (const pane of this.router.panes) {
       if (pane.base?.name !== 'draft' || pane.base.params.draftId !== draftId) continue
@@ -1266,7 +1318,7 @@ export class WorkspaceContext {
   }
 
   /** The plain shape the drafts persist as. */
-  get sessionDraftsSnapshot(): { version: 1; order: string[]; drafts: Record<string, SessionSpec> } {
+  get sessionDraftsSnapshot(): PersistedSessionDrafts {
     // The same rule used when a pane leaves a draft: only words or attachments
     // make it durable. Persisting the empty foreground composer gives reload a
     // draft route with no user state to recover and hides the active session.
@@ -1276,9 +1328,10 @@ export class WorkspaceContext {
     return {
       version: 1,
       order,
-      drafts: Object.fromEntries(
-        order.map((draftId) => [draftId, $state.snapshot(this.sessionDrafts.get(draftId)!.spec)]),
-      ),
+      drafts: Object.fromEntries(order.flatMap((draftId) => {
+        const draft = this.sessionDrafts.get(draftId)
+        return draft ? [[draftId, $state.snapshot(draft.spec)]] : []
+      })),
     }
   }
 
@@ -1288,11 +1341,11 @@ export class WorkspaceContext {
     cwd: string,
     serverId?: string,
   ): Promise<string> {
-    const provider = this.settings.activeAgent as AgentId
+    const provider = configuredAgent(this.settings.activeAgent)
     const modelConfig = this.defaultModelConfigFor(provider)
     const api = serverId
       ? serverConnections.apiFor(serverId)
-      : serverConnections.primaryApi()
+      : this.defaultHostApi()
     const request = automationDraftSessionRequest(prompt, cwd, provider, modelConfig)
     const { agentSessionId } = await api.createHeadlessSession(request)
     return agentSessionId
@@ -1323,7 +1376,6 @@ export class WorkspaceContext {
    *  source's last settled turn, resumes on first prompt, and lands as a subtask
    *  of whatever task the source is working. */
   async forkTab(sourceTabId: string, options: ForkTabOptions = {}): Promise<string | null> {
-    const sourceTab = this.tabs[sourceTabId]
     const sourceSession = this.sessionFor(sourceTabId)
     if (!sourceSession?.agentSessionId) return null
 
@@ -1349,8 +1401,8 @@ export class WorkspaceContext {
       timestamp: Date.now(),
       forkSourceSessionId: sourceSession.agentSessionId,
       forkSourceTitle: originalTitle,
-      ...(inFlightFrom === -1 ? {} : { forkSourceRunning: true }),
     }
+    if (inFlightFrom !== -1) forkInfoMsg.forkSourceRunning = true
 
     // A fork is another attempt at the same goal, so it belongs under the source's
     // task rather than beside it as a loose session. Nesting is one level deep:
@@ -1363,9 +1415,14 @@ export class WorkspaceContext {
         ? this.tasksStore.tasks.find((task) => task.id === parentTaskId(sourceSession.task))
         : undefined)
 
+    const forkTask: Session['task'] = sourceSession.task.kind === 'none'
+      ? { kind: 'none' }
+      : { kind: 'new' }
+    if (forkTask.kind === 'new' && sourceTask) forkTask.parentTaskId = sourceTask.parentId ?? sourceTask.id
     const forkedSession = makeSession(this.settings, {
       agentSessionId: sourceSession.agentSessionId,
       forked: true,
+      forkExcludeLatestTurn: sourceIsRunning && inFlightFrom !== -1,
       forkedFromSessionId: sourceSession.agentSessionId,
       messages: [...copiedMessages, forkInfoMsg],
       additionalDirs: [...sourceSession.additionalDirs],
@@ -1379,9 +1436,7 @@ export class WorkspaceContext {
       pluginCommands: this.pluginCommands,
       // A fork hangs under its source's top-level task until its own subtask is
       // minted at first dispatch — unless the source opted out of tasks entirely.
-      task: sourceSession.task.kind === 'none'
-        ? { kind: 'none' }
-        : { kind: 'new', ...(sourceTask ? { parentTaskId: sourceTask.parentId ?? sourceTask.id } : {}) },
+      task: forkTask,
     })
 
     forkedSession.title = `Fork: ${originalTitle}`
@@ -1429,7 +1484,7 @@ export class WorkspaceContext {
     if (!session?.agentSessionId || session.run.gitContext?.worktreePath || this.ui.isContinuingInWorktree(tabId)) return
 
     const firstUser = session.messages.find((m) => m.role === 'user')
-    const namePrompt = typeof firstUser?.content === 'string' ? firstUser.content.slice(0, 200) : ''
+    const namePrompt = firstUser?.content.slice(0, 200) ?? ''
 
     this.ui.beginContinueInWorktree(tabId)
     // Live status card while the (eager, ~1-2s) worktree setup runs — branch-name
@@ -1448,7 +1503,7 @@ export class WorkspaceContext {
     try {
       const result = await this.apiFor(tabId).continueInWorktree(this.ctxFor(tabId), namePrompt)
       if (!result.success || !result.gitContext) {
-        toasts.error(result.error ? `Couldn't create worktree: ${result.error}` : "Couldn't create worktree")
+        toasts.error("Couldn't create worktree", { description: result.error })
         return
       }
 
@@ -1568,7 +1623,12 @@ export class WorkspaceContext {
    *  The split pane is already the narrow half, so it starts without its project
    *  rail — the user opens it deliberately from there. */
   openSplitChat(sessionId: string): void {
-    const pane = this.router.navigate(chatRoute(sessionId), { target: 'aside' })
+    // The route is persisted and restored: it must name the session's host or
+    // a restore resolves the bare id against whichever host answers first.
+    const pane = this.router.navigate(
+      chatRoute(sessionId, this.sessions[sessionId]?.run.serverId),
+      { target: 'aside' },
+    )
     this.geometry.open(pane.id)
     if (this.settings.splitProjectPanelOpen) this.settings.update({ splitProjectPanelOpen: false })
   }
@@ -1625,6 +1685,7 @@ export class WorkspaceContext {
     if (sess?.agentSessionId) {
       writeSessionHandoff({
         sessionId: sess.agentSessionId,
+        serverId: sess.run.serverId,
         provider: sess.run.provider ?? this.settings.activeAgent,
         cwd: sess.run.workingDirectory,
         title: sess.title ?? null,
@@ -1736,7 +1797,21 @@ export class WorkspaceContext {
     track('tab_closed', { via })
     // Closing the last tab lands on the draft you would have opened next, so no
     // surface has to describe a workspace with nothing in it.
-    if (this.tabOrder.length === 0) this.openSessionDraft({ via })
+    if (this.tabOrder.length === 0 && this.router.leadingPane.base?.name !== 'draft') {
+      this.openSessionDraft({ via })
+    }
+  }
+
+  /** Clear a conversation and remove its tab, then keep the focused pane on the
+   *  dedicated draft surface. The draft is created first so it inherits the
+   *  session's project and run configuration before the tab is removed. */
+  clearTabToDraft(tabId: string, via: Via = 'click'): void {
+    const draft = this.openSessionDraft({ via, sourceTabId: tabId })
+    this.clearTab(tabId)
+    this.closeTab(tabId, via)
+    // Closing a split tab also closes its pane. Reopen the inherited draft in
+    // whichever pane now owns focus; leading-pane clears are already a no-op.
+    this.openDraft(draft.id, via)
   }
 
   clearTab(tabId?: string): void {
@@ -1745,6 +1820,7 @@ export class WorkspaceContext {
     const session = this.sessionFor(targetTabId)
     if (!session) return
     session.agentSessionId = null
+    session.handoffId = undefined
     session.run.provider = null
     session.handoffFrom = undefined
     session.messages = []
@@ -1775,17 +1851,40 @@ export class WorkspaceContext {
     meta: SessionMeta,
     opts?: { background?: boolean; intoTabId?: string },
   ): Promise<string> {
-    if (!meta.serverId) {
-      const resolved = await resolveSessionMetaRef({ sessionId: meta.sessionId })
-      if (!resolved) throw new Error(`Session ${meta.sessionId} was not found on a connected host`)
-      meta = { ...meta, ...resolved }
+    // A session ref crossing the client names its host — there is no probe.
+    if (!meta.serverId) throw new Error(`Session ${meta.sessionId} names no host`)
+    const selectedProvider = meta.provider ?? this.settings.activeAgent
+    const selectedApi = serverConnections.apiFor(meta.serverId)
+    const handoff = await selectedApi.resolveSessionLineage(selectedProvider, meta.sessionId)
+    const stableSessionId = handoff?.sessionId ?? meta.sessionId
+    const activeMember = handoff?.active
+    let activeProviderSessionId: string | null = meta.sessionId
+    if (activeMember?.providerSessionId) {
+      const activeMeta = await selectedApi.getSessionInfo(activeMember.providerSessionId)
+      if (!activeMeta) throw new SessionUnavailableError(activeMember.providerSessionId)
+      meta = {
+        ...meta,
+        ...activeMeta,
+        provider: activeMember.provider,
+        sessionId: activeMember.providerSessionId,
+        cwd: activeMember.cwd,
+        serverId: meta.serverId,
+      }
+      activeProviderSessionId = activeMember.providerSessionId
+    } else if (activeMember) {
+      meta = { ...meta, provider: activeMember.provider, cwd: activeMember.cwd }
+      activeProviderSessionId = null
+    } else {
+      const sourceMeta = await selectedApi.getSessionInfo(meta.sessionId)
+      if (!sourceMeta) throw new SessionUnavailableError(meta.sessionId)
+      meta = { ...meta, ...sourceMeta, serverId: meta.serverId }
     }
     const background = opts?.background ?? false
     const intoTabId = opts?.intoTabId
     const provider = meta.provider ?? this.settings.activeAgent
     if (!intoTabId) {
       const openTabId = findOpenTabForSession(
-        meta.sessionId,
+        stableSessionId,
         this.tabs,
         this.sessions,
         this.tabOrder,
@@ -1838,7 +1937,8 @@ export class WorkspaceContext {
       const tab = this.tabs[tabId]
       if (!session || !tab) throw new Error('The resumed session tab was not created')
       session.run.provider = provider
-      session.agentSessionId = meta.sessionId
+      session.agentSessionId = activeProviderSessionId
+      session.handoffId = handoff?.sessionId
       session.readOnlyReason = null
       session.loadingHistory = true
       session.title = title
@@ -1852,7 +1952,8 @@ export class WorkspaceContext {
     } else {
       const session = targetSession!
       session.run.provider = provider
-      session.agentSessionId = meta.sessionId
+      session.agentSessionId = activeProviderSessionId
+      session.handoffId = handoff?.sessionId
       // Taking over an empty tab moves it to the session's host. Safe only
       // because takeover already requires a tab that has started nothing.
       if (meta.serverId) session.run.serverId = meta.serverId
@@ -1885,7 +1986,11 @@ export class WorkspaceContext {
     // id we are claiming — but nothing else here waits on identity, so the watch
     // and the bind are one chain running beside the reads rather than ahead of
     // them.
-    const runtimeAttach = this.apiFor(tabId).watchSession({ agentSessionId: meta.sessionId })
+    const runtimeAttach = this.apiFor(tabId).watchSession({
+      sessionId: stableSessionId,
+      agentSessionId: activeProviderSessionId ?? undefined,
+      provider,
+    })
       .then(({ sessionId }) => this.adoptSessionId(tabId, sessionId))
       .catch(() => null)
       .then(() => this.attachRuntimeSession(tabId))
@@ -1900,7 +2005,7 @@ export class WorkspaceContext {
     // could have taken over this tab while our IPC was in flight.
     const currentResumeTarget = (): Session | null => {
       const s = this.sessionFor(tabId)
-      return s && s === resumingSession && s.agentSessionId === meta.sessionId ? s : null
+      return s && s === resumingSession ? s : null
     }
 
     try {
@@ -1910,7 +2015,7 @@ export class WorkspaceContext {
           ? api.gitIdentity(defaultDir).catch(() => null)
           : Promise.resolve(null),
         loadSessionTranscript(this, {
-          sessionId: meta.sessionId,
+          sessionId: stableSessionId,
           loadPath: meta.projectPath || defaultDir,
           displayCwd: workingDirectory,
           provider,
@@ -1918,7 +2023,7 @@ export class WorkspaceContext {
           limit: RESTORED_TRANSCRIPT_LIMIT,
         }),
         runtimeAttach,
-        this.tasksStore.ensureSessionBinding(meta.sessionId, this.runFor(tabId)?.taskServerId).catch(() => null),
+        this.tasksStore.ensureSessionBinding(stableSessionId, this.runFor(tabId)?.taskServerId).catch(() => null),
       ])
 
       const session = currentResumeTarget()
@@ -2018,6 +2123,14 @@ export class WorkspaceContext {
     this.config.setWorktreeBaseBranch(branch)
   }
 
+  setDispatchWorktree(worktree: WorktreeEntry | null, sourceId?: string): void {
+    this.config.setDispatchWorktree(worktree, sourceId)
+  }
+
+  setDispatchBaseBranch(branch: string, sourceId?: string): void {
+    this.config.setDispatchBaseBranch(branch, sourceId)
+  }
+
   syncWorktreeDefault(enabled: boolean): void {
     this.config.syncWorktreeDefault(enabled)
   }
@@ -2075,8 +2188,27 @@ export class WorkspaceContext {
 
   private promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; taskId?: string; parentTaskId?: string; skipTaskCreation?: boolean; goalObjective?: string }): void {
     const api = this.apiFor(tabId)
-    const watchedSessionId = this.sessionFor(tabId)?.id
-    if (!watchedSessionId) return
+    const promptSession = this.sessionFor(tabId)
+    const watchedSessionId = promptSession?.id
+    if (!promptSession || !watchedSessionId) return
+    // Durability before dispatch (dispatch-client step 6): the send is queued
+    // on the session's host before the wire is trusted with it. Acceptance
+    // removes it; a dead transport leaves it for the drain.
+    const outboxServerId = promptSession.run.serverId
+    if (options.clientPromptId) {
+      sendOutbox.enqueue(outboxServerId, {
+        clientPromptId: options.clientPromptId,
+        sessionId: watchedSessionId,
+        text: options.displayPrompt,
+        enqueuedAt: Date.now(),
+        payload: {
+          prompt: options.prompt,
+          displayPrompt: options.displayPrompt,
+          delivery: options.delivery,
+          imageAttachments: options.imageAttachments,
+        },
+      })
+    }
     // Watch before prompting, or the run's own events would have nowhere to go.
     api.watchSession({ sessionId: watchedSessionId })
       .then(() => this.config.pendingSessionStartTarget(tabId))
@@ -2096,11 +2228,23 @@ export class WorkspaceContext {
         // avoid a phantom run that can never be cancelled.
         const session = this.sessionFor(tabId)
         if (!session) return
-        return api.prompt(this.ctxFor(tabId), resolved)
+        return api.prompt(this.ctxFor(tabId), resolved).then(() => {
+          // The host accepted the prompt: its durable copy has done its job.
+          if (options.clientPromptId) sendOutbox.remove(outboxServerId, options.clientPromptId)
+        })
       })
       .catch((err: Error) => {
         const session = this.sessionFor(tabId)
         if (options.clientPromptId) {
+          if (classifySendFailure(err) === 'transient') {
+            // The transport died under the send: the outbox entry stays for
+            // the drain, and the pending bubble keeps standing — "failed"
+            // would be a lie about a message that will still deliver.
+            return
+          }
+          // The host answered "no": the in-session failed prompt owns the
+          // retry UX, so the durable copy retires with the error shown there.
+          sendOutbox.remove(outboxServerId, options.clientPromptId)
           const outbound = session?.outboundPrompts.find(
             (prompt) => prompt.clientPromptId === options.clientPromptId,
           )
@@ -2113,6 +2257,25 @@ export class WorkspaceContext {
           this.handleError(session.id, { message: err.message, stderrTail: [], exitCode: null, elapsedMs: 0, toolCallCount: 0 })
         }
       })
+  }
+
+  /** Replay one drained outbox record through the live prompt path. The tab
+   *  must still be mounted — a queued send for a closed conversation is
+   *  abandoned work, not a surprise message. */
+  async redeliverOutboxPrompt(serverId: string, record: OutboxRecord): Promise<void> {
+    const tabId = this.tabIdForSession(record.sessionId)
+    if (!tabId || !record.payload) {
+      sendOutbox.remove(serverId, record.clientPromptId)
+      return
+    }
+    const result = await this.apiFor(tabId).prompt(this.ctxFor(tabId), {
+      prompt: record.payload.prompt,
+      displayPrompt: record.payload.displayPrompt || record.text,
+      clientPromptId: record.clientPromptId,
+      delivery: record.payload.delivery === 'steer' ? 'steer' : 'queue',
+      imageAttachments: record.payload.imageAttachments,
+    })
+    if (result.disposition === 'duplicate') return
   }
 
   /**
@@ -2153,16 +2316,36 @@ export class WorkspaceContext {
         includeSnapshot: isDispatch(session.run),
       })
       if (!task) return options
+      let preparedSnapshot = snapshot
+      if (session.prReview) {
+        try {
+          await this.tasksStore.link(task.id, {
+            kind: 'pr',
+            targetScope: task.projectKey ?? environmentProjectKey(environment, session.run.projectGroupPath),
+            targetKey: String(session.prReview.number),
+            title: `#${session.prReview.number} ${session.prReview.title}`,
+            createdBy: 'system',
+          })
+          // The first snapshot was read in the minting transaction, before the
+          // PR edge existed. A dispatched run must ship the linked version.
+          if (snapshot) {
+            preparedSnapshot = await this.tasksStore.snapshotForDispatch(session.run.taskServerId, task.id)
+          }
+        } catch (error) {
+          console.warn('[Solus] PR task link failed; the prompt will still send.', error)
+        }
+      }
       // Record the binding on the session so `session_init` — the first moment a
       // session id exists — knows which task to link it to, and on which host.
       session.task = { kind: 'existing', taskId: task.id }
-      return {
+      const prepared: typeof options = {
         ...options,
         taskId: task.id,
         parentTaskId: undefined,
         skipTaskCreation: true,
-        ...(snapshot ? { taskSnapshot: snapshot } : {}),
       }
+      if (preparedSnapshot) prepared.taskSnapshot = preparedSnapshot
+      return prepared
     } catch (error) {
       console.warn('[Solus] Task host mint failed; the run host will mint instead.', error)
       return options
@@ -2214,7 +2397,7 @@ export class WorkspaceContext {
 
     if (
       localApi.getPlatform() === 'web'
-      && !serverConnections.connectionFor()
+      && !serverConnections.defaultServerId()
       && !session.run.pendingHostDispatch
     ) {
       window.dispatchEvent(new CustomEvent('solus:open-server-connect'))
@@ -2269,6 +2452,11 @@ export class WorkspaceContext {
     }
     if (session.messages.length === 0 && resolvedPath && resolvedPath !== '~') {
       void this.apiFor(targetTabId).trackRecentProject(resolvedPath)
+      const catalogRoot = session.run.gitContext?.repoRoot ?? resolvedPath
+      projectCatalog.record(
+        { serverId: session.run.serverId, projectRoot: catalogRoot },
+        projectDirLabel(catalogRoot, this.staticInfo?.workspacePath),
+      )
     }
 
     session.run.provider = session.run.provider ?? this.settings.activeAgent
@@ -2280,17 +2468,18 @@ export class WorkspaceContext {
 
     if (isBusy) {
       session.title = title
-      session.outboundPrompts.push({
+      const outbound: OutboundPrompt = {
         clientPromptId,
         text: prompt,
         state: isSteerableStatus(session.status) && delivery === 'steer' ? 'steering' : 'queueing',
         enqueuedAt: Date.now(),
-        ...(imageAttachments.length > 0 ? { images: imageAttachments } : {}),
-        ...(attachments ? { attachments } : {}),
-        ...(planRefs ? { planRefs } : {}),
-        ...(workRefs ? { workRefs } : {}),
-        ...(sessionRefs ? { sessionRefs } : {}),
-      })
+      }
+      if (imageAttachments.length > 0) outbound.images = imageAttachments
+      if (attachments) outbound.attachments = attachments
+      if (planRefs) outbound.planRefs = planRefs
+      if (workRefs) outbound.workRefs = workRefs
+      if (sessionRefs) outbound.sessionRefs = sessionRefs
+      session.outboundPrompts.push(outbound)
       input.attachments = []
       input.planRefs = []
       input.workRefs = []
@@ -2331,7 +2520,7 @@ export class WorkspaceContext {
 
     const promptTaskId =
       existingTaskId(session.task) ??
-      this.tasksStore.taskForSession(session.agentSessionId)?.id ??
+      this.tasksStore.taskForSession(taskBindingSessionId(session))?.id ??
       undefined
     this.promptTab(targetTabId, {
       prompt: fullPrompt,
@@ -2341,7 +2530,7 @@ export class WorkspaceContext {
       imageAttachments,
       taskId: promptTaskId,
       // Only until the fork's own subtask exists — the two are mutually exclusive.
-      parentTaskId: existingTaskId(session.task) || this.tasksStore.taskForSession(session.agentSessionId)
+      parentTaskId: existingTaskId(session.task) || this.tasksStore.taskForSession(taskBindingSessionId(session))
         ? undefined
         : parentTaskId(session.task) ?? undefined,
       skipTaskCreation: session.task.kind === 'none' || undefined,
@@ -2386,6 +2575,7 @@ export class WorkspaceContext {
       // Synchronous and idempotent, so the card below still paints before any
       // awaiting — and it is what knows this host's name.
       const connection = serverConnections.ensure(pending.serverId)
+      const selectedDispatchBaseBranch = pending.intent === 'dispatch' ? pending.baseBranch : undefined
       hostLabel = connection.target.label
       isLocalHost = connection.target.local
       session.statusCard = buildRemoteDispatchCard({ tabId, hostLabel, phase: 'connecting' })
@@ -2405,6 +2595,8 @@ export class WorkspaceContext {
           },
           pending.serverId,
           pending.repoKey,
+          pending.worktree?.path,
+          selectedDispatchBaseBranch,
         )
         if (bailIfStale()) return
         path = prepared.path
@@ -2572,6 +2764,11 @@ export class WorkspaceContext {
   closePlanPreview(): void { closePlanPreview(this) }
   async resumeSessionFromDescriptor(d: PlanDescriptor): Promise<void> { return resumeSessionFromDescriptor(this, d) }
   async loadPlanContent(d: PlanDescriptor): Promise<string> { return loadPlanContent(this, d) }
+  notifySessionUnavailable(provider?: AgentId): void {
+    toasts.error('Session no longer available', {
+      description: unavailableSessionMessage(provider),
+    })
+  }
 
   /** Open a work as an artifact. By default it takes the Focus pane (or the
    *  secondary slot if one is already open); `secondary: true` forces it beside
@@ -2634,7 +2831,7 @@ export class WorkspaceContext {
     const sess = this.sessionFor(this.activeTabId)
     const cwd = sess?.run.workingDirectory ?? this.globalDefaults.workingDirectory ?? '~'
     const provider: AgentId = sess?.run.provider ?? 'claude-code'
-    const api = sess ? this.apiFor(this.activeTabId) : serverConnections.primaryApi()
+    const api = sess ? this.apiFor(this.activeTabId) : this.defaultHostApi()
     const work = await api.createWork(title, type, content, workPreview(type, content), undefined, provider, cwd)
     this.worksStore.works[work.id] = work
     this.worksStore.rememberHost(work.id, sess?.run.serverId ?? serverConnections.serverIdForApi(api))
@@ -2656,8 +2853,8 @@ export class WorkspaceContext {
     this.openWork(workId, 'aside')
     void this.worksStore.ensureContent(workId, 'open-chat-for-work', this.sessionFor(this.activeTabId)?.run.workingDirectory)
     if (mode === 'resume' && resumeSid) {
-      // find an open tab with this session, else resume from history
-      const openTab = this.tabIdForAgentSession(resumeSid)
+      // find an open tab with this session on the work's own host, else resume
+      const openTab = this.tabIdForAgentSession(resumeSid, this.worksStore.hostFor(workId) ?? undefined)
       if (openTab) { this.selectTab(openTab); targetTabId = openTab; resumed = true }
       else {
         targetTabId = await this.resumeSession({
@@ -2733,7 +2930,10 @@ export class WorkspaceContext {
 
   /** Open a plan as the single artifact. */
   openPlan(planId: string, target: 'focused' | 'aside' = 'focused'): void {
-    const pane = this.router.navigate({ name: 'plan', params: { planId } }, { target: this.artifactTarget(target) })
+    const pane = this.router.navigate(
+      { name: 'plan', params: { planId, serverId: this.planStore.hostFor(planId) ?? undefined } },
+      { target: this.artifactTarget(target) },
+    )
     if (target === 'aside') this.geometry.open(pane.id)
   }
 
@@ -2802,7 +3002,11 @@ export class WorkspaceContext {
   /** Open one task's page. Its own route, so it deep-links, joins history and
    *  can be opened in a split. */
   goToTask(taskId: string, via: Via = 'palette'): void {
-    this.showPage({ name: 'task', params: { taskId } }, via, 'tasks')
+    this.showPage(
+      { name: 'task', params: { taskId, serverId: this.tasksStore.hostFor(taskId) ?? undefined } },
+      via,
+      'tasks',
+    )
   }
 
   openTasks(via: Via = 'click'): void {
@@ -2852,7 +3056,9 @@ export class WorkspaceContext {
       const api = this.apiForContext(this.ctx)
       const serverId = serverConnections.serverIdForApi(api)
       void this.prsStore.refreshNeedsReview(api, serverId, this.ctx).then(open).catch((error) => {
-      toasts.error(`Couldn't load reviews: ${error instanceof Error ? error.message : String(error)}`)
+      toasts.error("Couldn't load reviews", {
+        description: error instanceof Error ? error.message : String(error),
+      })
       })
     }
   }
@@ -2880,7 +3086,9 @@ export class WorkspaceContext {
 
   toggleAutomations(via: Via = 'click'): void {
     if (this.togglePage({ name: 'automations', params: {} }, via, 'automations')) {
-      void this.automationsStore.loadAll(serverConnections.connectionFor()?.serverId)
+      // Unscoped: the store fans out over every connected host (dispatch-client
+      // step 5 — the page aggregates the catalog, not the boot host).
+      void this.automationsStore.loadAll()
     }
   }
 
@@ -2890,7 +3098,7 @@ export class WorkspaceContext {
   openAutomations(focusId?: string | null, via: Via = 'click'): void {
     if (focusId && this.window.viewMode === 'editor') this.openAutomationBuilder(focusId)
     else this.showPage({ name: 'automations', params: { automationId: focusId ?? undefined } }, via, 'automations')
-    void this.automationsStore.loadAll(serverConnections.connectionFor()?.serverId)
+    void this.automationsStore.loadAll()
   }
 
   /** Open one automation as the single artifact. `aside` puts it beside the
@@ -2902,13 +3110,15 @@ export class WorkspaceContext {
   ): void {
     this.router.closeGroup('page')
     const serverId = sourceId ? this.runFor(sourceId)?.serverId : undefined
+    const params: Extract<RouteRef, { name: 'automation' }>['params'] = { automationId }
+    if (serverId) params.serverId = serverId
     const pane = this.router.navigate(
-      { name: 'automation', params: { automationId, ...(serverId ? { serverId } : {}) } },
+      { name: 'automation', params },
       { target: this.artifactTarget(target) },
     )
     if (target === 'aside') this.geometry.open(pane.id)
     this.isExpanded = true
-    void this.automationsStore.loadAll(serverId ?? serverConnections.connectionFor()?.serverId)
+    void this.automationsStore.loadAll(serverId)
   }
 
   // ─── Diff comments (on Tab — UI-only) ───
@@ -2957,7 +3167,6 @@ export class WorkspaceContext {
 
     const prompt = buildPrCommentsFixPrompt(pr, feedback)
     this.sendMessage(prompt, undefined, tabId)
-    const tab = this.tabs[tabId]
     if (session) session.title = `Fix PR #${pr.number}`
     requestInputFocus()
   }
@@ -2983,7 +3192,6 @@ export class WorkspaceContext {
     const tabId = await this.createTab(placeholderDir)
     const session = this.sessionFor(tabId)
     if (!session) return
-    const tab = this.tabs[tabId]
     if (session) session.title = `Resolve #${pr.number}`
     session.statusCard = buildConflictResolverCard(pr.number, 'worktree')
 
@@ -3022,6 +3230,7 @@ export class WorkspaceContext {
     session.run.gitContext = { branch: review.branch, targetBranch: review.baseRef, worktreePath: review.worktreePath }
     session.run.worktree = null
     session.run.permissionMode = 'auto'
+    session.prReview = review
     session.statusCard = buildConflictResolverCard(pr.number, 'session')
     const prompt = buildConflictResolutionPrompt({
       number: review.number,
@@ -3049,7 +3258,7 @@ export class WorkspaceContext {
       params: {
         number,
         title,
-        cwd: ctx.session.projectPath ?? ctx.session.workingDirectory ?? undefined,
+        cwd: projectScopeOf(ctx.session) || undefined,
         serverId,
         expectedRepo,
       },
@@ -3094,7 +3303,7 @@ export class WorkspaceContext {
     track('surface_viewed', { surface: 'pr_review', via: opts.via })
     this.prsStore.prefetchReview(api, serverId, ctx, number)
     try {
-      const pr = await this.router.resolve<PrReviewTarget>(ref, {
+      const pr = await this.router.resolve(ref, {
         api,
         ipc: (cwd) => (cwd ? this.ctxForDirectory(cwd) : ctx),
       })
@@ -3108,7 +3317,9 @@ export class WorkspaceContext {
         if (pane.id === this.router.leadingPane.id) this.exitPrReview()
         else this.router.closePane(pane.id)
       }
-      toasts.error(`Couldn't open PR #${number}: ${err instanceof Error ? err.message : String(err)}`)
+      toasts.error(`Couldn't open PR #${number}`, {
+        description: err instanceof Error ? err.message : String(err),
+      })
       return null
     }
   }
@@ -3140,7 +3351,10 @@ export class WorkspaceContext {
     if (pr && opts.openChat) {
       const api = opts.serverId ? serverConnections.apiFor(opts.serverId) : this.apiForContext(ctx)
       const checkout = await api.prPrepareCheckout(ctx, pr)
-      await this.openPrReviewChat({ ...pr, ...checkout })
+      await this.openPrReviewChat({ ...pr, ...checkout }, {
+        projectCtx: ctx,
+        serverId: opts.serverId,
+      })
     }
   }
 
@@ -3182,12 +3396,21 @@ export class WorkspaceContext {
     })
   }
 
-  /** Create (once), activate, and reveal the chat associated with a PR review. */
-  async openPrReviewChat(pr: PrReviewContext, existingTabId: string | null = null): Promise<string> {
+  /** Create (once), activate, and reveal the chat associated with a PR review.
+   * A host-only target opens a blocked draft immediately while its checkout is
+   * prepared. Calling this again with the prepared context attaches that same
+   * visible draft to the real PR branch. */
+  async openPrReviewChat(
+    pr: PrReviewTarget | PrReviewContext,
+    opts: { existingTabId?: string | null; projectCtx?: IpcContext | null; serverId?: string } = {},
+  ): Promise<string> {
+    const checkout = 'worktreePath' in pr ? pr : null
+    const existingTabId = opts.existingTabId ?? null
     const hasExistingChat = Boolean(existingTabId && this.tabs[existingTabId])
     beginPrReviewProfile(pr.number, { restart: true })
     markPrReviewProfile('chat-open-start', { hasExistingChat })
     if (existingTabId && this.tabs[existingTabId]) {
+      if (checkout) this.attachPrReviewCheckout(existingTabId, checkout)
       this.setActiveTab(existingTabId)
       this.revealConversationBesideReview(existingTabId)
       this.tabs[existingTabId].hasUnread = false
@@ -3199,26 +3422,41 @@ export class WorkspaceContext {
       return existingTabId
     }
 
-    const reviewGitContext: GitCheckout = {
-      branch: pr.branch,
-      targetBranch: pr.baseRef,
-      worktreePath: pr.worktreePath,
-    }
-    const tabId = await this.createTab(worktreeProjectRoot(pr.worktreePath), {
+    const reviewGitContext: GitCheckout | null = checkout ? {
+      branch: checkout.branch,
+      targetBranch: checkout.baseRef,
+      worktreePath: checkout.worktreePath,
+    } : null
+    const pendingDirectory = opts.projectCtx?.session.projectPath
+      ?? opts.projectCtx?.session.workingDirectory
+      ?? this.router.params('prReview')?.cwd
+      ?? this.staticInfo?.projectPath
+      ?? this.staticInfo?.workspacePath
+    const tabId = await this.createTab(
+      checkout ? worktreeProjectRoot(checkout.worktreePath) : pendingDirectory,
+      {
       activate: false,
       gitContext: reviewGitContext,
       gitInitialization: 'background',
-      serverId: this.router.params('prReview')?.serverId,
-    })
+      worktreeRequested: false,
+      serverId: opts.serverId ?? this.router.params('prReview')?.serverId,
+      },
+    )
     markPrReviewProfile('chat-tab-ready')
     const reviewSession = this.sessionFor(tabId)
     if (reviewSession) {
-      reviewSession.run.worktree = null
-      reviewSession.run.permissionMode = 'auto'
-      // Also what identifies this tab as the review's chat — PrReviewPane finds
-      // it by looking for the tab rooted in this PR, so nothing has to be
-      // attached to the route or torn down when it closes.
-      reviewSession.prReview = pr
+      reviewSession.title = `PR #${pr.number}`
+      if (checkout) this.attachPrReviewCheckout(tabId, checkout)
+      else {
+        reviewSession.status = 'connecting'
+        reviewSession.statusCard = {
+          id: `pr-chat-checkout-${pr.number}`,
+          title: `Preparing PR #${pr.number} checkout…`,
+          icon: 'git-branch',
+          status: 'active',
+          steps: [{ id: 'checkout', label: 'Connecting the conversation to the PR branch', status: 'active' }],
+        }
+      }
     }
     this.setActiveTab(tabId)
     this.revealConversationBesideReview(tabId)
@@ -3230,6 +3468,35 @@ export class WorkspaceContext {
     return tabId
   }
 
+  private attachPrReviewCheckout(tabId: string, pr: PrReviewContext): void {
+    const reviewSession = this.sessionFor(tabId)
+    if (!reviewSession) return
+    reviewSession.run.workingDirectory = worktreeProjectRoot(pr.worktreePath)
+    reviewSession.run.gitContext = {
+      branch: pr.branch,
+      targetBranch: pr.baseRef,
+      worktreePath: pr.worktreePath,
+    }
+    reviewSession.run.worktree = null
+    reviewSession.run.permissionMode = 'auto'
+    reviewSession.prReview = pr
+    reviewSession.statusCard = null
+    if (reviewSession.status === 'connecting') reviewSession.status = 'idle'
+  }
+
+  failPrReviewChatCheckout(tabId: string, prNumber: number, message: string): void {
+    const reviewSession = this.sessionFor(tabId)
+    if (!reviewSession) return
+    reviewSession.status = 'idle'
+    reviewSession.statusCard = {
+      id: `pr-chat-checkout-${prNumber}`,
+      title: `Couldn't prepare PR #${prNumber} checkout`,
+      icon: 'git-branch',
+      status: 'error',
+      steps: [{ id: 'checkout', label: message, status: 'error' }],
+    }
+  }
+
   /** Split the review: it keeps leading, and its conversation opens beside it.
    *  The chat and the popped-out diff share the aside, so revealing one puts
    *  the other away — the review is what you are always looking at. The pane
@@ -3239,7 +3506,20 @@ export class WorkspaceContext {
     const sessionId = this.tabs[tabId]?.sessionId
     if (!sessionId) return
     this.router.close('prDiff')
-    const pane = this.router.navigate(chatRoute(sessionId), { target: 'aside' })
+    // A review opened from a transcript link is itself the companion, and at the
+    // pane cap "beside it" would then resolve back to the leading pane — the
+    // chat would take the review's place rather than stand next to it. The
+    // review takes the lead first, which is where it belongs either way.
+    this.router.leadWith('prReview')
+    // Checkout preparation calls this method again when it attaches the blocked
+    // draft to the PR branch. By then focus is already in the secondary pane,
+    // so another relative `aside` would mean the leading pane and put the same
+    // conversation on both sides. Target the existing secondary by id instead.
+    const target = this.router.asidePanes[0]?.id ?? 'aside'
+    const pane = this.router.navigate(
+      chatRoute(sessionId, this.sessions[sessionId]?.run.serverId),
+      { target },
+    )
     this.geometry.open(pane.id, 0.5)
     this.isExpanded = true
   }
@@ -3248,7 +3528,14 @@ export class WorkspaceContext {
    *  change read together. Closing it returns the review to Activity. */
   openPrDiff(number: number, ctx: IpcContext = this.ctx): void {
     const pane = this.router.navigate(
-      { name: 'prDiff', params: { number, cwd: ctx.session.projectPath ?? ctx.session.workingDirectory ?? undefined } },
+      {
+        name: 'prDiff',
+        params: {
+          number,
+          cwd: projectScopeOf(ctx.session) || undefined,
+          serverId: this.sessions[ctx.session.sessionId]?.run.serverId,
+        },
+      },
       { target: 'aside' },
     )
     this.geometry.open(pane.id, 0.5)
@@ -3326,8 +3613,9 @@ export class WorkspaceContext {
         })
         return
       case 'chat': {
-        // A chat names a session of ours; a notification or a deep link may name
-        // the provider's instead, so both indexes get a look.
+        // A chat names a session of ours; a notification or a deep link may
+        // name the provider's instead. Our ids resolve hostless (client-minted,
+        // collision-free); a provider id resolves only with the route's host.
         const sessionId = ref.params.sessionId
         const tabId = sessionId
           ? ref.params.serverId
@@ -3339,12 +3627,12 @@ export class WorkspaceContext {
                 undefined,
                 ref.params.serverId,
               )
-            : this.tabIdForSession(sessionId)
-              ?? findOpenTabForSession(sessionId, this.tabs, this.sessions, this.tabOrder)
+            : this.tabIdForSession(sessionId) ?? null
           : null
         if (tabId && this.tabs[tabId]) this.selectTab(tabId)
-        else if (sessionId) {
-          void resolveSessionMetaRef({ sessionId, serverId: ref.params.serverId }).then((meta) => {
+        else if (sessionId && ref.params.serverId) {
+          // A route without a host cannot be resolved — no probe, no guess.
+          void readSessionMeta(ref.params.serverId, sessionId).then((meta) => {
             if (meta) void this.resumeSession(meta)
           })
         }
@@ -3399,7 +3687,10 @@ export class WorkspaceContext {
   openSubagent(tabId: string, messageId: string): void {
     const sessionId = this.tabs[tabId]?.sessionId
     if (!sessionId) return
-    this.showViewer({ name: 'subagent', params: { sessionId, messageId } })
+    this.showViewer({
+      name: 'subagent',
+      params: { sessionId, messageId, serverId: this.sessions[sessionId]?.run.serverId },
+    })
   }
 
   /** Viewers cover a companion pane and size themselves; a diff opened over a

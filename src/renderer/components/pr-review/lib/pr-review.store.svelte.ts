@@ -1,14 +1,15 @@
 import { untrack } from 'svelte'
-import type { PrDiffSlice, PrReviewTarget, ReviewComment, ReviewThread } from '../../../../shared/providers'
-import type { DiffScope, IpcContext, PrCheckoutContext, PrInterdiffResult, PrReviewContext } from '../../../../shared/types'
+import type { PrCommit, PrDiffSlice, PrReviewTarget, ReviewComment, ReviewThread } from '../../../../shared/providers'
+import type { DiffScope, IpcContext, PrCheckoutContext, PrInterdiffResult, PrRepoCheckoutFailureReason, PrRepoCheckoutResult, PrReviewContext } from '../../../../shared/types'
 import { worktreeProjectRoot } from '../../../../shared/types'
-import type { DiffBase } from '../../../../shared/stack-types'
+import type { DiffBase, StackGraph } from '../../../../shared/stack-types'
 import { reviewGuideKeyForBase } from '../../../../shared/review'
 import { ReviewDrafts } from '../../review/lib/review-drafts.svelte'
 import { interdiffReviewThreads } from '../../diff/lib/interdiff-annotations'
 import { matchedReviewComments } from './since-review'
 import type { HostApi } from '@client-core/host-api'
 import { hostKey } from '@client-core/host-key'
+import { TransportDisconnectedError } from '@client-core/ws-transport'
 import type { FileDiffLoadedFiles, FileDiffMetadata } from '@pierre/diffs'
 
 /**
@@ -34,11 +35,29 @@ export class PrReviewState {
   checkoutStatus = $state<'idle' | 'preparing' | 'ready' | 'failed'>('idle')
   checkoutError = $state<string | null>(null)
 
+  // ── Explicit "check out in the current repository" destination ──
+  // A distinct status from `checkoutStatus`: the two destinations run
+  // independently, and the UI needs to know which one a failure belongs to.
+  repoCheckoutStatus = $state<'idle' | 'preparing' | 'ready' | 'failed'>('idle')
+  repoCheckoutError = $state<string | null>(null)
+  repoCheckoutReason = $state<PrRepoCheckoutFailureReason | null>(null)
+  /** Set only when `repoCheckoutReason` is `'branch-in-use'`. */
+  repoCheckoutWorktreePath = $state<string | null>(null)
+
   // ── Host diff ──
   diffPatch = $state<string | null>(null)
   diffLoading = $state(false)
   diffError = $state<string | null>(null)
   diffTruncated = $state(false)
+
+  // ── Commit scope ──
+  // One commit of the change rather than the whole of it. Scoped state lives
+  // apart from the full diff so leaving the commit returns to an intact review.
+  commitScope = $state<PrCommit | null>(null)
+  commitDiffPatch = $state<string | null>(null)
+  commitDiffLoading = $state(false)
+  commitDiffError = $state<string | null>(null)
+  commitDiffTruncated = $state(false)
 
   // ── Threads ──
   // Existing GitHub inline review comments. Fetched once and shared with the
@@ -72,7 +91,9 @@ export class PrReviewState {
   #deps: PrReviewDeps
   #interdiffKey = ''
   #diffKey = ''
+  #commitDiffKey = ''
   #checkoutPromise: Promise<PrReviewContext> | null = null
+  #repoCheckoutPromise: Promise<PrRepoCheckoutResult> | null = null
 
   constructor(number: number, deps: PrReviewDeps) {
     this.number = number
@@ -127,6 +148,14 @@ export class PrReviewState {
     this.showingSinceReview = false
     this.stackReady = false
     this.stackLoadFailed = false
+    // A moved head may have dropped the scoped commit (force push / new PR);
+    // never strand the reader on a commit the revision no longer has.
+    this.commitScope = null
+    this.commitDiffPatch = null
+    this.commitDiffError = null
+    this.commitDiffTruncated = false
+    this.commitDiffLoading = false
+    this.#commitDiffKey = ''
   }
 
   get liveDiffBase(): DiffBase {
@@ -285,12 +314,13 @@ export class PrReviewState {
       const patches: string[] = []
       let cursor: string | undefined
       do {
-        const slice: PrDiffSlice = await this.#deps.loadDiff(context, {
+        const request: import('../../../../shared/providers').PrDiffRequest = {
           number: target.number,
           baseSha: target.baseSha,
           headSha: target.headSha,
-          ...(cursor ? { cursor } : {}),
-        })
+        }
+        if (cursor) request.cursor = cursor
+        const slice: PrDiffSlice = await this.#deps.loadDiff(context, request)
         if (`${this.pr?.host}/${this.pr?.owner}/${this.pr?.repo}:${this.pr?.number}:${this.pr?.baseSha}:${this.pr?.headSha}` !== key) return
         if (slice.patch) patches.push(slice.patch)
         this.diffTruncated ||= slice.truncated
@@ -305,6 +335,55 @@ export class PrReviewState {
       }
     }).finally(() => {
       if (`${this.pr?.host}/${this.pr?.owner}/${this.pr?.repo}:${this.pr?.number}:${this.pr?.baseSha}:${this.pr?.headSha}` === key) this.diffLoading = false
+    })
+  }
+
+  /** Scope the diff surfaces to one commit of the pull request. */
+  viewCommit(commit: PrCommit): void {
+    this.commitScope = commit
+    this.loadCommitDiff()
+  }
+
+  clearCommitScope(): void {
+    this.commitScope = null
+  }
+
+  loadCommitDiff(force = false): void {
+    const target = this.pr
+    const commit = this.commitScope
+    if (!target || !commit) return
+    const key = `${target.host}/${target.owner}/${target.repo}:${target.number}:${commit.sha}`
+    if (!force && this.#commitDiffKey === key && (this.commitDiffPatch !== null || this.commitDiffLoading)) return
+    this.#commitDiffKey = key
+    this.commitDiffPatch = null
+    this.commitDiffError = null
+    this.commitDiffTruncated = false
+    this.commitDiffLoading = true
+    const context = this.#deps.fallbackCtx()
+    // Guarded on the key, not the scope: clearing the scope mid-load lets the
+    // load finish into the cache, so re-opening the same commit is instant.
+    const current = () => this.#commitDiffKey === key
+    void (async () => {
+      const patches: string[] = []
+      let cursor: string | undefined
+      do {
+        const slice: PrDiffSlice = await this.#deps.loadDiff(context, {
+          number: target.number,
+          baseSha: target.baseSha,
+          headSha: target.headSha,
+          commitSha: commit.sha,
+          ...(cursor ? { cursor } : {}),
+        })
+        if (!current()) return
+        if (slice.patch) patches.push(slice.patch)
+        this.commitDiffTruncated ||= slice.truncated
+        cursor = slice.nextCursor ?? undefined
+      } while (cursor)
+      if (current()) this.commitDiffPatch = patches.join('\n')
+    })().catch((error) => {
+      if (current()) this.commitDiffError = error instanceof Error ? error.message : String(error)
+    }).finally(() => {
+      if (current()) this.commitDiffLoading = false
     })
   }
 
@@ -340,6 +419,44 @@ export class PrReviewState {
     return promise
   }
 
+  /** The explicit "check out in the current repository" destination. Unlike
+   *  `ensureCheckout`, a structured failure (stale head, dirty, conflicted,
+   *  branch in use) is not thrown — it is reported through `repoCheckout*`
+   *  state so the confirm UI can show the specific reason. Only a transport
+   *  failure (a disconnected host) throws. */
+  async checkoutInRepo(): Promise<PrRepoCheckoutResult> {
+    const target = this.pr
+    if (!target) throw new Error('The pull request is not ready.')
+    if (this.#repoCheckoutPromise) return this.#repoCheckoutPromise
+    this.repoCheckoutStatus = 'preparing'
+    this.repoCheckoutError = null
+    this.repoCheckoutReason = null
+    this.repoCheckoutWorktreePath = null
+    const promise = this.#deps.checkoutInRepo(this.#deps.fallbackCtx(), target)
+      .then((result) => {
+        if (result.success) {
+          this.repoCheckoutStatus = 'ready'
+        } else {
+          this.repoCheckoutStatus = 'failed'
+          this.repoCheckoutReason = result.reason ?? 'generic'
+          this.repoCheckoutError = result.error ?? 'Checkout failed.'
+          this.repoCheckoutWorktreePath = result.worktreePath ?? null
+        }
+        return result
+      })
+      .catch((error) => {
+        this.repoCheckoutStatus = 'failed'
+        this.repoCheckoutReason = error instanceof TransportDisconnectedError ? 'disconnected' : 'generic'
+        this.repoCheckoutError = error instanceof Error ? error.message : String(error)
+        throw error
+      })
+      .finally(() => {
+        if (this.#repoCheckoutPromise === promise) this.#repoCheckoutPromise = null
+      })
+    this.#repoCheckoutPromise = promise
+    return promise
+  }
+
   loadDiffFiles = async (fileDiff: FileDiffMetadata): Promise<FileDiffLoadedFiles> => {
     const target = this.pr
     if (!target) throw new Error('The pull request is not ready.')
@@ -367,6 +484,34 @@ export class PrReviewState {
     return { oldFile: fileDiff.type === 'rename-pure' ? null : oldFile, newFile }
   }
 
+  /** Context expansion for a commit-scoped patch: the old side of every file is
+   *  the commit's parent, which the provider resolves from the sha. */
+  loadCommitDiffFiles = async (fileDiff: FileDiffMetadata): Promise<FileDiffLoadedFiles> => {
+    const target = this.pr
+    const commit = this.commitScope
+    if (!target || !commit) throw new Error('The pull request is not ready.')
+    const result = await this.api.prGetDiffFileContents(this.#deps.fallbackCtx(), {
+      number: target.number,
+      baseSha: target.baseSha,
+      headSha: target.headSha,
+      commitSha: commit.sha,
+      oldPath: fileDiff.prevName ?? fileDiff.name,
+      newPath: fileDiff.name,
+      changeType: fileDiff.type,
+    })
+    const oldFile = {
+      name: fileDiff.prevName ?? fileDiff.name,
+      contents: result.oldContents,
+      cacheKey: `${commit.sha}^:${fileDiff.prevName ?? fileDiff.name}`,
+    }
+    const newFile = {
+      name: fileDiff.name,
+      contents: result.newContents,
+      cacheKey: `${commit.sha}:${fileDiff.name}`,
+    }
+    return { oldFile: fileDiff.type === 'rename-pure' ? null : oldFile, newFile }
+  }
+
   // ── Thread mutation ──
 
   replyToThread(threadId: string, body: string): Promise<ReviewComment> {
@@ -386,10 +531,11 @@ export interface PrReviewDeps {
   ctxForDirectory: (path: string) => IpcContext
   stackedPrsEnabled: () => boolean
   resolveDiffBase: (number: number, baseRef: string) => DiffBase
-  loadStacks: (ctx: IpcContext) => Promise<unknown>
+  loadStacks: (ctx: IpcContext) => Promise<StackGraph>
   loadThreads: (ctx: IpcContext, number: number, force: boolean) => Promise<ReviewThread[]>
   loadDiff: (ctx: IpcContext, request: import('../../../../shared/providers').PrDiffRequest) => Promise<PrDiffSlice>
   prepareCheckout: (ctx: IpcContext, target: PrReviewTarget) => Promise<PrCheckoutContext>
+  checkoutInRepo: (ctx: IpcContext, target: PrReviewTarget) => Promise<PrRepoCheckoutResult>
   loadInterdiff: (ctx: IpcContext, pr: PrReviewContext, force: boolean) => Promise<PrInterdiffResult>
   diffStats: (ctx: IpcContext, scope: DiffScope) => Promise<number>
   replyThread: (ctx: IpcContext, number: number, threadId: string, body: string) => Promise<ReviewComment>

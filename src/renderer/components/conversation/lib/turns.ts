@@ -338,6 +338,57 @@ export function buildTurns(items: GroupedItem[], opts: { running: boolean }): Tu
   return turns
 }
 
+function sameItems<Item>(a: Item[], b: Item[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+  return true
+}
+
+function sameEnd(a: TurnEnd | null, b: TurnEnd | null): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  return a.kind === b.kind && a.cause === b.cause && a.detail === b.detail && a.timestamp === b.timestamp
+}
+
+/**
+ * buildTurns allocates every Turn fresh, so a caller that rebuilds on each
+ * streaming reveal frame would hand every row component a new `turn` identity
+ * 30 times a second and re-run their derived state across the whole transcript.
+ * Reuse the previous build's Turn object wherever the rebuilt turn is
+ * item-for-item identical, so only the turn that actually changed (the live
+ * one) gets a new identity.
+ */
+export function stabilizeTurns(next: Turn[], previous: Turn[]): Turn[] {
+  if (previous.length === 0) return next
+  const previousById = new Map<string, Turn>()
+  for (const turn of previous) previousById.set(turn.id, turn)
+  for (let i = 0; i < next.length; i++) {
+    const fresh = next[i]
+    const prior = previousById.get(fresh.id)
+    if (
+      prior &&
+      prior.lead === fresh.lead &&
+      prior.live === fresh.live &&
+      prior.startedAt === fresh.startedAt &&
+      sameEnd(prior.end, fresh.end) &&
+      sameItems(prior.body, fresh.body) &&
+      sameItems(prior.visibleWhenCollapsed, fresh.visibleWhenCollapsed) &&
+      sameItems(prior.tail, fresh.tail) &&
+      sameItems(prior.tools, fresh.tools)
+    ) {
+      next[i] = prior
+    }
+  }
+  return next
+}
+
+/** Entry motion belongs to new work at the live edge. A transcript hydration
+ * mounts its newest completed turns in one batch; animating those rows makes
+ * the assistant output paint before the user bubble and reads as a reorder. */
+export function shouldAnimateTurnEntry(turn: Turn, index: number, count: number): boolean {
+  return turn.live && index >= Math.max(0, count - 2)
+}
+
 function firstTimestamp(items: GroupedItem[]): number {
   for (const item of items) {
     if (item.kind === 'tool-group' || item.kind === 'subagent-group' || item.kind === 'agent-conversation-group') return item.messages[0].timestamp
@@ -386,10 +437,14 @@ export function turnDurationMs(turn: Turn): number | null {
     if (tool.toolCompletedAt) end = Math.max(end, tool.toolCompletedAt)
     end = Math.max(end, tool.timestamp)
   }
-  for (const item of [...turn.body, ...turn.tail]) {
-    if (item.kind === 'live-assistant') continue
-    if (item.kind === 'tool-group' || item.kind === 'subagent-group' || item.kind === 'agent-conversation-group') continue
-    end = Math.max(end, item.message.timestamp)
+  // Iterate the two slices in place — this runs for every turn on every
+  // transcript rebuild, so no merged copy per call.
+  for (const items of [turn.body, turn.tail]) {
+    for (const item of items) {
+      if (item.kind === 'live-assistant') continue
+      if (item.kind === 'tool-group' || item.kind === 'subagent-group' || item.kind === 'agent-conversation-group') continue
+      end = Math.max(end, item.message.timestamp)
+    }
   }
   if (!Number.isFinite(end) || end <= turn.startedAt) return null
   return end - turn.startedAt

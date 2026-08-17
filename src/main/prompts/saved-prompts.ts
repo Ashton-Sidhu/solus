@@ -1,13 +1,48 @@
 import type { Attachment, SavedPrompt } from '../../shared/types'
 import { getDb } from '../db'
+import { z } from 'zod'
 
-interface SavedPromptRow {
-  id: string
-  project_root: string
-  text: string
-  attachments: string
-  created_at: number
-}
+const designAnnotationSchema = z.object({
+  id: z.string(),
+  type: z.enum(['rectangle', 'arrow', 'pin', 'text']),
+  x: z.number(),
+  y: z.number(),
+  width: z.number().optional(),
+  height: z.number().optional(),
+  endX: z.number().optional(),
+  endY: z.number().optional(),
+  label: z.string().optional(),
+})
+const designSelectionSchema = z.object({
+  screenshot: z.string(),
+  outerHTML: z.string().optional(),
+  cssSelector: z.string().optional(),
+  computedStyles: z.record(z.string(), z.string()).optional(),
+  componentName: z.string().optional(),
+  componentFile: z.string().optional(),
+  pageURL: z.string().optional(),
+  viewport: z.object({ width: z.number(), height: z.number() }).optional(),
+  annotations: z.array(designAnnotationSchema).optional(),
+})
+const attachmentSchema = z.object({
+  id: z.string(),
+  type: z.enum(['image', 'file', 'design-selection']),
+  name: z.string(),
+  path: z.string(),
+  hostPath: z.string().optional(),
+  hostServerId: z.string().optional(),
+  mimeType: z.string().optional(),
+  dataUrl: z.string().optional(),
+  size: z.number().optional(),
+  designData: designSelectionSchema.optional(),
+})
+const savedPromptRowsSchema = z.array(z.object({
+  id: z.string(),
+  project_root: z.string(),
+  text: z.string(),
+  attachments: z.string(),
+  created_at: z.number(),
+}))
 
 /**
  * Ceiling on the serialized attachment set. Screenshots arrive as base64 data
@@ -20,8 +55,8 @@ const MAX_ATTACHMENTS_BYTES = 8 * 1024 * 1024
 
 function parseAttachments(raw: string): Attachment[] {
   try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
+    const parsed = z.array(attachmentSchema).safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : []
   } catch {
     return []
   }
@@ -29,12 +64,12 @@ function parseAttachments(raw: string): Attachment[] {
 
 /** Saved prompts for one project, newest first. */
 export async function listSavedPrompts(projectRoot: string): Promise<SavedPrompt[]> {
-  const rows = getDb().prepare(`
+  const rows = savedPromptRowsSchema.parse(getDb().prepare(`
     SELECT id, project_root, text, attachments, created_at
     FROM saved_prompts
     WHERE project_root = ?
     ORDER BY created_at DESC
-  `).all(projectRoot) as unknown as SavedPromptRow[]
+  `).all(projectRoot))
   return rows.map((row) => ({
     id: row.id,
     projectRoot: row.project_root,

@@ -113,7 +113,7 @@
 <!-- One step in from the task title's spine, with no plate of its own: the
      connector carries the hierarchy, so nothing here needs a box. -->
 <div
-  class="group/session relative -mr-1 flex h-[2.875rem] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 transition-[background] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring pl-8 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)]"
+  class="group/session relative -mx-2 flex h-[2.875rem] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-11 transition-[background] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)]"
   role="treeitem"
   tabindex="-1"
   data-tab-id={session.tabId}
@@ -151,7 +151,9 @@
 
        Selection is spent on the connector rather than on a plate: the spine
        runs terracotta from the task down to the row you are reading, which
-       turns its own elbow the same colour. Marking the path rather than the row
+       turns its own elbow the same colour. The row's negative margin widens its
+       hover plate, so the connector offsets by the same 0.5rem to stay on the
+       parent spine. Marking the path rather than the row
        is what makes a deep list answer "where am I?" at a glance. Because the
        row keeps no wash of its own, the ordinary hover fill still reads on it —
        which a selected plate would have swallowed. -->
@@ -164,14 +166,14 @@
          that stops the grey spine on the last child's elbow; an accent that
          ran past it would be the one line in the tree pointing at no row. -->
     <span
-      class="pointer-events-none absolute top-0 left-2.5 w-[0.09375rem] rounded-[0.0625rem] bg-primary {selected
+      class="pointer-events-none absolute top-0 left-[1.125rem] w-[0.09375rem] rounded-[0.0625rem] bg-primary {selected
         ? 'h-[0.96875rem]'
         : '-bottom-[0.1875rem]'}"
       aria-hidden="true"
     ></span>
   {/if}
   <span
-    class="pointer-events-none absolute top-[0.875rem] left-2.5 w-[0.875rem] {selected
+    class="pointer-events-none absolute top-[0.875rem] left-[1.125rem] w-[1.125rem] {selected
       ? 'h-[0.09375rem] rounded-[0.0625rem] bg-primary'
       : 'h-px bg-[color-mix(in_oklch,var(--foreground)_14%,transparent)]'}"
     aria-hidden="true"

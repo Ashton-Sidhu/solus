@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { z } from 'zod'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
 import { clearDelegation } from '../providers/github/delegation-store'
@@ -19,7 +20,6 @@ interface ServerKeys {
    *   "unclaimed" | { "owned": { "ownerDeviceId": "...", "claimedAt": 123 } }
    */
   ownership: OwnershipState
-  [key: string]: unknown
 }
 
 interface PairToken {
@@ -30,6 +30,39 @@ interface PairToken {
 }
 
 export type OwnershipState = 'unclaimed' | { owned: { ownerDeviceId: string; claimedAt: number } }
+
+const ownershipStateSchema = z.union([
+  z.literal('unclaimed'),
+  z
+    .object({
+      owned: z
+        .object({
+          ownerDeviceId: z.string().min(1),
+          claimedAt: z.number().finite(),
+        })
+        .strict(),
+    })
+    .strict(),
+])
+
+const serverKeysSchema = z
+  .object({
+    installationId: z.string().min(1),
+    signingKey: z.string().min(1),
+    ownership: ownershipStateSchema.optional().default('unclaimed'),
+  })
+  .strict()
+
+const revokedDevicesSchema = z.union([
+  z.array(z.string().min(1)),
+  z
+    .object({
+      version: z.number().optional(),
+      deviceIds: z.array(z.string().min(1)),
+    })
+    .strict()
+    .transform((value) => value.deviceIds),
+])
 
 export interface ClaimWindow {
   token: string
@@ -56,19 +89,16 @@ let _revokedDevicesLoaded = false
 function loadOrCreateKeys(): ServerKeys {
   if (_keys) return _keys
 
-  const dir = keysDir()
+  const dir = solusDir()
   const file = keysFile()
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
 
   if (existsSync(file)) {
     try {
       const raw = readFileSync(file, 'utf-8')
-      const parsed = JSON.parse(raw)
-      if (parsed?.installationId && parsed?.signingKey) {
-        _keys = {
-          ...parsed,
-          ownership: normalizeOwnershipState(parsed.ownership),
-        }
+      const parsed = serverKeysSchema.safeParse(JSON.parse(raw))
+      if (parsed.success) {
+        _keys = parsed.data
         return _keys!
       }
     } catch (err) {
@@ -238,13 +268,14 @@ export function issueSshBootstrapCredential(deviceLabel: string, now = Date.now(
     persistKeys()
   }
 
-  return {
+  const credential: SshBootstrapCredential = {
     sessionToken,
     installationId: keys.installationId,
     fingerprint: getServerFingerprint(),
-    ...(ownerDeviceId ? { ownerDeviceId } : {}),
-    ...(claimedAt ? { claimedAt } : {}),
   }
+  if (ownerDeviceId) credential.ownerDeviceId = ownerDeviceId
+  if (claimedAt) credential.claimedAt = claimedAt
+  return credential
 }
 
 function signSessionToken(deviceId: string, deviceLabel: string, issuedAt: number): string {
@@ -259,7 +290,12 @@ function signSessionToken(deviceId: string, deviceLabel: string, issuedAt: numbe
  * Signs an opaque session token: `<deviceId>.<issuedAt>.<deviceLabelB64>.<hmac>`.
  * The signing key never leaves the server; clients store the whole opaque blob.
  */
-export function issueSessionToken(deviceLabel: string, now = Date.now()): { token: string; deviceId: string } {
+interface IssuedSessionToken {
+  token: string
+  deviceId: string
+}
+
+export function issueSessionToken(deviceLabel: string, now = Date.now()): IssuedSessionToken {
   const deviceId = randomBytes(12).toString('hex')
   const issuedAt = now
   return { token: signSessionToken(deviceId, deviceLabel, issuedAt), deviceId }
@@ -296,6 +332,55 @@ export function refreshSessionToken(token: string, now = Date.now()): string | n
   return signSessionToken(session.deviceId, session.deviceLabel, now)
 }
 
+/** Five minutes: long enough to open a socket, useless to a log scraper. */
+export const WS_TICKET_TTL_MS = 5 * 60 * 1000
+
+/** A `ws.`-prefixed signature domain: a leaked ticket can never pass where a
+ *  session token is expected, and vice versa. */
+const WS_TICKET_PREFIX = 'ws'
+
+/**
+ * A short-lived, single-purpose WebSocket ticket (dispatch-client step 4):
+ * the long-lived session token only ever travels in HTTP headers, and only
+ * this derived ticket rides the socket handshake.
+ */
+export function issueWsTicket(sessionToken: string, now = Date.now()): string | null {
+  const session = verifySessionToken(sessionToken, now)
+  if (!session) return null
+  const keys = loadOrCreateKeys()
+  const labelB64 = Buffer.from(session.deviceLabel).toString('base64url')
+  const payload = `${WS_TICKET_PREFIX}.${session.deviceId}.${now}.${labelB64}`
+  const sig = createHmac('sha256', keys.signingKey).update(payload).digest('base64url')
+  return `${payload}.${sig}`
+}
+
+export function verifyWsTicket(ticket: string, now = Date.now()): SessionToken | null {
+  const keys = loadOrCreateKeys()
+  loadRevokedDevices()
+  const parts = ticket.split('.')
+  if (parts.length !== 5 || parts[0] !== WS_TICKET_PREFIX) return null
+  const [, deviceId, issuedAtStr, labelB64, sig] = parts
+
+  const issuedAt = Number(issuedAtStr)
+  if (!Number.isFinite(issuedAt)) return null
+  if (now - issuedAt > WS_TICKET_TTL_MS) return null
+  if (issuedAt > now + 60_000) return null
+
+  const expected = createHmac('sha256', keys.signingKey)
+    .update(`${WS_TICKET_PREFIX}.${deviceId}.${issuedAtStr}.${labelB64}`)
+    .digest('base64url')
+  const sigBuf = Buffer.from(sig)
+  const expBuf = Buffer.from(expected)
+  if (sigBuf.length !== expBuf.length || !timingSafeEqual(sigBuf, expBuf)) return null
+  if (_revokedDevices.has(deviceId)) return null
+
+  return {
+    deviceId,
+    deviceLabel: Buffer.from(labelB64, 'base64url').toString('utf-8'),
+    issuedAt,
+  }
+}
+
 export function revokeDevice(deviceId: string): void {
   loadRevokedDevices()
   _revokedDevices.add(deviceId)
@@ -319,19 +404,16 @@ function loadRevokedDevices(): void {
   const file = revokedDevicesFile()
   if (!existsSync(file)) return
   try {
-    const parsed = JSON.parse(readFileSync(file, 'utf-8'))
-    const raw = Array.isArray(parsed) ? parsed : parsed?.deviceIds
-    if (!Array.isArray(raw)) return
-    for (const id of raw) {
-      if (typeof id === 'string' && id) _revokedDevices.add(id)
-    }
+    const parsed = revokedDevicesSchema.safeParse(JSON.parse(readFileSync(file, 'utf-8')))
+    if (!parsed.success) return
+    for (const deviceId of parsed.data) _revokedDevices.add(deviceId)
   } catch (err) {
     log.warn('revoked_devices_load_failed', { error: err instanceof Error ? err.message : String(err) })
   }
 }
 
 function persistRevokedDevices(): void {
-  const dir = keysDir()
+  const dir = solusDir()
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   writeFileSync(revokedDevicesFile(), JSON.stringify({ version: 1, deviceIds: listRevokedDevices() }, null, 2), { mode: 0o600 })
 }
@@ -344,31 +426,16 @@ export function resetAuthStateForTests(): void {
   _revokedDevicesLoaded = false
 }
 
-function normalizeOwnershipState(value: unknown): OwnershipState {
-  if (value === 'unclaimed' || value == null) return 'unclaimed'
-  if (!value || typeof value !== 'object') return 'unclaimed'
-  const owned = (value as { owned?: unknown }).owned
-  if (!owned || typeof owned !== 'object') return 'unclaimed'
-  const candidate = owned as { ownerDeviceId?: unknown; claimedAt?: unknown }
-  if (typeof candidate.ownerDeviceId !== 'string' || !candidate.ownerDeviceId) return 'unclaimed'
-  if (typeof candidate.claimedAt !== 'number' || !Number.isFinite(candidate.claimedAt)) return 'unclaimed'
-  return { owned: { ownerDeviceId: candidate.ownerDeviceId, claimedAt: candidate.claimedAt } }
-}
-
 function persistKeys(): void {
-  const dir = keysDir()
+  const dir = solusDir()
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   writeFileSync(keysFile(), JSON.stringify(loadOrCreateKeys(), null, 2), { mode: 0o600 })
 }
 
-function keysDir(): string {
-  return solusDir()
-}
-
 function keysFile(): string {
-  return join(keysDir(), 'server-keys.json')
+  return join(solusDir(), 'server-keys.json')
 }
 
 function revokedDevicesFile(): string {
-  return join(keysDir(), 'revoked-devices.json')
+  return join(solusDir(), 'revoked-devices.json')
 }

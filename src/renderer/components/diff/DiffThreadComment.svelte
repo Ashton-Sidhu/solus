@@ -78,9 +78,9 @@
       thread.comments.push(comment);
       cancelReply();
     } catch (err) {
-      toasts.error(
-        `Reply failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toasts.error("Reply failed", {
+        description: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       busy = false;
     }
@@ -97,9 +97,9 @@
       // diff re-measures and reflows around the changed annotation height.
       onSetCollapsed?.(thread.id, next);
     } catch (err) {
-      toasts.error(
-        `Couldn't update thread: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toasts.error("Couldn't update thread", {
+        description: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       busy = false;
     }

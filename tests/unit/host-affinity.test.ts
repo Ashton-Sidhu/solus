@@ -3,6 +3,7 @@ import {
   hostAffinityGlyph,
   hostStatusLabel,
 } from '../../src/renderer/contexts/connections/host-affinity'
+import { AppleLogoIcon, GlobeSimpleIcon, LinuxLogoIcon, WindowsLogoIcon } from 'phosphor-svelte'
 
 describe('host affinity badge', () => {
   test('every host surface shares one availability vocabulary', () => {
@@ -30,6 +31,15 @@ describe('host affinity badge', () => {
     const offline = hostAffinityGlyph({ label: 'Studio', local: false }, 'offline')
     expect(offline?.icon).not.toBe(online?.icon)
     expect(offline?.statusLabel).toBe('Offline')
+  })
+
+  test('remote host badges use the saved operating system icon', () => {
+    // WHY: Run On rows and the Environment chip both consume this shared
+    // glyph. They must not fall back to a globe once the host reports its OS.
+    expect(hostAffinityGlyph({ label: 'Mac', local: false, os: 'macos' }, 'online')?.icon).toBe(AppleLogoIcon)
+    expect(hostAffinityGlyph({ label: 'PC', local: false, os: 'windows' }, 'online')?.icon).toBe(WindowsLogoIcon)
+    expect(hostAffinityGlyph({ label: 'Box', local: false, os: 'linux' }, 'online')?.icon).toBe(LinuxLogoIcon)
+    expect(hostAffinityGlyph({ label: 'Old host', local: false }, 'online')?.icon).toBe(GlobeSimpleIcon)
   })
 
   test('a host nobody has dialled is not reported as offline', () => {

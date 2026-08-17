@@ -6,8 +6,16 @@
   import InputBar from "../input/InputBar.svelte";
   import InputToolbar from "../input/InputToolbar.svelte";
   import SessionPicker from "../session/SessionPicker.svelte";
+  import TaskPicker from "../session/TaskPicker.svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import { getWorkspaceContext, getPlanStore, getWindowContext } from "../../contexts";
+  import {
+    getWorkspaceContext,
+    getPlanStore,
+    getSettingsContext,
+    getWindowContext,
+    runtime,
+  } from "../../contexts";
+  import { draftModelSelection } from "../session-draft/lib/draft-selection";
   import PaneChrome from "../ui/PaneChrome.svelte";
   // Eager, unlike the surfaces below: these are what cover an async boundary,
   // so they cannot sit behind one themselves.
@@ -15,8 +23,10 @@
   import DocumentModalSkeleton from "../document-modal/DocumentModalSkeleton.svelte";
   import DiagramShellSkeleton from "../diagram/DiagramShellSkeleton.svelte";
   import SettingsPageSkeleton from "../settings/SettingsPageSkeleton.svelte";
+  import PrsPageSkeleton from "../prs/PrsPageSkeleton.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { isHomeVisible, retainedConversationTabIds } from "./lib/workspace-body";
+  import { pillComposerTarget } from "./lib/pill-composer";
 
   interface Props {
     active?: boolean;
@@ -28,19 +38,19 @@
 
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
+  const theme = getSettingsContext();
   const windowCtx = getWindowContext();
 
   const clamp = (v: number, min: number, max: number) =>
     Math.round(Math.min(max, Math.max(min, v)));
 
-  const isLaptop = $derived(windowCtx.workAreaWidth < 1800);
-	  const pillWidth = $derived(
-	    isLaptop
-	      ? clamp(windowCtx.workAreaWidth * 0.67, 620, 960)
-	      : clamp(windowCtx.workAreaWidth * 0.82, 900, 1440),
-	  );
+  const pillWidth = $derived(
+    runtime.isLaptopViewport
+      ? clamp(windowCtx.workAreaWidth * 0.67, 620, 960)
+      : clamp(windowCtx.workAreaWidth * 0.82, 900, 1440),
+  );
   const pillBodyMax = $derived(
-    isLaptop
+    runtime.isLaptopViewport
       ? clamp(windowCtx.workAreaHeight * 0.55, 400, 580)
       : clamp(windowCtx.workAreaHeight * 0.68, 540, 740),
   );
@@ -68,6 +78,31 @@
   let pillGoalCollapsed = $state(false);
   let inputFocused = $state(false);
   const pickerOpen = $derived(!isEditorMode && session.sessionPickerOpen);
+  const taskPickerOpen = $derived(!isEditorMode && session.taskPickerOpen);
+  // The pill has no route outlet: it renders one fixed set of surfaces, so a
+  // draft reaches it as the thing its dock composes for rather than as a pane.
+  // Without this the bar keeps speaking for the tab the draft covered, and a
+  // new session started in the pill would send its first message into the last
+  // conversation instead.
+  // Read off the leading pane's own content rather than what is visible in it:
+  // Settings or a plan layered over the draft still leaves the dock composing
+  // for that draft, the same rule `composingDraftIds` follows.
+  const pillDraft = $derived.by(() => {
+    const base = router.leadingPane.base;
+    return base?.name === "draft"
+      ? (session.sessionDrafts.get(base.params.draftId) ?? null)
+      : null;
+  });
+  const pillDraftSelection = draftModelSelection(
+    () => pillDraft,
+    () => session.defaultRunConfig.provider ?? theme.activeAgent,
+  );
+  const pillComposer = $derived(
+    pillComposerTarget(pillDraft, session.activeSession, session.activeTabId),
+  );
+  let prompt = $derived(
+    pillDraft ? pillDraft.prompt : session.inputFor(session.activeTabId),
+  );
 
   // A tab that has not started a conversation has nothing above the bar to
   // show, so a new tab leaves the pill as just the bar rather than opening onto
@@ -77,7 +112,7 @@
     session.tasksStore.snoozeReminderForSession(pillSession?.agentSessionId),
   );
   const pillHomeVisible = $derived(
-    !pillSession || isHomeVisible(pillSession, !!pillSnoozeReminder),
+    !!pillDraft || !pillSession || isHomeVisible(pillSession, !!pillSnoozeReminder),
   );
   const pillSurfaceOpen = $derived(
     router.at("settings") ||
@@ -86,6 +121,7 @@
       router.at("tasks") ||
       router.at("prs") ||
       pickerOpen ||
+      taskPickerOpen ||
       !!pillGoalSessionId ||
       showPillDiagram ||
       !!pillWorkModal ||
@@ -104,6 +140,27 @@
   let hasMountedWorkspace = $state(false);
   $effect(() => {
     if (router.at("folio")) hasMountedWorkspace = true;
+  });
+
+  // The conversation pool outlives every covering surface. Unmounting it for a
+  // picker, Settings, or a page toggle would force a full transcript remount
+  // (markdown re-parse, entry animations, scroll reset) on the way back — so it
+  // lazy-mounts once and then hides with display:none, like WorkspaceBody's pool.
+  const conversationSurfaceActive = $derived(
+    !router.at("settings") &&
+      !router.at("folio") &&
+      !router.at("automations") &&
+      !router.at("tasks") &&
+      !router.at("prs"),
+  );
+  const conversationPoolVisible = $derived(
+    conversationSurfaceActive && !pickerOpen && !taskPickerOpen,
+  );
+  // Seeded from the current value so the common launch (straight into a
+  // conversation) paints the pool on the very first frame.
+  let hasMountedConversationPool = $state(conversationPoolVisible);
+  $effect(() => {
+    if (conversationPoolVisible) hasMountedConversationPool = true;
   });
 
   // Lazy-mount the pill conversation pool. Only create a tab's ConversationView
@@ -150,6 +207,32 @@
       window.removeEventListener("solus:toggle-session-picker", handler);
   });
 
+  /**
+   * Send is the moment the pill's draft stops being one: the session is
+   * created, its tab mounts, and `createSession` hands the leading pane back to
+   * the conversation pool. The prompt object goes into the new tab, so the text
+   * the bar clears after this is the same object the send just read.
+   */
+  function startPillDraft(text: string): boolean {
+    const draft = pillDraft;
+    if (!draft) return false;
+    const tabId = session.startSessionDraft(draft.id, { via: "click" });
+    if (!tabId) return false;
+    return session.sendMessage(text, undefined, tabId);
+  }
+
+  /** A draft has no tab for the workspace attach handler to address, so files
+   *  picked while composing one land on the draft's own prompt. */
+  async function attachPillDraftFile() {
+    const draft = pillDraft;
+    if (!draft) return;
+    const files = await session
+      .apiForRun(draft.run)
+      .attachFiles(session.ctxForDirectory(draft.run.workingDirectory));
+    if (!files || files.length === 0) return;
+    for (const file of files) draft.prompt.attachments.push(file);
+  }
+
   async function duplicatePillWork(workId: string) {
     const duplicated = await session.worksStore.duplicate(workId);
     session.openWork(duplicated.id);
@@ -189,14 +272,11 @@
       transition:background 0.28s cubic-bezier(0.16,1,0.3,1), box-shadow 0.28s cubic-bezier(0.16,1,0.3,1), margin-bottom 0.28s cubic-bezier(0.16,1,0.3,1), border-color 0.28s cubic-bezier(0.16,1,0.3,1);
     "
     >
-      <div
-        class="overflow-hidden no-drag"
-        style="
-        height:{bodyOpen ? 'auto' : 0};
-        opacity:{bodyOpen ? 1 : 0};
-        transition:height 0.28s cubic-bezier(0.16,1,0.3,1), opacity 0.28s cubic-bezier(0.16,1,0.3,1);
-      "
-      >
+      <!-- height:0↔auto never interpolates, so the body used to snap while the
+           card frame animated. Grid rows 0fr↔1fr animate the same collapse
+           smoothly and stay interruptible mid-toggle. -->
+      <div class="pill-body-reveal no-drag" class:pill-body-open={bodyOpen}>
+        <div class="min-h-0 overflow-hidden flex flex-col">
         {#if router.at("settings")}
           <div style="height:var(--pill-body-max);overflow:hidden">
             {#await import("../settings/SettingsPage.svelte")}
@@ -238,14 +318,14 @@
           {#if router.at("prs")}
             <div class="flex flex-col overflow-hidden h-[var(--pill-body-max)]">
               {#await import("../prs/PrsPage.svelte")}
-                {@render loadingSurface("Loading pull requests…")}
+                <PrsPageSkeleton />
               {:then prsModule}
                 {@const PrsPage = prsModule.default}
                 <PrsPage />
               {/await}
             </div>
           {/if}
-          {#if !router.at("folio") && !router.at("automations") && !router.at("tasks") && !router.at("prs")}
+          {#if conversationSurfaceActive}
             {#if pickerOpen}
               <div
                 class="flex flex-col"
@@ -259,13 +339,26 @@
                   }}
                 />
               </div>
-            {:else}
+            {:else if taskPickerOpen}
+              <div
+                class="flex flex-col"
+                style="height:var(--pill-body-max);overflow:hidden"
+              >
+                <TaskPicker
+                  inline
+                  bind:open={session.taskPickerOpen}
+                  onClose={() => {
+                    session.taskPickerOpen = false;
+                  }}
+                />
+              </div>
+            {/if}
+          {/if}
+        {/if}
+        {#if hasMountedConversationPool}
+          <div class:tab-hidden={!conversationPoolVisible}>
               <div class="relative" style="{showPillDiagram || pillGoalSessionId ? 'height:var(--pill-body-max)' : 'max-height:var(--pill-body-max)'}">
                 {#if pillGoalSessionId}
-                  <PaneChrome
-                    onClose={() => { router.close("goal"); requestInputFocus() }}
-                    closeLabel="Close goal"
-                  />
                   <!-- The pill has no project rail, so the goal card the rail
                        hosts in editor mode fills the pill body instead. -->
                   <div class="h-full overflow-y-auto p-2 pt-10">
@@ -276,15 +369,18 @@
                       onCleared={() => { router.close("goal"); requestInputFocus() }}
                     />
                   </div>
+                  <PaneChrome
+                    onClose={() => { router.close("goal"); requestInputFocus() }}
+                    closeLabel="Close goal"
+                  />
                 {/if}
                 {#if showPillDiagram}
                   <!-- The diagram renders in the pill body rather than as a
                        portaled modal, so its close lives in the shared pane
-                       chrome cluster like it does in editor mode. -->
-                  <PaneChrome
-                    onClose={() => { session.closeWorkModal(); requestInputFocus() }}
-                    closeLabel="Close diagram"
-                  />
+                       chrome cluster like it does in editor mode. The cluster
+                       renders after the shell: its toolbar is a window drag
+                       region, and a drag rect later in the DOM would re-cover
+                       the cluster's no-drag holes. -->
                   {#await import("../diagram/DiagramShell.svelte")}
                     <DiagramShellSkeleton />
                   {:then diagramModule}
@@ -298,6 +394,10 @@
                       onClose={() => { session.closeWorkModal(); requestInputFocus() }}
                     />
                   {/await}
+                  <PaneChrome
+                    onClose={() => { session.closeWorkModal(); requestInputFocus() }}
+                    closeLabel="Close diagram"
+                  />
                 {/if}
                 <!-- Persistent conversation pool: hidden (not unmounted) while a
                      diagram overlays, so closing it reveals the conversation
@@ -311,7 +411,7 @@
                       >
                         <ConversationView
                           tabId={tId}
-                          surfaceVisible={active && !showPillDiagram && !pillGoalSessionId}
+                          surfaceVisible={active && conversationPoolVisible && !showPillDiagram && !pillGoalSessionId}
                           retainTranscriptRows={retainedTranscriptTabIds.has(tId)}
                         />
                       </div>
@@ -319,7 +419,7 @@
                   {/each}
                 </div>
               </div>
-              {#if pillWorkModal && !isEditorMode && pillWorkModal.type !== "diagram"}
+              {#if conversationPoolVisible && pillWorkModal && !isEditorMode && pillWorkModal.type !== "diagram"}
                 {#await import("../document-modal/DocumentModal.svelte")}
                   <DocumentModalSkeleton
                     title={pillWorkModal.title}
@@ -335,19 +435,19 @@
                     onClose={() => session.closeWorkModal()}
                   />
                 {/await}
-              {:else if pillPlanModal && !isEditorMode}
+              {:else if conversationPoolVisible && pillPlanModal && !isEditorMode}
                 {#await import("../plan/PlanModal.svelte")}
                   <PlanModalSkeleton />
                 {:then planModalModule}
                   {@const PlanModal = planModalModule.default}
                   <PlanModal plan={pillPlanModal} />
                 {/await}
-              {:else if pillPlanPending && !isEditorMode}
+              {:else if conversationPoolVisible && pillPlanPending && !isEditorMode}
                 <PlanModalSkeleton />
               {/if}
-            {/if}
-          {/if}
+          </div>
         {/if}
+        </div>
       </div>
     </div>
 
@@ -372,20 +472,30 @@
         <TabStrip />
 
         <div class="px-1.5 pb-1.5 pt-1">
+          <!-- Addressed by what it composes for: a draft has no session and no
+               tab, so both go unset and Send mints them instead. -->
           <InputBar
             mode="pill"
-            sessionId={session.activeSession?.id ?? null}
-            tabId={session.activeTabId}
+            sessionId={pillComposer.sessionId}
+            tabId={pillComposer.tabId}
             isPrimary
-            run={session.activeSession?.run}
-            prompt={session.inputFor(session.activeTabId)}
+            run={pillComposer.run}
+            onDispatch={pillDraft ? startPillDraft : undefined}
+            bind:prompt
           >
             {#snippet leadingActions()}
               <InputToolbar
                 mode="pill"
-                tabId={session.activeTabId}
+                tabId={pillComposer.tabId}
                 isPrimary
-                {onAttachFile}
+                run={pillDraft ? pillDraft.run : undefined}
+                onRun={pillDraft
+                  ? (next) => {
+                      if (pillDraft) pillDraft.run = next;
+                    }
+                  : undefined}
+                selection={pillDraft ? pillDraftSelection : undefined}
+                onAttachFile={pillDraft ? attachPillDraftFile : onAttachFile}
                 {onScreenshot}
                 {onDesignMode}
               />
@@ -401,5 +511,22 @@
 <style>
   .tab-hidden {
     display: none !important;
+  }
+  .pill-body-reveal {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transition:
+      grid-template-rows 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+      opacity 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .pill-body-reveal.pill-body-open {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pill-body-reveal {
+      transition: none;
+    }
   }
 </style>

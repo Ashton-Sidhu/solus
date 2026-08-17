@@ -1,15 +1,9 @@
 import { spawn } from 'child_process'
 import { getElectronModule } from './electron'
 
-type ElectronShell = {
-  openExternal(url: string): Promise<void>
-}
-
 export function openExternal(url: string): Promise<void> {
   const shell = getElectronModule()?.shell
-  if (shell && typeof shell === 'object' && typeof (shell as Partial<ElectronShell>).openExternal === 'function') {
-    return (shell as ElectronShell).openExternal(url)
-  }
+  if (shell) return shell.openExternal(url)
 
   return new Promise((resolve, reject) => {
     const command = process.platform === 'darwin'

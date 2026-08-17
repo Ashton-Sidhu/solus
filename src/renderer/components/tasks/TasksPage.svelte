@@ -15,6 +15,7 @@
     WarningCircleIcon,
     MoonIcon,
     DotOutlineIcon,
+    CheckIcon,
   } from "phosphor-svelte";
   import {
     TASKS_AUTH_ERROR_PREFIX,
@@ -29,6 +30,10 @@
     getProjectConfigStore,
     getSessionSidebarStore,
     runtime,
+    projectCatalog,
+    mergeProjectOptions,
+    projectRefKey,
+    serversStore,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import {
@@ -69,6 +74,7 @@
     virtualGroupItems,
     type ListFilterSpec,
     type ListPageView,
+    type ListProjectOption,
     type ListStatusOption,
   } from "../ui/list-page";
   import PageEmpty from "../ui/PageEmpty.svelte";
@@ -97,19 +103,54 @@
       : session.taskCreationContext,
   );
   const cwd = $derived(taskContext?.projectKey ?? null);
-  const projectOptions = $derived(
-    sessionSidebar.projectSummaries
-      .filter((project) => project.projectKey !== "~")
-      .map((project) => ({
-        projectKey: project.projectKey,
-        label: project.label,
-      })),
+  // The switcher shows the deduplicated union of the sidebar's live projects
+  // (the selected host only) and every project the catalog has ever recorded,
+  // across every host — a project closed today still shows up here.
+  const sidebarServerId = $derived(serverConnections.defaultServerId());
+  const projectOptions = $derived<ListProjectOption[]>(
+    mergeProjectOptions(
+      [
+        // With no default host there is nothing to attribute a sidebar project
+        // to; the catalog still carries its own host per entry.
+        sidebarServerId
+          ? sessionSidebar.projectSummaries
+              .filter((project) => project.projectKey !== "~")
+              .map((project) => ({
+                serverId: sidebarServerId,
+                projectRoot: project.projectKey,
+                label: project.label,
+              }))
+          : [],
+        projectCatalog.entries,
+      ],
+      (serverId) => serversStore.statusFor(serverId) !== "offline",
+      (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
+    ).map((option) => ({
+      key: option.key,
+      projectKey: option.projectRoot,
+      serverId: option.serverId,
+      label: option.label,
+      available: option.available,
+      historyOnly: !sessionSidebar.projectSummaries.some(
+        (project) => project.projectKey === option.projectRoot,
+      ),
+    })),
+  );
+  // The pin is a bare path (TasksStore looks tasks up by path only), so when a
+  // path is unique across the catalog this recovers the exact option; when two
+  // hosts share the path it falls back to the current session's host, which is
+  // the same project TasksStore would have resolved either way.
+  const activeProjectOptionKey = $derived(
+    cwd
+      ? (projectOptions.find((option) => option.projectKey === cwd)?.key ??
+          (sidebarServerId
+            ? projectRefKey({ serverId: sidebarServerId, projectRoot: cwd })
+            : ""))
+      : "",
   );
   const projectTasks = $derived(store.tasksForProject(cwd));
   const projectServerId = $derived(
-    store.hostForProject(cwd) ??
-      serverConnections.connectionFor()?.serverId ??
-      null,
+    store.hostForProject(cwd) ?? serverConnections.defaultServerId(),
   );
   const projectHost = $derived(
     projectServerId
@@ -274,12 +315,18 @@
 
   const groups = $derived(taskGroups(visibleTasks, sessionsFor, now));
   const inboxGroups = $derived(
-    taskInboxGroups(projectTasks, sessionsFor, now, {
-      open: onOpen,
-      start: onStart,
-      resume: onResume,
-      markDone: (task) => void onSetStatus(task, "done"),
-    }, statuses),
+    taskInboxGroups(
+      projectTasks,
+      sessionsFor,
+      now,
+      {
+        open: onOpen,
+        start: onStart,
+        resume: onResume,
+        markDone: (task) => void onSetStatus(task, "done"),
+      },
+      statuses,
+    ),
   );
   const inboxVirtualItems = $derived(
     virtualGroupItems(inboxGroups, (row) => row.key),
@@ -457,15 +504,25 @@
   // A different project is a different list, so nothing about how the old one
   // was being read survives the switch. The load effect keys off `cwd` and
   // refetches on its own.
-  function selectProject(projectKey: string) {
+  function selectProject(option: ListProjectOption) {
+    if (!option.available) return;
     pinnedProjectKey =
-      projectKey === session.tasksProjectCwd ? null : projectKey;
+      option.projectKey === session.tasksProjectCwd
+        ? null
+        : option.projectKey;
     clearFilters();
     selection.clear();
     selectedKey = null;
     collapsedGroups = {};
     composing = null;
     void tick().then(() => searchEl?.focus());
+  }
+
+  function removeProjectHistory(option: ListProjectOption) {
+    projectCatalog.remove({
+      serverId: option.serverId,
+      projectRoot: option.projectKey,
+    });
   }
 
   // Re-read native tasks and explicitly poll the configured upstream provider.
@@ -516,9 +573,9 @@
     taskContextMenu = { task, x: event.clientX, y: event.clientY };
   }
 
-  function toastTaskError(action: string, err: unknown) {
+  function toastTaskError(action: string, err: Parameters<typeof String>[0]) {
     const message = err instanceof Error ? err.message : String(err);
-    toasts.error(`Couldn't ${action}: ${message}`);
+    toasts.error(`Couldn't ${action}`, { description: message });
   }
 
   async function onSetStatus(task: Task, status: TaskStatus) {
@@ -571,7 +628,9 @@
   let bulkSnoozeAnchor = $state<HTMLElement | null>(null);
 
   async function bulkComplete() {
-    const tasks = [...selection.ids].map((id) => taskById(id)).filter((task): task is Task => !!task);
+    const tasks = [...selection.ids]
+      .map((id) => taskById(id))
+      .filter((task): task is Task => !!task);
     selection.clear();
     for (const task of tasks) {
       try {
@@ -584,7 +643,9 @@
   }
 
   async function bulkMarkUnread() {
-    const tasks = [...selection.ids].map((id) => taskById(id)).filter((task): task is Task => !!task);
+    const tasks = [...selection.ids]
+      .map((id) => taskById(id))
+      .filter((task): task is Task => !!task);
     selection.clear();
     for (const task of tasks) await store.markRead(task.id, false);
   }
@@ -605,10 +666,14 @@
       }
     }
     if (snoozed.length > 0) {
-      toasts.undo(`${snoozed.length === 1 ? "Task" : `${snoozed.length} tasks`} snoozed`, () => {
-        void Promise.all(snoozed.map((task) => store.snooze(task.id, { until: null })))
-          .catch((error) => toastTaskError("undo snooze", error));
-      });
+      toasts.undo(
+        `${snoozed.length === 1 ? "Task" : `${snoozed.length} tasks`} snoozed`,
+        () => {
+          void Promise.all(
+            snoozed.map((task) => store.snooze(task.id, { until: null })),
+          ).catch((error) => toastTaskError("undo snooze", error));
+        },
+      );
     }
   }
 
@@ -766,9 +831,10 @@
   >
     <ListPage
       projects={projectOptions}
-      activeProjectKey={cwd ?? ""}
+      activeProjectKey={activeProjectOptionKey}
       emptyProjectLabel="No project"
       onSelectProject={selectProject}
+      onRemoveProjectHistory={removeProjectHistory}
       title="Tasks"
       {summary}
       {view}
@@ -882,20 +948,20 @@
                       {#snippet children()}{/snippet}
                     </ListGroup>
                   {:else}
-                  <InboxRow
-                    row={item.row}
-                    hot={!!item.group.accent}
-                    selected={selectedKey === item.row.key}
-                    onSelect={() => {
-                      selectedKey = item.row.key;
-                      const task = taskById(item.row.key);
-                      if (task) onOpen(task);
-                    }}
-                    onContextMenu={(event) => {
-                      const task = taskById(item.row.key);
-                      if (task) openTaskContextMenu(event, task);
-                    }}
-                  />
+                    <InboxRow
+                      row={item.row}
+                      hot={!!item.group.accent}
+                      selected={selectedKey === item.row.key}
+                      onSelect={() => {
+                        selectedKey = item.row.key;
+                        const task = taskById(item.row.key);
+                        if (task) onOpen(task);
+                      }}
+                      onContextMenu={(event) => {
+                        const task = taskById(item.row.key);
+                        if (task) openTaskContextMenu(event, task);
+                      }}
+                    />
                   {/if}
                 </div>
               {/snippet}
@@ -957,26 +1023,26 @@
                     {#snippet children()}{/snippet}
                   </ListGroup>
                 {:else}
-                <ListRow
-                  row={item.row}
-                  identWidth={62}
-                  fallbackAvatar="solus"
-                  selected={selectedKey === item.row.key ||
-                    selection.has(item.row.key)}
-                  onSelect={() => {
-                    selectedKey = item.row.key;
-                    const task = taskById(item.row.key);
-                    if (task) onOpen(task);
-                  }}
-                  onContextMenu={(event) => {
-                    const task = taskById(item.row.key);
-                    if (task) openTaskContextMenu(event, task);
-                  }}
-                >
-                  {#snippet leading()}
-                    {@render rowCheckbox(item.row.key)}
-                  {/snippet}
-                </ListRow>
+                  <ListRow
+                    row={item.row}
+                    identWidth={62}
+                    fallbackAvatar="solus"
+                    selected={selectedKey === item.row.key ||
+                      selection.has(item.row.key)}
+                    onSelect={() => {
+                      selectedKey = item.row.key;
+                      const task = taskById(item.row.key);
+                      if (task) onOpen(task);
+                    }}
+                    onContextMenu={(event) => {
+                      const task = taskById(item.row.key);
+                      if (task) openTaskContextMenu(event, task);
+                    }}
+                  >
+                    {#snippet leading()}
+                      {@render rowCheckbox(item.row.key)}
+                    {/snippet}
+                  </ListRow>
                 {/if}
               </div>
             {/snippet}
@@ -1006,7 +1072,8 @@
             type="button"
             class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
             onclick={() => void bulkComplete()}
-          ><CheckIcon size={14} />Complete</button>
+            ><CheckIcon size={14} />Complete</button
+          >
           <button
             type="button"
             class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
@@ -1015,14 +1082,18 @@
               bulkSnoozeTargets = [...selection.ids]
                 .map((id) => taskById(id))
                 .filter((task): task is Task => !!task);
-            }}
-          ><MoonIcon size={14} />Snooze</button>
+            }}><MoonIcon size={14} />Snooze</button
+          >
           <button
             type="button"
             class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
             onclick={() => void bulkMarkUnread()}
-          ><DotOutlineIcon size={14} weight="fill" />Unread</button>
-          <span class="h-4 w-px bg-(--solus-container-border)" aria-hidden="true"></span>
+            ><DotOutlineIcon size={14} weight="fill" />Unread</button
+          >
+          <span
+            class="h-4 w-px bg-(--solus-container-border)"
+            aria-hidden="true"
+          ></span>
           {#each BOARD_COLUMNS as col (col.status)}
             <button
               type="button"
@@ -1069,7 +1140,9 @@
     {#if bulkSnoozeTargets.length > 0 && bulkSnoozeAnchor}
       <SnoozeTaskMenu
         anchor={bulkSnoozeAnchor}
-        taskTitle={bulkSnoozeTargets.length === 1 ? bulkSnoozeTargets[0].title : `${bulkSnoozeTargets.length} selected tasks`}
+        taskTitle={bulkSnoozeTargets.length === 1
+          ? bulkSnoozeTargets[0].title
+          : `${bulkSnoozeTargets.length} selected tasks`}
         onConfirm={(until, note) => void confirmBulkSnooze(until, note)}
         onClose={() => {
           bulkSnoozeTargets = [];
@@ -1106,11 +1179,7 @@
         onResume={linkedSessionCount > 0 ? () => onResume(menuTask) : undefined}
         onOpenTask={() => onOpen(menuTask)}
         onOpenSource={menuTask.url ? () => onOpenLink(menuTask) : undefined}
-        onToggleDone={() =>
-          void onSetStatus(
-            menuTask,
-            menuTask.status === "done" ? "todo" : "done",
-          )}
+        onSetStatus={(status) => void onSetStatus(menuTask, status)}
         onDelete={menuTask.providerId === "local"
           ? () => onDelete(menuTask)
           : undefined}

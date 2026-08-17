@@ -12,11 +12,11 @@
   // A brand keeps its own colour where it has one. The marks that are
   // monochrome by design borrow the text colour instead, so they hold up in
   // both themes rather than being pinned to one background.
-  const TINTS: Record<ProviderLogoId, string> = {
+  const TINTS = {
     github: "var(--solus-text-primary)",
     claude: "#c15f2c",
     codex: "var(--solus-text-primary)",
-  };
+  } satisfies Record<ProviderLogoId, string>;
 </script>
 
 <span

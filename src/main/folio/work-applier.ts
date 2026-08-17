@@ -4,9 +4,23 @@ import { Task } from '../tasks/task'
 import { PermanentApplyError, registerOutboxApplier } from '../outbox/outbox-store'
 import { createLogger } from '../logger'
 import type { OutboxOp, WorkCreateOpPayload, WorkUpdateOpPayload } from '../../shared/outbox-types'
-import type { AgentId } from '../../shared/types'
+import { z } from 'zod'
 
 const log = createLogger('folio', 'work-applier.ts')
+const workCreatePayloadSchema = z.object({
+  taskId: z.string(),
+  title: z.string(),
+  docType: z.enum(['doc', 'slides', 'diagram']),
+  content: z.string(),
+  agentProvider: z.enum(['claude-code', 'codex', 'opencode']).optional(),
+  originSessionId: z.string().optional(),
+  cwd: z.string().optional(),
+})
+const workUpdatePayloadSchema = z.object({
+  taskId: z.string(),
+  content: z.string(),
+  title: z.string().optional(),
+})
 
 /**
  * Owner-side writes for `works` outbox ops (ADR-0007): a dispatched session's
@@ -22,7 +36,7 @@ const log = createLogger('folio', 'work-applier.ts')
 export function registerWorkOutboxApplier(): void {
   registerOutboxApplier('works', async (op: OutboxOp) => {
     if (op.name === 'create') {
-      const payload = op.payload as WorkCreateOpPayload
+      const payload: WorkCreateOpPayload = workCreatePayloadSchema.parse(op.payload)
       const existing = await loadWork(op.resourceId)
       if (!existing) {
         await createWork(
@@ -31,7 +45,7 @@ export function registerWorkOutboxApplier(): void {
           payload.content,
           workPreview(payload.docType, payload.content),
           payload.originSessionId ?? op.sessionId,
-          (payload.agentProvider as AgentId) ?? 'claude-code',
+          payload.agentProvider ?? 'claude-code',
           payload.cwd ?? '~',
           op.resourceId,
         )
@@ -56,16 +70,17 @@ export function registerWorkOutboxApplier(): void {
       return
     }
     if (op.name === 'update') {
-      const payload = op.payload as WorkUpdateOpPayload
+      const payload: WorkUpdateOpPayload = workUpdatePayloadSchema.parse(op.payload)
       const existing = await loadWork(op.resourceId)
       if (!existing) {
         throw new PermanentApplyError(`Work ${op.resourceId} no longer exists on its owner host.`)
       }
-      await agentSaveWork(op.resourceId, {
+      const update: Parameters<typeof agentSaveWork>[1] = {
         content: payload.content,
         preview: workPreview(existing.type, payload.content),
-        ...(payload.title !== undefined ? { title: payload.title } : {}),
-      })
+      }
+      if (payload.title !== undefined) update.title = payload.title
+      await agentSaveWork(op.resourceId, update)
       return
     }
     // An unknown verb is a version-skew problem a retry may fix once this host

@@ -25,7 +25,12 @@ function appendPathEntries(target: string[], seen: Set<string>, rawPath: string 
   }
 }
 
-function baseEntries(): { ordered: string[]; seen: Set<string> } {
+interface PathEntries {
+  ordered: string[]
+  seen: Set<string>
+}
+
+function baseEntries(): PathEntries {
   const ordered: string[] = []
   const seen = new Set<string>()
   appendPathEntries(ordered, seen, process.env.PATH)

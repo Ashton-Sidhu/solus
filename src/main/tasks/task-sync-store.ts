@@ -7,8 +7,28 @@ import type {
   TaskSyncState,
 } from '../../shared/task-types'
 import { getDb } from '../db'
+import { z } from 'zod'
 
-const SYNC_FIELDS = new Set(['title', 'body', 'status', 'labels'])
+const syncFieldSchema = z.enum(['title', 'body', 'status', 'labels'])
+
+const externalLinkRowSchema = z.object({
+  task_id: z.string(),
+  provider: z.literal('github'),
+  external_key: z.string(),
+  external_id: z.string(),
+  url: z.string(),
+  external_updated_at: z.string().nullable(),
+  snapshot: z.string().nullable(),
+  dirty_fields: z.string(),
+  sync_state: z.enum(['ok', 'dirty', 'error', 'auth_error']),
+  sync_error: z.string().nullable(),
+  last_synced_at: z.number().nullable(),
+  retry_at: z.number().nullable(),
+  failure_count: z.number(),
+})
+
+const dirtyCommentRowSchema = z.object({ id: z.string(), body: z.string() })
+const externalIdRowSchema = z.object({ external_id: z.string() })
 
 interface ExternalLinkRow {
   task_id: string
@@ -44,13 +64,27 @@ export function notifyTaskSyncDirty(taskId: string): void {
   for (const listener of dirtyListeners) listener(taskId)
 }
 
-function parseJson<T>(value: string | null, fallback: T): T {
-  if (!value) return fallback
+function parseSnapshot(value: string | null): TaskExternalLink['snapshot'] {
+  if (!value) return undefined
   try {
-    return JSON.parse(value) as T
+    return JSON.parse(value)
   } catch {
-    return fallback
+    return undefined
   }
+}
+
+function parseDirtyFields(value: string): SyncField[] {
+  try {
+    const parsed = z.array(syncFieldSchema).safeParse(JSON.parse(value))
+    return parsed.success ? parsed.data : []
+  } catch {
+    return []
+  }
+}
+
+function externalLinkRow(value: ReturnType<ReturnType<DatabaseSync['prepare']>['get']>): ExternalLinkRow | null {
+  const parsed = externalLinkRowSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
 }
 
 function linkFromRow(row: ExternalLinkRow): TaskExternalLink {
@@ -61,9 +95,8 @@ function linkFromRow(row: ExternalLinkRow): TaskExternalLink {
     externalId: row.external_id,
     url: row.url,
     externalUpdatedAt: row.external_updated_at,
-    snapshot: parseJson(row.snapshot, undefined),
-    dirtyFields: parseJson<SyncField[]>(row.dirty_fields, [])
-      .filter((field): field is SyncField => SYNC_FIELDS.has(field)),
+    snapshot: parseSnapshot(row.snapshot),
+    dirtyFields: parseDirtyFields(row.dirty_fields),
     syncState: row.sync_state,
     syncError: row.sync_error,
     lastSyncedAt: row.last_synced_at,
@@ -76,8 +109,7 @@ export function externalLinkForTask(
   taskId: string,
   db: DatabaseSync = getDb(),
 ): TaskExternalLink | null {
-  const row = db.prepare('SELECT * FROM task_external_links WHERE task_id = ?')
-    .get(taskId) as unknown as ExternalLinkRow | undefined
+  const row = externalLinkRow(db.prepare('SELECT * FROM task_external_links WHERE task_id = ?').get(taskId))
   return row ? linkFromRow(row) : null
 }
 
@@ -85,10 +117,10 @@ export function externalLinkForTicket(
   ref: Pick<ExternalTicketRef, 'provider' | 'externalKey' | 'externalId'>,
   db: DatabaseSync = getDb(),
 ): TaskExternalLink | null {
-  const row = db.prepare(`
+  const row = externalLinkRow(db.prepare(`
     SELECT * FROM task_external_links
     WHERE provider = ? AND external_key = ? AND external_id = ?
-  `).get(ref.provider, ref.externalKey, ref.externalId) as unknown as ExternalLinkRow | undefined
+  `).get(ref.provider, ref.externalKey, ref.externalId))
   return row ? linkFromRow(row) : null
 }
 
@@ -99,7 +131,10 @@ export function listExternalLinks(
   const rows = taskId
     ? db.prepare('SELECT * FROM task_external_links WHERE task_id = ?').all(taskId)
     : db.prepare('SELECT * FROM task_external_links ORDER BY task_id').all()
-  return (rows as unknown as ExternalLinkRow[]).map(linkFromRow)
+  return rows.flatMap((row) => {
+    const parsed = externalLinkRowSchema.safeParse(row)
+    return parsed.success ? [linkFromRow(parsed.data)] : []
+  })
 }
 
 /** Which tickets in one repository a native task already mirrors. The upstream
@@ -113,8 +148,11 @@ export function linkedExternalIds(
   const rows = db.prepare(`
     SELECT external_id FROM task_external_links
     WHERE provider = ? AND external_key = ?
-  `).all(provider, externalKey) as unknown as Array<{ external_id: string }>
-  return new Set(rows.map((row) => row.external_id))
+  `).all(provider, externalKey)
+  return new Set(rows.flatMap((row) => {
+    const parsed = externalIdRowSchema.safeParse(row)
+    return parsed.success ? [parsed.data.external_id] : []
+  }))
 }
 
 export function writeExternalLink(
@@ -153,7 +191,9 @@ export function writeExternalLink(
     now,
   )
   insertExternalComments(db, taskId, ticket.comments)
-  return externalLinkForTask(taskId, db)!
+  const link = externalLinkForTask(taskId, db)
+  if (!link) throw new Error(`Failed to persist external link for task ${taskId}`)
+  return link
 }
 
 export function markTaskFieldsDirty(
@@ -165,7 +205,8 @@ export function markTaskFieldsDirty(
   if (!link) return false
   const next = new Set(link.dirtyFields)
   for (const field of fields) {
-    if (SYNC_FIELDS.has(field)) next.add(field as SyncField)
+    const parsed = syncFieldSchema.safeParse(field)
+    if (parsed.success) next.add(parsed.data)
   }
   if (next.size === link.dirtyFields.length) return false
   db.prepare(`
@@ -254,11 +295,15 @@ export function dirtyCommentsForTask(
   taskId: string,
   db: DatabaseSync = getDb(),
 ): DirtyCommentRow[] {
-  return db.prepare(`
+  const rows = db.prepare(`
     SELECT id, body FROM task_comments
     WHERE task_id = ? AND dirty = 1
     ORDER BY created_at, id
-  `).all(taskId) as unknown as DirtyCommentRow[]
+  `).all(taskId)
+  return rows.flatMap((row) => {
+    const parsed = dirtyCommentRowSchema.safeParse(row)
+    return parsed.success ? [parsed.data] : []
+  })
 }
 
 /**

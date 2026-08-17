@@ -3,6 +3,7 @@ import { GITHUB_OAUTH_SCOPES, parseGithubScopes } from '../../../shared/github-a
 import { GITHUB_CLIENT_ID } from './client-id'
 import { loadToken, persistToken, clearToken, type GithubStoredToken } from './token-store'
 import type { AuthStatus, DeviceCodePrompt, ProviderAuth } from '../types'
+import { z } from 'zod'
 
 const log = createLogger('main', 'github-auth')
 
@@ -21,13 +22,21 @@ const DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
 // GitHub-App swap behind ProviderAuth, not a rewrite of consumers.
 const SCOPE = GITHUB_OAUTH_SCOPES.join(' ')
 
-interface DeviceCodeResponse {
-  device_code: string
-  user_code: string
-  verification_uri: string
-  expires_in: number
-  interval: number
-}
+const deviceCodeResponseSchema = z.object({
+  device_code: z.string(),
+  user_code: z.string(),
+  verification_uri: z.string(),
+  expires_in: z.number(),
+  interval: z.number(),
+})
+type DeviceCodeResponse = z.output<typeof deviceCodeResponseSchema>
+const tokenResponseSchema = z.object({
+  access_token: z.string().optional(),
+  scope: z.string().optional(),
+  error: z.string().optional(),
+  interval: z.number().optional(),
+})
+const githubUserSchema = z.object({ login: z.string() })
 
 async function postForm(url: string, body: string): Promise<{ status: number; body: string }> {
   const res = await fetch(url, {
@@ -79,7 +88,7 @@ async function requestDeviceCode(): Promise<DeviceCodeResponse> {
   const params = new URLSearchParams({ client_id: GITHUB_CLIENT_ID, scope: SCOPE })
   const res = await postForm(DEVICE_CODE_URL, params.toString())
   if (res.status !== 200) throw new Error(`Device code request failed: ${res.body}`)
-  return JSON.parse(res.body) as DeviceCodeResponse
+  return deviceCodeResponseSchema.parse(JSON.parse(res.body))
 }
 
 /**
@@ -100,12 +109,7 @@ async function pollForToken(deviceCode: string, intervalSeconds: number, expires
       grant_type: DEVICE_GRANT,
     })
     const res = await postForm(ACCESS_TOKEN_URL, params.toString())
-    const data = JSON.parse(res.body) as {
-      access_token?: string
-      scope?: string
-      error?: string
-      interval?: number
-    }
+    const data = tokenResponseSchema.parse(JSON.parse(res.body))
 
     if (data.access_token) {
       return { accessToken: data.access_token, scope: data.scope ?? SCOPE }
@@ -131,7 +135,7 @@ async function pollForToken(deviceCode: string, intervalSeconds: number, expires
 async function fetchLogin(token: string): Promise<{ login: string; scopes: string }> {
   const res = await getJson(USER_URL, token)
   if (res.status !== 200) throw new Error(`Failed to fetch GitHub user: ${res.body}`)
-  const user = JSON.parse(res.body) as { login: string }
+  const user = githubUserSchema.parse(JSON.parse(res.body))
   // `X-OAuth-Scopes` lists the scopes actually granted to *this* token — the
   // authoritative source. The device-flow token-exchange `scope` echo can lag
   // behind a re-authorization, so prefer the header (comma-separated).

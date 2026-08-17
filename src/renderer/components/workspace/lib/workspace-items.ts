@@ -129,9 +129,14 @@ export function buildWorkspaceItems(
 
 export type LedgerBucketKey = 'today' | 'yesterday' | 'week' | string
 
+export interface LedgerBucket {
+  key: LedgerBucketKey
+  label: string
+}
+
 /** Ledger buckets per the spec: Today, Yesterday, This week, then one bucket
  *  per calendar month ("July", or "July 2025" once the year differs). */
-export function bucketFor(timestamp: number, now = new Date()): { key: LedgerBucketKey; label: string } {
+export function bucketFor(timestamp: number, now = new Date()): LedgerBucket {
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   const startOfYesterday = startOfToday - 86_400_000
   const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay()
@@ -149,9 +154,14 @@ export function bucketFor(timestamp: number, now = new Date()): { key: LedgerBuc
 
 export type LedgerGroup = { key: string; label: string; items: WorkspaceItem[] }
 
+export interface GroupedWorkspaceItems {
+  pinned: WorkspaceItem[]
+  groups: LedgerGroup[]
+}
+
 /** Split into the Pinned group plus date buckets. A pinned item is *moved* into
  *  Pinned — it never appears twice. */
-export function groupItems(items: WorkspaceItem[]): { pinned: WorkspaceItem[]; groups: LedgerGroup[] } {
+export function groupItems(items: WorkspaceItem[]): GroupedWorkspaceItems {
   const pinned = items.filter((i) => i.pinned).sort((a, b) => b.pinnedAt - a.pinnedAt)
   const groups: LedgerGroup[] = []
   const byKey = new Map<string, LedgerGroup>()
@@ -211,9 +221,9 @@ export function isDefaultFilter(f: WorkspaceFilter): boolean {
   return f.type === 'all' && f.status === 'any' && !f.pinnedOnly && f.time === 'all' && !f.text.trim()
 }
 
-const TYPE_TOKENS: Record<string, TypeFilter> = { plan: 'plan', doc: 'doc', diagram: 'diagram' }
-const STATUS_TOKENS: Record<string, StatusFilter> = { pending: 'pending', accepted: 'accepted', rejected: 'rejected' }
-const TIME_TOKENS: Record<string, TimeFilter> = { today: 'today', yesterday: 'yesterday', week: 'week', older: 'older' }
+const TYPE_TOKENS = new Map<string, TypeFilter>([['plan', 'plan'], ['doc', 'doc'], ['diagram', 'diagram']])
+const STATUS_TOKENS = new Map<string, StatusFilter>([['pending', 'pending'], ['accepted', 'accepted'], ['rejected', 'rejected']])
+const TIME_TOKENS = new Map<string, TimeFilter>([['today', 'today'], ['yesterday', 'yesterday'], ['week', 'week'], ['older', 'older']])
 
 /** Parse one `key:value` word into a filter patch, or null when it isn't a
  *  recognized token (it stays free text). */
@@ -222,12 +232,15 @@ export function parseToken(word: string): Partial<WorkspaceFilter> | null {
   if (!match) return null
   const key = match[1].toLowerCase()
   const value = match[2].toLowerCase()
-  if (key === 'type' && TYPE_TOKENS[value]) return { type: TYPE_TOKENS[value] }
+  const type = TYPE_TOKENS.get(value)
+  if (key === 'type' && type) return { type }
   // `status:` implies plans — the only artifact carrying one — so the filter
   // predicate already excludes docs and diagrams; no explicit type: needed.
-  if (key === 'status' && STATUS_TOKENS[value]) return { status: STATUS_TOKENS[value] }
+  const status = STATUS_TOKENS.get(value)
+  if (key === 'status' && status) return { status }
   if (key === 'is' && value === 'pinned') return { pinnedOnly: true }
-  if (key === 'time' && TIME_TOKENS[value]) return { time: TIME_TOKENS[value] }
+  const time = TIME_TOKENS.get(value)
+  if (key === 'time' && time) return { time }
   return null
 }
 
@@ -292,11 +305,12 @@ export function formatGeneratedDate(timestamp: number, now = new Date()): string
   if (!timestamp) return ''
   const date = new Date(timestamp)
   const sameYear = date.getFullYear() === now.getFullYear()
-  return date.toLocaleDateString(undefined, {
+  const options: Intl.DateTimeFormatOptions = {
     month: 'short',
     day: 'numeric',
-    ...(sameYear ? {} : { year: 'numeric' }),
-  })
+  }
+  if (!sameYear) options.year = 'numeric'
+  return date.toLocaleDateString(undefined, options)
 }
 
 /** The tooltip behind that column — the full moment, since the column itself is

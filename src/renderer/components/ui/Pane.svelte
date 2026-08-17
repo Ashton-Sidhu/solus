@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import type { PaneEntry } from "../../contexts/workspace/routing/location";
   import { visibleRef } from "../../contexts/workspace/routing/location";
   import { ROUTES } from "../../contexts/workspace/routing/route-registry";
@@ -8,6 +9,9 @@
   // so they cannot sit behind one themselves.
   import ConversationPaneSkeleton from "../conversation/ConversationPaneSkeleton.svelte";
   import SettingsPageSkeleton from "../settings/SettingsPageSkeleton.svelte";
+  import PrsPageSkeleton from "../prs/PrsPageSkeleton.svelte";
+  import PaneChrome from "./PaneChrome.svelte";
+  import { paneActions } from "./lib/pane-actions.svelte";
 
   /**
    * The route outlet: one pane, whatever route it currently shows. It knows
@@ -22,6 +26,7 @@
   let { pane, surfaceVisible = true, onAttachFile, onScreenshot, onDesignMode }: Props = $props();
 
   const session = getWorkspaceContext();
+  const actions = paneActions(untrack(() => pane.id));
   const ref = $derived(visibleRef(pane));
   const descriptor = $derived(ref ? ROUTES[ref.name] : null);
   // Pages used to size themselves with `flex-1` as children of the content
@@ -38,14 +43,31 @@
     {#await descriptor.component()}
       {#if ref.name === "settings"}
         <SettingsPageSkeleton />
+      {:else if ref.name === "prs"}
+        <PrsPageSkeleton />
       {:else if ref.name === "chat"}
         <ConversationPaneSkeleton />
       {:else}
-        <div
-          class="grid h-full min-h-32 w-full place-items-center text-xs text-(--solus-text-tertiary)"
-          role="status"
-        >
-          Loading…
+        <div class="flex h-full min-h-32 w-full flex-col">
+          <div
+            class="workspace-titlebar h-(--solus-chrome-row-h) shrink-0"
+            aria-hidden="true"
+          ></div>
+          <div
+            class="grid min-h-0 flex-1 place-items-center text-xs text-(--solus-text-tertiary)"
+            role="status"
+          >
+            Loading…
+          </div>
+          {#if descriptor.placement === "overlay"}
+            <!-- After the chrome row: drag rects are collected in DOM order, so
+                 the cluster's no-drag holes must come after the row's drag rect. -->
+            <PaneChrome
+              onClose={actions.closeOverlay}
+              isLeading={actions.isLeading}
+              closeLabel="Close loading pane"
+            />
+          {/if}
         </div>
       {/if}
     {:then routeModule}

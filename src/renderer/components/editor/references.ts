@@ -267,11 +267,13 @@ export function insertReference(
 // Single combined walk for both reference kinds. syncRefs runs on every editor
 // update, so pull plan + work refs from one doc.descendants pass rather than
 // two independent full walks (each of which allocated its own Set + array).
-export function extractRefs(editor: Editor | null): {
+export interface ExtractedReferences {
   planRefs: PlanReference[];
   workRefs: WorkReference[];
   sessionRefs: SessionReference[];
-} {
+}
+
+export function extractRefs(editor: Editor | null): ExtractedReferences {
   const planRefs: PlanReference[] = [];
   const workRefs: WorkReference[] = [];
   const sessionRefs: SessionReference[] = [];

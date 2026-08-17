@@ -17,6 +17,12 @@
   import InterruptCard from './InterruptCard.svelte'
   import TranscriptChip from './TranscriptChip.svelte'
   import { liveActivityClock } from '../../lib/shared-clock'
+  import { z } from 'zod'
+
+  const editStringDetailsSchema = z.object({
+    old_string: z.string().optional(),
+    new_string: z.string().optional(),
+  })
 
   interface Props {
     tabId: string
@@ -51,9 +57,10 @@
   const isWrite = $derived(permission.toolTitle === 'Write')
   const input = $derived(permission.toolInput)
   const editChanges = $derived(fileChangePreviews(input))
-  const hasEditStringDetails = $derived(
-    typeof input?.old_string === 'string' || typeof input?.new_string === 'string'
-  )
+  const hasEditStringDetails = $derived.by(() => {
+    const parsed = editStringDetailsSchema.safeParse(input)
+    return parsed.success && (parsed.data.old_string !== undefined || parsed.data.new_string !== undefined)
+  })
   const hasEditDetails = $derived(editChanges.length > 0 || hasEditStringDetails)
 
   // The full argv is the hero and is never truncated — approving a command you
@@ -89,9 +96,11 @@
   function handleKeydown(e: KeyboardEvent) {
     if (tabId !== session.activeTabId || responded) return
     if (e.metaKey || e.ctrlKey || e.altKey) return
-    const target = e.target as HTMLElement | null
-    const tag = target?.tagName
-    if (tag === 'TEXTAREA' || tag === 'INPUT' || target?.isContentEditable === true) return
+    const target = e.target
+    if (target instanceof HTMLElement) {
+      const tag = target.tagName
+      if (tag === 'TEXTAREA' || tag === 'INPUT' || target.isContentEditable) return
+    }
 
     if (e.key === 'Enter' && actions.affirmative) {
       e.preventDefault()

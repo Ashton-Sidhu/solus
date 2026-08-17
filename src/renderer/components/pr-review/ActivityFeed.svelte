@@ -9,7 +9,7 @@
   } from "phosphor-svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { CommentEditor } from "../ui/comment-editor";
-  import type { ChangedFileStat, IpcContext } from "../../../shared/types";
+  import { projectScopeOf, type ChangedFileStat, type IpcContext } from "../../../shared/types";
   import type {
     ReviewThread,
     ReviewComment,
@@ -27,6 +27,7 @@
   import { subscribeAllHosts } from "@client-core/host-events";
   import type { HostApi } from "@client-core/host-api";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
+  import { changedFileTotals } from "../../lib/diff-stats";
   import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
   import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
   import { githubMarkdownRenderers } from "../ui/markdown-renderers";
@@ -69,6 +70,7 @@
     onGenerateGuide,
     onChat,
     onJump,
+    onOpenCommit,
     onRefreshThreads,
     onRefreshTarget,
     onDetailChanged,
@@ -76,6 +78,7 @@
     getApi,
     serverId,
     masthead,
+    showIdentity = true,
   }: {
     pr: PrActivityTarget;
     /** The list's own group key, so the subtitle chip agrees with the row the
@@ -97,6 +100,8 @@
     onChat?: () => void;
     /** Jump to a thread's / file's location in the Diff tab. */
     onJump?: (path: string, line: number | null) => void;
+    /** Open the diff scoped to one commit's changes. */
+    onOpenCommit?: (commit: PrCommit) => void;
     /** Refetch the shared threads (e.g. from this tab's Refresh button). */
     onRefreshThreads?: () => void;
     /** Refresh the exact host revision owned by the route. */
@@ -113,6 +118,8 @@
      *  Rendered by the host above this tab's title so the same row appears
      *  whichever tab is showing. */
     masthead?: import("svelte").Snippet;
+    /** Show the PR icon and number above the title when no surface header owns them. */
+    showIdentity?: boolean;
   } = $props();
 
   const session = getWorkspaceContext();
@@ -125,7 +132,7 @@
     return subscribeAllHosts("pr.lifecycleChanged", (eventServerId, event) => {
       if (eventServerId !== serverId || event.detail.number !== number) return;
       const ctx = feedCtx().session;
-      if (event.projectRoot !== (ctx.projectPath || ctx.workingDirectory)) return;
+      if (event.projectRoot !== projectScopeOf(ctx)) return;
       detail = event.detail;
       onDetailChanged?.(event.detail);
     });
@@ -215,15 +222,7 @@
   const filesLabel = $derived(
     changedFiles.length === 1 ? "1 file" : `${changedFiles.length} files`,
   );
-  const diffStat = $derived.by(() => {
-    let additions = 0;
-    let deletions = 0;
-    for (const f of changedFiles) {
-      additions += f.additions;
-      deletions += f.deletions;
-    }
-    return { additions, deletions };
-  });
+  const diffStat = $derived(changedFileTotals(changedFiles));
 
   const baseRef = $derived(pr.baseRef ?? detail?.baseRef ?? "");
   const headBranch = $derived(pr.headRef ?? detail?.headRef ?? "");
@@ -260,7 +259,7 @@
     unresolvedCount + comments.reduce((count, item) => count + (item.body.trim() ? 1 : 0), 0),
   );
 
-  function markLoadFailed(n: number, error: unknown) {
+  function markLoadFailed(n: number, error: Parameters<typeof prSurfaceError>[0]) {
     if (pr.number !== n) return;
     loadFailed = true;
     const mapped = prSurfaceError(error);
@@ -379,9 +378,9 @@
       );
       toasts.success(`Requested a review from ${login}`);
     } catch (error) {
-      toasts.error(
-        `Couldn't request the reviewer: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      toasts.error("Couldn't request the reviewer", {
+        description: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       reviewerMutation = null;
       requestInputFocus();
@@ -397,9 +396,9 @@
       );
       toasts.success(`Removed ${login} from requested reviewers`);
     } catch (error) {
-      toasts.error(
-        `Couldn't remove the reviewer: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      toasts.error("Couldn't remove the reviewer", {
+        description: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       reviewerMutation = null;
       requestInputFocus();
@@ -439,13 +438,11 @@
   ): Promise<void> {
     if (!detail) return;
     const previous = detail;
-    const optimistic: PullRequestDetail = {
-      ...previous,
-      ...(action === "close" ? { state: "closed" as const } : {}),
-      ...(action === "reopen" ? { state: "open" as const } : {}),
-      ...(action === "ready" ? { draft: false } : {}),
-      ...(action === "draft" ? { draft: true } : {}),
-    };
+    const optimistic: PullRequestDetail = { ...previous };
+    if (action === "close") optimistic.state = "closed";
+    if (action === "reopen") optimistic.state = "open";
+    if (action === "ready") optimistic.draft = false;
+    if (action === "draft") optimistic.draft = true;
     detail = optimistic;
     session.prsStore.applyDetail(serverId, feedCtx(), pr.number, optimistic);
     onDetailChanged?.(optimistic);
@@ -569,9 +566,9 @@
       editing = false;
       toasts.success("Pull request updated");
     } catch (err) {
-      toasts.error(
-        `Couldn't update pull request: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toasts.error("Couldn't update pull request", {
+        description: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       saving = false;
       requestInputFocus();
@@ -584,7 +581,9 @@
     try {
       await onAddressComments();
     } catch (err) {
-      toasts.error(`Couldn't open the fix agent: ${err instanceof Error ? err.message : String(err)}`);
+      toasts.error("Couldn't open the fix agent", {
+        description: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       addressingComments = false;
       requestInputFocus();
@@ -663,7 +662,7 @@
              rail (prActions below), which folds under this column rather than
              hiding, so they are reachable at every width. -->
         <header>
-          {#if !masthead}
+          {#if showIdentity && !masthead}
             <p
               class="flex items-center gap-2 font-mono text-xs st text-muted-foreground uppercase"
             >
@@ -680,7 +679,7 @@
             <input
               bind:this={titleInput}
               bind:value={titleDraft}
-              class="{masthead ? '' : 'mt-3.5'} w-full rounded-lg border border-border bg-card px-3 py-2 text-[1.5rem] leading-[1.28] font-medium outline-none transition-colors focus:border-ring"
+              class="{masthead || !showIdentity ? '' : 'mt-3.5'} w-full rounded-lg border border-border bg-card px-3 py-2 text-[1.5rem] leading-[1.28] font-medium outline-none transition-colors focus:border-ring"
               aria-label="Pull request title"
               onkeydown={(event) => {
                 if (event.key === "Escape") cancelEditing();
@@ -692,13 +691,13 @@
             />
           {:else if prTitle}
             <h1
-              class="{masthead ? '' : 'mt-3.5'} text-[1.5rem] leading-[1.28] font-medium text-pretty"
+              class="{masthead || !showIdentity ? '' : 'mt-3.5'} text-[1.5rem] leading-[1.28] font-medium text-pretty"
             >
               {prTitle}
             </h1>
           {:else}
             <Skeleton
-              class="{masthead ? '' : 'mt-3.5'} h-[31px] w-2/3 max-w-[560px] rounded-lg bg-muted"
+              class="{masthead || !showIdentity ? '' : 'mt-3.5'} h-[31px] w-2/3 max-w-[560px] rounded-lg bg-muted"
             />
           {/if}
 
@@ -909,6 +908,7 @@
           {authorName}
           {openedAt}
           onJump={jumpToFile}
+          {onOpenCommit}
           onReply={replyToThread}
           onResolve={resolveThread}
         />

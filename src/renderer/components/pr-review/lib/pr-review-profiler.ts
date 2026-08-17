@@ -28,7 +28,13 @@ export interface PrReviewProfileReport {
   longTasks: ProfileSample[]
 }
 
-const isEnabled = Boolean(import.meta.env.DEV && typeof performance !== 'undefined')
+declare global {
+  interface Window {
+    __solusPrProfile?: PrReviewProfileReport
+  }
+}
+
+const isEnabled = import.meta.env.DEV
 const storedReportKey = 'solus:pr-review-profile'
 let activeProfile: PrReviewProfile | null = null
 
@@ -42,7 +48,7 @@ function persistReport(report: PrReviewProfileReport): void {
   }
 }
 
-const previousReport = (globalThis as typeof globalThis & { __solusPrProfile?: PrReviewProfileReport }).__solusPrProfile
+const previousReport = window.__solusPrProfile
 if (isEnabled && previousReport) persistReport(previousReport)
 
 function timingName(number: number, label: string): string {
@@ -72,7 +78,7 @@ function finishActiveProfile(): void {
     longTasks: [...profile.longTasks].sort((a, b) => b.duration - a.duration),
   }
 
-  ;(globalThis as typeof globalThis & { __solusPrProfile?: PrReviewProfileReport }).__solusPrProfile = report
+  window.__solusPrProfile = report
   persistReport(report)
   console.info(`[Solus][PR_PROFILE_JSON] ${JSON.stringify(report)}`)
   console.groupCollapsed(`[Solus][PR profile] #${profile.number} settled in ${total.toFixed(1)}ms`)
@@ -109,7 +115,7 @@ export function beginPrReviewProfile(number: number, options: { restart?: boolea
   activeProfile = profile
   performance.mark(timingName(number, 'open'))
 
-  if (typeof PerformanceObserver !== 'undefined' && PerformanceObserver.supportedEntryTypes?.includes('longtask')) {
+  if (PerformanceObserver.supportedEntryTypes?.includes('longtask')) {
     profile.observer = new PerformanceObserver((list) => {
       if (activeProfile !== profile) return
       for (const entry of list.getEntries()) {
@@ -121,7 +127,7 @@ export function beginPrReviewProfile(number: number, options: { restart?: boolea
   }
 }
 
-export function markPrReviewProfile(label: string, detail?: object): void {
+export function markPrReviewProfile<Detail extends object>(label: string, detail?: Detail): void {
   const profile = activeProfile
   if (!profile || !isEnabled) return
   const now = performance.now()
@@ -129,10 +135,10 @@ export function markPrReviewProfile(label: string, detail?: object): void {
   performance.mark(timingName(profile.number, label), { detail })
 }
 
-export function profilePrReviewWork<T>(
+export function profilePrReviewWork<T, Detail extends object>(
   label: string,
   work: () => T,
-  detail?: object,
+  detail?: Detail,
 ): T {
   const profile = activeProfile
   if (!profile || !isEnabled) return work()

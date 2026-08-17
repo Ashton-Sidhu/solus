@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { z } from 'zod'
 import { ulid } from './ulid'
 import type { TaskActor, TaskEvent, TaskEventKind, TaskLinkKind } from '../../shared/task-types'
 
@@ -33,36 +34,43 @@ interface TaskFieldsForDiff {
   labels: string
 }
 
-interface TaskEventRow {
-  id: string
-  task_id: string
-  kind: TaskEventKind
-  actor: TaskActor
-  actor_label: string | null
-  from_value: string | null
-  to_value: string | null
-  target_kind: TaskLinkKind | 'session' | null
-  target_scope: string | null
-  target_key: string | null
-  target_title: string | null
-  created_at: number
-}
+const taskEventRowSchema = z.object({
+  id: z.string(),
+  task_id: z.string(),
+  kind: z.enum([
+    'created', 'status_changed', 'priority_changed', 'assignee_changed',
+    'due_date_changed', 'title_changed', 'parent_changed', 'labels_changed',
+    'linked', 'unlinked', 'session_started', 'snoozed', 'woke',
+  ]),
+  actor: z.enum(['user', 'agent', 'automation', 'system']),
+  actor_label: z.string().nullable(),
+  from_value: z.string().nullable(),
+  to_value: z.string().nullable(),
+  target_kind: z.enum(['work', 'plan', 'pr', 'automation', 'session']).nullable(),
+  target_scope: z.string().nullable(),
+  target_key: z.string().nullable(),
+  target_title: z.string().nullable(),
+  created_at: z.number(),
+})
+
+type TaskEventRow = z.infer<typeof taskEventRowSchema>
 
 function eventFromRow(row: TaskEventRow): TaskEvent {
-  return {
+  const event: TaskEvent = {
     id: row.id,
     taskId: row.task_id,
     kind: row.kind,
     actor: row.actor,
-    ...(row.actor_label === null ? {} : { actorLabel: row.actor_label }),
-    ...(row.from_value === null ? {} : { from: row.from_value }),
-    ...(row.to_value === null ? {} : { to: row.to_value }),
-    ...(row.target_kind === null ? {} : { targetKind: row.target_kind }),
-    ...(row.target_scope === null ? {} : { targetScope: row.target_scope }),
-    ...(row.target_key === null ? {} : { targetKey: row.target_key }),
-    ...(row.target_title === null ? {} : { targetTitle: row.target_title }),
     createdAt: row.created_at,
   }
+  if (row.actor_label !== null) event.actorLabel = row.actor_label
+  if (row.from_value !== null) event.from = row.from_value
+  if (row.to_value !== null) event.to = row.to_value
+  if (row.target_kind !== null) event.targetKind = row.target_kind
+  if (row.target_scope !== null) event.targetScope = row.target_scope
+  if (row.target_key !== null) event.targetKey = row.target_key
+  if (row.target_title !== null) event.targetTitle = row.target_title
+  return event
 }
 
 /** Append one event inside the caller's transaction. This never opens its own:
@@ -97,9 +105,9 @@ export function appendTaskEvent(
 /** Label sets compare as sets, so reordering the same labels is not history. */
 function sortedLabels(value: string): string {
   try {
-    const parsed = JSON.parse(value) as unknown
-    if (!Array.isArray(parsed)) return value
-    return JSON.stringify([...parsed].sort())
+    const parsed = z.array(z.string()).safeParse(JSON.parse(value))
+    if (!parsed.success) return value
+    return JSON.stringify([...parsed.data].sort())
   } catch {
     return value
   }
@@ -140,11 +148,11 @@ export function diffTaskEvents(
 
 /** Oldest-first, capped to the newest `TASK_EVENT_LIMIT` entries. */
 export function readTaskEvents(db: DatabaseSync, taskId: string): TaskEvent[] {
-  const rows = db.prepare(`
+  const rows = z.array(taskEventRowSchema).parse(db.prepare(`
     SELECT * FROM task_events
     WHERE task_id = ?
     ORDER BY created_at DESC, id DESC
     LIMIT ?
-  `).all(taskId, TASK_EVENT_LIMIT) as unknown as TaskEventRow[]
+  `).all(taskId, TASK_EVENT_LIMIT))
   return rows.reverse().map(eventFromRow)
 }

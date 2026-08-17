@@ -53,13 +53,13 @@
   // on canvas stays neutral so a graph reads as structure, not as a palette.
   const tint = $derived(node.color ?? 'var(--solus-accent)')
 
-  const TAB_LABELS: Record<InspectorTab, string> = {
+  const TAB_LABELS = {
     identity: 'Identity',
     style: 'Style',
     data: 'Data',
     links: 'Links',
     comments: 'Comments',
-  }
+  } satisfies Record<InspectorTab, string>
 
   let panelEl = $state<HTMLDivElement | undefined>()
 
@@ -67,7 +67,7 @@
     // Tracked so adding two nodes in a row focuses the second one's label too —
     // the panel stays mounted across the switch, so `autoFocus` alone never
     // changes and would only ever fire once.
-    node.id
+    void node.id
     if (autoFocus && panelEl) {
       panelEl.querySelector<HTMLElement>('.inspector-name-input')?.focus()
     }

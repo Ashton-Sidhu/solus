@@ -20,14 +20,13 @@ export function buildRemoteDispatchCard(options: RemoteDispatchCardOptions): Sta
   const { tabId, hostLabel, phase, error } = options
   const connectionDone = phase !== 'connecting' || error?.step === 'repository'
   const repositoryDone = phase === 'ready'
-  const steps: StatusCardStep[] = [
-    {
+  const connectionStep: StatusCardStep = {
       id: 'connection',
       label: `Connecting to ${hostLabel}`,
       status: error?.step === 'connection' ? 'error' : connectionDone ? 'done' : 'active',
-      ...(error?.step === 'connection' ? { detail: error.message } : {}),
-    },
-    {
+    }
+  if (error?.step === 'connection') connectionStep.detail = error.message
+  const repositoryStep: StatusCardStep = {
       id: 'repository',
       label: 'Preparing repository',
       status: error?.step === 'repository'
@@ -37,8 +36,11 @@ export function buildRemoteDispatchCard(options: RemoteDispatchCardOptions): Sta
           : phase === 'repository'
             ? 'active'
             : 'pending',
-      ...(error?.step === 'repository' ? { detail: error.message } : {}),
-    },
+    }
+  if (error?.step === 'repository') repositoryStep.detail = error.message
+  const steps: StatusCardStep[] = [
+    connectionStep,
+    repositoryStep,
     ...FUTURE_STEPS.map((step) => ({ ...step })),
   ]
   return {

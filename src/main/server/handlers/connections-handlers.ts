@@ -9,11 +9,12 @@ const log = createLogger('main', 'connections-handlers')
 
 export interface ConnectionsDeps {
   /** Returns the bound host/port — these change on each launch when port==0. */
-  getServerInfo(): { host: string; port: number; allowLan: boolean; remoteAccess: boolean; requireAuth: boolean }
+  getServerInfo(): { host: string; port: number; allowLan: boolean; remoteAccess: boolean; requireAuth: boolean; trustLocalNetwork: boolean }
   /** Returns currently-connected WebSocket clients. */
   getActiveSessions(): ActiveConnectionSession[]
   discoverLanServers(): Promise<DiscoveredServer[]>
   setRemoteAccess(remoteAccess: boolean): Promise<{ remoteAccess: boolean; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
+  setTrustLocalNetwork(trustLocalNetwork: boolean): { trustLocalNetwork: boolean }
 }
 
 export interface ActiveConnectionSession {
@@ -90,18 +91,23 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
 
   server.register('connectionsBootstrapDiscoveredServer', (args, ctx) => {
     if (!ctx.deviceId) throw new Error('SSH bootstrap requires an authenticated device.')
-    const [input] = args as [Parameters<typeof bootstrapDiscoveredServerOverSsh>[0]]
+    const [input] = args
     return bootstrapDiscoveredServerOverSsh(input)
   })
 
   server.register('connectionsRevokeDevice', (args) => {
-    const [{ deviceId }] = args as [{ deviceId: string }]
+    const [{ deviceId }] = args
     revokeDevice(deviceId)
     return { ok: true, revoked: listRevokedDevices() }
   })
 
   server.register('connectionsSetRemoteAccess', async (args) => {
-    const [{ remoteAccess }] = args as [{ remoteAccess: boolean }]
+    const [{ remoteAccess }] = args
     return deps.setRemoteAccess(remoteAccess === true)
+  })
+
+  server.register('connectionsSetTrustLocalNetwork', (args) => {
+    const [{ trustLocalNetwork }] = args
+    return deps.setTrustLocalNetwork(trustLocalNetwork === true)
   })
 }

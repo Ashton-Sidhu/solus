@@ -16,6 +16,7 @@
     PrReviewerCandidate,
   } from "../../../shared/providers";
   import { fileTypeIcon } from "../../lib/fileTypeIcon";
+  import { changedFileTotals } from "../../lib/diff-stats";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { ensureIconCollections } from "../diagram/iconify";
   import { Button } from "../ui/button";
@@ -133,7 +134,9 @@
   const statusColor = $derived(
     !detail
       ? null
-      : readyToMerge || detail.state === "merged"
+      : detail.state === "merged"
+        ? "var(--review)"
+        : readyToMerge
         ? "var(--solus-art-positive)"
         : blocked
           ? "var(--solus-art-negative)"
@@ -143,8 +146,9 @@
     filesExpanded ? changedFiles : changedFiles.slice(0, FILES_PREVIEW),
   );
   const moreFiles = $derived(Math.max(0, changedFiles.length - FILES_PREVIEW));
-  const totalAdds = $derived(changedFiles.reduce((sum, f) => sum + f.additions, 0));
-  const totalDels = $derived(changedFiles.reduce((sum, f) => sum + f.deletions, 0));
+  const fileTotals = $derived(changedFileTotals(changedFiles));
+  const totalAdds = $derived(fileTotals.additions);
+  const totalDels = $derived(fileTotals.deletions);
   const addPct = $derived(
     totalAdds + totalDels > 0 ? (totalAdds / (totalAdds + totalDels)) * 100 : 0,
   );

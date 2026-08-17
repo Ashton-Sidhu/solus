@@ -92,10 +92,10 @@ const LINUX_PACKAGE_INSTALLERS = [
 ] as const
 
 /** The GitHub CLI ships under a longer name on the distros that spell it out. */
-const PACKAGE_NAMES: Record<InstallablePackage, Partial<Record<string, string>>> = {
+const PACKAGE_NAMES = {
   git: {},
   gh: { pacman: 'github-cli', apk: 'github-cli' },
-}
+} satisfies Record<InstallablePackage, Partial<Record<string, string>>>
 
 export interface CloneUrlInfo {
   cloneUrl: string
@@ -155,7 +155,11 @@ export function buildAgentInstallCommand(agent: SetupAgent, opts: BuildInstallCo
 export function validateCloneUrl(raw: string): CloneUrlInfo {
   const cloneUrl = raw.trim()
   if (!cloneUrl) throw new Error('Clone URL is required.')
-  if (cloneUrl.length > 2048 || /[\s\x00-\x1f\x7f]/.test(cloneUrl)) {
+  const hasControlCharacter = [...cloneUrl].some((character) => {
+    const code = character.charCodeAt(0)
+    return /\s/.test(character) || code <= 31 || code === 127
+  })
+  if (cloneUrl.length > 2048 || hasControlCharacter) {
     throw new Error('Clone URL must not contain whitespace or control characters.')
   }
 

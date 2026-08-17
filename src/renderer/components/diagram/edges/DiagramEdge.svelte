@@ -6,12 +6,33 @@
     EdgeReconnectAnchor,
     useStore,
   } from "@xyflow/svelte";
-  import type { EdgeProps } from "@xyflow/svelte";
+  import type { Edge, EdgeProps } from "@xyflow/svelte";
+  import { z } from "zod";
+  import type { DiagramEdge as DiagramEdgeContract } from "../../../../shared/diagram-types";
   import {
     facingAnchor,
     type AnchorSide,
   } from "../../../../shared/diagram-edge-anchor";
   import { EditableLabel } from "../editable-label.svelte";
+
+  type DiagramFlowEdgeData = Pick<
+    DiagramEdgeContract,
+    "bendOffset" | "cardinality" | "color" | "route"
+  > & {
+    floatingSource?: boolean;
+    floatingTarget?: boolean;
+    onLabelChange?: (id: string, label: string) => void;
+    onContextMenu?: (
+      id: string,
+      kind: "edge",
+      clientX: number,
+      clientY: number,
+    ) => void;
+    onBendOffsetChange?: (id: string, offset: number) => void;
+    onBendOffsetCommit?: (id: string) => void;
+  };
+
+  type DiagramFlowEdge = Edge<DiagramFlowEdgeData>;
 
   let {
     id,
@@ -31,7 +52,7 @@
     interactionWidth,
     selected,
     data,
-  }: EdgeProps = $props();
+  }: EdgeProps<DiagramFlowEdge> = $props();
 
   const store = useStore();
 
@@ -49,20 +70,20 @@
   // captures the id at mount, so a reversed/rewired edge would keep floating
   // to its old endpoints. Reading store.nodes retriggers on measure/drag.
   const sourceNode = $derived.by(() => {
-    store.nodes;
+    void store.nodes;
     return store.nodeLookup.get(source);
   });
   const targetNode = $derived.by(() => {
-    store.nodes;
+    void store.nodes;
     return store.nodeLookup.get(target);
   });
 
-  const SIDE_TO_POSITION: Record<AnchorSide, Position> = {
+  const SIDE_TO_POSITION = {
     left: Position.Left,
     right: Position.Right,
     top: Position.Top,
     bottom: Position.Bottom,
-  };
+  } satisfies Record<AnchorSide, Position>;
 
   function rectOf(n: typeof sourceNode) {
     if (!n?.measured?.width || !n.measured.height) return null;
@@ -110,17 +131,17 @@
   );
   const midX = $derived((ends.sx + ends.tx) / 2);
   const midY = $derived((ends.sy + ends.ty) / 2);
-  const bend = $derived((data?.bendOffset as number | undefined) ?? 0);
+  const bend = $derived(data?.bendOffset ?? 0);
   const centerX = $derived(horizontal ? midX + bend : midX);
   const centerY = $derived(horizontal ? midY : midY + bend);
 
   // Routing style: 'straight' draws a direct line; 'step' is a sharp-cornered
   // orthogonal path; 'smooth' (the default) keeps the rounded step corners. The
   // draggable bend only applies to the two stepped variants.
-  const shape = $derived((data?.shape as "smooth" | "step" | "straight" | undefined) ?? "smooth");
+  const route = $derived(data?.route ?? "smooth");
 
   let [path, labelX, labelY] = $derived.by(() => {
-    if (shape === "straight") {
+    if (route === "straight") {
       return getStraightPath({
         sourceX: ends.sx,
         sourceY: ends.sy,
@@ -137,7 +158,7 @@
       targetPosition: ends.tPos,
       centerX,
       centerY,
-      borderRadius: shape === "step" ? 0 : undefined,
+      borderRadius: route === "step" ? 0 : undefined,
     });
   });
 
@@ -146,11 +167,11 @@
   // canonical glyph (drawn pointing right from origin) is rotated to face along the
   // edge at each endpoint. Both source and target use the same Position→angle map
   // because the canonical +x axis is "along the edge, away from the node" at each end.
-  const cardinality = $derived(data?.cardinality as '1-1' | '1-n' | 'n-1' | 'n-n' | undefined)
+  const cardinality = $derived(data?.cardinality)
   const sourceEnd = $derived(cardinality ? cardinality[0] : null)  // '1' or 'n'
   const targetEnd = $derived(cardinality ? cardinality[2] : null)  // '1' or 'n'
   const markerColor = $derived(
-    (data?.color as string | undefined) ?? (selected ? 'var(--solus-accent)' : 'var(--diagram-edge-arrow)')
+    data?.color ?? (selected ? 'var(--solus-accent)' : 'var(--diagram-edge-arrow)')
   )
 
   function positionAngle(pos: Position): number {
@@ -165,7 +186,7 @@
 
   // Edges allow an empty label (clears it), unlike nodes.
   const editor = new EditableLabel({
-    getLabel: () => (typeof label === "string" ? label : ""),
+    getLabel: () => z.string().catch("").parse(label),
     onCommit: (v) => data?.onLabelChange?.(id, v),
     allowEmpty: true,
   });
@@ -201,7 +222,7 @@
     e.stopPropagation();
     const isHorizontal = horizontal;
     const startClient = isHorizontal ? e.clientX : e.clientY;
-    const startOffset = (data?.bendOffset as number | undefined) ?? 0;
+    const startOffset = data?.bendOffset ?? 0;
 
     function onMove(moveEvent: PointerEvent) {
       const zoom = store.viewport.zoom || 1;
@@ -300,7 +321,7 @@
          anywhere along it (not just a midpoint dot). A fat transparent line
          catches the pointer; a thin accent line shows where it lives. A straight
          edge has no stepped middle segment, so the bend grab is hidden there. -->
-    {#if shape !== "straight"}
+    {#if route !== "straight"}
     <line
       class="edge-bend-hit nodrag nopan"
       x1={horizontal ? centerX : ends.sx}

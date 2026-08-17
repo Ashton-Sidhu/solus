@@ -68,10 +68,9 @@
   function updatePos() {
     if (!triggerEl) return;
     const rect = triggerEl.getBoundingClientRect();
-    pos = {
-      left: Math.min(rect.left, window.innerWidth - 240 - 8),
-      bottom: window.innerHeight - rect.top + 8,
-    };
+    const left = Math.min(rect.left, window.innerWidth - 240 - 8);
+    const bottom = window.innerHeight - rect.top + 8;
+    if (left !== pos.left || bottom !== pos.bottom) pos = { left, bottom };
   }
 
   useClickOutside(
@@ -110,15 +109,37 @@
 
   $effect(() => {
     if (!open) return;
-    // Retrack every frame so the popover follows the top bar's fly-in animation.
-    const tick = () => {
+    // The trigger rides the top bar's finite fly-in, so the popover retracks it
+    // per frame — but only until the rect settles. Polling for the whole time
+    // the popover is open forces a layout every frame for no movement.
+    let lastLeft = NaN;
+    let lastBottom = NaN;
+    let stableFrames = 0;
+    const track = () => {
       updatePos();
-      rafId = requestAnimationFrame(tick);
+      if (pos.left === lastLeft && pos.bottom === lastBottom) {
+        stableFrames += 1;
+        if (stableFrames >= 3) return;
+      } else {
+        stableFrames = 0;
+        lastLeft = pos.left;
+        lastBottom = pos.bottom;
+      }
+      rafId = requestAnimationFrame(track);
     };
-    rafId = requestAnimationFrame(tick);
+    const restartTracking = () => {
+      cancelAnimationFrame(rafId);
+      stableFrames = 0;
+      lastLeft = NaN;
+      lastBottom = NaN;
+      rafId = requestAnimationFrame(track);
+    };
+    rafId = requestAnimationFrame(track);
+    window.addEventListener("resize", restartTracking);
 
     return () => {
       cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", restartTracking);
     };
   });
 

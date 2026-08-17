@@ -17,6 +17,8 @@
      *  spend a body row stating. */
     headerBadge?: Snippet;
     headerExtra?: Snippet;
+    /** The first project card reaches the window top and owns its drag band. */
+    titlebar?: boolean;
     children: Snippet;
   }
 
@@ -27,6 +29,7 @@
     headerDetail,
     headerBadge,
     headerExtra,
+    titlebar = false,
     children,
   }: Props = $props();
 
@@ -41,13 +44,17 @@
      collapsed section leaves a visible gap rather than silently shortening. -->
 <Sidebar.Group
   role="group"
-  class="group/section min-h-0 shrink-0 gap-0 rounded-2xl border border-[color-mix(in_srgb,var(--solus-text-primary)_8%,transparent)] bg-(--solus-container-bg) p-1.5 shadow-[0_1px_2px_-1px_rgba(0,0,0,0.05)] dark:border-[color-mix(in_srgb,var(--solus-text-primary)_11%,transparent)] dark:shadow-none"
+  class="group/section min-h-0 shrink-0 gap-0 rounded-2xl border border-[color-mix(in_srgb,var(--solus-text-primary)_8%,transparent)] bg-(--solus-container-bg) p-1.5 shadow-[0_1px_2px_-1px_rgba(0,0,0,0.05)] dark:border-[color-mix(in_srgb,var(--solus-text-primary)_11%,transparent)] dark:shadow-none {titlebar
+    ? 'workspace-titlebar'
+    : ''}"
 >
   <Sidebar.GroupLabel
     class="group/header h-auto min-h-6 justify-between gap-1 px-1.5 py-0"
   >
     <button
-      class="flex min-h-6 min-w-0 flex-1 cursor-pointer items-center border-none bg-transparent text-xs font-medium text-(--solus-text-tertiary) uppercase transition-[color,transform] duration-150 hover:text-(--solus-text-primary) active:scale-[0.996] focus-visible:rounded-md focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
+      class="flex min-h-6 min-w-0 cursor-pointer items-center border-none bg-transparent text-menu-meta font-medium text-(--solus-text-tertiary) uppercase transition-[color,transform] duration-150 hover:text-(--solus-text-primary) active:scale-[0.996] focus-visible:rounded-md focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {titlebar
+        ? ''
+        : 'flex-1'}"
       type="button"
       aria-expanded={!collapsed}
       onclick={toggle}
@@ -59,7 +66,7 @@
         {/if}
         {#if headerDetail}
           <span
-            class="min-w-0 truncate text-xs font-normal text-(--solus-text-tertiary) normal-case"
+            class="min-w-0 truncate text-menu-meta font-normal text-(--solus-text-tertiary) normal-case"
             aria-live="polite"
           >
             {headerDetail}
@@ -70,7 +77,11 @@
     {#if headerExtra}
       <!-- The header's trailing value is a reading, not a label: regular weight,
            so only the heading itself carries the 500. -->
-      <span class="min-w-0 shrink-0 font-normal text-(--solus-text-tertiary)">
+      <span
+        class="min-w-0 shrink-0 font-normal text-(--solus-text-tertiary) {titlebar
+          ? 'ml-auto'
+          : ''}"
+      >
         {@render headerExtra()}
       </span>
     {/if}
@@ -91,7 +102,7 @@
   </Sidebar.GroupLabel>
   {#if !collapsed}
     <div
-      class="min-h-0 pt-1.5"
+      class="no-drag min-h-0 pt-1.5"
       transition:slide={{ duration: reduceMotion ? 0 : 180, easing: cubicOut }}
     >
       {@render children()}

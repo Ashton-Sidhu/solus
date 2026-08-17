@@ -31,7 +31,7 @@ export interface ArtifactToolDeps {
 
 export const ARTIFACT_TOOL_NAME = 'render_artifact'
 
-const artifactShape = {
+const artifactFields = {
   html: z.string().describe('A finished, self-contained HTML document to render.'),
 } as const
 
@@ -46,11 +46,11 @@ export interface ArtifactToolResult {
 }
 
 export async function executeArtifactTool(
-  args: { html?: unknown },
+  args: z.input<typeof artifactInputSchema>,
   deps: ArtifactToolDeps = {},
 ): Promise<ArtifactToolResult> {
   try {
-    const html = typeof args.html === 'string' ? args.html : ''
+    const html = artifactInputSchema.parse(args).html
     if (!html.trim()) return { ok: false, text: 'render_artifact requires non-empty html.' }
     deps.onArtifact?.({ html })
     return { ok: true, text: 'Rendered the HTML artifact in the conversation.' }
@@ -60,10 +60,12 @@ export async function executeArtifactTool(
   }
 }
 
+const artifactInputSchema = z.object({ html: z.string().catch('') })
+
 export const renderArtifactAgentTool: AgentTool = {
   name: ARTIFACT_TOOL_NAME,
   description: ARTIFACT_TOOL_DESC,
-  inputShape: artifactShape,
+  inputFields: artifactFields,
   requiresApproval: false,
   execute: async (args, context) => executeArtifactTool(args, {
     onArtifact: (artifact) => context.emit({

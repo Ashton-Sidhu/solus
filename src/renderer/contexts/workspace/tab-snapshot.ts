@@ -38,12 +38,18 @@ export function snapshotPersistedTabs(session: WorkspaceContext): PersistedTab[]
         permissionMode:
           restoredSession?.run.permissionMode ?? session.globalDefaults.permissionMode,
         hasUnread: tab.hasUnread ?? false,
-        ...(restoredSession ? taskTargetFields(restoredSession.task) : {}),
+        pendingTaskId: restoredSession ? taskTargetFields(restoredSession.task).pendingTaskId : null,
+        pendingParentTaskId: restoredSession ? taskTargetFields(restoredSession.task).pendingParentTaskId : null,
+        taskCreationDisabled: restoredSession ? taskTargetFields(restoredSession.task).taskCreationDisabled : false,
         terminalFailure: restoredSession?.terminalFailure
           ? { ...restoredSession.terminalFailure }
           : null,
         contextUsage: restoredSession?.contextUsage ? { ...restoredSession.contextUsage } : null,
-        status: restoredSession?.status ?? 'idle',
+        // A rate limit belongs to the live server's RateLimitState. Do not
+        // restore it after that server has restarted and lost the state.
+        status: restoredSession?.status === 'rate_limited'
+          ? 'idle'
+          : restoredSession?.status ?? 'idle',
         currentTurnStartedAt: restoredSession?.currentTurnStartedAt ?? null,
       }
     })

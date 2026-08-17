@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { lstat, readlink } from 'fs/promises'
-import { isAbsolute, join, relative, resolve, sep } from 'path'
+import { join, resolve } from 'path'
 import { createHash, randomUUID } from 'crypto'
 import { createLogger } from '../logger'
+import { isInsideRoot } from '../paths'
 import { runAsync } from './exec'
 import type {
   ChangedFileStat,
@@ -70,6 +71,7 @@ function ensureSolusDirs(repoRoot: string): void {
 function readSidecar(repoRoot: string, sessionId: string): Sidecar | null {
   try {
     const raw = readFileSync(sidecarPath(repoRoot, sessionId), 'utf-8')
+    // SAFETY: this sidecar is written only by this module from the Sidecar contract.
     return JSON.parse(raw) as Sidecar
   } catch {
     return null
@@ -84,7 +86,10 @@ export function getSessionBaseSha(repoRoot: string, sessionId: string): string |
 
 function writeSidecar(repoRoot: string, sessionId: string, data: Sidecar): void {
   ensureSolusDirs(repoRoot)
-  writeFileSync(sidecarPath(repoRoot, sessionId), JSON.stringify(data, null, 2))
+  // Machine-written, machine-read, and rewritten at every turn boundary — the
+  // sidecar grows with session length, so serialize compact to keep the
+  // event-loop cost of a turn snapshot flat.
+  writeFileSync(sidecarPath(repoRoot, sessionId), JSON.stringify(data))
 }
 
 export async function initSessionBase(repoRoot: string, sessionId: string, baseSha: string): Promise<void> {
@@ -650,8 +655,7 @@ async function readWorktreeFile(
   path: string,
 ): Promise<DiffFileContent | null> {
   const absolutePath = resolve(workTree, path)
-  const relativePath = relative(workTree, absolutePath)
-  if (relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) return null
+  if (!isInsideRoot(workTree, absolutePath)) return null
 
   try {
     const fileStat = await lstat(absolutePath)

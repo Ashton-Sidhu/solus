@@ -1,4 +1,5 @@
 import type {
+  AgentTaskLifecyclePolicy,
   HostCapabilities,
   RuntimeSessionInfo,
   ServerCapabilities,
@@ -9,6 +10,7 @@ import type { DemoStore } from '../store'
 
 export function registerBootHandlers(backend: DemoBackend, store: DemoStore): void {
   let sessionCounter = 0
+  let agentTaskLifecyclePolicy: AgentTaskLifecyclePolicy = 'moderate'
   backend.register('start', () => store.startInfo())
   backend.register('serverGetCapabilities', (): HostCapabilities => ({
     attachUpload: true,
@@ -30,10 +32,18 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     platform: 'web',
     version: 'demo',
     projectCount: 1,
-    agentAuth: { claude: true, codex: true },
+    agentAuth: { claude: true },
     gitAuth: { github: false },
     serverName: 'Solus Demo',
+    agentTaskLifecyclePolicy,
   }))
+  backend.register('setAgentTaskLifecyclePolicy', (args) => {
+    const [policy] = args
+    if (policy === 'none' || policy === 'moderate' || policy === 'autonomous') {
+      agentTaskLifecyclePolicy = policy
+    }
+    return { agentTaskLifecyclePolicy }
+  })
   backend.register('voiceModelStatus', (): VoiceModelStatus => ({
     state: 'error',
     error: 'Voice input is unavailable in demo mode.',
@@ -78,6 +88,8 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     parentPath: null,
     currentPath: typeof args[0] === 'string' ? args[0] : store.startInfo().workspacePath,
   }))
+  backend.register('usageLimits', () => [])
+  backend.register('outboxList', () => [])
   backend.register('readLedger', () => null)
   backend.register('projectConfigLoad', () => ({ version: 1 }))
   backend.register('detectEditors', () => ({ editors: [], terminals: [] }))

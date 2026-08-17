@@ -1,4 +1,5 @@
 const API_BASE_URL = 'https://api.cloudflare.com/client/v4'
+import { z } from 'zod'
 
 export interface CloudflareAccount {
   id: string
@@ -11,15 +12,19 @@ export type CloudflareTokenVerification =
   | { kind: 'network' }
   | { kind: 'accounts-forbidden' }
 
-interface TokenVerifyResponse {
-  success: boolean
-  result?: { id?: string; status?: string; expires_on?: string | null }
-}
+const tokenVerifyResponseSchema = z.object({
+  success: z.boolean(),
+  result: z.object({
+    id: z.string().optional(),
+    status: z.string().optional(),
+    expires_on: z.string().nullable().optional(),
+  }).optional(),
+})
 
-interface AccountsResponse {
-  success: boolean
-  result?: Array<{ id?: string; name?: string }>
-}
+const accountsResponseSchema = z.object({
+  success: z.boolean(),
+  result: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
+})
 
 function isForbidden(response: Response): boolean {
   return response.status === 401 || response.status === 403
@@ -42,9 +47,9 @@ export async function verifyCloudflareToken(apiToken: string): Promise<Cloudflar
 
   if (isForbidden(verificationResponse)) return { kind: 'invalid' }
 
-  let verification: TokenVerifyResponse
+  let verification: z.infer<typeof tokenVerifyResponseSchema>
   try {
-    verification = await verificationResponse.json() as TokenVerifyResponse
+    verification = tokenVerifyResponseSchema.parse(await verificationResponse.json())
   } catch {
     return { kind: 'invalid' }
   }
@@ -60,9 +65,9 @@ export async function verifyCloudflareToken(apiToken: string): Promise<Cloudflar
   }
   if (isForbidden(accountsResponse)) return { kind: 'accounts-forbidden' }
 
-  let accountsPayload: AccountsResponse
+  let accountsPayload: z.infer<typeof accountsResponseSchema>
   try {
-    accountsPayload = await accountsResponse.json() as AccountsResponse
+    accountsPayload = accountsResponseSchema.parse(await accountsResponse.json())
   } catch {
     return { kind: 'accounts-forbidden' }
   }
@@ -70,8 +75,6 @@ export async function verifyCloudflareToken(apiToken: string): Promise<Cloudflar
     return { kind: 'accounts-forbidden' }
   }
 
-  const accounts = accountsPayload.result.flatMap((account): CloudflareAccount[] =>
-    typeof account.id === 'string' && typeof account.name === 'string' ? [{ id: account.id, name: account.name }] : [],
-  )
+  const accounts: CloudflareAccount[] = accountsPayload.result
   return { kind: 'ok', accounts, expiresOn: expiresOn(verification.result.expires_on) }
 }

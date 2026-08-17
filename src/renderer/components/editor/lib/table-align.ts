@@ -28,7 +28,7 @@ export function nextAlign(current: CellAlign | null): CellAlign {
 function columnCells(editor: Editor): HTMLTableCellElement[] {
   const node = editor.view.domAtPos(editor.state.selection.from).node
   const element = node instanceof Element ? node : node.parentElement
-  const cell = element?.closest('td, th') as HTMLTableCellElement | null
+  const cell = element?.closest<HTMLTableCellElement>('td, th')
   const table = cell?.closest('table')
   if (!cell || !table) return []
   const index = cell.cellIndex
@@ -51,7 +51,7 @@ export function currentColumnAlign(editor: Editor): CellAlign | null {
   for (const cell of columnCells(editor)) {
     const pos = cellPos(editor, cell)
     const align = pos === null ? null : editor.state.doc.nodeAt(pos)?.attrs.align
-    if (align) return align as CellAlign
+    if (align === 'left' || align === 'center' || align === 'right') return align
   }
   return null
 }

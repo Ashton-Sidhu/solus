@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Session, SessionMeta, Tab } from '../../src/shared/types'
 import {
+  dedupeHistoryEntries,
   filterEntries,
   SearchTextCache,
 } from '../../src/renderer/lib/pickerEntries'
@@ -51,6 +52,26 @@ function session(
 function openEntry(t: Tab, s: Session): PickerEntry {
   return { kind: 'open', tabId: t.id, tab: t, session: s }
 }
+
+describe('dedupeHistoryEntries host scoping', () => {
+  test('an open tab hides only the same host\'s history row', () => {
+    // WHY: dispatch-client step 1 — the same provider session id on two hosts
+    // is two sessions (the same repo, cloned twice). Host A's open tab must
+    // not swallow host B's history row.
+    const openSession = session({ provider: 'claude-code', serverId: 'host-a' })
+    const lookup = {
+      tabOrder: ['tab-1'],
+      tabs: { 'tab-1': tab({ sessionId: 'sess-1' }) },
+      sessions: { 'sess-1': openSession },
+    }
+    const sameHost = meta({ provider: 'claude-code', sessionId: 'agent-1', serverId: 'host-a' })
+    const otherHost = meta({ provider: 'claude-code', sessionId: 'agent-1', serverId: 'host-b' })
+
+    const entries = dedupeHistoryEntries([sameHost, otherHost], lookup)
+
+    expect(entries).toEqual([{ kind: 'history', meta: otherHost }])
+  })
+})
 
 describe('SearchTextCache', () => {
   test('reuses the cached search text across dedupe-created wrapper objects with the same underlying meta', () => {

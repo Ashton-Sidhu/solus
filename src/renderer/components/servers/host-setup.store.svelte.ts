@@ -296,7 +296,7 @@ export class HostSetupSession {
   /** Reports whether the step landed, so a sequence can stop on the first failure. */
   private async run(
     step: SetupActionId,
-    action: (api: SolusAPI) => Promise<unknown>,
+    action: (api: SolusAPI) => Promise<Parameters<typeof String>[0]>,
     provider?: SetupAgent,
   ): Promise<boolean> {
     if (!provider && this.runningStep) return false
@@ -310,7 +310,8 @@ export class HostSetupSession {
       // A sign-in the user called off comes back as a killed process. That is
       // the cancel working, not a failure to report at them.
       if (provider && this.abandonedSignIns.delete(provider)) return false
-      this.stepError = { step, message: messageFor(err), ...(provider ? { provider } : {}) }
+      this.stepError = { step, message: messageFor(err) }
+      if (provider) this.stepError.provider = provider
       return false
     } finally {
       if (!provider) this.runningStep = null

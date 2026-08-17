@@ -27,6 +27,9 @@ export interface AgentRunRequest {
   unattended?: boolean
   sessionId?: string | null
   forkSession?: boolean
+  /** Omit the source's latest turn when forking. Used for forks requested while
+   *  that turn was still live. Providers without a cutoff ignore this. */
+  forkExcludeLatestTurn?: boolean
   additionalDirectories?: string[]
   imageAttachments?: PromptOptions['imageAttachments']
   contextWindow?: number | null
@@ -174,7 +177,7 @@ export class AgentRunner {
         rejectTimeout(new Error(`Agent run timed out after ${request.timeoutMs}ms`))
         cancel()
       }, request.timeoutMs)
-      ;(timeout as unknown as { unref?: () => void }).unref?.()
+      timeout.unref()
     }
 
     const cancel = () => {

@@ -2,7 +2,7 @@ interface ShutdownCoordinatorOptions {
   shutdown(): Promise<void>
   quit(): void
   forceQuit(): void
-  onError(error: unknown): void
+  onError(error: Parameters<typeof String>[0]): void
   gracePeriodMs?: number
 }
 

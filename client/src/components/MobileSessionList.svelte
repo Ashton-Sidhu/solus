@@ -17,21 +17,31 @@
     NotePencilIcon,
     PaperclipIcon,
     SunIcon,
+    ListChecksIcon,
+    MagnifyingGlassIcon,
   } from "phosphor-svelte";
   import { getWorkspaceContext, getSessionSidebarStore, serversStore } from "@renderer/contexts";
-  import { aggregateReviewGuideStatus } from "@renderer/components/session/lib/task-list";
+  import {
+    aggregateReviewGuideStatus,
+    filterSidebarTasks,
+    groupTasks,
+  } from "@renderer/components/session/lib/task-list";
   import { toasts } from "@renderer/lib/toasts";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
   import { getAttentionIcon, attentionLabel, type AttentionState } from "@renderer/lib/sessionUtils";
   import { Skeleton } from "@renderer/components/ui/skeleton";
+  import { useKeybinding } from "@renderer/lib/keybindings/use-keybinding.svelte";
 
   interface Props {
+    /** True while the drawer is on screen, so hardware shortcuts never focus
+     *  the mounted-but-hidden mobile surface. */
+    active?: boolean;
     /** Close the drawer after a navigation action. */
     onSessionSelect: () => void;
     /** Open the server sheet (closing the drawer first). */
     onOpenServers: () => void;
   }
-  let { onSessionSelect, onOpenServers }: Props = $props();
+  let { active = true, onSessionSelect, onOpenServers }: Props = $props();
 
   const session = getWorkspaceContext();
   const store = getSessionSidebarStore();
@@ -42,10 +52,22 @@
   // Keep the phone surface flat, but source its rows from the same durable
   // task tree as desktop. Sessions become peer-sized tap targets rather than a
   // nested disclosure, and unopened attempts remain lazy until selected.
-  const groups = $derived(store.taskGroups);
-  const hasSessions = $derived(groups.length > 0 || store.snoozedTasks.length > 0);
+  let taskQuery = $state("");
+  let taskSearchEl = $state<HTMLInputElement | null>(null);
+  const searchedTasks = $derived(filterSidebarTasks(store.activeTasks, taskQuery));
+  const groups = $derived(groupTasks(searchedTasks));
+  const searchedSnoozedTasks = $derived(
+    filterSidebarTasks(store.snoozedTasks, taskQuery),
+  );
+  const hasSessions = $derived(groups.length > 0 || searchedSnoozedTasks.length > 0);
   const collapsedProjectKeys = new SvelteSet<string>();
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  useKeybinding(
+    "global.focus-sidebar-task-search",
+    () => taskSearchEl?.focus(),
+    { enabled: () => active },
+  );
 
   // Shared row shell — keeps pinned + session rows visually identical.
   const rowBase =
@@ -300,14 +322,28 @@
   >
     <div class="flex items-center justify-between">
       <span class="text-sm font-medium tracking-[-0.01em] text-(--solus-text-primary)">Sessions</span>
-      <button
-        class="flex items-center gap-1 rounded-full border-0 bg-(--solus-accent-light) py-1.5 pl-2.5 pr-3 text-[0.8125rem] font-medium text-(--solus-accent) cursor-pointer transition-[background-color,transform] duration-[120ms] active:scale-[0.96] active:bg-(--solus-accent-border-medium) [-webkit-tap-highlight-color:transparent]"
-        onclick={newSession}
-        aria-label="New session"
-      >
-        <PlusIcon size={14} weight="bold" />
-        <span>New</span>
-      </button>
+      <span class="flex items-center gap-1.5">
+        <button
+          class="flex h-9 items-center gap-1.5 rounded-full border-0 bg-(--solus-surface-hover) px-3 text-xs font-medium text-(--solus-text-secondary) cursor-pointer transition-[background-color,transform] duration-[120ms] active:scale-[0.96] [-webkit-tap-highlight-color:transparent]"
+          onclick={() => {
+            session.sessionPickerOpen = false;
+            session.taskPickerOpen = true;
+            onSessionSelect();
+          }}
+          aria-label="Open task picker"
+        >
+          <ListChecksIcon size={14} />
+          <span>Open task</span>
+        </button>
+        <button
+          class="flex items-center gap-1 rounded-full border-0 bg-(--solus-accent-light) py-1.5 pl-2.5 pr-3 text-[0.8125rem] font-medium text-(--solus-accent) cursor-pointer transition-[background-color,transform] duration-[120ms] active:scale-[0.96] active:bg-(--solus-accent-border-medium) [-webkit-tap-highlight-color:transparent]"
+          onclick={newSession}
+          aria-label="New session"
+        >
+          <PlusIcon size={14} weight="bold" />
+          <span>New</span>
+        </button>
+      </span>
     </div>
     {#if activeServer}
       <button
@@ -324,6 +360,36 @@
         <CaretRightIcon size={14} class="shrink-0 text-(--solus-text-quaternary)" />
       </button>
     {/if}
+    <label
+      class="relative mt-2 block rounded-xl transition-colors duration-150 focus-within:bg-[color-mix(in_oklch,var(--solus-text-primary)_4%,transparent)]"
+    >
+      <MagnifyingGlassIcon
+        size={14}
+        class="pointer-events-none absolute top-1/2 left-1.5 -translate-y-1/2 text-(--solus-text-tertiary)"
+        aria-hidden="true"
+      />
+      <input
+        bind:this={taskSearchEl}
+        bind:value={taskQuery}
+        type="search"
+        placeholder="Search tasks"
+        aria-label="Search tasks"
+        class="h-9 w-full rounded-xl border-0 bg-transparent pr-10 pl-[1.875rem] text-[0.8125rem] tracking-[-0.006em] text-(--solus-text-primary) outline-none placeholder:text-(--solus-text-tertiary) [&::-webkit-search-cancel-button]:hidden"
+      />
+      {#if taskQuery}
+        <button
+          type="button"
+          class="absolute top-1/2 right-1.5 flex size-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-(--solus-text-tertiary) transition-[background-color,transform] duration-150 active:scale-[0.96] active:bg-(--solus-surface-active)"
+          aria-label="Clear task search"
+          onclick={() => {
+            taskQuery = "";
+            taskSearchEl?.focus();
+          }}
+        >
+          <XIcon size={14} />
+        </button>
+      {/if}
+    </label>
   </header>
 
   <div class="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-2 pt-0.5 pb-3 [-webkit-overflow-scrolling:touch]">
@@ -551,9 +617,9 @@
           </div>
         {/if}
       {/each}
-      {#if store.snoozedTasks.length > 0}
+      {#if searchedSnoozedTasks.length > 0}
         <div class={sectionLabel}>Snoozed</div>
-        {#each store.snoozedTasks as task (task.id)}
+        {#each searchedSnoozedTasks as task (task.id)}
           <div
             class="{rowBase} bg-transparent active:bg-(--solus-surface-hover)"
             role="button"
@@ -582,7 +648,7 @@
       {/if}
     {:else}
       <div class="flex flex-col items-center gap-3 px-4 py-12 text-[0.8125rem] text-(--solus-text-tertiary)">
-        <span>No open sessions</span>
+        <span>{taskQuery.trim() ? "No matching tasks" : "No open sessions"}</span>
         <button
           class="flex items-center gap-1.5 rounded-full border-0 bg-(--solus-accent-light) px-4 py-2 text-[0.8125rem] font-medium text-(--solus-accent) cursor-pointer transition-[background-color,transform] duration-[120ms] active:scale-[0.96] active:bg-(--solus-accent-border-medium) [-webkit-tap-highlight-color:transparent]"
           onclick={newSession}

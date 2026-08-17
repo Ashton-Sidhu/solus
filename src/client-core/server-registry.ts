@@ -3,6 +3,10 @@
  * connect to multiple machines and switch without re-pairing each time.
  */
 
+import type { HostOperatingSystem } from '../shared/types'
+import { z } from 'zod'
+import { forwardCompatibleArray } from './forward-compat'
+
 const KEY = 'solus.servers'
 const ACTIVE_KEY = 'solus.activeServerId'
 
@@ -16,7 +20,9 @@ export interface SavedServer {
   /** Long-lived session token from POST /pair. */
   sessionToken: string
   /** Last-known installation id (so we can warn if the server identity changed). */
-  installationId?: string
+  installationId: string
+  /** Last-known operating system reported by the host. */
+  os?: HostOperatingSystem
   lastConnected: number
 }
 
@@ -36,26 +42,47 @@ export function onServerRemoving(listener: ServerRemovingListener): () => void {
   return () => serverRemovingListeners.delete(listener)
 }
 
-export type InstallationIdDecision = 'match' | 'absent' | 'mismatch'
+export type InstallationIdDecision = 'match' | 'mismatch'
 
 export function installationIdDecision(
-  storedInstallationId: string | undefined,
+  storedInstallationId: string,
   reportedInstallationId: string,
 ): InstallationIdDecision {
-  if (!storedInstallationId) return 'absent'
   return storedInstallationId === reportedInstallationId ? 'match' : 'mismatch'
 }
+
+// `id` and `url` are load-bearing (they route sockets); everything else
+// degrades alone. `.passthrough()` keeps fields written by a newer client
+// build intact across the load→save round trip.
+const savedServerSchema = z.looseObject({
+  id: z.string().min(1),
+  label: z.string().catch(''),
+  url: z.string().min(1),
+  sessionToken: z.string().catch(''),
+  installationId: z.string().min(1),
+  os: z.enum(['macos', 'windows', 'linux']).optional().catch(undefined),
+  lastConnected: z.number().catch(0),
+})
+const savedServersSchema = forwardCompatibleArray(savedServerSchema)
 
 export function loadServers(): SavedServer[] {
   try {
     const raw = localStorage.getItem(KEY)
     if (!raw) return []
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    return parsed
-  } catch {
-    return []
-  }
+    const decoded = savedServersSchema.safeParse(JSON.parse(raw))
+    if (decoded.success) {
+      // SAFETY: Every surviving element passed savedServerSchema, whose fields
+      // mirror SavedServer; loose passthrough keys widen, never narrow.
+      return decoded.data as SavedServer[]
+    }
+  } catch {}
+  // An unreadable blob would be re-parsed and re-failed on every boot: delete
+  // it and treat it as a miss. Records that merely fail element decode are
+  // dropped from the result, not from storage.
+  try {
+    localStorage.removeItem(KEY)
+  } catch {}
+  return []
 }
 
 export function saveServers(servers: SavedServer[]): void {
@@ -90,11 +117,11 @@ export function touchLastConnected(id: string): void {
   }
 }
 
-export function stampInstallationId(id: string, installationId: string): void {
+export function stampHostOperatingSystem(id: string, os: HostOperatingSystem): void {
   const servers = loadServers()
   const target = servers.find(s => s.id === id)
-  if (!target || target.installationId === installationId) return
-  target.installationId = installationId
+  if (!target || target.os === os) return
+  target.os = os
   saveServers(servers)
 }
 

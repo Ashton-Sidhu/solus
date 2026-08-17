@@ -1,9 +1,34 @@
 import { describe, expect, it } from 'bun:test'
 import {
   breadcrumbLeafLabels,
+  breadcrumbTaskGroups,
+  breadcrumbTaskMatches,
   projectNote,
   statusColor,
 } from '../../src/renderer/components/conversation/lib/session-breadcrumb'
+
+describe('breadcrumbTaskGroups', () => {
+  it('puts unfinished work before completed work without changing either order', () => {
+    // WHY: a long searchable picker must keep actionable work above its archive,
+    // while the sidebar store remains the owner of urgency within each section.
+    const groups = breadcrumbTaskGroups([
+      { id: 'running', status: 'running' as const },
+      { id: 'done-old', status: 'done' as const },
+      { id: 'idle', status: 'idle' as const },
+      { id: 'done-new', status: 'done' as const },
+    ])
+
+    expect(groups.open.map((task) => task.id)).toEqual(['running', 'idle'])
+    expect(groups.completed.map((task) => task.id)).toEqual(['done-old', 'done-new'])
+  })
+})
+
+describe('breadcrumbTaskMatches', () => {
+  it('matches task names without case sensitivity or surrounding query spaces', () => {
+    expect(breadcrumbTaskMatches('Remote Session Creation Hang', ' session ')).toBe(true)
+    expect(breadcrumbTaskMatches('Remote Session Creation Hang', 'resolved')).toBe(false)
+  })
+})
 
 describe('breadcrumbLeafLabels', () => {
   it('names each kind of draft path without duplicating placeholder labels', () => {

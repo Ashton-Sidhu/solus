@@ -17,15 +17,16 @@ import {
   personFrom,
   type InboxGroupSpec,
   type ListChecksSpec,
-  type ListChipSpec,
   type ListGroupSpec,
   type ListRevealSpec,
   type ListRowSpec,
 } from '../../ui/list-page/list-page'
 
-/** Per-PR facts the page has loaded separately from the list fetch. */
+/** Per-PR facts the page has loaded separately from the list fetch. Both take
+ *  the full record, not a bare number — a workspace-wide list can hold the
+ *  same PR number from two different repos, so only the record disambiguates. */
 export interface PrRowContext {
-  checks: (number: number) => PrChecksSummary | undefined
+  checks: (pr: PullRequestSummary) => PrChecksSummary | undefined
   /** Whether the viewer authored it. Drives the "Yours" filter and the inbox split. */
   isMine: (pr: PullRequestSummary) => boolean
 }
@@ -44,13 +45,13 @@ function groupOf(pr: PullRequestSummary, ctx: PrRowContext): PrGroupKey {
   return 'open'
 }
 
-const GROUP_LABELS: Record<PrGroupKey, string> = {
+const GROUP_LABELS = {
   review: 'Awaiting your review',
   open: 'Open',
   draft: 'Draft',
   merged: 'Merged',
   closed: 'Closed',
-}
+} satisfies Record<PrGroupKey, string>
 
 const GROUP_ORDER: PrGroupKey[] = ['review', 'open', 'draft', 'merged', 'closed']
 
@@ -150,17 +151,21 @@ export function prRow(
   ctx: PrRowContext,
   now: number,
   stackParent: number | null = null,
+  /** Row identity. Defaults to the bare number — safe for a single-repo list;
+   *  a cross-repo list must pass a qualified key or two repos' identical
+   *  numbers collide into one row. */
+  key: string = String(pr.number),
 ): ListRowSpec {
   const reviewers = (pr.requestedReviewers ?? []).map((login) => personFrom(login))
   return {
-    key: String(pr.number),
+    key,
     ident: `#${pr.number}`,
     title: pr.title,
     // Nothing sits between the number and the trailing metrics at rest, so the
     // title is the only thing competing for the middle of the row.
-    chips: [] as ListChipSpec[],
+    chips: [],
     reveal: revealFor(pr, stackParent),
-    checks: checksFor(pr, ctx.checks(pr.number)),
+    checks: checksFor(pr, ctx.checks(pr)),
     meta: '',
     churn: { additions: pr.additions, deletions: pr.deletions },
     // Slot 1 is the author; slots 7 are whoever else is on the hook for it.
@@ -175,17 +180,19 @@ export function prGroups(
   prs: PullRequestSummary[],
   ctx: PrRowContext,
   now: number,
-  /** Which PR each row is stacked on, when stacks are enabled. Passed in rather
-   *  than read off `ctx` because the page resolves the stack from the same
-   *  filtered list these groups are built from. */
-  stackParents?: ReadonlyMap<number, number>,
+  /** Which PR each row is stacked on, when stacks are enabled. A function
+   *  rather than a `Map<number, number>` because a cross-repo list cannot key
+   *  a lookup by bare PR number. */
+  stackParentOf?: (pr: PullRequestSummary) => number | null,
+  /** Row identity override — see `prRow`. */
+  keyFor?: (pr: PullRequestSummary) => string,
 ): ListGroupSpec[] {
   return GROUP_ORDER.map((key) => ({
     key,
     label: GROUP_LABELS[key],
     rows: prs
       .filter((pr) => groupOf(pr, ctx) === key)
-      .map((pr) => prRow(pr, ctx, now, stackParents?.get(pr.number) ?? null)),
+      .map((pr) => prRow(pr, ctx, now, stackParentOf?.(pr) ?? null, keyFor?.(pr))),
   })).filter((group) => group.rows.length > 0)
 }
 
@@ -213,6 +220,8 @@ export function prInboxGroups(
   now: number,
   actions: PrInboxActions,
   statuses: Set<string>,
+  /** Row identity override — see `prRow`. */
+  keyFor?: (pr: PullRequestSummary) => string,
 ): InboxGroupSpec[] {
   const groups: InboxGroupSpec[] = []
   const updated = (pr: PullRequestSummary) => Date.parse(pr.updatedAt) || 0
@@ -230,7 +239,7 @@ export function prInboxGroups(
       rows: [...needsYou]
         .sort((a, b) => updated(a) - updated(b))
         .map((pr) => ({
-          ...inboxRowBase(pr, now),
+          ...inboxRowBase(pr, now, keyFor),
           title:
             pr.reviewAttention === 'assigned'
               ? `Assigned to you: ${pr.title}`
@@ -246,7 +255,7 @@ export function prInboxGroups(
   // Your own open PRs whose checks are red — nothing else is going to move them.
   const yoursBlocked = shown.filter((pr) => {
     if (pr.state !== 'open' || !ctx.isMine(pr)) return false
-    const checks = ctx.checks(pr.number)
+    const checks = ctx.checks(pr)
     return !!checks && checks.headSha === pr.headSha && checks.state === 'failing'
   })
   if (yoursBlocked.length > 0) {
@@ -257,8 +266,8 @@ export function prInboxGroups(
       rows: [...yoursBlocked]
         .sort((a, b) => updated(a) - updated(b))
         .map((pr) => ({
-          ...inboxRowBase(pr, now),
-          context: `Your PR · ${failingContext(ctx.checks(pr.number))}${pr.headRef ? ` · ${pr.headRef}` : ''}`,
+          ...inboxRowBase(pr, now, keyFor),
+          context: `Your PR · ${failingContext(ctx.checks(pr))}${pr.headRef ? ` · ${pr.headRef}` : ''}`,
           unread: false,
           primary: { label: 'Open', shortcut: '⏎', run: () => actions.open(pr) },
         })),
@@ -274,7 +283,7 @@ export function prInboxGroups(
       rows: [...landed]
         .sort((a, b) => updated(b) - updated(a))
         .map((pr) => ({
-          ...inboxRowBase(pr, now),
+          ...inboxRowBase(pr, now, keyFor),
           context: `${pr.state === 'merged' ? 'Merged' : 'Closed'} · ${diffSize(pr)}${pr.headRef ? ` · ${pr.headRef}` : ''}`,
           unread: false,
         })),
@@ -284,9 +293,9 @@ export function prInboxGroups(
   return groups
 }
 
-function inboxRowBase(pr: PullRequestSummary, now: number) {
+function inboxRowBase(pr: PullRequestSummary, now: number, keyFor?: (pr: PullRequestSummary) => string) {
   return {
-    key: String(pr.number),
+    key: keyFor?.(pr) ?? String(pr.number),
     ident: `#${pr.number}`,
     title: pr.title,
     context: '',
@@ -294,7 +303,7 @@ function inboxRowBase(pr: PullRequestSummary, now: number) {
     time: compactRelativeTime(pr.updatedAt, now),
     timeTitle: absoluteTime(pr.updatedAt),
     unread: false,
-    chips: [] as ListChipSpec[],
+    chips: [],
   }
 }
 
@@ -302,7 +311,7 @@ function reviewContext(pr: PullRequestSummary, ctx: PrRowContext): string {
   const parts: string[] = []
   if (pr.headRef) parts.push(pr.headRef)
   parts.push(diffSize(pr))
-  const checks = ctx.checks(pr.number)
+  const checks = ctx.checks(pr)
   if (checks && checks.headSha === pr.headSha && checks.state === 'failing') {
     parts.push(failingContext(checks))
   }

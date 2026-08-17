@@ -25,8 +25,6 @@ export interface Trigger {
 export const TRIGGER_RE = /(^|\s)([/@#])([A-Za-z0-9._:#/~]*)$/;
 const FILE_PATH_RE = /(^|\s)(@[^\s]*|~\/[^\s]*|\.\.?\/[^\s]*|\/[^\s]*)$/;
 
-const TRIGGER_CHARS = "/@#.~";
-
 function isBareAbsoluteFilePath(run: string): boolean {
   if (!run.startsWith("/")) return false;
   // Keep `/foo` available to slash commands while still restoring absolute
@@ -66,7 +64,7 @@ export function readTrigger(
   if (anchor === null || anchor < 0 || anchor >= textBeforeCursor.length)
     return null;
   const char = textBeforeCursor.charAt(anchor);
-  if (!TRIGGER_CHARS.includes(char)) return null;
+  if (char !== "/" && char !== "@" && char !== "#" && char !== "." && char !== "~") return null;
   const run = textBeforeCursor.slice(anchor);
   const fileQuery = fileRunQuery(run);
   if (fileQuery !== null)
@@ -88,7 +86,8 @@ export function readTrigger(
         };
     }
   }
-  return { char: char as TriggerChar, anchor, path: [], query: rest };
+  if (char === "." || char === "~") return null;
+  return { char, anchor, path: [], query: rest };
 }
 
 /*

@@ -84,4 +84,16 @@ describe('providerUsage', () => {
     )
     expect(rows).toEqual([])
   })
+
+  // Claude's quota comes from an account endpoint that can answer empty or
+  // rate-limited. Dropping the row then would claim the provider has no quota,
+  // when the truth is that nobody could read it.
+  test('keeps a meterless row when the read failed', () => {
+    const rows = providerUsage(
+      [agent('claude-code')],
+      { 'claude-code': limits('claude-code', { fiveHour: null, weekly: null, stale: true }) },
+      NOW,
+    )
+    expect(rows).toEqual([{ provider: 'claude-code', label: 'Claude', stale: true, meters: [] }])
+  })
 })

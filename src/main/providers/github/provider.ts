@@ -35,16 +35,17 @@ import {
   listGithubReviewerCandidates,
   updateGithubPullRequestLifecycle,
 } from './pull-request-actions'
+import { z } from 'zod'
 
 const log = createLogger('main', 'github-provider')
 
 /** GitHub's file status vocabulary folded onto git's status letters. `copied`,
  *  `changed` and `unchanged` have no letter of their own and read as edits. */
-const GITHUB_FILE_STATUS: Record<string, ChangedFileStat['status']> = {
-  added: 'A',
-  removed: 'D',
-  renamed: 'R',
-}
+const GITHUB_FILE_STATUS = new Map<string, ChangedFileStat['status']>([
+  ['added', 'A'],
+  ['removed', 'D'],
+  ['renamed', 'R'],
+])
 
 interface GithubDiffFile {
   filename: string
@@ -57,9 +58,17 @@ function diffPath(path: string): string {
   return /[\s"\\]/.test(path) ? JSON.stringify(path) : path
 }
 
+/** Only a real commit id may scope a diff — the sha travels into an API path. */
+const COMMIT_SHA_PATTERN = /^[0-9a-f]{7,40}$/i
+
 /** Convert complete GitHub file records into a unified patch. Keeping this
  * file-based is what guarantees pagination never cuts through a hunk. */
-export function githubFilesToUnifiedPatch(files: GithubDiffFile[]): { patch: string; truncated: boolean } {
+interface UnifiedGithubPatch {
+  patch: string
+  truncated: boolean
+}
+
+export function githubFilesToUnifiedPatch(files: GithubDiffFile[]): UnifiedGithubPatch {
   let truncated = false
   const patches = files.map((file) => {
     const oldPath = file.previous_filename ?? file.filename
@@ -340,10 +349,12 @@ interface NeedsReviewSearchResponse {
   assigned?: GqlNeedsReviewPage
 }
 
-export function needsReviewSearchTerms(repo: RepoRef, viewer: string): {
+interface NeedsReviewSearchTerms {
   requestedQuery: string
   assignedQuery: string
-} {
+}
+
+export function needsReviewSearchTerms(repo: RepoRef, viewer: string): NeedsReviewSearchTerms {
   const scope = `repo:${repo.owner}/${repo.repo} is:pr is:open`
   return {
     requestedQuery: `${scope} review-requested:${viewer}`,
@@ -352,14 +363,14 @@ export function needsReviewSearchTerms(repo: RepoRef, viewer: string): {
 }
 
 function toNeedsReviewSummary(pr: GqlNeedsReviewPullRequest, repo: RepoRef): PullRequestSummary {
-  return {
+  const summary: PullRequestSummary = {
     number: pr.number,
     title: pr.title,
     headSha: pr.headRefOid,
     baseRepo: repo,
     author: pr.author?.login ?? '',
     authorAvatarUrl: pr.author?.avatarUrl ?? '',
-    state: pr.state.toLowerCase() as PullRequestSummary['state'],
+    state: pr.state === 'OPEN' ? 'open' : pr.state === 'MERGED' ? 'merged' : 'closed',
     createdAt: pr.createdAt,
     updatedAt: pr.updatedAt,
     draft: pr.isDraft,
@@ -372,41 +383,55 @@ function toNeedsReviewSummary(pr: GqlNeedsReviewPullRequest, repo: RepoRef): Pul
     body: pr.body,
     baseRef: pr.baseRefName,
     headRef: pr.headRefName,
-    ...(pr.baseRepository && pr.headRepository
-      ? { isCrossRepository: pr.baseRepository.nameWithOwner !== pr.headRepository.nameWithOwner }
-      : {}),
   }
+  if (pr.baseRepository && pr.headRepository) {
+    summary.isCrossRepository = pr.baseRepository.nameWithOwner !== pr.headRepository.nameWithOwner
+  }
+  return summary
 }
 
-interface GitHubApiErrorDetail {
-  message?: unknown
-  resource?: unknown
-  field?: unknown
-  code?: unknown
+const githubApiErrorSchema = z.object({
+  status: z.number().optional(),
+  response: z
+    .object({
+      data: z
+        .object({
+          message: z.string().optional(),
+          errors: z
+            .array(
+              z.object({
+                message: z.string().optional(),
+                resource: z.string().optional(),
+                field: z.string().optional(),
+                code: z.string().optional(),
+              }),
+            )
+            .optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+})
+
+function nonEmpty(value: string | undefined): string | null {
+  const trimmed = value?.trim()
+  return trimmed || null
 }
 
-interface GitHubApiErrorBody {
-  message?: unknown
-  errors?: unknown
-}
-
-function asString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value.trim() : null
-}
-
-function githubApiErrorMessage(err: unknown, fallback: string): string {
-  const status = typeof (err as { status?: unknown })?.status === 'number' ? (err as { status: number }).status : null
-  const responseData = (err as { response?: { data?: unknown } })?.response?.data as GitHubApiErrorBody | undefined
-  const bodyMessage = asString(responseData?.message)
-  const details = Array.isArray(responseData?.errors)
+export function githubApiErrorMessage<T>(err: T, fallback: string): string {
+  const parsed = githubApiErrorSchema.safeParse(err)
+  const status = parsed.success ? parsed.data.status : undefined
+  const responseData = parsed.success ? parsed.data.response?.data : undefined
+  const bodyMessage = nonEmpty(responseData?.message)
+  const details = responseData?.errors
     ? responseData.errors
-        .map((detail: GitHubApiErrorDetail) => {
-          const message = asString(detail.message)
+        .map((detail) => {
+          const message = nonEmpty(detail.message)
           if (message) return message
 
-          const field = asString(detail.field)
-          const code = asString(detail.code)
-          const resource = asString(detail.resource)
+          const field = nonEmpty(detail.field)
+          const code = nonEmpty(detail.code)
+          const resource = nonEmpty(detail.resource)
           return [resource, field, code].filter(Boolean).join(' ')
         })
         .filter(Boolean)
@@ -446,13 +471,13 @@ interface RestPull {
 }
 
 function toSummary(pr: RestPull): PullRequestSummary {
-  return {
+  const summary: PullRequestSummary = {
     number: pr.number,
     title: pr.title,
     headSha: pr.head.sha,
     author: pr.user?.login ?? '',
     authorAvatarUrl: pr.user?.avatar_url ?? '',
-    state: pr.merged_at ? 'merged' : (pr.state as 'open' | 'closed'),
+    state: pr.merged_at ? 'merged' : pr.state === 'closed' ? 'closed' : 'open',
     createdAt: pr.created_at,
     updatedAt: pr.updated_at,
     draft: pr.draft ?? false,
@@ -466,10 +491,27 @@ function toSummary(pr: RestPull): PullRequestSummary {
     body: pr.body ?? '',
     baseRef: pr.base.ref,
     headRef: pr.head.ref,
-    ...(pr.base.repo?.full_name && pr.head.repo?.full_name
-      ? { isCrossRepository: pr.base.repo.full_name !== pr.head.repo.full_name }
-      : {}),
   }
+  if (pr.base.repo?.full_name && pr.head.repo?.full_name) {
+    summary.isCrossRepository = pr.base.repo.full_name !== pr.head.repo.full_name
+  }
+  return summary
+}
+
+const REVIEWER_STATES = new Set<NonNullable<PrReviewer['state']>>([
+  'APPROVED',
+  'CHANGES_REQUESTED',
+  'COMMENTED',
+  'DISMISSED',
+  'PENDING',
+])
+
+function reviewerState(state: string): NonNullable<PrReviewer['state']> {
+  if (REVIEWER_STATES.has(state)) {
+    // SAFETY: Set membership proves that this string is one of the declared review-state literals.
+    return state as NonNullable<PrReviewer['state']>
+  }
+  return 'COMMENTED'
 }
 
 function withBaseRepo(summary: PullRequestSummary, repo: RepoRef): PullRequestSummary {
@@ -504,14 +546,15 @@ function toDetail(
 }
 
 function toComment(c: GqlComment): ReviewComment {
-  return {
+  const comment: ReviewComment = {
     id: c.id,
     author: c.author?.login ?? '',
     body: c.body,
     createdAt: c.createdAt,
-    ...(c.author?.avatarUrl ? { authorAvatarUrl: c.author.avatarUrl } : {}),
-    ...(c.diffHunk ? { diffHunk: c.diffHunk } : {}),
   }
+  if (c.author?.avatarUrl) comment.authorAvatarUrl = c.author.avatarUrl
+  if (c.diffHunk) comment.diffHunk = c.diffHunk
+  return comment
 }
 
 function toThread(t: GqlThread): ReviewThread {
@@ -531,7 +574,7 @@ function toThread(t: GqlThread): ReviewThread {
  * layer imports `ReviewProvider`/DTOs only — never `@octokit/*`. Reads, threads,
  * and leaving review comments work identically for fork and same-repo PRs.
  */
-class GitHubProvider implements ReviewProvider {
+export class GitHubProvider implements ReviewProvider {
   private diffBaseCache = new Map<string, Promise<string>>()
   private viewerCache: { token: string; login: Promise<string> } | null = null
 
@@ -583,7 +626,7 @@ class GitHubProvider implements ReviewProvider {
       per_page: perPage,
       page,
     })
-    let items = data.map((pr) => withBaseRepo(toSummary(pr as unknown as RestPull), repo))
+    let items = data.map((pr) => withBaseRepo(toSummary(pr), repo))
     if (filter?.author) {
       const author = filter.author.toLowerCase()
       items = items.filter((pr) => pr.author.toLowerCase() === author)
@@ -659,17 +702,33 @@ class GitHubProvider implements ReviewProvider {
     if (detail.headSha !== request.headSha) {
       throw new Error('This pull request changed. Refresh it before reviewing the new diff.')
     }
+    const page = request.cursor === undefined ? 1 : Number(request.cursor)
+    if (!Number.isSafeInteger(page) || page < 1) throw new Error('Invalid pull request diff cursor.')
+    const { rest } = await this.client()
+    if (request.commitSha) {
+      // One commit of the change rather than the whole of it. A commit is
+      // content-addressed, so no base staleness check applies: the sha either
+      // exists with exactly this diff or the request fails.
+      if (!COMMIT_SHA_PATTERN.test(request.commitSha)) throw new Error('Invalid pull request commit.')
+      const response = await rest.repos.getCommit({
+        owner: repo.owner,
+        repo: repo.repo,
+        ref: request.commitSha,
+        page,
+        per_page: 100,
+      })
+      const converted = githubFilesToUnifiedPatch(response.data.files ?? [])
+      const hasNextPage = /<[^>]+>;\s*rel="next"/.test(response.headers.link ?? '')
+      return {
+        patch: converted.patch,
+        truncated: converted.truncated,
+        nextCursor: hasNextPage ? String(page + 1) : null,
+      }
+    }
     const diffBaseSha = await this.getPullRequestDiffBase(repo, detail)
     if (diffBaseSha !== request.baseSha) {
       throw new Error('This pull request base changed. Refresh it before reviewing the new diff.')
     }
-    if (request.commitSha && request.commitSha !== request.headSha) {
-      throw new Error('Commit-specific pull request diffs are not available from GitHub yet.')
-    }
-
-    const page = request.cursor === undefined ? 1 : Number(request.cursor)
-    if (!Number.isSafeInteger(page) || page < 1) throw new Error('Invalid pull request diff cursor.')
-    const { rest } = await this.client()
     const response = await rest.pulls.listFiles({
       owner: repo.owner,
       repo: repo.repo,
@@ -694,27 +753,45 @@ class GitHubProvider implements ReviewProvider {
     if (detail.headSha !== request.headSha) {
       throw new Error('This pull request changed. Refresh it before loading file contents.')
     }
-    const newRef = request.commitSha ?? request.headSha
     const { rest } = await this.client()
-    const diffBaseSha = await this.getPullRequestDiffBase(repo, detail)
-    if (diffBaseSha !== request.baseSha) {
-      throw new Error('This pull request base changed. Refresh it before loading file contents.')
-    }
     const readFile = async (source: RepoRef, path: string, ref: string): Promise<string> => {
       const { data } = await rest.repos.getContent({ owner: source.owner, repo: source.repo, path, ref })
-      if (Array.isArray(data) || data.type !== 'file' || !('content' in data) || typeof data.content !== 'string') {
+      if (Array.isArray(data) || data.type !== 'file' || !('content' in data)) {
         throw new Error(`GitHub did not return file contents for ${path}.`)
       }
       if (data.encoding !== 'base64') throw new Error(`GitHub returned an unsupported encoding for ${path}.`)
       return Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf8')
     }
     const headRepo: RepoRef = { host: repo.host, owner: detail.headRepo.owner, repo: detail.headRepo.repo }
+    if (request.commitSha) {
+      // A commit-scoped diff compares against the commit's parent, not the PR
+      // base, and the contents API accepts no `sha^` expression — resolve the
+      // parent explicitly. A root commit has no parent; its old side is empty.
+      if (!COMMIT_SHA_PATTERN.test(request.commitSha)) throw new Error('Invalid pull request commit.')
+      const { data: commit } = await rest.git.getCommit({
+        owner: repo.owner,
+        repo: repo.repo,
+        commit_sha: request.commitSha,
+      })
+      const parentSha = commit.parents[0]?.sha
+      const oldContents = request.changeType === 'new' || !parentSha
+        ? ''
+        : await readFile(headRepo, request.oldPath, parentSha)
+      const newContents = request.changeType === 'deleted'
+        ? ''
+        : await readFile(headRepo, request.newPath, request.commitSha)
+      return { oldContents, newContents }
+    }
+    const diffBaseSha = await this.getPullRequestDiffBase(repo, detail)
+    if (diffBaseSha !== request.baseSha) {
+      throw new Error('This pull request base changed. Refresh it before loading file contents.')
+    }
     const oldContents = request.changeType === 'new'
       ? ''
       : await readFile(repo, request.oldPath, diffBaseSha)
     const newContents = request.changeType === 'deleted'
       ? ''
-      : await readFile(headRepo, request.newPath, newRef)
+      : await readFile(headRepo, request.newPath, request.headSha)
     return { oldContents, newContents }
   }
 
@@ -726,7 +803,7 @@ class GitHubProvider implements ReviewProvider {
       pull_number: number,
     }), this.getViewer()])
     const access = await githubPullRequestAccessFor(client, repo, viewer, pr.user?.login ?? '')
-    return toDetail(pr as unknown as RestPull, repo, access)
+    return toDetail(pr, repo, access)
   }
 
   async updatePullRequest(
@@ -735,7 +812,11 @@ class GitHubProvider implements ReviewProvider {
     patch: PullRequestUpdate,
   ): Promise<PullRequestDetail> {
     const { rest } = await this.client()
-    const fields: { title?: string; body?: string } = {}
+    interface PullRequestEditFields {
+      title?: string
+      body?: string
+    }
+    const fields: PullRequestEditFields = {}
     if (patch.title !== undefined) fields.title = patch.title
     if (patch.body !== undefined) fields.body = patch.body
     if (Object.keys(fields).length > 0) {
@@ -802,7 +883,7 @@ class GitHubProvider implements ReviewProvider {
     for (const r of reviews) {
       const login = r.user?.login
       if (!login) continue
-      const state = r.state as PrReviewer['state']
+      const state = reviewerState(r.state)
       if (state === 'PENDING') continue
       const prev = map.get(login)?.state
       if (state === 'COMMENTED' && (prev === 'APPROVED' || prev === 'CHANGES_REQUESTED')) continue
@@ -845,7 +926,7 @@ class GitHubProvider implements ReviewProvider {
       client.rest.pulls.get({ owner: repo.owner, repo: repo.repo, pull_number: number }),
       this.getViewer(),
     ])
-    const raw = pullRequest as unknown as RestPull
+    const raw = pullRequest
     const access = await githubPullRequestAccessFor(client, repo, viewer, pullRequest.user?.login ?? '')
     if (!access.viewerPermissions.actions.includes(action)) {
       throw new Error(`You do not have permission to ${action} this pull request.`)
@@ -867,28 +948,31 @@ class GitHubProvider implements ReviewProvider {
     const { rest } = await this.client()
     // One request = atomic from our side: either the whole batch posts or nothing does.
     try {
-      await rest.pulls.createReview({
+      type CreateReviewRequest = Parameters<typeof rest.pulls.createReview>[0]
+      const request: CreateReviewRequest = {
         owner: repo.owner,
         repo: repo.repo,
         pull_number: number,
         commit_id: review.commitId,
         event: review.event,
-        // GitHub treats an omitted optional body differently from an empty one
-        // for approvals. Only send fields that contain review content.
-        ...(review.body ? { body: review.body } : {}),
-        ...(review.comments.length > 0
-          ? {
-              comments: review.comments.map((c) => ({
-                path: c.path,
-                body: c.body,
-                line: c.line,
-                side: c.side,
-                // start_side is required by the REST API whenever start_line is set.
-                ...(c.startLine !== undefined ? { start_line: c.startLine, start_side: c.side } : {}),
-              })),
-            }
-          : {}),
-      })
+      }
+      // GitHub treats an omitted optional body differently from an empty one.
+      if (review.body) request.body = review.body
+      if (review.comments.length > 0) {
+        request.comments = review.comments.map((comment) => {
+          const item = {
+            path: comment.path,
+            body: comment.body,
+            line: comment.line,
+            side: comment.side,
+          }
+          if (comment.startLine !== undefined) {
+            Object.assign(item, { start_line: comment.startLine, start_side: comment.side })
+          }
+          return item
+        })
+      }
+      await rest.pulls.createReview(request)
     } catch (err) {
       throw new Error(githubApiErrorMessage(err, 'Could not submit the review'))
     }
@@ -923,7 +1007,7 @@ class GitHubProvider implements ReviewProvider {
       path: f.filename,
       additions: f.additions,
       deletions: f.deletions,
-      status: GITHUB_FILE_STATUS[f.status] ?? 'M',
+      status: GITHUB_FILE_STATUS.get(f.status) ?? 'M',
     }))
   }
 
@@ -971,15 +1055,16 @@ class GitHubProvider implements ReviewProvider {
       const conversation: PrConversationResponse['repository']['pullRequest'] = res.repository.pullRequest
       if (conversation.comments) {
         for (const comment of conversation.comments.nodes) {
-          items.push({
+          const item: PrConversationItem = {
             id: comment.id,
             kind: 'comment',
             author: comment.author?.login ?? '',
             body: comment.body,
             createdAt: comment.createdAt,
-            ...(comment.author?.avatarUrl ? { authorAvatarUrl: comment.author.avatarUrl } : {}),
-            ...(comment.url ? { url: comment.url } : {}),
-          })
+          }
+          if (comment.author?.avatarUrl) item.authorAvatarUrl = comment.author.avatarUrl
+          if (comment.url) item.url = comment.url
+          items.push(item)
         }
         includeComments = conversation.comments.pageInfo.hasNextPage
         commentsCursor = conversation.comments.pageInfo.endCursor
@@ -987,16 +1072,17 @@ class GitHubProvider implements ReviewProvider {
       if (conversation.reviews) {
         for (const review of conversation.reviews.nodes) {
           if (!review.body.trim() || review.state === 'PENDING') continue
-          items.push({
+          const item: PrConversationItem = {
             id: review.id,
             kind: 'review',
             author: review.author?.login ?? '',
             body: review.body,
             createdAt: review.submittedAt ?? review.createdAt,
             reviewState: review.state,
-            ...(review.author?.avatarUrl ? { authorAvatarUrl: review.author.avatarUrl } : {}),
-            ...(review.url ? { url: review.url } : {}),
-          })
+          }
+          if (review.author?.avatarUrl) item.authorAvatarUrl = review.author.avatarUrl
+          if (review.url) item.url = review.url
+          items.push(item)
         }
         includeReviews = conversation.reviews.pageInfo.hasNextPage
         reviewsCursor = conversation.reviews.pageInfo.endCursor

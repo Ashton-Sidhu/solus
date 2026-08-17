@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import type { ContextUsage, NormalizedEvent, ThreadGoal, UsageData } from '../../../shared/types'
 import { findResetTimestamp } from '../../rate-limits'
 import {
@@ -12,23 +13,110 @@ import {
 import type { TurnNormalizer, TurnSummary } from '../turn-normalizer'
 import type {
   JsonRpcId,
-  JsonRpcMessage,
-  JsonRpcNotification,
-  JsonRpcRequest,
-  JsonRpcResponse,
-  CodexThreadStartResponse,
-  CodexTurnStartResponse,
-  CodexModelListResponse,
 } from './codex-protocol'
 
 const CODEX_RATE_LIMIT_WARNING_PERCENT = 80
 const CODEX_RATE_LIMIT_SEND_BUFFER_SECONDS = 2 * 60
 
-export interface CodexErrorPayload {
-  message?: string
-  code?: string
-  codexErrorInfo?: unknown
-  additionalDetails?: unknown
+const stringValueSchema = z.string()
+const finiteNumberSchema = z.number().finite()
+const threadGoalSchema = z.object({
+  threadId: z.string(),
+  objective: z.string(),
+  status: z.string().optional(),
+  tokenBudget: finiteNumberSchema.optional().catch(undefined),
+  tokensUsed: finiteNumberSchema.optional().catch(undefined),
+  timeUsedSeconds: finiteNumberSchema.optional().catch(undefined),
+  createdAt: finiteNumberSchema.optional().catch(undefined),
+  updatedAt: finiteNumberSchema.optional().catch(undefined),
+})
+const planItemSchema = z.object({
+  step: z.string().optional(),
+  text: z.string().optional(),
+  description: z.string().optional(),
+  title: z.string().optional(),
+  status: z.string().optional(),
+})
+const tokenBreakdownSchema = z.object({
+  totalTokens: finiteNumberSchema.optional(),
+  total_tokens: finiteNumberSchema.optional(),
+  inputTokens: finiteNumberSchema.optional(),
+  input_tokens: finiteNumberSchema.optional(),
+  cachedInputTokens: finiteNumberSchema.optional(),
+  cached_input_tokens: finiteNumberSchema.optional(),
+  outputTokens: finiteNumberSchema.optional(),
+  output_tokens: finiteNumberSchema.optional(),
+  reasoningOutputTokens: finiteNumberSchema.optional(),
+  reasoning_output_tokens: finiteNumberSchema.optional(),
+})
+const rateLimitWindowSchema = z.object({
+  usedPercent: finiteNumberSchema.optional(),
+  resetsAt: z.union([z.string(), finiteNumberSchema]).optional(),
+  windowDurationMins: finiteNumberSchema.optional(),
+})
+const rateLimitsSchema = z.object({
+  rateLimitReachedType: z.string().optional(),
+  primary: rateLimitWindowSchema.optional(),
+  secondary: rateLimitWindowSchema.optional(),
+  credits: z.object({ hasCredits: z.boolean().optional() }).optional(),
+})
+const contentPartSchema = z.union([
+  z.string(),
+  z.object({ text: z.string().optional() }),
+])
+const collabArgumentsSchema = z.object({
+  settings: z.object({
+    model: z.string().optional(),
+    reasoning_effort: z.string().optional(),
+    reasoningEffort: z.string().optional(),
+  }).optional(),
+  prompt: z.string().optional(),
+  task: z.string().optional(),
+  instructions: z.string().optional(),
+  description: z.string().optional(),
+  title: z.string().optional(),
+  model: z.string().optional(),
+  model_id: z.string().optional(),
+  reasoning_effort: z.string().optional(),
+  reasoningEffort: z.string().optional(),
+})
+const httpFailureSchema = z.object({ httpStatusCode: finiteNumberSchema.nullable() })
+const codexErrorInfoSchema = z.union([
+  z.enum([
+    'contextWindowExceeded',
+    'sessionBudgetExceeded',
+    'usageLimitExceeded',
+    'serverOverloaded',
+    'cyberPolicy',
+    'internalServerError',
+    'unauthorized',
+    'badRequest',
+    'threadRollbackFailed',
+    'sandboxError',
+    'other',
+  ]),
+  z.object({ httpStatusCode: finiteNumberSchema.nullable() }),
+  z.object({ httpConnectionFailed: httpFailureSchema }),
+  z.object({ responseStreamConnectionFailed: httpFailureSchema }),
+  z.object({ responseStreamDisconnected: httpFailureSchema }),
+  z.object({ responseTooManyFailedAttempts: httpFailureSchema }),
+  z.object({ activeTurnNotSteerable: z.object({ turnKind: z.string() }) }),
+])
+const codexErrorPayloadSchema = z.object({
+  message: z.string().optional(),
+  code: z.string().optional(),
+  codexErrorInfo: codexErrorInfoSchema.nullable().optional(),
+  additionalDetails: z.string().nullable().optional(),
+})
+
+function parsedString<Value>(value: Value): string | undefined {
+  const parsed = stringValueSchema.safeParse(value)
+  return parsed.success ? parsed.data : undefined
+}
+
+function parsedFiniteNumber<Value>(value: Value): number | undefined {
+  const parsed = finiteNumberSchema.safeParse(value)
+  return parsed.success ? parsed.data : undefined
 }
 
 export interface CodexPendingServerRequest {
@@ -77,18 +165,20 @@ function normalizeCodexNotification(method: string, params: any, opts?: { planMo
     }
 
     case 'thread/goal/cleared': {
-      const threadId = typeof params?.threadId === 'string' ? params.threadId : null
+      const threadId = parsedString(params?.threadId) ?? null
       return threadId ? [{ type: 'goal_cleared', threadId }] : []
     }
 
     case 'item/agentMessage/delta': {
-      if (typeof params?.delta !== 'string' || !params.delta) return []
+      const delta = parsedString(params?.delta)
+      if (!delta) return []
       const parentToolUseId = codexParentToolUseId(params)
-      return [{
+      const event: Extract<NormalizedEvent, { type: 'text_chunk' }> = {
         type: 'text_chunk',
-        text: params.delta,
-        ...(parentToolUseId ? { parentToolUseId } : {}),
-      }]
+        text: delta,
+      }
+      if (parentToolUseId) event.parentToolUseId = parentToolUseId
+      return [event]
     }
 
     case 'item/started':
@@ -104,11 +194,12 @@ function normalizeCodexNotification(method: string, params: any, opts?: { planMo
     case 'turn/plan/updated': {
       if (opts?.planMode) return []
 
-      const planItems = Array.isArray(params?.plan) ? params.plan : []
+      const parsedPlan = z.array(planItemSchema).safeParse(params?.plan)
+      const planItems = parsedPlan.success ? parsedPlan.data : []
       const todos = planItems
-        .map((p: any) => ({
-          content: String(p.step || p.text || p.description || p.title || '').trim(),
-          status: normalizePlanItemStatus(p.status),
+        .map((planItem) => ({
+          content: (planItem.step || planItem.text || planItem.description || planItem.title || '').trim(),
+          status: normalizePlanItemStatus(planItem.status),
         }))
         .filter((p: { content: string }) => p.content)
       // A sub-agent's plan belongs to its own card. Untagged it would overwrite
@@ -181,8 +272,8 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
         return this.emit(events)
       }
 
-      if (method === 'item/agentMessage/delta' && typeof params?.delta === 'string') {
-        this.streamedPlanText += params.delta
+      if (method === 'item/agentMessage/delta') {
+        this.streamedPlanText += parsedString(params?.delta) ?? ''
       }
 
       if (method === 'item/completed') {
@@ -231,7 +322,7 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
     if (
       (method !== 'item/started' && method !== 'item/completed') ||
       item?.type !== 'subAgentActivity' ||
-      typeof item.id !== 'string'
+      !parsedString(item.id)
     ) {
       return false
     }
@@ -257,11 +348,7 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
   }
 
   private captureTurnId(params: any): void {
-    const turnId = typeof params?.turnId === 'string'
-      ? params.turnId
-      : typeof params?.turn?.id === 'string'
-        ? params.turn.id
-        : null
+    const turnId = parsedString(params?.turnId) ?? parsedString(params?.turn?.id) ?? null
     if (turnId) this.turnId = turnId
   }
 
@@ -270,31 +357,21 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
   }
 }
 
-export function normalizeThreadGoal(value: unknown): ThreadGoal | null {
-  if (!value || typeof value !== 'object') return null
-  const goal = value as {
-    threadId?: unknown
-    objective?: unknown
-    status?: unknown
-    tokenBudget?: unknown
-    tokensUsed?: unknown
-    timeUsedSeconds?: unknown
-    createdAt?: unknown
-    updatedAt?: unknown
-    completedAt?: unknown
-  }
-  if (typeof goal.threadId !== 'string' || typeof goal.objective !== 'string') return null
-  const status = typeof goal.status === 'string' ? goal.status : 'active'
+export function normalizeThreadGoal<Value>(value: Value): ThreadGoal | null {
+  const parsed = threadGoalSchema.safeParse(value)
+  if (!parsed.success) return null
+  const goal = parsed.data
+  const status = goal.status ?? 'active'
   if (!isThreadGoalStatus(status)) return null
   return {
     threadId: goal.threadId,
     objective: goal.objective,
     status,
-    tokenBudget: finiteOptionalNumber(goal.tokenBudget),
-    tokensUsed: finiteOptionalNumber(goal.tokensUsed),
-    timeUsedSeconds: finiteOptionalNumber(goal.timeUsedSeconds),
-    createdAt: finiteOptionalNumber(goal.createdAt),
-    updatedAt: finiteOptionalNumber(goal.updatedAt),
+    tokenBudget: goal.tokenBudget,
+    tokensUsed: goal.tokensUsed,
+    timeUsedSeconds: goal.timeUsedSeconds,
+    createdAt: goal.createdAt,
+    updatedAt: goal.updatedAt,
   }
 }
 
@@ -307,10 +384,6 @@ function isThreadGoalStatus(value: string): value is ThreadGoal['status'] {
     value === 'usageLimited'
 }
 
-function finiteOptionalNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-}
-
 function normalizeCodexTokenCount(method: string, params: any): UsageEvent | null {
   if (method === 'thread/tokenUsage/updated') {
     const tokenUsage = params?.tokenUsage
@@ -320,7 +393,10 @@ function normalizeCodexTokenCount(method: string, params: any): UsageEvent | nul
     const context = codexContextUsage(tokenUsage?.last, finiteTokenCount(tokenUsage?.modelContextWindow) || undefined)
     const run = codexRunUsage(tokenUsage?.total)
     if (!context && !run) return null
-    return { type: 'usage', ...(context ? { context } : {}), ...(run ? { run } : {}) }
+    const event: UsageEvent = { type: 'usage' }
+    if (context) event.context = context
+    if (run) event.run = run
+    return event
   }
 
   const payload = [
@@ -331,12 +407,15 @@ function normalizeCodexTokenCount(method: string, params: any): UsageEvent | nul
     params?.message,
   ].find((candidate) => candidate?.type === 'token_count') ?? (method === 'token_count' ? params : null)
   const info = payload?.info
-  if (!info || typeof info !== 'object') return null
+  if (!info) return null
 
   const context = codexContextUsage(info.last_token_usage || info.usage)
   const run = codexRunUsage(info.total_token_usage || info.usage)
   if (!context && !run) return null
-  return { type: 'usage', ...(context ? { context } : {}), ...(run ? { run } : {}) }
+  const event: UsageEvent = { type: 'usage' }
+  if (context) event.context = context
+  if (run) event.run = run
+  return event
 }
 
 type UsageEvent = Extract<NormalizedEvent, { type: 'usage' }>
@@ -349,24 +428,34 @@ interface CodexTokenBreakdown {
   reasoningTokens: number
 }
 
+interface CodexSubagentToolInput {
+  subagent_type: string
+  description?: string
+  prompt?: string
+  model?: string
+  reasoning_effort?: string
+}
+
 /** Reads a Codex token breakdown in either the v2 camelCase or the older
  *  snake_case spelling — the two protocol versions report the same numbers. */
-function codexTokenBreakdown(raw: any): CodexTokenBreakdown | null {
-  if (!raw || typeof raw !== 'object') return null
-  const inputTokens = finiteTokenCount(raw.inputTokens ?? raw.input_tokens)
-  const cachedInputTokens = finiteTokenCount(raw.cachedInputTokens ?? raw.cached_input_tokens)
-  const outputTokens = finiteTokenCount(raw.outputTokens ?? raw.output_tokens)
+function codexTokenBreakdown<Raw>(raw: Raw): CodexTokenBreakdown | null {
+  const parsed = tokenBreakdownSchema.safeParse(raw)
+  if (!parsed.success) return null
+  const tokenUsage = parsed.data
+  const inputTokens = finiteTokenCount(tokenUsage.inputTokens ?? tokenUsage.input_tokens)
+  const cachedInputTokens = finiteTokenCount(tokenUsage.cachedInputTokens ?? tokenUsage.cached_input_tokens)
+  const outputTokens = finiteTokenCount(tokenUsage.outputTokens ?? tokenUsage.output_tokens)
   if (!inputTokens && !cachedInputTokens && !outputTokens) return null
   return {
-    totalTokens: finiteTokenCount(raw.totalTokens ?? raw.total_tokens) || inputTokens + outputTokens,
+    totalTokens: finiteTokenCount(tokenUsage.totalTokens ?? tokenUsage.total_tokens) || inputTokens + outputTokens,
     inputTokens,
     cachedInputTokens,
     outputTokens,
-    reasoningTokens: finiteTokenCount(raw.reasoningOutputTokens ?? raw.reasoning_output_tokens),
+    reasoningTokens: finiteTokenCount(tokenUsage.reasoningOutputTokens ?? tokenUsage.reasoning_output_tokens),
   }
 }
 
-function codexContextUsage(raw: any, windowTokens?: number): ContextUsage | null {
+function codexContextUsage<Raw>(raw: Raw, windowTokens?: number): ContextUsage | null {
   const breakdown = codexTokenBreakdown(raw)
   if (!breakdown) return null
   // Codex/OpenAI counts cached input inside inputTokens. Split it out so the
@@ -384,7 +473,7 @@ function codexContextUsage(raw: any, windowTokens?: number): ContextUsage | null
   }
 }
 
-function codexRunUsage(raw: any): UsageData | null {
+function codexRunUsage<Raw>(raw: Raw): UsageData | null {
   const breakdown = codexTokenBreakdown(raw)
   if (!breakdown) return null
   return {
@@ -395,34 +484,30 @@ function codexRunUsage(raw: any): UsageData | null {
   }
 }
 
-function finiteTokenCount(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0
-    ? Math.round(value)
+function finiteTokenCount<Value>(value: Value): number {
+  const parsed = parsedFiniteNumber(value)
+  return parsed && parsed > 0
+    ? Math.round(parsed)
     : 0
 }
 
 function normalizeCodexRateLimitsUpdated(params: any): NormalizedEvent[] {
-  const rateLimits = params?.rateLimits
-  if (!rateLimits || typeof rateLimits !== 'object') return []
+  const parsed = rateLimitsSchema.safeParse(params?.rateLimits)
+  if (!parsed.success) return []
+  const rateLimits = parsed.data
 
-  const reachedType = typeof rateLimits.rateLimitReachedType === 'string'
-    ? rateLimits.rateLimitReachedType.toLowerCase()
-    : null
+  const reachedType = rateLimits.rateLimitReachedType?.toLowerCase() ?? null
 
   const events: NormalizedEvent[] = []
   for (const [key, window] of [
     ['primary', rateLimits.primary],
     ['secondary', rateLimits.secondary],
   ] as const) {
-    if (!window || typeof window !== 'object') continue
+    if (!window) continue
 
-    const usedPercent = typeof window.usedPercent === 'number' && Number.isFinite(window.usedPercent)
-      ? window.usedPercent
-      : null
+    const usedPercent = window.usedPercent ?? null
     const resetsAt = findResetTimestamp(window.resetsAt)
-    const windowDurationMins = typeof window.windowDurationMins === 'number' && Number.isFinite(window.windowDurationMins)
-      ? window.windowDurationMins
-      : null
+    const windowDurationMins = window.windowDurationMins ?? null
     if (!resetsAt || !windowDurationMins) continue
 
     let status: 'allowed_warning' | 'limited' | null = null
@@ -456,24 +541,24 @@ function normalizeCodexRateLimitsUpdated(params: any): NormalizedEvent[] {
       durationLabel = `${windowDurationMins}m`
     }
 
-    events.push({
+    const event: Extract<NormalizedEvent, { type: 'rate_limit' }> = {
       type: 'rate_limit',
       status,
       resetsAt: resetsAt + CODEX_RATE_LIMIT_SEND_BUFFER_SECONDS,
       rateLimitType: `Codex ${windowDurationMins === 300 || windowDurationMins === 10_080 ? durationLabel : `${key} ${durationLabel}`}`,
-      ...(usedPercent !== null ? { usedPercent } : {}),
       windowDurationMins,
       isUsingOverage: rateLimits.credits?.hasCredits,
       deferCurrentRun: true,
-    })
+    }
+    if (usedPercent !== null) event.usedPercent = usedPercent
+    events.push(event)
   }
 
   return events
 }
 
-function normalizePlanItemStatus(status: unknown): 'completed' | 'in_progress' | 'pending' {
-  if (typeof status !== 'string') return 'pending'
-
+function normalizePlanItemStatus(status: string | undefined): 'completed' | 'in_progress' | 'pending' {
+  if (!status) return 'pending'
   const normalized = status.trim().replace(/[\s-]/g, '_').toLowerCase()
   if (normalized === 'completed' || normalized === 'pending') return normalized
   if (normalized === 'in_progress' || normalized === 'inprogress') return 'in_progress'
@@ -502,7 +587,7 @@ function normalizeItemStarted(params: any): NormalizedEvent[] {
         parentToolUseId: codexParentToolUseId(params),
         isSubagent: true,
         subagentType: 'codex',
-        ...(finiteOptionalNumber(params?.startedAtMs) !== undefined ? { startedAtMs: params.startedAtMs } : {}),
+        ...(parsedFiniteNumber(params?.startedAtMs) !== undefined ? { startedAtMs: params.startedAtMs } : {}),
       }]
     }
     if (item.kind === 'interrupted') {
@@ -533,16 +618,17 @@ function normalizeItemStarted(params: any): NormalizedEvent[] {
     parentToolUseId: codexParentToolUseId(params),
     isSubagent,
     subagentType: isClaudeSubagent ? 'claude' : isCodexSubagent ? 'codex' : undefined,
-    ...(finiteOptionalNumber(params?.startedAtMs) !== undefined ? { startedAtMs: params.startedAtMs } : {}),
+    ...(parsedFiniteNumber(params?.startedAtMs) !== undefined ? { startedAtMs: params.startedAtMs } : {}),
   }]
 }
 
 function normalizeToolUpdate(params: any): NormalizedEvent[] {
-  const text = params?.delta || params?.output || params?.diff || params?.patch || params?.message
-  if ((typeof text !== 'string' || !text) && !Array.isArray(params?.changes)) return []
-  const payload = typeof text === 'string' && text
-    ? text
-    : JSON.stringify({ changes: params.changes })
+  const text = [params?.delta, params?.output, params?.diff, params?.patch, params?.message]
+    .map((candidate) => parsedString(candidate))
+    .find(Boolean)
+  const changes = z.array(z.json()).safeParse(params?.changes)
+  if (!text && !changes.success) return []
+  const payload = text ?? JSON.stringify({ changes: changes.success ? changes.data : [] })
   return [{
     type: 'tool_call_update',
     toolId: params?.itemId || '',
@@ -576,24 +662,26 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
     // assembled here because their deltas are filtered above.
     if (!parentToolUseId) {
       if (opts?.assembledAgentMessages) {
-        return typeof item.text === 'string' && item.text
-          ? [{
-              type: 'assistant_message',
-              text: item.text,
-              ...(item.phase === 'final_answer' ? { isFinal: true } : {}),
-            }]
-          : []
+        const text = parsedString(item.text)
+        if (!text) return []
+        const event: Extract<NormalizedEvent, { type: 'assistant_message' }> = {
+          type: 'assistant_message',
+          text,
+        }
+        if (item.phase === 'final_answer') event.isFinal = true
+        return [event]
       }
       return [{ type: 'text_chunk', text: '\n\n' }]
     }
-    return typeof item.text === 'string' && item.text
-      ? [{
-          type: 'assistant_message',
-          text: item.text,
-          parentToolUseId,
-          ...(item.phase === 'final_answer' ? { isFinal: true } : {}),
-        }]
-      : []
+    const text = parsedString(item.text)
+    if (!text) return []
+    const event: Extract<NormalizedEvent, { type: 'assistant_message' }> = {
+      type: 'assistant_message',
+      text,
+      parentToolUseId,
+    }
+    if (item.phase === 'final_answer') event.isFinal = true
+    return [event]
   }
 
   if (!toolName) return []
@@ -610,10 +698,10 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
     }
   } else if (item.type === 'commandExecution') {
     const output =
-      typeof item.aggregatedOutput === 'string' ? item.aggregatedOutput :
-        typeof item.result === 'string' ? item.result :
-          typeof item.error === 'string' ? item.error :
-            ''
+      parsedString(item.aggregatedOutput) ??
+      parsedString(item.result) ??
+      parsedString(item.error) ??
+      ''
     if (output) {
       updates.push({
         type: 'tool_call_update',
@@ -633,7 +721,7 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
       updates.push({
         type: 'tool_call_update',
         toolId: item.id,
-        content: typeof payload === 'string' ? payload : JSON.stringify(payload),
+        content: parsedString(payload) ?? JSON.stringify(payload),
       })
     }
   }
@@ -642,63 +730,67 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
     type: 'tool_call_complete',
     index: 0,
     toolId: item.id,
-    ...(finiteOptionalNumber(params?.completedAtMs) !== undefined ? { completedAtMs: params.completedAtMs } : {}),
+    ...(parsedFiniteNumber(params?.completedAtMs) !== undefined ? { completedAtMs: params.completedAtMs } : {}),
     ...(outcome ? { outcome } : {}),
   })
   if (item.type === 'collabAgentToolCall' || isClaudeSubagent) {
-    updates.push({
+    const resultEvent: Extract<NormalizedEvent, { type: 'tool_result' }> = {
       type: 'tool_result',
       toolUseId: item.id,
       content: codexItemResultText(item),
       isError: item.status === 'failed' || item.success === false || !!item.error,
-      ...(isSubagent ? { isSubagentReport: true } : {}),
-    })
+    }
+    if (isSubagent) resultEvent.isSubagentReport = true
+    updates.push(resultEvent)
   }
   if (parentToolUseId) {
     for (const update of updates) {
-      ;(update as NormalizedEvent & { parentToolUseId?: string }).parentToolUseId = parentToolUseId
+      // SAFETY: Every normalized event accepts the routing metadata added by the event reducer.
+      const routedUpdate = update as NormalizedEvent & { parentToolUseId?: string }
+      routedUpdate.parentToolUseId = parentToolUseId
     }
   }
   return updates
 }
 
 function codexItemResultText(item: any): string {
-  if (typeof item.aggregatedOutput === 'string' && item.aggregatedOutput) return item.aggregatedOutput
+  const aggregatedOutput = parsedString(item.aggregatedOutput)
+  if (aggregatedOutput) return aggregatedOutput
   if (Array.isArray(item.contentItems)) {
     const text = item.contentItems
-      .map((part: unknown) => {
-        if (typeof part === 'string') return part
-        if (!part || typeof part !== 'object') return ''
-        const record = part as { text?: unknown }
-        return typeof record.text === 'string' ? record.text : ''
-      })
+      .map((part: any) => contentPartText(part))
       .filter(Boolean)
       .join('\n')
     if (text) return text
   }
-  if (typeof item.result === 'string' && item.result) return item.result
-  if (item.result && typeof item.result === 'object') {
-    const content = item.result.contentItems ?? item.result.content
+  const resultText = parsedString(item.result)
+  if (resultText) return resultText
+  const result = z.object({
+    contentItems: z.array(contentPartSchema).optional(),
+    content: z.array(contentPartSchema).optional(),
+  }).safeParse(item.result)
+  if (result.success) {
+    const content = result.data.contentItems ?? result.data.content
     if (Array.isArray(content)) {
       return content
-        .map((part: unknown) => {
-          if (typeof part === 'string') return part
-          if (!part || typeof part !== 'object') return ''
-          const record = part as { text?: unknown }
-          return typeof record.text === 'string' ? record.text : ''
-        })
+        .map((part) => contentPartText(part))
         .filter(Boolean)
         .join('\n')
     }
   }
-  if (typeof item.error === 'string' && item.error) return item.error
-  return typeof item.status === 'string' ? item.status : ''
+  return parsedString(item.error) || parsedString(item.status) || ''
+}
+
+function contentPartText<Part>(part: Part): string {
+  const parsed = contentPartSchema.safeParse(part)
+  if (!parsed.success) return ''
+  return parsedString(parsed.data) ?? parsed.data.text ?? ''
 }
 
 function codexStartedToolInput(item: any): string | undefined {
-  if (item.type === 'commandExecution' && typeof item.command === 'string') return item.command
+  if (item.type === 'commandExecution') return parsedString(item.command)
   if (item.type === 'dynamicToolCall' && item.arguments !== undefined) {
-    return typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments)
+    return parsedString(item.arguments) ?? JSON.stringify(item.arguments)
   }
   if (item.type === 'mcpToolCall' && item.arguments !== undefined) {
     return typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments)
@@ -714,23 +806,9 @@ function codexStartedToolInput(item: any): string | undefined {
   }
   if (item.type !== 'collabAgentToolCall') return undefined
 
-  const args = item.arguments && typeof item.arguments === 'object'
-    ? item.arguments as {
-        settings?: unknown
-        prompt?: unknown
-        task?: unknown
-        instructions?: unknown
-        description?: unknown
-        title?: unknown
-        model?: unknown
-        model_id?: unknown
-        reasoning_effort?: unknown
-        reasoningEffort?: unknown
-      }
-    : {}
-  const settings = args.settings && typeof args.settings === 'object'
-    ? args.settings as { model?: unknown; reasoning_effort?: unknown; reasoningEffort?: unknown }
-    : {}
+  const parsedArguments = collabArgumentsSchema.safeParse(item.arguments)
+  const args = parsedArguments.success ? parsedArguments.data : {}
+  const settings = args.settings ?? {}
   const prompt = stringField(item.prompt) || stringField(args.prompt) || stringField(args.task) || stringField(args.instructions)
   const description = stringField(args.description) || stringField(args.title) || prompt || stringField(item.name) || stringField(item.tool)
   const model = stringField(item.model) || stringField(args.model) || stringField(args.model_id) || stringField(settings.model)
@@ -740,13 +818,14 @@ function codexStartedToolInput(item: any): string | undefined {
     stringField(args.reasoningEffort) ||
     stringField(settings.reasoning_effort) ||
     stringField(settings.reasoningEffort)
-  return JSON.stringify({
+  const input: CodexSubagentToolInput = {
     subagent_type: stringField(item.tool) || stringField(item.name) || 'agent',
-    ...(description ? { description } : {}),
-    ...(prompt ? { prompt } : {}),
-    ...(model ? { model } : {}),
-    ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
-  })
+  }
+  if (description) input.description = description
+  if (prompt) input.prompt = prompt
+  if (model) input.model = model
+  if (reasoningEffort) input.reasoning_effort = reasoningEffort
+  return JSON.stringify(input)
 }
 
 function codexToolOutcome(item: any): Extract<NormalizedEvent, { type: 'tool_call_complete' }>['outcome'] {
@@ -769,8 +848,8 @@ function codexToolOutcome(item: any): Extract<NormalizedEvent, { type: 'tool_cal
   }
 }
 
-function stringField(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : ''
+function stringField<Value>(value: Value): string {
+  return parsedString(value)?.trim() ?? ''
 }
 
 function codexParentToolUseId(params: any): string | undefined {
@@ -786,7 +865,8 @@ function codexParentToolUseId(params: any): string | undefined {
     params?.item?.parent_item_id,
     params?.item?.parentId,
   ]) {
-    if (typeof value === 'string' && value) return value
+    const parsed = parsedString(value)
+    if (parsed) return parsed
   }
   return undefined
 }
@@ -796,7 +876,8 @@ function normalizeTurnCompleted(params: any): NormalizedEvent[] {
   const parentToolUseId = codexParentToolUseId(params)
   if (parentToolUseId) {
     if (turn.status === 'failed') {
-      const message = typeof turn.error === 'string' ? turn.error : turn.error?.message
+      const parsedError = codexErrorPayload(turn.error)
+      const message = parsedError?.message
       return [{
         type: 'tool_result',
         toolUseId: parentToolUseId,
@@ -829,7 +910,7 @@ function normalizeTurnCompleted(params: any): NormalizedEvent[] {
     const rateLimitEvent = codexRateLimitEvent(turn.error)
     if (rateLimitEvent) events.push(rateLimitEvent)
 
-    const message = typeof turn.error === 'string' ? turn.error : turn.error?.message
+    const message = codexErrorPayload(turn.error)?.message
     events.push({ type: 'error', message: message || 'Codex turn failed', isError: true, sessionId: params?.threadId })
 
     return events
@@ -846,20 +927,25 @@ function normalizeTurnCompleted(params: any): NormalizedEvent[] {
   }]
 }
 
-function codexRateLimitEvent(error: unknown): NormalizedEvent | null {
-  if (!error) return null
-  const payload: CodexErrorPayload = typeof error === 'string' ? { message: error } : error as CodexErrorPayload
+function codexErrorPayload<ErrorValue>(error: ErrorValue): z.infer<typeof codexErrorPayloadSchema> | null {
+  const message = parsedString(error)
+  if (message) return { message }
+  const parsed = codexErrorPayloadSchema.safeParse(error)
+  return parsed.success ? parsed.data : null
+}
+
+function codexRateLimitEvent<ErrorValue>(error: ErrorValue): NormalizedEvent | null {
+  const payload = codexErrorPayload(error)
+  if (!payload) return null
   const kind = codexErrorKind(payload.codexErrorInfo)
   const httpStatusCode = codexHttpStatusCode(payload.codexErrorInfo)
   const rateLimitKind = kind || payload.code
-  const normalizedKind = typeof rateLimitKind === 'string'
-    ? rateLimitKind.replace(/[\s_-]/g, '').toLowerCase()
-    : null
+  const normalizedKind = rateLimitKind?.replace(/[\s_-]/g, '').toLowerCase() ?? null
   const isRateLimit = normalizedKind === 'usagelimitexceeded' ||
     normalizedKind === 'ratelimitexceeded' ||
     normalizedKind === 'ratelimit' ||
     httpStatusCode === 429 ||
-    (typeof payload.message === 'string' && /\b(usage limit|rate limit|429)\b/i.test(payload.message))
+    (!!payload.message && /\b(usage limit|rate limit|429)\b/i.test(payload.message))
   if (!isRateLimit) return null
 
   const reset = findResetTimestamp(payload.additionalDetails) ||
@@ -870,38 +956,31 @@ function codexRateLimitEvent(error: unknown): NormalizedEvent | null {
     type: 'rate_limit',
     status: 'limited',
     resetsAt: reset + CODEX_RATE_LIMIT_SEND_BUFFER_SECONDS,
-    rateLimitType: typeof rateLimitKind === 'string' && rateLimitKind.trim()
+    rateLimitType: rateLimitKind?.trim()
       ? rateLimitKind.trim()
       : httpStatusCode ? `HTTP ${httpStatusCode}` : 'Codex',
     isUsingOverage: false
   }
 }
 
-function codexErrorKind(info: unknown): string | null {
+function codexErrorKind(info: z.infer<typeof codexErrorInfoSchema> | null | undefined): string | null {
   if (!info) return null
-  if (typeof info === 'string') return info
-  if (typeof info !== 'object') return null
-
-  const record = info as { type?: unknown; code?: unknown; kind?: unknown; name?: unknown }
-  for (const key of ['type', 'code', 'kind', 'name']) {
-    const value = Reflect.get(record, key)
-    if (typeof value === 'string') return value
-  }
-
-  const variantKey = Object.keys(info).find((key) => key !== 'httpStatusCode')
-  return variantKey || null
+  const named = stringValueSchema.safeParse(info)
+  if (named.success) return named.data
+  if ('httpConnectionFailed' in info) return 'httpConnectionFailed'
+  if ('responseStreamConnectionFailed' in info) return 'responseStreamConnectionFailed'
+  if ('responseStreamDisconnected' in info) return 'responseStreamDisconnected'
+  if ('responseTooManyFailedAttempts' in info) return 'responseTooManyFailedAttempts'
+  if ('activeTurnNotSteerable' in info) return 'activeTurnNotSteerable'
+  return null
 }
 
-function codexHttpStatusCode(info: unknown): number | null {
-  if (!info || typeof info !== 'object') return null
-  const record = info as { httpStatusCode?: unknown }
-  if (typeof record.httpStatusCode === 'number') return record.httpStatusCode
-
-  for (const value of Object.values(info)) {
-    if (value && typeof value === 'object') {
-      const nested = (value as { httpStatusCode?: unknown }).httpStatusCode
-      if (typeof nested === 'number') return nested
-    }
-  }
+function codexHttpStatusCode(info: z.infer<typeof codexErrorInfoSchema> | null | undefined): number | null {
+  if (!info || stringValueSchema.safeParse(info).success) return null
+  if ('httpStatusCode' in info) return info.httpStatusCode
+  if ('httpConnectionFailed' in info) return info.httpConnectionFailed.httpStatusCode
+  if ('responseStreamConnectionFailed' in info) return info.responseStreamConnectionFailed.httpStatusCode
+  if ('responseStreamDisconnected' in info) return info.responseStreamDisconnected.httpStatusCode
+  if ('responseTooManyFailedAttempts' in info) return info.responseTooManyFailedAttempts.httpStatusCode
   return null
 }

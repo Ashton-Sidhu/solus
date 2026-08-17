@@ -16,6 +16,12 @@
   import SettingsRow from "../settings/SettingsRow.svelte";
   import PairCodePanel from "./PairCodePanel.svelte";
 
+  interface Props {
+    serverId: string;
+  }
+
+  let { serverId }: Props = $props();
+
   const connections = connectionsStore;
   let addressCopied = $state(false);
 
@@ -41,7 +47,19 @@
       connections.remoteAccessUpdating
     )
       return;
-    await connections.setRemoteAccess(!connections.serverInfo.remoteAccess);
+    await connections.setRemoteAccess(serverId, !connections.serverInfo.remoteAccess);
+  }
+
+  async function toggleTrustLocalNetwork() {
+    if (
+      !connections.serverInfo ||
+      connections.refreshing ||
+      connections.trustLocalNetworkUpdating
+    )
+      return;
+    await connections.setTrustLocalNetwork(serverId,
+      !connections.serverInfo.trustLocalNetwork,
+    );
   }
 
   function copyAddress() {
@@ -61,7 +79,7 @@
         <Button
           variant="ghost"
           size="icon-sm"
-          onclick={() => void connections.refreshServerMetadata()}
+          onclick={() => void connections.refreshServerMetadata(serverId)}
           class="text-(--solus-text-tertiary)"
           aria-label="Refresh server status"
         >
@@ -96,6 +114,22 @@
     </SettingsRow>
 
     <SettingsRow
+      label="Trust my local network"
+      description="Devices on your local network connect without a pairing code. Only enable on a network you control."
+      visible={connections.serverInfo?.remoteAccess ?? false}
+    >
+      {#snippet control()}
+        <Switch
+          checked={connections.serverInfo?.trustLocalNetwork ?? false}
+          onclick={toggleTrustLocalNetwork}
+          disabled={connections.refreshing || connections.trustLocalNetworkUpdating}
+          size="default"
+          aria-label="Trust my local network"
+        />
+      {/snippet}
+    </SettingsRow>
+
+    <SettingsRow
       label="Network address"
       description={reachableAddress}
       visible={(connections.serverInfo?.remoteAccess ?? false) && !!reachableAddress}
@@ -118,7 +152,7 @@
           <Button
             variant="outline"
             size="sm"
-            onclick={() => void connections.generatePairToken()}
+            onclick={() => void connections.generatePairToken(serverId)}
           >
             Pair a device
           </Button>
@@ -128,10 +162,11 @@
   </SettingsSection>
 {/if}
 
-<HostDirectory />
-
+<!-- Pairing sits against the Server card because that card's "Pair a device"
+     button is what fills it in: the code has to appear where the click was,
+     not two sections further down the page. -->
 <SettingsSection label="Pairing">
-  <PairCodePanel />
+  <PairCodePanel {serverId} />
   <SettingsRow
     label="Approve new devices"
     description="Ask before a paired device is allowed to connect."
@@ -183,7 +218,7 @@
           <Button
             variant="ghost"
             size="icon-sm"
-            onclick={() => void connections.revokeDevice(session.deviceId!)}
+            onclick={() => void connections.revokeDevice(serverId, session.deviceId!)}
             class="text-(--solus-text-tertiary) opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-(--solus-status-error)/10 hover:text-(--solus-status-error)"
             aria-label="Revoke device"
           >
@@ -194,3 +229,5 @@
     {/each}
   {/if}
 </SettingsSection>
+
+<HostDirectory />

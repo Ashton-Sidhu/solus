@@ -12,11 +12,16 @@ export function percentToPixels(percent: number, containerSize: number): number 
   return Math.round((percent / 100) * containerSize);
 }
 
+export interface PaneBoundsPercent {
+  min: number
+  max: number
+}
+
 export function paneBoundsPercent(
   containerSize: number,
   minPixels: number,
   maxPixels: number,
-): { min: number; max: number } {
+): PaneBoundsPercent {
   if (containerSize <= 0) return { min: 0, max: 100 };
   const min = Math.min(100, Math.max(0, pixelsToPercent(minPixels, containerSize)));
   const max = Math.min(100, Math.max(min, pixelsToPercent(maxPixels, containerSize)));

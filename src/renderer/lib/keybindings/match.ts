@@ -1,15 +1,17 @@
 import type { BindingDef, KeyCombo } from './types'
 
-export const isMac = typeof navigator !== 'undefined' && navigator.platform.startsWith('Mac')
+export const isMac = globalThis.navigator?.platform.startsWith('Mac') ?? false
 
 // The web shell tags the document root with `solus-web` (same signal
 // settings.context uses). Browsers reserve combos like ⌘T/⌘W/⌘N that a page
 // can't preventDefault, so web bindings fall back to a non-reserved default.
-export const IS_WEB =
-  typeof document !== 'undefined' && document.documentElement.classList.contains('solus-web')
+export const IS_WEB = globalThis.document?.documentElement.classList.contains('solus-web') ?? false
 
-/** The effective default combo for the current platform (web variant on web). */
-export function defaultCombo(def: BindingDef): KeyCombo {
+/**
+ * The effective default combo for the current platform (web variant on web).
+ * `null` when the binding ships unassigned.
+ */
+export function defaultCombo(def: BindingDef): KeyCombo | null {
   return IS_WEB && def.web ? def.web : def.combo
 }
 
@@ -47,7 +49,7 @@ export function comboIsTextInput(combo: KeyCombo): boolean {
   )
 }
 
-const KEY_SYMBOLS: Record<string, string> = {
+const KEY_SYMBOLS = new Map<string, string>(Object.entries({
   Escape: 'Esc',
   Enter: '↵',
   Tab: '⇥',
@@ -63,10 +65,11 @@ const KEY_SYMBOLS: Record<string, string> = {
   Semicolon: ';',
   Quote: "'",
   Equal: '=',
-}
+}))
 
 function codeToLabel(code: string): string {
-  if (code in KEY_SYMBOLS) return KEY_SYMBOLS[code]
+  const symbol = KEY_SYMBOLS.get(code)
+  if (symbol) return symbol
   const m = code.match(/^Key([A-Z])$/)
   if (m) return m[1]
   const d = code.match(/^Digit(\d)$/)
@@ -113,7 +116,12 @@ export function comboFromEvent(e: KeyboardEvent): KeyCombo | null {
 }
 
 /** Resolve a combo's primary (meta) / secondary (ctrl) modifiers for the platform. */
-function effectiveMods(combo: KeyCombo): { meta: boolean; ctrl: boolean } {
+interface EffectiveModifiers {
+  meta: boolean
+  ctrl: boolean
+}
+
+function effectiveMods(combo: KeyCombo): EffectiveModifiers {
   return {
     meta: combo.mod ? isMac : !!combo.meta,
     ctrl: combo.mod ? !isMac : !!combo.ctrl,
@@ -130,7 +138,7 @@ export function comboEquals(a: KeyCombo, b: KeyCombo): boolean {
   return ma.meta === mb.meta && ma.ctrl === mb.ctrl
 }
 
-const ACCEL_KEY_NAMES: Record<string, string> = {
+const ACCEL_KEY_NAMES = new Map<string, string>(Object.entries({
   Space: 'Space',
   Enter: 'Return',
   Tab: 'Tab',
@@ -156,10 +164,11 @@ const ACCEL_KEY_NAMES: Record<string, string> = {
   BracketLeft: '[',
   BracketRight: ']',
   Backslash: '\\',
-}
+}))
 
 function codeToAcceleratorKey(code: string): string | null {
-  if (code in ACCEL_KEY_NAMES) return ACCEL_KEY_NAMES[code]
+  const name = ACCEL_KEY_NAMES.get(code)
+  if (name) return name
   const m = code.match(/^Key([A-Z])$/)
   if (m) return m[1]
   const d = code.match(/^Digit(\d)$/)

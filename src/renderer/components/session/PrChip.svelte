@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CaretRightIcon, GitMergeIcon, GitPullRequestIcon } from "phosphor-svelte";
+  import { GitMergeIcon, GitPullRequestIcon } from "phosphor-svelte";
   import type { PrChip } from "./lib/task-list";
 
   interface Props {
@@ -8,9 +8,8 @@
   }
   let { chip, onOpen }: Props = $props();
 
-  // These are the same lifecycle tones as Tasks: blue active work, purple
-  // review, green complete, and neutral inactive work. Draft alone stays
-  // neutral — an open PR the agent has not committed to yet is not news.
+  // Match Git host conventions: open is green and merged is purple. Review
+  // requests also use purple as an attention state; drafts stay neutral.
   const tone = $derived.by(() => {
     switch (chip.state) {
       case "approvalRequested":
@@ -20,13 +19,13 @@
         };
       case "merged":
         return {
-          color: "var(--success)",
-          background: "color-mix(in oklch, var(--success) 12%, transparent)",
+          color: "var(--review)",
+          background: "color-mix(in oklch, var(--review) 12%, transparent)",
         };
       case "open":
         return {
-          color: "var(--running)",
-          background: "color-mix(in oklch, var(--running) 12%, transparent)",
+          color: "var(--success)",
+          background: "color-mix(in oklch, var(--success) 12%, transparent)",
         };
       default:
         return { color: "var(--muted-foreground)", background: "transparent" };
@@ -43,7 +42,7 @@
 
 <button
   type="button"
-  class="group/pr relative flex shrink-0 cursor-pointer items-center gap-[0.21875rem] rounded bg-(--pr-bg) py-0.5 pr-[0.3125rem] pl-1 text-(--pr-color) transition-[color,background-color,box-shadow,scale] duration-150 before:absolute before:-inset-x-2 before:-inset-y-2.5 before:content-[''] hover:bg-[color-mix(in_oklch,var(--pr-color)_18%,transparent)] hover:text-foreground hover:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--pr-color)_22%,transparent)] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+  class="relative flex shrink-0 cursor-pointer items-center gap-[0.21875rem] rounded bg-(--pr-bg) px-1 py-0.5 text-(--pr-color) transition-[color,background-color,box-shadow,scale] duration-150 before:absolute before:-inset-x-2 before:-inset-y-2.5 before:content-[''] hover:bg-[color-mix(in_oklch,var(--pr-color)_18%,transparent)] hover:text-foreground hover:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--pr-color)_22%,transparent)] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
   style:--pr-color={tone.color}
   style:--pr-bg={tone.background}
   aria-label={actionLabel}
@@ -69,10 +68,4 @@
   <span class="font-mono text-xs tabular-nums"
     >#{chip.number}</span
   >
-  <CaretRightIcon
-    size={9}
-    weight="bold"
-    class="-ml-px shrink-0 opacity-40 transition-[opacity,translate] duration-150 group-hover/pr:translate-x-px group-hover/pr:opacity-100 group-focus-visible/pr:opacity-100"
-    aria-hidden="true"
-  />
 </button>

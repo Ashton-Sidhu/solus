@@ -47,11 +47,11 @@ export class PlanStore {
     this.hostByPlanId.set(planId, serverId)
   }
 
-  /** Old plan links can predate host stamps. Primary fallback preserves their
-   *  single-host behavior until a session or gallery read places the owner. */
   private apiForPlan(planId: string, serverId?: string): HostApi {
-    const ownerServerId = serverId ?? this.hostByPlanId.get(planId)
-    return ownerServerId ? serverConnections.apiFor(ownerServerId) : serverConnections.primaryApi()
+    const ownerServerId = serverId
+      ?? this.hostByPlanId.get(planId)
+    if (!ownerServerId) throw new Error(`Plan host is missing: ${planId}`)
+    return serverConnections.apiFor(ownerServerId)
   }
 
   get previewPlan(): Plan | null {
@@ -71,8 +71,10 @@ export class PlanStore {
 
   descriptorFor(planId: string): PlanDescriptor | null {
     const plan = this.plans[planId]
-    if (!plan) return null
+    const serverId = this.hostByPlanId.get(planId)
+    if (!plan || !serverId) return null
     return {
+      serverId,
       planToolUseId: plan.planToolUseId,
       sessionId: plan.sessionId,
       projectPath: plan.projectPath,
@@ -388,7 +390,7 @@ export class PlanStore {
   }
 
   isDescriptorLoading(key: string): boolean {
-    this.descriptorCacheLoading
+    void this.descriptorCacheLoading
     return this._descriptorLoads.has(key)
   }
 
@@ -403,8 +405,9 @@ export class PlanStore {
     this.cachedDescriptors = data
   }
 
-  private descriptorKey(d: PlanDescriptor): string {
-    const serverId = d.serverId ?? serverConnections.serverIdForApi(serverConnections.primaryApi())
+  private descriptorKey(d: PlanDescriptor): string | null {
+    const serverId = d.serverId
+    if (!serverId) return null
     const pathIdentity = d.planFilePath ?? `${d.provider ?? 'claude-code'}:${d.sessionId}:${d.planToolUseId}`
     return hostKey(serverId, pathIdentity)
   }
@@ -438,10 +441,11 @@ export class PlanStore {
 
   private mergeWithCached(fresh: PlanDescriptor[], cached?: PlanDescriptor[], failedServerIds = new Set<string>()): PlanDescriptor[] {
     if (!cached?.length) return fresh
-    const seen = new Set(fresh.map((d) => this.descriptorKey(d)))
+    const seen = new Set(fresh.map((d) => this.descriptorKey(d)).filter((key): key is string => key !== null))
     for (const cachedDescriptor of this.syncCachedDescriptors(cached)) {
-      const serverId = cachedDescriptor.serverId ?? serverConnections.serverIdForApi(serverConnections.primaryApi())
-      if (failedServerIds.has(serverId) && !seen.has(this.descriptorKey(cachedDescriptor))) fresh.push(cachedDescriptor)
+      const serverId = cachedDescriptor.serverId
+      const key = this.descriptorKey(cachedDescriptor)
+      if (serverId && key && failedServerIds.has(serverId) && !seen.has(key)) fresh.push(cachedDescriptor)
     }
     fresh.sort((a, b) => b.timestamp - a.timestamp)
     return fresh

@@ -8,13 +8,13 @@ import { emitOtelLog, recordOtelDuration } from './otel'
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 export interface Logger {
-  debug(msg: string, data?: object): void
-  info(msg: string, data?: object): void
-  warn(msg: string, data?: object): void
-  error(msg: string, data?: object): void
-  metric(label: string, durationMs: number, data?: object): void
+  debug<Data extends object>(msg: string, data?: Data): void
+  info<Data extends object>(msg: string, data?: Data): void
+  warn<Data extends object>(msg: string, data?: Data): void
+  error<Data extends object>(msg: string, data?: Data): void
+  metric<Data extends object>(label: string, durationMs: number, data?: Data): void
   /** Returns a logger that stamps `bound` fields (e.g. `{ sessionId }`) onto every entry. */
-  child(bound: object): Logger
+  child<Bound extends object>(bound: Bound): Logger
 }
 
 interface LogEntry {
@@ -29,29 +29,29 @@ interface LogEntry {
 
 const isDevRuntime = !isPackagedRuntime()
 const activeLogLevel: LogLevel = isDevRuntime ? 'debug' : 'info'
-const LEVEL_PRIORITY: Record<LogLevel, number> = {
+const LEVEL_PRIORITY = {
   debug: 10,
   info: 20,
   warn: 30,
   error: 40,
-}
+} as const satisfies Record<LogLevel, number>
 
-const LEVEL_COLORS: Record<LogLevel, string> = {
+const LEVEL_COLORS = {
   debug: '\x1b[90m',
   info: '\x1b[36m',
   warn: '\x1b[33m',
   error: '\x1b[31m',
-}
+} as const satisfies Record<LogLevel, string>
 const METRIC_COLOR = '\x1b[35m'
 const RESET = '\x1b[0m'
 const DIM = '\x1b[2m'
 
-const CONSOLE_FN: Record<LogLevel, (...args: unknown[]) => void> = {
+const CONSOLE_FN = {
   debug: console.debug,
   info: console.log,
   warn: console.warn,
   error: console.error,
-}
+} as const satisfies Record<LogLevel, (...args: unknown[]) => void>
 const stdoutGuard = isDevRuntime ? installBrokenPipeGuard(process.stdout) : null
 const stderrGuard = isDevRuntime ? installBrokenPipeGuard(process.stderr) : null
 
@@ -60,13 +60,15 @@ function writeToConsole(level: LogLevel, message: string): void {
   guard?.write(() => CONSOLE_FN[level](message))
 }
 
-function formatDevData(data: object): string {
+function formatDevData<Data extends object>(data: Data): string {
+  // Bounded like the NDJSON file writer below: an uncapped inspect renders a
+  // whole tool payload to stdout synchronously on every log call in dev.
   return inspect(data, {
     colors: true,
     compact: false,
-    depth: null,
-    maxArrayLength: null,
-    maxStringLength: null,
+    depth: 8,
+    maxArrayLength: 100,
+    maxStringLength: 2000,
     breakLength: 120,
   })
 }
@@ -113,55 +115,66 @@ function getLogPath(): string {
   return logPath
 }
 
-function boundedLogValue(
-  value: unknown,
-  depth: number,
-  state: { nodes: number; seen: WeakSet<object> },
-): unknown {
-  if (typeof value === 'string') {
-    return value.length > MAX_STRING_LENGTH
-      ? `${value.slice(0, MAX_STRING_LENGTH)}…[+${value.length - MAX_STRING_LENGTH} chars]`
-      : value
-  }
-  if (value == null || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
-    return typeof value === 'bigint' ? String(value) : value
-  }
-  if (typeof value !== 'object') return String(value)
-  if (state.seen.has(value)) return '[Circular]'
-  if (depth >= MAX_LOG_DEPTH || state.nodes++ >= MAX_LOG_NODES) return '[Truncated]'
-  state.seen.add(value)
+function boundedLogJson(entry: LogEntry): string {
+  const seen = new WeakSet<object>()
+  const depths = new WeakMap<object, number>()
+  let nodes = 0
 
-  if (ArrayBuffer.isView(value)) return `[${value.constructor.name} ${value.byteLength} bytes]`
-  if (value instanceof ArrayBuffer) return `[ArrayBuffer ${value.byteLength} bytes]`
-  if (value instanceof Error) {
-    return boundedLogValue({ name: value.name, message: value.message, stack: value.stack }, depth + 1, state)
-  }
-  if (Array.isArray(value)) {
-    const result = value.slice(0, MAX_LOG_ARRAY_ITEMS)
-      .map((item) => boundedLogValue(item, depth + 1, state))
-    if (value.length > MAX_LOG_ARRAY_ITEMS) result.push(`…[+${value.length - MAX_LOG_ARRAY_ITEMS} items]`)
-    return result
-  }
-
-  const result: Array<[string, unknown]> = []
-  const entries = Object.entries(value)
-  for (const [key, item] of entries.slice(0, MAX_LOG_OBJECT_KEYS)) {
-    try {
-      result.push([key, boundedLogValue(item, depth + 1, state)])
-    } catch {
-      result.push([key, '[Unreadable]'])
+  const line = JSON.stringify(entry, function (_key, value) {
+    const tag = Object.prototype.toString.call(value)
+    if (tag === '[object String]') {
+      return value.length > MAX_STRING_LENGTH
+        ? `${value.slice(0, MAX_STRING_LENGTH)}…[+${value.length - MAX_STRING_LENGTH} chars]`
+        : value
     }
-  }
-  if (entries.length > MAX_LOG_OBJECT_KEYS) {
-    result.push(['logTruncated', 'additional object keys omitted'])
-  }
-  return Object.fromEntries(result)
+    if (tag === '[object BigInt]') return String(value)
+    if (value == null || tag === '[object Number]' || tag === '[object Boolean]') return value
+    if (ArrayBuffer.isView(value)) return `[${value.constructor.name} ${value.byteLength} bytes]`
+    if (value instanceof ArrayBuffer) return `[ArrayBuffer ${value.byteLength} bytes]`
+    if (seen.has(value)) return '[Circular]'
+
+    const depth = (depths.get(this) ?? -1) + 1
+    if (depth >= MAX_LOG_DEPTH || nodes++ >= MAX_LOG_NODES) return '[Truncated]'
+    seen.add(value)
+
+    if (value instanceof Error) {
+      const errorValue = { name: value.name, message: value.message, stack: value.stack }
+      depths.set(errorValue, depth)
+      return errorValue
+    }
+    if (tag !== '[object Object]' && tag !== '[object Array]') return String(value)
+    if (Array.isArray(value)) {
+      const arrayValue = value.slice(0, MAX_LOG_ARRAY_ITEMS)
+      if (value.length > MAX_LOG_ARRAY_ITEMS) {
+        arrayValue.push(`…[+${value.length - MAX_LOG_ARRAY_ITEMS} items]`)
+      }
+      depths.set(arrayValue, depth)
+      return arrayValue
+    }
+
+    const entries = Object.entries(value).slice(0, MAX_LOG_OBJECT_KEYS)
+    if (Object.keys(value).length > MAX_LOG_OBJECT_KEYS) {
+      entries.push(['logTruncated', 'additional object keys omitted'])
+    }
+    const objectValue = Object.fromEntries(entries)
+    depths.set(objectValue, depth)
+    return objectValue
+  })
+
+  return line ?? JSON.stringify({
+    ts: entry.ts,
+    level: entry.level,
+    tag: entry.tag,
+    file: entry.file,
+    msg: entry.msg,
+    logError: 'unserializable data',
+  })
 }
 
 export function serializeLogEntry(entry: LogEntry): string {
   let line: string
   try {
-    line = JSON.stringify(boundedLogValue(entry, 0, { nodes: 0, seen: new WeakSet() }))
+    line = boundedLogJson(entry)
   } catch {
     line = JSON.stringify({ ts: entry.ts, level: entry.level, tag: entry.tag, file: entry.file, msg: entry.msg, logError: 'unserializable data' })
   }
@@ -230,14 +243,21 @@ function flush(): void {
 function ensureTimer(): void {
   if (timer) return
   timer = setInterval(flush, FLUSH_INTERVAL_MS)
-  if (timer && typeof timer === 'object' && 'unref' in timer) {
+  if (timer instanceof Object && 'unref' in timer) {
     timer.unref()
   }
 }
 
 // ─── Core emit ───
 
-function emit(level: LogLevel, tag: string, file: string, bound: object | undefined, msg: string, data?: object): void {
+function emit<Bound extends object, Data extends object>(
+  level: LogLevel,
+  tag: string,
+  file: string,
+  bound: Bound | undefined,
+  msg: string,
+  data?: Data,
+): void {
   if (LEVEL_PRIORITY[level] < LEVEL_PRIORITY[activeLogLevel]) return
 
   const merged = bound ? { ...bound, ...data } : data
@@ -274,13 +294,13 @@ function emit(level: LogLevel, tag: string, file: string, bound: object | undefi
  */
 export const isDebugEnabled = LEVEL_PRIORITY.debug >= LEVEL_PRIORITY[activeLogLevel]
 
-function makeLogger(tag: string, file: string, bound?: object): Logger {
+function makeLogger<Bound extends object = never>(tag: string, file: string, bound?: Bound): Logger {
   return {
     debug: (msg, data?) => emit('debug', tag, file, bound, msg, data),
     info: (msg, data?) => emit('info', tag, file, bound, msg, data),
     warn: (msg, data?) => emit('warn', tag, file, bound, msg, data),
     error: (msg, data?) => emit('error', tag, file, bound, msg, data),
-    metric(label: string, durationMs: number, data?: object) {
+    metric<Data extends object>(label: string, durationMs: number, data?: Data) {
       const payload = bound ? { durationMs, ...bound, ...data } : { durationMs, ...data }
       if (isDevRuntime) {
         const t = new Date().toISOString().slice(11, 23)
@@ -295,7 +315,7 @@ function makeLogger(tag: string, file: string, bound?: object): Logger {
 }
 
 export function createLogger(tag: string, file: string): Logger {
-  return makeLogger(tag, file)
+  return makeLogger(tag, file, undefined)
 }
 
 export function flushLogs(): void {

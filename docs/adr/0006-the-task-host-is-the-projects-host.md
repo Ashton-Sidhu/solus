@@ -48,13 +48,11 @@ follows:
 
 - **A dispatch is `serverId !== taskServerId`.** Not a flag — a fact about the
   run. `isDispatch()` reads it directly and `worktreeRequired` is gone.
-- **Only a dispatch forces an isolated worktree**, because only a dispatch leaves
-  a base checkout on a machine nobody is watching. The user's own choice lives in
-  a single nullable `worktree: { baseBranch } | null` — present the moment
-  isolation is asked for, with a null branch while the host has yet to say which
-  one it would fork from. One field rather than a request flag beside a branch,
-  because a pair can express "not branching, from `main`", and a toggle that
-  flipped only half of it is exactly the bug this replaced.
+- **A dispatch always uses an isolated worktree**, because its base checkout is
+  unattended. The user can create a new worktree or select an existing worktree
+  on the target host; branch rows are not dispatch destinations. A new worktree
+  uses `worktree: { baseBranch }`, while the pending dispatch carries the exact
+  target-host worktree path when an existing worktree is selected.
 - **Minting moved to the client.** Before the prompt leaves, the renderer mints or
   binds the task on `taskServerId` (`tasksPrepareForSession`) and hands the
   execution host the resulting id with `skipTaskCreation`. The session link is

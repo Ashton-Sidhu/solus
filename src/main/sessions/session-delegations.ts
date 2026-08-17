@@ -19,11 +19,13 @@ interface DelegationRow {
  * survives history refreshes without changing provider-owned transcripts. */
 export function recordSessionDelegation(input: RecordSessionDelegationInput): boolean {
   const db = getDb()
-  const parent = db.prepare(`
+  const parentQuery = db.prepare(`
     SELECT root_session_id, delegation_depth
     FROM sessions
     WHERE session_id = ?
-  `).get(input.parentSessionId) as DelegationRow | undefined
+  `)
+  // SAFETY: this query selects only the two nullable columns declared by DelegationRow.
+  const parent = parentQuery.get(input.parentSessionId) as DelegationRow | undefined
   const rootSessionId = parent?.root_session_id ?? input.parentSessionId
   const depth = (parent?.delegation_depth ?? 0) + 1
   const result = db.prepare(`

@@ -1,4 +1,4 @@
-const CODE_BLOCK_LANGUAGE_ALIASES: Readonly<Record<string, string>> = {
+const CODE_BLOCK_LANGUAGE_ALIASES = {
   "c++": "cpp",
   html: "xml",
   js: "javascript",
@@ -6,7 +6,7 @@ const CODE_BLOCK_LANGUAGE_ALIASES: Readonly<Record<string, string>> = {
   py: "python",
   ts: "typescript",
   yml: "yaml",
-};
+} satisfies Readonly<Record<string, string>>;
 
 const CODE_BLOCK_LANGUAGES = new Set([
   "",

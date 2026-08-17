@@ -1,11 +1,12 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import type { z } from 'zod'
 import { getElectronModule } from './electron'
 import { dataDir } from './paths'
 
 export interface SecretStore {
-  loadJson<T>(key: string, electronPath: string): T | null
-  saveJson(key: string, electronPath: string, value: unknown): void
+  loadJson<T>(key: string, electronPath: string, schema: z.ZodType<T>): T | null
+  saveJson<T>(key: string, electronPath: string, value: T): void
   remove(key: string, electronPath: string): void
   canSave(): boolean
 }
@@ -19,17 +20,18 @@ type ElectronSafeStorage = {
 class ElectronSecretStore implements SecretStore {
   constructor(private readonly safeStorage: ElectronSafeStorage) {}
 
-  loadJson<T>(_key: string, electronPath: string): T | null {
+  loadJson<T>(_key: string, electronPath: string, schema: z.ZodType<T>): T | null {
     if (!existsSync(electronPath)) return null
     try {
       const encrypted = readFileSync(electronPath)
-      return JSON.parse(this.safeStorage.decryptString(encrypted)) as T
+      const parsed = schema.safeParse(JSON.parse(this.safeStorage.decryptString(encrypted)))
+      return parsed.success ? parsed.data : null
     } catch {
       return null
     }
   }
 
-  saveJson(_key: string, electronPath: string, value: unknown): void {
+  saveJson<T>(_key: string, electronPath: string, value: T): void {
     if (!this.canSave()) throw new Error('Secure storage is unavailable.')
     const encrypted = this.safeStorage.encryptString(JSON.stringify(value))
     writeFileSync(electronPath, encrypted, { mode: 0o600 })
@@ -49,17 +51,18 @@ class FileSecretStore implements SecretStore {
     return join(dataDir(), 'secrets', `${key}.json`)
   }
 
-  loadJson<T>(key: string, _electronPath: string): T | null {
+  loadJson<T>(key: string, _electronPath: string, schema: z.ZodType<T>): T | null {
     const path = this.fileFor(key)
     if (!existsSync(path)) return null
     try {
-      return JSON.parse(readFileSync(path, 'utf8')) as T
+      const parsed = schema.safeParse(JSON.parse(readFileSync(path, 'utf8')))
+      return parsed.success ? parsed.data : null
     } catch {
       return null
     }
   }
 
-  saveJson(key: string, _electronPath: string, value: unknown): void {
+  saveJson<T>(key: string, _electronPath: string, value: T): void {
     const dir = join(dataDir(), 'secrets')
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     chmodSync(dir, 0o700)
@@ -83,16 +86,9 @@ let store: SecretStore | null = null
 export function secretStore(): SecretStore {
   if (store) return store
   const safeStorage = getElectronModule()?.safeStorage
-  if (safeStorage && typeof safeStorage === 'object') {
-    const candidate = safeStorage as Partial<ElectronSafeStorage>
-    if (
-      typeof candidate.decryptString === 'function' &&
-      typeof candidate.encryptString === 'function' &&
-      typeof candidate.isEncryptionAvailable === 'function'
-    ) {
-      store = new ElectronSecretStore(candidate as ElectronSafeStorage)
-      return store
-    }
+  if (safeStorage) {
+    store = new ElectronSecretStore(safeStorage)
+    return store
   }
   store = new FileSecretStore()
   return store

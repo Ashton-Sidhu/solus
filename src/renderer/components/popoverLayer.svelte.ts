@@ -20,7 +20,8 @@ export function useClickOutside(
   $effect(() => {
     if (!isOpen()) return
     const handler = (e: MouseEvent) => {
-      const target = e.target as Node
+      if (!(e.target instanceof Node)) return
+      const target = e.target
       for (const el of refs()) {
         if (el?.contains(target)) return
       }

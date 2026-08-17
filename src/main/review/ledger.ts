@@ -122,15 +122,16 @@ export async function resolveReviewContext(
 
   const prUrl = onDefault ? null : await getExistingPR(branch, checkoutRoot).catch(() => null)
 
-  return {
+  const context: ReviewContext = {
     key,
     branch,
     targetBranch,
     baseSha,
     headSha: getHeadCommit(cwd) ?? baseSha,
     repoRoot,
-    ...(prUrl ? { prUrl } : {}),
   }
+  if (prUrl) context.prUrl = prUrl
+  return context
 }
 
 /** When work started on `main` then moved to a branch, the branch's divergence

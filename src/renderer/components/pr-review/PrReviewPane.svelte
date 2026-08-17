@@ -7,9 +7,10 @@
     SparkleIcon,
     XIcon,
   } from "phosphor-svelte";
-  import type { IpcContext } from "../../../shared/types";
+  import { projectScopeOf, type IpcContext } from "../../../shared/types";
   import type {
     DraftReview,
+    PrCommit,
     PullRequestDetail,
     PrReviewTarget,
   } from "../../../shared/providers";
@@ -32,10 +33,13 @@
   import GuideSurface from "../review/GuideSurface.svelte";
   import { GuideLoader } from "../review/lib/guide-loader.svelte";
   import DiffPanel from "../diff/DiffPanel.svelte";
+  import DiffHeatMap from "../diff/DiffHeatMap.svelte";
+  import { parsePatchFiles } from "@pierre/diffs";
   import ActivityFeed from "./ActivityFeed.svelte";
   import type { PrActivityTarget } from "./lib/activity-data";
   import SubmitReviewModal from "./SubmitReviewModal.svelte";
   import SinceReviewBar from "./SinceReviewBar.svelte";
+  import PrCheckoutMenu from "./PrCheckoutMenu.svelte";
   import { prReviewState } from "./lib/pr-review.store.svelte";
   import PrDetailChrome from "./PrDetailChrome.svelte";
   import GithubConnectionRequired from "../prs/GithubConnectionRequired.svelte";
@@ -168,7 +172,7 @@
   const review = $derived(
     prReviewState(
       serverId,
-      (targetCtx ?? session.ctx).session.projectPath ?? (targetCtx ?? session.ctx).session.workingDirectory,
+      projectScopeOf((targetCtx ?? session.ctx).session),
       target.number,
       {
         getApi,
@@ -182,6 +186,7 @@
           session.prsStore.loadThreads(api, serverId, ctx, number, { force }),
         loadDiff: (ctx, request) => api.prGetDiff(ctx, request),
         prepareCheckout: (ctx, target) => api.prPrepareCheckout(ctx, target),
+        checkoutInRepo: (ctx, target) => api.prCheckoutInRepo(ctx, target),
         loadInterdiff: (ctx, target, force) =>
           session.prsStore.loadInterdiff(api, serverId, ctx, target, { force }),
         diffStats: (ctx, scope) =>
@@ -315,20 +320,20 @@
       await session.prsStore.requestGuides(api, serverId, prCtx(), [target.number], {
         onSettled: ({ failed }) => {
           if (failed > 0) {
-            toasts.error(
-              `Review guide generation failed for PR #${target.number}. Try again from Activity or Guide.`,
-            );
+            toasts.error(`Review guide generation failed for PR #${target.number}`, {
+              description: "Try again from Activity or Guide.",
+            });
           } else {
-            toasts.success(
-              `Review guide for PR #${target.number} is ready in the Guide tab.`,
-            );
+            toasts.success(`Review guide ready for PR #${target.number}`, {
+              description: "Open the Guide tab to review it.",
+            });
           }
         },
       });
     } catch (error) {
-      toasts.error(
-        `Couldn't prepare the review guide: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      toasts.error("Couldn't prepare the review guide", {
+        description: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       preparingGuide = false;
     }
@@ -347,7 +352,7 @@
 
   // The active content tab lives in the PR store so chrome outside this
   // component can react to it (see PrsStore.prReviewTab).
-  type ContentTab = "activity" | "guide" | "diff";
+  type ContentTab = "activity" | "map" | "guide" | "diff";
   // The host target enables Activity and Diff together. A cached guide can also
   // load then; only generation and other source actions need checkout.
   const sub = $derived(
@@ -355,6 +360,20 @@
   );
 
   const diffScope = $derived(review.diffScope);
+
+  // The Map tab reads the same effective patch as the Diff tab, so a
+  // since-review checkpoint narrows both views together.
+  const mapPatch = $derived(
+    isSinceReviewMode ? (interdiff?.patch ?? "") : (review.diffPatch ?? ""),
+  );
+  const mapFiles = $derived(
+    mapPatch ? parsePatchFiles(mapPatch).flatMap((part) => part.files) : [],
+  );
+
+  async function loadRepoFilesForMap(repoRoot: string): Promise<readonly string[] | null> {
+    const result = await getApi().listProjectFiles(prCtx(), { cwd: repoRoot });
+    return result.ok ? result.files : null;
+  }
 
   $effect(() => {
     void review.ownDeltaBase?.headSha;
@@ -397,6 +416,18 @@
   const isSinceReviewMode = $derived(review.isSinceReviewMode);
   const sinceReviewThreads = $derived(review.sinceReviewThreads);
 
+  // ── Commit scope ──
+  // While set, the Diff tab shows one commit's changes instead of the PR diff.
+  const commitScope = $derived(review.commitScope);
+  const diffViewLoading = $derived(
+    commitScope
+      ? review.commitDiffLoading && review.commitDiffPatch === null
+      : review.diffLoading && review.diffPatch === null,
+  );
+  const diffViewError = $derived(
+    commitScope ? review.commitDiffError : review.diffError,
+  );
+
   $effect(() => {
     const currentNumber = target.number;
     const prCwd = review.checkout?.worktreePath;
@@ -406,8 +437,7 @@
       (emittingServerId, { projectRoot: changedCwd }) => {
         if (emittingServerId !== serverId) return;
         const paneCtx = prCtx();
-        const ctxCwd =
-          paneCtx.session.projectPath || paneCtx.session.workingDirectory;
+        const ctxCwd = projectScopeOf(paneCtx.session);
         if (changedCwd !== ctxCwd && changedCwd !== prCwd) return;
         clearTimeout(timer);
         timer = setTimeout(() => {
@@ -467,9 +497,9 @@
       loadInterdiff(true);
       review.loadDiff(true);
     } catch (error) {
-      toasts.error(
-        `Couldn't refresh PR #${target.number}: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      toasts.error(`Couldn't refresh PR #${target.number}`, {
+        description: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       refreshingPr = false;
       requestInputFocus();
@@ -508,19 +538,18 @@
   // Mount whichever tab we open on (Activity by default) so it renders without a
   // blank frame; the others mount lazily on first visit.
   let mountedGuide = $state(untrack(() => sub === "guide"));
-  let mountedDiff = $state(untrack(() => sub === "diff"));
+  // Popped-out mode redirects the Diff tab to Activity + pane (effect below);
+  // mounting the inline panel there would keep a full hidden duplicate of the
+  // popped-out diff (a second CodeView and parsed patch) alive for the tab's life.
+  let mountedDiff = $state(untrack(() => sub === "diff") && (headless || embedded));
   let mountedActivity = $state(untrack(() => sub === "activity"));
+  let mountedMap = $state(untrack(() => sub === "map"));
   $effect(() => {
     if (sub === "guide") mountedGuide = true;
-    else if (sub === "diff") mountedDiff = true;
+    else if (sub === "diff") { if (inlineDiff) mountedDiff = true; }
     else if (sub === "activity") mountedActivity = true;
+    else if (sub === "map") mountedMap = true;
   });
-
-  const TABS: { id: ContentTab; label: string }[] = [
-    { id: "activity", label: "Activity" },
-    { id: "guide", label: "Guide" },
-    { id: "diff", label: "Diff" },
-  ];
 
   // The diff is a pane, not a tab. Reading a change is a two-handed job — the
   // conversation on one side, the code on the other — so Diff pops out beside
@@ -615,20 +644,79 @@
     requestInputFocus();
   }
 
+  // A commit chip in Activity opens the change scoped to that commit — the
+  // same surface as a file jump, narrowed to one commit's patch.
+  function openCommitDiff(commit: PrCommit) {
+    review.viewCommit(commit);
+    if (!inlineDiff) {
+      showActivityColumn();
+      session.openPrDiff(target.number, prCtx());
+    } else {
+      if (activeTab === undefined) session.prsStore.prReviewTab = "diff";
+      onActiveTabChange?.("diff");
+      mountedDiff = true;
+    }
+    requestInputFocus();
+  }
+
+  function clearCommitScope() {
+    review.clearCommitScope();
+    requestInputFocus();
+  }
+
   // Chat changes only the primary pane. The review stays mounted in secondary;
   // openPrReviewChat reveals the conversation and restores the split geometry.
   async function openChat() {
     if (!pr || openingChat) return;
     openingChat = true;
     try {
+      // Reveal a blocked conversation first. Checkout preparation can fetch and
+      // create a worktree, so making the pane wait for it makes the click feel
+      // broken even though useful progress is under way.
+      activeChatTabId = await session.openPrReviewChat(pr, {
+        existingTabId: activeChatTabId,
+        projectCtx: projectCtx(),
+        serverId,
+      });
       const sourceContext = await review.ensureCheckout();
-      activeChatTabId = await session.openPrReviewChat(sourceContext, activeChatTabId);
+      await session.openPrReviewChat(sourceContext, {
+        existingTabId: activeChatTabId,
+        projectCtx: projectCtx(),
+        serverId,
+      });
     } catch (error) {
-      toasts.error(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      if (activeChatTabId) {
+        session.failPrReviewChatCheckout(activeChatTabId, pr.number, message);
+      }
+      toasts.error("Couldn't open review chat", { description: message });
     } finally {
       openingChat = false;
     }
     requestInputFocus();
+  }
+
+  // The explicit "check out in current repository" destination. The server
+  // has already switched the repo's branch by the time this resolves;
+  // `activatePrRepoCheckout` only decides where the resulting conversation
+  // lands. A structured failure is left on `review.repoCheckout*` for the
+  // confirm dialog — nothing else to do here beyond a toast.
+  async function checkoutHere() {
+    if (!pr) return;
+    try {
+      const result = await review.checkoutInRepo();
+      if (result.success && result.gitContext) {
+        session.config.activatePrRepoCheckout(
+          result.gitContext,
+          projectScopeOf(projectCtx().session) || null,
+        );
+        requestInputFocus();
+      }
+    } catch (error) {
+      toasts.error("Couldn't check out here", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   function exit() {
@@ -664,7 +752,7 @@
   function onWindowKeydown(e: KeyboardEvent) {
     if (headless || e.defaultPrevented || showSubmit) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    const el = e.target as HTMLElement | null;
+    const el = e.target instanceof HTMLElement ? e.target : null;
     if (el && (el.isContentEditable || el.closest("input, textarea"))) return;
     if (e.key === "Escape") {
       e.preventDefault();
@@ -704,7 +792,7 @@
   <PrDetailMasthead
     headRef={pr?.headRef ?? summary?.headRef}
     baseRef={pr?.baseRef ?? summary?.baseRef}
-    tab={sub === "guide" ? "guide" : "activity"}
+    tab={sub === "guide" || sub === "map" ? sub : "activity"}
     diffOpen={diffPoppedOut}
     guideDisabled={showingFullDiff}
     guideDisabledReason="Guides cover the stacked view"
@@ -775,6 +863,13 @@
   </Button>
 {/snippet}
 
+<!-- Explicit checkout UI, separate from "Ask Solus": a worktree destination
+     (recommended, first) and an explicit-and-confirmed current-repository
+     destination. -->
+{#snippet checkoutMenu()}
+  <PrCheckoutMenu {pr} {review} onOpenWorktree={openChat} onCheckoutHere={checkoutHere} />
+{/snippet}
+
 <section class="flex h-full min-h-0 flex-col bg-background">
   {#if embedded}
     <PrPanelHeader
@@ -792,6 +887,7 @@
       {#snippet actions()}
         {@render refreshButton()}
         {@render checksChip()}
+        {@render checkoutMenu()}
         {@render chatButton()}
       {/snippet}
     </PrPanelHeader>
@@ -808,7 +904,7 @@
          toolbar beside it, the conversation's own strip), so the two panes'
          headers share one baseline. -->
     <div
-      class="@container h-(--solus-chrome-row-h,2.5rem) shrink-0 border-b border-[var(--hairline)]"
+      class="workspace-titlebar @container h-(--solus-chrome-row-h,2.5rem) shrink-0 border-b border-[var(--hairline)]"
     >
       <div
         class="flex h-full w-full items-center justify-between gap-2 pr-3.5 pl-[max(1rem,var(--solus-chrome-lead-inset,0px))]"
@@ -819,9 +915,10 @@
 
         <!-- Pane controls, pill-shaped and quiet: the band's only ink is the
              breadcrumb, so these read as affordances rather than a toolbar. -->
-        <div class="flex shrink-0 items-center gap-0.5">
+        <div class="no-drag pointer-events-auto flex shrink-0 items-center gap-0.5">
           {@render refreshButton()}
           {@render checksChip()}
+          {@render checkoutMenu()}
           {@render chatButton()}
 
           {#if sub === "guide" && !showingFullDiff}
@@ -962,25 +1059,16 @@
         {/if}
       </div>
     {/if}
-    {#if mountedDiff && pr}
-      <div class="absolute inset-0 flex flex-col" class:hidden={sub !== "diff"}>
-        {#if ownDeltaBase}
-          <StackDiffBanner
-            parent={ownDeltaBase.parent}
-            fileCount={review.ownDeltaFileCount}
-            showingFull={showingFullDiff}
-            onToggle={toggleFullDiff}
-          />
-        {/if}
-        {#if !ownDeltaBase && hasReviewCheckpointNotice && interdiff}
-          <SinceReviewBar
-            result={interdiff}
-            showingSince={isSinceReviewMode}
-            onModeChange={(sinceReview) => {
-              review.showingSinceReview = sinceReview;
-              requestInputFocus();
-            }}
-          />
+    {#if mountedMap && pr}
+      <div class="absolute inset-0 flex flex-col" class:hidden={sub !== "map"}>
+        {#if !headless && !embedded}
+          <!-- Same measure and gutters as the Guide masthead so the chrome row
+               doesn't shift when switching tabs. -->
+          <div
+            class="mx-auto w-full max-w-[92rem] pt-[clamp(20px,1.8vw,32px)] pr-8 pl-14 2xl:max-w-[104rem]"
+          >
+            {@render detailMasthead()}
+          </div>
         {/if}
         <div class="min-h-0 flex-1">
           {#if review.diffLoading && review.diffPatch === null}
@@ -992,35 +1080,101 @@
               {review.diffError}
             </div>
           {:else}
+            <!-- Same root fallback as the Diff tab's projectPath: the PR
+                 checkout when one exists, else the open project's checkout —
+                 an approximation of the PR head's tree, but the repo shape is
+                 what the overview needs. -->
+            <DiffHeatMap
+              files={mapFiles}
+              onOpenFile={(path) => jumpToDiff(path)}
+              repoRoot={checkout?.worktreePath ??
+                projectCtx().session.projectPath ??
+                projectCtx().session.workingDirectory ??
+                null}
+              loadRepoFiles={loadRepoFilesForMap}
+            />
+          {/if}
+        </div>
+      </div>
+    {/if}
+    {#if mountedDiff && pr}
+      <div class="absolute inset-0 flex flex-col" class:hidden={sub !== "diff"}>
+        {#if !commitScope && ownDeltaBase}
+          <StackDiffBanner
+            parent={ownDeltaBase.parent}
+            fileCount={review.ownDeltaFileCount}
+            showingFull={showingFullDiff}
+            onToggle={toggleFullDiff}
+          />
+        {:else if hasReviewCheckpointNotice && interdiff}
+          <SinceReviewBar
+            result={interdiff}
+            showingSince={isSinceReviewMode}
+            onModeChange={(sinceReview) => {
+              review.showingSinceReview = sinceReview;
+              requestInputFocus();
+            }}
+          />
+        {/if}
+        <div class="min-h-0 flex-1">
+          {#if diffViewLoading}
+            <div class="grid h-full place-items-center text-xs text-muted-foreground" role="status">
+              Loading {commitScope ? "commit" : "pull request"} diff…
+            </div>
+          {:else if diffViewError}
+            <div class="grid h-full place-items-center px-6 text-center text-xs text-destructive" role="alert">
+              {diffViewError}
+            </div>
+          {:else}
           <DiffPanel
             bind:this={diffPanelRef}
             tabId={reviewTabId}
             getCtx={prCtx}
             {getApi}
-            projectPath={checkout?.worktreePath ?? projectCtx().session.projectPath ?? projectCtx().session.workingDirectory}
+            projectPath={checkout?.worktreePath ?? projectScopeOf(projectCtx().session)}
             worktreePath={checkout?.worktreePath}
             worktreeBranch={pr.headRef}
             targetBranch={pr.baseRef}
             isWorktree={!!checkout}
             onClose={() => select(showingFullDiff ? "activity" : "guide")}
             embedded
+            hasHostHeaderRow={!headless}
             {onToggleMaximize}
             initialScope={diffScope}
-            patchOverride={isSinceReviewMode ? (interdiff?.patch ?? "") : (review.diffPatch ?? "")}
-            patchOverrideFileLoader={isSinceReviewMode ? undefined : review.loadDiffFiles}
-            emptyState={isSinceReviewMode
+            commentingDisabled={!!commitScope}
+            commitSha={commitScope?.sha ?? null}
+            onClearCommitScope={clearCommitScope}
+            patchOverride={commitScope
+              ? (review.commitDiffPatch ?? "")
+              : isSinceReviewMode
+                ? (interdiff?.patch ?? "")
+                : (review.diffPatch ?? "")}
+            patchOverrideFileLoader={commitScope
+              ? review.loadCommitDiffFiles
+              : isSinceReviewMode
+                ? undefined
+                : review.loadDiffFiles}
+            emptyState={commitScope
               ? {
-                  title: "No patch changes since your review",
+                  title: "No file changes in this commit",
                   description:
-                    "The PR head moved, but its effective patch stayed the same.",
+                    "This commit did not change any reviewable files.",
                 }
-              : undefined}
-            externalComments={diffComments}
+              : isSinceReviewMode
+                ? {
+                    title: "No patch changes since your review",
+                    description:
+                      "The PR head moved, but its effective patch stayed the same.",
+                  }
+                : undefined}
+            externalComments={commitScope ? [] : diffComments}
             onExternalCommentSave={saveDiffComment}
             onExternalCommentDelete={removeDraft}
-            reviewThreads={isSinceReviewMode
-              ? sinceReviewThreads
-              : reviewThreads}
+            reviewThreads={commitScope
+              ? []
+              : isSinceReviewMode
+                ? sinceReviewThreads
+                : reviewThreads}
             onThreadReply={replyToThread}
             onThreadResolve={resolveThread}
           />
@@ -1039,6 +1193,7 @@
           getCtx={prCtx}
           {getApi}
           {serverId}
+          showIdentity={!embedded}
           addressCommentsReady={!!pr && review.checkoutStatus !== "preparing"}
           onAddressComments={async () => {
             if (!pr) return;
@@ -1053,6 +1208,7 @@
           onDetailChanged={(detail) => (reviewDetail = detail)}
           {onRefreshTarget}
           onJump={jumpToDiff}
+          onOpenCommit={openCommitDiff}
           masthead={headless || embedded ? undefined : detailMasthead}
         />
       </div>

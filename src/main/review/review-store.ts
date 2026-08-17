@@ -18,6 +18,7 @@ export function artifactPath(repoRoot: string, subdir: string, key: string): str
  *  is corrupt). */
 export async function readJson<T>(path: string): Promise<T | null> {
   try {
+    // SAFETY: Each caller owns the artifact contract and either validates the result or requests its exact stored domain type.
     return JSON.parse(await readFile(path, 'utf8')) as T
   } catch {
     return null
@@ -27,7 +28,7 @@ export async function readJson<T>(path: string): Promise<T | null> {
 /** Overwrite a review artifact in place via tmp + rename, so a crashed write
  *  never leaves a half-written file on the branch. `label` only names the
  *  artifact in the error log. */
-export async function writeJsonAtomic(path: string, data: unknown, label: string): Promise<boolean> {
+export async function writeJsonAtomic(path: string, data: Parameters<typeof JSON.stringify>[0], label: string): Promise<boolean> {
   try {
     const dir = dirname(path)
     if (!existsSync(dir)) await mkdir(dir, { recursive: true })

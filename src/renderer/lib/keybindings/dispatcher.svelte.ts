@@ -12,6 +12,7 @@ type HandlerEntry = { handler: Handler; opts: RegisterOptions }
 // per scope per keydown. Overrides only swap a binding's combo, never its
 // scope, so this grouping never needs rebuilding.
 const BINDINGS_BY_SCOPE = new Map<Scope, Array<[BindingId, BindingDef]>>()
+// SAFETY: KEYBINDINGS is a closed const object, so Object.entries preserves its BindingId keys and BindingDef values.
 for (const [id, def] of Object.entries(KEYBINDINGS) as Array<[BindingId, BindingDef]>) {
   let arr = BINDINGS_BY_SCOPE.get(def.scope)
   if (!arr) {
@@ -29,8 +30,8 @@ const MAC_DEAD_KEY_CODES = new Set(['KeyE', 'KeyI', 'KeyU', 'KeyN', 'Backquote']
 /** True when the keystroke lands in a text field — <input>, <textarea>, or any
  *  contentEditable region (the chat composer's Tiptap editor included). */
 function isEditableTarget(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null
-  if (!el || typeof el.tagName !== 'string') return false
+  if (!(target instanceof HTMLElement)) return false
+  const el = target
   return (
     el.tagName === 'INPUT' ||
     el.tagName === 'TEXTAREA' ||
@@ -105,10 +106,12 @@ export class KeybindingsContext {
       const bindings = BINDINGS_BY_SCOPE.get(scope)
       if (!bindings) continue
       for (const [id, def] of bindings) {
-        const combo = (this.overrides[id] as KeyCombo | undefined) ?? defaultCombo(def)
+        // `null` is a binding that ships unassigned: only a user override can
+        // ever make it fire.
+        const combo = this.overrides[id] ?? defaultCombo(def)
         // An override replaces the primary combo but keeps the built-in aliases.
         const matched =
-          eventMatches(e, combo) ||
+          (combo !== null && eventMatches(e, combo)) ||
           (def.aliases?.some((a) => eventMatches(e, a)) ?? false)
         if (!matched) continue
         // Auto-repeat (held key) only fires bindings that opt in (e.g. palette
@@ -124,7 +127,7 @@ export class KeybindingsContext {
           // preventDefault() above can't stop, so the accent still leaks into
           // the focused editor (notably in Safari). We don't try to swallow it —
           // just warn so the offending binding gets moved to a non-dead key.
-          if (isMac && e.altKey && MAC_DEAD_KEY_CODES.has(combo.code)) {
+          if (isMac && e.altKey && combo !== null && MAC_DEAD_KEY_CODES.has(combo.code)) {
             console.warn(
               `[keybindings] "${id}" is bound to ⌥${combo.code} — a macOS dead key. ` +
                 `Its accent character may leak into the input. Rebind to a non-dead key.`,

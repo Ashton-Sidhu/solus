@@ -111,9 +111,11 @@ export class AutomationsStore {
     return id ? this.hostByAutomationId.get(id) ?? null : null
   }
 
+  /** An automation the store has not placed yet falls back to the default host. */
   private apiForAutomation(id: string): HostApi {
-    const serverId = this.hostByAutomationId.get(id)
-    return serverId ? serverConnections.apiFor(serverId) : serverConnections.primaryApi()
+    const serverId = this.hostByAutomationId.get(id) ?? serverConnections.defaultServerId()
+    if (!serverId) throw new Error('Primary Solus connection has not been registered')
+    return serverConnections.apiFor(serverId)
   }
 
   /** Replace one automation in-place (or append) without reassigning the array,

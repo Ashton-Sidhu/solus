@@ -1,6 +1,14 @@
 import { existsSync, readFileSync } from 'fs'
 import { homedir } from 'os'
 import { join, resolve } from 'path'
+import { z } from 'zod'
+
+const serverLockSchema = z.object({
+  pid: z.number().int().positive(),
+  port: z.number().int().min(0).max(65_535),
+  host: z.string().trim().min(1),
+  startedAt: z.number().finite(),
+})
 
 export interface ServerLock {
   pid: number
@@ -45,17 +53,8 @@ export function runtimePaths(dataDir = defaultDataDir()): RuntimePaths {
 
 export function parseLockFile(raw: string): ServerLock | null {
   try {
-    const parsed = JSON.parse(raw) as Partial<ServerLock>
-    if (!Number.isInteger(parsed.pid) || parsed.pid! <= 0) return null
-    if (!Number.isInteger(parsed.port) || parsed.port! < 0 || parsed.port! > 65_535) return null
-    if (typeof parsed.host !== 'string' || parsed.host.trim() === '') return null
-    if (typeof parsed.startedAt !== 'number' || !Number.isFinite(parsed.startedAt)) return null
-    return {
-      pid: parsed.pid!,
-      port: parsed.port!,
-      host: parsed.host,
-      startedAt: parsed.startedAt,
-    }
+    const parsed = serverLockSchema.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : null
   } catch {
     return null
   }
@@ -85,4 +84,3 @@ export function localConnectHost(host: string): string {
   if (host === '0.0.0.0' || host === '::') return '127.0.0.1'
   return host
 }
-

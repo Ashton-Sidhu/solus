@@ -13,7 +13,7 @@ import {
   requireTask,
   taskFromRow,
 } from './task-store'
-import { taskSessions, writeSessionLink, type SessionLinkDetails } from './task-sessions'
+import { deleteSessionLink, taskSessions, writeSessionLink, type SessionLinkDetails } from './task-sessions'
 import { wakeTaskForActivity } from './task-lifecycle'
 import { loadProjectConfig } from '../project-config/project-config'
 import {
@@ -38,6 +38,10 @@ import type {
   TaskTitleSource,
   TaskUpdatePatch,
 } from '../../shared/task-types'
+import { z } from 'zod'
+
+const taskIdRowSchema = z.object({ task_id: z.string() })
+const taskPrRowSchema = z.object({ pr: z.string().nullable() })
 
 interface AddTaskCommentOptions {
   author?: string | null
@@ -81,7 +85,7 @@ export interface TaskLinkOptions {
  * never the instance.
  *
  * Collection- and session-scoped work (`listTasks`, `createTask`,
- * `tasksForSession`, `prepareSessionTask`, `updateGeneratedMetadataForSession`,
+ * `tasksForSession`, `prepareSessionTask`, `updateGeneratedDescriptionForSession`,
  * `onTasksChanged`) is not about one task and stays as free functions in
  * `task-store.ts` / `task-sessions.ts`.
  */
@@ -137,14 +141,14 @@ export class Task implements TaskRecord {
   /** Resolve the task that owns a session before invoking task-owned domain
    * operations such as `linkPullRequest`. */
   static async forSession(sessionId: string): Promise<Task | null> {
-    const row = database().prepare(`
+    const parsed = taskIdRowSchema.safeParse(database().prepare(`
       SELECT task_id
       FROM task_session_links
       WHERE task_session_links.session_id = ?
       ORDER BY task_session_links.linked_at DESC
       LIMIT 1
-    `).get(sessionId) as { task_id: string } | undefined
-    return row ? Task.byId(row.task_id) : null
+    `).get(sessionId))
+    return parsed.success ? Task.byId(parsed.data.task_id) : null
   }
 
   /** Attach an object produced inside a session to that session's owning task.
@@ -165,7 +169,7 @@ export class Task implements TaskRecord {
 
   /** The plain serializable shape. Everything crossing RPC returns this. */
   record(): TaskRecord {
-    return { ...this } as TaskRecord
+    return structuredClone(this)
   }
 
   private refresh(): this {
@@ -176,14 +180,15 @@ export class Task implements TaskRecord {
   async details(): Promise<TaskDetails> {
     const db = database()
     const externalLink = externalLinkForTask(this.id, db)
-    return {
+    const details: TaskDetails = {
       task: this.record(),
       subtasks: listTaskChildren(this.id),
       comments: commentsForTask(this.id, db),
       links: readTaskLinks(db, this.id),
       events: readTaskEvents(db, this.id),
-      ...(externalLink ? { externalLink } : {}),
     }
+    if (externalLink) details.externalLink = externalLink
+    return details
   }
 
   async links(): Promise<TaskLink[]> {
@@ -450,11 +455,11 @@ export class Task implements TaskRecord {
         const captured = JSON.stringify({ number: input.number, url })
         needsCapturedPr = task.pr !== captured
         if (originSessionId) {
-          const attempt = db.prepare(`
+          const parsedAttempt = taskPrRowSchema.safeParse(db.prepare(`
             SELECT pr FROM task_session_links
             WHERE task_id = ? AND session_id = ?
-          `).get(this.id, originSessionId) as { pr: string | null } | undefined
-          if (attempt && attempt.pr !== captured) {
+          `).get(this.id, originSessionId))
+          if (parsedAttempt.success && parsedAttempt.data.pr !== captured) {
             needsCapturedPr = true
             db.prepare(`
               UPDATE task_session_links SET pr = ?
@@ -516,6 +521,19 @@ export class Task implements TaskRecord {
     })
     emitChanged()
     this.refresh()
+  }
+
+  /** The reverse of `linkSession`: drop the attempt row and record it, leaving
+   * the captured branch and origin on the task itself untouched. */
+  async unlinkSession(
+    sessionId: string,
+    actor: EventActor = { actor: 'user' },
+  ): Promise<void> {
+    const removed = withTx(() => deleteSessionLink(database(), this.id, sessionId, actor))
+    if (removed) {
+      emitChanged()
+      this.refresh()
+    }
   }
 
   async delete(): Promise<boolean> {

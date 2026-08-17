@@ -33,7 +33,7 @@
 
   $effect(() => {
     function handlePointerDown(event: PointerEvent) {
-      if (!rootEl || rootEl.contains(event.target as Node)) return;
+      if (!rootEl || !(event.target instanceof Node) || rootEl.contains(event.target)) return;
       onCancel();
     }
 

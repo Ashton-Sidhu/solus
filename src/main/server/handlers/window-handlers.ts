@@ -21,7 +21,7 @@ export function registerWindowHandlers(server: SolusServer, deps: WindowDeps): v
   })
 
   server.register('switchMode', (args) => {
-    const [mode] = args as ['pill' | 'editor' | undefined]
+    const [mode] = args
     deps.switchMode(mode)
   })
 
@@ -30,7 +30,7 @@ export function registerWindowHandlers(server: SolusServer, deps: WindowDeps): v
   })
 
   server.register('setAppGlobalShortcuts', (args) => {
-    const [shortcuts] = args as [AppGlobalShortcuts]
+    const [shortcuts] = args
     return deps.setAppGlobalShortcuts(shortcuts)
   })
 

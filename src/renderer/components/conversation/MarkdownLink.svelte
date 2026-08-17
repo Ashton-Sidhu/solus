@@ -26,11 +26,11 @@
 
   type Status = "pending" | "accepted" | "rejected";
 
-  const VARIANT_FOR: Record<Status, "plan-pending" | "plan-accepted" | "plan-rejected"> = {
+  const VARIANT_FOR = {
     pending: "plan-pending",
     accepted: "plan-accepted",
     rejected: "plan-rejected",
-  };
+  } satisfies Record<Status, "plan-pending" | "plan-accepted" | "plan-rejected">;
 
   const session = getWorkspaceContext();
   const sessionLinkContext = getSessionLinkContext();
@@ -43,10 +43,13 @@
   const codeFileLabel = $derived(codeFileLinkLabel(text, fileRef?.line));
   // The destination comes from the codec; only the chip's own decoration is
   // read off the href here, and a plan's approval status is the whole of it.
-  const linkRoute = $derived(routeForHref(href, { title }));
+  const linkRoute = $derived(
+    routeForHref(href, { title, serverId: sessionLinkContext?.serverId() }),
+  );
   const planStatus = $derived.by<Status>(() => {
     try {
-      return (new URL(href).searchParams.get("status") || "pending") as Status;
+      const status = new URL(href).searchParams.get("status");
+      return status === "accepted" || status === "rejected" ? status : "pending";
     } catch {
       return "pending";
     }

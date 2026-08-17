@@ -22,6 +22,7 @@
     ArrowClockwiseIcon,
     ArrowsInLineVerticalIcon,
     ArrowsOutLineVerticalIcon,
+    SquaresFourIcon,
   } from "phosphor-svelte";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { MONO_FONT } from "../../lib/diffTheme";
@@ -57,6 +58,18 @@
     onStepTurn: (dir: 1 | -1) => void;
     turnRunning?: boolean;
     mode?: "session" | "working-tree";
+    /** Whole-panel content view: the diff stream or the drillable heat map. */
+    panelView: "diff" | "map";
+    onSetPanelView: (view: "diff" | "map") => void;
+    /** The surface above already draws the chrome row and names the change (the
+     *  PR review header states `#47 head → base`). The strip then reads as a
+     *  second, quieter row: no branch identity, no chrome-row height, and no
+     *  gutter reserved for floating pane controls that live in that header. */
+    hasHostHeaderRow?: boolean;
+    /** Commit identity for a pull-request diff scoped to one commit. */
+    commitSha?: string | null;
+    /** Return to the full pull-request diff. */
+    onClearCommitScope?: () => void;
   }
 
   let {
@@ -87,6 +100,11 @@
     onStepTurn,
     turnRunning = false,
     mode = "session",
+    panelView,
+    onSetPanelView,
+    hasHostHeaderRow = false,
+    commitSha = null,
+    onClearCommitScope,
   }: Props = $props();
 
   const showTurns = $derived(mode === "session" && turns.length > 0);
@@ -119,9 +137,37 @@
   });
 </script>
 
-<div class="diff-toolbar" data-testid="diff-toolbar">
+<div
+  class="diff-toolbar {hasHostHeaderRow ? '' : 'workspace-titlebar'}"
+  class:is-subrow={hasHostHeaderRow}
+  data-testid="diff-toolbar"
+>
   <!-- Left section -->
   <div class="toolbar-section toolbar-left">
+    {#if commitSha}
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <Button
+              {...tooltipProps}
+              variant="ghost"
+              size="default"
+              type="button"
+              onclick={onClearCommitScope}
+              disabled={!onClearCommitScope}
+              aria-label={`Showing commit ${commitSha.slice(0, 7)}. View all changes`}
+              class="h-7 shrink-0 gap-1.5 rounded-lg px-1.5 font-mono text-xs text-(--solus-accent) pointer-coarse:h-10"
+            >
+              <GitCommitIcon size={14} weight="duotone" />
+              <span>{commitSha.slice(0, 7)}</span>
+            </Button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={"View all changes"} />
+      </TooltipUI.Root>
+    {/if}
+
+    {#if !hasHostHeaderRow}
     <div class="flex items-center gap-1 min-w-0 shrink desktop-only">
       <GitBranchIcon
         size={14}
@@ -157,6 +203,7 @@
         </span>
       {/if}
     </div>
+    {/if}
 
     {#if headerStats}
       <!-- Stats are passive text. Navigation lives in the dedicated jump
@@ -359,6 +406,51 @@
          layout is legible without hovering for a tooltip. Below 768px the two
          labels don't fit beside the rest of the strip, so the icon toggle
          stands in. -->
+    <!-- The 10,000-foot switch leads: it decides whether the panel reads as a
+         heat map of where the change landed or the line-level stream, so it
+         sits ahead of the stream-only controls it hides. -->
+    <div class="view-toggle desktop-only" role="group" aria-label="Diff content view">
+      <button
+        type="button"
+        class="view-toggle-btn"
+        class:is-active={panelView === "map"}
+        onclick={() => onSetPanelView("map")}
+        aria-pressed={panelView === "map"}
+      >
+        Map
+      </button>
+      <button
+        type="button"
+        class="view-toggle-btn"
+        class:is-active={panelView === "diff"}
+        onclick={() => onSetPanelView("diff")}
+        aria-pressed={panelView === "diff"}
+      >
+        Diff
+      </button>
+    </div>
+
+    <span class="mobile-only">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        type="button"
+        onclick={() => onSetPanelView(panelView === "map" ? "diff" : "map")}
+        aria-label={panelView === "map"
+          ? "Switch to diff view"
+          : "Switch to heat map view"}
+        class="rounded-lg [&_svg:not([class*='size-'])]:size-3.5 pointer-coarse:size-10 {panelView === 'map'
+          ? 'bg-(--solus-accent-light) text-(--solus-accent) hover:bg-(--solus-accent-light) dark:hover:bg-(--solus-accent-light) hover:text-(--solus-accent)'
+          : 'text-(--solus-text-tertiary)'}"
+      >
+        <SquaresFourIcon
+          size={14}
+          weight={panelView === "map" ? "fill" : "regular"}
+        />
+      </Button>
+    </span>
+
+    {#if panelView === "diff"}
     <div class="view-toggle desktop-only" role="group" aria-label="Diff layout">
       <button
         type="button"
@@ -399,6 +491,7 @@
         />
       </Button>
     </span>
+    {/if}
 
     <TooltipUI.Root>
       <TooltipUI.Trigger>
@@ -423,7 +516,7 @@
       <TooltipUI.Content value={"Refresh diff (⌥R)"} />
     </TooltipUI.Root>
 
-    {#if filesCount > 0}
+    {#if filesCount > 0 && panelView === "diff"}
       <TooltipUI.Root>
         <TooltipUI.Trigger>
           {#snippet child({ props: tooltipProps })}
@@ -451,7 +544,7 @@
       </TooltipUI.Root>
     {/if}
 
-    {#if filesCount > 0}
+    {#if filesCount > 0 && panelView === "diff"}
       <TooltipUI.Root>
         <TooltipUI.Trigger>
           {#snippet child({ props: tooltipProps })}
@@ -574,11 +667,29 @@
     flex-shrink: 0;
   }
 
+  /* Second row under a host header (the PR review panel and page). Nothing here
+     touches the window edge or the pane's floating chrome, so both safe-area
+     gutters go, and the row sits below the chrome-row height it no longer has to
+     share a baseline with. */
+  .diff-toolbar.is-subrow {
+    min-height: 2.25rem;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+    /* No seam of its own: the host header above already rules off the chrome,
+       and a second hairline a row below it reads as a stack of bands rather
+       than one header over the change. */
+    border-bottom: 0;
+  }
+
   @media (max-width: 767px) {
     .diff-toolbar {
       gap: 0.5rem;
       padding-left: 0.5rem;
       padding-top: env(safe-area-inset-top, 0);
+    }
+    .diff-toolbar.is-subrow {
+      padding-left: 0.5rem;
+      padding-right: 0.5rem;
     }
   }
 

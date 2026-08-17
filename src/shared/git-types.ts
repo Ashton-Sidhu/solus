@@ -108,28 +108,64 @@ export interface TurnSnapshot {
   deletions: number
 }
 
-export interface WorktreePRResult {
-  success: boolean
-  url?: string
-  error?: string
+export type GitAction =
+  | 'commit'
+  | 'commit_push'
+  | 'push'
+  | 'create_pull_request'
+  | 'commit_push_pull_request'
+
+export type GitActionPhase =
+  | 'branch'
+  | 'commit'
+  | 'push'
+  | 'author_pull_request'
+  | 'create_pull_request'
+
+export interface GitActionRequest {
+  actionId: string
+  action: GitAction
+  /** Move work off the default branch before committing. */
+  createFeatureBranch?: boolean
+  /** Manual commit subject. Blank or absent falls back to the generator. Only
+   *  valid alongside a commit action. */
+  commitMessage?: string
+  /** Repository-relative paths to commit, file-level only. Absent commits every
+   *  change (legacy `git add -A` behavior); an empty array is invalid. Only
+   *  valid alongside a commit action. */
+  filePaths?: string[]
 }
 
-export interface GitCommitPushResult {
-  success: boolean
-  outcome: 'pushed' | 'committed-only' | 'unchanged' | 'failed'
-  committed: boolean
-  pushed: boolean
-  error?: string
+export type GitBranchStep =
+  | { status: 'created'; name: string }
+  | { status: 'skipped' }
+
+export type GitCommitStep =
+  | { status: 'created'; sha: string; subject: string }
+  | { status: 'skipped_no_changes' }
+  | { status: 'skipped' }
+
+export type GitPushStep =
+  | { status: 'pushed'; branch: string }
+  | { status: 'skipped' }
+
+export type GitPullRequestStep =
+  | { status: 'created' | 'existing'; url: string; number: number | null; title: string }
+  | { status: 'skipped' }
+
+export interface GitActionResult {
+  action: GitAction
+  branch: GitBranchStep
+  commit: GitCommitStep
+  push: GitPushStep
+  pullRequest: GitPullRequestStep
 }
 
-/** Commit without publishing. `unchanged` means there was nothing to commit,
- *  which is a success — the working tree already matched HEAD. */
-export interface GitCommitResult {
-  success: boolean
-  outcome: 'committed' | 'unchanged' | 'failed'
-  committed: boolean
-  error?: string
-}
+export type GitActionProgressEvent =
+  | { actionId: string; cwd: string; action: GitAction; kind: 'started'; phases: GitActionPhase[] }
+  | { actionId: string; cwd: string; action: GitAction; kind: 'phase_started'; phase: GitActionPhase; label: string }
+  | { actionId: string; cwd: string; action: GitAction; kind: 'finished'; result: GitActionResult }
+  | { actionId: string; cwd: string; action: GitAction; kind: 'failed'; phase: GitActionPhase | null; message: string }
 
 export interface GitSyncResult {
   success: boolean
@@ -171,5 +207,70 @@ export interface GitIdentity {
 
 export interface GitState extends GitIdentity {
   uncommittedChanges: UncommittedChanges
+  upstreamRef: string | null
+  aheadCount: number
+  behindCount: number
+  /** Commits on HEAD that are not on the target branch. Loaded with details. */
+  targetAheadCount?: number
   prUrl?: string
+}
+
+/**
+ * Whether a folder is a Git repository at all — distinct from `GitState`,
+ * which reports null for both "no repository" and "repository with no
+ * commits yet" (an unborn HEAD has no resolvable identity). This is what the
+ * Initialize Git / Publish to GitHub empty states key off.
+ */
+export interface GitRepositoryStatus {
+  isRepository: boolean
+  hasCommits: boolean
+  /** The current (possibly unborn) branch name; null only when detached. */
+  branch: string | null
+  primaryRemoteName: string | null
+  primaryRemoteUrl: string | null
+}
+
+export interface GitInitRepositoryResult {
+  defaultBranch: string
+}
+
+export interface GithubPublishRepositoryRequest {
+  /** An organization, or omitted to publish under the account the checkout's
+   *  credential authenticates as — which for a dispatched session is the
+   *  device that dispatched it, not the host. */
+  owner?: string
+  name: string
+  private: boolean
+  /** Defaults to "origin" on the host. */
+  remoteName?: string
+  protocol: 'https' | 'ssh'
+}
+
+export type GithubPublishRepositoryStep =
+  | { status: 'created'; url: string; fullName: string }
+  | { status: 'found'; url: string; fullName: string }
+  | { status: 'failed'; error: string }
+
+export type GithubPublishRemoteStep =
+  | { status: 'added'; name: string; url: string }
+  | { status: 'existing'; name: string; url: string }
+  | { status: 'failed'; error: string }
+  | { status: 'skipped' }
+
+export type GithubPublishPushStep =
+  | { status: 'pushed'; branch: string }
+  | { status: 'skipped_no_commits' }
+  | { status: 'failed'; error: string }
+  | { status: 'skipped' }
+
+/**
+ * Every stage's outcome, even after an earlier stage fails — so a client that
+ * created the GitHub repository but failed to push can show the repository
+ * URL and retry, instead of losing it behind a thrown error.
+ */
+export interface GithubPublishRepositoryResult {
+  success: boolean
+  repository: GithubPublishRepositoryStep
+  remote: GithubPublishRemoteStep
+  push: GithubPublishPushStep
 }

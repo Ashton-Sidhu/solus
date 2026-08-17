@@ -95,6 +95,7 @@ export const RPC_INVOKE_METHODS = [
   'loadSession',
   'loadSessionPreview',
   'getSessionInfo',
+  'resolveSessionLineage',
   'generateSessionMetadata',
   'setSessionTitle',
   'listRecentProjects',
@@ -122,9 +123,7 @@ export const RPC_INVOKE_METHODS = [
   'diffFileContents',
   'diffStats',
   'listTurnSnapshots',
-  'worktreePR',
-  'gitCommit',
-  'gitCommitPush',
+  'gitRunAction',
   'gitDiscard',
   'gitSync',
   'gitCheckoutBranch',
@@ -134,10 +133,14 @@ export const RPC_INVOKE_METHODS = [
   'gitRefreshState',
   'gitIdentity',
   'gitRegisterEnvironment',
+  'gitRepositoryStatus',
+  'gitInitRepository',
+  'githubPublishRepository',
   'projectConfigLoad',
   'projectConfigSave',
   'listProjects',
   'listProjectIdentities',
+  'resolveDispatchHistoryRoots',
   'deleteProject',
 
   // Skills (skills.sh registry — opt-in install across active providers)
@@ -147,6 +150,9 @@ export const RPC_INVOKE_METHODS = [
   // Pinned sessions (sidebar pins persisted to ~/.solus/pinned-sessions.json)
   'pinnedSessionsList',
   'togglePinnedSession',
+
+  // Client activity lease: foreground heartbeat gating host freshness work
+  'activityLease',
 
   // Saved prompts (per-project composer drafts in ~/.solus/solus.db)
   'savedPromptsList',
@@ -167,8 +173,11 @@ export const RPC_INVOKE_METHODS = [
   'connectionsRevokeDevice',
   'connectionsGetServerInfo',
   'connectionsSetRemoteAccess',
+  'connectionsSetTrustLocalNetwork',
   'setAnalyticsConsent',
   'setAgentTaskLifecyclePolicy',
+  'textGenerationSettingsGet',
+  'textGenerationSettingsUpdate',
   'discoverServers',
   'getServerCapabilities',
   'setServerName',
@@ -241,6 +250,7 @@ export const RPC_INVOKE_METHODS = [
   'prGetDiff',
   'prGetDiffFileContents',
   'prPrepareCheckout',
+  'prCheckoutInRepo',
   'prGetDetail',
   'prUpdate',
   'prGetOverview',
@@ -297,6 +307,8 @@ export const RPC_INVOKE_METHODS = [
   'tasksComment',
   'tasksPublishComments',
   'tasksLinkSession',
+  'tasksUnlinkSession',
+  'tasksRekeySession',
   'tasksSessions',
   'tasksForSession',
   'tasksPrepareForSession',

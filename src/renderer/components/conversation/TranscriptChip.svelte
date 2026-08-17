@@ -17,7 +17,7 @@
   }
   let { state = "neutral", class: extraClass = "", children }: Props = $props();
 
-  const TINT: Record<ChipState, string> = {
+  const TINT = {
     neutral:
       "background:color-mix(in oklch, var(--foreground) 6%, transparent);color:var(--muted-foreground)",
     positive:
@@ -28,7 +28,7 @@
       "background:color-mix(in oklch, var(--chart-2) 18%, transparent);color:color-mix(in oklch, var(--chart-2) 62%, var(--foreground))",
     destructive:
       "background:color-mix(in oklch, var(--destructive) 14%, transparent);color:color-mix(in oklch, var(--destructive) 78%, var(--foreground))",
-  };
+  } satisfies Record<ChipState, string>;
 </script>
 
 <span

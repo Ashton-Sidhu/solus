@@ -1,4 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity'
+import { z } from 'zod'
 import type { BoardRanks } from './lib/board-order'
 
 const STORAGE_KEY = 'solus.tasks.board-ranks'
@@ -24,7 +25,8 @@ export class BoardOrderStore {
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) {
-        for (const [projectKey, ranks] of Object.entries(JSON.parse(raw) as Record<string, BoardRanks>)) {
+        const storedRanks = z.record(z.string(), z.record(z.string(), z.number())).parse(JSON.parse(raw))
+        for (const [projectKey, ranks] of Object.entries(storedRanks)) {
           this.#byProject.set(projectKey, ranks)
         }
       }

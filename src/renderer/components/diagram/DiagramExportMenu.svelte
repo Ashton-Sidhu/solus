@@ -75,7 +75,7 @@
   // success for actions whose result lives outside the app.
   async function savePng() {
     try {
-      const url = await renderViewport(toPng as never)
+      const url = await renderViewport(toPng)
       if (!url) {
         toasts.info('Nothing to export — the diagram is empty')
         return
@@ -88,7 +88,7 @@
 
   async function saveSvg() {
     try {
-      const url = await renderViewport(toSvg as never, true)
+      const url = await renderViewport(toSvg, true)
       if (!url) {
         toasts.info('Nothing to export — the diagram is empty')
         return
@@ -101,7 +101,7 @@
 
   async function copyImage() {
     try {
-      const url = await renderViewport(toPng as never)
+      const url = await renderViewport(toPng)
       if (!url) {
         toasts.info('Nothing to copy — the diagram is empty')
         return

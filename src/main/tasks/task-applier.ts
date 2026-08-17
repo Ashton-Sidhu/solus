@@ -1,7 +1,17 @@
 import { Task } from './task'
 import { PermanentApplyError, registerOutboxApplier } from '../outbox/outbox-store'
-import type { OutboxOp, TaskCommentOpPayload, TaskSetStatusOpPayload } from '../../shared/outbox-types'
-import type { TaskStatus } from '../../shared/task-types'
+import type { OutboxOp } from '../../shared/outbox-types'
+import { z } from 'zod'
+
+const taskCommentPayloadSchema = z.object({
+  body: z.string(),
+  author: z.string(),
+  originSessionId: z.string().optional(),
+})
+const taskStatusPayloadSchema = z.object({
+  status: z.enum(['inbox', 'todo', 'in_progress', 'in_review', 'done', 'dropped']),
+  actorLabel: z.string().optional(),
+})
 
 /**
  * Owner-side writes for `tasks` outbox ops (ADR-0007). Registered on every
@@ -13,7 +23,7 @@ export function registerTaskOutboxApplier(): void {
   registerOutboxApplier('tasks', async (op: OutboxOp) => {
     const task = await taskOrPermanentError(op.resourceId)
     if (op.name === 'comment') {
-      const payload = op.payload as TaskCommentOpPayload
+      const payload = taskCommentPayloadSchema.parse(op.payload)
       await task.comment(payload.body, {
         id: op.id,
         author: payload.author,
@@ -22,9 +32,9 @@ export function registerTaskOutboxApplier(): void {
       return
     }
     if (op.name === 'set-status') {
-      const payload = op.payload as TaskSetStatusOpPayload
+      const payload = taskStatusPayloadSchema.parse(op.payload)
       await task.update(
-        { status: payload.status as TaskStatus },
+        { status: payload.status },
         { actor: 'agent', actorLabel: payload.actorLabel ?? op.sessionId },
       )
       return

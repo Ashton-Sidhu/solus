@@ -164,13 +164,14 @@
          the prose keeps one left edge from the verdict to the last section. -->
     <div class="mt-[0.875rem] grid grid-cols-[2rem_minmax(0,1fr)] gap-x-3">
       {#each outline.sections as section (section.n)}
-        <!-- The numeral clears the rule by matching the body cell's own offset,
-             plus enough to sit on the kicker's baseline rather than above it. -->
+        <!-- The numeral matches the body cell's own offset exactly — 1rem for
+             the first section, 2rem (margin + padding) after — so it shares the
+             kicker's baseline; both are text-xs, so equal offsets align them. -->
         <div
           class="font-mono text-xs tabular-nums text-(--muted-foreground) opacity-50 {section.n ===
  1
- ? 'pt-5'
- : 'pt-7'}"
+ ? 'pt-4'
+ : 'pt-8'}"
         >
           {String(section.n).padStart(2, "0")}
         </div>
@@ -184,7 +185,7 @@
                the tertiary one: at this size a label the reader scans for can't
                also be the faintest thing on the tab. -->
           <div
-            class="mb-1.5 text-xs font-medium text-(--solus-text-secondary) uppercase"
+            class="mb-2.5 text-xs font-medium text-(--solus-text-secondary) uppercase"
           >
             {section.heading}
           </div>

@@ -106,16 +106,17 @@ function statusEvent(
   status: ReviewGuideStatus,
   details: Pick<ReviewGuideStatusEvent, 'step' | 'error'> = {},
 ): ReviewGuideStatusEvent {
-  return {
+  const event: ReviewGuideStatusEvent = {
     repoRoot: review.repoRoot,
     key: target.guideKey,
     scope: target.scope,
     status,
     headSha: review.headSha,
     updatedAt: Date.now(),
-    ...(details.step ? { step: details.step } : {}),
-    ...(details.error ? { error: details.error } : {}),
   }
+  if (details.step) event.step = details.step
+  if (details.error) event.error = details.error
+  return event
 }
 
 function setGuideStatus(

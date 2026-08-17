@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ArrowRightIcon } from "phosphor-svelte";
+  import CopyButton from "../ui/CopyButton.svelte";
   import PrViewTabs from "./PrViewTabs.svelte";
 
   /**
@@ -28,14 +29,14 @@
     headRef?: string;
     baseRef?: string;
     /** The content tab showing in this column — Diff is never one of them. */
-    tab: "activity" | "guide";
+    tab: "activity" | "map" | "guide";
     /** Whether the change is open in the pane beside this one. */
     diffOpen: boolean;
     guideDisabled?: boolean;
     guideDisabledReason?: string;
     /** The host target is still loading, so revision-backed tabs are not ready. */
     tabsDisabled?: boolean;
-    onSelect: (tab: "activity" | "guide" | "diff") => void;
+    onSelect: (tab: "activity" | "map" | "guide" | "diff") => void;
   } = $props();
 </script>
 
@@ -44,6 +45,7 @@
     <!-- head → base, reading in merge direction. -->
     <span class="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground">
       <span class="truncate">{headRef}</span>
+      <CopyButton text={headRef} title="Copy branch name" iconOnly />
       <ArrowRightIcon size={10} class="shrink-0 opacity-50" aria-hidden="true" />
       <span class="truncate">{baseRef}</span>
     </span>

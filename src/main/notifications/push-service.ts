@@ -12,6 +12,7 @@ import {
 } from '../../shared/notification-types'
 import type { AttentionEntry } from '../../shared/attention-types'
 import type { WebPushSubscriptionJSON } from '../../shared/types'
+import { z } from 'zod'
 
 const log = createLogger('notifications', 'push-service.ts')
 
@@ -36,10 +37,29 @@ interface PushKeysFile {
   privateKey: string
 }
 
-interface PushSubscriptionsFile {
-  version: 1
-  subscriptions: Record<string, PushSubscriptionRecord>
-}
+const webPushSubscriptionSchema = z.object({
+  endpoint: z.string(),
+  expirationTime: z.number().nullable().optional(),
+  keys: z.object({ p256dh: z.string(), auth: z.string() }).strict(),
+}).strict()
+
+const pushKeysFileSchema = z.object({
+  version: z.literal(1),
+  publicKey: z.string(),
+  privateKey: z.string(),
+}).strict()
+
+const pushSubscriptionRecordSchema = z.object({
+  deviceId: z.string().min(1),
+  deviceLabel: z.string(),
+  subscription: webPushSubscriptionSchema,
+  createdAt: z.number(),
+}).strict()
+
+const pushSubscriptionsFileSchema = z.object({
+  version: z.literal(1),
+  subscriptions: z.record(z.string(), pushSubscriptionRecordSchema),
+}).strict()
 
 export type PushNotificationPayload = AttentionNotificationPayload
 
@@ -53,7 +73,7 @@ export type PushSender = (
   subscription: PushSubscription,
   payload: string,
   options: RequestOptions,
-) => Promise<SendResult | unknown>
+) => Promise<SendResult>
 
 export interface PushNotificationServiceOptions {
   keysPath?: string
@@ -65,10 +85,15 @@ export interface PushNotificationServiceOptions {
 
 export { attentionEntryKey, payloadForAttentionEntry }
 
+interface PushAttentionDiff {
+  created: AttentionEntry[]
+  nextKeys: Set<string>
+}
+
 export function diffNewPushAttentionEntries(
   previousKeys: ReadonlySet<string>,
   entries: AttentionEntry[],
-): { created: AttentionEntry[]; nextKeys: Set<string> } {
+): PushAttentionDiff {
   const nextKeys = new Set<string>()
   const created: AttentionEntry[] = []
 
@@ -107,7 +132,7 @@ export class PushNotificationService {
     return this.keys.publicKey
   }
 
-  subscribe(deviceId: string, deviceLabel: string, subscription: unknown): PushSubscriptionRecord {
+  subscribe<T>(deviceId: string, deviceLabel: string, subscription: T): PushSubscriptionRecord {
     const cleanDeviceId = deviceId.trim()
     if (!cleanDeviceId || cleanDeviceId === 'electron') {
       throw new Error('Push subscriptions require a paired web device')
@@ -185,10 +210,8 @@ export class PushNotificationService {
   private loadOrCreateKeys(): VapidKeys {
     if (existsSync(this.keysPath)) {
       try {
-        const parsed = JSON.parse(readFileSync(this.keysPath, 'utf8')) as PushKeysFile
-        if (typeof parsed.publicKey === 'string' && typeof parsed.privateKey === 'string') {
-          return { publicKey: parsed.publicKey, privateKey: parsed.privateKey }
-        }
+        const parsed = pushKeysFileSchema.safeParse(JSON.parse(readFileSync(this.keysPath, 'utf8')))
+        if (parsed.success) return { publicKey: parsed.data.publicKey, privateKey: parsed.data.privateKey }
       } catch (err) {
         log.warn('push_vapid_keys_load_failed', { error: err instanceof Error ? err.message : String(err) })
       }
@@ -202,14 +225,14 @@ export class PushNotificationService {
   private loadSubscriptions(): void {
     if (!existsSync(this.subscriptionsPath)) return
     try {
-      const parsed = JSON.parse(readFileSync(this.subscriptionsPath, 'utf8')) as PushSubscriptionsFile
-      for (const record of Object.values(parsed.subscriptions ?? {})) {
-        if (!record?.deviceId) continue
+      const parsed = pushSubscriptionsFileSchema.safeParse(JSON.parse(readFileSync(this.subscriptionsPath, 'utf8')))
+      if (!parsed.success) return
+      for (const record of Object.values(parsed.data.subscriptions)) {
         this.subscriptions.set(record.deviceId, {
           deviceId: record.deviceId,
           deviceLabel: record.deviceLabel || 'Web',
           subscription: normalizeSubscription(record.subscription),
-          createdAt: typeof record.createdAt === 'number' ? record.createdAt : Date.now(),
+          createdAt: record.createdAt,
         })
       }
     } catch (err) {
@@ -221,41 +244,23 @@ export class PushNotificationService {
     writeJson0600(this.subscriptionsPath, {
       version: 1,
       subscriptions: Object.fromEntries(this.subscriptions),
-    } satisfies PushSubscriptionsFile)
+    })
   }
 }
 
-function normalizeSubscription(input: unknown): WebPushSubscriptionJSON {
-  const candidate = input as Partial<WebPushSubscriptionJSON> | null
-  if (
-    !candidate ||
-    typeof candidate.endpoint !== 'string' ||
-    !candidate.keys ||
-    typeof candidate.keys.p256dh !== 'string' ||
-    typeof candidate.keys.auth !== 'string'
-  ) {
-    throw new Error('Invalid push subscription')
-  }
-
-  return {
-    endpoint: candidate.endpoint,
-    ...(typeof candidate.expirationTime === 'number' || candidate.expirationTime === null
-      ? { expirationTime: candidate.expirationTime }
-      : {}),
-    keys: {
-      p256dh: candidate.keys.p256dh,
-      auth: candidate.keys.auth,
-    },
-  }
+function normalizeSubscription<T>(input: T): WebPushSubscriptionJSON {
+  const parsed = webPushSubscriptionSchema.safeParse(input)
+  if (!parsed.success) throw new Error('Invalid push subscription')
+  return parsed.data
 }
 
-function writeJson0600(path: string, value: unknown): void {
+function writeJson0600<T>(path: string, value: T): void {
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, JSON.stringify(value, null, 2), { mode: 0o600 })
   try { chmodSync(path, 0o600) } catch {}
 }
 
-function statusCodeFromError(err: unknown): number | null {
-  const statusCode = (err as { statusCode?: unknown } | null)?.statusCode
-  return typeof statusCode === 'number' ? statusCode : null
+function statusCodeFromError<T>(err: T): number | null {
+  const parsed = z.object({ statusCode: z.number() }).safeParse(err)
+  return parsed.success ? parsed.data.statusCode : null
 }

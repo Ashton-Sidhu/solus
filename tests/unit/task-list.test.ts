@@ -3,10 +3,10 @@ import type { PullRequestSummary } from '../../src/shared/providers'
 import type { Task } from '../../src/shared/task-types'
 import {
   aggregateReviewGuideStatus,
-  belongsToSelectedHost,
   buildProjectSummaries,
   formatCompletedAge,
   formatElapsed,
+  filterSidebarTasks,
   groupTasks,
   hasDisclosure,
   sidebarChildLabel,
@@ -27,16 +27,45 @@ import {
   type TaskStatus,
 } from '../../src/renderer/components/session/lib/task-list'
 
-describe('sidebar host scope', () => {
-  it('shows only work owned by the selected host', () => {
-    expect(belongsToSelectedHost('remote', 'remote')).toBe(true)
-    expect(belongsToSelectedHost('local', 'remote')).toBe(false)
+describe('sidebar task search', () => {
+  const task = (title: string, projectLabel: string): SidebarTask => ({
+    id: title,
+    key: title,
+    title,
+    projectKey: projectLabel,
+    projectLabel,
+    branchName: null,
+    serverId: null,
+    prNumber: null,
+    status: 'idle',
+    attention: null,
+    unread: false,
+    createdAt: 0,
+    activityAt: 0,
+    runStartedAt: 0,
+    lifecycle: 'active',
+    completedAt: 0,
+    snoozedUntil: 0,
+    snoozeNote: null,
+    lastReadAt: 0,
+    woke: false,
+    tabIds: [],
+  })
+  const tasks = [task('Fix sync status', 'Solus'), task('Update docs', 'Website')]
+
+  it('matches task and project names without changing row order', () => {
+    // WHY: a multi-project sidebar needs title search and project context, but
+    // filtering must not move the rows the user has learned.
+    expect(filterSidebarTasks(tasks, 'SYNC')).toEqual([tasks[0]])
+    expect(filterSidebarTasks(tasks, 'website')).toEqual([tasks[1]])
   })
 
-  it('keeps provisional work visible until its host ownership is known', () => {
-    expect(belongsToSelectedHost(null, 'remote')).toBe(true)
+  it('keeps the original task array when the query is blank', () => {
+    // WHY: idle search must not invalidate every mounted task row.
+    expect(filterSidebarTasks(tasks, '   ')).toBe(tasks)
   })
 })
+
 
 describe('completed task age', () => {
   const now = Date.parse('2026-08-11T12:00:00Z')
@@ -74,10 +103,20 @@ describe('sidebar lifecycle resolution', () => {
 describe('linked PR completion', () => {
   it('completes a task when its linked PR closes or merges', () => {
     // WHY: either terminal PR result is authoritative for the linked task.
-    expect(shouldCompleteTaskForPr('in_review', 'closed')).toBe(true)
-    expect(shouldCompleteTaskForPr('in_review', 'merged')).toBe(true)
-    expect(shouldCompleteTaskForPr('in_review', 'open')).toBe(false)
-    expect(shouldCompleteTaskForPr('done', 'merged')).toBe(false)
+    const task = { status: 'in_progress' as const, updatedAt: 100 }
+    expect(shouldCompleteTaskForPr(task, { state: 'closed', updatedAt: new Date(200).toISOString() })).toBe(true)
+    expect(shouldCompleteTaskForPr(task, { state: 'merged', updatedAt: new Date(200).toISOString() })).toBe(true)
+    expect(shouldCompleteTaskForPr(task, { state: 'open', updatedAt: new Date(200).toISOString() })).toBe(false)
+  })
+
+  it('does not close a task again after it was reopened', () => {
+    // WHY: reopening is a newer explicit decision than the PR's unchanged
+    // closed state. Refreshing or restarting the app must preserve that choice.
+    const reopened = { status: 'todo' as const, updatedAt: 300 }
+    expect(shouldCompleteTaskForPr(reopened, {
+      state: 'closed',
+      updatedAt: new Date(200).toISOString(),
+    })).toBe(false)
   })
 })
 
@@ -125,26 +164,34 @@ describe('shouldShowDurableSidebarTask', () => {
     // Status and age describe the task lifecycle, not whether its sidebar row
     // exists. The explicit remove action is the only way a root row leaves —
     // completing one is that same action, which is why nothing here reads status.
-    expect(shouldShowDurableSidebarTask(durableTask('done'), false, false)).toBe(true)
-    expect(shouldShowDurableSidebarTask(durableTask('dropped'), false, false)).toBe(true)
+    expect(shouldShowDurableSidebarTask(durableTask('done'), false, false, true)).toBe(true)
+    expect(shouldShowDurableSidebarTask(durableTask('dropped'), false, false, true)).toBe(true)
   })
 
   it('restores a completed task when one of its sessions is reopened', () => {
     // WHY: completion removes the row by dismissing it, so reopening a session
     // has to bring the task back. Hiding a finished task on status instead left
     // the reopened conversation mounted with no row — and unloaded again.
-    expect(shouldShowDurableSidebarTask(durableTask('done'), true, true)).toBe(true)
+    expect(shouldShowDurableSidebarTask(durableTask('done'), true, true, true)).toBe(true)
   })
 
   it('restores an open task when a new session explicitly reopens it', () => {
     const task = durableTask('in_progress')
-    expect(shouldShowDurableSidebarTask(task, true, false)).toBe(false)
-    expect(shouldShowDurableSidebarTask(task, true, true)).toBe(true)
+    expect(shouldShowDurableSidebarTask(task, true, false, true)).toBe(false)
+    expect(shouldShowDurableSidebarTask(task, true, true, true)).toBe(true)
+  })
+
+  it('keeps a host task closed until this client opens it', () => {
+    // WHY: task data is shared across clients, but sidebar row state is not.
+    // A task created from desktop must not open a row on web.
+    const task = durableTask('in_progress')
+    expect(shouldShowDurableSidebarTask(task, false, false, false)).toBe(false)
+    expect(shouldShowDurableSidebarTask(task, false, true, false)).toBe(true)
   })
 
   it('continues to project child tasks through their root row', () => {
     expect(
-      shouldShowDurableSidebarTask(durableTask('in_progress', { parentId: 'root' }), false, true),
+      shouldShowDurableSidebarTask(durableTask('in_progress', { parentId: 'root' }), false, true, true),
     ).toBe(false)
   })
 })

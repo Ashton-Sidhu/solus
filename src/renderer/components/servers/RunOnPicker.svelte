@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { localApi } from "@client-core/local-api";
   import {
     CheckIcon,
     DesktopTowerIcon,
@@ -8,7 +7,6 @@
   } from "phosphor-svelte";
   import { mergeProps } from "bits-ui";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
-  import { serverConnections } from "@client-core/server-connections";
   import type { RunConfig } from "../../../shared/types";
   import {
     getWindowContext,
@@ -28,11 +26,13 @@
   import {
     repoKeyForPath,
     returnsToProjectHome,
+    isNewWorktreeStartSelected,
     shouldShowRunOnPicker,
     withLocalStart,
     withRemoteDispatch,
   } from "./run-on";
   import {
+    withDispatchWorktree,
     withPendingHost,
     withProjectHost,
   } from "../../contexts/workspace/run-config";
@@ -40,6 +40,7 @@
   import { homeGitDetails } from "../../lib/git-context";
   import { getSessionEnvironmentStore } from "../../contexts";
   import { hostOnboardingStore } from "./host-onboarding.store.svelte";
+  import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
 
   interface Props {
     /** Where the next session will run. A started session and a session draft
@@ -60,6 +61,8 @@
      * mind free.
      */
     onRun: (next: RunConfig) => void;
+    /** Return focus to the composer once the menu closes. */
+    onDismiss?: () => void;
     /**
      * `chip` is the standalone "Run on: X" pill the pill-mode status row uses.
      * `header` is the input bar's "Start in" chip, which answers where the next
@@ -78,19 +81,20 @@
     requesterId,
     locked = false,
     onRun,
+    onDismiss,
     variant = "chip",
     paneId,
   }: Props = $props();
 
   const workspace = getWorkspaceContext();
   const environmentStore = getSessionEnvironmentStore();
-  // A browser with no host is choosing where to work, not dispatching from
-  // somewhere to somewhere: picking a host reloads the page onto it. A host
-  // only ever arrives by that reload, so this is settled at mount.
-  const webNoHost =
-    localApi.getPlatform() === "web" && !serverConnections.connectionFor();
   const selectedHostId = $derived(
     run.pendingHostDispatch?.serverId ?? run.serverId,
+  );
+  const pendingDispatch = $derived(
+    run.pendingHostDispatch?.intent === "dispatch"
+      ? run.pendingHostDispatch
+      : null,
   );
   // Every worktree answer follows from the run, so this picker reads them itself
   // rather than having four booleans handed down and kept in sync.
@@ -105,21 +109,30 @@
   const inWorktree = $derived(environment.isolated);
   const selectedServer = $derived(serversStore.hostFor(selectedHostId));
   const selectedAffinity = $derived(serversStore.affinityFor(selectedHostId));
+  // The OS logo marks a machine you dispatch to; the local host keeps the
+  // plain device glyph. A forgotten host has no saved OS and falls back too.
+  const selectedHostOs = $derived(
+    selectedServer && !selectedServer.local && "os" in selectedServer
+      ? selectedServer.os
+      : undefined,
+  );
   const onRemoteHost = $derived(!!selectedServer && !selectedServer.local);
-  // Keep local choices on one conceptual axis: both labels describe the shape
-  // of the checkout. A remote target is named for the host instead.
-  // Where you already are is a worktree often enough that calling it a plain
-  // checkout reads as a mistake — name it for what it is.
-  // A browser has no machine of its own — "Local" would claim the phone in
-  // your hand, so the connected host is named instead.
+  // On desktop you are sitting at the machine, so "Local" says it best. A
+  // browser has no machine of its own — "Local" would claim the phone in your
+  // hand — so the connected host is named instead ("This host" only for the
+  // beat before /health answers).
   const windowCtx = getWindowContext();
+  const currentHostId = $derived(run.serverId ?? LOCAL_SERVER_ID);
+  const localHost = $derived(
+    serversStore.servers.find((server) => server.local),
+  );
+  // Hosts are symmetric rows (dispatch-client step 5): a browser has no
+  // machine of its own, so "stay" names the host this run is already on.
   const stayLabel = $derived(
     windowCtx.isWeb
-      ? (serversStore.servers.find((server) => server.local)?.label ?? "This host")
+      ? (serversStore.hostFor(currentHostId)?.label ?? "This host")
       : "Local",
   );
-  // On web the active server is folded into the local row, so "another host"
-  // means the rows that remain — not the raw saved list, which includes it.
   const otherHosts = $derived(
     serversStore.servers.filter((server) => !server.local),
   );
@@ -153,12 +166,14 @@
   );
   const startInLabel = $derived(target.label);
   const startsNewWorktree = $derived(target.startsWorktree);
+  const newWorktreeStartSelected = $derived(
+    isNewWorktreeStartSelected(onRemoteHost, startsNewWorktree),
+  );
   // A disabled row with no reason is the worst of both worlds, so say why the
   // choice is off the table.
   const worktreeBlockedNote = $derived(target.worktreeBlockedNote);
   // The repo is resolved against the host the session is already on — a
   // dispatched session's checkout path means nothing in the local manifest.
-  const currentHostId = $derived(run.serverId ?? LOCAL_SERVER_ID);
   const detectedRepoKey = $derived(
     repoKeyForPath(
       serversStore.projectIdentitiesFor(currentHostId),
@@ -210,7 +225,7 @@
   // keeps mounted, so the same keystroke never opens a menu off-screen.
   $effect(() => {
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ paneId: string | null }>).detail;
+      const detail = event instanceof CustomEvent ? event.detail : undefined;
       if ((detail?.paneId ?? null) !== (paneId ?? null)) return;
       if (!showPicker || locked) return;
       if (triggerEl && triggerEl.offsetParent === null) return;
@@ -280,15 +295,6 @@
   }
 
   function chooseServer(event: Event, server: ServerItem) {
-    // With no host connected there is nothing to dispatch from — activating the
-    // chosen host reloads the client straight onto it.
-    if (webNoHost) {
-      event.preventDefault();
-      open = false;
-      serversStore.switchTo(server.id);
-      return;
-    }
-
     // Staying on the host you're already using isn't a dispatch, so it needs no
     // directory of its own; every real move does.
     if (
@@ -324,12 +330,14 @@
 
   /** Both local checkout choices cancel a queued remote dispatch first. */
   function chooseLocalStart(worktree: boolean) {
-    const local = serversStore.servers.find((server) => server.local);
-    if (!local) return;
+    // The "stay" target is the client's machine when it has one; a web
+    // client stays on the host this run already lives on.
+    const stayHostId =
+      serversStore.servers.find((server) => server.local)?.id ?? currentHostId;
     onRun(
       withLocalStart(
         run,
-        local.id,
+        stayHostId,
         workspace.globalDefaults.workingDirectory,
         worktree,
       ),
@@ -337,14 +345,29 @@
     open = false;
   }
 
+  /** Keep the selected remote host and return its checkout choice to a fresh
+   * isolated worktree. Local runs continue through the normal local toggle. */
+  function chooseNewWorktree() {
+    if (pendingDispatch) {
+      onRun(withDispatchWorktree(run, null));
+      open = false;
+      return;
+    }
+    chooseLocalStart(true);
+  }
+
   function handleOpenChange(next: boolean) {
     open = next;
     if (next) {
       triggerTooltipOpen = false;
       void serversStore.probeHosts();
-      return;
     }
-    requestInputFocus();
+  }
+
+  function handleCloseAutoFocus(event: Event) {
+    event.preventDefault();
+    if (onDismiss) onDismiss();
+    else requestInputFocus();
   }
 
   function getTriggerTooltipOpen() {
@@ -369,6 +392,12 @@
     {#if affinity}
       {@const HostIcon = affinity.icon}
       <HostIcon size={14} class="shrink-0 {affinity.className}" />
+    {:else if !server.local && server.os}
+      <HostOperatingSystemIcon
+        os={server.os}
+        size={14}
+        class="shrink-0 text-(--solus-text-tertiary)"
+      />
     {:else}
       <DesktopTowerIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
     {/if}
@@ -378,18 +407,6 @@
     {:else if affinity && server.status !== "saved"}
       <span class="shrink-0 text-xs text-(--solus-text-tertiary)">{affinity.statusLabel}</span>
     {/if}
-  </DropdownMenu.Item>
-{/snippet}
-
-{#snippet connectHostRow()}
-  <DropdownMenu.Item
-    onSelect={() => {
-      open = false;
-      window.dispatchEvent(new CustomEvent("solus:open-server-connect"));
-    }}
-  >
-    <PlusIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
-    <span class="min-w-0 flex-1 truncate">Connect a host…</span>
   </DropdownMenu.Item>
 {/snippet}
 
@@ -441,6 +458,12 @@
                 size={14}
                 class="shrink-0 {selectedAffinity.className}"
               />
+            {:else if selectedHostOs}
+              <HostOperatingSystemIcon
+                os={selectedHostOs}
+                size={14}
+                class="shrink-0"
+              />
             {:else}
               <DesktopTowerIcon size={14} class="shrink-0 opacity-60" />
             {/if}
@@ -476,6 +499,14 @@
                         class="shrink-0 transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
  ? 'opacity-100'
  : 'opacity-70'} {selectedAffinity.className}"
+                      />
+                    {:else if selectedHostOs}
+                      <HostOperatingSystemIcon
+                        os={selectedHostOs}
+                        size={14}
+                        class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
+ ? 'opacity-100'
+ : 'opacity-70'}"
                       />
                     {:else}
                       <DesktopTowerIcon
@@ -514,6 +545,12 @@
                         size={14}
                         class="shrink-0 {selectedAffinity.className}"
                       />
+                    {:else if selectedHostOs}
+                      <HostOperatingSystemIcon
+                        os={selectedHostOs}
+                        size={14}
+                        class="shrink-0"
+                      />
                     {:else}
                       <DesktopTowerIcon size={14} class="shrink-0 opacity-60" />
                     {/if}
@@ -534,6 +571,7 @@
         align="start"
         sideOffset={6}
         collisionPadding={8}
+        onCloseAutoFocus={handleCloseAutoFocus}
         class="w-[300px] p-0"
       >
         <!-- The footer spans the surface, so the rows scroll inside their own
@@ -541,9 +579,7 @@
         <div class="max-h-[288px] overflow-y-auto p-1.5">
           {#if variant === "header" && isGitRepo}
             <DropdownMenu.Label>Start in</DropdownMenu.Label>
-            <!-- Never disabled: a dispatch forces a worktree *on the remote*, but
-                 this row is the way back to the local checkout, which is the one
-                 gesture that escapes that forcing. -->
+            <!-- This row returns to the project host and its direct checkout. -->
             <DropdownMenu.Item
               data-menu-current={!onRemoteHost && !startsNewWorktree
                 ? ""
@@ -576,7 +612,7 @@
                   class="shrink-0 text-(--solus-text-tertiary)"
                 />
                 <span class="min-w-0 flex-1 truncate">New worktree</span>
-                {#if !onRemoteHost && startsNewWorktree}<CheckIcon
+                {#if newWorktreeStartSelected}<CheckIcon
                     size={14}
                     class="shrink-0 text-(--solus-accent)"
                   />{/if}
@@ -592,12 +628,12 @@
                 </p>
               {:else}
                 <DropdownMenu.Item
-                  data-menu-current={!onRemoteHost && startsNewWorktree
+                  data-menu-current={newWorktreeStartSelected
                     ? ""
                     : undefined}
                   onSelect={(event) => {
                     event.preventDefault();
-                    chooseLocalStart(true);
+                    chooseNewWorktree();
                   }}
                 >
                   {@render newWorktreeItemContent()}
@@ -614,7 +650,6 @@
               {@render serverRow(server)}
             {/each}
             {@render targetNote()}
-            {#if webNoHost}{@render connectHostRow()}{/if}
             {#if serversStore.nearbyHosts.length > 0}
               <DropdownMenu.Separator />
               {#each serversStore.nearbyHosts as host (host.server.installationId)}
@@ -627,7 +662,6 @@
               {@render serverRow(server)}
             {/each}
             {@render targetNote()}
-            {#if webNoHost}{@render connectHostRow()}{/if}
             {#if serversStore.nearbyHosts.length > 0}
               <DropdownMenu.Separator />
               <DropdownMenu.Label>Nearby</DropdownMenu.Label>

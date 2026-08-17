@@ -22,6 +22,7 @@
     worktreeProjectRoot,
     type WorktreeEntry,
   } from "../../../shared/types";
+  import { serverConnections } from "@client-core/server-connections";
 
   interface Props {
     /** The tab or draft whose run this section describes — see `ProjectPanel`. */
@@ -36,6 +37,10 @@
   const settings = getSettingsContext();
   const sectionRun = $derived(session.runFor(sourceId));
   const env = $derived(environmentStore.environmentFor(sectionRun));
+  const detailCwd = $derived(env.cwd);
+  const detailServerId = $derived(
+    serverConnections.serverIdForApi(session.apiFor(sourceId)),
+  );
   const status = $derived(env.status);
   const uncommittedFileCount = $derived(
     status?.uncommittedChanges.files.length ?? 0,
@@ -46,6 +51,13 @@
   const currentBranch = $derived(
     status === undefined ? env.branch : (status?.branch ?? null),
   );
+  const pendingDispatch = $derived(
+    sectionRun?.pendingHostDispatch?.intent === "dispatch"
+      ? sectionRun.pendingHostDispatch
+      : null,
+  );
+  const selectedDispatchWorktree = $derived(pendingDispatch?.worktree ?? null);
+  const selectedDispatchBaseBranch = $derived(pendingDispatch?.baseBranch ?? null);
   const isWorktree = $derived(env.isolated);
   const branchRepoRoot = $derived(
     env.checkout?.repoRoot ??
@@ -61,8 +73,8 @@
   const hostAffinity = $derived(serversStore.affinityFor(sectionRun?.serverId));
 
   $effect(() => {
-    if (!active || !env.cwd) return;
-    return environmentStore.watchDetails(env.cwd);
+    if (!active || !detailCwd) return;
+    return environmentStore.watchDetails(detailServerId, detailCwd);
   });
 
   const actionRows = $derived.by<(ActionRowItem & { run: () => void })[]>(
@@ -108,6 +120,7 @@
   // panel's tab. Omitting tabId lets the workspace preserve a started session
   // and create/activate a destination tab in the selected environment group.
   async function selectBranch(branch: string) {
+    if (pendingDispatch) return;
     // A branch already checked out somewhere *is* that worktree, so the picker's
     // "Checked out" rows move there rather than checking it out again here.
     const entry = worktrees.find((wt) => wt.branch === branch);
@@ -124,8 +137,19 @@
   }
 
   async function selectWorktree(worktree: WorktreeEntry) {
+    if (pendingDispatch) {
+      session.setDispatchWorktree(worktree, sourceId);
+      requestInputFocus();
+      return;
+    }
     await session.switchToWorktree(worktree.path);
     settleOnDestination();
+  }
+
+  function selectNewDispatchWorktree(baseBranch?: string) {
+    if (baseBranch) session.setDispatchBaseBranch(baseBranch, sourceId);
+    else session.setDispatchWorktree(null, sourceId);
+    requestInputFocus();
   }
 
   function settleOnDestination() {
@@ -147,17 +171,17 @@
       bind:this={branchTriggerEl}
       class="branch-row"
       type="button"
-      title="Switch branch or worktree"
-      disabled={!currentBranch || env.pending}
+      title={pendingDispatch ? "Select a remote worktree" : "Switch branch or worktree"}
+      disabled={!currentBranch || (env.pending && !pendingDispatch)}
       onclick={() => (branchPickerOpen = !branchPickerOpen)}
     >
       <span class="branch-row-icon"
-        >{#if isWorktree || env.pending}<GitForkIcon
+        >{#if isWorktree || env.pending || pendingDispatch}<GitForkIcon
             size={13}
           />{:else}<GitBranchIcon size={13} />{/if}</span
       >
       <span class="branch-row-name" title={status?.branch ?? undefined}
-        >{env.pending ? env.name : (currentBranch ?? "detached HEAD")}</span
+        >{selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? (pendingDispatch ? "New worktree" : env.pending ? env.name : (currentBranch ?? "detached HEAD"))}</span
       >
       <!-- Disclosure, not a dropdown: the picker flanks the column rather than
            dropping into it, so the row reads like a submenu. -->
@@ -183,11 +207,13 @@
         bind:open={branchPickerOpen}
         side="left"
         triggerEl={branchTriggerEl}
-        displayBranch={currentBranch}
-        selectedBranch={currentBranch}
+        displayBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? (pendingDispatch ? "New worktree" : currentBranch)}
+        selectedBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? currentBranch}
         workingDirectory={branchRepoRoot}
+        run={sectionRun}
         onSelectBranch={selectBranch}
         onSelectWorktree={selectWorktree}
+        onSelectNewWorktree={selectNewDispatchWorktree}
       />
     {/if}
     <div class="branch-divider" aria-hidden="true"></div>
@@ -207,7 +233,7 @@
     margin: 0;
     padding: 0.125rem 0;
     color: var(--solus-text-tertiary);
-    font-size: 0.75rem;
+    font-size: var(--text-menu-meta);
   }
 
   .env {
@@ -220,7 +246,7 @@
   .menu-trail {
     flex-shrink: 0;
     color: var(--solus-text-tertiary);
-    font-size: 0.75rem;
+    font-size: var(--text-menu-meta);
     font-weight: 400;
     font-variant-numeric: tabular-nums;
   }
@@ -236,13 +262,19 @@
     border-radius: 0.4375rem;
     background: transparent;
     color: var(--solus-text-secondary);
-    font-size: 0.8125rem;
+    /* Same token as MenuRow: the branch row anchors the same menu language. */
+    font-size: var(--text-menu);
     font-weight: 400;
     text-align: left;
     cursor: pointer;
     transition:
       background-color 0.15s ease,
       color 0.15s ease;
+  }
+  @container (max-width: 15rem) {
+    .branch-row {
+      font-size: 0.75rem;
+    }
   }
   .branch-row:hover {
     background: var(--solus-surface-hover);
@@ -298,7 +330,7 @@
   }
   .stat-add,
   .stat-del {
-    font-size: 0.75rem;
+    font-size: var(--text-menu-meta);
     font-weight: 400;
   }
   .stat-add {

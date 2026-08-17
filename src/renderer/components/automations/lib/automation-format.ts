@@ -285,21 +285,32 @@ export function cronHHMM(expr: string): string {
 }
 
 /** Split a minute count into the largest clean {value, unit} for the builder. */
-export function intervalParts(everyMinutes: number): { value: number; unit: 'minutes' | 'hours' | 'days' } {
+export interface IntervalParts {
+  value: number
+  unit: 'minutes' | 'hours' | 'days'
+}
+
+export function intervalParts(everyMinutes: number): IntervalParts {
   if (everyMinutes % 1440 === 0) return { value: everyMinutes / 1440, unit: 'days' }
   if (everyMinutes % 60 === 0) return { value: everyMinutes / 60, unit: 'hours' }
   return { value: everyMinutes, unit: 'minutes' }
 }
 
-export const INTERVAL_UNIT_MINUTES: Record<'minutes' | 'hours' | 'days', number> = {
+export const INTERVAL_UNIT_MINUTES = {
   minutes: 1,
   hours: 60,
   days: 1440,
-}
+} satisfies Record<IntervalParts['unit'], number>
 
 /** One bar of the detail view's health sparkline: how long that run took
  *  relative to the longest in the window, plus the two states it's coloured by. */
 export type HealthBar = { id: string; heightPct: number; failed: boolean; latest: boolean }
+
+export interface RunHealth {
+  bars: HealthBar[]
+  clean: number
+  total: number
+}
 
 /** How many runs the sparkline looks back over — wide enough to show a rhythm,
  *  narrow enough that one bad run still reads as one bad run. */
@@ -311,7 +322,7 @@ const CLEAN_STATUSES: AutomationRunStatus[] = ['succeeded', 'dispatched']
 /** The recent runs as a duration sparkline (oldest → newest) plus how many of
  *  them came back clean — the automation's reliability at a glance. `runs` is
  *  newest-first, the order the store keeps them in. */
-export function runHealth(runs: AutomationRun[]): { bars: HealthBar[]; clean: number; total: number } {
+export function runHealth(runs: AutomationRun[]): RunHealth {
   const recent = runs.slice(0, HEALTH_WINDOW).reverse()
   const longest = recent.reduce((max, r) => Math.max(max, runDurationMs(r) ?? 0), 0)
   return {
@@ -327,17 +338,19 @@ export function runHealth(runs: AutomationRun[]): { bars: HealthBar[]; clean: nu
   }
 }
 
-export const RUN_STATUS_META: Record<
-  AutomationRunStatus,
-  { label: string; tone: 'running' | 'success' | 'error' | 'cancelled' }
-> = {
+export interface RunStatusMeta {
+  label: string
+  tone: 'running' | 'success' | 'error' | 'cancelled'
+}
+
+export const RUN_STATUS_META = {
   running: { label: 'Running', tone: 'running' },
   succeeded: { label: 'Succeeded', tone: 'success' },
   failed: { label: 'Failed', tone: 'error' },
   cancelled: { label: 'Cancelled', tone: 'cancelled' },
   // In-session runs: handed to the chat thread, which owns the real outcome.
   dispatched: { label: 'Sent to chat', tone: 'success' },
-}
+} satisfies Record<AutomationRunStatus, RunStatusMeta>
 
 /** The folder an automation runs in, as the trailing path segment — the list
  *  row's secondary label, and what the page's search matches against. */

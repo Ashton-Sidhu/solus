@@ -1,11 +1,11 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { SidebarSimpleIcon, XIcon } from "phosphor-svelte";
-  import { getWorkspaceContext, getSettingsContext } from "../../contexts";
-  import { comboHint } from "../../lib/keybindings/manifest";
-  import { PAGE_ICON_BTN } from "../../lib/page-chrome";
+  import {
+    getWorkspaceContext,
+    getSettingsContext,
+    getWindowContext,
+  } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import ProjectPanel from "../project-panel/ProjectPanel.svelte";
   import SessionBreadcrumb from "../conversation/SessionBreadcrumb.svelte";
   import type { PaneId } from "../../contexts/workspace/routing/location";
@@ -50,7 +50,14 @@
 
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
+  const windowCtx = getWindowContext();
   let paneWidth = $state(0);
+  // A conversation can end up in the leading pane — "Ask Solus" beside a review
+  // already showing in the companion puts it there, and so does moving a pane
+  // across. This shell is then the leftmost surface, not one docked beside
+  // another: it draws no seam of its own, and its row has to clear the frame's
+  // own controls the way every other leading chrome row does.
+  const isLeading = $derived(paneId === session.router.leadingPane.id);
 
   function toggleRail() {
     settings.update({ splitProjectPanelOpen: !settings.splitProjectPanelOpen });
@@ -59,7 +66,9 @@
 </script>
 
 <div
-  class="flex h-full min-h-0 min-w-0 flex-col border-l border-(--solus-container-border) bg-(--solus-container-bg)"
+  class="flex h-full min-h-0 min-w-0 flex-col bg-(--solus-container-bg) {isLeading
+ ? ''
+ : 'border-l border-(--solus-container-border)'}"
   onfocusin={() => session.router.focusPane(paneId)}
   bind:clientWidth={paneWidth}
 >
@@ -68,52 +77,25 @@
        grid after the old titled header was removed: both transcripts begin and
        both composers end on the same lines. -->
   <div
-    class="split-chat-chrome no-drag flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center justify-end gap-1 px-2.5"
+    class="workspace-titlebar split-chat-chrome flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center justify-end gap-1 pr-2.5 pl-[max(0.625rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <SessionBreadcrumb
       tabId={tabId ?? ""}
       {draft}
       variant="inline"
       showNewSessionAction={false}
-      showProjectPanelAction={false}
+      showProjectPanelAction
+      projectPanelOpen={settings.splitProjectPanelOpen}
+      onProjectPanelToggle={toggleRail}
+      {onClose}
+      {closeLabel}
     />
-
-    {#if !settings.splitProjectPanelOpen}
-      <TooltipUI.Root>
-        <TooltipUI.Trigger>
-          {#snippet child({ props })}
-            <button
-              {...props}
-              type="button"
-              class={PAGE_ICON_BTN}
-              onclick={toggleRail}
-              aria-label="Expand project panel"
-            >
-              <SidebarSimpleIcon size={13} mirrored />
-            </button>
-          {/snippet}
-        </TooltipUI.Trigger>
-        <TooltipUI.Content
-          value={`Expand project panel (${comboHint("global.toggle-project-panel")})`}
-        />
-      </TooltipUI.Root>
-    {/if}
-
-    <button
-      type="button"
-      class={PAGE_ICON_BTN}
-      onclick={onClose}
-      aria-label={closeLabel}
-    >
-      <XIcon size={16} />
-    </button>
   </div>
 
   <div class="flex min-h-0 min-w-0 flex-1">
     <div
       class="aside-column flex min-h-0 min-w-0 flex-1 flex-col"
       class:justify-center={centered}
-      class:home-measure={centered}
     >
       {@render body()}
     </div>
@@ -122,17 +104,9 @@
       sourceId={tabId ?? draft?.id ?? ""}
       isSplit
       containerWidth={paneWidth}
+      workspaceWidth={windowCtx.workAreaWidth}
       active={surfaceVisible}
       onCollapse={toggleRail}
     />
   </div>
 </div>
-
-<style>
-  /* The same measure the leading column's home uses, so a composer beside a
-     thread is the width the user just came from — not the full-bleed
-     transcript measure. */
-  .aside-column.home-measure {
-    --solus-reading-max: clamp(40rem, 50%, 52rem);
-  }
-</style>

@@ -1,10 +1,10 @@
 import type { AgentId, Plan, PlanDescriptor, PermissionOption, PlanReference, ReasoningEffort, SessionMeta, WorkReference } from '../../../shared/types'
 import { MODEL_PROFILES, planKey, encodePathAsFolder } from '../../../shared/types'
-import type { ModelProfile } from '../../../shared/types'
 import { findOpenTabForSession } from '../../lib/sessionUtils'
 import { formatInlineComments, nextMsgId } from './session.utils'
 import { track } from '../../lib/analytics'
 import type { WorkspaceContext } from './workspace.context.svelte'
+import { SessionUnavailableError } from './session-errors'
 
 // ─── Active plan waiting state ───
 
@@ -111,7 +111,7 @@ export async function approvePlanWithModel(
   opts: ApprovePlanOptions = {},
 ): Promise<void> {
   const wasPreview = !!ctx.planStore.previewDescriptor
-  if (wasPreview) await resumeFromPreview(ctx)
+  if (wasPreview && !await resumeFromPreview(ctx)) return
 
   const plan = ctx.planStore.plans[planId]
   if (!plan) return
@@ -171,8 +171,8 @@ export async function approvePlanWithModel(
       session.run.provider = opts.provider
       ctx.config.followActiveSessionAgent(opts.provider)
     }
-    const profile = MODEL_PROFILES[opts.provider as keyof typeof MODEL_PROFILES]?.[opts.modelId]
-    session.run.modelConfig = { modelId: opts.modelId, reasoningEffort: opts.reasoningEffort ?? (profile as ModelProfile)?.defaultReasoningEffort ?? 'high', contextWindow: (profile as ModelProfile)?.defaultContextWindow ?? null, fastMode: false }
+    const profile = MODEL_PROFILES[opts.provider]?.[opts.modelId]
+    session.run.modelConfig = { modelId: opts.modelId, reasoningEffort: opts.reasoningEffort ?? profile?.defaultReasoningEffort ?? 'high', contextWindow: profile?.defaultContextWindow ?? null, fastMode: false }
     session.sessionModel = null
   } else if (opts.reasoningEffort) {
     session.run.modelConfig.reasoningEffort = opts.reasoningEffort
@@ -193,7 +193,7 @@ export async function approvePlanWithModel(
     planToolUseId: plan.planToolUseId,
     status: 'accepted',
   })
-  const safeTitle = plan.title.replace(/[\[\]]/g, '\\$&')
+  const safeTitle = plan.title.replaceAll('[', '\\[').replaceAll(']', '\\]')
   const planLink = `[${safeTitle}](plan://ref?${params})`
 
   let message = `Implement this plan: ${planLink}`
@@ -218,7 +218,7 @@ export async function approvePlanWithModel(
 }
 
 export async function rejectPlan(ctx: WorkspaceContext, planId: string, comment?: string): Promise<void> {
-  if (ctx.planStore.previewDescriptor) await resumeFromPreview(ctx)
+  if (ctx.planStore.previewDescriptor && !await resumeFromPreview(ctx)) return
   const plan = ctx.planStore.plans[planId]
   if (!plan) return
   const tabId = resolvePlanTabId(ctx, plan)
@@ -261,7 +261,7 @@ export async function rejectPlan(ctx: WorkspaceContext, planId: string, comment?
 
 // ─── Plan navigation ───
 
-async function loadOrFindTab(ctx: WorkspaceContext, sessionId: string, cwd: string, projectPath: string, provider?: AgentId, title?: string, serverId?: string): Promise<string> {
+async function loadOrFindTab(ctx: WorkspaceContext, sessionId: string, cwd: string, projectPath: string, provider?: AgentId, title?: string, serverId?: string): Promise<string | null> {
   const existing = findOpenTabForSession(sessionId, ctx.tabs, ctx.sessions, ctx.tabOrder, provider, serverId)
   if (existing) {
     ctx.selectTab(existing)
@@ -269,7 +269,7 @@ async function loadOrFindTab(ctx: WorkspaceContext, sessionId: string, cwd: stri
   }
   const meta: SessionMeta = {
     sessionId,
-    provider: provider ?? ctx.settings.activeAgent as AgentId,
+    provider: provider ?? ctx.settings.activeAgent,
     cwd,
     projectPath,
     serverId,
@@ -278,7 +278,13 @@ async function loadOrFindTab(ctx: WorkspaceContext, sessionId: string, cwd: stri
     lastTimestamp: '',
     size: 0,
   }
-  return await ctx.resumeSession(meta)
+  try {
+    return await ctx.resumeSession(meta)
+  } catch (error) {
+    if (!(error instanceof SessionUnavailableError)) throw error
+    ctx.notifySessionUnavailable(provider)
+    return null
+  }
 }
 
 /** Pull one descriptor's plan into the store. Readers that only need the plan
@@ -355,12 +361,17 @@ export async function openPlanFromDescriptor(ctx: WorkspaceContext, d: PlanDescr
   else closePlanPreview(ctx)
 }
 
-export async function resumeFromPreview(ctx: WorkspaceContext): Promise<void> {
+export async function resumeFromPreview(ctx: WorkspaceContext): Promise<boolean> {
   const d = ctx.planStore.previewDescriptor
-  ctx.planStore.dismissPreview()
-  if (d) {
-    await loadOrFindTab(ctx, d.sessionId, d.cwd, d.projectPath, d.provider, d.title, d.serverId)
+  if (!d) return true
+  if (d.sessionAvailable === false) {
+    ctx.notifySessionUnavailable(d.provider)
+    return false
   }
+  const tabId = await loadOrFindTab(ctx, d.sessionId, d.cwd, d.projectPath, d.provider, d.title, d.serverId)
+  if (!tabId) return false
+  ctx.planStore.dismissPreview()
+  return true
 }
 
 export function closePlanPreview(ctx: WorkspaceContext): void {
@@ -369,9 +380,14 @@ export function closePlanPreview(ctx: WorkspaceContext): void {
 }
 
 export async function resumeSessionFromDescriptor(ctx: WorkspaceContext, d: PlanDescriptor): Promise<void> {
-  ctx.planStore.dismissPreview()
   await loadDescriptorPlan(ctx, d)
+  if (d.sessionAvailable === false) {
+    ctx.notifySessionUnavailable(d.provider)
+    return
+  }
   const tabId = await loadOrFindTab(ctx, d.sessionId, d.cwd, d.projectPath, d.provider, d.title, d.serverId)
+  if (!tabId) return
+  ctx.planStore.dismissPreview()
   ctx.router.close('folio')
   closePlanModal(ctx)
   setTimeout(() => requestConversationScrollToBottom(tabId), 50)

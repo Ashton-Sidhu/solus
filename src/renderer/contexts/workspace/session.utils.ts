@@ -1,4 +1,5 @@
 import type { Message, NormalizedEvent, PermissionRequest, PermissionOption, QuestionRequest, RuntimeSessionInfo, TodoItem, SessionProgress, Session, DiffComment, PlanComment } from '../../../shared/types'
+import { z } from 'zod'
 
 let msgCounter = 0
 export const nextMsgId = () => `msg-${++msgCounter}`
@@ -71,16 +72,16 @@ const SOLUS_TOOL_KEYS = new Set([
 ])
 
 // Friendly labels where the product has intentionally named the action.
-const SOLUS_TOOL_LABELS: Record<string, string> = {
-  list_works: 'List works',
-  search_works: 'Search works',
-  read_work: 'Read work',
-  create_work: 'Create work',
-  update_work: 'Update work',
-  render_artifact: 'Render artifact',
-  create_session: 'Create session',
-  codex_subagent: 'Codex subagent',
-}
+const SOLUS_TOOL_LABELS = new Map([
+  ['list_works', 'List works'],
+  ['search_works', 'Search works'],
+  ['read_work', 'Read work'],
+  ['create_work', 'Create work'],
+  ['update_work', 'Update work'],
+  ['render_artifact', 'Render artifact'],
+  ['create_session', 'Create session'],
+  ['codex_subagent', 'Codex subagent'],
+])
 
 /** Returns the bare Solus tool key (e.g. "create_work") if `name` is a Solus tool, else null. */
 export function solusToolKey(name: string): string | null {
@@ -91,7 +92,7 @@ export function solusToolKey(name: string): string | null {
 /** Display name for a tool: friendly Solus label when applicable, otherwise the raw name. */
 export function prettyToolName(name: string): string {
   const key = solusToolKey(name)
-  return key ? (SOLUS_TOOL_LABELS[key] ?? key) : name
+  return key ? (SOLUS_TOOL_LABELS.get(key) ?? key) : name
 }
 
 export function findLastUserIndex(messages: Message[]): number {
@@ -101,13 +102,22 @@ export function findLastUserIndex(messages: Message[]): number {
   return -1
 }
 
+/** How far back a running tool can plausibly sit: enough for the largest live
+ *  exchange (hundreds of tool rows) without walking a 5k-message transcript. */
+const RUNNING_TOOL_SCAN_DEPTH = 250
+
 /** The most specific user-facing label for a live session's current phase. */
 export function computeCurrentActivity(session: Session): string {
   if (session.permissionQueue.length > 0) return `Waiting for permission: ${session.permissionQueue[0].toolTitle}`
   if (session.questionQueue.length > 0) return 'Waiting for your input...'
   if (session.isStreamingText) return 'Writing...'
   if (session.isReconnecting) return 'Reconnecting...'
-  for (let i = session.messages.length - 1; i >= 0; i--) {
+  // A running tool always sits near the tail (the current exchange), so bound
+  // the reverse walk instead of scanning — and subscribing to — the whole
+  // transcript. Depth-bounded rather than stopping at the last user message so
+  // a mid-turn steering message cannot hide a still-running tool's label.
+  const scanFloor = Math.max(0, session.messages.length - RUNNING_TOOL_SCAN_DEPTH)
+  for (let i = session.messages.length - 1; i >= scanFloor; i--) {
     const message = session.messages[i]
     if (message.role === 'tool' && message.toolStatus === 'running' && message.toolName) {
       return `Running ${prettyToolName(message.toolName)}...`
@@ -120,9 +130,8 @@ export function computeCurrentActivity(session: Session): string {
   return ''
 }
 
-export function normalizeTodoStatus(status: unknown): TodoItem['status'] {
-  if (typeof status !== 'string') return 'pending'
-
+export function normalizeTodoStatus(status: string | undefined): TodoItem['status'] {
+  if (status === undefined) return 'pending'
   const normalized = status.trim().replace(/[\s-]/g, '_').toLowerCase()
   if (normalized === 'completed' || normalized === 'pending') return normalized
   if (normalized === 'in_progress' || normalized === 'inprogress') return 'in_progress'
@@ -146,11 +155,12 @@ export function toPermissionRequest(event: Extract<NormalizedEvent, { type: 'per
 }
 
 export function toQuestionRequest(event: Extract<NormalizedEvent, { type: 'question_request' }>): QuestionRequest {
-  return {
+  const request: QuestionRequest = {
     questionId: event.questionId,
     questions: event.questions,
-    ...(event.kind ? { kind: event.kind } : {}),
   }
+  if (event.kind) request.kind = event.kind
+  return request
 }
 
 export function progressFromTodos(todos: TodoItem[]): SessionProgress {
@@ -158,34 +168,49 @@ export function progressFromTodos(todos: TodoItem[]): SessionProgress {
   return { todos, currentStep, totalSteps: todos.length }
 }
 
-export function parseToolInput(input: string): unknown {
-  const parsed = JSON.parse(input)
-  if (typeof parsed !== 'string') return parsed
+const rawTodoSchema = z.object({
+  content: z.string().optional(),
+  step: z.string().optional(),
+  text: z.string().optional(),
+  description: z.string().optional(),
+  title: z.string().optional(),
+  status: z.string().optional(),
+})
 
-  const trimmed = parsed.trim()
-  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return parsed
-  try {
-    return JSON.parse(trimmed)
-  } catch {
-    return parsed
-  }
+const todoToolInputSchema = z.object({
+  todos: z.array(rawTodoSchema).optional(),
+  plan: z.array(rawTodoSchema).optional(),
+})
+
+type RawTodo = z.infer<typeof rawTodoSchema>
+type TodoToolInput = z.infer<typeof todoToolInputSchema>
+
+function todoContent(value: RawTodo): string {
+  return (value.content || value.step || value.text || value.description || value.title || '').trim()
 }
 
-function todoContent(value: any): string {
-  return String(value?.content || value?.step || value?.text || value?.description || value?.title || '').trim()
-}
-
-function todosFromList(items: unknown): TodoItem[] | null {
-  if (!Array.isArray(items)) return null
-
+function todosFromList(items: RawTodo[] | undefined): TodoItem[] | null {
+  if (!items) return null
   const todos: TodoItem[] = items
-    .map((t: any) => ({
-      content: todoContent(t),
-      status: normalizeTodoStatus(t?.status),
+    .map((todo) => ({
+      content: todoContent(todo),
+      status: normalizeTodoStatus(todo.status),
     }))
-    .filter((t) => t.content)
+    .filter((todo) => todo.content)
 
   return todos.length > 0 ? todos : null
+}
+
+function parseTodoToolInput(input: string): TodoToolInput | null {
+  const decoded = JSON.parse(input)
+  const direct = todoToolInputSchema.safeParse(decoded)
+  if (direct.success) return direct.data
+  const encoded = z.string().safeParse(decoded)
+  if (!encoded.success) return null
+  const trimmed = encoded.data.trim()
+  if (!trimmed.startsWith('{')) return null
+  const nested = todoToolInputSchema.safeParse(JSON.parse(trimmed))
+  return nested.success ? nested.data : null
 }
 
 export function progressTodosFromTool(toolName: string | undefined, toolInput: string | undefined): TodoItem[] | null {
@@ -196,11 +221,11 @@ export function progressTodosFromTool(toolName: string | undefined, toolInput: s
   const isCodexPlanUpdate = normalizedToolName === 'update_plan' || normalizedToolName.endsWith('.update_plan')
   if (!isTodoWrite && !isCodexPlanUpdate) return null
 
-  const input = parseToolInput(toolInput)
-  if (!input || typeof input !== 'object') return null
+  const input = parseTodoToolInput(toolInput)
+  if (!input) return null
 
-  if (isTodoWrite) return todosFromList((input as any).todos)
-  return todosFromList((input as any).plan ?? (input as any).todos)
+  if (isTodoWrite) return todosFromList(input.todos)
+  return todosFromList(input.plan ?? input.todos)
 }
 
 export function progressFromMessages(messages: Message[]): SessionProgress | null {

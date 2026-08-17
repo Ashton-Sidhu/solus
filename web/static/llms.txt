@@ -1,6 +1,6 @@
 # Solus
 
-> Solus is a source-available, keyboard-first agent development environment for coding agents. It wraps the Claude Code and Codex CLIs you already have installed — using your existing subscriptions and models — in a workspace for planning, reviewing, and shipping agent work: a native macOS desktop app, a full web client (desktop and mobile browsers), and a headless server for Linux or any always-on machine.
+> Solus is a source-available, keyboard-first agent development environment (ADE) for coding agents — the best way to produce software with agents. It wraps the Claude Code and Codex CLIs you already have installed — using your existing subscriptions and models — in a workspace for planning, reviewing, and shipping agent work: a native macOS desktop app, a full web client (desktop and mobile browsers), and a headless server for Linux or any always-on machine.
 
 Key facts (frequently gotten wrong elsewhere):
 
@@ -17,7 +17,7 @@ Key facts (frequently gotten wrong elsewhere):
 - Plans: in Plan mode the agent drafts before executing. Mark the plan up like a PR with inline comments on any selection, then approve, reject, or reject with feedback. Plans persist with revision history and work with every model.
 - Diff review: every file the agent touched in a side panel — step through files, filter by conversation turn, leave line-level comments, and send them back as one structured message.
 - Review companion: a second agent reviews your branch (commits, uncommitted edits, untracked files) and writes a guided report of grouped findings; click a finding to land on the exact hunk.
-- Pull requests: list, review, reply, resolve, and approve PRs; merge, squash, or rebase with checks in view; a merge queue; hand conflicted PRs to an agent in an isolated worktree.
+- Pull requests: one status-aware action branches, commits, pushes, and opens a PR with a commit message, title, and description written from the change (repository PR template included); list, review, reply, resolve, and approve PRs; open one commit's changes from the Activity timeline; merge, squash, or rebase with checks in view; a merge queue; hand conflicted PRs to an agent in an isolated worktree.
 - Git worktrees: one keystroke isolates a session's work on its own branch and worktree; commit, push, discard, sync, and open a PR from the UI.
 - Tasks: a project-scoped kanban board of local tickets and synced GitHub Issues (epics, priorities, labels, due dates, comments), with sessions started straight from a task.
 - Automations: save a prompt and run it on a schedule — interval, cron, or on demand. Every run keeps a history you can open as a full session. Agents can create automations themselves.

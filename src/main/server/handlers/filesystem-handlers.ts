@@ -1,9 +1,15 @@
 import { dirname, join } from 'path'
-import { mkdir, readdir, readFile, stat } from 'fs/promises'
-import type { CreateDirectoryResult, DirectoryEntry, DirectoryListResult } from '../../../shared/types'
+import { mkdir, readdir, readFile, realpath, stat } from 'fs/promises'
+import { z } from 'zod'
+import type { CreateDirectoryResult, DirectoryEntry, DirectoryListResult, ProjectFilesResult } from '../../../shared/types'
 import { listProjects } from '../../project-config/projects-manifest'
+import { createLogger } from '../../logger'
+import { getFinder } from '../file-finder'
 import type { SolusServer } from '../server'
 import { expandHome } from './lib/host-path'
+import { projectRootForRequest } from './lib/file-preview'
+
+const log = createLogger('main', 'filesystem-handlers')
 
 /**
  * Filesystem browsing, registered unconditionally so a `--headless` host can
@@ -48,8 +54,52 @@ export function sortDirEntries(entries: { name: string; isDir: boolean }[]) {
   })
 }
 
-function friendlyFsError(error: unknown, fallback: string): string {
-  const code = (error as NodeJS.ErrnoException).code
+const PROJECT_FILES_MAX_ENTRIES = 25_000
+
+function normalizeFinderRelativePath(input: string): string {
+  return input.replaceAll('\\', '/').replace(/\/+$/, '')
+}
+
+async function listIndexedProjectFiles(root: string): Promise<ProjectFilesResult> {
+  const finder = await getFinder(root)
+  if (!finder) {
+    return { ok: false, root, error: 'Unable to index project files.' }
+  }
+
+  const result = finder.mixedSearch('', { pageSize: PROJECT_FILES_MAX_ENTRIES + 2 })
+  if (!result.ok) {
+    log.warn('project_files_mixed_search_failed', { root, error: result.error })
+    return { ok: false, root, error: result.error }
+  }
+
+  const files: string[] = []
+  for (const entry of result.value.items) {
+    if (entry.type !== 'file') continue
+    const relativePath = normalizeFinderRelativePath(entry.item.relativePath)
+    if (relativePath) {
+      files.push(relativePath)
+    }
+    if (files.length >= PROJECT_FILES_MAX_ENTRIES) {
+      break
+    }
+  }
+
+  files.sort((left, right) => left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' }))
+
+  return {
+    ok: true,
+    root,
+    files,
+    truncated: result.value.totalMatched > PROJECT_FILES_MAX_ENTRIES,
+    source: 'index',
+  }
+}
+
+const filesystemErrorSchema = z.object({ code: z.string().optional() })
+
+function friendlyFsError(error: Error, fallback: string): string {
+  const parsed = filesystemErrorSchema.safeParse(error)
+  const code = parsed.success ? parsed.data.code : undefined
   if (code === 'EACCES' || code === 'EPERM') return 'You don’t have permission to open this folder.'
   if (code === 'ENOENT') return 'This folder no longer exists.'
   if (code === 'ENOTDIR') return 'This location is not a folder.'
@@ -58,7 +108,7 @@ function friendlyFsError(error: unknown, fallback: string): string {
 
 export function registerFilesystemHandlers(server: SolusServer): void {
   server.register('listDirectory', async (args) => {
-    const [rawPath, showHidden, annotate] = args as [string, boolean | undefined, boolean | undefined]
+    const [rawPath, showHidden, annotate] = args
     const resolved = expandHome(rawPath)
     const parent = dirname(resolved)
 
@@ -86,13 +136,15 @@ export function registerFilesystemHandlers(server: SolusServer): void {
         entries: [],
         parentPath: parent === resolved ? null : parent,
         currentPath: resolved,
-        error: friendlyFsError(error, 'Couldn’t open this folder.'),
+        error: error instanceof Error
+          ? friendlyFsError(error, 'Couldn’t open this folder.')
+          : 'Couldn’t open this folder.',
       } satisfies DirectoryListResult
     }
   })
 
   server.register('createDirectory', async (args) => {
-    const [rawPath] = args as [string]
+    const [rawPath] = args
     const resolved = expandHome(rawPath)
 
     try {
@@ -101,8 +153,38 @@ export function registerFilesystemHandlers(server: SolusServer): void {
     } catch (error) {
       return {
         path: resolved,
-        error: friendlyFsError(error, 'Couldn’t create this folder.'),
+        error: error instanceof Error
+          ? friendlyFsError(error, 'Couldn’t create this folder.')
+          : 'Couldn’t create this folder.',
       } satisfies CreateDirectoryResult
     }
+  })
+
+  // Indexed (gitignore-aware) project listing, here rather than in the
+  // desktop-only file handlers: the diff heat map and file surfaces need it on
+  // a paired headless host too.
+  server.register('listProjectFiles', async (args) => {
+    const [ctx, request] = args
+    const rawRoot = projectRootForRequest(ctx, request?.cwd)
+    if (!rawRoot) {
+      return { ok: false, error: 'No project directory is available.' } satisfies ProjectFilesResult
+    }
+
+    let root: string
+    try {
+      root = await realpath(rawRoot)
+      const rootStat = await stat(root)
+      if (!rootStat.isDirectory()) {
+        return { ok: false, root, error: 'Project path is not a directory.' } satisfies ProjectFilesResult
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        root: rawRoot,
+        error: err instanceof Error ? err.message : String(err),
+      } satisfies ProjectFilesResult
+    }
+
+    return await listIndexedProjectFiles(root)
   })
 }

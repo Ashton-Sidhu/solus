@@ -65,6 +65,12 @@
     return side === "deletions" ? "old" : "new";
   }
 
+  function selectionSide(
+    side: "old" | "new" | "LEFT" | "RIGHT",
+  ): SelectionSide {
+    return side === "old" || side === "LEFT" ? "deletions" : "additions";
+  }
+
   interface Props {
     fileDiffs: FileDiffMetadata[];
     loadDiffFiles?: FileDiffContentsLoader;
@@ -73,6 +79,10 @@
     diffStyle: "unified" | "split";
     tokenHighlight: boolean;
     comments: DiffComment[];
+    /** Hide the line-selection and gutter comment affordances entirely — for
+     *  views whose line numbers no other surface shares (a commit-scoped
+     *  patch), where an anchored comment would point at different code. */
+    commentingDisabled?: boolean;
     /** GitHub PR review threads, anchored at their line. Interactive (reply /
      *  resolve) when the thread callbacks below are supplied. */
     reviewThreads: DiffReviewThread[];
@@ -108,6 +118,7 @@
     diffStyle,
     tokenHighlight,
     comments,
+    commentingDisabled = false,
     reviewThreads,
     onThreadReply,
     onThreadResolve,
@@ -183,6 +194,20 @@
     });
   }
 
+  // Move decoration walks every rendered host with per-line selector queries
+  // and DOM mutation. onPostRender fires per recycle during fast scroll, so
+  // coalesce to one decoration pass per frame, same as the find repaint above.
+  let moveDecorateRaf = 0;
+
+  function scheduleMoveDecorations() {
+    if (moveDecorateRaf) return;
+    moveDecorateRaf = requestAnimationFrame(() => {
+      moveDecorateRaf = 0;
+      if (!codeView) return;
+      decorateMovedLines(codeView.getRenderedItems(), moveAnalysis, diffStyle);
+    });
+  }
+
   const commentsByPath = $derived.by(() => {
     const m = new Map<string, DiffComment[]>();
     for (const c of comments) {
@@ -216,34 +241,33 @@
     const fileComments = (commentsByPath.get(filePath) ?? []).filter(
       (c) => c.id !== draft.editingCommentId,
     );
-    const out = fileComments.map((c) => ({
-      side: (c.side === "old" ? "deletions" : "additions") as SelectionSide,
-      lineNumber: c.endLine,
-      metadata: { kind: "comment", comment: c } as AnnotationMeta,
-    })) as DiffLineAnnotation<AnnotationMeta>[];
+    const out: DiffLineAnnotation<AnnotationMeta>[] = fileComments.map(
+      (comment): DiffLineAnnotation<AnnotationMeta> => ({
+        side: selectionSide(comment.side),
+        lineNumber: comment.endLine,
+        metadata: { kind: "comment", comment },
+      }),
+    );
     for (const thread of threadsByPath.get(filePath) ?? []) {
+      if (thread.line == null) continue;
       out.push({
-        side: (thread.side === "LEFT"
-          ? "deletions"
-          : "additions") as SelectionSide,
-        lineNumber: thread.line as number,
-        metadata: { kind: "thread", thread } as AnnotationMeta,
-      } as DiffLineAnnotation<AnnotationMeta>);
+        side: selectionSide(thread.side),
+        lineNumber: thread.line,
+        metadata: { kind: "thread", thread },
+      });
     }
     if (draft.filePath === filePath && draft.range) {
       out.push({
-        side: (draft.range.side === "old"
-          ? "deletions"
-          : "additions") as SelectionSide,
+        side: selectionSide(draft.range.side),
         lineNumber: draft.range.endLine,
-        metadata: DRAFT_META as AnnotationMeta,
-      } as DiffLineAnnotation<AnnotationMeta>);
+        metadata: DRAFT_META,
+      });
     }
     return out;
   }
 
   function nextVersion(item: CodeViewDiffItem<AnnotationMeta>): number {
-    return typeof item.version === "number" ? item.version + 1 : 1;
+    return (item.version ?? 0) + 1;
   }
 
   // Files with no text hunks still get a stream item because CodeView can render
@@ -465,10 +489,10 @@
     return button;
   }
 
-  const PLACEHOLDER_LABELS: Record<PlaceholderKind, string> = {
+  const PLACEHOLDER_LABELS = {
     binary: "Binary file — no text diff",
     empty: "No text changes",
-  };
+  } satisfies Record<PlaceholderKind, string>;
 
   function buildHeaderMetadata(filePath: string): HTMLElement {
     const wrap = document.createElement("div");
@@ -552,8 +576,8 @@
       disableFileHeader: false,
       // Hydration failures are non-fatal: @pierre/diffs keeps the partial patch.
       disableErrorHandling: !loadDiffFiles,
-      enableLineSelection: true,
-      enableGutterUtility: true,
+      enableLineSelection: !commentingDisabled,
+      enableGutterUtility: !commentingDisabled,
       stickyHeaders: true,
       layout: {
         paddingTop: 0,
@@ -564,20 +588,15 @@
       unsafeCSS: `${DIFFS_THEME_CSS}\n${DIFF_FIND_HIGHLIGHT_CSS}`,
       onPostRender: () => {
         paintItemBackgrounds();
-        if (codeView)
-          decorateMovedLines(
-            codeView.getRenderedItems(),
-            moveAnalysis,
-            diffStyle,
-          );
+        scheduleMoveDecorations();
         scheduleFindRepaint();
       },
       renderHeaderPrefix: (
-        _props: unknown,
+        _fileDiff: FileDiffMetadata,
         context: { item: { id: string } },
       ) => buildHeaderPrefix(context.item.id),
       renderHeaderMetadata: (
-        _props: unknown,
+        _fileDiff: FileDiffMetadata,
         context: { item: { id: string } },
       ) => buildHeaderMetadata(context.item.id),
       renderAnnotation: (annotation: { metadata: AnnotationMeta }) => {
@@ -673,6 +692,8 @@
       unsubscribe();
       if (findRepaintRaf) cancelAnimationFrame(findRepaintRaf);
       findRepaintRaf = 0;
+      if (moveDecorateRaf) cancelAnimationFrame(moveDecorateRaf);
+      moveDecorateRaf = 0;
       unsubscribeFindScroll?.();
       unsubscribeFindScroll = null;
       findHighlighter.destroy();
@@ -694,6 +715,7 @@
     void diffHeaderHeight;
     void tokenHighlight;
     void loadDiffFiles;
+    void commentingDisabled;
     if (!codeView) return;
     void setDiffWorkerPoolTheme(isDark);
     void setDiffWorkerPoolLineDiffType(tokenHighlight);
@@ -789,7 +811,7 @@
       type: "line",
       id: filePath,
       lineNumber: lineNo,
-      side: (side === "old" ? "deletions" : "additions") as SelectionSide,
+      side: selectionSide(side),
       align: "center",
     });
   }

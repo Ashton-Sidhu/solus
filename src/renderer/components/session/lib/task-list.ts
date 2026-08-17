@@ -12,18 +12,9 @@ import type { AttentionState } from '../../../lib/sessionUtils'
  *  this", which nothing else in the app knows. */
 export type TaskStatus = 'question' | 'error' | 'plan' | 'limit' | 'running' | 'idle' | 'done'
 
-/** A sidebar belongs to one selected host. Unknown ownership stays visible
- * while a new task or session is still being linked. */
-export function belongsToSelectedHost(
-  ownerServerId: string | null | undefined,
-  selectedServerId: string | null | undefined,
-): boolean {
-  return !ownerServerId || !selectedServerId || ownerServerId === selectedServerId
-}
-
 /** One fixed order everywhere. The list is a queue of decisions, so anything
  *  that stopped and asked sorts above anything still working. */
-export const STATUS_RANK: Record<TaskStatus, number> = {
+export const STATUS_RANK = {
   question: 0,
   error: 1,
   plan: 2,
@@ -31,7 +22,7 @@ export const STATUS_RANK: Record<TaskStatus, number> = {
   running: 4,
   idle: 5,
   done: 6,
-}
+} satisfies Record<TaskStatus, number>
 
 /** Statuses that earn a glyph. Running reports elapsed time instead; idle and
  *  done report nothing at all. */
@@ -173,6 +164,21 @@ export interface SidebarTask {
   tabIds: string[]
 }
 
+/** Search the task column without changing its learned order. Project names
+ *  are included because the unscoped sidebar can show several projects whose
+ *  tasks use similar titles. An empty query returns the original array so the
+ *  mounted row graph keeps its identity when search is not in use. */
+export function filterSidebarTasks(
+  tasks: SidebarTask[],
+  query: string,
+): SidebarTask[] {
+  const needle = query.trim().toLocaleLowerCase()
+  if (!needle) return tasks
+  return tasks.filter((task) =>
+    `${task.title} ${task.projectLabel}`.toLocaleLowerCase().includes(needle),
+  )
+}
+
 export function resolveTaskSidebarLifecycle(input: {
   task: Pick<Task, 'status' | 'doneAt' | 'snoozedUntil' | 'lastReadAt'>
   now: number
@@ -192,22 +198,27 @@ export function resolveTaskSidebarLifecycle(input: {
 
 /** A linked PR ending is authoritative completion for its task. */
 export function shouldCompleteTaskForPr(
-  taskStatus: Task['status'],
-  prState: 'open' | 'closed' | 'merged',
+  task: Pick<Task, 'status' | 'updatedAt'>,
+  pr: Pick<PullRequestSummary, 'state' | 'updatedAt'>,
 ): boolean {
-  return taskStatus !== 'done' && (prState === 'closed' || prState === 'merged')
+  if (task.status === 'done' || (pr.state !== 'closed' && pr.state !== 'merged')) return false
+  const prUpdatedAt = Date.parse(pr.updatedAt)
+  // A task changed after the PR reached its terminal state has been explicitly
+  // reopened (or otherwise resumed). That newer task decision wins until the PR
+  // itself changes state again; merely reloading the sidebar must not re-close it.
+  return !Number.isFinite(prUpdatedAt) || task.updatedAt <= prUpdatedAt
 }
 
-/** Two things keep a row out: it is a child task, which renders under its root,
- * or the user dismissed it. Lifecycle status is not one of them — completing a
- * task removes its row by writing that same dismissal, so an open session
- * restores a finished task exactly as it restores any other. */
+/** A host task appears only after this client opens it. Child tasks render under
+ * their root, and a local dismissal keeps a root closed until a session reopens
+ * it. Lifecycle status does not control row ownership or visibility. */
 export function shouldShowDurableSidebarTask(
   task: Task,
   isDismissed: boolean,
   hasOpenSession: boolean,
+  isOpenOnClient: boolean,
 ): boolean {
-  return !task.parentId && (!isDismissed || hasOpenSession)
+  return !task.parentId && ((!isDismissed && isOpenOnClient) || hasOpenSession)
 }
 
 /** Same rule one level down: a dismissed child returns with a reopened tab. */

@@ -18,6 +18,11 @@ const TIME_BUDGET_MS = 250
 /** One dense file must not consume the whole page of results. */
 const MAX_MATCHES_PER_FILE = 100
 
+interface ContentQuery {
+  query: string
+  regexMode: boolean
+}
+
 const WORD_CHARACTER = /[\p{Letter}\p{Mark}\p{Number}_]/u
 
 function isWord(character: string | undefined): boolean {
@@ -76,7 +81,7 @@ function toStringRanges(line: string, byteRanges: readonly (readonly [number, nu
  * all-lowercase needle matches case-insensitively. Regex mode has no smart
  * case, so it needs the inline flag instead.
  */
-function buildQuery(request: ProjectContentSearchRequest): { query: string; regexMode: boolean } {
+function buildQuery(request: ProjectContentSearchRequest): ContentQuery {
   if (request.caseSensitive) return { query: request.query, regexMode: request.useRegex }
   return request.useRegex
     ? { query: `(?i)${request.query}`, regexMode: true }
@@ -135,10 +140,11 @@ export async function searchProjectContents(
     regexError ??= result.value.regexFallbackError
   } while (matches.length < CONTENT_SEARCH_MAX_MATCHES && cursor !== null && Date.now() < deadline)
 
-  return {
+  const result: ProjectContentSearchResult = {
     ok: true,
     matches: matches.slice(0, CONTENT_SEARCH_MAX_MATCHES),
     truncated: matches.length > CONTENT_SEARCH_MAX_MATCHES || cursor !== null,
-    ...(regexError === undefined ? {} : { regexError }),
   }
+  if (regexError !== undefined) result.regexError = regexError
+  return result
 }

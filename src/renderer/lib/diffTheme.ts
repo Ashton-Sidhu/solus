@@ -246,6 +246,15 @@ export const DIFFS_THEME_CSS = `
     min-width: 0;
     font-family: ${MONO_FONT};
   }
+  /* @pierre/diffs wraps each slotted header element in a bare <div slot="...">.
+     That wrapper is the flex item, and its default min-width: auto keeps it at
+     the full path width — so on a narrow pane the path overflows
+     [data-header-content] and paints over the stats and actions on the right
+     instead of truncating. min-width: 0 lets it shrink; the stats side never
+     shrinks, so the directory ellipsis absorbs the difference. */
+  ::slotted([slot='header-prefix']) {
+    min-width: 0;
+  }
   /* The native title / rename chrome is replaced by a custom prefix rendered into
      the header-prefix slot (collapse chevron + file-type badge + dir/name split) —
      see DiffStream.buildHeaderPrefix. Hide the library's own title elements. */
@@ -256,6 +265,7 @@ export const DIFFS_THEME_CSS = `
     display: none;
   }
   [data-diffs-header='default'] [data-metadata] {
+    flex-shrink: 0;
     gap: 5px;
     font-family: ${MONO_FONT};
     font-size: 0.75rem;

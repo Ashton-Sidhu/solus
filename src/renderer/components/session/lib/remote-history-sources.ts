@@ -1,6 +1,7 @@
 import { serverConnections } from '@client-core/server-connections'
 import { LOCAL_SERVER_ID, loadServers } from '@client-core/server-registry'
-import type { ProjectIdentity } from '../../../../shared/types'
+import { sessionSnapshotCache, type SessionSnapshotCache } from '@client-core/session-snapshot-cache'
+import type { DispatchHistoryRoot, ProjectIdentity } from '../../../../shared/types'
 import type { SessionHistorySource } from '../../../lib/sessionPickerHistory'
 import { repoKeyForPath } from '../../servers/run-on'
 
@@ -10,6 +11,7 @@ export interface RemoteHistoryHosts {
   /** Every other saved host, whether or not it currently holds a tab. */
   remoteServerIds(): string[]
   projectIdentities(serverId: string): Promise<ProjectIdentity[]>
+  dispatchHistoryRoots(serverId: string, repoKeys: string[]): Promise<DispatchHistoryRoot[]>
   /** False for a host that is asleep or unreachable, so the scan skips it
    *  instead of waiting on a socket that will only ever retry. */
   isReachable(serverId: string): Promise<boolean>
@@ -28,44 +30,71 @@ export interface RemoteHistoryHosts {
 export async function remoteHistorySources(
   hosts: RemoteHistoryHosts,
   projectRoots: string[],
+  snapshotCache: SessionSnapshotCache = sessionSnapshotCache,
 ): Promise<SessionHistorySource[]> {
+  const sources = (await Promise.all(remoteHistorySourceBatches(hosts, projectRoots, snapshotCache))).flat()
+  return [...new Map(sources.map((source) => [source.id, source])).values()]
+}
+
+/** Resolve each host independently so an asleep saved host cannot delay a
+ * connected host's rows. Dispatch roots and normal projects are also separate:
+ * the focused exact-path RPC should not wait for a large project manifest. */
+export function remoteHistorySourceBatches(
+  hosts: RemoteHistoryHosts,
+  projectRoots: string[],
+  snapshotCache: SessionSnapshotCache = sessionSnapshotCache,
+): Array<Promise<SessionHistorySource[]>> {
   const serverIds = hosts.remoteServerIds()
   if (serverIds.length === 0 || projectRoots.length === 0) return []
 
-  const localIdentities = await hosts.projectIdentities(hosts.localServerId).catch(() => [])
-  const repoKeys = new Set(
-    projectRoots
-      .map((root) => repoKeyForPath(localIdentities, root))
-      .filter((repoKey): repoKey is string => !!repoKey),
-  )
-  if (repoKeys.size === 0) return []
+  const repoKeys = hosts.projectIdentities(hosts.localServerId)
+    .catch(() => [])
+    .then((localIdentities) => new Set(
+      projectRoots
+        .map((root) => repoKeyForPath(localIdentities, root))
+        .filter((repoKey): repoKey is string => !!repoKey),
+    ))
 
-  const perHost = await Promise.all(
-    serverIds.map(async (serverId) => {
-      try {
-        if (!(await hosts.isReachable(serverId))) return []
-        const identities = await hosts.projectIdentities(serverId)
-        return identities
-          .filter((identity) => repoKeys.has(identity.repoKey))
-          .map((identity) => ({
-            id: `${serverId}:${identity.path}`,
-            serverId,
-            projectPath: identity.path,
-          }))
-      } catch {
-        // One unreachable or unauthorised host must not cost the others their rows.
-        return []
-      }
-    }),
-  )
-  return perHost.flat()
+  return serverIds.flatMap((serverId) => {
+    const reachable = hosts.isReachable(serverId).catch(() => false)
+    const source = (projectPath: string, repoKey?: string): SessionHistorySource => ({
+      id: `${serverId}:${projectPath}`,
+      serverId,
+      projectPath,
+      repoKey,
+    })
+    return [
+      (async () => {
+        const [isReachable, keys] = await Promise.all([reachable, repoKeys])
+        if (keys.size === 0) return []
+        // An unreachable host still names its last-known sources so the list
+        // can render its snapshot — without waiting on a socket that will
+        // only ever retry (dispatch-client step 2, aggregation decision 4).
+        if (!isReachable) {
+          return snapshotCache
+            .cachedSourcesForRepoKeys(serverId, keys)
+            .map((cached) => ({ ...cached, serverId, cachedOnly: true }))
+        }
+        const roots = await hosts.dispatchHistoryRoots(serverId, [...keys]).catch(() => [])
+        return roots.filter((root) => keys.has(root.repoKey)).map((root) => source(root.path, root.repoKey))
+      })(),
+      (async () => {
+        const [isReachable, keys] = await Promise.all([reachable, repoKeys])
+        if (!isReachable || keys.size === 0) return []
+        const identities = await hosts.projectIdentities(serverId).catch(() => [])
+        return identities.filter((identity) => keys.has(identity.repoKey)).map((identity) => source(identity.path, identity.repoKey))
+      })(),
+    ].map((batch) => batch.catch(() => []))
+  })
 }
 
 /** The saved hosts, bound to the live connection registry. */
 export function savedRemoteHistoryHosts(): RemoteHistoryHosts {
-  // On web no host is "local": the primary connection plays that role, and it
-  // must not be scanned twice.
-  const localServerId = serverConnections.resolveId(LOCAL_SERVER_ID)
+  // The host the picker already scans directly — the client's own machine
+  // when it has one, else the new-work default — must not be scanned twice.
+  const localServerId = serverConnections.localServerId()
+    ?? serverConnections.defaultServerId()
+    ?? LOCAL_SERVER_ID
   return {
     localServerId,
     remoteServerIds: () =>
@@ -73,6 +102,10 @@ export function savedRemoteHistoryHosts(): RemoteHistoryHosts {
         .map((server) => server.id)
         .filter((serverId) => serverId !== localServerId),
     projectIdentities: (serverId) => serverConnections.projectIdentities(serverId),
-    isReachable: async (serverId) => !!(await serverConnections.probeHealth(serverId)),
+    dispatchHistoryRoots: (serverId, repoKeys) =>
+      serverConnections.apiFor(serverId).resolveDispatchHistoryRoots(repoKeys),
+    isReachable: async (serverId) =>
+      serverConnections.statusFor(serverId) === 'connected'
+      || !!(await serverConnections.probeHealth(serverId)),
   }
 }

@@ -1,4 +1,8 @@
 import type { PermissionOption, PermissionRequest, Session } from '../../../../shared/types'
+import { z } from 'zod'
+
+const permissionCommandSchema = z.object({ command: z.string().optional() })
+const permissionCwdSchema = z.object({ cwd: z.string().optional() })
 
 /**
  * Interrupt cards reuse the card chassis and stay in neutral chrome;
@@ -20,9 +24,8 @@ export type InterruptKicker = {
 const DESTRUCTIVE_COMMAND_RE = /\brm\s+-[a-z]*[rf]|\bgit\s+push\s+.*--force|\bdd\s+if=|\bmkfs\b|\bshutdown\b|\bkillall\b/i
 
 function commandOf(permission: PermissionRequest): string {
-  const input = permission.toolInput
-  const command = input?.command
-  return typeof command === 'string' ? command : ''
+  const input = permissionCommandSchema.safeParse(permission.toolInput)
+  return input.success ? (input.data.command ?? '') : ''
 }
 
 export function isDestructive(permission: PermissionRequest): boolean {
@@ -71,8 +74,8 @@ export function permissionCwd(
   permission: PermissionRequest,
   session: Session | undefined,
 ): string {
-  const cwd = permission.toolInput?.cwd
-  if (typeof cwd === 'string' && cwd) return cwd
+  const parsed = permissionCwdSchema.safeParse(permission.toolInput)
+  if (parsed.success && parsed.data.cwd) return parsed.data.cwd
   return session?.run.gitContext?.worktreePath || session?.run.workingDirectory || ''
 }
 
@@ -81,7 +84,12 @@ export function permissionCwd(
  * identifies the run by — can take the emphasis while the head stays muted.
  * Both halves render inside one span so the path never breaks across lines.
  */
-export function splitPathTail(path: string): { head: string; tail: string } {
+export interface SplitPathTail {
+  head: string
+  tail: string
+}
+
+export function splitPathTail(path: string): SplitPathTail {
   const trimmed = path.replace(/\/+$/, '')
   const cut = trimmed.lastIndexOf('/')
   if (cut < 0) return { head: '', tail: trimmed }
@@ -123,7 +131,12 @@ export function inlineCodeParts(text: string): { text: string; code: boolean }[]
  */
 const RECOMMENDED_RE = /[\s·—-]*\(recommended\)\s*$/i
 
-export function optionLabelParts(label: string): { text: string; note: string } {
+export interface OptionLabelParts {
+  text: string
+  note: string
+}
+
+export function optionLabelParts(label: string): OptionLabelParts {
   const match = RECOMMENDED_RE.exec(label)
   if (!match) return { text: label, note: '' }
   return { text: label.slice(0, match.index).trim(), note: 'recommended' }
@@ -145,11 +158,13 @@ export function ordinal(n: number): string {
   }
 }
 
-export function permissionFooterOrder(options: PermissionOption[]): {
+export interface PermissionFooterOrder {
   escape: PermissionOption | null
   middle: PermissionOption[]
   affirmative: PermissionOption | null
-} {
+}
+
+export function permissionFooterOrder(options: PermissionOption[]): PermissionFooterOrder {
   const isDeny = (o: PermissionOption) =>
     o.kind === 'deny' || /\b(deny|no|reject|cancel)\b/i.test(o.label)
   const isBroadening = (o: PermissionOption) => /\b(always|all|session)\b/i.test(o.label)

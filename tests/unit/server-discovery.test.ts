@@ -26,6 +26,7 @@ describe('server discovery', () => {
       name: 'build-server',
       installationId: 'remote-installation',
       claimable: true,
+      os: 'linux',
     }
 
     expect(parseLanDiscoveryMessage(Buffer.from(JSON.stringify(response)))).toEqual(response)
@@ -177,6 +178,18 @@ describe('server discovery', () => {
       'zeta-installation',
       'paired-installation',
     ])
+  })
+})
+
+describe('host operating system', () => {
+  test('maps Node platform names to the persisted host values', async () => {
+    // WHY: stored values are a durable client contract, not Node-specific
+    // platform strings. Unknown future platforms must keep the globe fallback.
+    const { hostOperatingSystem } = await import('../../src/main/platform/host-operating-system')
+    expect(hostOperatingSystem('darwin')).toBe('macos')
+    expect(hostOperatingSystem('win32')).toBe('windows')
+    expect(hostOperatingSystem('linux')).toBe('linux')
+    expect(hostOperatingSystem('aix')).toBeUndefined()
   })
 })
 

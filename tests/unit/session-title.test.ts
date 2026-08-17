@@ -83,14 +83,20 @@ describe('generateMetadataWith', () => {
     expect(await generateMetadataWith(dispatcher, 'codex', 'delete stale worktrees', '/repo')).toBeNull()
   })
 
-  test('names the run with the backend\'s cheap model at its lowest effort', async () => {
-    // WHY: naming a thread is a chore, not a turn — it must never draft the
-    // session's real model or spend reasoning tokens on a five-word answer.
+  test('uses the selected text-generation model at low reasoning effort', async () => {
+    // WHY: session metadata follows the host writing preference, not the
+    // active session model, while keeping this background task inexpensive.
     const dispatcher = dispatcherAnswering({
       submitted: { title: 'Session Renaming', description: 'Allow users to rename sessions.' },
     })
-    await generateMetadataWith(dispatcher, 'codex', 'let me rename sessions', '/repo')
-    expect(dispatcher.requests[0].model).toBe('gpt-5.6-luna')
+    await generateMetadataWith(
+      dispatcher,
+      'codex',
+      'let me rename sessions',
+      '/repo',
+      'gpt-5.5',
+    )
+    expect(dispatcher.requests[0].model).toBe('gpt-5.5')
     expect(dispatcher.requests[0].reasoningEffort).toBe('low')
 
     const claude = dispatcherAnswering({

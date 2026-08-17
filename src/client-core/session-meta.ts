@@ -3,14 +3,8 @@ import type { HostApi } from './host-api'
 import { serverConnections } from './server-connections'
 
 interface SessionMetaHosts {
-  connectedServerIds(): string[]
   resolveId(serverId: string): string
   apiFor(serverId: string): Pick<HostApi, 'getSessionInfo'>
-}
-
-export interface SessionRef {
-  sessionId: string
-  serverId?: string | null
 }
 
 /** The host is client identity, so stamp it where host data enters the client. */
@@ -45,19 +39,3 @@ export async function readSessionMeta(
   }
 }
 
-/** Resolve a scoped ref directly. Resolve a legacy bare id by probing primary
- * first, then the other hosts to which this client already has a connection. */
-export async function resolveSessionMetaRef(
-  ref: SessionRef,
-  hosts: SessionMetaHosts = serverConnections,
-): Promise<SessionMeta | null> {
-  const serverIds = ref.serverId
-    ? [hosts.resolveId(ref.serverId)]
-    : hosts.connectedServerIds()
-
-  for (const serverId of new Set(serverIds)) {
-    const meta = await readSessionMeta(serverId, ref.sessionId, hosts)
-    if (meta) return meta
-  }
-  return null
-}

@@ -1,4 +1,4 @@
-import type { AgentId, GitCheckout, IpcContext, ModelConfig, ModelProfile, ReasoningEffort, RunConfig, Session } from '../../../shared/types'
+import type { AgentId, GitCheckout, IpcContext, ModelConfig, ReasoningEffort, RunConfig, Session, WorktreeEntry } from '../../../shared/types'
 import type { Via } from '../../../shared/analytics-events'
 import { MODEL_PROFILES, gitCheckoutFromState, isSolusWorktreePath, worktreeProjectRoot } from '../../../shared/types'
 import { track } from '../../lib/analytics'
@@ -8,10 +8,9 @@ import type { StatusBarContext } from '../app/status-bar.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import type { SessionDraft } from './session-draft.svelte'
 import { toasts } from '../../lib/toasts'
-import { isDispatch, startsWorktree, withCheckout, withWorktreeToggled } from './run-config'
+import { isDispatch, startsWorktree, withCheckout, withDispatchBaseBranch, withDispatchWorktree, withWorktreeToggled } from './run-config'
 import { nextMsgId } from './session.utils'
 import type { HostApi } from '@client-core/host-api'
-import { serverConnections } from '@client-core/server-connections'
 
 /** What a destination command edits: the run a source owns, and the started
  *  session behind it when there is one. A draft resolves to a run with no
@@ -28,11 +27,11 @@ interface RunOwner {
   apply(next: RunConfig): void
 }
 
-const AGENT_LABELS: Record<AgentId, string> = {
+const AGENT_LABELS = {
   'claude-code': 'Claude Code',
   codex: 'Codex',
   opencode: 'OpenCode',
-}
+} satisfies Record<AgentId, string>
 
 export interface SessionConfigControllerDeps {
   settings: SettingsContext
@@ -47,14 +46,18 @@ export interface SessionConfigControllerDeps {
   draftFor(sourceId: string): SessionDraft | undefined
   ctx(tabId?: string): IpcContext
   ctxForDirectory(dir: string): IpcContext
-  apiFor?(tabId?: string): HostApi
+  apiFor(tabId?: string): HostApi
   /** The RPC surface for the host a run names — the machine work happens on.
    *  Where a destination command talks to, resolved from the run rather than a
    *  tab, so a draft on a remote host reaches that host with no session. */
   apiForRun(run: RunConfig | undefined): HostApi
   refreshPluginCommands(dir: string, tabId?: string): void
+  rekeyTaskSessionBinding(sourceSessionId: string, targetSessionId: string, serverId?: string): void
   refreshGitRefs(projectRoot: string, ctx: IpcContext): void
   refreshGitState(opts: { sourceId?: string; cwd?: string; worktreeRequested?: boolean }): Promise<GitRefreshResult>
+  /** Bring an already-open tab to the front — the "matching tab" half of
+   *  activating a checkout. */
+  selectTab?(tabId: string): void
 }
 
 export class SessionConfigController {
@@ -77,12 +80,8 @@ export class SessionConfigController {
   private sessionStartTargetResolutions = new Map<string, Promise<void>>()
 
   constructor(private deps: SessionConfigControllerDeps) {
-    this.globalDefaults.modelConfig = this.defaultModelConfigFor(deps.settings.activeAgent as AgentId)
+    this.globalDefaults.modelConfig = this.defaultModelConfigFor(deps.settings.activeAgent)
     this.tabGroupMode = deps.settings.tabGroupMode
-  }
-
-  private apiFor(tabId?: string): HostApi {
-    return this.deps.apiFor?.(tabId) ?? serverConnections.primaryApi()
   }
 
   /**
@@ -127,10 +126,11 @@ export class SessionConfigController {
     const session = tabId ? this.deps.registry.sessionFor(tabId) : this.deps.registry.activeSession
     const mc = session ? session.run.modelConfig : this.globalDefaults.modelConfig
 
-    if ('modelId' in patch && patch.modelId !== mc.modelId) {
-      const provider = session?.run.provider ?? (this.deps.settings.activeAgent as string)
-      const profile = MODEL_PROFILES[provider as keyof typeof MODEL_PROFILES]?.[patch.modelId ?? '']
-      mc.modelId = patch.modelId!
+    const nextModelId = patch.modelId ?? null
+    if ('modelId' in patch && nextModelId !== mc.modelId) {
+      const provider = session?.run.provider ?? this.deps.settings.activeAgent
+      const profile = MODEL_PROFILES[provider]?.[nextModelId ?? '']
+      mc.modelId = nextModelId
       mc.reasoningEffort = patch.reasoningEffort ?? profile?.defaultReasoningEffort ?? 'high'
       // Each model carries its own window; keeping the outgoing model's value
       // would run the new one against a limit it never agreed to.
@@ -139,9 +139,9 @@ export class SessionConfigController {
       return
     }
 
-    if ('reasoningEffort' in patch) mc.reasoningEffort = patch.reasoningEffort!
-    if ('contextWindow' in patch) mc.contextWindow = patch.contextWindow!
-    if ('fastMode' in patch) mc.fastMode = patch.fastMode!
+    if (patch.reasoningEffort !== undefined) mc.reasoningEffort = patch.reasoningEffort
+    if (patch.contextWindow !== undefined) mc.contextWindow = patch.contextWindow
+    if (patch.fastMode !== undefined) mc.fastMode = patch.fastMode
   }
 
   /** The agent new sessions start on. It is a preference, so it never rewrites
@@ -176,7 +176,7 @@ export class SessionConfigController {
     }
 
     const newModelConfig = this.defaultModelConfigFor(agentId)
-    if (!session?.agentSessionId && !session?.handoffFrom) {
+    if (!session?.agentSessionId && !session?.handoffId) {
       track('agent_switched', { from: this.deps.settings.activeAgent, to: agentId, via })
       this.deps.settings.update({ activeAgent: agentId })
       this.globalDefaults.modelConfig = newModelConfig
@@ -199,7 +199,7 @@ export class SessionConfigController {
     try {
       // The server keeps a session record only while a runtime is attached, so an
       // idle conversation must carry its own provider thread into the handoff.
-      const result = await this.apiFor(targetTabId).switchSessionAgent(session.id, agentId, session.agentSessionId)
+      const result = await this.deps.apiFor(targetTabId).switchSessionAgent(session.id, agentId, session.agentSessionId)
       track('agent_switched', { from: result.fromProvider, to: agentId, via })
       this.deps.settings.update({ activeAgent: agentId })
       this.globalDefaults.modelConfig = newModelConfig
@@ -210,23 +210,34 @@ export class SessionConfigController {
       session.sessionModel = null
       session.run.sessionSkills = []
       session.pluginCommands = { global: [], project: [] }
-      session.handoffFrom = result.restoredSessionId
-        ? result.handoffFrom
-        : {
-            provider: result.fromProvider,
-            sessionId: result.fromSessionId,
-          }
+      session.handoffId = result.handoffId
+      session.handoffFrom = undefined
+      session.status = 'idle'
+      session.currentTurnStartedAt = null
+      session.rateLimitInfo = null
+      this.deps.rekeyTaskSessionBinding(
+        result.taskSessionMove.sourceSessionId,
+        result.taskSessionMove.targetSessionId,
+        session.run.taskServerId,
+      )
       const agentChangedTo = AGENT_LABELS[agentId]
-      session.messages.push({
-        id: nextMsgId(),
-        role: 'system',
-        content: `Switched to ${agentChangedTo}`,
-        timestamp: Date.now(),
-        agentChangedTo,
-      })
+      if (result.restoredSessionId) {
+        const pendingDivider = session.messages.findLastIndex((message) => !!message.agentChangedTo)
+        if (pendingDivider !== -1) session.messages.splice(pendingDivider, 1)
+      } else {
+        session.messages.push({
+          id: nextMsgId(),
+          role: 'system',
+          content: `Switched to ${agentChangedTo}`,
+          timestamp: Date.now(),
+          agentChangedTo,
+        })
+      }
       this.deps.refreshPluginCommands(session.run.workingDirectory, targetTabId)
     } catch (error) {
-      toasts.error(`Couldn't hand off session: ${error instanceof Error ? error.message : String(error)}`)
+      toasts.error("Couldn't hand off session", {
+        description: error instanceof Error ? error.message : String(error),
+      })
     } finally {
       this.handoffInProgress = false
     }
@@ -247,6 +258,18 @@ export class SessionConfigController {
     session.run.worktree = branch ? { baseBranch: branch } : null
   }
 
+  setDispatchWorktree(worktree: WorktreeEntry | null, sourceId?: string): void {
+    const owner = this.ownerFor(sourceId)
+    if (!owner) return
+    owner.apply(withDispatchWorktree(owner.run, worktree))
+  }
+
+  setDispatchBaseBranch(branch: string, sourceId?: string): void {
+    const owner = this.ownerFor(sourceId)
+    if (!owner) return
+    owner.apply(withDispatchBaseBranch(owner.run, branch))
+  }
+
   syncWorktreeDefault(enabled: boolean): void {
     this.globalDefaults.worktreeBaseBranch = enabled
       ? this.globalDefaults.gitContext?.targetBranch ?? null
@@ -255,7 +278,7 @@ export class SessionConfigController {
       const session = this.deps.registry.sessionFor(tabId)
       if (!session || session.agentSessionId || session.run.gitContext?.worktreePath) continue
       if (session.status === 'connecting' || session.status === 'running') continue
-      // A dispatched session's worktree is not the global default's to revoke.
+      // A dispatched session's checkout choice is not the global default's to revoke.
       if (isDispatch(session.run)) continue
       session.run.worktree = enabled ? { baseBranch: session.run.gitContext?.targetBranch ?? null } : null
     }
@@ -278,9 +301,8 @@ export class SessionConfigController {
     // moves through continueInWorktree instead; this guard also keeps the global
     // shortcut from changing where an existing conversation runs.
     if (session.agentSessionId) return
-    // A dispatched session always gets its own worktree: its base checkout sits
-    // on a host nobody is watching, so a collision there has no one to untangle
-    // it. The surface shows the toggle disabled rather than accepting the click.
+    // A dispatched session's checkout was settled before Send. Do not let the
+    // global shortcut change it after the host move.
     if (isDispatch(session.run)) return
     const next = withWorktreeToggled(session.run)
     const reanchored = next.workingDirectory !== session.run.workingDirectory
@@ -323,12 +345,15 @@ export class SessionConfigController {
     this.switchingBranch = true
     try {
       const owner = this.ownerFor(sourceId)
+      if (owner?.run.pendingHostDispatch?.intent === 'dispatch') {
+        return false
+      }
       // With no pre-flight owner the branch still checks out on disk against the
       // conversation on screen — its run names the repo and the host to do it on.
       const contextRun = owner?.run ?? this.deps.registry.activeSession?.run
       const baseDir = contextRun?.gitContext?.repoRoot ?? contextRun?.workingDirectory ?? this.globalDefaults.gitContext?.repoRoot ?? this.globalDefaults.workingDirectory
       if (!baseDir || baseDir === '~') {
-        toasts.error("Couldn't switch branch: no active Git repository")
+        toasts.error("Couldn't switch branch", { description: "No active Git repository" })
         return false
       }
       const projectRoot = worktreeProjectRoot(baseDir)
@@ -336,7 +361,7 @@ export class SessionConfigController {
       const api = this.deps.apiForRun(contextRun)
       const result = await api.gitCheckoutBranch(ctx, branch)
       if (!result.success || !result.gitContext) {
-        toasts.error(result.error ? `Couldn't switch branch: ${result.error}` : "Couldn't switch branch")
+        toasts.error("Couldn't switch branch", { description: result.error })
         return false
       }
       // A source pointed at on purpose — a draft or a pre-flight tab — takes the
@@ -356,7 +381,9 @@ export class SessionConfigController {
           try {
             await api.resetSession(this.deps.ctx(owner.id))
           } catch (error) {
-            toasts.error(`Switched branch, but couldn't reset the tab session: ${error instanceof Error ? error.message : String(error)}`)
+            toasts.error("Switched branch, but couldn't reset the tab session", {
+              description: error instanceof Error ? error.message : String(error),
+            })
           }
         }
       } else {
@@ -368,11 +395,39 @@ export class SessionConfigController {
       this.deps.refreshGitRefs(projectRoot, this.deps.ctxForDirectory(projectRoot))
       return true
     } catch (error) {
-      toasts.error(`Couldn't switch branch: ${error instanceof Error ? error.message : String(error)}`)
+      toasts.error("Couldn't switch branch", {
+        description: error instanceof Error ? error.message : String(error),
+      })
       return false
     } finally {
       this.switchingBranch = false
     }
+  }
+
+  /**
+   * Land the "check out in the current repository" destination once the
+   * server has already fetched the exact head and switched the repo's
+   * branch: bring an already-matching tab to the front, or open a fresh
+   * draft there. Never retargets a tab whose session has already started —
+   * a live conversation keeps running where it is, and only a draft or a
+   * tab that already matches this checkout is touched.
+   */
+  activatePrRepoCheckout(gitContext: GitCheckout, fallbackProjectPath: string | null): void {
+    const projectRoot = gitContext.repoRoot ?? fallbackProjectPath
+    if (!projectRoot) return
+    const matchingTabId = this.deps.registry.tabOrder.find((tabId) => {
+      const session = this.deps.registry.sessionFor(tabId)
+      return session?.run.workingDirectory === projectRoot && session.run.gitContext?.branch === gitContext.branch
+    })
+    if (matchingTabId) {
+      this.deps.selectTab?.(matchingTabId)
+    } else {
+      this.globalDefaults.workingDirectory = projectRoot
+      this.globalDefaults.gitContext = gitContext
+      this.deps.refreshPluginCommands(projectRoot)
+      this.deps.openSessionDraft(projectRoot)
+    }
+    this.deps.refreshGitRefs(projectRoot, this.deps.ctxForDirectory(projectRoot))
   }
 
   async setBaseDirectory(dir: string, sourceId?: string): Promise<void> {
@@ -466,25 +521,25 @@ export class SessionConfigController {
   /** The model a new session starts on: the user's per-agent choice from Settings
    *  when it still belongs to this agent, otherwise the agent's built-in default. */
   defaultModelConfigFor(agentId: AgentId): ModelConfig {
-    const profiles = MODEL_PROFILES[agentId as keyof typeof MODEL_PROFILES]
+    const profiles = MODEL_PROFILES[agentId]
     if (!profiles) return { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false }
     const chosenId = this.deps.settings.defaultModels[agentId]
     const defaultEntry =
-      (chosenId && profiles[chosenId] ? ([chosenId, profiles[chosenId]] as const) : null) ??
-      Object.entries(profiles).find(([, p]) => (p as ModelProfile).isDefault)
+      (chosenId && profiles[chosenId] ? [chosenId, profiles[chosenId]] : null) ??
+      Object.entries(profiles).find(([, profile]) => profile.isDefault)
     if (!defaultEntry) return { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false }
     const [modelId, profile] = defaultEntry
     return {
       modelId,
-      reasoningEffort: (profile as ModelProfile).defaultReasoningEffort,
-      contextWindow: (profile as ModelProfile).defaultContextWindow ?? null,
+      reasoningEffort: profile.defaultReasoningEffort,
+      contextWindow: profile.defaultContextWindow ?? null,
       fastMode: false,
     }
   }
 
   defaultReasoningEffortFor(agentId: AgentId, modelId: string | null): ReasoningEffort {
     const modelDefault = modelId
-      ? MODEL_PROFILES[agentId as keyof typeof MODEL_PROFILES]?.[modelId]?.defaultReasoningEffort
+      ? MODEL_PROFILES[agentId]?.[modelId]?.defaultReasoningEffort
       : null
     return modelDefault ?? this.defaultModelConfigFor(agentId).reasoningEffort
   }

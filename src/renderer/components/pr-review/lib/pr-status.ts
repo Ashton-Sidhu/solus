@@ -9,28 +9,36 @@
 export type PrStatusKey = 'review' | 'open' | 'draft' | 'merged' | 'closed'
 
 /**
- * The same lifecycle tones Tasks use: active work is blue, review is purple,
- * completed work is green, and inactive states are neutral. Draft has no state
- * to report yet, so it stays neutral rather than taking a tint that would read
- * as a status.
+ * Pull requests use the conventional Git host palette: open is green, merged
+ * is purple, and closed is red. A review request remains purple because it is
+ * an attention state rather than a PR lifecycle state. Draft stays neutral.
  */
-const TONES: Record<PrStatusKey, string | null> = {
+const TONES = {
   review: 'var(--review)',
-  open: 'var(--running)',
+  open: 'var(--success)',
   draft: null,
-  merged: 'var(--success)',
-  closed: null,
+  merged: 'var(--review)',
+  closed: 'var(--failure)',
+} satisfies Record<PrStatusKey, string | null>
+
+function isPrStatusKey(key: string): key is PrStatusKey {
+  return key in TONES
+}
+
+export interface PrStatusPillColors {
+  background: string
+  color: string
 }
 
 export function statusDotColor(key: string): string {
-  const tone = TONES[key as PrStatusKey]
+  const tone = isPrStatusKey(key) ? TONES[key] : undefined
   if (tone === undefined || tone === null) return 'var(--idle)'
   return `color-mix(in oklch, ${tone} 78%, transparent)`
 }
 
 /** The chip in a pull request's subtitle — same table, filled rather than a speck. */
-export function statusPillColors(key: string): { background: string; color: string } {
-  const tone = TONES[key as PrStatusKey]
+export function statusPillColors(key: string): PrStatusPillColors {
+  const tone = isPrStatusKey(key) ? TONES[key] : undefined
   if (tone === undefined || tone === null) {
     return { background: 'var(--wash-3)', color: 'var(--muted-foreground)' }
   }
@@ -40,14 +48,14 @@ export function statusPillColors(key: string): { background: string; color: stri
   }
 }
 
-const LABELS: Record<PrStatusKey, string> = {
+const LABELS = {
   review: 'Awaiting your review',
   open: 'Open',
   draft: 'Draft',
   merged: 'Merged',
   closed: 'Closed',
-}
+} satisfies Record<PrStatusKey, string>
 
 export function statusLabel(key: string): string {
-  return LABELS[key as PrStatusKey] ?? 'Open'
+  return isPrStatusKey(key) ? LABELS[key] : 'Open'
 }

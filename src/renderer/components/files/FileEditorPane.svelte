@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { FloppyDiskIcon, LockSimpleIcon, WarningCircleIcon } from "phosphor-svelte";
   import Icon from "@iconify/svelte";
   import type { IpcContext } from "../../../shared/types";
@@ -13,6 +14,14 @@
   import FilePreviewStream, {
     type FileSaveState,
   } from "../artifact/FilePreviewStream.svelte";
+  import SegmentedControl from "../ui/SegmentedControl.svelte";
+  import MarkdownFileSurface from "./MarkdownFileSurface.svelte";
+  import {
+    initialMarkdownFileViewMode,
+    isMarkdownFile,
+    persistMarkdownFileViewMode,
+    type MarkdownFileViewMode,
+  } from "./lib/markdown-file";
   import FilesPaneSkeleton from "./FilesPaneSkeleton.svelte";
 
   interface Props {
@@ -55,9 +64,20 @@
   let isReadOnly = $state(false);
   let isTruncated = $state(false);
   let saveState = $state<FileSaveState>("idle");
+  let markdownViewMode = $state<MarkdownFileViewMode>(
+    untrack(() => initialMarkdownFileViewMode(file.path, file.line)),
+  );
   let loadGeneration = 0;
   const headerPath = $derived(displayPath || file.path);
   const headerIcon = $derived(fileTypeIcon(headerPath));
+  const isMarkdown = $derived(isMarkdownFile(headerPath));
+  const markdownViewOptions: {
+    value: MarkdownFileViewMode;
+    label: string;
+  }[] = [
+    { value: "rendered", label: "Rendered" },
+    { value: "source", label: "Source" },
+  ];
 
   const statusLabel = $derived.by(() => {
     if (isTruncated) return "Truncated — read only";
@@ -76,10 +96,21 @@
 
   useScope("file-editor");
   useKeybinding("file-editor.close", () => closeEditor());
+  useKeybinding("file-editor.toggle-markdown", () => toggleMarkdownView());
 
   function closeEditor() {
     onClose();
     requestInputFocus();
+  }
+
+  function selectMarkdownView(mode: MarkdownFileViewMode) {
+    markdownViewMode = mode;
+    persistMarkdownFileViewMode(mode);
+  }
+
+  function toggleMarkdownView() {
+    if (!isMarkdown) return;
+    selectMarkdownView(markdownViewMode === "rendered" ? "source" : "rendered");
   }
 
   async function loadFile(path: string) {
@@ -101,6 +132,7 @@
       size = result.size;
       isReadOnly = result.isReadOnly;
       isTruncated = result.truncated === true;
+      if (isTruncated) markdownViewMode = "source";
     } else {
       filePath = path;
       displayPath = path;
@@ -113,6 +145,7 @@
     void cwd;
     void file.path;
     void file.line;
+    markdownViewMode = initialMarkdownFileViewMode(file.path, file.line);
     if (cwd && file.path) void loadFile(file.path);
   });
 </script>
@@ -125,7 +158,7 @@
        lives in the floating PaneChrome cluster, which the right gutter reserves
        room for. -->
   <div
-    class="flex h-(--solus-chrome-row-h) shrink-0 items-center gap-2 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
+    class="workspace-titlebar flex h-(--solus-chrome-row-h) shrink-0 items-center gap-2 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
     {#if headerIcon}
       <Icon icon={headerIcon} width="14" height="14" class="shrink-0" />
@@ -143,6 +176,16 @@
       <span class="text-(--solus-text-tertiary)">{dirName(headerPath)}</span>
       <span class="text-(--solus-text-primary)">{fileName(headerPath)}</span>
     </div>
+    {#if isMarkdown}
+      <SegmentedControl
+        options={markdownViewOptions}
+        isActive={(mode) => markdownViewMode === mode}
+        onSelect={selectMarkdownView}
+        ariaLabel="Markdown file view"
+        variant="bar"
+        compact
+      />
+    {/if}
     {#if statusLabel}
       <div class="flex shrink-0 items-center gap-1 text-xs font-medium {statusClass}" role="status">
         {#if isReadOnly}
@@ -175,20 +218,39 @@
       <span>{fileError}</span>
     </div>
   {:else if contents !== null}
-    <FilePreviewStream
-      api={workspace.apiForSession(ctx.session.sessionId)}
-      {ctx}
-      {cwd}
-      {filePath}
-      {displayPath}
-      {contents}
-      line={file.line}
-      {revealEpoch}
-      {isDark}
-      {isReadOnly}
-      onSaveStateChange={(state) => {
-        saveState = state;
-      }}
-    />
+    {#if isMarkdown}
+      <MarkdownFileSurface
+        api={workspace.apiForSession(ctx.session.sessionId)}
+        {ctx}
+        {cwd}
+        {filePath}
+        {displayPath}
+        {contents}
+        line={file.line}
+        {revealEpoch}
+        {isDark}
+        {isReadOnly}
+        mode={markdownViewMode}
+        onSaveStateChange={(state) => {
+          saveState = state;
+        }}
+      />
+    {:else}
+      <FilePreviewStream
+        api={workspace.apiForSession(ctx.session.sessionId)}
+        {ctx}
+        {cwd}
+        {filePath}
+        {displayPath}
+        {contents}
+        line={file.line}
+        {revealEpoch}
+        {isDark}
+        {isReadOnly}
+        onSaveStateChange={(state) => {
+          saveState = state;
+        }}
+      />
+    {/if}
   {/if}
 </div>

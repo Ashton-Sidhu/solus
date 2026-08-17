@@ -1,11 +1,18 @@
 <script lang="ts">
   import { localApi } from "@client-core/local-api";
   import {
+    ArrowSquareOutIcon,
     ArrowsClockwiseIcon,
+    CaretRightIcon,
+    CloudArrowUpIcon,
     EyeglassesIcon,
     GitCommitIcon,
+    GithubLogoIcon,
     GitPullRequestIcon,
+    LinkIcon,
+    MagnifyingGlassIcon,
     PaperPlaneTiltIcon,
+    TrashIcon,
     WarningCircleIcon,
     XIcon,
   } from "phosphor-svelte";
@@ -26,10 +33,18 @@
   } from "../review/review-guide.store.svelte";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import * as Popover from "../ui/popover";
-  import MenuRow, { type ActionRowItem } from "./MenuRow.svelte";
+  import MenuRow, {
+    type ActionRowIcon,
+    type ActionRowItem,
+  } from "./MenuRow.svelte";
   import { checksPresentation } from "../prs/lib/checks";
   import type { PullRequestSummary } from "../../../shared/providers";
+  import type { GitAction } from "../../../shared/types";
   import { serverConnections } from "@client-core/server-connections";
+  import { gitPublishModel, type GitMenuStep } from "./lib/git-action-selection";
+  import { repositorySetupStore } from "../../contexts/git/repository-setup.store.svelte";
+  import CommitComposer from "./commit-composer/CommitComposer.svelte";
+  import PublishRepositoryDialog from "./publish-repository/PublishRepositoryDialog.svelte";
 
   interface Props {
     /** The tab or draft whose run this section describes — see `ProjectPanel`. */
@@ -43,7 +58,11 @@
   const agentContext = getAgentContext();
   const prApi = $derived(session.apiFor(sourceId));
   const prServerId = $derived(serverConnections.serverIdForApi(prApi));
-  const env = $derived(environmentStore.environmentFor(session.runFor(sourceId)));
+  const env = $derived(
+    environmentStore.environmentFor(session.runFor(sourceId)),
+  );
+  const detailCwd = $derived(env.cwd);
+  const detailServerId = $derived(prServerId);
   const status = $derived(env.status);
   const conflictedFiles = $derived(
     status?.uncommittedChanges.files.filter((file) => file.conflicted) ?? [],
@@ -52,10 +71,50 @@
     status?.uncommittedChanges.files.length ?? 0,
   );
   const actions = $derived(gitActionsFor(sourceId, session, environmentStore));
+  // "Discard changes…" arms in place rather than opening a dialog — the row
+  // swaps to a confirm label, which is what the ellipsis promises.
+  let confirmingDiscard = $state(false);
+  // The armed state can't outlive the changes it would discard — a commit or an
+  // agent's own cleanup can empty the working tree while the row sits armed.
+  const isConfirmingDiscard = $derived(
+    confirmingDiscard && uncommittedFileCount > 0,
+  );
+
   const canGit = $derived(!!env.branch);
   const canViewDiff = $derived(!!status);
-  const canPr = $derived(!!env.branch && env.branch !== env.targetBranch);
   const prUrl = $derived(actions.prUrl || status?.prUrl || null);
+
+  // One reading of the project's Git state backs every row and both menus, so a
+  // row label and its menu can never report different states. It also carries
+  // the readiness stage: a project with no remote publishes from the pull
+  // request row instead of committing into nowhere.
+  const model = $derived(
+    gitPublishModel(status, {
+      repository: repositorySetupStore.statusFor(detailServerId, env.cwd),
+      githubConnected: repositorySetupStore.githubConnectedFor(
+        detailServerId,
+        env.cwd,
+      ),
+    }),
+  );
+  const primaryAction = $derived(model.pullRequest.primary);
+  const MENU_STEP_ICON = {
+    commit_with_options: GitCommitIcon,
+    commit_only: GitCommitIcon,
+    push: CloudArrowUpIcon,
+    create_pull_request: GitPullRequestIcon,
+  } satisfies Record<GitMenuStep["key"], ActionRowIcon>;
+  const isCommitActionRunning = $derived(
+    actions.running &&
+      (actions.activeAction === "commit" ||
+        actions.activeAction === "commit_push" ||
+        actions.activeAction === "commit_push_pull_request"),
+  );
+  const isPullRequestActionRunning = $derived(
+    actions.running &&
+      (actions.activeAction === "create_pull_request" ||
+        actions.activeAction === "commit_push_pull_request"),
+  );
   const currentBranch = $derived(
     status === undefined ? env.branch : (status?.branch ?? null),
   );
@@ -63,57 +122,130 @@
   // --- Shared action model: every row renders from one definition,
   //     so labels/icons align by construction. ---
   interface ActionDef extends ActionRowItem {
-    disclosure?: MenuKey;
+    /** Trailing caret beside the row's primary action: it either drops that
+     *  row's menu, or runs one companion action of its own. */
+    caretAction?: {
+      ariaLabel: string;
+      icon?: ActionRowIcon;
+      menu?: MenuKey;
+      danger?: boolean;
+      disabled?: boolean;
+      run?: () => void;
+    };
     run: () => void;
   }
 
   const commitPhase = $derived<ActionDef["phase"]>(
-    actions.commitPushing
+    isCommitActionRunning &&
+      (actions.activePhase === "branch" || actions.activePhase === "commit")
       ? "loading"
-      : actions.commitPushed
+      : actions.lastResult?.commit.status === "created"
         ? "success"
-        : actions.commitPushError
+        : actions.actionError
           ? "error"
           : "idle",
   );
   const prPhase = $derived<ActionDef["phase"]>(
-    actions.creatingPR ? "loading" : actions.prError ? "error" : "idle",
+    isPullRequestActionRunning
+      ? "loading"
+      : actions.lastResult?.pullRequest.status !== "skipped" &&
+          actions.lastResult?.pullRequest !== undefined
+        ? "success"
+        : actions.actionError
+          ? "error"
+          : "idle",
   );
 
-  // --- Rows, in the order 5c lays them out. Two of them are disclosures with
-  //     their own popover: Commit (its variants and the destructive escape
-  //     hatch) and Pull requests (open one, or jump to one that exists). ---
+  function runPrimaryAction() {
+    if (primaryAction.kind === "view") {
+      localApi.openExternal(primaryAction.url);
+      requestInputFocus();
+      return;
+    }
+    // Publishing creates the remote this row needs, and the dialog is also
+    // where a missing GitHub connection is reported.
+    if (primaryAction.kind === "publish" || primaryAction.kind === "connect") {
+      publishDialogOpen = true;
+      return;
+    }
+    if (primaryAction.kind !== "run") return;
+    void actions.run(primaryAction.action, {
+      createFeatureBranch: primaryAction.createFeatureBranch,
+    });
+  }
+
+  // --- Rows, in the order 5c lays them out. The commit row owns local work and
+  //     the push that carries it; the pull request row owns the remote and the
+  //     pull request, including creating the remote. Each row's caret drops the
+  //     by-hand version of the steps its primary action bundles. ---
   const actionDefs = $derived.by<ActionDef[]>(() => {
+    const commitPrimary = model.commit.primary;
     const defs: ActionDef[] = [
       {
         key: "commit",
-        // The row is "Commit"; publishing is a choice inside it, so the panel's
-        // headline label no longer changes meaning when a push is configured.
-        label: actions.commitPushed
-          ? "Committed"
-          : actions.commitPushing
-            ? "Committing…"
-            : "Commit",
+        label:
+          isCommitActionRunning && actions.activeLabel
+            ? actions.activeLabel
+            : actions.lastResult?.commit.status === "created"
+              ? "Committed"
+              : commitPrimary.label,
         icon: PaperPlaneTiltIcon,
         // No trailing count: the changed-file total already sits on the stats
         // line under the branch, and repeating it here reads as a second,
         // different number.
         phase: commitPhase,
-        disclosure: "commit",
-        disabled: !canGit,
-        run: () => {},
+        hint: comboHint("orb.commit-push"),
+        disabled: !canGit || actions.running || commitPrimary.kind !== "run",
+        tooltip:
+          commitPrimary.kind === "disabled" ? commitPrimary.reason : undefined,
+        run: () => {
+          if (commitPrimary.kind !== "run") return;
+          void actions.run(commitPrimary.action);
+        },
+        caretAction: { ariaLabel: "More commit actions", menu: "commit" },
+      },
+      {
+        key: "sync",
+        label: actions.synced
+          ? "Synced"
+          : actions.syncing
+            ? "Syncing…"
+            : "Sync with remote",
+        icon: ArrowsClockwiseIcon,
+        phase: actions.syncing
+          ? "loading"
+          : actions.synced
+            ? "success"
+            : actions.syncError
+              ? "error"
+              : "idle",
+        hint: comboHint("orb.sync"),
+        disabled: !canGit || actions.syncing || model.sync.disabled,
+        tooltip: model.sync.reason,
+        run: () => {
+          void actions.sync();
+        },
       },
       {
         key: "pull-requests",
-        label: actions.creatingPR ? "Opening pull request…" : "Pull requests",
-        icon: GitPullRequestIcon,
+        label:
+          isPullRequestActionRunning && actions.activeLabel
+            ? actions.activeLabel
+            : primaryAction.label,
+        // The row keeps its position at every stage; at `local-only` it stands
+        // for publishing, so it takes the glyph of what it actually does.
+        icon:
+          primaryAction.kind === "publish" || primaryAction.kind === "connect"
+            ? GithubLogoIcon
+            : GitPullRequestIcon,
         phase: prPhase,
-        disclosure: prUrl ? undefined : "pull-requests",
-        disabled: !canViewDiff,
-        run: () => {
-          if (!prUrl) return;
-          localApi.openExternal(prUrl);
-          requestInputFocus();
+        disabled: primaryAction.kind === "disabled" || actions.running,
+        tooltip:
+          primaryAction.kind === "disabled" ? primaryAction.reason : undefined,
+        run: runPrimaryAction,
+        caretAction: {
+          ariaLabel: "More pull request actions",
+          menu: "pull-requests",
         },
       },
       {
@@ -141,13 +273,45 @@
         run: () => {
           window.dispatchEvent(
             new CustomEvent("solus:toggle-diff-panel", {
-              detail: { tabId: sourceId, scope: { kind: "working-tree" }, switchScope: true },
+              detail: {
+                tabId: sourceId,
+                scope: { kind: "working-tree" },
+                switchScope: true,
+              },
             }),
           );
           requestInputFocus();
         },
       },
     ];
+    // Discard arms in place: the row itself becomes the confirmation, so the
+    // irreversible action still needs a second, deliberate click, and the caret
+    // beside it is the way back out.
+    defs.push({
+      key: "discard",
+      danger: true,
+      label: isConfirmingDiscard
+        ? `Discard ${uncommittedFileCount} change${uncommittedFileCount === 1 ? "" : "s"}?`
+        : "Discard changes…",
+      icon: TrashIcon,
+      phase: actions.discarding ? "loading" : "idle",
+      badge:
+        !isConfirmingDiscard && uncommittedFileCount > 0
+          ? String(uncommittedFileCount)
+          : undefined,
+      disabled: !canGit || uncommittedFileCount === 0 || actions.discarding,
+      run: () => {
+        if (isConfirmingDiscard) runDiscard();
+        else confirmingDiscard = true;
+      },
+      caretAction: isConfirmingDiscard
+        ? {
+            ariaLabel: "Keep changes",
+            icon: XIcon,
+            run: () => (confirmingDiscard = false),
+          }
+        : undefined,
+    });
     // A half-finished merge is an alert, not a menu item — it gets its own row
     // so it's visible without opening anything.
     if (
@@ -169,8 +333,7 @@
     return defs;
   });
 
-  // One shared popover anchored to whichever disclosure row is open (mirrors the
-  // branch picker's open/triggerEl pattern). Its contents branch on the key.
+  // A row's menu is anchored to that row, like the branch picker.
   type MenuKey = "commit" | "pull-requests";
   let rowMenuOpen = $state(false);
   let openMenuKey = $state<MenuKey | null>(null);
@@ -182,10 +345,8 @@
       return;
     }
     openMenuKey = key;
-    openRowEl = el.closest(".row-wrap") as HTMLElement | null;
-    // Re-arm the destructive step every time the menu is opened, so a discard
-    // can never be one stray click away from a menu left in the armed state.
-    confirmingDiscard = false;
+    const row = el.closest(".row-wrap");
+    openRowEl = row instanceof HTMLElement ? row : null;
     rowMenuOpen = true;
     if (key === "pull-requests") void loadOpenPrs();
   }
@@ -195,15 +356,7 @@
     requestInputFocus();
   }
 
-  function activateRow(
-    def: ActionDef,
-    event: MouseEvent & { currentTarget: HTMLButtonElement },
-  ) {
-    if (def.disclosure) toggleRowMenu(def.disclosure, event.currentTarget);
-    else def.run();
-  }
-
-  // The PR list backing both the menu and the row's own state. Read through the
+  // The PR list backs the row's current PR state. Read through the
   // store (cached) with an explicit filter rather than `loadAll`, which would
   // stomp the PRs pane's own filter state.
   let openPrs = $state<PullRequestSummary[]>([]);
@@ -212,7 +365,9 @@
     const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
     try {
       openPrs = (
-        await session.prsStore.loadFor(prApi, prServerId, ctx, { state: "open" })
+        await session.prsStore.loadFor(prApi, prServerId, ctx, {
+          state: "open",
+        })
       ).items;
     } catch {
       openPrs = [];
@@ -298,22 +453,84 @@
       .catch(() => {});
   });
 
+  // The readiness stage decides what every row means, so the rows read the
+  // repository probe themselves rather than depending on the setup card being
+  // mounted beside them. The store de-duplicates the request either way.
+  let requestedSetupFor: string | null = null;
+  $effect(() => {
+    if (!env.cwd || env.cwd === "~" || !prApi) return;
+    const key = `${detailServerId}\0${env.cwd}`;
+    if (requestedSetupFor === key) return;
+    requestedSetupFor = key;
+    void repositorySetupStore.refresh(prApi, detailServerId, env.cwd);
+  });
+
+  // Only the publish path needs the GitHub connection, so an already-published
+  // project never pays for the probe.
+  let requestedConnectionFor: string | null = null;
+  $effect(() => {
+    if (model.readiness !== "local-only" || !prApi) return;
+    const key = `${detailServerId}\0${env.cwd}`;
+    if (requestedConnectionFor === key) return;
+    requestedConnectionFor = key;
+    void repositorySetupStore.refreshGithubConnection(
+      prApi,
+      detailServerId,
+      session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
+      env.cwd,
+    );
+  });
+
   // Only the Environment section watches detailed status, and sections unmount
   // when collapsed — without our own watch the PR row would go blank whenever
   // that section is closed.
   $effect(() => {
-    if (!env.cwd || env.cwd === "~") return;
-    return environmentStore.watchDetails(env.cwd);
+    if (!detailCwd || detailCwd === "~") return;
+    return environmentStore.watchDetails(detailServerId, detailCwd);
   });
 
-  // "Discard changes…" arms in place rather than opening a dialog — the menu
-  // swaps to a confirm row, which is what the ellipsis promises.
-  let confirmingDiscard = $state(false);
-
   function runDiscard() {
-    closeRowMenu();
     confirmingDiscard = false;
     void actions.discard();
+    requestInputFocus();
+  }
+
+  // The composer is the "with options" half of the commit row: it opens on
+  // demand and unmounts on close, unlike the persistently-mounted panel content
+  // the rest of this component drives.
+  let commitComposerOpen = $state(false);
+  // The composer commits as far as the row does: to the remote once there is
+  // one, locally while the project is still unpublished.
+  let composerAction = $state<Extract<GitAction, "commit" | "commit_push">>(
+    "commit_push",
+  );
+
+  function openCommitComposer(step: GitMenuStep) {
+    if (step.action === "commit" || step.action === "commit_push")
+      composerAction = step.action;
+    commitComposerOpen = true;
+  }
+
+  function closeCommitComposer() {
+    commitComposerOpen = false;
+    requestInputFocus();
+  }
+
+  let publishDialogOpen = $state(false);
+
+  function closePublishDialog() {
+    publishDialogOpen = false;
+    requestInputFocus();
+  }
+
+  async function copyPrLink(url: string) {
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(url);
+      toasts.success("Copied pull request link");
+    } catch {
+      toasts.error("Couldn't copy the link");
+    }
+    requestInputFocus();
   }
 
   function openPr(pr: PullRequestSummary) {
@@ -367,7 +584,8 @@
     if (
       reviewStatus?.status !== "failed" ||
       reviewStatus.updatedAt === lastReviewFailureAt
-    ) return;
+    )
+      return;
     lastReviewFailureAt = reviewStatus.updatedAt;
     toasts.error(
       reviewStatus.error
@@ -391,19 +609,14 @@
     if (!identity) return;
     const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
     try {
-      await reviewGuideStore.generate(
-        session.apiFor(sourceId),
-        ctx,
-        identity,
-        {
-          ...resolveReviewAgent(settings, agentContext),
-          scope: "branch",
-        },
-      );
+      await reviewGuideStore.generate(session.apiFor(sourceId), ctx, identity, {
+        ...resolveReviewAgent(settings, agentContext),
+        scope: "branch",
+      });
     } catch (error) {
-      toasts.error(
-        `Couldn't generate report: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      toasts.error("Couldn't generate report", {
+        description: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       requestInputFocus();
     }
@@ -453,31 +666,36 @@
   label: string,
   opts: {
     onclick: () => void;
-    hint?: string;
     trail?: string;
-    emphasis?: boolean;
-    danger?: boolean;
+    icon?: ActionRowIcon;
+    /** Kept clickable-looking but inert: `aria-disabled` still shows `title`,
+     *  which is where the step's reason lives. */
     disabled?: boolean;
+    title?: string;
   },
 )}
   <button
     type="button"
-    disabled={opts.disabled}
-    onclick={opts.onclick}
-    class="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[0.8125rem] lg:text-[0.8125rem] focus-visible:outline-none focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-primary) disabled:pointer-events-none disabled:opacity-50 {opts.danger
-      ? 'font-normal text-destructive hover:bg-destructive/10 hover:text-destructive'
-      : opts.emphasis
-        ? 'bg-[color-mix(in_srgb,var(--solus-accent)_8%,transparent)] font-medium text-(--solus-text-primary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_14%,transparent)]'
-        : 'font-normal text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)'}"
+    aria-disabled={opts.disabled || undefined}
+    title={opts.title}
+    onclick={() => {
+      if (!opts.disabled) opts.onclick();
+    }}
+    class="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-xs lg:text-xs font-normal focus-visible:outline-none focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-primary) {opts.disabled
+      ? 'cursor-default text-(--solus-text-tertiary) opacity-60'
+      : 'text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)'}"
   >
+    {#if opts.icon}
+      {@const RowIcon = opts.icon}
+      <span class="flex shrink-0 items-center"><RowIcon size={13} /></span>
+    {/if}
     <span class="min-w-0 flex-1 truncate">{label}</span>
     {#if opts.trail}
       <span
-        class="shrink-0 text-xs tabular-nums text-(--solus-text-tertiary)"
+        class="shrink-0 text-menu-meta tabular-nums text-(--solus-text-tertiary)"
         >{opts.trail}</span
       >
     {/if}
-    {#if opts.hint}<span class="menu-hint">{opts.hint}</span>{/if}
   </button>
 {/snippet}
 
@@ -495,7 +713,10 @@
          glyph takes the colour of its checks. Nothing is added to the column,
          and the row's menu still opens from the same click. -->
     {@const item =
-      def.key === "pull-requests" && activePr && prPhase === "idle"
+      def.key === "pull-requests" &&
+      activePr &&
+      prPhase === "idle" &&
+      primaryAction.kind === "view"
         ? {
             ...def,
             label: activePr.title,
@@ -507,9 +728,34 @@
           }
         : def}
     <div class="row-wrap">
-      {#if def.key === "review" && (reviewing || reviewKey)}
+      {#if def.caretAction}
+        {@const caret = def.caretAction}
+        {@const CaretIcon = caret.icon ?? CaretRightIcon}
+        {@const menuOpen =
+          !!caret.menu && rowMenuOpen && openMenuKey === caret.menu}
         <div class="split-row">
-          <MenuRow {item} split onActivate={(e) => activateRow(def, e)} />
+          <MenuRow {item} split onActivate={() => def.run()} />
+          <button
+            type="button"
+            class="split-caret"
+            class:is-open={menuOpen}
+            class:is-danger={caret.danger}
+            aria-label={caret.ariaLabel}
+            title={caret.ariaLabel}
+            aria-haspopup={caret.menu ? "menu" : undefined}
+            aria-expanded={caret.menu ? menuOpen : undefined}
+            disabled={caret.disabled}
+            onclick={(event) => {
+              if (caret.menu) toggleRowMenu(caret.menu, event.currentTarget);
+              else caret.run?.();
+            }}
+          >
+            <CaretIcon size={11} />
+          </button>
+        </div>
+      {:else if def.key === "review" && (reviewing || reviewKey)}
+        <div class="split-row">
+          <MenuRow {item} split onActivate={() => def.run()} />
           {#if reviewing}
             <button
               type="button"
@@ -540,13 +786,7 @@
           {/if}
         </div>
       {:else}
-        <MenuRow
-          {item}
-          menuOpen={!!def.disclosure &&
-            rowMenuOpen &&
-            openMenuKey === def.disclosure}
-          onActivate={(e) => activateRow(def, e)}
-        />
+        <MenuRow {item} onActivate={() => def.run()} />
       {/if}
     </div>
   {/each}
@@ -568,115 +808,72 @@
     class="menu-surface z-[10002] w-[264px] gap-0 rounded-lg bg-(--solus-menu-bg) p-1.5 text-menu lg:text-menu shadow-[shadow:var(--solus-menu-shadow)] ring-0"
   >
     {#if openMenuKey === "commit"}
-      {#if confirmingDiscard}
-        <!-- Armed state: the menu becomes the confirmation, so the
-             irreversible action still needs a second, deliberate click. -->
-        <p
-          class="m-0 px-2 pt-[0.3125rem] pb-[0.4375rem] text-xs leading-[1.5] text-(--solus-text-tertiary)"
-        >
-          Discards {uncommittedFileCount} uncommitted change{uncommittedFileCount ===
-          1
-            ? ""
-            : "s"}. This can't be undone.
-        </p>
-        {@render popDivider()}
-        {@render popRow("Discard changes", {
-          onclick: runDiscard,
-          danger: true,
-        })}
-        {@render popRow("Keep changes", {
-          onclick: () => (confirmingDiscard = false),
-        })}
-      {:else}
-        {@render popRow("Commit", {
+      {#each model.commit.steps as step (step.key)}
+        {@render popRow(step.label, {
+          icon: MENU_STEP_ICON[step.key],
           onclick: () => {
             closeRowMenu();
-            void actions.commit();
+            // "Commit…" is the with-options half of the row: it opens the
+            // composer rather than running straight away.
+            if (step.key === "commit_with_options") openCommitComposer(step);
+            else void actions.run(step.action);
           },
-          emphasis: true,
-          disabled: !canGit || actions.commitPushing,
+          disabled: step.disabled || !canGit || actions.running,
+          title: step.reason,
         })}
-        {@render popRow("Commit and push", {
-          onclick: () => {
-            closeRowMenu();
-            void actions.commitPush();
-          },
-          hint: comboHint("orb.commit-push"),
-          disabled: !canGit || actions.commitPushing,
-        })}
-        {@render popRow(
-          actions.synced
-            ? "Synced"
-            : actions.syncing
-              ? "Syncing…"
-              : "Sync with remote",
-          {
-            onclick: () => {
-              closeRowMenu();
-              void actions.sync();
-            },
-            hint: comboHint("orb.sync"),
-            disabled: !canGit || actions.syncing,
-          },
-        )}
-        {@render popDivider()}
-        {@render popRow("Discard changes…", {
-          onclick: () => (confirmingDiscard = true),
-          trail:
-            uncommittedFileCount > 0 ? String(uncommittedFileCount) : undefined,
-          danger: true,
-          disabled: !canGit || uncommittedFileCount === 0,
-        })}
-      {/if}
+      {/each}
     {:else if openMenuKey === "pull-requests"}
+      <!-- This branch's pull request: the steps its primary action bundles,
+           then the ways to reach the pull request it already has. -->
+      {#each model.pullRequest.steps as step (step.key)}
+        {@render popRow(step.label, {
+          icon: MENU_STEP_ICON[step.key],
+          onclick: () => {
+            closeRowMenu();
+            void actions.run(step.action);
+          },
+          disabled: step.disabled || !canGit || actions.running,
+          title: step.reason,
+        })}
+      {/each}
       {#if prUrl}
-        {@render popRow("View pull request", {
+        {@render popRow("View on GitHub", {
+          icon: ArrowSquareOutIcon,
           onclick: () => {
             closeRowMenu();
             localApi.openExternal(prUrl);
           },
-          emphasis: true,
         })}
-      {:else}
-        {@render popRow(
-          actions.creatingPR ? "Opening pull request…" : "Open pull request",
-          {
-            onclick: () => {
-              closeRowMenu();
-              void actions.createPR();
-            },
-            emphasis: true,
-            disabled: !canPr || actions.creatingPR,
+        {@render popRow("Copy link", {
+          icon: LinkIcon,
+          onclick: () => {
+            closeRowMenu();
+            void copyPrLink(prUrl);
           },
-        )}
+        })}
+        {#if activePr}
+          {@const branchPr = activePr}
+          {@render popRow("Open in review pane", {
+            icon: EyeglassesIcon,
+            onclick: () => openPr(branchPr),
+          })}
+        {/if}
+        {@render popDivider()}
       {/if}
       {#if openPrs.length > 0}
-        {@render popDivider()}
-        <!-- Status is a dot, the number is the row's trailing value. Draft
-             PRs read grey; anything open reads live. -->
         {#each openPrs.slice(0, 5) as pr (pr.number)}
-          <button
-            type="button"
-            onclick={() => openPr(pr)}
-            class="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[0.8125rem] lg:text-[0.8125rem] font-normal text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-primary)"
-          >
-            <span
-              class="size-[0.4375rem] shrink-0 rounded-full"
-              style:background={pr.draft
-                ? "var(--solus-text-tertiary)"
-                : "var(--solus-status-complete)"}
-              aria-hidden="true"
-            ></span>
-            <span class="min-w-0 flex-1 truncate">{pr.title}</span>
-            <span
-              class="shrink-0 text-xs tabular-nums text-(--solus-text-tertiary)"
-              >#{pr.number}</span
-            >
-          </button>
+          <!-- The list entries carry the glyph too: without it their labels
+               would sit in a different column from every row around them. -->
+          {@render popRow(pr.title, {
+            icon: GitPullRequestIcon,
+            onclick: () => openPr(pr),
+            trail: `#${pr.number}`,
+          })}
         {/each}
+        {@render popDivider()}
       {/if}
-      {@render popDivider()}
       {@render popRow("Review a PR…", {
+        icon: MagnifyingGlassIcon,
         onclick: () => {
           closeRowMenu();
           window.dispatchEvent(
@@ -693,6 +890,21 @@
     {/if}
   </Popover.Content>
 </Popover.Root>
+
+{#if commitComposerOpen}
+  <CommitComposer
+    {sourceId}
+    action={composerAction}
+    {session}
+    {environmentStore}
+    {actions}
+    onClose={closeCommitComposer}
+  />
+{/if}
+
+{#if publishDialogOpen}
+  <PublishRepositoryDialog {sourceId} onClose={closePublishDialog} />
+{/if}
 
 <style>
   .menu-list {
@@ -729,7 +941,8 @@
       color 0.15s ease;
   }
   .split-caret:hover,
-  .split-caret[aria-expanded="true"] {
+  .split-caret[aria-expanded="true"],
+  .split-caret.is-open {
     background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
@@ -745,13 +958,12 @@
     box-shadow: 0 0 0 0.125rem
       color-mix(in srgb, var(--solus-accent) 35%, transparent);
   }
-
-  /* Key hints inside the popover rows — mono and quieter than the labels. */
-  .menu-hint {
-    flex-shrink: 0;
+  .split-caret:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .split-caret:disabled:hover {
+    background: transparent;
     color: var(--solus-text-tertiary);
-    font-family: var(--solus-code-font-family);
-    font-size: 0.75rem;
-    opacity: 0.7;
   }
 </style>

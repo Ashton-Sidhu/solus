@@ -3,6 +3,14 @@ import { CodexRpcError, getCodexAppServerClient } from './codex-agent'
 import { encodePathAsFolder } from '../utils'
 import { createLogger, isDebugEnabled } from '../../logger'
 import { loadAllAnnotations } from '../../plans/annotations'
+import {
+  isPlanIndexComplete,
+  listIndexedPlans,
+  loadIndexedPlanContent,
+  replaceIndexedPlansForProvider,
+  replaceIndexedPlansForSession,
+  type IndexedPlanInput,
+} from '../../plans/plan-index'
 import { getHeadCommit } from '../../git/worktree-manager'
 import { resolveRepoRoot } from '../../git/git-helpers'
 import { initSessionBase, snapshotTurn } from '../../git/session-snapshots'
@@ -43,6 +51,7 @@ import type {
   CodexThreadGoalResponse,
   CodexThreadListResponse,
   CodexThreadReadResponse,
+  CodexThreadResumeResponse,
   CodexThreadStartParams,
   CodexThreadStartResponse,
   CodexTurnStartParams,
@@ -64,8 +73,8 @@ import {
 } from './codex-permissions'
 import {
   approvalPolicyFor,
-  codexItemToMessage,
   codexSpawnedThreadLinks,
+  codexForkCutoffTurnId,
   codexTurnToMessages,
   codexTurnsToMessages,
   codexThreadBelongsToProject,
@@ -84,23 +93,27 @@ import {
   type ScannedCodexPlan,
 } from './codex-utils'
 import { adaptCodexTools, bareAgentToolName, CodexToolDispatcher } from './codex-tool-adapter'
+import { z } from 'zod'
 
 const log = createLogger('CodexBackend', 'codex-backend.ts')
 
-function isSteerTurnBoundaryError(error: unknown): boolean {
+const steerTurnBoundarySchema = z.object({
+  codexErrorInfo: z.object({ activeTurnNotSteerable: z.unknown() }),
+})
+
+function optionalString<T>(value: T): string | undefined {
+  const parsed = z.string().safeParse(value)
+  return parsed.success ? parsed.data : undefined
+}
+
+function isSteerTurnBoundaryError(error: Error): boolean {
   if (!(error instanceof CodexRpcError)) return false
-  const data = error.data
-  if (data && typeof data === 'object') {
-    const info = (data as { codexErrorInfo?: unknown }).codexErrorInfo
-    if (
-      info &&
-      typeof info === 'object' &&
-      'activeTurnNotSteerable' in info
-    ) {
-      return true
-    }
-  }
+  if (steerTurnBoundarySchema.safeParse(error.data).success) return true
   return /expected turn .*no longer active|active turn .*not steerable/i.test(error.message)
+}
+
+function isThreadNotLoadedError(error: Error): error is CodexRpcError {
+  return error instanceof CodexRpcError && /thread not loaded/i.test(error.message)
 }
 
 /** Max concurrent thread/read calls while indexing Codex message bodies. Keeps a
@@ -202,6 +215,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
    *  thread is created or its activity changes. */
   private sessionListCache = new MemoryCache<string, SessionMeta[]>({ ttlMs: 5 * 60 * 1000, maxEntries: 64 })
   private sessionIndexRefresh: Promise<void> | null = null
+  private sessionIndexRefreshTimer: ReturnType<typeof setTimeout> | null = null
   /** Set once if `thread/start` rejects dynamicTools — we then drop them and
    *  the agent loses work create/read/update for the run (experimental API). */
   private dynamicToolsUnavailable = false
@@ -227,6 +241,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         this.emit('error', handle.agentSessionId, exitErr)
       }
     })
+  }
+
+  private permissionResponder(): CodexPermissionResponder {
+    // SAFETY: The constructor always assigns CodexPermissionResponder to the public responder interface.
+    return this.permissions as CodexPermissionResponder
   }
 
   startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
@@ -264,7 +283,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       interrupted: false,
       normalizer: new CodexTurnNormalizer({ planMode: request.permissionMode === 'plan' }),
       workTree,
-      repoRoot: null as string | null,
+      repoRoot: null,
       cwd: request.cwd,
       userMessagePreview: request.prompt.slice(0, 80),
       baseChangedFiles: new Set(sessionState?.changedFiles ?? []),
@@ -311,7 +330,20 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
       let response: CodexThreadStartResponse
       if (request.forkSession && threadId) {
-        response = await this.client.request<CodexThreadStartResponse>('thread/fork', { threadId })
+        let lastTurnId: string | undefined
+        if (request.forkExcludeLatestTurn) {
+          const source = await this.client.request<CodexThreadReadResponse>('thread/read', {
+            threadId,
+            includeTurns: true,
+          })
+          const turns = source.thread?.turns ?? []
+          const activeTurnId = this.activeRuns.get(threadId)?.turnId ?? null
+          lastTurnId = codexForkCutoffTurnId(turns, activeTurnId)
+        }
+        response = await this.client.request<CodexThreadStartResponse>('thread/fork', {
+          threadId,
+          lastTurnId,
+        })
         threadId = response.thread.id
       } else if (!threadId) {
         try {
@@ -336,7 +368,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       handle.threadId = threadId
       this.promoteToActive(handle, threadId)
 
-      ;(this.permissions as CodexPermissionResponder).setCurrentSessionId(threadId)
+      this.permissionResponder().setCurrentSessionId(threadId)
       this.emitThreadSessionInit(threadId, threadId, model, response)
 
       if (request.persistence === 'session') await this.initSnapshots(handle, threadId)
@@ -411,6 +443,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     if (!handle?.threadId || !handle.turnId) return null
 
     const expectedTurnId = handle.turnId
+    // SAFETY: buildTurnInput emits only text, image, and skill items accepted by turn/steer.
     const params: CodexTurnSteerParams = {
       threadId: handle.threadId,
       expectedTurnId,
@@ -433,7 +466,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       // The active turn may complete, or enter a non-steerable review/compact
       // turn, between the control-plane check and this request. The caller keeps
       // the input and dispatches it at the next turn boundary.
-      if (isSteerTurnBoundaryError(error)) {
+      if (error instanceof Error && isSteerTurnBoundaryError(error)) {
         log.info('steer_rejected', { sessionId, error: error instanceof Error ? error.message : String(error) })
         return null
       }
@@ -446,6 +479,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   shutdown(): void {
+    if (this.sessionIndexRefreshTimer) {
+      clearTimeout(this.sessionIndexRefreshTimer)
+      this.sessionIndexRefreshTimer = null
+    }
     this.client.shutdown()
   }
 
@@ -480,6 +517,19 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     } finally {
       this.sessionIndexRefresh = null
     }
+  }
+
+  /** Coalesce turn-completion index sweeps: a burst of completing turns (parallel
+   *  sessions, subagent fan-out) schedules one sweep instead of one per turn. */
+  private scheduleSessionIndexRefresh(): void {
+    if (this.sessionIndexRefreshTimer) return
+    this.sessionIndexRefreshTimer = setTimeout(() => {
+      this.sessionIndexRefreshTimer = null
+      void this.refreshSessionIndex().catch((err) => {
+        log.warn('session_index_refresh_failed', { error: err instanceof Error ? err.message : String(err) })
+      })
+    }, 2000)
+    this.sessionIndexRefreshTimer.unref?.()
   }
 
   private async refreshSessionIndexOnce(): Promise<void> {
@@ -528,10 +578,17 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     if (sessions.length > 0) {
       cacheIndexedSessions(sessions)
       this.mergeSessionListCache(sessions)
+      const threadsById = new Map(candidates.map((thread) => [thread.id!, thread]))
+      const planAnnotations = await loadAllAnnotations()
       // Throttle the thread/read fan-out: a new user's first sweep can span
       // thousands of threads, and reading them all at once spikes the RPC channel.
       await runWithConcurrency(sessions, CODEX_INDEX_READ_CONCURRENCY, async (session) => {
         try {
+          const thread = threadsById.get(session.sessionId)
+          if (thread) {
+            const plans = await scanCodexPlans(thread, planAnnotations)
+            replaceIndexedPlansForSession('codex', session.sessionId, plans.map(indexedCodexPlan))
+          }
           const response: CodexThreadReadResponse = await this.client.request('thread/read', {
             threadId: session.sessionId,
             includeTurns: true,
@@ -610,11 +667,24 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
   }
 
+  private async readThread(sessionId: string): Promise<CodexThreadReadResponse | CodexThreadResumeResponse> {
+    try {
+      return await this.client.request('thread/read', {
+        threadId: sessionId,
+        includeTurns: true,
+      })
+    } catch (error) {
+      // `thread/read` only reads a thread that app-server already holds in
+      // memory. History rows also name dormant threads persisted on disk, so
+      // load those through the protocol's disk-backed resume path before the
+      // picker asks for their transcript preview.
+      if (!(error instanceof Error) || !isThreadNotLoadedError(error)) throw error
+      return this.client.request('thread/resume', { threadId: sessionId })
+    }
+  }
+
   async loadSession(sessionId: string, _projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {
-    const response: CodexThreadReadResponse = await this.client.request('thread/read', {
-      threadId: sessionId,
-      includeTurns: true,
-    })
+    const response = await this.readThread(sessionId)
     return codexTurnsToMessages(response.thread?.turns ?? [], limit)
   }
 
@@ -625,6 +695,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   async listPlans(projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]> {
+    if (isPlanIndexComplete('codex')) {
+      return listIndexedPlans('codex', projectPath, allProjects)
+    }
     const cacheKey = allProjects ? 'all' : projectPath || process.cwd()
     return this.planListCache.getOrLoad(cacheKey, async () => {
       const projectRoot = projectPath?.replace(/\/$/, '')
@@ -641,6 +714,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         scanned.push(...await scanCodexPlans(thread, annotations))
       })
 
+      if (allProjects) {
+        replaceIndexedPlansForProvider('codex', scanned.map(indexedCodexPlan))
+      }
       return groupCodexPlansBySession(scanned)
     })
   }
@@ -652,6 +728,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   async loadPlanContent(sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null> {
+    const indexed = loadIndexedPlanContent('codex', sessionId, planToolUseId)
+    if (indexed !== null) return indexed
     const threads = await this.listAllThreads(projectPath.replace(/\/$/, ''))
     const thread = threads.find((candidate) => candidate.id === sessionId)
     if (!thread) return null
@@ -722,7 +800,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
 
     if (msg.method === 'serverRequest/resolved') {
-      const resolved = (this.permissions as CodexPermissionResponder).resolveServerRequest(params?.requestId || params?.id)
+      const resolved = this.permissionResponder().resolveServerRequest(params?.requestId || params?.id)
       if (resolved) {
         this.emit('normalized', resolved.sessionId, {
           type: 'permission_resolved',
@@ -761,21 +839,22 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
 
     if (msg.method === 'turn/completed') {
-      const isChildTurn = !!handle &&
-        typeof params?.threadId === 'string' &&
-        params.threadId !== handle.threadId
+      const eventThreadId = optionalString(params?.threadId)
+      const isChildTurn = !!handle && !!eventThreadId && eventThreadId !== handle.threadId
       if (isChildTurn) {
         for (const event of normalized) this.emit('normalized', sessionId, event)
-        this.sessionByChildThread.delete(params.threadId)
+        this.sessionByChildThread.delete(eventThreadId)
         return
       }
       // A turn just created or updated a thread — drop the cached session lists
-      // so the next listSessions reflects the new activity.
+      // the thread can appear in so the next listSessions reflects the new
+      // activity. Other projects' lists stay warm, and the index sweep is
+      // coalesced so a burst of completing turns pays for one sweep, not one each.
       if (handle?.persistent) {
-        this.sessionListCache.clear()
-        void this.refreshSessionIndex().catch((err) => {
-          log.warn('session_index_refresh_failed', { error: err instanceof Error ? err.message : String(err) })
-        })
+        this.sessionListCache.invalidateWhere((cacheKey) =>
+          codexThreadBelongsToProject({ cwd: handle.cwd }, cacheKey),
+        )
+        this.scheduleSessionIndexRefresh()
       }
       const sawRateLimit = handle?.normalizer.summary.sawRateLimit ?? false
       const exitCode = params?.turn?.status === 'failed' && !sawRateLimit ? 1 : wasInterrupted ? null : 0
@@ -810,7 +889,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   private cacheFileChanges(params: any): void {
-    const itemId = typeof params?.itemId === 'string' ? params.itemId : params?.item?.id
+    const itemId = optionalString(params?.itemId) ?? optionalString(params?.item?.id)
     const changes = Array.isArray(params?.changes)
       ? params.changes
       : params?.item?.type === 'fileChange' && Array.isArray(params.item.changes)
@@ -819,11 +898,12 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
     if (itemId && changes) {
       this.fileChangesByItem.set(itemId, changes)
-      if (typeof params?.turnId === 'string') this.fileChangeTurnByItem.set(itemId, params.turnId)
+      const turnId = optionalString(params?.turnId)
+      if (turnId) this.fileChangeTurnByItem.set(itemId, turnId)
     }
   }
 
-  private updateTrackedFilesFromTurnDiff(handle: CodexRunHandle, diff: unknown): string[] {
+  private updateTrackedFilesFromTurnDiff<T>(handle: CodexRunHandle, diff: T): string[] {
     handle.turnDiffFiles.clear()
     for (const filePath of extractCodexChangedFilePaths(diff)) {
       handle.turnDiffFiles.add(filePath)
@@ -839,8 +919,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     return [...handle.trackedFiles]
   }
 
-  private clearFileChangesForTurn(turnId: unknown): void {
-    if (typeof turnId !== 'string') return
+  private clearFileChangesForTurn<T>(value: T): void {
+    const turnId = optionalString(value)
+    if (!turnId) return
     for (const [itemId, itemTurnId] of this.fileChangeTurnByItem) {
       if (itemTurnId === turnId) {
         this.fileChangesByItem.delete(itemId)
@@ -864,17 +945,18 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     this.cacheFileChanges(params)
 
     if (msg.method === 'item/tool/call') {
-      const toolName = String(
-        typeof params?.tool === 'string'
-          ? params.tool
-          : params?.tool?.name ?? params?.name ?? params?.toolName ?? '',
-      )
+      const toolName = optionalString(params?.tool)
+        ?? optionalString(params?.tool?.name)
+        ?? optionalString(params?.name)
+        ?? optionalString(params?.toolName)
+        ?? ''
       const respondWithToolText = (text: string, success: boolean) => {
         this.client.respond(msg.id, { success, contentItems: [{ type: 'inputText', text }] })
       }
-      let args: unknown = params?.arguments ?? params?.input ?? params?.args ?? {}
-      if (typeof args === 'string') {
-        try { args = JSON.parse(args) } catch { args = {} }
+      let args = params?.arguments ?? params?.input ?? params?.args ?? {}
+      const serializedArgs = optionalString(args)
+      if (serializedArgs !== undefined) {
+        try { args = JSON.parse(serializedArgs) } catch { args = {} }
       }
       const selectedTool = handle?.toolDispatcher.get(toolName)
       if (!selectedTool || !handle) {
@@ -886,9 +968,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           respondWithToolText(`The user declined ${selectedTool.name}.`, false)
           return
         }
-        const parentToolUseId = typeof params?.callId === 'string' && params.callId
-          ? params.callId
-          : String(msg.id)
+        const parentToolUseId = optionalString(params?.callId) || String(msg.id)
         const result = await handle.toolDispatcher.execute(toolName, args, parentToolUseId)
         respondWithToolText(result.text, result.ok)
       }
@@ -901,13 +981,14 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
       handle.sawPermissionRequest = true
       const questionId = `codex-${String(msg.id)}`
-      ;(this.permissions as CodexPermissionResponder).add(questionId, { id: msg.id, method: 'item/tool/call', params, sessionId, execute: respondWithResult })
+      this.permissionResponder().add(questionId, { id: msg.id, method: 'item/tool/call', params, sessionId, execute: respondWithResult })
+      const parsedToolInput = z.record(z.string(), z.json()).safeParse(args)
       this.emit('normalized', sessionId, {
         type: 'permission_request',
         questionId,
         toolName: selectedTool.name,
         toolDescription: selectedTool.description,
-        toolInput: args && typeof args === 'object' ? args : {},
+        toolInput: parsedToolInput.success ? parsedToolInput.data : {},
         options: [
           { id: 'accept', label: 'Allow', kind: 'allow' },
           { id: 'decline', label: 'Deny', kind: 'deny' },
@@ -919,7 +1000,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
     if (msg.method === 'item/tool/requestUserInput' || msg.method === 'mcpServer/elicitation/request') {
       const questionId = `codex-${String(msg.id)}`
-      ;(this.permissions as CodexPermissionResponder).add(questionId, { id: msg.id, method: msg.method, params, sessionId })
+      this.permissionResponder().add(questionId, { id: msg.id, method: msg.method, params, sessionId })
       const elicitation = msg.method === 'mcpServer/elicitation/request'
         ? normalizeMcpElicitationRequest(params)
         : null
@@ -927,7 +1008,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         type: 'question_request',
         questionId,
         questions: elicitation?.questions ?? normalizeQuestionItems(params),
-        ...(elicitation?.request ?? {}),
+        ...elicitation?.request,
       })
       return
     }
@@ -947,7 +1028,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     if (handle) handle.sawPermissionRequest = true
 
     const questionId = `codex-${String(msg.id)}`
-    ;(this.permissions as CodexPermissionResponder).add(questionId, { id: msg.id, method: msg.method, params, sessionId })
+    this.permissionResponder().add(questionId, { id: msg.id, method: msg.method, params, sessionId })
     this.emit('normalized', sessionId, {
       type: 'permission_request',
       questionId,
@@ -982,7 +1063,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
   private permissionToolInput(method: string, params: any): object {
     if (method !== 'item/fileChange/requestApproval') return params
-    const changes = typeof params?.itemId === 'string' ? this.fileChangesByItem.get(params.itemId) : undefined
+    const itemId = optionalString(params?.itemId)
+    const changes = itemId ? this.fileChangesByItem.get(itemId) : undefined
     return changes?.length ? { ...params, changes } : params
   }
 
@@ -1017,13 +1099,13 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
   }
 
-  private async finishCompletedTurn(
+  private async finishCompletedTurn<T>(
     handle: CodexRunHandle,
     normalized: NormalizedEvent[],
     partial: boolean,
     exitCode: 0 | 1 | null,
     exitSignal: 'SIGINT' | null,
-    turnId: unknown,
+    turnId: T,
   ): Promise<void> {
     const sessionId = handle.agentSessionId
     const changedFiles = handle.persistent
@@ -1044,9 +1126,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   private sessionIdFor(params: any): string | null {
     // Root thread IDs are session IDs; spawned child threads route back to the
     // active parent session that owns their transcript card.
-    if (typeof params?.threadId === 'string') {
-      if (this.activeRuns.has(params.threadId)) return params.threadId
-      return this.sessionByChildThread.get(params.threadId) ?? null
+    const threadId = optionalString(params?.threadId)
+    if (threadId) {
+      if (this.activeRuns.has(threadId)) return threadId
+      return this.sessionByChildThread.get(threadId) ?? null
     }
     const turnId = params?.turnId
     if (turnId) return this.sessionByTurn.get(turnId) ?? null
@@ -1058,11 +1141,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   private rememberSessionRouting(params: any, sessionId: string): void {
-    const turnId = typeof params?.turnId === 'string'
-      ? params.turnId
-      : typeof params?.turn?.id === 'string'
-        ? params.turn.id
-        : null
+    const turnId = optionalString(params?.turnId) ?? optionalString(params?.turn?.id)
     if (turnId) this.sessionByTurn.set(turnId, sessionId)
 
     const itemId = this.codexItemId(params)
@@ -1074,9 +1153,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   private codexItemId(params: any): string | null {
-    if (typeof params?.itemId === 'string') return params.itemId
-    if (typeof params?.item?.id === 'string') return params.item.id
-    return null
+    return optionalString(params?.itemId) ?? optionalString(params?.item?.id) ?? null
   }
 
   private forgetRoutingForSession(sessionId: string): void {
@@ -1158,20 +1235,19 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         forceReload,
       })
     } catch (err) {
-      log.warn('skills_list_failed', { error: (err as Error).message })
+      log.warn('skills_list_failed', { error: err instanceof Error ? err.message : String(err) })
       return { global: [], project: [] }
     }
     const cwdResult = (response.data ?? []).find((entry) => entry.cwd === workingDirectory) ?? response.data?.[0]
     const commands = {
       global: (cwdResult?.skills ?? [])
-        .filter((skill) => skill.enabled !== false && skill.name)
-        .map((skill) => ({
-          name: skill.name!,
+        .flatMap((skill) => skill.enabled !== false && skill.name ? [{
+          name: skill.name,
           description: skill.interface?.shortDescription || skill.description || '',
           argumentHint: skill.interface?.defaultPrompt,
           kind: 'skill' as const,
           path: skill.path,
-        })),
+        }] : []),
       project: [],
     }
     this.skillsByCwd.set(cacheKey, commands)
@@ -1183,17 +1259,33 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     let cursor: string | null | undefined = null
 
     do {
-      const response: CodexThreadListResponse = await this.client.request('thread/list', {
+      const request = {
         cursor,
         limit: 100,
         sortKey: 'updated_at',
         sortDirection: 'desc',
-        ...(cwd ? { cwd } : {}),
-      })
+      }
+      if (cwd) Object.assign(request, { cwd })
+      const response: CodexThreadListResponse = await this.client.request('thread/list', request)
       threads.push(...(response.data ?? []))
       cursor = response.nextCursor
     } while (cursor)
 
     return threads
+  }
+}
+
+function indexedCodexPlan(plan: ScannedCodexPlan): IndexedPlanInput {
+  return {
+    provider: 'codex',
+    sessionId: plan.sessionId,
+    planToolUseId: plan.planToolUseId,
+    projectPath: plan.projectPath,
+    cwd: plan.cwd,
+    timestamp: plan.timestamp,
+    title: plan.title,
+    excerpt: plan.excerpt,
+    content: plan.planContent,
+    derivedStatus: plan.derivedStatus,
   }
 }

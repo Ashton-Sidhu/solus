@@ -14,7 +14,9 @@
     getStatusBarContext,
     runtime,
     createSessionHistoryStore,
+    serversStore,
   } from "../../contexts";
+  import { hostSyncNotes } from "./lib/host-sync-notes";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import { getPopoverLayer, useClickOutside } from "../popoverLayer.svelte";
   import { portal } from "../portal";
@@ -34,7 +36,7 @@
   import { createSessionPreviewStore } from "../../lib/preview.svelte";
   import { sessionHistorySourcesFromRoots } from "../../lib/sessionPickerHistory";
   import {
-    remoteHistorySources,
+    remoteHistorySourceBatches,
     savedRemoteHistoryHosts,
   } from "./lib/remote-history-sources";
   import {
@@ -48,6 +50,7 @@
   import Kbd from "../ui/Kbd.svelte";
   import { worktreeProjectRoot, type SessionMeta } from "../../../shared/types";
   import { serverConnections } from "@client-core/server-connections";
+  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import { subscribeAllHosts } from "@client-core/host-events";
 
   interface Props {
@@ -70,6 +73,10 @@
   let searchEl: HTMLInputElement | null = $state(null);
   let popoverEl: HTMLDivElement | null = $state(null);
   let showHistorySkeleton = $state(false);
+  /** Hosts whose rows are cached or errored — the list must say so. */
+  const degradedHostNotes = $derived(
+    hostSyncNotes(history.hostStates, (serverId) => serversStore.hostFor(serverId)?.label ?? null),
+  );
   let skeletonTimer: ReturnType<typeof setTimeout> | null = null;
   const history = createSessionHistoryStore();
   const historySessions = $derived(history.sessions);
@@ -102,7 +109,12 @@
   });
   const historyScopeKey = $derived(historyScopeRoots.join("\n"));
   const historySources = $derived(
-    sessionHistorySourcesFromRoots(historyScopeRoots),
+    // The scan the picker runs directly: the client's own machine when it has
+    // one, else the new-work default host. Every source names its host.
+    sessionHistorySourcesFromRoots(
+      historyScopeRoots,
+      serverConnections.localServerId() ?? serverConnections.defaultServerId() ?? LOCAL_SERVER_ID,
+    ),
   );
   const historyScopeLabel = $derived.by(() => {
     if (historyScopeRoots.length > 1)
@@ -226,7 +238,7 @@
 
   $effect(() => {
     // Reset selection when filter changes
-    query;
+    void query;
     selectedIndex = 0;
   });
 
@@ -318,7 +330,7 @@
         sources,
         // Other machines take a round trip to resolve, so they join the scan
         // when they answer rather than holding back this host's rows.
-        deferredSources: remoteHistorySources(
+        deferredSources: remoteHistorySourceBatches(
           savedRemoteHistoryHosts(),
           scopeRootPaths,
         ),
@@ -420,10 +432,13 @@
       "session.indexChanged",
       (serverId, event) => {
         if (!open || event.provider !== "codex") return;
-        // The picker scope uses paths from the primary host. Preserve its narrow
-        // refresh, but reload for a remote event because that host can use a
-        // different path for the same repository.
-        if (serverId !== serverConnections.connectionFor()?.serverId) {
+        // The picker's scope paths belong to the host it scans directly (the
+        // client's machine, else the new-work default). Preserve that host's
+        // narrow refresh; reload for any other host's event, because it can
+        // use a different path for the same repository.
+        const scanHostId =
+          serverConnections.localServerId() ?? serverConnections.defaultServerId();
+        if (serverId !== scanHostId) {
           void loadHistory(historySources, historyScopeKey);
           return;
         }
@@ -614,6 +629,14 @@
           >…</span
         >
       {/if}
+      {#if degradedHostNotes.length > 0}
+        <span
+          class="ml-2 truncate align-bottom text-xs opacity-75"
+          title={degradedHostNotes.map((note) => note.text).join(", ")}
+        >
+          · {degradedHostNotes.map((note) => note.text).join(", ")}
+        </span>
+      {/if}
     </span>
     <div class="flex items-center gap-3.5 max-md:hidden">
       <span class="inline-flex items-center gap-[0.3125rem] text-xs">
@@ -658,7 +681,7 @@
   >
     <div
       bind:this={popoverEl}
-      class="flex h-3/4 max-h-[75%] w-3/4 origin-top flex-col overflow-hidden overscroll-contain rounded-2xl border border-[var(--solus-popover-border)] bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_both] dark:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-[var(--solus-container-bg)] max-md:shadow-none max-md:backdrop-filter-none"
+      class="flex h-3/4 max-h-[75%] w-3/4 origin-top flex-col overflow-hidden overscroll-contain rounded-2xl border border-[var(--solus-popover-border)] bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards] dark:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-[var(--solus-container-bg)] max-md:shadow-none max-md:backdrop-filter-none"
       role="dialog"
       aria-label="Session picker"
       tabindex="-1"

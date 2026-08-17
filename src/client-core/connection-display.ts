@@ -50,7 +50,7 @@ export interface ConnectionFailureCopy {
  * reason the user can act on, so lead with a cause and keep the raw text for
  * the details block.
  */
-export function describeConnectionFailure(hostLabel: string, error: unknown): ConnectionFailureCopy {
+export function describeConnectionFailure(hostLabel: string, error: Parameters<typeof String>[0]): ConnectionFailureCopy {
   const message = error instanceof Error ? error.message : String(error)
   if (/token|unauthori[sz]ed/i.test(message)) {
     return {

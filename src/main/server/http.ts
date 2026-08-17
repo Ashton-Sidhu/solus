@@ -10,19 +10,22 @@ import { getMimeType } from 'hono/utils/mime'
 import { getRequestListener } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import formidable, { type File as FormidableFile } from 'formidable'
-import { resolve as pathResolve, relative as pathRelative, isAbsolute, sep } from 'path'
+import { resolve as pathResolve, isAbsolute } from 'path'
 import { hostname, tmpdir } from 'os'
-import { claimOwnership, consumePairToken, generatePairToken, getInstallationId, getOwnershipState, getServerFingerprint, isClaimable, issueSessionToken, listRevokedDevices, openClaimWindow, refreshSessionToken, revokeDevice, verifyClaimOpenAdminRequest, verifySessionToken } from './auth'
+import { z } from 'zod'
+import { claimOwnership, consumePairToken, generatePairToken, getInstallationId, getOwnershipState, getServerFingerprint, isClaimable, issueSessionToken, issueWsTicket, listRevokedDevices, openClaimWindow, refreshSessionToken, revokeDevice, verifyClaimOpenAdminRequest, verifySessionToken } from './auth'
 import { listReachableEndpoints } from './endpoints'
 import { createTokenBucketRateLimiter } from './rate-limit'
 import { filePathsToAttachments } from './attachment-utils'
 import { createLogger } from '../logger'
+import { isInsideRoot } from '../paths'
 import { completeGoogleOAuthCallback } from '../google/oauth'
 import { listProjects } from '../project-config/projects-manifest'
 import { readWav } from '../transcription/wav'
 import { MAX_VOICE_WAV_BYTES } from '../../shared/voice-audio'
 import { parseByteRange } from './byte-range'
 import { serveAssetToken } from './assets'
+import { hostOperatingSystem } from '../platform/host-operating-system'
 
 const log = createLogger('main', 'http')
 
@@ -37,6 +40,12 @@ export interface HttpServerOptions {
   port?: number
   /** Path to the prebuilt web client `dist/` directory; if present, mounted at /. */
   staticDir?: string
+  /** Whether connections must authenticate; advertised on /health so a served
+   *  client knows it can connect without pairing. Defaults to true. */
+  requireAuth?: () => boolean
+  /** Requester addresses allowed past a require-auth bind without a token
+   *  (the machine itself, the host's own tailnet). Untrusted when absent. */
+  isTrustedRequester?: (address: string) => Promise<boolean>
   /** Long-form voice transcription implementation supplied by the host. */
   transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
 }
@@ -45,6 +54,26 @@ export interface HttpServerOptions {
 type NodeBindings = { incoming: IncomingMessage; outgoing: ServerResponse }
 type Env = { Bindings: NodeBindings }
 type Ctx = Context<Env>
+
+const pairRequestSchema = z.object({
+  pairToken: z.string().optional(),
+  code: z.string().optional(),
+  deviceLabel: z.string().optional(),
+})
+
+const claimRequestSchema = z.object({
+  claimToken: z.string().optional(),
+  code: z.string().optional(),
+  deviceLabel: z.string().optional(),
+})
+
+const revokeRequestSchema = z.object({ deviceId: z.string().min(1) })
+
+export interface BuiltHttpServer {
+  server: HttpServer
+  host: string
+  port: number
+}
 
 /**
  * Builds the HTTP server. Returns a node http.Server that the caller
@@ -56,7 +85,7 @@ type Ctx = Context<Env>
  * upload). We keep our own `http.Server` via `getRequestListener` so the
  * port-retry/rebind logic in server/index.ts stays unchanged.
  */
-export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpServer; host: string; port: number } {
+export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   const host = opts.host ?? '127.0.0.1'
   const currentHost = () => opts.getHost?.() ?? host
   const port = opts.port ?? 0
@@ -86,6 +115,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
   app.use('/artifact', publicCors)
   app.use('/api/assets/*', publicCors)
   app.use('/auth/refresh', publicCors)
+  app.use('/auth/ws-ticket', publicCors)
   app.use('/auth/pair-token', publicCors)
   app.use('/auth/revoke', publicCors)
 
@@ -95,27 +125,38 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
   })
   app.notFound((c) => c.json({ error: 'not found' }, 404))
 
-  app.get('/health', (c) => c.json({
+  /** Auth demanded of this particular caller: the bind policy, relaxed for
+   *  trusted requesters (loopback, the host's own tailnet). */
+  const authRequiredFor = async (c: Ctx): Promise<boolean> => {
+    if (!(opts.requireAuth?.() ?? true)) return false
+    if (!opts.isTrustedRequester) return true
+    return !(await opts.isTrustedRequester(clientIp(c)))
+  }
+  const authorized = async (c: Ctx): Promise<boolean> =>
+    !!verifySessionToken(readBearer(c)) || !(await authRequiredFor(c))
+
+  app.get('/health', async (c) => c.json({
     ok: true,
     installationId: getInstallationId(),
     claimable: isClaimable(),
+    requireAuth: await authRequiredFor(c),
     name: hostname() || 'Solus Server',
+    os: hostOperatingSystem(),
   }))
 
   app.get('/endpoints', async (c) => c.json({ endpoints: await listReachableEndpoints(currentHost(), currentPort()) }))
 
   app.get('/oauth/google/callback', async (c) => {
     const result = await completeGoogleOAuthCallback(new URL(c.req.url).searchParams)
-    // status is a known 2xx/4xx/5xx literal from completeGoogleOAuthCallback.
-    return c.html(result.html, result.status as Parameters<Ctx['html']>[1])
+    return c.html(result.html, result.status)
   })
 
   app.post('/pair', async (c) => {
     if (!pairRateLimiter.allow(clientIp(c))) return c.json({ error: 'Too many pairing attempts' }, 429)
-    const body = await readJson(c)
+    const body = await readJson(c, pairRequestSchema)
     const pairToken = body?.pairToken ?? body?.code
-    const deviceLabel = (body?.deviceLabel as string | undefined)?.slice(0, 64) || 'Unknown device'
-    if (!pairToken || typeof pairToken !== 'string') {
+    const deviceLabel = body?.deviceLabel?.slice(0, 64) || 'Unknown device'
+    if (!pairToken) {
       return c.json({ error: 'pairToken or code required' }, 400)
     }
     if (!consumePairToken(pairToken)) {
@@ -123,16 +164,16 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
     }
     const { token: sessionToken } = issueSessionToken(deviceLabel)
     log.info('pair_session_issued', { deviceLabel })
-    return c.json({ sessionToken, installationId: getInstallationId() })
+    return c.json({ sessionToken, installationId: getInstallationId(), os: hostOperatingSystem() })
   })
 
   app.post('/claim', async (c) => {
     if (getOwnershipState() !== 'unclaimed') return c.json({ error: 'Server already claimed' }, 403)
     if (!claimRateLimiter.allow(clientIp(c))) return c.json({ error: 'Too many claim attempts' }, 429)
-    const body = await readJson(c)
+    const body = await readJson(c, claimRequestSchema)
     const claimToken = body?.claimToken ?? body?.code
-    const deviceLabel = (body?.deviceLabel as string | undefined)?.slice(0, 64) || 'Owner device'
-    if (!claimToken || typeof claimToken !== 'string') {
+    const deviceLabel = body?.deviceLabel?.slice(0, 64) || 'Owner device'
+    if (!claimToken) {
       return c.json({ error: 'claimToken or code required' }, 400)
     }
 
@@ -142,7 +183,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
     }
 
     log.info('server_claimed', { deviceLabel })
-    return c.json(result)
+    return c.json({ ...result, os: hostOperatingSystem() })
   })
 
   app.post('/claim/open', async (c) => {
@@ -160,7 +201,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
   })
 
   app.post('/upload', async (c) => {
-    if (!verifySessionToken(readBearer(c))) return c.json({ error: 'Unauthorized' }, 401)
+    if (!(await authorized(c))) return c.json({ error: 'Unauthorized' }, 401)
     try {
       const filePaths = await receiveMultipart(c.env.incoming)
       return c.json({ attachments: filePathsToAttachments(filePaths) })
@@ -171,7 +212,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
   })
 
   app.post('/voice/transcribe', async (c) => {
-    if (!verifySessionToken(readBearer(c))) return c.json({ error: 'Unauthorized', transcript: null }, 401)
+    if (!(await authorized(c))) return c.json({ error: 'Unauthorized', transcript: null }, 401)
     if (!opts.transcribeAudio) return c.json({ error: 'Voice transcription is unavailable', transcript: null }, 503)
 
     const declaredLength = Number(c.req.header('content-length') ?? 0)
@@ -204,7 +245,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
   })
 
   app.get('/artifact', async (c) => {
-    if (!verifySessionToken(readBearer(c))) return c.json({ error: 'Unauthorized' }, 401)
+    if (!(await authorized(c))) return c.json({ error: 'Unauthorized' }, 401)
     const rawPath = c.req.query('p')
     if (!rawPath || !isAbsolute(rawPath)) return c.json({ error: 'absolute path required' }, 400)
 
@@ -235,15 +276,16 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
     const start = range?.start ?? 0
     const end = range?.end ?? stat.size - 1
     const fileStream = createReadStream(filePath, range ? { start, end } : undefined)
-    return new Response(Readable.toWeb(fileStream) as ReadableStream, {
+    const headers = {
+      'content-type': type,
+      'content-length': String(range ? end - start + 1 : stat.size),
+      'accept-ranges': 'bytes',
+      'content-security-policy': "default-src 'none'; img-src data: *; style-src 'unsafe-inline'",
+    }
+    if (range) Object.assign(headers, { 'content-range': `bytes ${start}-${end}/${stat.size}` })
+    return new Response(Readable.toWeb(fileStream), {
       status: range ? 206 : 200,
-      headers: {
-        'content-type': type,
-        'content-length': String(range ? end - start + 1 : stat.size),
-        'accept-ranges': 'bytes',
-        ...(range ? { 'content-range': `bytes ${start}-${end}/${stat.size}` } : {}),
-        'content-security-policy': "default-src 'none'; img-src data: *; style-src 'unsafe-inline'",
-      },
+      headers,
     })
   })
 
@@ -272,10 +314,18 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
     return c.json({ sessionToken: refreshed, installationId: getInstallationId() })
   })
 
+  // The long-lived credential travels only in this header; the socket
+  // handshake takes the derived five-minute ticket instead.
+  app.post('/auth/ws-ticket', (c) => {
+    const ticket = issueWsTicket(readBearer(c))
+    if (!ticket) return c.json({ error: 'Unauthorized' }, 401)
+    return c.json({ ticket })
+  })
+
   app.post('/auth/revoke', async (c) => {
     if (!verifySessionToken(readBearer(c))) return c.json({ error: 'Unauthorized' }, 401)
-    const body = await readJson(c)
-    if (!body?.deviceId) return c.json({ error: 'deviceId required' }, 400)
+    const body = await readJson(c, revokeRequestSchema)
+    if (!body) return c.json({ error: 'deviceId required' }, 400)
     revokeDevice(body.deviceId)
     return c.json({ ok: true, revoked: listRevokedDevices() })
   })
@@ -288,7 +338,14 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
     // Registered after every dynamic/range route, so only the static fallback
     // reaches compression. Hono preserves streaming and skips 206 responses.
     app.use('*', compress())
+    app.use('*', setClientCacheHeaders)
     app.get('*', serveStatic({ root }))
+    // A file request that reached this point does not exist in the build. It
+    // must 404: answering a stale chunk with index.html makes the browser
+    // reject HTML as a module ("'text/html' is not a valid JavaScript MIME
+    // type") instead of reporting the chunk as gone, which hides an
+    // out-of-date tab behind an unrecoverable parse error.
+    app.get('*', (c, next) => (hasFileExtension(c.req.path) ? c.notFound() : next()))
     app.get('*', serveStatic({ root, path: 'index.html' }))
   }
 
@@ -296,9 +353,38 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
   return { server, host, port }
 }
 
-async function readJson(c: Ctx): Promise<any> {
+/** A request for a build file (`/assets/index-lLoEVyX3.js`), not a client route. */
+function hasFileExtension(path: string): boolean {
+  const lastSegment = path.slice(path.lastIndexOf('/') + 1)
+  return lastSegment.includes('.')
+}
+
+/**
+ * Vite content-hashes everything under /assets, so those files may be cached
+ * forever. Everything else — index.html above all — names those hashes and must
+ * be revalidated, or a reload keeps booting the previous build and asking for
+ * chunks the current one no longer contains.
+ *
+ * serveStatic's onFound runs after the response is built, so the header goes on
+ * the way out instead.
+ */
+const setClientCacheHeaders = async (c: Ctx, next: () => Promise<void>): Promise<void> => {
+  await next()
+  if (c.res.status !== 200 && c.res.status !== 206) return
+  c.res.headers.set(
+    'cache-control',
+    c.req.path.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache',
+  )
+}
+
+async function readJson<T>(c: Ctx, schema: z.ZodType<T>): Promise<T | null> {
   // c.req.json() throws on an empty/invalid body; callers expect null instead.
-  try { return await c.req.json() } catch { return null }
+  try {
+    const result = schema.safeParse(await c.req.json())
+    return result.success ? result.data : null
+  } catch {
+    return null
+  }
 }
 
 function readBearer(c: Ctx): string {
@@ -335,11 +421,6 @@ async function resolveKnownProjectFile(rawPath: string): Promise<string | null> 
   }
 
   return null
-}
-
-function isInsideRoot(root: string, target: string): boolean {
-  const rel = pathRelative(root, target)
-  return rel === '' || (!!rel && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
 }
 
 // Caps for the authenticated /upload endpoint. The server can bind to LAN/tailnet,

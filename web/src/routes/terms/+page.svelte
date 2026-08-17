@@ -1,5 +1,5 @@
 <svelte:head>
-	<title>Terms of Service — Solus</title>
+	<title>Terms of Service · Solus</title>
 	<meta name="description" content="Solus terms of service." />
 </svelte:head>
 
@@ -29,17 +29,9 @@
 	</h1>
 	<p class="text-[13px] text-[#A09488] mb-12">Last updated: March 28, 2026</p>
 
-	<div class="flex flex-col gap-10 text-base/7 sm:text-[15px] sm:leading-[1.75] text-[#6B6158]">
-		<section>
-			<h2 class="text-[18px] font-semibold text-[#1A1714] mb-3">Closed Beta</h2>
-			<p>
-				Solus is currently available as a closed beta. Access is granted by
-				invitation only. Redistribution, sublicensing, or sharing of beta builds
-				is not permitted. The software and its source code are proprietary and
-				not open source.
-			</p>
-		</section>
-
+	<div
+		class="flex flex-col gap-10 text-base/7 sm:text-[15px] sm:leading-[1.75] text-[#6B6158]"
+	>
 		<section>
 			<h2 class="text-[18px] font-semibold text-[#1A1714] mb-3">
 				Requirements
@@ -82,6 +74,5 @@
 				after changes constitutes acceptance of the updated terms.
 			</p>
 		</section>
-
 	</div>
 </main>

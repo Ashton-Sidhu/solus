@@ -1,39 +1,49 @@
-import { mount, unmount } from 'svelte'
+import { mount } from 'svelte'
 import '../../src/renderer/index.css'
-import ConnectFlow from './routes/ConnectFlow.svelte'
 import { TransportDisconnectedError, type ConnectionStatus, type WsTransport } from '@client-core/ws-transport'
 import { createSolusConnection, savedServerTarget } from '@client-core/server-connection'
 import { serverConnections } from '@client-core/server-connections'
 import { setConnectionState, subscribe } from '@client-core/connection-state'
 import { clearActiveServerId, getActiveServerId, loadServers, setActiveServerId, touchLastConnected, upsertServer, type SavedServer } from '@client-core/server-registry'
-import { createNoHostSolusApi } from '@client-core/no-host-api'
 import { defaultDeviceLabel, pairServer } from '@client-core/pairing'
-import { pairTokenFromLocation } from './lib/connect'
-import { setTabPersistenceServerInstallationId } from '@renderer/contexts/workspace/tab-persistence'
+import HostlessHome from './routes/HostlessHome.svelte'
+import { pairTokenFromLocation, probeServer } from './lib/connect'
 import { webState } from './lib/web-state.svelte'
 import { webPushState } from './lib/web-push.svelte'
 import { toasts } from '@renderer/lib/toasts'
 import { startScrollReveal } from '@renderer/lib/scroll-reveal'
 import WebToaster from './components/WebToaster.svelte'
-import type { LocalApi } from '@client-core/host-api'
 import { routeForPushClick, serverIdForInstallation, type PushClickPayload } from './lib/push-click'
+import { isStaleBuildError, reportStaleBuild } from './lib/stale-build'
+import { installWindowSolusApi } from '@client-core/native-api-overlay'
+import { z } from 'zod'
+
+const serviceWorkerMessageSchema = z.object({
+  type: z.string().optional(),
+  route: z.string().nullable().optional(),
+  sessionId: z.string().nullable().optional(),
+  installationId: z.string().nullable().optional(),
+  entryKey: z.string().nullable().optional(),
+})
 
 window.addEventListener('unhandledrejection', (event) => {
   if (event.reason instanceof TransportDisconnectedError) event.preventDefault()
+  else if (event.reason instanceof Error && isStaleBuildError(event.reason)) {
+    event.preventDefault()
+    reportStaleBuild()
+  }
+})
+
+// Vite's preload helper reports a chunk it could not fetch here; without a
+// listener it rethrows, and the surface that asked for the chunk stays blank.
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault()
+  reportStaleBuild()
 })
 
 window.addEventListener('solus:open-server-connect', () => webState.openServerSetup())
 
 startScrollReveal()
-
-/** One-shot boot flag: land in the host chooser instead of auto-connecting. */
-const CHOOSE_HOST_KEY = 'solus.chooseHostOnBoot'
-
-// The connect screen is app shell, not a workspace location — it exists before
-// the workspace (and its router) does. It marks the address bar so a refresh
-// mid-pairing lands back here; the workspace router takes the hash over from
-// `bindAddressBar` once a host is chosen.
-const CONNECT_HASH = '#/connect'
 
 let pendingNotificationRoute = consumeColdNotificationRoute()
 
@@ -52,22 +62,13 @@ function consumeColdNotificationRoute(): string | null {
   return routeForPushClick(payload, loadServers())
 }
 
-function markConnectScreen(): void {
-  if (location.hash !== CONNECT_HASH) history.replaceState(null, '', CONNECT_HASH)
-}
-
-function leaveConnectScreen(): void {
-  if (location.hash === CONNECT_HASH) history.replaceState(null, '', location.pathname + location.search)
-}
-
 const root = document.getElementById('root')!
 mount(WebToaster, { target: root })
 
 subscribe(({ status, attempt }) => webState.setConnectionStatus(status, attempt))
 
 let activeTransport: WsTransport | null = null
-let connectFlowApp: Record<string, any> | null = null
-let solusApp: Record<string, any> | null = null
+let solusApp: ReturnType<typeof mount> | null = null
 let serviceWorkerBridgeInstalled = false
 let connectionGeneration = 0
 let workspaceAppImport: Promise<typeof import('./App.svelte')> | null = null
@@ -87,7 +88,9 @@ function installServiceWorkerMessageBridge(): void {
   if (serviceWorkerBridgeInstalled || !('serviceWorker' in navigator)) return
   serviceWorkerBridgeInstalled = true
   navigator.serviceWorker.addEventListener('message', (event) => {
-    const data = event.data as (PushClickPayload & { type?: string }) | undefined
+    const parsed = serviceWorkerMessageSchema.safeParse(event.data)
+    if (!parsed.success) return
+    const data = parsed.data
     if (data?.type === 'solus:push-received') {
       const serverId = serverIdForInstallation(data.installationId, loadServers())
       if (serverId && data.entryKey) {
@@ -109,49 +112,21 @@ function installServiceWorkerMessageBridge(): void {
 function installLogoutListener(): void {
   if (logoutListener) document.removeEventListener('solus:logout', logoutListener)
   logoutListener = () => {
+    // The client is host-agnostic (dispatch-client step 4): "switch server"
+    // is a catalog action inside the workspace, never a reload. The forgotten
+    // preference only stops the next boot from favouring this host.
     clearActiveServerId()
-    // One-shot: without it the single-saved-server fallback below reconnects
-    // to the host the user just left (or to a credential that was rejected).
-    sessionStorage.setItem(CHOOSE_HOST_KEY, '1')
-    location.reload()
+    webState.openServerSetup()
   }
-  document.addEventListener('solus:logout', logoutListener, { once: true })
+  document.addEventListener('solus:logout', logoutListener)
 }
 
-function clearLogoutListener(): void {
-  if (!logoutListener) return
-  document.removeEventListener('solus:logout', logoutListener)
-  logoutListener = null
-}
-
-function showConnectFlow(options: { initialAddress?: string } = {}): void {
-  connectionGeneration += 1
-  clearLogoutListener()
-  toasts.dismiss()
-  if (solusApp) { unmount(solusApp); solusApp = null }
-  if (connectFlowApp) { unmount(connectFlowApp); connectFlowApp = null }
-  if (activeTransport) { activeTransport.destroy(); activeTransport = null }
-  Reflect.deleteProperty(window, 'solus')
-
-  webState.setConnectedServer(null)
-  setConnectionState({ status: 'disconnected', attempt: 0 })
-  markConnectScreen()
-
-  connectFlowApp = mount(ConnectFlow, {
-    target: root,
-    props: {
-      onConnect: (server: SavedServer) => connectToServer(server),
-      initialAddress: options.initialAddress,
-    },
-  })
-}
-
-async function connectToServer(server: SavedServer): Promise<void> {
+async function connectToServer(
+  server: SavedServer,
+  options: { onPreMountAuthFailure?: () => void } = {},
+): Promise<void> {
   const generation = ++connectionGeneration
   toasts.dismiss()
-  setTabPersistenceServerInstallationId(server.installationId ?? server.id, {
-    migrateLegacy: loadServers().length <= 1,
-  })
 
   const target = savedServerTarget(server)
   const { transport, api } = createSolusConnection(target, {
@@ -163,65 +138,60 @@ async function connectToServer(server: SavedServer): Promise<void> {
       setConnectionState({ status, attempt, target })
     },
     onAuthFailed: () => {
-      if (generation === connectionGeneration && !solusApp) showConnectFlow()
+      // Post-mount, a rejected credential is that host's blocked row — the
+      // workspace stands. Pre-mount, the boot sequence moves to the next
+      // catalog candidate instead of rebooting into a picker.
+      if (generation === connectionGeneration && !solusApp) options.onPreMountAuthFailure?.()
     },
   })
 
-  window.solus = api as unknown as LocalApi
+  installWindowSolusApi(api)
   serverConnections.registerPrimary(server.id, api, transport, target)
   activeTransport = transport
   webPushState.init()
   installServiceWorkerMessageBridge()
   transport.start()
+  // Every saved host is eagerly desired, not only the one this boot chose.
+  serverConnections.startCatalogSupervisors()
   touchLastConnected(server.id)
   // Remember the choice so a refresh and the servers directory both resume here.
   setActiveServerId(server.id)
 
   webState.setConnectedServer(server)
-  leaveConnectScreen()
   if (pendingNotificationRoute) {
     location.hash = pendingNotificationRoute
     pendingNotificationRoute = null
   }
 
   try {
-    // Keep the multi-megabyte workspace graph out of the unpaired connection
-    // screen. Pairing and reconnect plumbing remain in the small entry chunk;
-    // the shared desktop/mobile workspace loads only once a host is selected.
+    // Pairing and reconnect plumbing live in the small entry chunk; the
+    // multi-megabyte shared workspace graph loads lazily behind it.
     const { default: App } = await loadWorkspaceApp()
     if (generation !== connectionGeneration || activeTransport !== transport) {
       transport.destroy()
       return
     }
-    if (connectFlowApp) { unmount(connectFlowApp); connectFlowApp = null }
     solusApp = mount(App, { target: root })
     installLogoutListener()
   } catch (error) {
     if (generation !== connectionGeneration) return
-    showConnectFlow()
-    toasts.error(error instanceof Error ? error.message : 'Workspace failed to load')
+    if (error instanceof Error && isStaleBuildError(error)) reportStaleBuild()
+    else toasts.error(error instanceof Error ? error.message : 'Workspace failed to load')
   }
 }
 
-async function bootWithoutServer(): Promise<void> {
-  const generation = ++connectionGeneration
+/**
+ * No host yet: the workspace's founding invariant is that a primary host is
+ * connected before it mounts, so this path never loads it. The hostless home
+ * lives in the entry chunk and hands off through activateServer(), which
+ * reloads into the connect path above.
+ */
+function bootHostlessHome(): void {
+  connectionGeneration += 1
   toasts.dismiss()
-  window.solus = createNoHostSolusApi() as unknown as LocalApi
   webState.setConnectedServer(null)
   setConnectionState({ status: 'disconnected', attempt: 0 })
-  leaveConnectScreen()
-
-  try {
-    const { default: App } = await loadWorkspaceApp()
-    if (generation !== connectionGeneration) return
-    if (connectFlowApp) { unmount(connectFlowApp); connectFlowApp = null }
-    solusApp = mount(App, { target: root })
-    installLogoutListener()
-    webState.openServerSetup()
-  } catch (error) {
-    if (generation !== connectionGeneration) return
-    toasts.error(error instanceof Error ? error.message : 'Workspace failed to load')
-  }
+  mount(HostlessHome, { target: root })
 }
 
 function resolveActiveSavedServer(servers: SavedServer[]): SavedServer | null {
@@ -252,38 +222,81 @@ async function pairFromLocation(pairToken: string): Promise<void> {
     setActiveServerId(server.id)
     await connectToServer(server)
   } catch (err) {
-    showConnectFlow()
+    bootHostlessHome()
     toasts.error(err instanceof Error ? err.message : String(err))
   }
 }
 
+/**
+ * The serving origin's platform-managed catalog entry (dispatch-client step
+ * 4): every Solus server serves this client, and when that server takes this
+ * requester without auth (loopback, the host's own tailnet, or a trusted
+ * proxy such as `tailscale serve`) it joins the catalog for this boot — one
+ * host among several, auto-registered, never persisted, conferring nothing.
+ */
+async function servingOriginEntry(): Promise<SavedServer | null> {
+  const health = await probeServer(location.origin)
+  if (!health.ok || health.requireAuth !== false || !health.installationId) return null
+  return {
+    id: health.installationId,
+    url: location.origin,
+    sessionToken: '',
+    installationId: health.installationId,
+    label: health.name || 'This computer',
+    os: health.os,
+    lastConnected: Date.now(),
+  }
+}
+
+/**
+ * Catalog-driven boot: no winner-picking. The workspace mounts whenever the
+ * catalog holds any host; the hostless home means the catalog is empty. The
+ * boot connection order is a client preference (last chosen first), and a
+ * candidate whose credential is rejected before mount simply yields to the
+ * next — never a reload, never a forced picker.
+ */
+async function bootFromCatalog(): Promise<void> {
+  // The workspace loads on any success — overlap the import with the probe.
+  void loadWorkspaceApp().catch(() => {})
+  const servers = loadServers()
+  const origin = await servingOriginEntry()
+  const activeServer = resolveActiveSavedServer(servers)
+  const candidates: SavedServer[] = []
+  if (activeServer) candidates.push(activeServer)
+  candidates.push(...servers.filter((server) => server.id !== activeServer?.id))
+  const originAlreadySaved = origin
+    && servers.some((server) =>
+      server.id === origin.id
+      || (!!server.installationId && server.installationId === origin.installationId))
+  if (origin && !originAlreadySaved) candidates.push(origin)
+
+  if (candidates.length === 0) {
+    bootHostlessHome()
+    return
+  }
+  const tryCandidate = (index: number): void => {
+    const candidate = candidates[index]
+    if (!candidate) {
+      bootHostlessHome()
+      toasts.error('No saved host accepted its credential — re-pair to continue')
+      return
+    }
+    void connectToServer(candidate, {
+      onPreMountAuthFailure: () => tryCandidate(index + 1),
+    })
+  }
+  tryCandidate(0)
+}
+
 const bootPairToken = pairTokenFromLocation(location.href)
-const servers = loadServers()
-const activeServer = resolveActiveSavedServer(servers)
-const hash = location.hash
-const chooseHostRequested = sessionStorage.getItem(CHOOSE_HOST_KEY) === '1'
-sessionStorage.removeItem(CHOOSE_HOST_KEY)
 
 if (bootPairToken) {
   void pairFromLocation(bootPairToken)
 } else if (location.pathname === '/claim') {
-  // A fresh server's claim link: the address is our own origin; the user still
-  // types the 6-digit code the server printed.
+  // A fresh server's claim link: the hostless home offers the serving origin;
+  // the user still types the 6-digit code the server printed.
   history.replaceState({}, '', '/')
-  showConnectFlow({ initialAddress: location.origin })
-} else if (hash.startsWith('#/connect')) {
-  showConnectFlow()
-} else if (chooseHostRequested) {
-  // "Switch server" landed here on purpose — offer the host chooser instead of
-  // auto-reconnecting to whatever single host happens to be saved.
-  void bootWithoutServer()
-} else if (activeServer) {
-  void connectToServer(activeServer)
-} else if (servers.length === 1) {
-  void connectToServer(servers[0])
-} else if (servers.length === 0 && import.meta.env.DEV) {
-  // Dev server is at our origin; connect directly — no pairing needed since requireAuth defaults to false.
-  void connectToServer({ id: 'local', url: window.location.origin, sessionToken: '', label: 'Local browser', lastConnected: Date.now() })
+  bootHostlessHome()
 } else {
-  void bootWithoutServer()
+  void bootFromCatalog()
 }

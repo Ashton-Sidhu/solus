@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getWorkspaceContext, getWindowContext } from "../../contexts";
+  import { getWorkspaceContext } from "../../contexts";
   import EditorInputCard from "../input/EditorInputCard.svelte";
   import WorkspaceBody from "./WorkspaceBody.svelte";
   import {
@@ -16,7 +16,6 @@
   let { active = true, onAttachFile, onScreenshot, onDesignMode }: Props = $props();
 
   const session = getWorkspaceContext();
-  const windowCtx = getWindowContext();
   const router = session.router;
 
   let prevActiveTabId: string | undefined;
@@ -39,13 +38,7 @@
 
   $effect(() => {
     const handler = (e: Event) => {
-      const detail = (
-        e as CustomEvent<{
-          tabId?: string;
-          scope?: DiffScope;
-          switchScope?: boolean;
-        }>
-      ).detail;
+      const detail = e instanceof CustomEvent ? e.detail : undefined;
       const targetTabId =
         detail?.tabId ?? session.focusedChatTabId ?? session.activeTabId;
       session.toggleDiff(
@@ -60,7 +53,7 @@
 
   $effect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent<FilePreviewRequest>).detail;
+      const detail = e instanceof CustomEvent ? e.detail : undefined;
       if (!detail?.path) return;
       const sourceTabId =
         detail.tabId ?? session.focusedChatTabId ?? session.activeTabId;
@@ -72,12 +65,6 @@
 </script>
 
 <div class="editor-shell flex flex-col h-full w-full overflow-hidden">
-  {#if windowCtx.isMac}
-    <!-- Native drag strip under the hiddenInset traffic lights; also gives the
-         standard double-click-to-zoom behavior without pushing the editor
-         chrome below the titlebar area. -->
-    <div class="titlebar-drag-zone drag-region" aria-hidden="true"></div>
-  {/if}
   <div class="flex flex-1 min-h-0">
     <WorkspaceBody
       {active}
@@ -102,13 +89,5 @@
   .editor-shell {
     position: relative;
     background: var(--solus-container-bg);
-  }
-  .titlebar-drag-zone {
-    position: absolute;
-    top: 0;
-    left: 0;
-    z-index: 30;
-    width: var(--solus-traffic-light-inset);
-    height: var(--solus-titlebar-height);
   }
 </style>

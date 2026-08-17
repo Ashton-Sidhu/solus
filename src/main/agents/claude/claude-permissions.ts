@@ -1,4 +1,5 @@
 import { createLogger } from '../../logger'
+import { z } from 'zod'
 import type { NormalizedEvent, PermissionOption, PermissionToolInput } from '../../../shared/types'
 
 const log = createLogger('Permissions', 'permissions.ts')
@@ -38,8 +39,19 @@ const SENSITIVE_FIELD_RE = /token|password|secret|key|auth|credential|api.?key/i
 const VALID_ALLOW_DECISIONS = new Set(['allow', 'allow-session', 'allow-domain'])
 const VALID_DECISIONS = new Set([...VALID_ALLOW_DECISIONS, 'deny'])
 
-export function isSafeBashCommand(command: unknown): boolean {
-  if (typeof command !== 'string') return false
+const permissionToolInputSchema = z.object({
+  command: z.json().optional(),
+  cwd: z.json().optional(),
+  description: z.json().optional(),
+  plan: z.json().optional(),
+  planFilePath: z.json().optional(),
+  url: z.json().optional(),
+  old_string: z.json().optional(),
+  new_string: z.json().optional(),
+  changes: z.json().optional(),
+})
+
+export function isSafeBashCommand(command: string): boolean {
   const trimmed = command.trim()
   if (!trimmed) return false
 
@@ -84,26 +96,18 @@ export function isSafeBashCommand(command: unknown): boolean {
   return true
 }
 
-function extractDomain(url: unknown): string | null {
-  if (typeof url !== 'string') return null
+function extractDomain(url: string): string | null {
   try { return new URL(url).hostname } catch { return null }
 }
 
-export function maskSensitiveFields(input: object): PermissionToolInput {
-  return Object.fromEntries(Object.entries(input).map(([key, value]) => {
-    if (SENSITIVE_FIELD_RE.test(key)) return [key, '***']
-    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-      return [key, maskSensitiveFields(value)]
-    }
-    if (Array.isArray(value)) {
-      return [key, value.map(item =>
-        item !== null && typeof item === 'object' && !Array.isArray(item)
-          ? maskSensitiveFields(item)
-          : item
-      )]
-    }
-    return [key, value]
-  }))
+export function maskSensitiveFields(input: PermissionToolInput): PermissionToolInput {
+  const parsed = permissionToolInputSchema.safeParse(input)
+  if (!parsed.success) return {}
+
+  const maskedJson = JSON.stringify(parsed.data, (key, value) =>
+    SENSITIVE_FIELD_RE.test(key) ? '***' : value)
+  const masked = permissionToolInputSchema.safeParse(JSON.parse(maskedJson))
+  return masked.success ? masked.data : {}
 }
 
 function getOptionsForTool(toolName: string): PermissionOption[] {
@@ -175,7 +179,7 @@ export class PermissionManager {
       // ExitPlanMode always requires user review — the plan is in input.plan/planFilePath.
       if (toolName === 'ExitPlanMode') {
         const questionId = `perm-${crypto.randomUUID()}`
-        const planContent = typeof input?.plan === 'string' ? input.plan : ''
+        const planContent = z.string().catch('').parse(input?.plan)
         if (planContent.trim()) {
           const planEvent: NormalizedEvent = {
             type: 'plan',
@@ -250,14 +254,16 @@ export class PermissionManager {
       }
 
       if (toolName === 'WebFetch' && effectiveSessionId) {
-        const domain = extractDomain(input?.url)
+        const parsedUrl = z.string().safeParse(input?.url)
+        const domain = parsedUrl.success ? extractDomain(parsedUrl.data) : null
         if (domain && this.scopedAllows.has(`session:${effectiveSessionId}:webfetch:${domain}`)) {
           log.debug('auto_allow_webfetch_domain', { domain, sessionId: effectiveSessionId })
           return { behavior: 'allow', updatedInput: input }
         }
       }
 
-      if (toolName === 'Bash' && isSafeBashCommand(input?.command)) {
+      const parsedCommand = z.string().safeParse(input?.command)
+      if (toolName === 'Bash' && parsedCommand.success && isSafeBashCommand(parsedCommand.data)) {
         log.debug('auto_allow_safe_bash', { command: String(input?.command) })
         return { behavior: 'allow', updatedInput: input }
       }

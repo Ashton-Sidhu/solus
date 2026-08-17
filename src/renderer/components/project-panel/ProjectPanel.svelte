@@ -9,19 +9,17 @@
     serversStore,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
+  import { isProjectRailOpen, projectRailWidth } from "./lib/rail-width";
   import {
-    isProjectRailOpen,
-    PROJECT_RAIL_MAX_WIDTH,
-    PROJECT_RAIL_MIN_WIDTH,
-    projectRailWidth,
-  } from "./lib/rail-width";
+    SIDEBAR_MAX_WIDTH,
+    SIDEBAR_MIN_WIDTH,
+  } from "../layout/lib/workspace-body";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import {
     ArrowsClockwiseIcon,
     CheckIcon,
-    ClockIcon,
     PlusIcon,
     SidebarSimpleIcon,
     WarningCircleIcon,
@@ -32,6 +30,7 @@
   import GoalSection from "./GoalSection.svelte";
   import EnvironmentSection from "./EnvironmentSection.svelte";
   import GitSection from "./GitSection.svelte";
+  import GitSetupSection from "./GitSetupSection.svelte";
   import TaskSection from "./TaskSection.svelte";
   import AutomationsSection from "./AutomationsSection.svelte";
   import {
@@ -55,8 +54,13 @@
      *  sections are collapsed — is stored per role, so adjusting the split
      *  chat's rail never moves the leading one's. */
     isSplit?: boolean;
-    /** Width of the hosting conversation view; the rail scales against it. */
+    /** Width of the hosting conversation view. Decides whether there is room for
+     *  the rail at all, and caps it in a split too narrow to give the full
+     *  width away. */
     containerWidth: number;
+    /** Width of the whole workspace body — the same measure the session sidebar
+     *  sizes against, so the two rails match. */
+    workspaceWidth: number;
     /** Temporarily minimize without changing the role's persisted preference. */
     minimized?: boolean;
     /** False while the owning Editor/web surface is mounted but hidden. */
@@ -69,6 +73,7 @@
     sourceId,
     isSplit = false,
     containerWidth,
+    workspaceWidth,
     minimized = false,
     active = true,
     onCollapse,
@@ -109,9 +114,7 @@
   const panelSession = $derived(session.sessionFor(sourceId));
   const panelRun = $derived(session.runFor(sourceId));
   const panelServerId = $derived(
-    panelRun?.serverId
-      ? serverConnections.resolveId(panelRun.serverId)
-      : serverConnections.connectionFor()?.serverId ?? null,
+    panelRun?.serverId ? serverConnections.resolveId(panelRun.serverId) : null,
   );
   const panelEnvironment = $derived(environmentStore.environmentFor(panelRun));
 
@@ -152,7 +155,7 @@
   const automationScopeRoots = $derived(
     isUnconfiguredCwd(gitCwd)
       ? []
-      : ([...new Set([gitCwd, cwd].filter(Boolean))] as string[]),
+      : [...new Set([gitCwd, cwd].filter((root): root is string => !!root))],
   );
   // A glanceable status board, not the full catalog: only automations that need
   // attention right now (running, failed, pinned, soonest-scheduled) surface here.
@@ -201,7 +204,8 @@
   useKeybinding(
     "orb.sync",
     () => {
-      if (gitCtx) void gitActionsFor(sourceId, session, environmentStore).sync();
+      if (gitCtx)
+        void gitActionsFor(sourceId, session, environmentStore).sync();
     },
     { enabled: () => focused },
   );
@@ -209,7 +213,9 @@
     "orb.commit-push",
     () => {
       if (gitCtx)
-        void gitActionsFor(sourceId, session, environmentStore).commitPush();
+        void gitActionsFor(sourceId, session, environmentStore).run(
+          "commit_push",
+        );
     },
     { enabled: () => focused },
   );
@@ -226,13 +232,11 @@
   function completeTask() {
     const task = panelTask;
     if (!task) return;
-    void session.tasksStore
-      .setStatus(task.id, "done")
-      .catch((err) =>
-        toasts.error(
-          `Couldn't complete the task: ${err instanceof Error ? err.message : String(err)}`,
-        ),
-      );
+    void session.tasksStore.setStatus(task.id, "done").catch((err) =>
+      toasts.error("Couldn't complete the task", {
+        description: err instanceof Error ? err.message : String(err),
+      }),
+    );
     requestInputFocus();
   }
 
@@ -284,11 +288,13 @@
     <!-- Read-only: the host is chosen before the session starts and locked
          after, so the chip states a fact rather than offering a picker. -->
     <span
-      class="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--solus-text-primary)_6%,transparent)] px-1.5 py-0.5 text-xs font-medium tracking-normal text-(--solus-text-secondary) normal-case dark:bg-[color-mix(in_srgb,var(--solus-text-primary)_10%,transparent)]"
+      class="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--solus-text-primary)_6%,transparent)] px-1.5 py-0.5 text-menu-meta font-medium tracking-normal text-(--solus-text-secondary) normal-case dark:bg-[color-mix(in_srgb,var(--solus-text-primary)_10%,transparent)]"
       title={remoteHostAffinity.tooltip}
     >
       <HostIcon size={11} class={remoteHostAffinity.className} />
-      <span class="max-w-24 truncate">{remoteHost.label}</span>
+      <span class="max-w-24 truncate @max-[15rem]:max-w-16"
+        >{remoteHost.label}</span
+      >
     </span>
   {/if}
 {/snippet}
@@ -349,7 +355,7 @@
        Snooze follow it as glyphs, then the section's own disclosure caret. -->
   <span class="header-extra">
     <button
-      class="cursor-pointer font-mono text-xs underline decoration-[color-mix(in_oklch,var(--foreground)_22%,transparent)] underline-offset-[3px] opacity-85 transition-colors hover:text-(--solus-text-primary) hover:opacity-100"
+      class="cursor-pointer font-mono text-menu-meta underline decoration-[color-mix(in_oklch,var(--foreground)_22%,transparent)] underline-offset-[3px] opacity-85 transition-colors hover:text-(--solus-text-primary) hover:opacity-100"
       type="button"
       title={panelTask ? taskRefTooltip(panelTask) : "Open task page"}
       onclick={(e) => {
@@ -372,18 +378,6 @@
       }}
     >
       <CheckIcon size={12} />
-    </button>
-    <!-- Snooze has no behaviour behind it yet — the same placeholder the
-         sidebar's task row keeps, so the header geometry is not re-tuned the
-         day tasks can be snoozed. -->
-    <button
-      class="tiny-icon"
-      type="button"
-      title="Snooze"
-      aria-label="Snooze task"
-      onclick={(e) => e.stopPropagation()}
-    >
-      <ClockIcon size={12} />
     </button>
   </span>
 {/snippet}
@@ -410,9 +404,9 @@
   side="right"
   {open}
   flush
-  width={projectRailWidth(containerWidth)}
-  minWidth={PROJECT_RAIL_MIN_WIDTH}
-  maxWidth={PROJECT_RAIL_MAX_WIDTH}
+  width={projectRailWidth(workspaceWidth, containerWidth)}
+  minWidth={SIDEBAR_MIN_WIDTH}
+  maxWidth={SIDEBAR_MAX_WIDTH}
   background="var(--solus-container-bg)"
 >
   <div
@@ -422,6 +416,7 @@
   >
     <PanelSection
       title="Environment"
+      titlebar
       collapsed={collapsedSections.environment}
       onToggle={() => toggleSection("environment")}
       headerBadge={environmentHeaderBadge}
@@ -440,6 +435,17 @@
         onToggle={() => toggleSection("git")}
       >
         <GitSection {sourceId} />
+        <GitSetupSection {sourceId} />
+      </PanelSection>
+    {:else if !isUnconfiguredCwd(gitCwd)}
+      <!-- No repository yet — the Environment section above already names the
+           folder; this card is only the way in. -->
+      <PanelSection
+        title="Git"
+        collapsed={collapsedSections.git}
+        onToggle={() => toggleSection("git")}
+      >
+        <GitSetupSection {sourceId} />
       </PanelSection>
     {/if}
     <!-- The section exists only while a goal is set. It owns its own card
@@ -466,6 +472,7 @@
           task={panelTask}
           projectCwd={panelTask.projectKey ?? cwd}
           currentSessionId={panelSession?.agentSessionId ?? null}
+          active={active && open}
         />
       </PanelSection>
     {/if}
@@ -501,6 +508,15 @@
     overflow-y: auto;
     overscroll-behavior-y: contain;
     scrollbar-gutter: stable;
+  }
+
+  /* At the rail's narrow laptop measure the fixed gutter is a large share of
+     the column, so the cards give chrome back to their content. */
+  @container (max-width: 15rem) {
+    .project-sections {
+      gap: 0.375rem;
+      padding: 0.375rem;
+    }
   }
 
   .tiny-icon {

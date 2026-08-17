@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { z } from 'zod'
 import type { ProjectConfig } from '../../shared/types'
 import { worktreeProjectRoot } from '../../shared/types'
 import { getDb } from '../db'
@@ -6,9 +7,19 @@ import { git } from '../git/exec'
 
 const keyByCwd = new Map<string, string>()
 
-interface ProjectConfigRow {
-  config: string
-}
+const projectConfigRowSchema = z.object({ config: z.string() })
+
+const projectConfigInputSchema = z.object({
+  taskProvider: z.enum(['github', 'local']).optional(),
+  taskProviderConfig: z.object({
+    owner: z.string().optional(),
+    repo: z.string().optional(),
+  }).optional(),
+  tasksAutoPushComments: z.boolean().optional(),
+  taskDoneOnMerge: z.boolean().optional(),
+})
+
+type ProjectConfigInput = z.infer<typeof projectConfigInputSchema>
 
 /**
  * Stable key for a project, used to co-locate per-project data on disk.
@@ -33,45 +44,40 @@ export function resolveProjectKey(cwd: string): string {
   return key
 }
 
-const TASK_PROVIDERS = new Set(['github', 'local'])
-
-function normalizeConfig(value: unknown): ProjectConfig | null {
-  if (!value || typeof value !== 'object') return null
-  const raw = value as {
-    version?: unknown
-    taskProvider?: unknown
-    taskProviderConfig?: unknown
-    tasksAutoPushComments?: unknown
-    taskDoneOnMerge?: unknown
-  }
+function normalizeConfig(raw: ProjectConfigInput): ProjectConfig {
   const config: ProjectConfig = { version: 1 }
-  if (typeof raw.taskProvider === 'string' && TASK_PROVIDERS.has(raw.taskProvider)) {
-    config.taskProvider = raw.taskProvider as ProjectConfig['taskProvider']
+  if (raw.taskProvider !== undefined) {
+    config.taskProvider = raw.taskProvider
   }
-  if (raw.taskProviderConfig && typeof raw.taskProviderConfig === 'object') {
-    const scope = raw.taskProviderConfig as { owner?: unknown; repo?: unknown }
-    const owner = typeof scope.owner === 'string' ? scope.owner : undefined
-    const repo = typeof scope.repo === 'string' ? scope.repo : undefined
-    if (owner || repo) config.taskProviderConfig = { owner, repo }
+  if (raw.taskProviderConfig?.owner || raw.taskProviderConfig?.repo) {
+    config.taskProviderConfig = {}
+    if (raw.taskProviderConfig.owner !== undefined) {
+      config.taskProviderConfig.owner = raw.taskProviderConfig.owner
+    }
+    if (raw.taskProviderConfig.repo !== undefined) {
+      config.taskProviderConfig.repo = raw.taskProviderConfig.repo
+    }
   }
-  if (typeof raw.tasksAutoPushComments === 'boolean') {
+  if (raw.tasksAutoPushComments !== undefined) {
     config.tasksAutoPushComments = raw.tasksAutoPushComments
   }
-  if (typeof raw.taskDoneOnMerge === 'boolean') {
+  if (raw.taskDoneOnMerge !== undefined) {
     config.taskDoneOnMerge = raw.taskDoneOnMerge
   }
   return config
 }
 
 export async function loadProjectConfig(cwd: string): Promise<ProjectConfig | null> {
-  const row = getDb().prepare(
+  const rowResult = projectConfigRowSchema.safeParse(getDb().prepare(
     'SELECT config FROM project_config WHERE project_key = ?',
-  ).get(resolveProjectKey(cwd)) as ProjectConfigRow | undefined
-  return row ? normalizeConfig(JSON.parse(row.config)) : null
+  ).get(resolveProjectKey(cwd)))
+  if (!rowResult.success) return null
+  const configResult = projectConfigInputSchema.safeParse(JSON.parse(rowResult.data.config))
+  return configResult.success ? normalizeConfig(configResult.data) : null
 }
 
 export async function saveProjectConfig(cwd: string, config: ProjectConfig): Promise<ProjectConfig> {
-  const normalized = normalizeConfig(config) ?? { version: 1 }
+  const normalized = normalizeConfig(projectConfigInputSchema.parse(config))
   getDb().prepare(`
     INSERT INTO project_config (project_key, config, updated_at)
     VALUES (?, ?, ?)

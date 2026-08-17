@@ -27,6 +27,7 @@
     type ReviewModeView,
   } from "./lib/review-mode-model";
   import { HOLD_MS } from "./lib/review-session-core";
+  import type { ReviewQueueItem } from "./lib/review-queue-order";
 
   const session = getWorkspaceContext();
   const store = reviewSessionStore;
@@ -54,11 +55,12 @@
   let postingContext = $state<IpcContext | null>(null);
   let viewer = $state<string | null>(null);
 
-  const reviewServerId = $derived(
-    session.prsStore.reviewModeServerId ??
-      serverConnections.serverIdForApi(serverConnections.primaryApi()),
+  // Review mode is entered through `beginReviewMode`, which always names the
+  // host its queue was built on; a mount without that stamp has nothing to review.
+  const reviewServerId = $derived(session.prsStore.reviewModeServerId);
+  const reviewApi = $derived(
+    reviewServerId ? serverConnections.apiFor(reviewServerId) : null,
   );
-  const reviewApi = $derived(serverConnections.apiFor(reviewServerId));
 
   const state = $derived(store.state);
   const currentEntry = $derived(store.currentEntry);
@@ -93,6 +95,7 @@
   }
 
   async function prepare(number: number): Promise<void> {
+    if (!reviewServerId) return;
     if (prepared.has(number) || preparing.has(number)) return;
     preparing.add(number);
     prepareErrors.delete(number);
@@ -216,8 +219,8 @@
   }
 
   function isEditableTarget(target: EventTarget | null): boolean {
-    const element = target as HTMLElement | null;
-    return !!element?.closest("input, textarea, select, [contenteditable='true']");
+    return target instanceof Element
+      && !!target.closest("input, textarea, select, [contenteditable='true']");
   }
 
   function onWindowKeydown(event: KeyboardEvent): void {
@@ -278,37 +281,42 @@
   }
 
   onMount(() => {
+    // Snapshotted for the mount's closures: the stamp never moves while the
+    // queue is open, and the narrowed locals keep every callback host-typed.
+    const api = reviewApi;
+    const serverId = reviewServerId;
+    if (!api || !serverId) return;
     const launchNumbers = [...session.prsStore.reviewModeNumbers];
     items = launchNumbers.map((number) => {
       const item = findSummary(number);
-      return item
-        ? { number, title: item.title, author: item.author, ...(item.effort ? { effort: item.effort } : {}) }
-        : { number, title: `Pull request #${number}`, author: "Unknown" };
+      if (!item) return { number, title: `Pull request #${number}`, author: "Unknown" };
+      const queueItem: ReviewModeQueueItem = { number, title: item.title, author: item.author };
+      if (item.effort) queueItem.effort = item.effort;
+      return queueItem;
     });
-    postingContext = JSON.parse(
-      JSON.stringify(session.prsStore.reviewModeContext ?? session.ctx),
-    ) as IpcContext;
+    postingContext = structuredClone(session.prsStore.reviewModeContext ?? session.ctx);
     const context = postingContext;
     let cancelled = false;
-    void session.prsStore.loadViewer(reviewApi, reviewServerId, context).then((login) => {
+    void session.prsStore.loadViewer(api, serverId, context).then((login) => {
       if (!cancelled) viewer = login;
     }).catch(() => {});
 
-    void session.stacksStore.load(reviewApi, reviewServerId, context)
-      .catch(() => session.stacksStore.graphFor(reviewServerId, context.session.projectPath))
+    void session.stacksStore.load(api, serverId, context)
+      .catch(() => session.stacksStore.graphFor(serverId, context.session.projectPath))
       .then((stackGraph) => {
       if (cancelled) return;
       const basePoster = createReviewDispositionPoster({
         getContext: () => context,
         getReview: (number) => prepared.get(number)?.pr ?? null,
         submit: (ctx, number, review) =>
-          reviewApi.prSubmitReview(ctx, number, review),
+          api.prSubmitReview(ctx, number, review),
       });
       store.start({
-        items: items.map((item) => ({
-          number: item.number,
-          ...(item.effort ? { effort: item.effort } : {}),
-        })),
+        items: items.map((item) => {
+          const queueItem: ReviewQueueItem = { number: item.number };
+          if (item.effort) queueItem.effort = item.effort;
+          return queueItem;
+        }),
         stackGraph,
         minutesFor: (number) => findSummary(number)?.effort?.minutes
           ?? items.find((item) => item.number === number)?.effort?.minutes,
@@ -318,7 +326,9 @@
               await basePoster.post(disposition);
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
-              toasts.error(`Couldn't post review for #${disposition.prNumber}: ${message}`);
+              toasts.error(`Couldn't post review for #${disposition.prNumber}`, {
+                description: message,
+              });
               throw error;
             }
           },
@@ -349,7 +359,7 @@
 <svelte:window onkeydown={onWindowKeydown} />
 
 <section class="flex h-full min-h-0 flex-col bg-(--solus-container-bg) antialiased" aria-label="Review mode">
-  <header class="flex h-(--solus-chrome-row-h) shrink-0 items-center gap-3 border-b border-(--solus-container-border) pr-3 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]">
+  <header class="workspace-titlebar flex h-(--solus-chrome-row-h) shrink-0 items-center gap-3 border-b border-(--solus-container-border) pr-3 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]">
     <span class="rounded-md bg-(--solus-accent-light) px-2 py-1 text-xs font-medium text-(--solus-accent) uppercase ring-1 ring-inset ring-(--solus-accent-border)">
       Review mode
     </span>
@@ -373,7 +383,7 @@
     <div class="grid min-h-0 flex-1 place-items-center text-xs text-(--solus-text-tertiary)" role="status">
       Preparing review queue…
     </div>
-  {:else if state}
+  {:else if state && reviewApi && reviewServerId}
     <div class="flex min-h-0 flex-1">
       <QueueRail
         {rows}
@@ -450,6 +460,7 @@
                     api={reviewApi}
                     serverId={reviewServerId}
                     target={ready.pr}
+                    targetCtx={postingContext ?? session.ctx}
                     activeTab={views.get(entry.prNumber) ?? defaultReviewModeView(item?.effort)}
                     onActiveTabChange={(view) => views.set(entry.prNumber, view)}
                     guideEnabled={item?.effort?.band !== "quick"}

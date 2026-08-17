@@ -1,3 +1,4 @@
+import path from 'path'
 import type { PullRequestDetail, PullRequestSummary } from '../../shared/providers'
 import {
   reviewGuideKeyForBase,
@@ -6,7 +7,7 @@ import {
   type PrGuideStatus,
 } from '../../shared/review'
 import { resolveStackDiffBase, type StackGraph } from '../../shared/stack-types'
-import type { IpcContext } from '../../shared/types'
+import { SOLUS_WORKTREE_DIR, type IpcContext } from '../../shared/types'
 import { fetchAndCheckoutPr, getHeadCommit, listProjectWorktrees, type PrWorktree } from '../git/worktree-manager'
 import { createLogger } from '../logger'
 import type { Provider, RepoRef } from '../providers/types'
@@ -253,17 +254,20 @@ async function checkoutForGuide(
   isWorktreeInUse: (path: string) => boolean,
   detail: PullRequestDetail,
 ): Promise<PrWorktree | null> {
-  const existing = findPrWorktree(repoRoot, detail.number)
+  const existing = findPrWorktree(repoRoot, detail)
   if (existing && isWorktreeInUse(existing.path)) {
     if (getHeadCommit(existing.path) !== detail.headSha) return null
     return {
       worktreePath: existing.path,
-      branch: `solus/pr-${detail.number}`,
+      branch: existing.branch,
       baseSha: detail.baseSha,
       headSha: detail.headSha,
     }
   }
-  return fetchAndCheckoutPr(repoRoot, detail.number, detail.baseRef)
+  return fetchAndCheckoutPr(repoRoot, detail.number, detail.baseRef, {
+    headRef: detail.headRef,
+    isFork: detail.headRepo.isFork,
+  })
 }
 
 async function prefetchWorktree(repoRoot: string, number: number, headSha: string): Promise<void> {
@@ -272,15 +276,21 @@ async function prefetchWorktree(repoRoot: string, number: number, headSha: strin
   if (!input || input.ctx.settings.reviewWarmingEnabled !== true || pr?.headSha !== headSha || pr.draft) return
   // Prefetch is creation-only. An existing worktree may back a live review or
   // agent session, so leave all existing checkouts to their foreground owner.
-  if (findPrWorktree(repoRoot, number)) return
   const detail = await input.provider.review.getPullRequest(input.repo, number)
   if (detail.state !== 'open' || detail.draft || detail.headSha !== headSha) return
-  await fetchAndCheckoutPr(repoRoot, number, detail.baseRef)
+  if (findPrWorktree(repoRoot, detail)) return
+  await fetchAndCheckoutPr(repoRoot, number, detail.baseRef, {
+    headRef: detail.headRef,
+    isFork: detail.headRepo.isFork,
+  })
 }
 
-function findPrWorktree(repoRoot: string, number: number) {
-  const branch = `solus/pr-${number}`
-  return listProjectWorktrees(repoRoot).find((worktree) => worktree.branch === branch)
+function findPrWorktree(repoRoot: string, detail: PullRequestDetail) {
+  const branch = detail.headRepo.isFork ? `solus/pr-${detail.number}` : detail.headRef
+  const worktreePath = path.join(repoRoot, SOLUS_WORKTREE_DIR, `pr-${detail.number}`)
+  return listProjectWorktrees(repoRoot).find(
+    (worktree) => worktree.branch === branch || worktree.path === worktreePath,
+  )
 }
 
 function scheduleRetry(repoRoot: string, number: number, headSha: string): void {
@@ -328,6 +338,6 @@ function contextForPr(
   }
 }
 
-function errorMessage(err: unknown): string {
+function errorMessage(err: Parameters<typeof String>[0]): string {
   return err instanceof Error ? err.message : String(err)
 }

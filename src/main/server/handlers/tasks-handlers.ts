@@ -1,16 +1,4 @@
-import type {
-  PrepareSessionTaskRequest,
-  PrepareSessionTaskResult,
-  SessionExecutionHost,
-  TaskCreateInput,
-  TaskLinkInput,
-  TaskLinkKind,
-  TaskListFilter,
-  TaskSessionRole,
-  TaskSnoozeInput,
-  TaskUpdatePatch,
-  TaskCandidateOptions,
-} from '../../../shared/task-types'
+import type { PrepareSessionTaskResult } from '../../../shared/task-types'
 import {
   commentOnUpstreamTask,
   getUpstreamTask,
@@ -22,7 +10,7 @@ import { createTask, listTasks } from '../../tasks/task-store'
 import { Task, taskSnapshot } from '../../tasks/task'
 import { readLatestTaskPrLinks } from '../../tasks/task-links'
 import { attachLinkedContent } from '../../tasks/linked-content'
-import { prepareSessionTask, taskSessions, tasksForSession } from '../../tasks/task-sessions'
+import { prepareSessionTask, rekeyTaskSessionLinks, taskSessions, tasksForSession } from '../../tasks/task-sessions'
 import { markTaskRead, recordTaskActivity, snoozeTask } from '../../tasks/task-lifecycle'
 import { getDb } from '../../db'
 import {
@@ -39,52 +27,52 @@ import type { SolusServer } from '../server'
 export function registerTasksHandlers(server: SolusServer): void {
   startTaskSyncEngine()
   server.register('tasksProviderStatus', (args) => {
-    const [cwd, opts] = args as [string, { checkAccess?: boolean } | undefined]
+    const [cwd, opts] = args
     return taskProviderStatus(cwd, opts ?? {})
   })
 
   server.register('tasksListUpstream', (args) => {
-    const [cwd, opts] = args as [string, { refresh?: boolean } | null | undefined]
+    const [cwd, opts] = args
     return listUpstreamTasks(cwd, opts ?? {})
   })
 
   server.register('tasksGetUpstream', (args) => {
-    const [cwd, id] = args as [string, string]
+    const [cwd, id] = args
     return getUpstreamTask(cwd, id)
   })
 
   server.register('tasksUpdateUpstream', (args) => {
-    const [cwd, id, patch] = args as [string, string, TaskUpdatePatch]
+    const [cwd, id, patch] = args
     return updateUpstreamTask(cwd, id, patch)
   })
 
   server.register('tasksCommentUpstream', (args) => {
-    const [cwd, id, body] = args as [string, string, string]
+    const [cwd, id, body] = args
     return commentOnUpstreamTask(cwd, id, body)
   })
 
   server.register('tasksListCandidates', (args) => {
-    const [cwd, options] = args as [string, TaskCandidateOptions | undefined]
+    const [cwd, options] = args
     return listTaskCandidates(cwd, options)
   })
 
   server.register('tasksImport', (args) => {
-    const [cwd, externalIds] = args as [string, string[]]
+    const [cwd, externalIds] = args
     return importTaskTickets(cwd, externalIds)
   })
 
   server.register('tasksPublish', (args) => {
-    const [id, cwd] = args as [string, string]
+    const [id, cwd] = args
     return publishTask(id, cwd)
   })
 
   server.register('tasksSyncNow', (args) => {
-    const [id] = args as [string | undefined]
+    const [id] = args
     return syncTasksNow(id)
   })
 
   server.register('tasksList', (args) => {
-    const [filter] = args as [TaskListFilter | undefined]
+    const [filter] = args
     return listTasks(filter)
   })
 
@@ -100,81 +88,87 @@ export function registerTasksHandlers(server: SolusServer): void {
   })
 
   server.register('tasksGet', async (args) => {
-    const [id] = args as [string]
+    const [id] = args
     const details = await (await Task.byId(id)).details()
     if (details.externalLink) pullTaskSoon(id)
     return details
   })
 
   server.register('tasksCreate', (args) => {
-    const [input] = args as [TaskCreateInput]
+    const [input] = args
     return createTask(input)
   })
 
   server.register('tasksUpdate', async (args) => {
-    const [id, patch] = args as [string, TaskUpdatePatch]
+    const [id, patch] = args
     return (await (await Task.byId(id)).update(patch)).record()
   })
 
   server.register('tasksSnooze', (args) => {
-    const [id, input] = args as [string, TaskSnoozeInput]
+    const [id, input] = args
     return snoozeTask(id, input)
   })
 
   server.register('tasksMarkRead', (args) => {
-    const [id, read] = args as [string, boolean]
+    const [id, read] = args
     return markTaskRead(id, read)
   })
 
   server.register('tasksRecordActivity', (args) => {
-    const [id] = args as [string]
+    const [id] = args
     return recordTaskActivity(id)
   })
 
   server.register('tasksDelete', async (args) => {
-    const [id] = args as [string]
+    const [id] = args
     return (await Task.byId(id)).delete()
   })
 
   server.register('tasksComment', async (args) => {
-    const [id, body, options] = args as [string, string, { pushToExternal?: boolean } | undefined]
+    const [id, body, options] = args
     return (await Task.byId(id)).comment(body, options)
   })
 
   server.register('tasksPublishComments', async (args) => {
-    const [id, commentIds] = args as [string, string[]]
+    const [id, commentIds] = args
     return (await Task.byId(id)).publishComments(commentIds)
   })
 
   server.register('tasksLinkSession', async (args) => {
-    const [taskId, sessionId, role, execution, branch] = args as [
-      string,
-      string,
-      TaskSessionRole | undefined,
-      SessionExecutionHost | null | undefined,
-      string | null | undefined,
-    ]
+    const [taskId, sessionId, role, execution, branch] = args
     return (await Task.byId(taskId)).linkSession(sessionId, role ?? 'working', { execution, branch })
   })
 
+  server.register('tasksUnlinkSession', async (args) => {
+    const [taskId, sessionId] = args
+    return (await Task.byId(taskId)).unlinkSession(sessionId)
+  })
+
+  /** A provider handoff happens on the execution host. For a dispatched run,
+   * the task attempt belongs to another host, so the client forwards the stable
+   * identity change here instead of leaving the old provider attempt behind. */
+  server.register('tasksRekeySession', (args) => {
+    const [sourceSessionId, targetSessionId] = args
+    rekeyTaskSessionLinks(sourceSessionId, targetSessionId)
+  })
+
   server.register('tasksLink', async (args) => {
-    const [taskId, input] = args as [string, TaskLinkInput]
+    const [taskId, input] = args
     return (await Task.byId(taskId)).link(input)
   })
 
   server.register('tasksUnlink', async (args) => {
-    const [taskId, kind, targetKey, targetScope] = args as
-      [string, TaskLinkKind, string, string | undefined]
+    const [taskId, kind, targetKey, targetScope] = args
     return (await Task.byId(taskId)).unlink(kind, targetKey, targetScope ?? '')
   })
 
   server.register('tasksSessions', (args) => {
-    const [taskId] = args as [string | undefined]
+    const [taskId] = args
     return taskSessions(taskId)
   })
 
   server.register('tasksForSession', (args) => {
-    const [sessionId] = args as [string]
+    const [sessionId] = args
     return tasksForSession(sessionId)
   })
 
@@ -186,7 +180,7 @@ export function registerTasksHandlers(server: SolusServer): void {
    * the execution host has issued a session id.
    */
   server.register('tasksPrepareForSession', async (args) => {
-    const [input] = args as [PrepareSessionTaskRequest]
+    const [input] = args
     const task = await prepareSessionTask(input)
     // The snapshot rides the same round trip a dispatching client already makes
     // (docs/plans/dispatch-parity.md): the execution host cannot read this
@@ -201,7 +195,7 @@ export function registerTasksHandlers(server: SolusServer): void {
   /** A dispatched session's follow-up prompts re-ship the packet, so the client
    *  re-reads the task's live state from this host before each send. */
   server.register('tasksSnapshot', async (args) => {
-    const [taskId] = args as [string]
+    const [taskId] = args
     return attachLinkedContent(await taskSnapshot(taskId))
   })
 }

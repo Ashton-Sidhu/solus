@@ -2,8 +2,20 @@ import type { DatabaseSync } from 'node:sqlite'
 import { getDb } from '../db'
 import { isSessionBusyStatus } from '../../shared/types'
 import type { SessionStatus, ThreadGoal, ThreadGoalSetRequest, UsageData } from '../../shared/types'
+import { z } from 'zod'
 
 const KEY_PREFIX = 'claude-thread-goal:'
+const goalRowSchema = z.object({ value: z.string() })
+const threadGoalSchema = z.object({
+  threadId: z.string(),
+  objective: z.string(),
+  status: z.enum(['active', 'paused', 'complete', 'blocked']),
+  tokenBudget: z.number().optional(),
+  tokensUsed: z.number().optional(),
+  timeUsedSeconds: z.number().optional(),
+  createdAt: z.number().optional(),
+  updatedAt: z.number().optional(),
+})
 
 function goalKey(threadId: string): string {
   return `${KEY_PREFIX}${threadId}`
@@ -25,14 +37,14 @@ export class ClaudeGoalStore {
   ) {}
 
   get(threadId: string): ThreadGoal | null {
-    const row = this.database()
+    const parsedRow = goalRowSchema.safeParse(this.database()
       .prepare('SELECT value FROM kv WHERE key = ?')
-      .get(goalKey(threadId)) as { value?: string } | undefined
-    if (!row?.value) return null
+      .get(goalKey(threadId)))
+    if (!parsedRow.success) return null
 
     try {
-      const goal = JSON.parse(row.value) as ThreadGoal
-      return goal.threadId === threadId && typeof goal.objective === 'string' ? goal : null
+      const parsedGoal = threadGoalSchema.safeParse(JSON.parse(parsedRow.data.value))
+      return parsedGoal.success && parsedGoal.data.threadId === threadId ? parsedGoal.data : null
     } catch {
       return null
     }
@@ -52,12 +64,12 @@ export class ClaudeGoalStore {
       threadId: request.threadId,
       objective,
       status: 'active',
-      ...(request.tokenBudget !== undefined ? { tokenBudget: request.tokenBudget } : {}),
       tokensUsed: 0,
       timeUsedSeconds: 0,
       createdAt: now,
       updatedAt: now,
     }
+    if (request.tokenBudget !== undefined) goal.tokenBudget = request.tokenBudget
     this.write(goal)
     return goal
   }

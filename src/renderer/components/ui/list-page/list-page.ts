@@ -9,15 +9,29 @@
  */
 
 import type { CaretRightIcon } from 'phosphor-svelte'
+import { z } from 'zod'
 
 /** The two views every list page has: the grouped global list, and the personal inbox. */
 export type ListPageView = 'global' | 'inbox'
 
 /** One project in the header's scope switcher. */
 export interface ListProjectOption {
-  /** Repo root — the scope key, and the path the favicon is looked up under. */
+  /** Unique across hosts (`serverId` + `projectKey`) — row identity and the
+   *  value `onSelect`/`onRemoveHistory` are keyed by. */
+  key: string
+  /** Repo root — the path the favicon is looked up under. Not unique alone:
+   *  two hosts can share it, which is exactly why `key` exists. */
   projectKey: string
+  /** The host this project lives on. */
+  serverId: string
   label: string
+  /** False for a catalog project this page cannot yet select — its host is
+   *  disconnected, or it lives on a different host than the one this page is
+   *  scoped to. The option stays visible but the switcher will not act on it. */
+  available: boolean
+  /** True for a catalog-only entry (no live session/task on it right now) —
+   *  the switcher offers "Remove from history" for these. */
+  historyOnly?: boolean
 }
 
 /** Status tints a chip or a lead statistic may carry. `neutral` is the default
@@ -217,7 +231,8 @@ export function updateListStatusSelection(
  * belongs in the tooltip (`absoluteTime`).
  */
 export function compactRelativeTime(at: number | string | undefined, now: number): string {
-  const ms = typeof at === 'number' ? at : at ? Date.parse(at) : NaN
+  const numericAt = z.number().safeParse(at)
+  const ms = numericAt.success ? numericAt.data : at ? Date.parse(at) : NaN
   if (!Number.isFinite(ms)) return ''
   const seconds = Math.max(0, Math.round((now - ms) / 1000))
   if (seconds < 60) return 'now'
@@ -243,7 +258,8 @@ export function compactCount(value: number): string {
 
 /** The timestamp the time slot's tooltip carries. */
 export function absoluteTime(at: number | string | undefined): string | undefined {
-  const ms = typeof at === 'number' ? at : at ? Date.parse(at) : NaN
+  const numericAt = z.number().safeParse(at)
+  const ms = numericAt.success ? numericAt.data : at ? Date.parse(at) : NaN
   if (!Number.isFinite(ms)) return undefined
   return new Date(ms).toLocaleString()
 }
@@ -288,10 +304,12 @@ export function personFrom(login: string, name?: string, avatarUrl?: string): Li
  * tile. Returns the tile count as a number so the row can render it as its own
  * wash-3 chip rather than a person.
  */
-export function participantsAfterLead(people: ListPerson[]): {
+export interface ListParticipants {
   shown: ListPerson[]
   overflow: number
-} {
+}
+
+export function participantsAfterLead(people: ListPerson[]): ListParticipants {
   const rest = people.slice(1)
   if (rest.length <= 3) return { shown: rest, overflow: 0 }
   return { shown: rest.slice(0, 3), overflow: rest.length - 3 }
@@ -302,11 +320,13 @@ export function participantsAfterLead(people: ListPerson[]): {
  * whether it rings. Components take one tint and read this, so no component
  * hand-picks a fill and a text colour separately and drifts.
  */
-export function chipSkin(tint: ListTint | undefined): {
+export interface ListChipSkin {
   background: string
   color: string
   boxShadow: string
-} {
+}
+
+export function chipSkin(tint: ListTint | undefined): ListChipSkin {
   switch (tint) {
     case 'primary':
     case 'running':

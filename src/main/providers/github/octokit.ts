@@ -37,13 +37,32 @@ export async function buildClient(auth: GitHubAuth): Promise<GitHubClient> {
   const token = await auth.getAccessToken()
   if (cachedClient && cachedClient.token === token) return cachedClient.client
 
+  const client = createClient(token, () => {
+    log.warn('github_unauthorized_token_cleared')
+    clearToken()
+    // Drop the now-invalid client so the next call rebuilds against a fresh token.
+    cachedClient = null
+  })
+  cachedClient = { token, client }
+  return client
+}
+
+/**
+ * A client for a credential Solus holds on someone else's behalf — a paired
+ * device's delegated token. Deliberately uncached and, more importantly, it
+ * does not `clearToken()` on a 401: that would wipe the *host owner's*
+ * credential because a dispatching device's token had expired.
+ */
+export function buildDelegatedClient(token: string): GitHubClient {
+  return createClient(token, () => log.warn('github_unauthorized_delegated_credential'))
+}
+
+function createClient(token: string, onUnauthorized: () => void): GitHubClient {
   const rest = new Octokit({ auth: token, userAgent: 'Solus' })
   rest.hook.error('request', (error) => {
+    // SAFETY: Octokit's request-error hook supplies RequestError values with a numeric status.
     if ((error as { status?: number }).status === 401) {
-      log.warn('github_unauthorized_token_cleared')
-      clearToken()
-      // Drop the now-invalid client so the next call rebuilds against a fresh token.
-      cachedClient = null
+      onUnauthorized()
       throw new GitHubReauthRequiredError()
     }
     throw error
@@ -53,7 +72,5 @@ export async function buildClient(auth: GitHubAuth): Promise<GitHubClient> {
     headers: { authorization: `Bearer ${token}`, 'user-agent': 'Solus' },
   })
 
-  const client: GitHubClient = { rest, graphql }
-  cachedClient = { token, client }
-  return client
+  return { rest, graphql }
 }

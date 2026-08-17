@@ -1,5 +1,5 @@
 import type { Edge as FlowEdge, Node as FlowNode } from '@xyflow/svelte'
-import type { DiagramEdge, DiagramField, DiagramNode, DiagramDoc } from '../../../shared/diagram-types'
+import type { DiagramEdge, DiagramNode } from '../../../shared/diagram-types'
 
 // Single source of truth for turning a live xyflow Node/Edge back into a plain
 // DiagramNode/DiagramEdge. Previously this field-by-field mapping was hand-copied
@@ -11,55 +11,57 @@ import type { DiagramEdge, DiagramField, DiagramNode, DiagramDoc } from '../../.
 // component-scoped handlers and z-index layering that don't belong in a helper.
 
 export function flowNodeToDiagram(n: FlowNode): DiagramNode {
-  const d = n.data as unknown as DiagramNode & { height?: number }
+  // SAFETY: DiagramShell creates each xyflow node from a DiagramNode and xyflow preserves its data payload.
+  const d = n.data as DiagramNode
   // A collapsed group renders at a shrunken header height (n.height), but its
   // real (expanded) height is preserved on data.height — persist that so the box
   // restores to size on expand.
   const collapsedGroup = !!d.group && !!d.collapsed
   return {
     id: n.id,
-    label: d.label as string,
-    meta: d.meta as Record<string, string> | undefined,
+    label: d.label,
+    meta: d.meta,
     position: n.position,
     width: n.width,
-    height: collapsedGroup ? (d.height as number | undefined) : n.height,
-    icon: d.icon as string | undefined,
-    color: d.color as string | undefined,
-    shape: d.shape as DiagramNode['shape'],
-    group: (d.group as boolean | undefined) || undefined,
-    collapsed: (d.collapsed as boolean | undefined) || undefined,
-    sentToBack: (d.sentToBack as boolean | undefined) || undefined,
-    parentId: (n.parentId ?? undefined) as string | undefined,
-    subtitle: d.subtitle as string | undefined,
-    badges: d.badges as string[] | undefined,
-    metrics: d.metrics as Record<string, string> | undefined,
-    fields: d.fields as DiagramField[] | undefined,
-    tags: d.tags as string[] | undefined,
-    body: d.body as string | undefined,
-    html: d.html as string | undefined,
-    actions: d.actions as DiagramNode['actions'],
-    detail: d.detail as DiagramDoc | undefined,
+    height: collapsedGroup ? d.height : n.height,
+    icon: d.icon,
+    color: d.color,
+    silhouette: d.silhouette,
+    group: d.group || undefined,
+    collapsed: d.collapsed || undefined,
+    sentToBack: d.sentToBack || undefined,
+    parentId: n.parentId ?? undefined,
+    subtitle: d.subtitle,
+    badges: d.badges,
+    metrics: d.metrics,
+    fields: d.fields,
+    tags: d.tags,
+    body: d.body,
+    html: d.html,
+    actions: d.actions,
+    detail: d.detail,
   }
 }
 
 export function flowEdgeToDiagram(e: FlowEdge): DiagramEdge {
+  // SAFETY: DiagramShell creates each xyflow edge from a DiagramEdge and xyflow preserves its data payload.
   const d = (e.data ?? {}) as Partial<DiagramEdge>
   return {
     id: e.id,
     source: e.source,
     target: e.target,
-    label: typeof e.label === 'string' ? e.label : undefined,
-    body: d.body as string | undefined,
-    kind: d.kind as DiagramEdge['kind'],
-    color: d.color as string | undefined,
-    width: d.width as number | undefined,
-    dash: d.dash as DiagramEdge['dash'],
-    arrows: d.arrows as DiagramEdge['arrows'],
-    shape: d.shape as DiagramEdge['shape'],
-    cardinality: d.cardinality as DiagramEdge['cardinality'],
-    bendOffset: d.bendOffset as number | undefined,
+    label: e.label,
+    body: d.body,
+    kind: d.kind,
+    color: d.color,
+    width: d.width,
+    dash: d.dash,
+    arrows: d.arrows,
+    route: d.route,
+    cardinality: d.cardinality,
+    bendOffset: d.bendOffset,
     animated: e.animated,
-    sourceHandle: (e.sourceHandle ?? undefined) as string | undefined,
-    targetHandle: (e.targetHandle ?? undefined) as string | undefined,
+    sourceHandle: e.sourceHandle ?? undefined,
+    targetHandle: e.targetHandle ?? undefined,
   }
 }

@@ -1,33 +1,53 @@
+import type {
+  GitAction,
+  GitActionPhase,
+  GitActionProgressEvent,
+  GitActionResult,
+} from '../../shared/types'
 import {
   type WorkspaceContext,
   type SessionEnvironmentStore,
 } from '../contexts'
-// Value imports stay deep (not the barrel): workspace.context imports this
-// module, so a runtime barrel import here would create a cycle.
 import { connectionsStore } from '../contexts/connections/connections.store.svelte'
 import { toasts } from './toasts'
 import { requestInputFocus } from './inputFocus'
 import type { HostApi } from '@client-core/host-api'
 import { hostPolicy } from '@client-core/host-policy'
+import { serverConnections } from '@client-core/server-connections'
+
+/** Opening title of the progress toast, before the server reports a phase. */
+function startingLabel(action: GitAction, createFeatureBranch: boolean): string {
+  if (createFeatureBranch) return 'Preparing feature branch…'
+  switch (action) {
+    case 'commit':
+      return 'Committing…'
+    case 'commit_push':
+      return 'Committing and pushing…'
+    case 'push':
+      return 'Pushing…'
+    case 'create_pull_request':
+    case 'commit_push_pull_request':
+      return 'Opening pull request…'
+  }
+}
 
 export class GitActions {
-  commitPushing = $state(false)
-  commitPushed = $state(false)
-  commitPushError = $state<string | null>(null)
+  running = $state(false)
+  activeAction = $state<GitAction | null>(null)
+  activePhase = $state<GitActionPhase | null>(null)
+  activeLabel = $state<string | null>(null)
+  lastResult = $state<GitActionResult | null>(null)
+  actionError = $state<string | null>(null)
   discarding = $state(false)
   syncing = $state(false)
   synced = $state(false)
   syncError = $state<string | null>(null)
-  creatingPR = $state(false)
   prUrl = $state<string | null>(null)
-  prError = $state<string | null>(null)
-  private commitTimer: ReturnType<typeof setTimeout> | null = null
   private syncTimer: ReturnType<typeof setTimeout> | null = null
+  private resultTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(
     private session: WorkspaceContext,
-    /** The tab or draft whose run these actions act in. Git acts on a checkout,
-     *  so nothing here needs the conversation — only where it runs. */
     private sourceId: string,
     private environmentStore: SessionEnvironmentStore,
   ) {}
@@ -45,85 +65,94 @@ export class GitActions {
     return this.session.apiFor(this.sourceId)
   }
 
-  async commitPush(): Promise<void> {
+  async run(
+    action: GitAction,
+    options: { createFeatureBranch?: boolean; filePaths?: string[]; commitMessage?: string } = {},
+  ): Promise<void> {
     const target = this.target()
-    if (this.commitPushing || !target.gitContext) return
-    const gitCwd = target.cwd
-    this.commitPushing = true
-    this.commitPushed = false
-    this.commitPushError = null
+    if (this.running || !target.gitContext || !target.cwd || target.cwd === '~') return
+    const api = this.api()
+    const actionId = globalThis.crypto?.randomUUID?.()
+      ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    this.running = true
+    this.activeAction = action
+    this.activePhase = null
+    this.activeLabel = null
+    if (this.resultTimer) {
+      clearTimeout(this.resultTimer)
+      this.resultTimer = null
+    }
+    this.lastResult = null
+    this.actionError = null
+    const progress = toasts.progress(startingLabel(action, options.createFeatureBranch === true))
+    const unsubscribe = serverConnections.eventsForApi(api).subscribe(
+      'git.actionProgressed',
+      (event: GitActionProgressEvent) => {
+        if (event.actionId !== actionId) return
+        if (event.kind === 'phase_started') {
+          this.activePhase = event.phase
+          this.activeLabel = event.label
+          progress.update(event.label)
+        } else if (event.kind === 'failed') {
+          this.actionError = event.message
+        }
+      },
+    )
     try {
-      const result = await this.api().gitCommitPush(target.ctx)
-      if (result.success) {
-        this.commitPushed = true
-        if (this.commitTimer) clearTimeout(this.commitTimer)
-        this.commitTimer = setTimeout(() => {
-          this.commitPushed = false
-          this.commitTimer = null
-        }, 1800)
+      const request: Parameters<typeof api.gitRunAction>[1] = {
+        actionId,
+        action,
+      }
+      if (options.createFeatureBranch) request.createFeatureBranch = true
+      if (options.filePaths) request.filePaths = options.filePaths
+      if (options.commitMessage) request.commitMessage = options.commitMessage
+      const result = await api.gitRunAction($state.snapshot(target.ctx), request)
+      this.lastResult = result
+      const pullRequest = result.pullRequest
+      if (pullRequest.status !== 'skipped') {
+        this.prUrl = pullRequest.url
+        progress.success(pullRequest.status === 'created' ? 'Pull request created' : 'Pull request is ready', {
+          description: pullRequest.title,
+        })
+      } else if (result.push.status === 'pushed') {
+        progress.success(result.commit.status === 'created' ? 'Committed and pushed' : 'Pushed', {
+          description: result.commit.status === 'created' ? result.commit.subject : undefined,
+        })
+      } else if (result.commit.status === 'created') {
+        progress.success('Committed', { description: result.commit.subject })
+      } else if (result.commit.status === 'skipped_no_changes') {
+        progress.info('Nothing to commit.')
       } else {
-        this.commitPushError = result.error || 'Commit and push failed'
-        toasts.error(result.outcome === 'committed-only'
-          ? `Committed locally, but couldn't push: ${this.commitPushError}`
-          : `Couldn't commit and push: ${this.commitPushError}`)
+        progress.dismiss()
       }
     } catch (error) {
-      this.commitPushError = error instanceof Error ? error.message : String(error)
-      toasts.error(`Couldn't commit and push: ${this.commitPushError}`)
+      this.actionError = error instanceof Error ? error.message : String(error)
+      progress.error('Git action failed', { description: this.actionError })
     } finally {
-      if (gitCwd) {
-        await this.environmentStore.refreshEnvironment(this.session, { sourceId: this.sourceId, cwd: gitCwd, level: 'details' })
-          .catch(() => null)
-        this.prUrl = this.environmentStore.statusFor(gitCwd)?.prUrl || null
+      unsubscribe()
+      await this.environmentStore.refreshEnvironment(this.session, {
+        sourceId: this.sourceId,
+        cwd: target.cwd,
+        level: 'details',
+      }).catch(() => null)
+      this.prUrl = this.environmentStore.statusFor(target.cwd)?.prUrl || this.prUrl
+      this.running = false
+      this.activeAction = null
+      this.activePhase = null
+      this.activeLabel = null
+      if (this.lastResult) {
+        this.resultTimer = setTimeout(() => {
+          this.lastResult = null
+          this.resultTimer = null
+        }, 1800)
       }
-      this.commitPushing = false
       requestInputFocus()
     }
   }
 
-  /** Commit without publishing. Shares the commit row's phase state with
-   *  `commitPush` — only one of the two can be in flight, and the row shows
-   *  whichever ran. */
-  async commit(): Promise<void> {
-    const target = this.target()
-    if (this.commitPushing || !target.gitContext) return
-    const gitCwd = target.cwd
-    this.commitPushing = true
-    this.commitPushed = false
-    this.commitPushError = null
-    try {
-      const result = await this.api().gitCommit(target.ctx)
-      if (result.success) {
-        this.commitPushed = true
-        if (this.commitTimer) clearTimeout(this.commitTimer)
-        this.commitTimer = setTimeout(() => {
-          this.commitPushed = false
-          this.commitTimer = null
-        }, 1800)
-        if (result.outcome === 'unchanged') toasts.info('Nothing to commit.')
-      } else {
-        this.commitPushError = result.error || 'Commit failed'
-        toasts.error(`Couldn't commit: ${this.commitPushError}`)
-      }
-    } catch (error) {
-      this.commitPushError = error instanceof Error ? error.message : String(error)
-      toasts.error(`Couldn't commit: ${this.commitPushError}`)
-    } finally {
-      if (gitCwd) {
-        await this.environmentStore.refreshEnvironment(this.session, { sourceId: this.sourceId, cwd: gitCwd, level: 'details' })
-          .catch(() => null)
-      }
-      this.commitPushing = false
-      requestInputFocus()
-    }
-  }
-
-  /** Irreversible: resets tracked files to HEAD and removes untracked ones.
-   *  Callers are expected to have confirmed with the user first. */
   async discard(): Promise<void> {
     const target = this.target()
     if (this.discarding || !target.gitContext) return
-    const gitCwd = target.cwd
     this.discarding = true
     try {
       const result = await this.api().gitDiscard(target.ctx)
@@ -132,14 +161,19 @@ export class GitActions {
           ? 'Nothing to discard.'
           : `Discarded ${result.discarded} change${result.discarded === 1 ? '' : 's'}.`)
       } else {
-        toasts.error(`Couldn't discard changes: ${result.error || 'Discard failed'}`)
+        toasts.error("Couldn't discard changes", { description: result.error || 'Discard failed' })
       }
     } catch (error) {
-      toasts.error(`Couldn't discard changes: ${error instanceof Error ? error.message : String(error)}`)
+      toasts.error("Couldn't discard changes", {
+        description: error instanceof Error ? error.message : String(error),
+      })
     } finally {
-      if (gitCwd) {
-        await this.environmentStore.refreshEnvironment(this.session, { sourceId: this.sourceId, cwd: gitCwd, level: 'details' })
-          .catch(() => null)
+      if (target.cwd) {
+        await this.environmentStore.refreshEnvironment(this.session, {
+          sourceId: this.sourceId,
+          cwd: target.cwd,
+          level: 'details',
+        }).catch(() => null)
       }
       this.discarding = false
       requestInputFocus()
@@ -149,14 +183,15 @@ export class GitActions {
   async sync(): Promise<void> {
     const target = this.target()
     if (this.syncing || !target.gitContext) return
-    const gitCwd = target.cwd
     this.syncing = true
     this.synced = false
     this.syncError = null
+    const progress = toasts.progress('Syncing with remote…')
     try {
       const result = await this.api().gitSync(target.ctx)
       if (result.success) {
         this.synced = true
+        progress.success('Synced with remote')
         if (this.syncTimer) clearTimeout(this.syncTimer)
         this.syncTimer = setTimeout(() => {
           this.synced = false
@@ -164,15 +199,18 @@ export class GitActions {
         }, 1800)
       } else {
         this.syncError = result.error || 'Sync failed'
-        toasts.error(`Couldn't sync with remote: ${this.syncError}`)
+        progress.error("Couldn't sync with remote", { description: this.syncError })
       }
     } catch (error) {
       this.syncError = error instanceof Error ? error.message : String(error)
-      toasts.error(`Couldn't sync with remote: ${this.syncError}`)
+      progress.error("Couldn't sync with remote", { description: this.syncError })
     } finally {
-      if (gitCwd) {
-        await this.environmentStore.refreshEnvironment(this.session, { sourceId: this.sourceId, cwd: gitCwd, level: 'details' })
-          .catch(() => null)
+      if (target.cwd) {
+        await this.environmentStore.refreshEnvironment(this.session, {
+          sourceId: this.sourceId,
+          cwd: target.cwd,
+          level: 'details',
+        }).catch(() => null)
       }
       this.syncing = false
       requestInputFocus()
@@ -184,34 +222,10 @@ export class GitActions {
     void this.api().openWorktreeTerminal(this.target().ctx)
     requestInputFocus()
   }
-
-  async createPR(): Promise<void> {
-    const target = this.target()
-    if (!target.cwd || target.cwd === '~' || !target.gitContext || this.creatingPR) return
-    this.creatingPR = true
-    this.prError = null
-    try {
-      const result = await this.api().worktreePR(target.ctx)
-      if (result.success) this.prUrl = result.url || null
-      else {
-        this.prError = result.error || 'Create pull request failed'
-        toasts.error(`Couldn't create pull request: ${this.prError}`)
-      }
-    } catch (err) {
-      this.prError = err instanceof Error ? err.message : String(err)
-      toasts.error(`Couldn't create pull request: ${this.prError}`)
-    } finally {
-      this.creatingPR = false
-      void this.environmentStore.refreshEnvironment(this.session, { sourceId: this.sourceId, cwd: target.cwd, level: 'details' })
-      requestInputFocus()
-    }
-  }
 }
 
 const actions = new Map<string, GitActions>()
 
-/** One instance per run source, so in-flight action state survives re-renders.
- *  `sourceId` names a tab or a draft — whichever owns the run being acted in. */
 export function gitActionsFor(
   sourceId: string,
   session: WorkspaceContext,
@@ -225,7 +239,6 @@ export function gitActionsFor(
   return existing
 }
 
-/** Drop the cached instance when a tab or draft goes away so it doesn't outlive it. */
 export function disposeGitActions(sourceId: string): void {
   actions.delete(sourceId)
 }

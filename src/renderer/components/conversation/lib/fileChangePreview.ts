@@ -1,4 +1,5 @@
 import type { PermissionToolInput } from '../../../../shared/types'
+import { z } from 'zod'
 
 export type FileChangePreview = {
   path: string
@@ -6,29 +7,37 @@ export type FileChangePreview = {
   diff: string
 }
 
-function formatChangeKind(kind: unknown): string {
-  if (!kind || typeof kind !== 'object' || !('type' in kind)) return 'update'
-  const type = String(kind.type)
+const changeKindSchema = z.object({
+  type: z.string(),
+  move_path: z.string().optional(),
+})
+
+const fileChangeSchema = z.object({
+  path: z.string().optional(),
+  diff: z.string(),
+  kind: changeKindSchema.optional(),
+})
+
+type ChangeKind = z.infer<typeof changeKindSchema>
+
+function formatChangeKind(kind?: ChangeKind): string {
+  if (!kind) return 'update'
+  const type = kind.type
   if (type !== 'update') return type
-  const movePath = 'move_path' in kind && typeof kind.move_path === 'string' ? kind.move_path : null
-  return movePath ? `move to ${movePath}` : 'update'
+  return kind.move_path ? `move to ${kind.move_path}` : 'update'
 }
 
 export function fileChangePreviews(input?: PermissionToolInput | null): FileChangePreview[] {
   const changes = input?.changes
   if (!Array.isArray(changes)) return []
 
-  return changes
-    .map((change): FileChangePreview | null => {
-      if (!change || typeof change !== 'object') return null
-      const path = 'path' in change && typeof change.path === 'string' ? change.path : 'file'
-      const diff = 'diff' in change && typeof change.diff === 'string' ? change.diff : ''
-      if (!diff) return null
-      return {
-        path,
-        kind: formatChangeKind('kind' in change ? change.kind : null),
-        diff,
-      }
+  return changes.flatMap((change): FileChangePreview[] => {
+      const parsed = fileChangeSchema.safeParse(change)
+      if (!parsed.success || !parsed.data.diff) return []
+      return [{
+        path: parsed.data.path ?? 'file',
+        kind: formatChangeKind(parsed.data.kind),
+        diff: parsed.data.diff,
+      }]
     })
-    .filter((change): change is FileChangePreview => change !== null)
 }

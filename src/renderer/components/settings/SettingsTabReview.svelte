@@ -1,7 +1,7 @@
 <script lang="ts">
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { CaretDownIcon } from "phosphor-svelte";
-  import { MODEL_PROFILES, REASONING_EFFORT_LABELS } from "../../../shared/types";
+  import { MODEL_PROFILES, REASONING_EFFORT_LABELS, projectScopeOf, type AgentId } from "../../../shared/types";
   import { getSettingsContext, getAgentContext, getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Switch } from "../ui/switch";
@@ -18,7 +18,7 @@
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
   const session = getWorkspaceContext();
-  const projectPath = $derived(session.ctx.session.projectPath || session.ctx.session.workingDirectory);
+  const projectPath = $derived(projectScopeOf(session.ctx.session));
   const warmingEnabled = $derived(theme.isReviewWarmingEnabled(projectPath));
 
   // The review companion's agent/model/reasoning. `reviewAgent`/`reviewModel`/
@@ -56,11 +56,11 @@
     reviewReasoningId ? REASONING_EFFORT_LABELS[reviewReasoningId] : "",
   );
 
-  function selectReviewAgent(id: string) {
+  function selectReviewAgent(id: AgentId) {
     // Switching backend resets the model to that backend's default (its model
     // list is different), mirroring the old ModelPicker coupling. Reasoning also
     // resets, since the level set is model-specific.
-    theme.update({ reviewAgent: id as typeof theme.activeAgent, reviewModel: null, reviewReasoning: null });
+    theme.update({ reviewAgent: id, reviewModel: null, reviewReasoning: null });
     requestInputFocus();
   }
 

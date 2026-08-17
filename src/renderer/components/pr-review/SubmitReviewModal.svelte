@@ -127,13 +127,16 @@
       body: body.trim(),
       comments: drafts.map((draft) => ({ ...draft })),
     };
-    const comments: DraftReviewComment[] = drafts.map((d) => ({
-      path: d.path,
-      line: d.line,
-      ...(d.startLine !== undefined ? { startLine: d.startLine } : {}),
-      side: d.side === "old" ? "LEFT" : "RIGHT",
-      body: d.body,
-    }));
+    const comments: DraftReviewComment[] = drafts.map((d) => {
+      const comment: DraftReviewComment = {
+        path: d.path,
+        line: d.line,
+        side: d.side === "old" ? "LEFT" : "RIGHT",
+        body: d.body,
+      };
+      if (d.startLine !== undefined) comment.startLine = d.startLine;
+      return comment;
+    });
     const review: DraftReview = { body: body.trim(), event, commitId: pr.headSha, baseSha: pr.baseSha, comments };
     try {
       await getApi().prSubmitReview(
@@ -147,7 +150,7 @@
       toasts.success("Review submitted");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      toasts.error(`Submit failed: ${message}`);
+      toasts.error("Submit failed", { description: message });
       return;
     } finally {
       submitting = false;
@@ -157,7 +160,9 @@
         await onSendToFixAgent?.(feedback);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        toasts.error(`Review submitted, but the fix agent couldn't open: ${message}`);
+        toasts.error("Review submitted, but the fix agent couldn't open", {
+          description: message,
+        });
       }
     }
   }

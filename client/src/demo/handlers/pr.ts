@@ -1,5 +1,5 @@
 import type { DraftReview } from '../../../../src/shared/providers'
-import type { IpcContext } from '../../../../src/shared/types'
+import { projectScopeOf, type IpcContext } from '../../../../src/shared/types'
 import type { ReviewState } from '../../../../src/shared/review'
 import { DEMO_PROJECT, type DemoServer } from '../fixtures/types'
 import type { DemoStore } from '../store'
@@ -90,11 +90,20 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
   backend.register('readGuide', () => store.prGuide())
   backend.register('getReviewContext', (args) => store.reviewContext(args[0] as IpcContext))
   backend.register('prOpenReview', (args) => store.prReviewContext(args[1] as number))
-  backend.register('prGetDiff', (args) => ({
-    patch: store.diff(args[0] as IpcContext, { scope: { kind: 'pr', baseSha: store.prOverview().detail.baseSha } }).patch,
-    truncated: false,
-    nextCursor: null,
-  }))
+  backend.register('prGetDiff', (args) => {
+    const request = args[1] as { commitSha?: string }
+    const patch = store.diff(args[0] as IpcContext, { scope: { kind: 'pr', baseSha: store.prOverview().detail.baseSha } }).patch
+    if (!request?.commitSha) return { patch, truncated: false, nextCursor: null }
+    // Demo data keeps no per-commit history; serve a stable per-commit slice of
+    // the PR patch so the scoped view visibly narrows.
+    const files = patch.split(/^(?=diff --git )/m).filter((file) => file.trim().length > 0)
+    const index = store.prOverview().commits.findIndex((commit) => commit.sha === request.commitSha)
+    return {
+      patch: files[index >= 0 ? index % files.length : 0] ?? '',
+      truncated: false,
+      nextCursor: null,
+    }
+  })
   backend.register('prGetDiffFileContents', () => ({ oldContents: '', newContents: '' }))
   backend.register('prPrepareCheckout', (args) => {
     const review = store.prReviewContext((args[1] as { number: number }).number)
@@ -119,5 +128,5 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
 }
 
 function projectCwd(ctx: IpcContext): string {
-  return ctx.session.projectPath || ctx.session.workingDirectory || DEMO_PROJECT
+  return projectScopeOf(ctx.session) || DEMO_PROJECT
 }

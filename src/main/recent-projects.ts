@@ -3,6 +3,7 @@ import { basename } from 'node:path'
 import { isRemoteDispatchCheckoutPath, worktreeProjectRoot, type RecentProject } from '../shared/types'
 import { getDb, withTx } from './db'
 import { isWorkspacePath } from './workspace'
+import { z } from 'zod'
 
 const MAX_PROJECTS = 10
 
@@ -11,6 +12,12 @@ interface RecentProjectRow {
   folder_name: string
   last_opened: number
 }
+
+const recentProjectRowsSchema = z.array(z.object({
+  path: z.string(),
+  folder_name: z.string(),
+  last_opened: z.number(),
+}))
 
 function fromRow(row: RecentProjectRow): RecentProject {
   return {
@@ -52,11 +59,11 @@ export async function trackRecentProject(path: string): Promise<void> {
 }
 
 export async function listRecentProjects(): Promise<RecentProject[]> {
-  const rows = getDb().prepare(`
+  const rows = recentProjectRowsSchema.parse(getDb().prepare(`
     SELECT path, folder_name, last_opened
     FROM recent_projects
     ORDER BY last_opened DESC, rowid DESC
-  `).all() as unknown as RecentProjectRow[]
+  `).all())
   return rows
     .map(fromRow)
     // Drop rows already written before dispatch checkouts were excluded.

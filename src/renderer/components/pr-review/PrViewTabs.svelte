@@ -19,7 +19,7 @@
     /** The content tab showing in this column, or `null` when the change has
      *  the column to itself — Diff is tracked separately because a page-shaped
      *  review keeps reading Activity while the diff sits in the pane beside it. */
-    tab: "activity" | "guide" | null;
+    tab: "activity" | "map" | "guide" | null;
     /** Whether the change is showing, wherever this surface puts it. */
     diffOpen: boolean;
     guideDisabled?: boolean;
@@ -27,11 +27,12 @@
     /** The host target is still loading, so revision-backed tabs are not ready. */
     tabsDisabled?: boolean;
     diffHint?: string;
-    onSelect: (tab: "activity" | "guide" | "diff") => void;
+    onSelect: (tab: "activity" | "map" | "guide" | "diff") => void;
   } = $props();
 
   const TABS = [
     { id: "activity" as const, label: "Activity" },
+    { id: "map" as const, label: "Map" },
     { id: "guide" as const, label: "Guide" },
     { id: "diff" as const, label: "Diff" },
   ];

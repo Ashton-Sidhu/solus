@@ -15,4 +15,24 @@ describe('session sidebar task selection', () => {
       ),
     ).toBe('task-b-second-tab')
   })
+
+  test('prefers a running session over the oldest tab when nothing needs the user', () => {
+    // One done session (first in the list) and one running session: clicking the
+    // task lands on the running one, not the done one just because it opened first.
+    expect(
+      taskTabTarget(['done-tab', 'running-tab'], null, null, 'running-tab'),
+    ).toBe('running-tab')
+  })
+
+  test('a session needing attention still wins over a running one', () => {
+    expect(
+      taskTabTarget(['done-tab', 'running-tab'], 'done-tab', null, 'running-tab'),
+    ).toBe('done-tab')
+  })
+
+  test('the last-active tab still wins over a running one', () => {
+    expect(
+      taskTabTarget(['done-tab', 'running-tab'], null, 'done-tab', 'running-tab'),
+    ).toBe('done-tab')
+  })
 })

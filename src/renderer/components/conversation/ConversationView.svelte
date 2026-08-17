@@ -66,7 +66,10 @@
     itemKey,
     needsLiveRow,
     runIsLive,
+    shouldAnimateTurnEntry,
+    stabilizeTurns,
     type GroupedItem,
+    type Turn,
   } from "./lib/turns";
   import { SvelteMap } from "svelte/reactivity";
   import { assistantMarkdownOptions } from "./lib/assistant-markdown";
@@ -173,9 +176,7 @@
   // this cursor. 30 FPS remains visually continuous while preventing coarse
   // transport batches from becoming up to 18 full markdown renders apiece.
   const REVEAL_FRAME_MS = 1000 / 30;
-  const prefersReducedMotion =
-    typeof window !== "undefined" &&
-    !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   let revealLen = $state(0);
   let revealExact = 0; // float cursor; revealLen is its floor
@@ -653,10 +654,20 @@
   // §16 — a turn collapses to one row when it ends. Until then it renders the
   // transcript it always did, in the order it happened.
   const isTurnLive = $derived(runIsLive(sess?.status, !!liveStreamContent));
-  const turns = $derived(buildTurns(displayGrouped, { running: isTurnLive }));
-  // Scrollback and history loads must not replay two hundred entry animations;
-  // only the turns at the live end of the transcript animate in.
-  const animatedTurnStart = $derived(Math.max(0, turns.length - 2));
+  // Reveal frames rebuild displayGrouped ~30×/s while text streams. Stabilizing
+  // against the previous build keeps every settled turn's object identity, so
+  // per-turn derived work only re-runs for the live turn.
+  let previousTurns: Turn[] = [];
+  const turns = $derived.by(() => {
+    const next = stabilizeTurns(
+      buildTurns(displayGrouped, { running: isTurnLive }),
+      previousTurns,
+    );
+    previousTurns = next;
+    return next;
+  });
+  // Scrollback and history loads mount completed turns as one stable transcript.
+  // Only new work at the live edge may animate in.
   // Successful and historical work stays compact. The latest failed work opens
   // by default so its commands are immediately available; an explicit user
   // choice then wins and survives transcript re-renders.
@@ -862,7 +873,8 @@
 
   $effect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ tabId?: string }>).detail;
+      if (!(e instanceof CustomEvent)) return;
+      const detail: { tabId?: string } = e.detail;
       if (detail?.tabId && detail.tabId !== tabId) return;
       if (!isVisible) return;
       const snap = () => {
@@ -910,15 +922,18 @@
   });
 
   async function navigateToSourceSession(agentSessionId: string) {
-    const matchingTabId = session.tabIdForAgentSession(agentSessionId);
+    // The source session lives on the same host as the transcript citing it.
+    const matchingTabId = session.tabIdForAgentSession(agentSessionId, sess?.run.serverId);
     if (matchingTabId) {
       session.selectTab(matchingTabId);
       return;
     }
-    // Not open — scan history and resume it.
+    // Not open — scan history on this conversation's host and resume it. The
+    // source session delegated to this one, so it lives on the same host.
+    if (!sess) return;
     const meta = await sourceSessionHistory.findSession(
       agentSessionId,
-      { projectPath: sess?.run.workingDirectory || "~" },
+      { projectPath: sess.run.workingDirectory || "~", serverId: sess.run.serverId },
       session.ctx,
     );
     if (meta) {
@@ -1056,7 +1071,11 @@
                 : 'space-y-2'}"
             >
               {#each turns as turn, turnIdx (turn.id)}
-                {@const skipMotion = turnIdx < animatedTurnStart}
+                {@const skipMotion = !shouldAnimateTurnEntry(
+                  turn,
+                  turnIdx,
+                  turns.length,
+                )}
                 {@const isLastTurn = turnIdx === turns.length - 1}
                 {@const expanded =
                   turnExpansion.get(turn.id) ??
@@ -1273,6 +1292,18 @@
                   {#snippet glyph()}<TreeStructureIcon size={12} />{/snippet}
                   Continued in worktree
                   {#snippet title()}{item.message.worktreeMovedTo}{/snippet}
+                </TranscriptDivider>
+              {:else if item.message.agentChangedTo}
+                <TranscriptDivider
+                  glyphClass="text-(--solus-accent)"
+                  titleClass="text-(--solus-accent)"
+                  timestamp={item.message.timestamp}
+                  testid="agent-handoff-message"
+                  {skipMotion}
+                >
+                  {#snippet glyph()}<DesktopTowerIcon size={12} />{/snippet}
+                  Continued with
+                  {#snippet title()}{item.message.agentChangedTo}{/snippet}
                 </TranscriptDivider>
               {:else if item.message.newSessionForPlanId}
                 <!-- The implementation run keeps none of the planning

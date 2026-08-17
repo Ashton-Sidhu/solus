@@ -23,6 +23,7 @@ import {
 import {
   tokenClassName,
   TOKEN_ICONS,
+  type SvgSpec,
   type TokenVariant,
 } from "../../../editor/tokenStyle";
 
@@ -48,11 +49,10 @@ const refreshReferencesEffect = StateEffect.define<null>();
 
 function appendSvgSpec(
   parent: Element,
-  spec: unknown[],
+  spec: SvgSpec,
   inheritedNamespace: string | null = null,
 ): void {
-  const [rawTag, maybeAttrs, ...children] = spec;
-  if (typeof rawTag !== "string") return;
+  const [rawTag, attrs, ...children] = spec;
   const separator = rawTag.indexOf(" ");
   const namespace =
     separator === -1 ? inheritedNamespace : rawTag.slice(0, separator);
@@ -60,25 +60,12 @@ function appendSvgSpec(
   const element = namespace
     ? document.createElementNS(namespace, tag)
     : document.createElement(tag);
-  let childStart = 0;
-  if (
-    maybeAttrs &&
-    typeof maybeAttrs === "object" &&
-    !Array.isArray(maybeAttrs)
-  ) {
-    for (const [name, value] of Object.entries(
-      maybeAttrs as Record<string, string>,
-    )) {
-      element.setAttribute(name, value);
-    }
-  } else if (maybeAttrs !== undefined) {
-    childStart = -1;
+  for (const [name, value] of Object.entries(attrs)) {
+    element.setAttribute(name, value);
   }
-  const allChildren = childStart === -1 ? [maybeAttrs, ...children] : children;
-  for (const child of allChildren) {
+  for (const child of children) {
     if (Array.isArray(child)) appendSvgSpec(element, child, namespace);
-    else if (typeof child === "string")
-      element.appendChild(document.createTextNode(child));
+    else element.appendChild(document.createTextNode(child));
   }
   parent.appendChild(element);
 }
@@ -391,11 +378,16 @@ export function insertReferenceAtCursor(
   return true;
 }
 
+export interface TriggerReplacementResult {
+  changed: boolean;
+  from: number;
+}
+
 export function replaceTriggerAtCursor(
   view: EditorView,
   triggerPattern: RegExp,
   replacement: string,
-): { changed: boolean; from: number } {
+): TriggerReplacementResult {
   const selection = view.state.selection.main;
   if (!selection.empty) return { changed: false, from: selection.head };
   const line = view.state.doc.lineAt(selection.head);

@@ -2,7 +2,6 @@ import { mount } from 'svelte'
 import App from '../App.svelte'
 import '../../../src/renderer/index.css'
 import { setConnectionState, subscribe } from '@client-core/connection-state'
-import { setTabPersistenceServerInstallationId } from '@renderer/contexts/workspace/tab-persistence'
 import { webState } from '../lib/web-state.svelte'
 import { createDemoSolusApi } from './api'
 import { demoFixtures } from './fixtures'
@@ -21,7 +20,9 @@ import { seedDemoStorage } from './seed'
 import { DemoBackend } from './server'
 import { DemoStore } from './store'
 import { serverConnections } from '@client-core/server-connections'
+import { LOCAL_SERVER_ID } from '@client-core/server-registry'
 import type { WsTransport } from '@client-core/ws-transport'
+import type { DialOutcome } from '@client-core/host-supervisor'
 import { armReplay, createReplayEngine } from './replay/engine'
 import DemoCtaOverlay from './DemoCtaOverlay.svelte'
 import DemoHintsOverlay from './DemoHintsOverlay.svelte'
@@ -54,29 +55,45 @@ registerFilesHandlers(backend, store)
 registerAgentIntercept(backend, store)
 const demoApi = createDemoSolusApi(backend)
 window.solus = demoApi as unknown as LocalApi
-serverConnections.registerPrimary('demo', demoApi, {
+// The demo backend runs in this page, so every dial the supervisor asks for
+// succeeds immediately. Reporting acceptance is what moves the host out of
+// `connecting`; without it the workspace boots into a reconnecting shell.
+let reportDialOutcome: ((outcome: DialOutcome) => void) | null = null
+const acceptDial = () => reportDialOutcome?.({ kind: 'accepted', recovered: false })
+// The demo has exactly one host, and it stands in for the machine the visitor
+// is "sitting at". Registering it under `LOCAL_SERVER_ID` is what makes every
+// default land on it — a new run config, a restored tab, and a task lookup all
+// fall back to that id, and any other name leaves them dialing a host that
+// isn't there.
+serverConnections.registerPrimary(LOCAL_SERVER_ID, demoApi, {
   events: backend.events,
   destroy: () => {},
-  start: () => {},
+  start: acceptDial,
+  probe: () => Promise.resolve(),
   reconnectNow: () => {},
   onReset: () => () => {},
+  attachDialOutcomeReporter: (report: (outcome: DialOutcome) => void) => {
+    reportDialOutcome = report
+    // The reporter is attached mid-`registerPrimary`; let it finish wiring the
+    // connection before the phase change fans out to its listeners.
+    queueMicrotask(acceptDial)
+  },
 } as unknown as WsTransport, {
-  id: 'demo',
+  id: LOCAL_SERVER_ID,
   label: 'Solus Demo',
   url: window.location.origin,
   sessionToken: '',
   installationId: DEMO_INSTALLATION_ID,
-  local: false,
+  local: true,
 })
 
-setTabPersistenceServerInstallationId(DEMO_INSTALLATION_ID)
 seedDemoStorage(fixtures)
 
 subscribe(({ status, attempt }) => webState.setConnectionStatus(status, attempt))
 setConnectionState({ status: 'connected', attempt: 0 })
 
 webState.setConnectedServer({
-  id: 'demo',
+  id: LOCAL_SERVER_ID,
   label: 'Solus Demo',
   url: window.location.origin,
   sessionToken: '',

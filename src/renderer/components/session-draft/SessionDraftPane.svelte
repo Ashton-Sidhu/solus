@@ -8,7 +8,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { cn } from "../../lib/utils";
   import { startsWorktree } from "../../contexts/workspace/run-config";
-  import type { PickerSelection } from "../pickers/lib/picker-selection";
+  import type { PluginCommandsResult } from "../../../shared/types";
   import type { SessionDraft } from "../../contexts/workspace/session-draft.svelte";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import AsidePaneShell from "../layout/AsidePaneShell.svelte";
@@ -17,6 +17,8 @@
   import InputBar from "../input/InputBar.svelte";
   import InputBarHeader from "../input/InputBarHeader.svelte";
   import InputToolbar from "../input/InputToolbar.svelte";
+  import { draftPluginCommandScope } from "./lib/plugin-command-scope";
+  import { draftModelSelection } from "./lib/draft-selection";
 
   let {
     params,
@@ -58,6 +60,48 @@
   // its object and the chip below does the choosing.
   const hasProject = $derived(projectName !== "~");
 
+  // A draft has no session command cache. Load against the run selected in its
+  // own model picker instead of borrowing commands from the active tab.
+  let pluginCommands = $state<PluginCommandsResult>({ global: [], project: [] });
+  let pluginCommandRequestSequence = 0;
+  $effect(() => {
+    const current = draft;
+    if (!current) return;
+    const scope = draftPluginCommandScope(
+      current.run,
+      theme.activeAgent,
+      current.id,
+      (workingDirectory, gitContext, sourceId) =>
+        session.ctxForEnvironment(workingDirectory, gitContext, sourceId),
+    );
+    // Reading both values makes a picker change invalidate this request even
+    // when two models belong to the same provider.
+    const requestIdentity =
+      `${scope.provider}\0${scope.modelId ?? ""}\0${scope.workingDirectory}`;
+    const requestSequence = ++pluginCommandRequestSequence;
+    pluginCommands = { global: [], project: [] };
+    void session
+      .apiForRun(current.run)
+      .getPluginCommands(scope.workingDirectory, scope.context)
+      .then((result) => {
+        if (requestSequence !== pluginCommandRequestSequence) return;
+        const latest = draft;
+        if (!latest) return;
+        const latestIdentity =
+          `${latest.run.provider ?? theme.activeAgent}\0${latest.run.modelConfig.modelId ?? ""}\0${latest.run.workingDirectory}`;
+        if (latestIdentity !== requestIdentity) return;
+        pluginCommands = result;
+      })
+      .catch((error) => {
+        if (requestSequence === pluginCommandRequestSequence)
+          console.error("getPluginCommands failed", error);
+      });
+    return () => {
+      if (requestSequence === pluginCommandRequestSequence)
+        pluginCommandRequestSequence++;
+    };
+  });
+
   // A draft names a directory before anything has read it — and when the
   // project was opened on another host, only that host can read it. Until it
   // answers there is no checkout, so the chips that describe the destination
@@ -72,41 +116,11 @@
   });
 
   // The model chip's detached mode edits a plain selection rather than a
-  // session's config — which is exactly what a draft has. These accessors make
-  // the draft's run that selection, so the agent and model picked before Send
-  // are the ones the session starts with, and no started session is touched.
-  const modelSelection: PickerSelection = {
-    get provider() {
-      return (
-        draft?.run.provider ??
-        session.defaultRunConfig.provider ??
-        theme.activeAgent
-      );
-    },
-    set provider(next) {
-      if (draft) draft.run = { ...draft.run, provider: next };
-    },
-    get modelId() {
-      return draft?.run.modelConfig?.modelId ?? null;
-    },
-    set modelId(next) {
-      if (draft)
-        draft.run = {
-          ...draft.run,
-          modelConfig: { ...draft.run.modelConfig, modelId: next },
-        };
-    },
-    get reasoningEffort() {
-      return draft?.run.modelConfig?.reasoningEffort ?? "high";
-    },
-    set reasoningEffort(next) {
-      if (draft)
-        draft.run = {
-          ...draft.run,
-          modelConfig: { ...draft.run.modelConfig, reasoningEffort: next },
-        };
-    },
-  };
+  // session's config — which is exactly what a draft has.
+  const modelSelection = draftModelSelection(
+    () => draft ?? null,
+    () => session.defaultRunConfig.provider ?? theme.activeAgent,
+  );
 
   /**
    * Send is the moment a draft stops being one: the session is created, its tab
@@ -200,6 +214,7 @@
           isPrimary={!isAside}
           {paneId}
           run={current.run}
+          {pluginCommands}
           bind:prompt={current.prompt}
           onDispatch={dispatch}
         >
@@ -249,9 +264,9 @@
 {/if}
 
 <style>
-  /* A composer under a headline takes a prompt's measure, not the reading
-     column's — the same one the leading column and a split chat use for an
-     empty session, so opening a draft never resizes the bar you were typing in. */
+  /* A session draft is a compact prompt surface under one headline, not a
+     transcript. Keep it responsive, but do not let the wider conversation
+     reading measure turn the composer into a large horizontal card. */
   .draft-column {
     --solus-reading-max: clamp(40rem, 50%, 52rem);
   }

@@ -19,7 +19,7 @@
   import { CellFocus } from "./cellFocus";
   import { DocCodeBlock } from "./codeBlockView";
   import DragHandle from "@tiptap/extension-drag-handle";
-  import { lowlight } from "./lowlight";
+  import { lowlight } from "../../lib/lowlight";
   import { SearchExtension } from "./searchExtension";
   import { imageFilesFromDataTransfer, readAsDataUrl } from "./images";
   import {
@@ -39,6 +39,9 @@
     deferTableResizeReflow,
     type TableResizePreview,
   } from "./lib/deferred-table-resize";
+  import { z } from "zod";
+
+  const linkAttributesSchema = z.object({ href: z.string().optional() });
 
   interface Props {
     value: string;
@@ -249,12 +252,11 @@
           return false;
         },
         handleDrop: (view, event) => {
-          const dragEvent = event as DragEvent;
-          const images = imageFilesFromDataTransfer(dragEvent.dataTransfer);
+          const images = imageFilesFromDataTransfer(event.dataTransfer);
           if (images.length > 0) {
             const coords = view.posAtCoords({
-              left: dragEvent.clientX,
-              top: dragEvent.clientY,
+              left: event.clientX,
+              top: event.clientY,
             });
             event.preventDefault();
             void insertImageFiles(images, coords?.pos);
@@ -291,7 +293,7 @@
           }
           // Cmd/Ctrl-click opens a link externally (links don't open on plain click).
           if (!(event.metaKey || event.ctrlKey)) return false;
-          const href = editor.getAttributes("link").href as string | undefined;
+          const href = linkAttributesSchema.parse(editor.getAttributes("link")).href;
           if (href) {
             void localApi.openExternal(href);
             return true;
@@ -426,8 +428,7 @@
       document.body.appendChild(ghost);
       dragGhost = ghost;
       onDocDragStart = (e: DragEvent) => {
-        const target = e.target as HTMLElement | null;
-        if (!target?.closest(".drag-handle")) return;
+        if (!(e.target instanceof Element) || !e.target.closest(".drag-handle")) return;
         e.dataTransfer?.setDragImage(ghost, 0, 0);
         editorDiv?.classList.add("is-dragging");
       };
@@ -512,6 +513,8 @@
     onValueChange(md);
   }
 
+  // This imperative component API intentionally hides the internal derived function.
+  // oxlint-disable-next-line solus/no-pass-through-wrappers
   export function getCurrentMarkdown(): string {
     return currentMarkdown();
   }
@@ -646,8 +649,7 @@
 
   function handleContextMenu(e: MouseEvent) {
     if (!editorInstance) return;
-    const target = e.target as HTMLElement;
-    if (target.closest("td, th")) {
+    if (e.target instanceof Element && e.target.closest("td, th")) {
       e.preventDefault();
       tableMenuCoords = { x: e.clientX, y: e.clientY };
     }

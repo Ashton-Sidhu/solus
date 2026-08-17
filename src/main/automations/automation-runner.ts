@@ -1,6 +1,5 @@
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import { createWorktree } from '../git/worktree-manager'
+import { expandHome } from '../server/handlers/lib/host-path'
 import { createLogger } from '../logger'
 import { startRun, attachRunSession, finishRun } from './automations-store'
 import { composeAutomationPrompt } from './compose-prompt'
@@ -73,14 +72,6 @@ export function hasActiveRun(automationId: string): boolean {
     if (entry.automationId === automationId) return true
   }
   return false
-}
-
-/** Expand a leading `~` — the default cwd when no project is active is the
- *  literal string '~', which Node would treat as a relative path. */
-function expandHome(p: string): string {
-  if (p === '~') return homedir()
-  if (p.startsWith('~/')) return join(homedir(), p.slice(2))
-  return p
 }
 
 function prependAutomationRunContext(prompt: string, run: AutomationRun): string {

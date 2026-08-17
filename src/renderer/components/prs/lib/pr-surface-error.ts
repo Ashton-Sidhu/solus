@@ -8,7 +8,7 @@ const GITHUB_AUTH_MESSAGES = [
   'Your GitHub authorization is no longer valid. Reconnect GitHub to continue.',
 ]
 
-export function prSurfaceError(error: unknown): PrSurfaceError {
+export function prSurfaceError(error: Parameters<typeof String>[0]): PrSurfaceError {
   const message = error instanceof Error ? error.message : String(error)
   return {
     kind: GITHUB_AUTH_MESSAGES.some((candidate) => message.includes(candidate))

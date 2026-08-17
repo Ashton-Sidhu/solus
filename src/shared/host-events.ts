@@ -18,6 +18,8 @@ import type {
   SetupStatusEvent,
   VoiceModelStatus,
 } from './types'
+import type { GitActionProgressEvent } from './git-types'
+import { z } from 'zod'
 
 /**
  * Canonical contract for facts published by one Solus host to its clients.
@@ -37,6 +39,7 @@ export interface HostEventMap {
   'voice.modelStatusChanged': VoiceModelStatus
   'automation.changed': AutomationsChangedEvent
   'provider.deviceCodeReceived': DeviceCodePrompt
+  'git.actionProgressed': GitActionProgressEvent
   'review.progressChanged': ReviewProgressEvent
   'review.guideStatusChanged': ReviewGuideStatusEvent
   'tasks.invalidated': Record<string, never>
@@ -82,6 +85,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'voice.modelStatusChanged': { owner: 'voice', category: 'snapshot', recovery: 'reload', description: 'The host voice model changed status.' },
   'automation.changed': { owner: 'automations', category: 'delta', recovery: 'reload', description: 'A durable automation or its run state changed.' },
   'provider.deviceCodeReceived': { owner: 'providers', category: 'targeted', recovery: 'reset', description: 'A provider sign-in produced a device code.' },
+  'git.actionProgressed': { owner: 'git', category: 'targeted', recovery: 'reset', description: 'A stacked Git action changed phase.' },
   'review.progressChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'Review generation progress changed.' },
   'review.guideStatusChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'A review guide changed status.' },
   'tasks.invalidated': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: 'The local task store changed.' },
@@ -97,11 +101,13 @@ export const HOST_EVENT_DEFINITIONS = {
   'cloudflare.connectNeeded': { owner: 'cloudflare', category: 'delta', recovery: 'reset', description: 'A Cloudflare-backed agent tool needs the user to connect a profile.' },
 } as const satisfies Record<HostEventName, HostEventDefinition>
 
-export function isHostEvent(value: unknown): value is HostEvent {
-  if (!value || typeof value !== 'object') return false
-  const candidate = value as { type?: unknown; payload?: unknown; occurredAt?: unknown }
-  return typeof candidate.type === 'string'
-    && candidate.type in HOST_EVENT_DEFINITIONS
-    && 'payload' in candidate
-    && typeof candidate.occurredAt === 'number'
+const hostEventEnvelopeSchema = z.object({
+  type: z.string(),
+  payload: z.unknown(),
+  occurredAt: z.number(),
+})
+
+export function isHostEvent(value: z.input<typeof hostEventEnvelopeSchema>): value is HostEvent {
+  const parsed = hostEventEnvelopeSchema.safeParse(value)
+  return parsed.success && parsed.data.type in HOST_EVENT_DEFINITIONS
 }

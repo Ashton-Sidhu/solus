@@ -12,7 +12,7 @@
   import { getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { serverConnections } from "@client-core/server-connections";
-  import { resolveSessionMetaRef } from "@client-core/session-meta";
+  import { readSessionMeta } from "@client-core/session-meta";
   import { folderLabel, triggerSummary } from "./lib/automation-format";
   import {
     AUTOMATION_TEMPLATES,
@@ -88,9 +88,13 @@
     const cwd = projectPath;
     draftPrompt = text;
     draftingCwd = cwd;
-    draftingServerId = serverConnections.connectionFor()?.serverId ?? null;
+    // Drafting has no narrower owner, so the new-work default host creates it.
+    draftingServerId =
+      serverConnections.defaultServerId() ??
+      serverConnections.connectedServerIds()[0] ??
+      null;
     if (!draftingServerId) {
-      toasts.error("Couldn't start a session: no host is connected");
+      toasts.error("Couldn't start a session", { description: "No host is connected" });
       dismissDraft();
       return;
     }
@@ -119,10 +123,9 @@
   async function openDraftingSession() {
     if (!draftingSessionId || !draftingCwd) return;
     try {
-      const meta = await resolveSessionMetaRef({
-        sessionId: draftingSessionId,
-        serverId: draftingServerId ?? undefined,
-      });
+      const meta = draftingServerId
+        ? await readSessionMeta(draftingServerId, draftingSessionId)
+        : null;
       if (!meta) throw new Error("Session not found");
       await session.resumeSession({ ...meta, cwd: meta.cwd || draftingCwd });
     } catch {
@@ -132,9 +135,12 @@
 
   async function seedTemplate(template: AutomationTemplate) {
     if (seedingId) return;
-    const serverId = serverConnections.connectionFor()?.serverId;
+    // Seeding has no narrower owner, so the new-work default host creates it.
+    const serverId =
+      serverConnections.defaultServerId() ??
+      serverConnections.connectedServerIds()[0];
     if (!serverId) {
-      toasts.error("Couldn't create that automation: no host is connected");
+      toasts.error("Couldn't create that automation", { description: "No host is connected" });
       return;
     }
     seedingId = template.id;

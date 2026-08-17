@@ -18,7 +18,7 @@
 
   const kb = getKeybindingsContext()
 
-  const SCOPE_META: Record<Scope, { label: string; order: number }> = {
+  const SCOPE_META = {
     'global':            { label: 'Global',             order: 10 },
     'diff-panel':        { label: 'Diff Panel',         order: 20 },
     'file-editor':       { label: 'File Editor',        order: 25 },
@@ -38,7 +38,7 @@
     // First-run onboarding holds this scope exclusively and declares no bindings
     // of its own, so it is named here but never listed in ALL_SCOPES.
     'onboarding':        { label: 'Onboarding',         order: 110 },
-  }
+  } satisfies Record<Scope, { label: string; order: number }>
 
   const ALL_SCOPES: Scope[] = [
     'global', 'diff-panel', 'file-editor', 'files-pane',
@@ -62,6 +62,9 @@
     const map = new Map<string, Array<[string, string[]]>>()
     for (const [id, def] of entries) {
       const combo = kb.overrides[id] ?? defaultCombo(def)
+      // An unassigned binding has no keys to teach — Settings → Keybindings is
+      // where it is discovered and given one.
+      if (!combo) continue
       const keys = formatCombo(combo)
       let arr = map.get(def.group)
       if (!arr) { arr = []; map.set(def.group, arr) }
@@ -265,8 +268,17 @@
       var(--solus-popover-shadow),
       inset 0 0.0625rem 0 rgba(255, 255, 255, 0.14);
     overflow: hidden;
-    animation: shortcuts-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    /* `backwards`, not `both`: a retained end transform keeps the whole list on
+       its own compositing layer and blurs its text. */
+    animation: shortcuts-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
     transform-origin: center top;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .shortcuts-backdrop,
+    .shortcuts-modal {
+      animation: none;
+    }
   }
 
   :global(.dark) .shortcuts-modal {

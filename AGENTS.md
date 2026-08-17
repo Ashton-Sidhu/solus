@@ -142,7 +142,8 @@ Use these terms consistently in code, plans, and conversation:
    must earn its existence through validation, defaults, error handling, memoization, or a
    meaningfully narrower interface.
 8. **Clean up after yourself.** Delete dead code and imports you orphan. Never use git to
-   revert or discard work; other agents or the developer may own those changes.
+   revert or discard work; other agents or the developer may own those changes. Never run
+   `git stash` in any form — no exceptions.
 9. **No blind repository sweeps.** Use the Codebase Map, open the named region, then make
    a narrow search.
 10. **No surprise interactive verification.** Do not start a dev server, open a browser,

@@ -28,9 +28,9 @@ export const PrRefExtension = Node.create({
   },
 
   parseMarkdown(token) {
-    const url = new URL(token.href as string)
+    const url = new URL(String(token.href))
     const number = Number(url.searchParams.get('number'))
-    const label = (token.text || '').replace(/\\([\[\]])/g, '$1')
+    const label = (token.text || '').replaceAll('\\[', '[').replaceAll('\\]', ']')
     return {
       type: 'prReference',
       attrs: {

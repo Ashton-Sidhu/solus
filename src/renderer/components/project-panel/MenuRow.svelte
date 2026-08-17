@@ -108,13 +108,20 @@
     border-radius: 0.4375rem;
     background: transparent;
     color: var(--solus-text-secondary);
-    font-size: 0.8125rem;
+    /* The app's native menu size — these rows claim that language, so they use
+       its token. On a narrow laptop rail they step down with the rest of it. */
+    font-size: var(--text-menu);
     font-weight: 400;
     text-align: left;
     cursor: pointer;
     transition:
       background-color 0.15s ease,
       color 0.15s ease;
+  }
+  @container (max-width: 15rem) {
+    .menu-row {
+      font-size: 0.75rem;
+    }
   }
   .menu-row.split-primary {
     flex: 1;
@@ -184,7 +191,7 @@
   .menu-trail {
     flex-shrink: 0;
     color: var(--solus-text-tertiary);
-    font-size: 0.75rem;
+    font-size: var(--text-menu-meta);
     font-weight: 400;
     font-variant-numeric: tabular-nums;
   }
@@ -216,7 +223,7 @@
     flex-shrink: 0;
     color: var(--solus-text-tertiary);
     font-family: var(--solus-code-font-family);
-    font-size: 0.75rem;
+    font-size: var(--text-menu-meta);
     opacity: 0.7;
   }
 

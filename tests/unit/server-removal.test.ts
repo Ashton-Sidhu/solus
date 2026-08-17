@@ -31,7 +31,10 @@ afterEach(() => {
 })
 
 describe('server removal', () => {
-  test('requires switching away before forgetting the active host so the workspace is not reloaded', async () => {
+  test('forgetting the last host refuses; a non-default host forgets in place', async () => {
+    // WHY: dispatch-client step 5 — removal never reloads. The active host is
+    // only the new-work default, so removing it steps aside to another
+    // catalog host; only the last host has nowhere to step to.
     const values = new Map<string, string>([
       ['solus.activeServerId', 'remote'],
       ['solus.servers', JSON.stringify([{
@@ -68,10 +71,23 @@ describe('server removal', () => {
         // remove() fires a focus event; the mock must accept it regardless of
         // which test file initialized the shared runtime singleton first.
         dispatchEvent: () => true,
+        addEventListener: () => {},
+        removeEventListener: () => {},
         matchMedia: (query: string) => ({
           matches: query === '(pointer: coarse)',
           addEventListener: () => {},
         }),
+      },
+    })
+    // The shared runtime singleton toggles a viewport class at import time.
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      writable: true,
+      value: {
+        documentElement: { classList: { toggle: () => {} } },
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        visibilityState: 'visible',
       },
     })
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
@@ -91,7 +107,7 @@ describe('server removal', () => {
       expect(reloads).toBe(0)
       expect(JSON.parse(storage.getItem('solus.servers') ?? '[]')).toHaveLength(1)
       expect(storage.getItem('solus.activeServerId')).toBe('remote')
-      expect(messages).toEqual(['Switch to another host before forgetting Build Mac'])
+      expect(messages).toEqual(['Pair another host before forgetting Build Mac'])
 
       serversStore.activeServerId = 'local'
       serversStore.remove('remote')

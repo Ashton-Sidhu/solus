@@ -8,6 +8,7 @@ import type { Provider, RepoRef } from '../providers/types'
 import { getCliEnv } from '../cli-env'
 import { createLogger } from '../logger'
 import { runAsync } from './exec'
+import { z } from 'zod'
 
 const log = createLogger('main', 'stack-detect')
 const STACK_DETECT_INTERVAL_MS = 30_000
@@ -15,6 +16,15 @@ const STACKS_FILE = join('.solus', 'stacks.json')
 const LOCAL_GIT_CONCURRENCY = 4
 const PATCH_FALLBACK_PR_LIMIT = 20
 const ANCESTRY_PEERS_PER_PR = 20
+const stackGraphSchema = z.object({
+  edges: z.array(z.object({
+    parent: z.number(),
+    child: z.number(),
+    source: z.enum(['ancestry', 'patchid', 'declared', 'manual']),
+  })),
+  headShas: z.record(z.coerce.number(), z.string()),
+  detectedAt: z.string(),
+})
 
 export interface StackPullRequestInput {
   number: number
@@ -112,10 +122,8 @@ export function buildStackGraph(
   complete = true,
 ): StackGraph {
   const openNumbers = new Set(pullRequests.map((pr) => pr.number))
-  const headShas = {
-    ...(complete ? {} : previous?.headShas ?? {}),
-    ...Object.fromEntries(pullRequests.map((pr) => [pr.number, pr.headSha])),
-  } as Record<number, string>
+  const headShas: Record<number, string> = complete ? {} : { ...previous?.headShas }
+  for (const pullRequest of pullRequests) headShas[pullRequest.number] = pullRequest.headSha
   const edges: StackEdge[] = []
   const manualByChild = new Map<number, StackEdge>()
   const preservedChildren = new Set<number>()
@@ -194,7 +202,7 @@ export function buildStackGraph(
 
 export async function readStackGraph(repoRoot: string): Promise<StackGraph | null> {
   try {
-    return JSON.parse(await readFile(join(repoRoot, STACKS_FILE), 'utf8')) as StackGraph
+    return stackGraphSchema.parse(JSON.parse(await readFile(join(repoRoot, STACKS_FILE), 'utf8')))
   } catch {
     return null
   }

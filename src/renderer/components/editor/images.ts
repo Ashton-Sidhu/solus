@@ -1,3 +1,7 @@
+import { z } from "zod";
+
+const dataUrlSchema = z.string();
+
 /** Pull image files out of a paste/drop DataTransfer. */
 export function imageFilesFromDataTransfer(dt: DataTransfer | null): File[] {
   if (!dt) return [];
@@ -19,7 +23,11 @@ export function imageFilesFromDataTransfer(dt: DataTransfer | null): File[] {
 export function readAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
+    reader.onload = () => {
+      const result = dataUrlSchema.safeParse(reader.result);
+      if (result.success) resolve(result.data);
+      else reject(new Error("Unable to read image."));
+    };
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });

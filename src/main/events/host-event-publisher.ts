@@ -25,7 +25,7 @@ export class HostEventPublisher {
     type: K,
     payload: HostEventMap[K],
   ): number {
-    const recipientClientIds = typeof recipient === 'string' ? [recipient] : recipient
+    const recipientClientIds = Array.isArray(recipient) ? recipient : [recipient]
     return this.publishToRecipients(recipientClientIds, type, payload, 'publish')
   }
 
@@ -40,7 +40,7 @@ export class HostEventPublisher {
     delivery: 'publish' | 'broadcast',
   ): number {
     const uniqueRecipientClientIds = new Set(recipientClientIds)
-    const event = { type, payload, occurredAt: Date.now() } as HostEvent<K>
+    const event: HostEvent<K> = { type, payload, occurredAt: Date.now() }
     let publishedClientCount = 0
 
     for (const clientId of uniqueRecipientClientIds) {

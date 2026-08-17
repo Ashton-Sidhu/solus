@@ -7,6 +7,7 @@ import type { AnnotationIndex } from '../../plans/annotations'
 import type { PlanDescriptor, PlanRevisionSummary } from '../../../shared/types'
 import { runBounded } from '../../lib/concurrency'
 import { MemoryCache } from '../../../shared/cache'
+import { z } from 'zod'
 
 export const PLAN_LIST_TTL = 60_000
 export const _planListCache = new MemoryCache<string, PlanDescriptor[]>({ ttlMs: PLAN_LIST_TTL, maxEntries: 64 })
@@ -19,6 +20,8 @@ export const _planListCache = new MemoryCache<string, PlanDescriptor[]>({ ttlMs:
  */
 export const _planScanInFlight = new Map<string, Promise<PlanDescriptor[]>>()
 const MAX_CONCURRENT_PLAN_SCANS = 8
+const stringSchema = z.string()
+const valueArraySchema = z.array(z.unknown())
 
 function extractExcerpt(planContent: string): string {
   const lines = planContent
@@ -39,6 +42,7 @@ export interface ScannedPlan {
   timestamp: number
   title: string
   excerpt: string
+  content: string
   planFilePath?: string
   derivedStatus: DerivedStatus
 }
@@ -53,7 +57,7 @@ function classifyToolResult(content: string, isError: boolean): DerivedStatus | 
   return 'pending'
 }
 
-async function scanOnePlanFile(
+export async function scanPlanFile(
   filePath: string,
   sessionId: string,
   encodedPath: string,
@@ -98,6 +102,7 @@ async function scanOnePlanFile(
                 timestamp: ts,
                 title: extractPlanTitle(planContent),
                 excerpt: extractExcerpt(planContent),
+                content: planContent,
                 planFilePath: block.input?.planFilePath || undefined,
                 derivedStatus: 'pending',
               })
@@ -115,7 +120,13 @@ async function scanOnePlanFile(
             const plan = pending.get(tid)
             if (!plan) continue
             const raw = block.content
-            const text = typeof raw === 'string' ? raw : Array.isArray(raw) ? JSON.stringify(raw) : ''
+            const parsedText = stringSchema.safeParse(raw)
+            const parsedValues = valueArraySchema.safeParse(raw)
+            const text = parsedText.success
+              ? parsedText.data
+              : parsedValues.success
+                ? JSON.stringify(parsedValues.data)
+                : ''
             const status = classifyToolResult(text, !!block.is_error)
             if (status === 'skip') {
               pending.delete(tid)
@@ -149,7 +160,7 @@ export async function scanPlansInDir(
   const tasks = files.map((file) => {
     const sessionId = file.replace(/\.jsonl$/, '')
     const filePath = join(sessionsDir, file)
-    return () => scanOnePlanFile(filePath, sessionId, encodedPath, fallbackCwd)
+    return () => scanPlanFile(filePath, sessionId, encodedPath, fallbackCwd)
   })
   const results = await runBounded(tasks, MAX_CONCURRENT_PLAN_SCANS)
   return results.flat()
@@ -164,11 +175,11 @@ export type AnnotatedPlan = ScannedPlan & {
 }
 
 export function annotateScanned(scanned: ScannedPlan, index: AnnotationIndex): AnnotatedPlan {
-  const ann = index[`${scanned.sessionId}__${scanned.planToolUseId}`]
+  const ann = index.get(`${scanned.sessionId}__${scanned.planToolUseId}`)
   return {
     ...scanned,
     title: ann?.title || scanned.title,
-    status: (ann?.status ?? scanned.derivedStatus) as 'pending' | 'accepted' | 'rejected',
+    status: ann?.status ?? scanned.derivedStatus,
     commentCount: ann?.comments?.length ?? 0,
     bookmarked: !!ann?.bookmarked,
     bookmarkedAt: ann?.bookmarkedAt,

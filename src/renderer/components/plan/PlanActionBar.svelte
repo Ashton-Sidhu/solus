@@ -71,15 +71,19 @@
     const modelChanged = picked
       && !!picked.modelId
       && (picked.provider !== current.activeAgent || picked.modelId !== (current.model || null))
-    session.approvePlanWithModel(planId, mode, {
-      ...(picked && modelChanged ? { provider: picked.provider, modelId: picked.modelId! } : {}),
+    const approveOptions: Parameters<typeof session.approvePlanWithModel>[2] = {
       reasoningEffort: picked?.reasoningEffort,
       generalComment: actionComment.trim() || undefined,
       useWorktree: useWorktree || undefined,
       startNewSession,
       planRefs: picked?.planRefs,
       workRefs: picked?.workRefs,
-    })
+    }
+    if (picked && modelChanged && picked.modelId) {
+      approveOptions.provider = picked.provider
+      approveOptions.modelId = picked.modelId
+    }
+    session.approvePlanWithModel(planId, mode, approveOptions)
     onDone?.()
   }
 

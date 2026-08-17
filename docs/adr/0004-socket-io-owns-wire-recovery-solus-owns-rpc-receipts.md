@@ -54,6 +54,17 @@ that helper would either reintroduce event-loop blocking or weaken the path boun
 - Keep large binary/file payloads off the RPC socket. Standard HTTP streaming and range
   requests own that lifecycle.
 
+## Amendment (2026-08-14, dispatch-client step 3)
+
+Reconnect *scheduling* moved out of Socket.IO: the client dials with
+`reconnection: false`, and the host supervisor
+(`src/client-core/host-supervisor.ts`) is the sole retry owner — the same
+backoff curve, owned one layer up, so the wake taxonomy and per-host phase
+can exist. Socket.IO keeps everything else this ADR gave it: connection-state
+recovery, acks, and heartbeats all ride the one long-lived `Socket`, which
+the supervisor redials rather than replaces. Solus's RPC receipts are
+unchanged.
+
 ## References
 
 - <https://socket.io/docs/v4/delivery-guarantees/>

@@ -70,7 +70,7 @@ const RESIZE_REPORTER = `<script>(function(){
   window.addEventListener("load", report);
   window.addEventListener("resize", report);
   setTimeout(report, 50);
-})();<\/script>`;
+})();</script>`;
 
 /** Resolve the live theme's variable values for injection into the frame. Must
  *  run in the renderer (reads `document.documentElement`). Reference `isDark`

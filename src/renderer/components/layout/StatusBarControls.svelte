@@ -79,14 +79,23 @@
   const creatingWorktree = $derived(session.isContinuingInWorktree(targetTabId));
   // While the worktree is being created, hold the pending label instead of the
   // live base branch so the pill doesn't read "main" and then teleport.
+  const pendingDispatch = $derived(
+    sess?.run.pendingHostDispatch?.intent === "dispatch"
+      ? sess.run.pendingHostDispatch
+      : null,
+  );
+  const selectedDispatchWorktree = $derived(pendingDispatch?.worktree ?? null);
+  const selectedDispatchBaseBranch = $derived(pendingDispatch?.baseBranch ?? null);
   const displayBranch = $derived(
-    creatingWorktree
+    selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? (pendingDispatch
+      ? "New worktree"
+      : creatingWorktree
       ? "Creating worktree"
       : worktreeModePending
         ? env.name
         : git === undefined
           ? env.branch
-          : (git?.branch ?? null),
+          : (git?.branch ?? null)),
   );
 
   let gitOpen = $state(false);
@@ -101,12 +110,16 @@
 
   $effect(() => {
     if (isPinned) return;
-    const handler = () => {
+    const handler = (event: Event) => {
       if (mode !== windowCtx.viewMode || !displayBranch) return;
       if (gitOpen) {
         gitOpen = false;
       } else {
-        gitInitialView = "worktrees";
+        // The worktree shortcut opens the worktree list; the branch shortcut
+        // asks for the branch list instead.
+        const detail: { view?: "worktrees" | "branches" } | undefined =
+          event instanceof CustomEvent ? event.detail : undefined;
+        gitInitialView = detail?.view === "branches" ? "branches" : "worktrees";
         gitOpen = true;
       }
     };
@@ -125,12 +138,13 @@
   // The pill names a branch, so it always opens the branch list.
   function toggleGitMenu() {
     if (!displayBranch) return;
-    gitInitialView = "branches";
+    gitInitialView = pendingDispatch ? "worktrees" : "branches";
     gitOpen = !gitOpen;
   }
 
   async function selectBranch(branch: string) {
     if (!tab?.id) return;
+    if (pendingDispatch) return;
     const entry = worktrees.find((worktree) => worktree.branch === branch);
     if (entry) {
       await selectWorktree(entry);
@@ -145,8 +159,20 @@
   }
 
   async function selectWorktree(worktree: WorktreeEntry) {
+    if (pendingDispatch && tab?.id) {
+      session.setDispatchWorktree(worktree, tab.id);
+      requestInputFocus({ tabId: tab.id });
+      return;
+    }
     await session.switchToWorktree(worktree.path, tab?.id);
     settleOnDestination(tab?.id);
+  }
+
+  function selectNewDispatchWorktree(baseBranch?: string) {
+    if (!tab?.id) return;
+    if (baseBranch) session.setDispatchBaseBranch(baseBranch, tab.id);
+    else session.setDispatchWorktree(null, tab.id);
+    requestInputFocus({ tabId: tab.id });
   }
 
   function settleOnDestination(destinationTabId?: string) {
@@ -215,10 +241,12 @@
     initialView={gitInitialView}
     triggerEl={gitTriggerEl}
     {displayBranch}
-    selectedBranch={worktreeBaseBranch ?? displayBranch}
+    selectedBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? worktreeBaseBranch ?? displayBranch}
     workingDirectory={ctx.workingDirectory}
+    run={sess?.run}
     onSelectBranch={selectBranch}
     onSelectWorktree={selectWorktree}
+    onSelectNewWorktree={selectNewDispatchWorktree}
   />
 {/if}
 
@@ -265,7 +293,11 @@
         class="flex items-center gap-1 min-w-0 text-(--solus-text-tertiary) cursor-pointer transition-[color] hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:text-(--solus-text-primary)"
         style="max-width:16rem"
       >
-        <GitBranchIcon size={12} class="flex-shrink-0 opacity-50" />
+        {#if pendingDispatch}
+          <GitForkIcon size={12} class="flex-shrink-0 opacity-50" />
+        {:else}
+          <GitBranchIcon size={12} class="flex-shrink-0 opacity-50" />
+        {/if}
         <span class="truncate">{displayBranch}</span>
         {#if creatingWorktree || worktreeModePending}
           <GitForkIcon

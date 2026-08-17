@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { z } from "zod";
   import {
     ArrowsOutIcon,
     ArrowsInIcon,
@@ -148,13 +149,14 @@
   // Inner size of the fullscreen overlay, tracked while expanded so the zoom
   // factor follows window resizes.
   let avail = $state({ w: 0, h: 0 });
+  const artifactHeightMessageSchema = z.object({ type: z.literal("solus-artifact-height"), h: z.number() });
 
   $effect(() => {
     function onMessage(e: MessageEvent) {
       if (!iframeEl || e.source !== iframeEl.contentWindow) return;
-      const data = e.data as { type?: string; h?: number };
-      if (data?.type !== "solus-artifact-height" || typeof data.h !== "number")
-        return;
+      const parsed = artifactHeightMessageSchema.safeParse(e.data);
+      if (!parsed.success) return;
+      const data = parsed.data;
       // ceil (no additive buffer) keeps the height a stable fixed point. Any
       // positive padding feeds back forever for artifacts whose body tracks the
       // viewport (min-height:100vh, html/body{height:100%}): the taller frame

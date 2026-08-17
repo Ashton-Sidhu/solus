@@ -9,6 +9,7 @@
   import DiffLoadingSkeleton from "./DiffLoadingSkeleton.svelte";
   import DiffMobileFileSheet from "./DiffMobileFileSheet.svelte";
   import DiffCommentsPopover from "./DiffCommentsPopover.svelte";
+  import DiffHeatMap from "./DiffHeatMap.svelte";
   import DiffStream from "./DiffStream.svelte";
   import { FindBar } from "../ui/find-bar";
   import DiffResizableContent from "./DiffResizableContent.svelte";
@@ -73,6 +74,10 @@
     initialFilePath,
     navigationRequestId,
     embedded = false,
+    hasHostHeaderRow = false,
+    commentingDisabled = false,
+    commitSha = null,
+    onClearCommitScope,
     externalComments = null,
     onExternalCommentSave,
     onExternalCommentDelete,
@@ -101,6 +106,20 @@
      *  navigation) and the session turn stepper (turn scopes would silently
      *  replace the host's PR scope with no way back). */
     embedded?: boolean;
+    /** The host draws its own header row directly above this panel, so the diff
+     *  toolbar drops the branch identity it would repeat and the gutters it
+     *  reserves for window and pane chrome. Separate from `embedded`: a pane
+     *  hosting the diff still floats its chrome over the toolbar's own row. */
+    hasHostHeaderRow?: boolean;
+    /** Disable inline commenting. For views whose line numbers no other surface
+     *  shares (a commit-scoped patch): an anchored comment would point at
+     *  different code once read against the full diff. */
+    commentingDisabled?: boolean;
+    /** Commit identity shown in the diff toolbar while the panel is scoped to
+     *  one pull-request commit. */
+    commitSha?: string | null;
+    /** Return from a commit-scoped patch to the full pull-request diff. */
+    onClearCommitScope?: () => void;
     /** Optional externally-owned comment list for surfaces that persist comments
      *  outside the active tab while still reusing the diff UI. */
     externalComments?: DiffComment[] | null;
@@ -207,10 +226,46 @@
   let findOpen = $state(false);
   let findQuery = $state("");
   let findIndex = $state(0);
+  const savedDiffStyle = localStorage.getItem("solus-diff-style");
   let diffStyleState = $state<"unified" | "split">(
-    (localStorage.getItem("solus-diff-style") as "unified" | "split") ||
-      "unified",
+    savedDiffStyle === "split" ? "split" : "unified",
   );
+  // The 10,000-foot view: a drillable heat map of where the change landed.
+  // The stream stays mounted underneath (display:none) so scroll position,
+  // collapse state, and loaded file contents survive toggling.
+  //
+  // The map leads by default — reading a change starts with where it landed.
+  // Two openings skip it: an embedded panel (the PR review's Diff tab, whose
+  // host has its own Map tab) and a file-targeted open, where the caller asked
+  // for one file's lines, not an overview.
+  let panelView = $state<"diff" | "map">(
+    embedded || initialFilePath ? "diff" : "map",
+  );
+  let hasMountedMap = $state(!(embedded || initialFilePath));
+  $effect(() => {
+    if (panelView === "map") hasMountedMap = true;
+  });
+
+  /** Every file- or line-targeted navigation lands in the diff view. */
+  function showDiffView() {
+    if (panelView !== "diff") panelView = "diff";
+  }
+
+  async function openFileFromMap(displayPath: string) {
+    const fullPath = toFullPath(displayPath);
+    panelView = "diff";
+    await tick();
+    draft.clear();
+    streamRef?.scrollToFile(fullPath);
+    syncTreeTo(fullPath);
+  }
+
+  async function loadRepoFilesForMap(repoRoot: string): Promise<readonly string[] | null> {
+    const result = await getApi().listProjectFiles(getCtx?.() ?? session.ctxFor(tabId), {
+      cwd: repoRoot,
+    });
+    return result.ok ? result.files : null;
+  }
   // Token (word-level) highlighting inside changed lines. Defaults on; only an
   // explicit "off" stored value disables it.
   let tokenHighlightState = $state<boolean>(
@@ -442,6 +497,7 @@
     const stream = streamRef;
     if (!nav || !stream || !diff) return;
     pendingNavigate = null;
+    showDiffView();
     void tick().then(() => {
       stream.ensureExpanded(nav.path);
       if (nav.line != null) stream.scrollToLine(nav.path, nav.line, nav.side);
@@ -473,6 +529,7 @@
     end: number,
     side: "old" | "new",
   ) {
+    if (commentingDisabled) return;
     const sameDraft = draft.filePath === filePath && draft.editingCommentId === null;
     draft.range = { startLine: start, endLine: end, side };
     draft.filePath = filePath;
@@ -509,6 +566,12 @@
     session.setDiffCommentDraft(null);
     streamRef?.clearSelectedLines();
   }
+
+  // Entering a commenting-disabled view (a commit-scoped patch) discards any
+  // in-progress draft: its line anchors belong to the diff being left.
+  $effect(() => {
+    if (commentingDisabled) untrack(() => resetCommentForm());
+  });
 
   function handleSaveComment(comment: string) {
     if (hasExternalCommentStore && onExternalCommentSave) {
@@ -599,7 +662,8 @@
       endLine: c.endLine,
       side: c.side,
     };
-    streamRef?.scrollToLine(c.filePath, c.endLine, c.side);
+    showDiffView();
+    void tick().then(() => streamRef?.scrollToLine(c.filePath, c.endLine, c.side));
   }
 
   // Only line-anchored threads can be scrolled to; outdated ones (line === null)
@@ -608,9 +672,11 @@
 
   function navigateToThread(t: DiffReviewThread) {
     if (t.line == null) return;
+    const line = t.line;
     const side = t.side === "LEFT" ? "old" : "new";
-    draft.range = { startLine: t.line, endLine: t.line, side };
-    streamRef?.scrollToLine(t.filePath, t.line, side);
+    draft.range = { startLine: line, endLine: line, side };
+    showDiffView();
+    void tick().then(() => streamRef?.scrollToLine(t.filePath, line, side));
   }
 
   // ── Find in diff ───────────────────────────────────────────────────────────
@@ -618,7 +684,9 @@
   // paints — so next/prev cycle in visual top-to-bottom order. Recomputes
   // automatically on live mid-turn refresh (derived over reactive fileDiffs).
   const findMatches = $derived.by<DiffFindMatch[]>(() => {
-    if (findQuery.trim().length === 0) return [];
+    // A 1-character query on a large diff yields hundreds of thousands of match
+    // objects and a full stream repaint; wait for a query that can narrow.
+    if (findQuery.trim().length < 2) return [];
     return diffState.findMatches(
       findQuery,
       orderedFiles.map((f) => f.name),
@@ -644,6 +712,8 @@
 
   function openFind() {
     if (treeFiles.length === 0) return;
+    // Find matches live in the stream, which the map view keeps hidden.
+    showDiffView();
     findOpen = true;
     void tick().then(() => findBarRef?.focusInput());
   }
@@ -743,8 +813,11 @@
     const idx = current ? paths.indexOf(current) : -1;
     const next = ((idx === -1 ? 0 : idx + dir) + paths.length) % paths.length;
     draft.clear();
-    streamRef?.scrollToFile(paths[next]);
-    syncTreeTo(paths[next]);
+    showDiffView();
+    void tick().then(() => {
+      streamRef?.scrollToFile(paths[next]);
+      syncTreeTo(paths[next]);
+    });
   }
 
   function cycleTurn(dir: 1 | -1) {
@@ -779,6 +852,7 @@
   }
 
   function startCommentOnCurrentLine() {
+    if (commentingDisabled) return;
     const file = streamRef?.getFocusedFile();
     if (!file) return;
     if (draft.range) {
@@ -848,9 +922,13 @@
 
   // Mobile file navigation: the desktop tree is hidden on phones, so a
   // bottom-sheet list is the only way to jump between changed files.
-  function handleMobileFileSelect(path: string) {
+  async function handleMobileFileSelect(path: string) {
     draft.clear();
     mobileTreeOpen = false;
+    if (panelView === "map") {
+      panelView = "diff";
+      await tick();
+    }
     streamRef?.scrollToFile(path);
   }
 
@@ -925,10 +1003,15 @@
     onStepTurn={cycleTurn}
     turnRunning={sess?.status === "running" || sess?.status === "connecting"}
     mode={isWorkingTreeScope ? "working-tree" : "session"}
+    {hasHostHeaderRow}
+    {commitSha}
+    {onClearCommitScope}
+    {panelView}
+    onSetPanelView={(view) => (panelView = view)}
   />
 
   {#if showLoading}
-    <DiffLoadingSkeleton />
+    <DiffLoadingSkeleton variant={panelView === "map" ? "map" : "diff"} />
   {:else if diffState.loading}
     <!-- Pre-skeleton window: a fast load resolves here and swaps straight to
          content without ever flashing the skeleton or the empty state. -->
@@ -950,6 +1033,23 @@
       description={emptyState?.description}
     />
   {:else}
+    {#if hasMountedMap}
+      <div
+        class="min-h-0 flex-1"
+        class:panel-view-hidden={panelView !== "map"}
+      >
+        <DiffHeatMap
+          files={treeFiles}
+          onOpenFile={openFileFromMap}
+          repoRoot={worktreePath ?? projectPath}
+          loadRepoFiles={loadRepoFilesForMap}
+        />
+      </div>
+    {/if}
+    <div
+      class="flex min-h-0 flex-1 flex-col"
+      class:panel-view-hidden={panelView === "map"}
+    >
     <DiffResizableContent
       {panelWidth}
       {treeCollapsed}
@@ -967,6 +1067,7 @@
               placeholder="Find in diff"
               ariaLabel="Find in diff"
               debounceMs={120}
+              minQueryLength={2}
               onQueryChange={(v) => {
                 findQuery = v;
                 findIndex = 0;
@@ -987,6 +1088,7 @@
           diffStyle={effectiveDiffStyle}
           tokenHighlight={tokenHighlightState}
           comments={diffComments}
+          {commentingDisabled}
           {reviewThreads}
           {onThreadReply}
           {onThreadResolve}
@@ -1006,6 +1108,7 @@
         />
         </div>
     </DiffResizableContent>
+    </div>
   {/if}
 
   <DiffCommentsPopover
@@ -1019,16 +1122,20 @@
   />
 
   {#if !hasExternalCommentStore}
-    <DiffActionBar
-      pendingInlineDraft={pendingFormHasContent}
-      filePath={draft.filePath}
-      diffText={diffState.patch}
-      {branchContext}
-      workingTree={isWorkingTreeScope}
-      onSubmitted={onClose}
-      beforeSend={handleBeforeSend}
-      onShowComments={() => (commentsPopoverOpen = true)}
-    />
+    <!-- Feedback targets lines you are reading; the map has none, so the bar
+         hides there — display:none keeps the typed draft alive across toggles. -->
+    <div class="contents" class:panel-view-hidden={panelView === "map"}>
+      <DiffActionBar
+        pendingInlineDraft={pendingFormHasContent}
+        filePath={draft.filePath}
+        diffText={diffState.patch}
+        {branchContext}
+        workingTree={isWorkingTreeScope}
+        onSubmitted={onClose}
+        beforeSend={handleBeforeSend}
+        onShowComments={() => (commentsPopoverOpen = true)}
+      />
+    </div>
   {/if}
 
   {#if mobileTreeOpen && runtime.isMobileViewport}
@@ -1041,6 +1148,12 @@
 </div>
 
 <style>
+  /* Keeps the inactive panel view mounted (stream scroll/collapse state, map
+     drill state) while removing it from layout, paint, and hit testing. */
+  .panel-view-hidden {
+    display: none !important;
+  }
+
   :global(.diff-panel-bordered) {
     border-left: 0.0625rem solid
       color-mix(in srgb, var(--solus-container-border) 45%, transparent);

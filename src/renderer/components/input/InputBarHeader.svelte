@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { GitBranchIcon } from "phosphor-svelte";
+  import { GitBranchIcon, GitForkIcon } from "phosphor-svelte";
   import { mergeProps } from "bits-ui";
   import {
     getWorkspaceContext,
@@ -97,17 +97,32 @@
 
   const env = $derived(environmentStore.environmentFor(run));
   const hasGitRepository = $derived(!!env.checkout || !!env.repoRoot);
-  // A dispatched session always works in its own worktree, so the switch reads
-  // on and stays inert rather than offering a choice that won't be honoured.
-  const worktreeForced = $derived(isDispatch(run));
+  const worktreeForced = $derived(isDispatch(run) && !!run?.worktree);
   // Only a *pending* worktree changes where the next session starts. Choosing a
   // new worktree from an existing one re-anchors the draft to the project root;
   // creation still follows the normal origin/default-branch path.
   const startsNewWorktree = $derived(env.pending || worktreeForced);
-  const displayBranch = $derived(env.branch ?? env.name);
-  const branchLabel = $derived(env.pending ? env.name : displayBranch);
+  const pendingDispatch = $derived(
+    run?.pendingHostDispatch?.intent === "dispatch"
+      ? run.pendingHostDispatch
+      : null,
+  );
+  const selectedDispatchWorktree = $derived(pendingDispatch?.worktree ?? null);
+  const selectedDispatchBaseBranch = $derived(pendingDispatch?.baseBranch ?? null);
+  const displayBranch = $derived(
+    selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? (pendingDispatch ? "New worktree" : env.branch ?? env.name),
+  );
+  const branchLabel = $derived(
+    pendingDispatch ? displayBranch : (env.pending ? env.name : displayBranch),
+  );
   const branchTooltip = $derived(
-    startsNewWorktree
+    selectedDispatchWorktree
+      ? `Works in ${selectedDispatchWorktree.branch} on the selected host`
+      : selectedDispatchBaseBranch
+      ? `Creates a new worktree from ${selectedDispatchBaseBranch} on the selected host`
+      : pendingDispatch
+      ? "Creates a new worktree on the selected host"
+      : startsNewWorktree
       ? `Branches into its own worktree from ${gitHome.baseBranch}`
       : `Working in ${displayBranch} directly`,
   );
@@ -143,13 +158,17 @@
 
   $effect(() => {
     if (isPinned) return;
-    const handler = () => {
+    const handler = (event: Event) => {
       if (windowCtx.viewMode !== "editor" || !hasGitRepository) return;
       if (gitOpen) {
         gitOpen = false;
       } else {
         branchTooltipOpen = false;
-        gitInitialView = "worktrees";
+        // The worktree shortcut opens the worktree list; the branch shortcut
+        // asks for the branch list instead.
+        const detail: { view?: "worktrees" | "branches" } | undefined =
+          event instanceof CustomEvent ? event.detail : undefined;
+        gitInitialView = detail?.view === "branches" ? "branches" : "worktrees";
         gitOpen = true;
       }
     };
@@ -164,7 +183,7 @@
 
   // The chip names a branch, so it always opens the branch list.
   function toggleBranchPicker() {
-    gitInitialView = "branches";
+    gitInitialView = pendingDispatch ? "worktrees" : "branches";
     gitOpen = !gitOpen;
     if (gitOpen) branchTooltipOpen = false;
   }
@@ -179,6 +198,7 @@
 
   async function selectBranch(branch: string) {
     if (!source) return;
+    if (pendingDispatch) return;
     // A branch checked out elsewhere names that existing worktree. Navigating
     // there avoids turning the selection into a request for another worktree.
     const entry = worktrees.find((worktree) => worktree.branch === branch);
@@ -195,10 +215,21 @@
   }
 
   async function selectWorktree(worktree: WorktreeEntry) {
+    if (pendingDispatch) {
+      session.setDispatchWorktree(worktree, source);
+      requestInputFocus(focusTarget);
+      return;
+    }
     // Honour this header's own source: the editor input bar mounts one per pane,
     // so a split pane must not move the primary chat.
     await session.switchToWorktree(worktree.path, source);
     settleOnDestination();
+  }
+
+  function selectNewDispatchWorktree(baseBranch?: string) {
+    if (baseBranch) session.setDispatchBaseBranch(baseBranch, source);
+    else session.setDispatchWorktree(null, source);
+    requestInputFocus(focusTarget);
   }
 
   // Which host the chosen project lives on — the run-on picker's answer, read
@@ -301,6 +332,7 @@
     requesterId={source}
     locked={hasSessionStarted(sess)}
     onRun={applyRun}
+    onDismiss={() => requestInputFocus(focusTarget)}
     variant="header"
     {paneId}
   />
@@ -331,12 +363,21 @@
  ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
  : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
           >
-            <GitBranchIcon
-              size={14}
-              class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {gitOpen
+            {#if pendingDispatch}
+              <GitForkIcon
+                size={14}
+                class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {gitOpen
  ? 'opacity-100'
  : 'opacity-70'}"
-            />
+              />
+            {:else}
+              <GitBranchIcon
+                size={14}
+                class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {gitOpen
+ ? 'opacity-100'
+ : 'opacity-70'}"
+              />
+            {/if}
             <span class="truncate">{branchLabel}</span>
           </Button>
         {/snippet}
@@ -360,9 +401,12 @@
     initialView={gitInitialView}
     triggerEl={gitTriggerEl}
     {displayBranch}
-    selectedBranch={worktreeBaseBranch ?? displayBranch}
+    selectedBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? worktreeBaseBranch ?? displayBranch}
     workingDirectory={gitStatusCwd}
+    {run}
     onSelectBranch={selectBranch}
     onSelectWorktree={selectWorktree}
+    onSelectNewWorktree={selectNewDispatchWorktree}
+    onDismiss={() => requestInputFocus(focusTarget)}
   />
 {/if}

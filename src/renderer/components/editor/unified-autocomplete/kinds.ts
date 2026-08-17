@@ -53,14 +53,14 @@ export const KINDS: readonly KindSpec[] = [
 ];
 
 /** Singular noun used when a row has to say what it is ("Pull request · open"). */
-export const KIND_NOUN: Record<RefKind, string> = {
+export const KIND_NOUN = {
   plan: "Plan",
   doc: "Doc",
   pr: "Pull request",
   session: "Session",
   task: "Task",
   automation: "Automation",
-};
+} satisfies Record<RefKind, string>;
 
 /** Both the slug and the singular kind key resolve, so `#pr/` works like `#prs/`. */
 export function kindForSlug(slug: string): KindSpec | null {

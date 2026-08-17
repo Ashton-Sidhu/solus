@@ -2,6 +2,7 @@ import rawModelProfiles from './model-profiles.json'
 import type { GitIdentity, GitState } from './git-types'
 import type { TaskProviderId, TaskSnapshot } from './task-types'
 import type { PrReviewTarget, PullRequestDetail } from './providers'
+import { z } from 'zod'
 
 // ─── Agent ID (needed by ModelProfile below) ───
 
@@ -9,11 +10,11 @@ export type AgentId = 'claude-code' | 'codex' | 'opencode'
 
 export type AgentTaskLifecyclePolicy = 'none' | 'moderate' | 'autonomous'
 
-export const AGENT_BIN: Record<AgentId, string> = {
+export const AGENT_BIN = {
   'claude-code': 'claude',
   'codex': 'codex',
   'opencode': 'opencode',
-}
+} satisfies Record<AgentId, string>
 
 export interface ServerCapabilities {
   headless: boolean
@@ -44,6 +45,8 @@ export interface ServerCapabilities {
 /** Feature surface advertised by one authenticated host. Missing keys are
  * unsupported so newer clients remain safe when connected to older hosts. */
 export interface HostCapabilities {
+  /** The host build's version, for the per-host skew notice. */
+  version?: string
   attachUpload?: boolean
   assetUrls?: boolean
   skillsInstall?: boolean
@@ -128,11 +131,15 @@ export interface GithubDelegatedCredential {
   login: string
 }
 
-/** Asks a host to materialize a repository using its own projects and credentials. */
+/** Asks a host to materialize a repository in the calling device's dispatch namespace. */
 export interface SetupPrepareProjectRequest {
   cloneUrl: string
   /** Present only for a Run-on dispatch: clone as the caller, not as the host. */
   credential?: GithubDelegatedCredential
+  /** Exact existing worktree to use after the target repository is ready. */
+  worktreePath?: string
+  /** Origin branch to materialize as an isolated target worktree. */
+  baseBranch?: string
 }
 
 export interface SetupPrepareProjectResult {
@@ -166,6 +173,8 @@ export interface SetupCloneProjectRequest {
   protocol?: CloneProtocol
   /** Removes the partial directory a previous clone on this host left behind. */
   clean?: boolean
+  /** Present only for a Run-on dispatch: clone as the caller, not as the host. */
+  credential?: GithubDelegatedCredential
 }
 
 /** The command that installs a package on a host, and whether Solus may run it unattended. */
@@ -225,12 +234,15 @@ export interface SetupSshAccessResult {
   message: string
 }
 
+export type HostOperatingSystem = 'macos' | 'windows' | 'linux'
+
 export interface DiscoveredServer {
   host: string
   port: number
   name: string
   installationId: string
   claimable: boolean
+  os?: HostOperatingSystem
   source: 'lan' | 'tailnet'
 }
 
@@ -305,7 +317,7 @@ export interface PermissionOption {
 
 export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra' | 'ultracode'
 
-export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
+export const REASONING_EFFORT_LABELS = {
   none: 'None',
   low: 'Low',
   medium: 'Medium',
@@ -314,7 +326,7 @@ export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
   max: 'Max',
   ultra: 'Ultra',
   ultracode: 'Ultra Code'
-}
+} satisfies Record<ReasoningEffort, string>
 
 export interface ModelConfig {
   modelId: string | null
@@ -345,7 +357,24 @@ export interface ModelProfile {
   defaultContextWindow: number
 }
 
-export const MODEL_PROFILES = rawModelProfiles as Partial<Record<AgentId, Record<string, ModelProfile>>>
+const reasoningEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'])
+const modelProfileSchema = z.object({
+  label: z.string(),
+  isDefault: z.boolean().optional(),
+  reasoningLevels: z.array(reasoningEffortSchema),
+  defaultReasoningEffort: reasoningEffortSchema,
+  supportsFastMode: z.boolean(),
+  contextWindows: z.array(z.number()),
+  defaultContextWindow: z.number(),
+})
+const providerModelProfilesSchema = z.record(z.string(), modelProfileSchema)
+const modelProfilesSchema = z.object({
+  'claude-code': providerModelProfilesSchema.optional(),
+  codex: providerModelProfilesSchema.optional(),
+  opencode: providerModelProfilesSchema.optional(),
+})
+
+export const MODEL_PROFILES = modelProfilesSchema.parse(rawModelProfiles)
 
 /**
  * The window a model runs with unless the user picks another. Every site that
@@ -552,7 +581,7 @@ export interface RunConfig {
    * and the new host has yet to reply.
    *
    * Says nothing about *where* the run happens; `serverId`/`taskServerId` own
-   * that. A dispatch always branches, whatever this holds.
+   * that. A dispatch can clear this by selecting an existing target worktree.
    */
   worktree: { baseBranch: string | null } | null
   modelConfig: ModelConfig
@@ -569,9 +598,8 @@ export interface RunConfig {
    * session to another host gives that host a clone, so the task stays with the
    * host you opened the project from. Opening a folder on a host makes that host
    * the project's own, so its tasks are minted there. `serverId !== taskServerId`
-   * is therefore the definition of a dispatch, and the only thing that forces an
-   * isolated worktree — a dispatched session's base checkout sits on a machine
-   * nobody is watching, so a collision there has no one to untangle it.
+   * is therefore the definition of a dispatch. Dispatches always operate in a
+   * worktree, either one created for the session or one selected on the target.
    */
   taskServerId: string
   /**
@@ -626,6 +654,27 @@ export interface SessionHandoffLineage {
   sessionId: string
 }
 
+/** One provider transcript in a session's lineage. */
+export interface SessionLineageMember {
+  position: number
+  provider: AgentId
+  providerSessionId: string | null
+  cwd: string
+  startedAt: number
+  endedAt: number | null
+}
+
+/** The ordered provider chain behind any member transcript. Every session has one;
+ *  `members.length > 1` is what makes it a handoff. */
+export interface SessionLineageResolution {
+  /** The stable Solus session id. Registered at session_init; never re-pointed. */
+  sessionId: string
+  members: SessionLineageMember[]
+  active: SessionLineageMember
+  /** Changes whenever membership or a provider session binding changes. */
+  lineageToken: string
+}
+
 export type TurnStartKind = 'fresh' | 'follow_up' | 'steer'
 
 /**
@@ -639,8 +688,16 @@ export type TurnStartKind = 'fresh' | 'follow_up' | 'steer'
  */
 export type PendingHostDispatch =
   /** Send this session to another machine, which is first given a clone of
-   *  `repoKey`. The project — and every task it files — stays behind. */
-  | { serverId: string; intent: 'dispatch'; repoKey: string }
+   *  `repoKey`. The project — and every task it files — stays behind. A selected
+   *  worktree is an exact path on the target host, never a local checkout. */
+  | {
+      serverId: string
+      intent: 'dispatch'
+      repoKey: string
+      worktree?: Pick<WorktreeEntry, 'path' | 'branch'>
+      /** Origin branch used to create a new isolated worktree on the target. */
+      baseBranch?: string
+    }
   /** Work in a directory that host already has, which makes it that host's
    *  project outright. Nothing to prepare. */
   | { serverId: string; intent: 'open-project' }
@@ -658,6 +715,8 @@ export interface Session {
   id: string
   run: RunConfig
   agentSessionId: string | null
+  /** Present only when this session belongs to a new Solus handoff chain. */
+  handoffId?: string
   handoffFrom?: SessionHandoffLineage
   status: SessionStatus
   messages: Message[]
@@ -724,6 +783,9 @@ export interface Session {
   forkedFromSessionId: string | null
   /** True until the first prompt is sent, so the provider starts from a fork of agentSessionId. */
   forked: boolean
+  /** True when the fork was requested during an active source turn. The provider
+   *  must omit that latest turn when it creates the fork, if it supports a cutoff. */
+  forkExcludeLatestTurn?: boolean
   /** Work this session is actively collaborating on. Its current content is
    *  injected into each prompt so the agent revises the live version. */
   boundWorkId: string | null
@@ -860,9 +922,9 @@ export interface DiffComment {
  * the agent's reads see the real post-change files.
  */
 export interface PrCheckoutContext {
-  /** `.solus-worktrees/pr-<n>`. */
+  /** Checkout holding the PR head; often `.solus-worktrees/pr-<n>`. */
   worktreePath: string
-  /** Local review branch, e.g. `solus/pr-<n>`. */
+  /** The real PR head branch, or a local `solus/pr-<n>` review branch for a fork. */
   branch: string
   /** Exact local revisions. Callers reject a checkout for an older host head. */
   baseSha: string
@@ -1051,6 +1113,9 @@ export interface SessionReference {
   provider: AgentId
   title: string   // slug || first line of firstMessage
   cwd: string      // needed so read_session can locate cross-project sessions
+  /** Client-edge host stamp. Hosts ignore it; the client routes and resumes
+   *  by it, so every new ref carries one. */
+  serverId?: string
 }
 
 // ─── Plans ───
@@ -1164,6 +1229,8 @@ export interface PlanDescriptor {
   commentCount: number
   bookmarked: boolean
   bookmarkedAt?: number
+  /** False when the saved plan remains but its provider transcript is gone. */
+  sessionAvailable?: boolean
   planFilePath?: string
   revisions: PlanRevisionSummary[]
 }
@@ -1376,7 +1443,9 @@ export type PromptSource = 'typed' | 'queued' | 'automation' | 'agent' | 'dispat
 export type PromptVia = 'automation' | 'session-report'
 
 export interface PromptDispatchResult {
-  disposition: 'started' | 'steered' | 'queued'
+  /** `duplicate`: this session already accepted the same `clientPromptId` —
+   *  an outbox drain replayed a delivered send, and nothing ran twice. */
+  disposition: 'started' | 'steered' | 'queued' | 'duplicate'
   queueId?: string
 }
 
@@ -1460,6 +1529,7 @@ export interface SessionCtx {
   latestCheckpointId: string | null
   title?: string | null
   forked?: boolean
+  forkExcludeLatestTurn?: boolean
   /** PR review context for this session's chat tab (null for normal sessions). */
   prReview?: PrReviewContext | null
 }
@@ -1521,6 +1591,21 @@ export interface IpcContext {
 }
 
 /**
+ * The project scope a session's work is filed under. Task `targetScope`, the
+ * `projectRoot` on PR events, and the renderer's per-project caches are all
+ * keyed on it, and they compare for equality — so the operator matters: `??`
+ * hands on `projectPath`'s empty string, `||` falls through to the working
+ * directory. `||` is what the main-process producers already did.
+ *
+ * Not `projectRootOf` in the renderer's `run-config`, which resolves a checkout
+ * back to its repo. This never touches the filesystem; `''` and `'~'` are both
+ * possible answers.
+ */
+export function projectScopeOf(source: Pick<SessionCtx, 'projectPath' | 'workingDirectory'>): string {
+  return source.projectPath || source.workingDirectory
+}
+
+/**
  * The minimal, caller-agnostic contract for running a turn against a session —
  * what the dispatch path and backends actually consume, with none of the UI
  * presentation state in IpcContext. Any system (the renderer, automations, a
@@ -1537,6 +1622,7 @@ export interface SessionRunInput {
   /** null = start a new session; set = resume this session. */
   agentSessionId: string | null
   forked: boolean
+  forkExcludeLatestTurn?: boolean
   workingDirectory: string
   projectPath: string
   additionalDirs: string[]
@@ -1617,9 +1703,17 @@ export interface RuntimeSessionInfo {
 export interface SessionProviderSwitchResult {
   fromProvider: AgentId
   fromSessionId: string
+  /** The one durable task-attempt identity change caused by this switch. The
+   * client applies it to the task host, which can differ from the runtime host. */
+  taskSessionMove: {
+    sourceSessionId: string
+    targetSessionId: string
+  }
   /** Present when switching back before the target provider has started. The
    *  original session is restored instead of creating a redundant handoff. */
   restoredSessionId?: string
+  /** Present while the session belongs to the new ordered handoff lookup. */
+  handoffId?: string
   handoffFrom?: SessionHandoffLineage
 }
 
@@ -1794,6 +1888,13 @@ export interface ProjectIdentity {
   repoKey: string
 }
 
+/** A host-internal dispatch checkout that can contain session history. */
+export interface DispatchHistoryRoot {
+  path: string
+  /** Lowercase `host/owner/repo`, matching ProjectIdentity.repoKey. */
+  repoKey: string
+}
+
 // ─── Agent Types ───
 
 export interface AgentMetadata {
@@ -1841,7 +1942,46 @@ export interface StartInfo {
   agents: AgentMetadata[]
 }
 
-/** Per-project settings read by task providers on the project's owner host. */
+export interface TextGenerationModelSelection {
+  provider: AgentId
+  model: string
+}
+
+export interface TextGenerationSettings {
+  /** General-purpose model for metadata and other short background writing. */
+  textGenerationModel: TextGenerationModelSelection
+  /** Used when the preferred model is not available on the host. */
+  backupTextGenerationModel: TextGenerationModelSelection
+  /** Optional override for commit, branch, and pull-request writing. */
+  sourceControlWriterModel: TextGenerationModelSelection | null
+  /** Host-wide policy applied in the repository where each Git action runs. */
+  sourceControlWriting: SourceControlWritingPreferences
+}
+
+export interface TextGenerationSettingsSnapshot extends TextGenerationSettings {
+  effectiveTextGenerationModel: TextGenerationModelSelection
+  effectiveSourceControlWriterModel: TextGenerationModelSelection
+  agents: AgentMetadata[]
+}
+
+export type SourceControlWritingMode =
+  | 'repo_conventions'
+  | 'conventional_commits'
+  | 'custom'
+
+export interface SourceControlWritingPreferences {
+  mode: SourceControlWritingMode
+  customInstructions: string
+  followPullRequestTemplate: boolean
+}
+
+export const DEFAULT_SOURCE_CONTROL_WRITING: SourceControlWritingPreferences = {
+  mode: 'repo_conventions',
+  customInstructions: '',
+  followPullRequestTemplate: true,
+}
+
+/** Per-project settings read on the project's owner host. */
 export interface ProjectConfig {
   version: 1
   /** Which task provider this project uses. Absent = local (the default). */
@@ -2174,18 +2314,33 @@ export function gitCheckoutFromState(
   worktreePath?: string,
 ): GitCheckout | null {
   if (!status) return null
-  return {
+  const checkout: GitCheckout = {
     branch: status.branch,
-    ...(status.branch === null ? { detachedHeadSha: status.headSha } : {}),
     targetBranch: status.targetBranch,
     repoRoot: status.repoRoot,
-    ...(worktreePath ? { worktreePath } : {}),
   }
+  if (status.branch === null) checkout.detachedHeadSha = status.headSha
+  if (worktreePath) checkout.worktreePath = worktreePath
+  return checkout
 }
 
 export interface GitCheckoutBranchResult {
   success: boolean
   gitContext?: GitCheckout
+  error?: string
+}
+
+/** Why the "check out in the current repository" destination could not switch
+ *  the repo onto a pull request's head. `'disconnected'` is client-only — the
+ *  server never returns it, the transport throws before a result exists. */
+export type PrRepoCheckoutFailureReason = 'stale-head' | 'dirty' | 'conflicted' | 'branch-in-use' | 'disconnected' | 'generic'
+
+export interface PrRepoCheckoutResult {
+  success: boolean
+  gitContext?: GitCheckout
+  reason?: PrRepoCheckoutFailureReason
+  /** Set when `reason` is `'branch-in-use'`: the worktree already holding the branch. */
+  worktreePath?: string
   error?: string
 }
 

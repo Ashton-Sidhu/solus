@@ -1,4 +1,6 @@
 export interface SessionLoadMessage {
+  /** Stable identity for synthetic rows derived from Solus-owned lineage. */
+  messageId?: string
   role: string
   content: string
   toolName?: string
@@ -15,6 +17,8 @@ export interface SessionLoadMessage {
   /** Set on sub-agent tool-result/text lines so history replay can divert them
    *  into the parent tool's `subMessages` instead of the flat thread. */
   parentToolUseId?: string
+  /** Destination label for a deterministic provider-handoff divider. */
+  agentChangedTo?: string
   timestamp: number
 }
 

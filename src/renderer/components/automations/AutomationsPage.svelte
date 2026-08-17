@@ -1,5 +1,6 @@
 <script lang="ts">
   import { serverConnections } from "@client-core/server-connections";
+  import { hostKey } from "@client-core/host-key";
   import { tick } from "svelte";
   import { StarIcon } from "phosphor-svelte";
   import type { Automation } from "../../../shared/types";
@@ -8,6 +9,7 @@
     getWindowContext,
     runtime,
     serversStore,
+    projectCatalog,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import {
@@ -29,21 +31,29 @@
   } from "../ui/list-page";
   import { folderLabel, relativeTime } from "./lib/automation-format";
   import AutomationBuilder from "./AutomationBuilder.svelte";
+  import AutomationContextMenu from "./AutomationContextMenu.svelte";
   import AutomationLaunchpad from "./AutomationLaunchpad.svelte";
   import AutomationProjectFilter from "./AutomationProjectFilter.svelte";
   import AutomationRow from "./AutomationRow.svelte";
   import {
     automationProject,
     automationProjects,
+    type AutomationProject,
   } from "./lib/automation-projects";
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
   const store = session.automationsStore;
+  // The full-page catalog has no narrower owner, so the new-work default host
+  // is its explicit scope; with no host connected there is nothing to list.
   const selectedServerId = $derived(
-    serverConnections.resolveId(serversStore.activeServerId),
+    serverConnections.defaultServerId() ??
+      serverConnections.connectedServerIds()[0] ??
+      null,
   );
-  const hostItems = $derived(store.itemsForHost(selectedServerId));
+  const hostItems = $derived(
+    selectedServerId ? store.itemsForHost(selectedServerId) : [],
+  );
 
   const open = $derived(session.router.at("automations"));
   // Editor mode opens the builder in the side panel; pill mode has no pane, so it
@@ -60,15 +70,35 @@
   // The page starts with the complete catalog. Its project facet comes from
   // that catalog, not from open tabs, so every automation always has a choice.
   let selectedProjectKey = $state<string | null>(null);
-  const projects = $derived(
-    automationProjects(
+  const projects = $derived.by(() => {
+    const base = automationProjects(
       hostItems,
       session.openProjects,
       session.staticInfo?.workspacePath,
       (automation) => store.hostFor(automation.id),
       (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
-    ),
-  );
+    );
+    // The catalog knows about projects on this host with no automations yet —
+    // union them in at zero count, so the filter also offers "jump scope to a
+    // project before automating it," not only ones the list already spans.
+    const extra: AutomationProject[] = [];
+    for (const entry of projectCatalog.entries) {
+      if (entry.serverId !== selectedServerId) continue;
+      const key = hostKey(entry.serverId, entry.projectRoot);
+      if (base.some((project) => project.key === key)) continue;
+      extra.push({
+        key,
+        projectPath: entry.projectRoot,
+        serverId: entry.serverId,
+        label: entry.label,
+        roots: [entry.projectRoot],
+        count: 0,
+      });
+    }
+    return extra.length === 0
+      ? base
+      : [...base, ...extra].sort((a, b) => a.label.localeCompare(b.label));
+  });
   const selectedProject = $derived(
     projects.find((project) => project.key === selectedProjectKey) ?? null,
   );
@@ -102,6 +132,11 @@
   // nothing is fetched or mounted until a row is actually opened.
   let selectedId = $state<string | null>(null);
   let collapsedGroups = $state<Record<string, boolean>>({});
+  let automationContextMenu = $state<{
+    automation: Automation;
+    x: number;
+    y: number;
+  } | null>(null);
 
   // Tick the clock so "next run in 4 hr" and the rows' ages keep counting down
   // instead of freezing at load.
@@ -128,28 +163,33 @@
   const counts = $derived.by(() => {
     let active = 0;
     let paused = 0;
-    for (const a of scoped) a.enabled ? active++ : paused++;
+    for (const automation of scoped) {
+      if (automation.enabled) active++;
+      else paused++;
+    }
     return { all: scoped.length, active, paused };
   });
 
-  const statusSegments = $derived([
-    { value: "all" as StatusFilter, label: "All", count: counts.all },
+  const statusSegments = $derived(([
+    { value: "all", label: "All", count: counts.all },
     {
-      value: "active" as StatusFilter,
+      value: "active",
       label: "Active",
       short: "On",
       count: counts.active,
     },
     {
-      value: "paused" as StatusFilter,
+      value: "paused",
       label: "Paused",
       short: "Off",
       count: counts.paused,
     },
-  ]);
+  ] satisfies Array<{ value: StatusFilter; label: string; short?: string; count: number }>));
 
   const isInitialLoading = $derived(
-    !store.hasLoadedHost(selectedServerId) && store.isLoadingHost(selectedServerId),
+    !!selectedServerId &&
+      !store.hasLoadedHost(selectedServerId) &&
+      store.isLoadingHost(selectedServerId),
   );
   // The zero-state owns the page, so the header hides its New button and the
   // command bar (search/filter noise with nothing to filter) while it shows.
@@ -251,10 +291,11 @@
       // names one (e.g. from the project panel or a "Sent via automation"
       // badge); the bare route lands on the list.
       const focusId = session.router.params("automations")?.automationId;
-      if (focusId) {
-        void store.loadAll(selectedServerId).then(() => {
+      if (focusId && selectedServerId) {
+        const scopeServerId = selectedServerId;
+        void store.loadAll(scopeServerId).then(() => {
           const target = store
-            .itemsForHost(selectedServerId)
+            .itemsForHost(scopeServerId)
             .find((automation) => automation.id === focusId);
           view = target
             ? { kind: "edit", automation: target }
@@ -262,7 +303,7 @@
         });
       } else {
         view = { kind: "list" };
-        void store.loadAll(selectedServerId);
+        if (selectedServerId) void store.loadAll(selectedServerId);
         if (!runtime.shouldSuppressFocus) {
           void tick().then(() => searchEl?.focus());
         }
@@ -330,34 +371,45 @@
     searchEl?.focus();
   }
 
-  async function toggleEnabled(a: Automation, e: Event) {
-    e.stopPropagation();
+  async function toggleEnabled(a: Automation, e?: Event) {
+    e?.stopPropagation();
     await store.setEnabled(a.id, !a.enabled);
   }
 
-  async function runNow(a: Automation, e: Event) {
-    e.stopPropagation();
+  async function runNow(a: Automation, e?: Event) {
+    e?.stopPropagation();
     await store.runNow(a.id);
   }
 
-  async function cancelRun(a: Automation, e: Event) {
-    e.stopPropagation();
+  async function cancelRun(a: Automation, e?: Event) {
+    e?.stopPropagation();
     await store.cancel(a.id);
   }
 
-  async function toggleFavorite(a: Automation, e: Event) {
-    e.stopPropagation();
+  async function toggleFavorite(a: Automation, e?: Event) {
+    e?.stopPropagation();
     await store.setFavorite(a.id, !a.favorite);
   }
 
-  function deleteAutomation(a: Automation, e: Event) {
-    e.stopPropagation();
+  function deleteAutomation(a: Automation, e?: Event) {
+    e?.stopPropagation();
     // Hide the row immediately, then offer a brief undo window. The on-disk
     // delete is deferred until the toast commits (matches document delete).
     if (!store.softRemove(a.id)) return;
     toasts.undo("Automation deleted", () => store.restorePending(), {
       onDismiss: () => void store.commitPending(),
     });
+  }
+
+  function openAutomationContextMenu(event: MouseEvent, automation: Automation) {
+    event.preventDefault();
+    event.stopPropagation();
+    selectedId = automation.id;
+    automationContextMenu = {
+      automation,
+      x: event.clientX,
+      y: event.clientY,
+    };
   }
 
   // ── List keyboard nav ── the four keys the footer rail advertises.
@@ -521,6 +573,7 @@
                         onCancelRun={cancelRun}
                         onToggleFavorite={toggleFavorite}
                         onDelete={deleteAutomation}
+                        onContextMenu={openAutomationContextMenu}
                       />
                     </li>
                   {/each}
@@ -542,6 +595,22 @@
           {/if}
         </div>
       </ListPage>
+
+      {#if automationContextMenu}
+        {@const menuAutomation = automationContextMenu.automation}
+        <AutomationContextMenu
+          x={automationContextMenu.x}
+          y={automationContextMenu.y}
+          automation={menuAutomation}
+          onEdit={() => startEdit(menuAutomation)}
+          onRunNow={() => void runNow(menuAutomation)}
+          onCancelRun={() => void cancelRun(menuAutomation)}
+          onToggleEnabled={() => void toggleEnabled(menuAutomation)}
+          onToggleFavorite={() => void toggleFavorite(menuAutomation)}
+          onDelete={() => deleteAutomation(menuAutomation)}
+          onClose={() => (automationContextMenu = null)}
+        />
+      {/if}
     {/if}
   </div>
 {/if}

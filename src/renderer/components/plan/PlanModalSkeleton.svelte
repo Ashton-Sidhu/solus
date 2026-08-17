@@ -36,7 +36,7 @@
   >
     <!-- The title is known before the content is, so it stays real type; only
          the verbs on the right are ghosts. -->
-    <header class="flex h-[2.875rem] shrink-0 items-center pl-[1.375rem]">
+    <header class="workspace-titlebar flex h-[2.875rem] shrink-0 items-center pl-[1.375rem]">
       <span class="text-[0.8125rem] font-medium text-(--solus-text-primary)">
         Review Plan
       </span>

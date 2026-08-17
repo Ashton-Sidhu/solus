@@ -26,6 +26,11 @@ import { DEMO_PROJECT, type DemoFixtures } from './fixtures/types'
 
 const FIXTURE_EPOCH = Date.parse('2026-01-15T15:00:00.000Z')
 
+/** How long before this visit the newest recorded message is said to have
+ *  landed. The replayed turn continues that history, so the gap is what the
+ *  visitor reads as "this conversation was live a moment ago". */
+const HISTORY_ENDS_BEFORE_NOW_MS = 90_000
+
 type WorkPatch = Partial<Pick<Work, 'title' | 'preview' | 'content'>>
 type AutomationPatch = {
   name?: string
@@ -50,6 +55,31 @@ export class DemoStore {
 
   constructor(fixtures: DemoFixtures) {
     this.fixtures = structuredClone(fixtures)
+    this.rebaseSessionHistory()
+  }
+
+  /** Recorded transcripts carry absolute timestamps, so a fixture authored
+   *  months ago makes the replayed turn measure its own length from then —
+   *  the finished turn reported "Worked for 46878m". Slide each history
+   *  forward so its own newest message sits just before this visit. Per
+   *  session, not one shared shift: the replay continues whichever session it
+   *  targets, and that one must be the fresh one no matter where it fell in
+   *  the fixture's recording order. The shape of each conversation is
+   *  preserved; only its era moves. */
+  private rebaseSessionHistory(): void {
+    const now = Date.now()
+    for (const session of this.fixtures.sessions) {
+      let newest = 0
+      for (const message of session.messages) {
+        if (message.timestamp > newest) newest = message.timestamp
+      }
+      if (!newest) continue
+      const shift = now - HISTORY_ENDS_BEFORE_NOW_MS - newest
+      for (const message of session.messages) {
+        message.timestamp += shift
+      }
+      session.meta.lastTimestamp = new Date(Date.parse(session.meta.lastTimestamp) + shift).toISOString()
+    }
   }
 
   private nextTimestamp(): number {
@@ -435,7 +465,13 @@ export class DemoStore {
   linkTaskSession(taskId: string, sessionId: string): void {
     const links = this.fixtures.tasks.sessions[taskId] ??= []
     if (!links.some((link) => link.sessionId === sessionId)) {
-      links.push({ sessionId, linkedAt: this.nextTimestamp() })
+      links.push({
+        sessionId,
+        sessionTitle: this.getSessionInfo(sessionId)?.firstMessage ?? null,
+        provider: this.getSessionInfo(sessionId)?.provider ?? null,
+        lastActivityAt: null,
+        linkedAt: this.nextTimestamp(),
+      })
     }
   }
 

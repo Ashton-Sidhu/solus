@@ -1,5 +1,5 @@
 import { MODEL_PROFILES } from '../../shared/types'
-import type { AgentId, Session } from '../../shared/types'
+import type { Session } from '../../shared/types'
 
 const DEFAULT_CONTEXT_WINDOW = 200_000
 
@@ -18,7 +18,7 @@ export function contextLimit(session: Session | null | undefined): number {
   if (session.run.modelConfig.contextWindow && session.run.modelConfig.contextWindow > 0) {
     return session.run.modelConfig.contextWindow
   }
-  const provider = (session.run.provider ?? 'claude-code') as AgentId
+  const provider = session.run.provider ?? 'claude-code'
   const model = session.sessionModel ?? session.run.modelConfig.modelId
   const profile = model ? MODEL_PROFILES[provider]?.[model] : undefined
   return profile?.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW

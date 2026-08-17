@@ -51,12 +51,12 @@ export interface TaskSessionRow {
 }
 
 /** `sessions.provider` slugs as the session index writes them. */
-const AGENT_LABELS: Record<string, string> = {
-  claude: 'Claude Code',
-  'claude-code': 'Claude Code',
-  codex: 'Codex',
-  opencode: 'OpenCode',
-}
+const AGENT_LABELS = new Map([
+  ['claude', 'Claude Code'],
+  ['claude-code', 'Claude Code'],
+  ['codex', 'Codex'],
+  ['opencode', 'OpenCode'],
+])
 
 const DAY = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
 const DAY_WITH_YEAR = new Intl.DateTimeFormat(undefined, {
@@ -85,7 +85,7 @@ export function taskSessionRow(
   return {
     sessionId: link.sessionId,
     title: sessionDisplayName({ link, liveTitle, taskTitle }),
-    agent: provider ? (AGENT_LABELS[provider] ?? provider) : '',
+    agent: provider ? (AGENT_LABELS.get(provider) ?? provider) : '',
     host: host ?? null,
     date: (thisYear ? DAY : DAY_WITH_YEAR).format(started),
     dateFull: FULL.format(started),
@@ -93,14 +93,14 @@ export function taskSessionRow(
   }
 }
 
-const TASK_PROVIDER_LABELS: Record<TaskProviderId, string> = {
-  github: 'GitHub',
-  local: 'Local task',
-}
+const TASK_PROVIDER_LABELS = new Map<TaskProviderId, string>([
+  ['github', 'GitHub'],
+  ['local', 'Local task'],
+])
 
 /** The task page identifies the system that owns the task. */
 export function taskProviderLabel(task: Task): string {
-  return TASK_PROVIDER_LABELS[task.providerId]
+  return TASK_PROVIDER_LABELS.get(task.providerId) ?? task.providerId
 }
 
 interface TaskPageCapabilities {
@@ -126,7 +126,12 @@ export function taskPageCapabilities(task: Task): TaskPageCapabilities {
 
 /** Three ascending bars, filled up to the level. Urgent fills in the failure
  *  colour so the top of the scale reads differently from the rest of it. */
-const PRIORITY_BARS: Record<TaskPriority, number> = { urgent: 3, high: 3, medium: 2, low: 1 }
+const PRIORITY_BARS = new Map<TaskPriority, number>([
+  ['urgent', 3],
+  ['high', 3],
+  ['medium', 2],
+  ['low', 1],
+])
 const BAR_HEIGHTS = ['4px', '6.5px', '9px']
 
 interface PriorityBar {
@@ -135,7 +140,7 @@ interface PriorityBar {
 }
 
 export function priorityBars(priority: TaskPriority | undefined): PriorityBar[] {
-  const filled = priority ? PRIORITY_BARS[priority] : 0
+  const filled = priority ? PRIORITY_BARS.get(priority) ?? 0 : 0
   const on = priority === 'urgent'
     ? 'color-mix(in oklch, var(--failure) 70%, var(--foreground))'
     : 'color-mix(in oklch, var(--foreground) 62%, transparent)'
@@ -153,20 +158,20 @@ export function priorityLabel(priority: TaskPriority | undefined): string {
 // ── Linked ──
 
 /** Icon paths for the Linked table, matching the kinds the picker offers. */
-const LINK_ICONS: Record<TaskLinkKind, string> = {
-  work: 'M8.2 1.6H4.2a1.4 1.4 0 00-1.4 1.4v8a1.4 1.4 0 001.4 1.4h5.6a1.4 1.4 0 001.4-1.4V4.4zM8.2 1.6v2.8h3M5 7.4h4M5 9.8h2.6',
-  plan: 'M2.4 3.6l1.2 1.2 2-2M2.4 8.2l1.2 1.2 2-2M7.6 4h4M7.6 8.6h4',
-  automation: 'M7.6 1.8L3.6 7.6h3L6.2 12.2l4.2-6h-3z',
-  pr: 'M4 4.4a1.4 1.4 0 100-2.8 1.4 1.4 0 000 2.8M4 12.4a1.4 1.4 0 100-2.8 1.4 1.4 0 000 2.8M10 4.4a1.4 1.4 0 100-2.8 1.4 1.4 0 000 2.8M4 4.4v5.2M10 4.4v1.9a2.4 2.4 0 01-2.4 2.4H5.6',
-}
+const LINK_ICONS = new Map<TaskLinkKind, string>([
+  ['work', 'M8.2 1.6H4.2a1.4 1.4 0 00-1.4 1.4v8a1.4 1.4 0 001.4 1.4h5.6a1.4 1.4 0 001.4-1.4V4.4zM8.2 1.6v2.8h3M5 7.4h4M5 9.8h2.6'],
+  ['plan', 'M2.4 3.6l1.2 1.2 2-2M2.4 8.2l1.2 1.2 2-2M7.6 4h4M7.6 8.6h4'],
+  ['automation', 'M7.6 1.8L3.6 7.6h3L6.2 12.2l4.2-6h-3z'],
+  ['pr', 'M4 4.4a1.4 1.4 0 100-2.8 1.4 1.4 0 000 2.8M4 12.4a1.4 1.4 0 100-2.8 1.4 1.4 0 000 2.8M10 4.4a1.4 1.4 0 100-2.8 1.4 1.4 0 000 2.8M4 4.4v5.2M10 4.4v1.9a2.4 2.4 0 01-2.4 2.4H5.6'],
+])
 
 /** Plural section names, which are also the filter labels. */
-const LINK_KIND_LABELS: Record<TaskLinkKind, { one: string; many: string }> = {
-  work: { one: 'Doc', many: 'Docs' },
-  plan: { one: 'Plan', many: 'Plans' },
-  pr: { one: 'PR', many: 'PRs' },
-  automation: { one: 'Automation', many: 'Automations' },
-}
+const LINK_KIND_LABELS = new Map<TaskLinkKind, { one: string; many: string }>([
+  ['work', { one: 'Doc', many: 'Docs' }],
+  ['plan', { one: 'Plan', many: 'Plans' }],
+  ['pr', { one: 'PR', many: 'PRs' }],
+  ['automation', { one: 'Automation', many: 'Automations' }],
+])
 
 /** Pull requests are not rows in the Linked table: they get their own section,
  *  which can carry live PR state a generic row has nowhere to put. */
@@ -205,9 +210,9 @@ export function linkRow(link: TaskLink): LinkRow {
   return {
     key: `${link.kind}:${link.targetScope}:${link.targetKey}`,
     link,
-    icon: LINK_ICONS[link.kind],
+    icon: LINK_ICONS.get(link.kind) ?? '',
     label: link.kind === 'pr' ? labelWithoutPrRef(label, ref) : label,
-    kindLabel: LINK_KIND_LABELS[link.kind].one,
+    kindLabel: LINK_KIND_LABELS.get(link.kind)?.one ?? link.kind,
     ref,
     meta: link.liveStatus ?? '',
   }
@@ -225,7 +230,7 @@ export function linkFilters(links: TaskLink[]): LinkFilter[] {
   const filters: LinkFilter[] = [{ label: 'All', kind: null, count: links.length }]
   for (const kind of LINK_KIND_ORDER) {
     const count = links.filter((link) => link.kind === kind).length
-    if (count) filters.push({ label: LINK_KIND_LABELS[kind].many, kind, count })
+    if (count) filters.push({ label: LINK_KIND_LABELS.get(kind)?.many ?? kind, kind, count })
   }
   return filters
 }
@@ -256,12 +261,12 @@ export function activityFeed(comments: TaskComment[], events: TaskEvent[]): Acti
   return entries.sort((left, right) => left.at - right.at || left.key.localeCompare(right.key))
 }
 
-const ACTOR_NAMES: Record<TaskEvent['actor'], string> = {
-  user: 'You',
-  agent: 'An agent',
-  automation: 'An automation',
-  system: 'Solus',
-}
+const ACTOR_NAMES = new Map<TaskEvent['actor'], string>([
+  ['user', 'You'],
+  ['agent', 'An agent'],
+  ['automation', 'An automation'],
+  ['system', 'Solus'],
+])
 
 const EVENT_GLYPHS = {
   plus: 'M7 2.6v8.8M2.6 7h8.8',
@@ -271,8 +276,13 @@ const EVENT_GLYPHS = {
 } as const
 
 /** One muted sentence per event, plus the glyph for its disc. */
-export function eventLine(event: TaskEvent): { icon: string; text: string } {
-  const who = event.actorLabel || ACTOR_NAMES[event.actor]
+interface TaskEventLine {
+  icon: string
+  text: string
+}
+
+export function eventLine(event: TaskEvent): TaskEventLine {
+  const who = event.actorLabel || ACTOR_NAMES.get(event.actor) || event.actor
   const target = event.targetTitle || event.targetKey || ''
   switch (event.kind) {
     case 'created':
@@ -312,7 +322,7 @@ export function eventLine(event: TaskEvent): { icon: string; text: string } {
 
 function statusName(status: string | null | undefined): string {
   if (!status) return 'unknown'
-  return STATUS_META[status as TaskStatus]?.label ?? status
+  return Object.entries(STATUS_META).find(([key]) => key === status)?.[1].label ?? status
 }
 
 // ── Header ──

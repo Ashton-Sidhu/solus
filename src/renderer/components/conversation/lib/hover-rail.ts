@@ -17,13 +17,11 @@ export function formatRailTime(timestamp: number, now = Date.now()): string {
   // Inside the week the weekday reads faster than a date; beyond it, the date is
   // the only thing that still locates the message.
   const withinWeek = now - timestamp < 7 * DAY_MS
+  const dateOptions: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
+  if (date.getFullYear() !== new Date(now).getFullYear()) dateOptions.year = 'numeric'
   const day = withinWeek
     ? date.toLocaleDateString(undefined, { weekday: 'short' })
-    : date.toLocaleDateString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        ...(date.getFullYear() === new Date(now).getFullYear() ? {} : { year: 'numeric' }),
-      })
+    : date.toLocaleDateString(undefined, dateOptions)
   return `${day} ${clock}`
 }
 

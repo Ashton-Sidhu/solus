@@ -61,12 +61,12 @@
     initialPath?: string;
     title?: string;
     actionLabel?: string;
-    /** RPC surface of the host being browsed. Defaults to the active server. */
-    api?: HostApi;
+    /** RPC surface of the host being browsed. */
+    api: HostApi;
     /** Shown as a chip when browsing a host other than the active server. */
     hostLabel?: string;
-    /** Lets remote browsing share the host store's temporary-connection recents cache. */
-    serverId?: string;
+    /** The browsed host; also keys the host store's temporary-connection recents cache. */
+    serverId: string;
   }
 
   let {
@@ -76,9 +76,9 @@
     initialPath,
     title = "Choose folder",
     actionLabel = "Select",
-    api = undefined,
+    api: host,
     hostLabel = undefined,
-    serverId = undefined,
+    serverId,
   }: Props = $props();
 
   /** Glyph a Places row carries — what kind of location it is, not its label. */
@@ -86,11 +86,10 @@
 
   const layer = getPopoverLayer();
 
-  const host = $derived(api ?? serverConnections.primaryApi());
-  const isPrimaryHost = $derived(host === serverConnections.primaryApi());
-  const browseServerId = $derived(
-    serverId ?? serverConnections.serverIdForApi(host),
-  );
+  // Recents in Places: the client machine's own recent projects when browsing
+  // its local host; any other host — including every host on web, where the
+  // client machine is not a host — reads that host's recents remotely.
+  const isLocalHost = $derived(serverId === serverConnections.localServerId());
 
   /** The typed path is the only selection state; everything below derives from it. */
   let path = $state("");
@@ -143,10 +142,11 @@
         resolvedParentDirectory !== null),
   );
   type Row = { kind: "up" } | { kind: "dir"; entry: DirectoryEntry };
-  const rows: Row[] = $derived([
-    ...(canGoUp ? [{ kind: "up" } as Row] : []),
-    ...dirEntries.map((entry): Row => ({ kind: "dir", entry })),
-  ]);
+  const rows: Row[] = $derived.by(() => {
+    const nextRows: Row[] = dirEntries.map((entry) => ({ kind: "dir", entry }));
+    if (canGoUp) nextRows.unshift({ kind: "up" });
+    return nextRows;
+  });
   const highlightedRow = $derived(rows[highlightedIndex] ?? null);
 
   const exactEntry = $derived(
@@ -182,7 +182,7 @@
   );
 
   const recentProjects = $derived(
-    isPrimaryHost ? projectsStore.recentProjects : remoteRecents,
+    isLocalHost ? projectsStore.recentProjects : remoteRecents,
   );
 
   const fileManagerName = $derived(
@@ -196,7 +196,7 @@
   // The file manager opens on the machine running the handler, so it is only
   // meaningful when the browsed host is this one.
   const canOpenFileManager = $derived(
-    hostPolicy.isClientMachine(browseServerId) &&
+    hostPolicy.isClientMachine(serverId) &&
       connectionsStore.desktopHandlersAvailable &&
       !runtime.isMobileViewport,
   );
@@ -226,11 +226,9 @@
     // unmounted, so keystrokes would fall on the body until the load lands.
     if (shouldAutofocus) requestAnimationFrame(() => pathInputEl?.focus());
 
-    const recents = isPrimaryHost
+    const recents = isLocalHost
       ? projectsStore.loadRecentProjects().then(() => projectsStore.recentProjects)
-      : serverId
-        ? serversStore.recentProjectsFor(serverId)
-        : Promise.resolve([]);
+      : serversStore.recentProjectsFor(serverId);
     void Promise.all([
       browseApi.getServerCapabilities().catch(() => null),
       browseApi.listDirectory("~", true).catch(() => null),
@@ -420,7 +418,7 @@
     if (focusable.length === 0) return;
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
-    const active = document.activeElement as HTMLElement | null;
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (e.shiftKey && active === first) {
       e.preventDefault();
       last.focus();

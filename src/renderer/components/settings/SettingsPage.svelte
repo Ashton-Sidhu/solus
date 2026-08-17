@@ -14,6 +14,7 @@
     FolderIcon,
     FlaskIcon,
     CaretDownIcon,
+    GitPullRequestIcon,
   } from "phosphor-svelte";
   import {
     getWorkspaceContext,
@@ -36,6 +37,7 @@
   import SettingsTabVoice from "./SettingsTabVoice.svelte";
   import SettingsTabExperimental from "./SettingsTabExperimental.svelte";
   import SettingsTabProjects from "./SettingsTabProjects.svelte";
+  import SettingsTabSourceControl from "./SettingsTabSourceControl.svelte";
   import SettingsTabKeybindings from "./SettingsTabKeybindings.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as Sidebar from "../ui/sidebar";
@@ -79,6 +81,13 @@
       icon: FolderIcon,
       group: "Workspace",
       hiddenFromNav: true,
+    },
+    {
+      id: "source-control",
+      label: "Source Control",
+      description: "Repository integrations and generated Git writing.",
+      icon: GitPullRequestIcon,
+      group: "Workspace",
     },
     {
       id: "review",
@@ -167,13 +176,16 @@
     ALL_TABS.find((t) => t.id === session.settingsTab) ?? tabs[0],
   );
   const hostFramedTab = $derived(
-    session.settingsTab === "projects" ||
+    session.settingsTab === "general" ||
+      session.settingsTab === "projects" ||
+      session.settingsTab === "source-control" ||
+      session.settingsTab === "providers" ||
       session.settingsTab === "tools" ||
       session.settingsTab === "skills" ||
       session.settingsTab === "voice",
   );
   let selectedSettingsServerId = $state(
-    serverConnections.connectionFor()?.serverId ?? "",
+    serverConnections.defaultServerId() ?? "",
   );
   const settingsHosts = $derived.by(() => {
     void serversStore.servers;
@@ -199,7 +211,7 @@
   $effect(() => {
     if (selectedSettingsHost) return;
     selectedSettingsServerId =
-      serverConnections.connectionFor()?.serverId ?? settingsHosts[0]?.serverId ?? "";
+      serverConnections.defaultServerId() ?? settingsHosts[0]?.serverId ?? "";
   });
 
   let searchQuery = $state("");
@@ -263,8 +275,18 @@
       serverId={selectedSettingsHost.serverId}
       api={selectedSettingsApi}
     />
-  {:else if session.settingsTab === "general"}
-    <SettingsTabGeneral {searchQuery} />
+  {:else if session.settingsTab === "source-control" && selectedSettingsHost && selectedSettingsApi}
+    <SettingsTabSourceControl
+      serverId={selectedSettingsHost.serverId}
+      api={selectedSettingsApi}
+    />
+  {:else if session.settingsTab === "general" && selectedSettingsHost && selectedSettingsApi}
+    <SettingsTabGeneral
+      {searchQuery}
+      serverId={selectedSettingsHost.serverId}
+      api={selectedSettingsApi}
+      hostLabel={selectedSettingsHost.label}
+    />
   {:else if session.settingsTab === "instructions"}
     <SettingsTabInstructions {searchQuery} />
   {:else if session.settingsTab === "review"}
@@ -277,8 +299,8 @@
     />
   {:else if session.settingsTab === "experimental"}
     <SettingsTabExperimental {searchQuery} />
-  {:else if session.settingsTab === "providers"}
-    <SettingsTabProviders />
+  {:else if session.settingsTab === "providers" && selectedSettingsHost}
+    <SettingsTabProviders serverId={selectedSettingsHost.serverId} />
   {:else if session.settingsTab === "api-access"}
     <ConnectionsPanel />
   {:else if session.settingsTab === "tools" && selectedSettingsHost && selectedSettingsApi}
@@ -404,8 +426,12 @@
         role="navigation"
         aria-label="Settings"
         collapsible="none"
-        class="border-r border-r-sidebar-border bg-[color-mix(in_oklch,var(--card)_99%,var(--foreground))]"
+        class="relative border-r border-r-sidebar-border bg-[color-mix(in_oklch,var(--card)_99%,var(--foreground))]"
       >
+        <div
+          class="workspace-titlebar absolute inset-x-0 top-0 h-(--solus-titlebar-height)"
+          aria-hidden="true"
+        ></div>
         <!-- Two measurements are borrowed, not invented: the lead band above the
              first control, and the 1.1875rem row inset. Together they land the
              search field on the exact x/y the session sidebar's first row
@@ -429,7 +455,7 @@
               <!-- A group name is the level above the rows, so it starts on the
                    icons' column rather than on the labels'. -->
               <Sidebar.GroupLabel
-                class="h-[2.125rem] pr-2.5 pl-[1.375rem] text-xs font-medium uppercase text-muted-foreground"
+                class="h-[2.125rem] pr-2.5 pl-[0.625rem] text-xs font-medium uppercase text-muted-foreground"
                 >{section.group}</Sidebar.GroupLabel
               >
               <Sidebar.GroupContent>
@@ -475,7 +501,7 @@
            below it, and not above the sections, where a duplicate of it pushed
            the first setting a screenful down. -->
       <header
-        class="h-(--solus-chrome-row-h) border-b border-b-border flex items-center justify-between gap-3 px-[clamp(2rem,3vw,3rem)] shrink-0"
+        class="workspace-titlebar h-(--solus-chrome-row-h) border-b border-b-border flex items-center justify-between gap-3 px-[clamp(2rem,3vw,3rem)] shrink-0"
       >
         {#if openHostLabel}
           <Breadcrumb.Root class="min-w-0">

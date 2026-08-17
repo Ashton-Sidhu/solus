@@ -5,10 +5,9 @@
     PlusIcon,
     CaretDownIcon,
     GitBranchIcon,
-    PlugsIcon,
+    GitForkIcon,
     XIcon,
   } from "phosphor-svelte";
-  import { serverConnections } from "@client-core/server-connections";
   import InputBar from "@renderer/components/input/InputBar.svelte";
   import InputBarHeader from "@renderer/components/input/InputBarHeader.svelte";
   import GitDropdown from "@renderer/components/GitDropdown.svelte";
@@ -33,7 +32,6 @@
   import MobileServerSheet from "./MobileServerSheet.svelte";
   import { virtualKeyboard } from "../lib/virtual-keyboard.svelte";
   import { registerBackOverlay } from "../lib/back-stack.svelte";
-  import { webState } from "../lib/web-state.svelte";
 
   interface Props {
     chatContent: Snippet;
@@ -80,6 +78,16 @@
     (tab && sess) ? getStatusIcon(sess.status) : null,
   );
   const branch = $derived(sess?.run.gitContext?.branch);
+  const pendingDispatch = $derived(
+    sess?.run.pendingHostDispatch?.intent === "dispatch"
+      ? sess.run.pendingHostDispatch
+      : null,
+  );
+  const selectedDispatchWorktree = $derived(pendingDispatch?.worktree ?? null);
+  const selectedDispatchBaseBranch = $derived(pendingDispatch?.baseBranch ?? null);
+  const displayedWorktree = $derived(
+    selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? (pendingDispatch ? "New worktree" : branch),
+  );
   // The destination strip (project · start-in · branch) is editable exactly
   // until the session starts — the same lifetime it has on desktop.
   const sessionStarted = $derived(hasSessionStarted(sess));
@@ -90,10 +98,6 @@
     const host = serversStore.hostFor(sess?.run.serverId);
     return host && !host.local ? host.label : null;
   });
-  // Nothing runs until a host is chosen, so the strip carries the way to fix
-  // that. A host only ever arrives by page reload, so this is settled at mount.
-  const noHost = !serverConnections.connectionFor();
-
   let goalCollapsed = $state(false);
   let plusMenuOpen = $state(false);
   let sidebarDrawerOpen = $state(false);
@@ -105,6 +109,7 @@
   // Browser/OS back closes the topmost open mobile overlay (last registered wins).
   registerBackOverlay("mobile-git", () => gitOpen, () => (gitOpen = false));
   registerBackOverlay("mobile-session-picker", () => runtime.isMobileViewport && session.sessionPickerOpen, () => (session.sessionPickerOpen = false));
+  registerBackOverlay("mobile-task-picker", () => runtime.isMobileViewport && session.taskPickerOpen, () => (session.taskPickerOpen = false));
   registerBackOverlay("mobile-drawer", () => sidebarDrawerOpen, () => (sidebarDrawerOpen = false));
   registerBackOverlay("mobile-plus-menu", () => plusMenuOpen, () => (plusMenuOpen = false));
   registerBackOverlay("mobile-server-sheet", () => serverSheetOpen, () => (serverSheetOpen = false));
@@ -145,18 +150,28 @@
   }
 
   function toggleGitMenu() {
-    if (!branch) return;
+    if (!displayedWorktree) return;
     gitOpen = !gitOpen;
   }
 
   function selectBranch(picked: string) {
+    if (pendingDispatch) return;
     // The branch you are already on means this checkout as it stands,
     // uncommitted work and all, so it names no base to cut a worktree from.
     session.setWorktreeBaseBranch(picked === branch ? null : picked);
   }
 
   async function selectWorktree(worktree: WorktreeEntry) {
+    if (pendingDispatch) {
+      session.setDispatchWorktree(worktree, tab?.id);
+      return;
+    }
     await session.switchToWorktree(worktree.path, tab?.id);
+  }
+
+  function selectNewDispatchWorktree(baseBranch?: string) {
+    if (baseBranch) session.setDispatchBaseBranch(baseBranch, tab?.id);
+    else session.setDispatchWorktree(null, tab?.id);
   }
 </script>
 
@@ -210,17 +225,8 @@
       </button>
     </div>
 
-    {#if branch || noHost || (sessionStarted && hostGlyph)}
+    {#if branch || (sessionStarted && hostGlyph)}
       <div class="mh-navbar-strip">
-        {#if noHost}
-          <button
-            class="mh-navbar-chip"
-            onclick={() => webState.openServerSetup()}
-          >
-            <PlugsIcon size={14} />
-            <span>No host</span>
-          </button>
-        {/if}
         {#if sessionStarted && hostGlyph && hostName}
           {@const HostIcon = hostGlyph.icon}
           <span class="mh-navbar-chip mh-navbar-chip--inert" title={hostGlyph.tooltip}>
@@ -228,14 +234,14 @@
             <span>{hostName}</span>
           </span>
         {/if}
-        {#if branch}
+        {#if displayedWorktree}
           <button
             bind:this={gitTriggerEl}
             class="mh-navbar-chip"
             onclick={toggleGitMenu}
           >
-            <GitBranchIcon size={14} />
-            <span>{branch}</span>
+            {#if pendingDispatch}<GitForkIcon size={14} />{:else}<GitBranchIcon size={14} />{/if}
+            <span>{displayedWorktree}</span>
           </button>
         {/if}
       </div>
@@ -353,15 +359,17 @@
   onClose={() => (serverSheetOpen = false)}
 />
 
-{#if branch && tab && sess}
+{#if displayedWorktree && tab && sess}
   <GitDropdown
     bind:open={gitOpen}
     triggerEl={gitTriggerEl}
-    displayBranch={branch}
-    selectedBranch={sess.run.worktree?.baseBranch ?? branch}
+    displayBranch={displayedWorktree}
+    selectedBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? sess.run.worktree?.baseBranch ?? displayedWorktree}
     workingDirectory={sess.run.gitContext?.worktreePath ?? sess.run.workingDirectory}
+    run={sess.run}
     onSelectBranch={selectBranch}
     onSelectWorktree={selectWorktree}
+    onSelectNewWorktree={selectNewDispatchWorktree}
   />
 {/if}
 

@@ -29,6 +29,7 @@
     /* Clear the pane's floating chrome cluster on the right. */
     padding-right: max(1rem, var(--solus-pane-chrome-inset, 0px));
     flex-shrink: 0;
+    min-height: var(--solus-chrome-row-h, 2.5rem);
   }
 
   .diagram-shell__toolbar-spacer {

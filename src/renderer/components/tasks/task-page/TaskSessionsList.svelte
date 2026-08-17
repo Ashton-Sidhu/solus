@@ -25,10 +25,11 @@
     onOpen: (sessionId: string) => void;
     onOpenSplit: (sessionId: string) => void;
     onStop: (sessionId: string) => void;
+    onUnlink: (sessionId: string) => void;
     onNewSession: () => void;
   }
 
-  let { sessions, taskTitle, onOpen, onOpenSplit, onStop, onNewSession }: Props = $props();
+  let { sessions, taskTitle, onOpen, onOpenSplit, onStop, onUnlink, onNewSession }: Props = $props();
 
   const session = getWorkspaceContext();
   const now = Date.now();
@@ -37,7 +38,11 @@
   // one live fact the row acts on (Stop). Everything else comes off the link.
   const rows = $derived(
     sessions.map((link) => {
-      const open = openSessionFor(link.sessionId, session);
+      const linkServerId = attemptServerId({
+        link,
+        taskServerId: session.tasksStore.hostFor(link.taskId),
+      });
+      const open = openSessionFor(link.sessionId, linkServerId, session);
       const host = serversStore.hostFor(
         attemptServerId({
           link,
@@ -82,9 +87,10 @@
 
   <!-- An attempt is a small story, not a table cell: the card gives each one two
        lines, so the title reads as a title and the facts that tell two attempts
-       of the same task apart — agent, machine, when — sit under it. -->
+       of the same task apart — agent, machine, when — sit under it. The card is
+       bounded so a long history does not push the rest of the task off the page. -->
   <div
-    class="overflow-hidden rounded-xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
+    class="max-h-[min(22rem,42vh)] overflow-y-auto overscroll-contain rounded-xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:w-0"
   >
     {#each rows as row, index (row.sessionId)}
       <div
@@ -212,6 +218,34 @@
               {/snippet}
             </TooltipUI.Trigger>
             <TooltipUI.Content value="Open session" />
+          </TooltipUI.Root>
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  class={ROW_ACTION}
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    onUnlink(row.sessionId);
+                  }}
+                  aria-label="Unlink session"
+                >
+                  <svg
+                    width="11"
+                    height="11"
+                    viewBox="0 0 14 14"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    aria-hidden="true"><path d="M3.6 3.6l6.8 6.8M10.4 3.6l-6.8 6.8" /></svg
+                  >
+                </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value="Unlink session" />
           </TooltipUI.Root>
         </span>
       </div>

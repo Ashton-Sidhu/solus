@@ -18,6 +18,7 @@ export type HostApi = SolusAPI & {
 export interface LocalApi extends Pick<SolusAPI & NativeSolusAPI, NativeOnlySolusMethod | 'isVisible'> {}
 
 /** @internal The only widening point from a raw RPC API to a host API. */
-export function asHostApi(api: object): HostApi {
+export function asHostApi<Api extends object>(api: Api): HostApi {
+  // SAFETY: Callers pass either the generated RPC surface or the native-overlay result.
   return api as HostApi
 }

@@ -3,28 +3,37 @@ import { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } 
 import { realpath, stat } from 'fs/promises'
 import { extname, isAbsolute, join, resolve } from 'path'
 import { Readable } from 'stream'
+import { z } from 'zod'
 import type { AssetCreateUrlResult } from '../../shared/rpc'
 import type { IpcContext } from '../../shared/types'
 import { dataDir } from '../platform/paths'
 import { parseByteRange } from './byte-range'
-import { isInsideRoot, resolvePreviewPath } from './handlers/lib/file-preview'
+import { resolvePreviewPath } from './handlers/lib/file-preview'
+import { isInsideRoot } from '../paths'
 
 export const ASSET_URL_TTL_MS = 60 * 60 * 1000
 
-export const ASSET_MIME_TYPES: Readonly<Record<string, string>> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.svg': 'image/svg+xml',
-  '.pdf': 'application/pdf',
-}
+export const ASSET_MIME_TYPES = new Map([
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+  ['.gif', 'image/gif'],
+  ['.webp', 'image/webp'],
+  ['.svg', 'image/svg+xml'],
+  ['.pdf', 'application/pdf'],
+])
 
 interface AssetTokenPayload {
   path: string
   expiresAt: number
 }
+
+const assetTokenPayloadSchema = z
+  .object({
+    path: z.string(),
+    expiresAt: z.number().int(),
+  })
+  .strict()
 
 let cachedSecret: { path: string; value: Buffer } | null = null
 
@@ -42,8 +51,8 @@ export function getAssetSigningSecret(): Buffer {
     value = randomBytes(32)
     try {
       writeFileSync(secretPath, value.toString('hex'), { encoding: 'utf8', flag: 'wx', mode: 0o600 })
-    } catch (error: unknown) {
-      if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'EEXIST') throw error
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
       value = Buffer.from(readFileSync(secretPath, 'utf8').trim(), 'hex')
     }
   }
@@ -73,11 +82,12 @@ export function verifyAssetToken(token: string, secret: Buffer, now = Date.now()
   if (received.length !== expected.length || !timingSafeEqual(received, expected)) return null
 
   try {
-    const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as Partial<AssetTokenPayload>
-    if (typeof payload.path !== 'string' || !isAbsolute(payload.path)) return null
-    if (!Number.isSafeInteger(payload.expiresAt) || payload.expiresAt! <= now) return null
-    if (!ASSET_MIME_TYPES[extname(payload.path).toLowerCase()]) return null
-    return payload as AssetTokenPayload
+    const result = assetTokenPayloadSchema.safeParse(JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')))
+    if (!result.success) return null
+    const payload = result.data
+    if (!isAbsolute(payload.path) || payload.expiresAt <= now) return null
+    if (!ASSET_MIME_TYPES.has(extname(payload.path).toLowerCase())) return null
+    return payload
   } catch {
     return null
   }
@@ -107,7 +117,7 @@ export async function createAssetUrl(
   const target = await realpath(resolvedRequest)
   const targetStat = await stat(target)
   if (!targetStat.isFile()) throw new Error('Only files can be served as assets.')
-  if (!ASSET_MIME_TYPES[extname(target).toLowerCase()]) {
+  if (!ASSET_MIME_TYPES.has(extname(target).toLowerCase())) {
     throw new Error('This asset type is not allowed.')
   }
 
@@ -148,7 +158,7 @@ export async function serveAssetToken(
     return new Response('Not found', { status: 404 })
   }
   if (!fileStat.isFile()) return new Response('Not found', { status: 404 })
-  const mime = ASSET_MIME_TYPES[extname(payload.path).toLowerCase()]
+  const mime = ASSET_MIME_TYPES.get(extname(payload.path).toLowerCase())
   if (!mime) return new Response('Unsupported type', { status: 415 })
 
   const range = parseByteRange(request.range, fileStat.size)
@@ -164,12 +174,12 @@ export async function serveAssetToken(
     'Content-Type': mime,
     'Content-Length': String(range ? end - start + 1 : fileStat.size),
     'Accept-Ranges': 'bytes',
-    ...(range ? { 'Content-Range': `bytes ${start}-${end}/${fileStat.size}` } : {}),
     'Content-Security-Policy': "default-src 'none'; img-src data: *; style-src 'unsafe-inline'",
   }
+  if (range) Object.assign(headers, { 'Content-Range': `bytes ${start}-${end}/${fileStat.size}` })
   if (request.method === 'HEAD') return new Response(null, { status: range ? 206 : 200, headers })
   const stream = createReadStream(payload.path, range ? { start, end } : undefined)
-  return new Response(Readable.toWeb(stream) as ReadableStream, {
+  return new Response(Readable.toWeb(stream), {
     status: range ? 206 : 200,
     headers,
   })

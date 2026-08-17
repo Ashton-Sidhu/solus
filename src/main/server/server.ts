@@ -1,4 +1,5 @@
 import type { RpcMethod } from '../../shared/rpc'
+import type { SolusAPI } from '../../preload'
 import { createLogger, isDebugEnabled } from '../logger'
 
 const log = createLogger('server', 'server.ts')
@@ -14,14 +15,16 @@ export const LOCAL_DEVICE_LABEL = 'This Mac'
 export class SolusServer {
   private handlers = new Map<RpcMethod, Handler>()
 
-  register<M extends RpcMethod>(method: M, handler: Handler): void {
+  register<M extends RpcMethod>(method: M, handler: RpcHandler<M>): void {
     if (this.handlers.has(method)) {
       throw new Error(`SolusServer: duplicate handler for "${method}"`)
     }
-    this.handlers.set(method, handler)
+    // SAFETY: The method key and handler share M, so later dispatch supplies that method's exact tuple.
+    this.handlers.set(method, handler as Handler)
   }
 
-  async handle(method: RpcMethod, args: unknown[], ctx?: HandlerCtx): Promise<unknown> {
+  handle<M extends RpcMethod>(method: M, args: RpcArgs<M>, ctx?: HandlerCtx): Promise<RpcResult<M>>
+  async handle(method: RpcMethod, args: RpcInvocationArgs, ctx?: HandlerCtx): Promise<RpcInvocationResult> {
     if (isDebugEnabled) log.debug('rpc_method_invoked', { method, args })
     const handler = this.handlers.get(method)
     if (!handler) throw new Error(`SolusServer: no handler for "${method}"`)
@@ -29,12 +32,31 @@ export class SolusServer {
   }
 
   hasHandler(method: string): method is RpcMethod {
+    // SAFETY: The map contains every accepted RPC method and rejects all other strings.
     return this.handlers.has(method as RpcMethod)
   }
 
 }
 
-export type Handler = (args: unknown[], ctx: HandlerCtx) => unknown | Promise<unknown>
+type RpcApiMethod<M extends RpcMethod> = M extends keyof SolusAPI ? SolusAPI[M] : never
+export type RpcArgs<M extends RpcMethod> = RpcApiMethod<M> extends (...args: infer Args) => Promise<infer _Result>
+  ? Args
+  : never
+export type RpcResult<M extends RpcMethod> = RpcApiMethod<M> extends (...args: infer _Args) => Promise<infer Result>
+  ? Result
+  : never
+type RpcArgsByMethod = { [M in RpcMethod]: RpcArgs<M> }
+type RpcResultByMethod = { [M in RpcMethod]: RpcResult<M> }
+export type RpcInvocationArgs = RpcArgsByMethod[RpcMethod]
+export type RpcInvocationResult = RpcResultByMethod[RpcMethod]
+export type Handler = (
+  args: RpcInvocationArgs,
+  ctx: HandlerCtx,
+) => RpcInvocationResult | Promise<RpcInvocationResult>
+export type RpcHandler<M extends RpcMethod> = (
+  args: RpcArgs<M>,
+  ctx: HandlerCtx,
+) => RpcResult<M> | Promise<RpcResult<M>>
 
 export interface HandlerCtx {
   /** Identifies the client that issued the call (e.g. "ws:abcd"). */

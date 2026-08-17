@@ -1,4 +1,4 @@
-import { existingTaskId } from './session-draft.svelte'
+import { existingTaskId, taskBindingSessionId } from './session-draft.svelte'
 import type { Attachment, Prompt, Session } from '../../../shared/types'
 import { LOCAL_SERVER_ID } from '@client-core/server-registry'
 import type { PlanStore } from '../plans/plan.store.svelte'
@@ -59,7 +59,8 @@ export class PromptComposer {
         fullPrompt = fullPrompt ? `${fullPrompt}\n\n${boundBlock}` : boundBlock
       }
     }
-    const taskId = existingTaskId(session.task) ?? this.tasksStore.taskForSession(session.agentSessionId)?.id
+    const taskId = existingTaskId(session.task)
+      ?? this.tasksStore.taskForSession(taskBindingSessionId(session))?.id
     if (taskId) {
       // The full ticket (body + comments + linked PRs) is hydrated into the run's
       // system prompt server-side, which a remote host can only do for a task it

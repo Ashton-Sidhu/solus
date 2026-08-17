@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -13,7 +13,12 @@ afterEach(() => {
   else process.env.SOLUS_DATA_DIR = originalDataDir
 })
 
-async function loadSettings(name: string, persisted?: object) {
+interface PersistedSettingsFixture {
+  remoteAccess?: boolean
+  agentTaskLifecyclePolicy?: string
+}
+
+async function loadSettings(name: string, persisted?: PersistedSettingsFixture) {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-server-settings-'))
   process.env.SOLUS_DATA_DIR = dataDir
   if (persisted) writeFileSync(join(dataDir, 'server-settings.json'), JSON.stringify(persisted))
@@ -25,6 +30,20 @@ describe.serial('server settings defaults', () => {
     const settings = await loadSettings('new-installation')
     expect(settings.getServerSettings().remoteAccess).toBe(true)
     expect(settings.getServerSettings().agentTaskLifecyclePolicy).toBe('moderate')
+    expect(settings.getServerSettings().textGenerationModel).toEqual({
+      provider: 'codex',
+      model: 'gpt-5.6-luna',
+    })
+    expect(settings.getServerSettings().backupTextGenerationModel).toEqual({
+      provider: 'claude-code',
+      model: 'claude-haiku-4-5-20251001',
+    })
+    expect(settings.getServerSettings().sourceControlWriterModel).toBeNull()
+    expect(settings.getServerSettings().sourceControlWriting).toEqual({
+      mode: 'repo_conventions',
+      customInstructions: '',
+      followPullRequestTemplate: true,
+    })
   })
 
   test('preserves an explicit remote access opt-out', async () => {
@@ -54,5 +73,44 @@ describe.serial('server settings defaults', () => {
       agentTaskLifecyclePolicy: 'unrestricted',
     })
     expect(settings.getServerSettings().agentTaskLifecyclePolicy).toBe('moderate')
+  })
+
+  test('persists the general writer and optional source-control override', async () => {
+    const settings = await loadSettings('text-generation-models')
+    settings.setTextGenerationSettings({
+      textGenerationModel: { provider: 'claude-code', model: 'claude-sonnet-5' },
+      sourceControlWriterModel: { provider: 'codex', model: 'gpt-5.5' },
+      sourceControlWriting: {
+        mode: 'custom',
+        customInstructions: 'Use imperative titles and include a Risks section.',
+        followPullRequestTemplate: false,
+      },
+    })
+
+    // SAFETY: This test reads the exact JSON object written by the settings module.
+    const saved = JSON.parse(
+      readFileSync(join(dataDir!, 'server-settings.json'), 'utf8'),
+    ) as {
+      textGenerationModel: { provider: string; model: string }
+      sourceControlWriterModel: { provider: string; model: string } | null
+      sourceControlWriting: {
+        mode: string
+        customInstructions: string
+        followPullRequestTemplate: boolean
+      }
+    }
+    expect(saved.textGenerationModel).toEqual({
+      provider: 'claude-code',
+      model: 'claude-sonnet-5',
+    })
+    expect(saved.sourceControlWriterModel).toEqual({ provider: 'codex', model: 'gpt-5.5' })
+    expect(saved.sourceControlWriting).toEqual({
+      mode: 'custom',
+      customInstructions: 'Use imperative titles and include a Risks section.',
+      followPullRequestTemplate: false,
+    })
+
+    settings.setTextGenerationSettings({ sourceControlWriterModel: null })
+    expect(settings.getServerSettings().sourceControlWriterModel).toBeNull()
   })
 })

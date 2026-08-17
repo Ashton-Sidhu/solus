@@ -39,7 +39,7 @@ export interface WorkspaceLifecycleStoreDeps {
   agent?: AgentContext
   refreshGitState(opts?: { sourceId?: string; cwd?: string }): Promise<GitRefreshResult>
   ctxFor(tabId: string): IpcContext
-  apiFor?(tabId: string): HostApi
+  apiFor(tabId: string): HostApi
   loadTranscript(args: {
     sessionId: string
     loadPath: string
@@ -191,7 +191,7 @@ export class WorkspaceLifecycleStore {
       const optimisticEnvironmentRefresh = coldLoad
         ? this.deps.refreshGitState().catch(() => null)
         : null
-      const result = await serverConnections.primaryApi().start()
+      const result = await this.defaultHostApi().start()
       this.applyStartInfo(result, { fresh: true })
       saveCachedStart(result)
       if (coldLoad) {
@@ -216,6 +216,25 @@ export class WorkspaceLifecycleStore {
     }
   }
 
+  /**
+   * Re-reads start() so agent availability probed at boot does not survive as
+   * a stale answer. Misses are never cached server-side, so this re-probes any
+   * binary the boot-time check failed to find — an agent installed or repaired
+   * during onboarding reads as available without a relaunch.
+   */
+  async refreshAgentAvailability(): Promise<void> {
+    const result = await this.defaultHostApi().start()
+    this.applyStartInfo(result, { fresh: true })
+    saveCachedStart(result)
+  }
+
+  /** start() is a boot payload: it comes from the new-work default host. */
+  private defaultHostApi(): HostApi {
+    const serverId = serverConnections.defaultServerId()
+    if (!serverId) throw new Error('Primary Solus connection has not been registered')
+    return serverConnections.apiFor(serverId)
+  }
+
   async refreshPluginCommands(workingDirectory: string, tabId?: string): Promise<void> {
     const targetTabId = tabId ?? this.deps.registry.activeTabId
     const targetSession = this.deps.registry.sessionFor(targetTabId)
@@ -223,8 +242,8 @@ export class WorkspaceLifecycleStore {
     const requestSequence = ++this.pluginCommandRequestSequence
     this.pluginCommandRequests.set(requestKey, requestSequence)
     const ctx = this.deps.ctxFor(targetTabId)
-    ctx.session.provider = (targetSession?.run.provider ?? this.deps.settings.activeAgent) as AgentId
-    const result = await (this.deps.apiFor?.(targetTabId) ?? serverConnections.primaryApi())
+    ctx.session.provider = targetSession?.run.provider ?? this.deps.settings.activeAgent
+    const result = await this.deps.apiFor(targetTabId)
       .getPluginCommands(workingDirectory, $state.snapshot(ctx))
     if (this.pluginCommandRequests.get(requestKey) !== requestSequence) return
 
@@ -296,7 +315,7 @@ export class WorkspaceLifecycleStore {
     const handoffFrom = session.handoffFrom ? { ...session.handoffFrom } : undefined
     const displayCwd = session.run.workingDirectory
     const loadPath = session.run.gitContext?.worktreePath || displayCwd
-    const provider = (session.run.provider ?? this.deps.settings.activeAgent) as AgentId
+    const provider = session.run.provider ?? this.deps.settings.activeAgent
     const predecessorTranscript = handoffFrom
       ? await this.deps.loadTranscript({
           sessionId: handoffFrom.sessionId,
@@ -344,7 +363,7 @@ export class WorkspaceLifecycleStore {
     const session = this.deps.registry.sessionFor(tabId)
     if (!session?.agentSessionId || session.sessionChangedFiles.length > 0) return
     try {
-      const stats = await (this.deps.apiFor?.(tabId) ?? serverConnections.primaryApi())
+      const stats = await this.deps.apiFor(tabId)
         .diffStats(this.deps.ctxFor(tabId), { scope: { kind: 'session' } })
       const files = stats.map((file) => file.path)
       if (files.length === 0) return
@@ -363,7 +382,7 @@ export class WorkspaceLifecycleStore {
     const tabId = this.deps.registry.tabIdsBySession.get(sessionId)?.[0]
     if (!tabId) return
     try {
-      const snaps = await (this.deps.apiFor?.(tabId) ?? serverConnections.primaryApi())
+      const snaps = await this.deps.apiFor(tabId)
         .listTurnSnapshots(this.deps.ctxFor(tabId))
       this.turnSnapshots[sessionId] = snaps
     } catch {

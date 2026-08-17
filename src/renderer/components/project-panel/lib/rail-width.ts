@@ -1,7 +1,8 @@
-import { MIN_PRIMARY_PANE_WIDTH } from '../../layout/lib/workspace-body'
-
-export const PROJECT_RAIL_MIN_WIDTH = 240
-export const PROJECT_RAIL_MAX_WIDTH = 380
+import {
+  defaultWorkspaceRailWidth,
+  MIN_PRIMARY_PANE_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+} from '../../layout/lib/workspace-body'
 
 /**
  * Narrowest conversation view that can still host the rail. Derived from the two
@@ -10,10 +11,7 @@ export const PROJECT_RAIL_MAX_WIDTH = 380
  * gap and no overlap. Below it the rail minimizes to zero — which is also why
  * `MIN_PRIMARY_PANE_WIDTH` never has to grow to cover the rail.
  */
-export const PROJECT_RAIL_MIN_CONTAINER_WIDTH = MIN_PRIMARY_PANE_WIDTH + PROJECT_RAIL_MIN_WIDTH
-
-/** Share of the conversation view the rail claims between its two bounds. */
-const PROJECT_RAIL_RATIO = 0.26
+export const PROJECT_RAIL_MIN_CONTAINER_WIDTH = MIN_PRIMARY_PANE_WIDTH + SIDEBAR_MIN_WIDTH
 
 /**
  * Whether the rail is actually on screen: the user's persisted preference,
@@ -30,16 +28,16 @@ export function isProjectRailOpen(
 }
 
 /**
- * The rail scales with the conversation view instead of being dragged: narrower
- * on a split or laptop-width column, wider beside a roomy thread, bounded to a
- * band where its cards still read. Mirrors `defaultWorkspaceRailWidth`, which
- * sizes the session sidebar the same way against the viewport.
+ * The rail matches the session sidebar — same window, same furniture, same
+ * width — instead of taking its own share of the conversation view. Sizing it
+ * off the window alone would break in a split, where the hosting view can be far
+ * narrower than the window, so the sidebar's measure is capped by what the
+ * conversation can actually give away. Above `PROJECT_RAIL_MIN_CONTAINER_WIDTH`
+ * that floor is never below the sidebar's own.
  */
-export function projectRailWidth(containerWidth: number): number {
-  return Math.round(
-    Math.min(
-      PROJECT_RAIL_MAX_WIDTH,
-      Math.max(PROJECT_RAIL_MIN_WIDTH, containerWidth * PROJECT_RAIL_RATIO),
-    ),
+export function projectRailWidth(workspaceWidth: number, containerWidth: number): number {
+  return Math.min(
+    defaultWorkspaceRailWidth(workspaceWidth),
+    containerWidth - MIN_PRIMARY_PANE_WIDTH,
   )
 }

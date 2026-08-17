@@ -29,9 +29,7 @@ class BackStack {
   private hasSentinel = false
 
   constructor() {
-    if (typeof window !== 'undefined') {
-      window.addEventListener('popstate', this.onPop)
-    }
+    window.addEventListener('popstate', this.onPop)
   }
 
   push(id: string, close: () => void) {

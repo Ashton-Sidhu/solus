@@ -1,19 +1,51 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PlanAnnotations } from '../../shared/types'
 import { getDb, withTx } from '../db'
+import { z } from 'zod'
 
-interface AnnotationRow {
-  session_id: string
-  plan_tool_use_id: string
-  status: PlanAnnotations['status']
-  title: string
-  bookmarked: number
-  bookmarked_at: number | null
-  project_path: string
-  cwd: string
-  comments: string
-  updated_at: number
-}
+const commentAgentAuthorSchema = z.object({
+  sessionId: z.string(),
+  title: z.string().optional(),
+  provider: z.enum(['claude-code', 'codex', 'opencode']),
+})
+
+const commentReplySchema = z.object({
+  id: z.string(),
+  author: z.enum(['you', 'solus']),
+  authorAgent: commentAgentAuthorSchema.optional(),
+  text: z.string(),
+  createdAt: z.number(),
+})
+
+const planCommentSchema = z.object({
+  id: z.string(),
+  selectedText: z.string(),
+  comment: z.string(),
+  textOffset: z.number().optional(),
+  nodeId: z.string().optional(),
+  edgeId: z.string().optional(),
+  author: z.enum(['you', 'solus']).optional(),
+  authorAgent: commentAgentAuthorSchema.optional(),
+  createdAt: z.number().optional(),
+  resolvedAt: z.number().optional(),
+  resolvedBy: z.enum(['you', 'solus']).optional(),
+  replies: z.array(commentReplySchema).optional(),
+})
+
+const annotationRowSchema = z.object({
+  session_id: z.string(),
+  plan_tool_use_id: z.string(),
+  status: z.enum(['pending', 'accepted', 'rejected']),
+  title: z.string(),
+  bookmarked: z.number(),
+  bookmarked_at: z.number().nullable(),
+  project_path: z.string(),
+  cwd: z.string(),
+  comments: z.string(),
+  updated_at: z.number(),
+})
+
+type AnnotationRow = z.infer<typeof annotationRowSchema>
 
 function toRowValues(ann: PlanAnnotations): [string, string, string, string, number, number | null, string, string, string, number] {
   return [
@@ -31,7 +63,7 @@ function toRowValues(ann: PlanAnnotations): [string, string, string, string, num
 }
 
 function fromRow(row: AnnotationRow): PlanAnnotations {
-  return {
+  const annotation: PlanAnnotations = {
     version: 1,
     sessionId: row.session_id,
     projectPath: row.project_path,
@@ -39,20 +71,22 @@ function fromRow(row: AnnotationRow): PlanAnnotations {
     planToolUseId: row.plan_tool_use_id,
     title: row.title,
     status: row.status,
-    comments: JSON.parse(row.comments) as PlanAnnotations['comments'],
+    comments: z.array(planCommentSchema).parse(JSON.parse(row.comments)),
     bookmarked: row.bookmarked === 1,
-    ...(row.bookmarked_at === null ? {} : { bookmarkedAt: row.bookmarked_at }),
     updatedAt: row.updated_at,
   }
+  if (row.bookmarked_at !== null) annotation.bookmarkedAt = row.bookmarked_at
+  return annotation
 }
 
 function annotationRow(db: DatabaseSync, sessionId: string, planToolUseId: string): AnnotationRow | undefined {
-  return db.prepare(`
+  const parsed = annotationRowSchema.safeParse(db.prepare(`
     SELECT session_id, plan_tool_use_id, status, title, bookmarked,
            bookmarked_at, project_path, cwd, comments, updated_at
     FROM plan_annotations
     WHERE session_id = ? AND plan_tool_use_id = ?
-  `).get(sessionId, planToolUseId) as AnnotationRow | undefined
+  `).get(sessionId, planToolUseId))
+  return parsed.success ? parsed.data : undefined
 }
 
 function writeAnnotations(db: DatabaseSync, ann: PlanAnnotations): void {
@@ -109,30 +143,28 @@ export async function toggleBookmarkAnnotations(
       status: existing?.status ?? 'pending',
       comments: existing?.comments ?? [],
       bookmarked,
-      ...(bookmarked ? { bookmarkedAt: Date.now() } : {}),
       updatedAt: Date.now(),
     }
+    if (bookmarked) merged.bookmarkedAt = Date.now()
     writeAnnotations(db, merged)
     return merged
   })
 }
 
-export interface AnnotationIndex {
-  [key: string]: PlanAnnotations  // key = sessionId + '__' + planToolUseId
-}
+export type AnnotationIndex = Map<string, PlanAnnotations>
 
 /** Load every annotation into a map keyed by `${sessionId}__${planToolUseId}`. Used once by the indexer. */
 export async function loadAllAnnotations(): Promise<AnnotationIndex> {
-  const rows = getDb().prepare(`
+  const rows = z.array(annotationRowSchema).parse(getDb().prepare(`
     SELECT session_id, plan_tool_use_id, status, title, bookmarked,
            bookmarked_at, project_path, cwd, comments, updated_at
     FROM plan_annotations
-  `).all() as unknown as AnnotationRow[]
-  const out: AnnotationIndex = {}
+  `).all())
+  const out: AnnotationIndex = new Map()
   for (const row of rows) {
     try {
       const annotation = fromRow(row)
-      out[`${annotation.sessionId}__${annotation.planToolUseId}`] = annotation
+      out.set(`${annotation.sessionId}__${annotation.planToolUseId}`, annotation)
     } catch {}
   }
   return out

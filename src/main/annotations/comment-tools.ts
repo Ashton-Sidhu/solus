@@ -174,25 +174,26 @@ function threadAuthor(message: Pick<PlanComment, 'author' | 'authorAgent'>): str
 export async function callerAgent(ctx: SessionToolCtx | undefined): Promise<CommentAgentAuthor | undefined> {
   if (!ctx?.sessionId) return undefined
   const meta = await findSession(ctx.sessionId)
-  return {
+  const author: CommentAgentAuthor = {
     sessionId: ctx.sessionId,
     // The slug only — never `peerTitle`'s first-message fallback. A session is
     // usually still unnamed when its agent writes the first comment, and that
     // fallback would sign the thread with the user's raw prompt. No slug, no
     // session to name: the thread signs as plain "Solus".
-    ...(meta?.slug ? { title: meta.slug } : {}),
     provider: ctx.agentProvider,
   }
+  if (meta?.slug) author.title = meta.slug
+  return author
 }
 
 // ─── Schemas ───
 
-const readPlanShape = {
+const readPlanFields = {
   session_id: z.string().describe('The session that produced the plan.'),
   plan_tool_use_id: z.string().optional().describe("The specific plan revision to read. Omit for the session's latest plan."),
 }
 
-const commentDocumentShape = {
+const commentDocumentFields = {
   target_id: z.string().describe('What to comment on: a work id (from list_works) or a plan id shaped `<sessionId>__<planToolUseId>` (from read_plan).'),
   comments: z
     .array(
@@ -207,13 +208,13 @@ const commentDocumentShape = {
     .describe('All the comments to leave in one pass — a review is several notes at once.'),
 }
 
-const replyCommentShape = {
+const replyCommentFields = {
   target_id: z.string().describe('The work id or plan id the thread lives on.'),
   comment_id: z.string().describe('The thread id, shown in brackets by read_work / read_plan.'),
   text: z.string().describe('Your reply.'),
 }
 
-const resolveCommentShape = {
+const resolveCommentFields = {
   target_id: z.string().describe('The work id or plan id the thread lives on.'),
   comment_id: z.string().describe('The thread id, shown in brackets by read_work / read_plan.'),
 }
@@ -239,19 +240,19 @@ export interface CommentToolDeps {
 }
 
 interface CommentRequest {
-  quote?: unknown
-  comment?: unknown
-  node_id?: unknown
-  edge_id?: unknown
+  quote?: string
+  comment?: string
+  node_id?: string
+  edge_id?: string
 }
 
 interface CommentToolArgs {
-  session_id?: unknown
-  plan_tool_use_id?: unknown
-  target_id?: unknown
+  session_id?: string
+  plan_tool_use_id?: string
+  target_id?: string
   comments?: CommentRequest[]
-  comment_id?: unknown
-  text?: unknown
+  comment_id?: string
+  text?: string
 }
 
 export async function executeCommentTool(
@@ -274,9 +275,7 @@ export async function executeCommentTool(
 async function readPlan(args: CommentToolArgs, deps: CommentToolDeps = {}): Promise<CommentToolResult> {
   const sessionId = String(args.session_id ?? '').trim()
   if (!sessionId) return { ok: false, text: 'read_plan requires session_id.' }
-  const requestedPlanId = typeof args.plan_tool_use_id === 'string' && args.plan_tool_use_id.trim()
-    ? args.plan_tool_use_id.trim()
-    : null
+  const requestedPlanId = args.plan_tool_use_id?.trim() || null
 
   const controller = getSessionController()
   const meta = controller ? await findSession(sessionId) : null
@@ -357,8 +356,8 @@ async function commentDocument(args: CommentToolArgs, deps: CommentToolDeps): Pr
     const comment = String(raw.comment ?? '').trim()
     if (!quote) return { ok: false, text: 'Every comment needs a `quote` naming what it is about.' }
     if (!comment) return { ok: false, text: `The comment on "${quote}" is empty.` }
-    const nodeId = typeof raw.node_id === 'string' && raw.node_id.trim() ? raw.node_id.trim() : undefined
-    const edgeId = typeof raw.edge_id === 'string' && raw.edge_id.trim() ? raw.edge_id.trim() : undefined
+    const nodeId = raw.node_id?.trim() || undefined
+    const edgeId = raw.edge_id?.trim() || undefined
 
     // A diagram comment anchors to a node/edge id, so there is no text to find.
     let textOffset: number | undefined
@@ -373,17 +372,18 @@ async function commentDocument(args: CommentToolArgs, deps: CommentToolDeps): Pr
       textOffset = anchor.textOffset
     }
 
-    created.push({
+    const createdComment: PlanComment = {
       id: randomUUID(),
       selectedText: quote,
       comment,
-      ...(textOffset === undefined ? {} : { textOffset }),
-      ...(nodeId ? { nodeId } : {}),
-      ...(edgeId ? { edgeId } : {}),
       author: 'solus',
-      ...(author ? { authorAgent: author } : {}),
       createdAt: Date.now(),
-    })
+    }
+    if (textOffset !== undefined) createdComment.textOffset = textOffset
+    if (nodeId) createdComment.nodeId = nodeId
+    if (edgeId) createdComment.edgeId = edgeId
+    if (author) createdComment.authorAgent = author
+    created.push(createdComment)
   }
 
   await target.save([...target.comments, ...created])
@@ -394,7 +394,7 @@ async function commentDocument(args: CommentToolArgs, deps: CommentToolDeps): Pr
 async function replyComment(args: CommentToolArgs, deps: CommentToolDeps): Promise<CommentToolResult> {
   const targetId = String(args.target_id ?? '').trim()
   const commentId = String(args.comment_id ?? '').trim()
-  const text = typeof args.text === 'string' ? args.text.trim() : ''
+  const text = args.text?.trim() ?? ''
   if (!targetId || !commentId) return { ok: false, text: 'reply_comment requires target_id and comment_id.' }
   if (!text) return { ok: false, text: 'reply_comment requires non-empty text.' }
 
@@ -404,10 +404,14 @@ async function replyComment(args: CommentToolArgs, deps: CommentToolDeps): Promi
   if (!thread) return { ok: false, text: `No thread "${commentId}" on ${target.label}.` }
 
   const author = await callerAgent(deps.ctx)
-  const replies = [
-    ...(thread.replies ?? []),
-    { id: randomUUID(), author: 'solus' as const, ...(author ? { authorAgent: author } : {}), text, createdAt: Date.now() },
-  ]
+  const reply: NonNullable<PlanComment['replies']>[number] = {
+    id: randomUUID(),
+    author: 'solus',
+    text,
+    createdAt: Date.now(),
+  }
+  if (author) reply.authorAgent = author
+  const replies = [...(thread.replies ?? []), reply]
   await target.save(target.comments.map((c) => (c.id === commentId ? { ...c, replies } : c)))
   return { ok: true, text: `Replied in thread "${thread.selectedText}" on ${target.label}.` }
 }
@@ -423,19 +427,20 @@ async function resolveComment(args: CommentToolArgs): Promise<CommentToolResult>
   if (!thread) return { ok: false, text: `No thread "${commentId}" on ${target.label}.` }
   if (thread.resolvedAt) return { ok: true, text: `Thread "${thread.selectedText}" was already resolved.` }
 
-  await target.save(
-    target.comments.map((c) => (c.id === commentId ? { ...c, resolvedAt: Date.now(), resolvedBy: 'solus' as const } : c)),
-  )
+  await target.save(target.comments.map((comment) => {
+    if (comment.id !== commentId) return comment
+    return { ...comment, resolvedAt: Date.now(), resolvedBy: 'solus' }
+  }))
   return { ok: true, text: `Resolved thread "${thread.selectedText}" on ${target.label}.` }
 }
 
 // ─── Tool definitions ───
 
-function commentAgentTool(name: string, description: string, inputShape: z.ZodRawShape, requiresApproval: boolean): AgentTool {
+function commentAgentTool(name: string, description: string, inputFields: AgentTool['inputFields'], requiresApproval: boolean): AgentTool {
   return {
     name,
     description,
-    inputShape,
+    inputFields,
     requiresApproval,
     execute: async (args, context) => executeCommentTool(name, args, {
       ctx: {
@@ -448,7 +453,7 @@ function commentAgentTool(name: string, description: string, inputShape: z.ZodRa
   }
 }
 
-export const readPlanAgentTool = commentAgentTool('read_plan', READ_PLAN_DESC, readPlanShape, false)
-export const commentDocumentAgentTool = commentAgentTool('comment_document', COMMENT_DOCUMENT_DESC, commentDocumentShape, false)
-export const replyCommentAgentTool = commentAgentTool('reply_comment', REPLY_COMMENT_DESC, replyCommentShape, false)
-export const resolveCommentAgentTool = commentAgentTool('resolve_comment', RESOLVE_COMMENT_DESC, resolveCommentShape, false)
+export const readPlanAgentTool = commentAgentTool('read_plan', READ_PLAN_DESC, readPlanFields, false)
+export const commentDocumentAgentTool = commentAgentTool('comment_document', COMMENT_DOCUMENT_DESC, commentDocumentFields, false)
+export const replyCommentAgentTool = commentAgentTool('reply_comment', REPLY_COMMENT_DESC, replyCommentFields, false)
+export const resolveCommentAgentTool = commentAgentTool('resolve_comment', RESOLVE_COMMENT_DESC, resolveCommentFields, false)

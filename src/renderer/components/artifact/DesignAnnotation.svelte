@@ -78,7 +78,9 @@
     return uuid().slice(0, 8);
   }
 
-  function toNorm(clientX: number, clientY: number): { x: number; y: number } {
+  interface NormalizedPoint { x: number; y: number }
+
+  function toNorm(clientX: number, clientY: number): NormalizedPoint {
     return {
       x: Math.max(0, Math.min(1, (clientX - imgOffX) / imgDispW)),
       y: Math.max(0, Math.min(1, (clientY - imgOffY) / imgDispH)),
@@ -223,7 +225,7 @@
     isDrawing = true;
     drawStart = toNorm(e.clientX, e.clientY);
     drawCurrent = drawStart;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    if (e.target instanceof Element) e.target.setPointerCapture(e.pointerId);
   }
 
   function handlePointerMove(e: PointerEvent) {

@@ -78,7 +78,7 @@ export class ReviewSessionStore {
 
     this.sync()
 
-    const defaultVisibilitySource = typeof document === 'undefined' ? null : document
+    const defaultVisibilitySource = document
     this.visibilitySource = options.visibilitySource === undefined
       ? defaultVisibilitySource
       : options.visibilitySource

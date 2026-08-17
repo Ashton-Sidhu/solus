@@ -139,8 +139,8 @@
     const el = scrollContainer;
     // Marks are re-created whenever the doc or the comment set changes, so the
     // class has to be re-applied on both.
-    comments;
-    editor?.state.doc;
+    void comments;
+    void editor?.state.doc;
     const id = highlightedCommentId;
     if (!el) return;
     void tick().then(() => {
@@ -174,9 +174,9 @@
   $effect(() => {
     // Re-read on every change that can move a mark. `comments` and the editor's
     // doc are both tracked so a rewrite re-anchors without a scroll.
-    comments;
-    editor?.state.doc;
-    scrollContainer;
+    void comments;
+    void editor?.state.doc;
+    void scrollContainer;
     void tick().then(remeasure);
   });
 
@@ -348,7 +348,7 @@
     // The margin is a layer inside the same scroller, so a click on a card
     // reaches this handler too — and must not read as "clicked bare prose",
     // which would unfocus the thread the reader has just opened.
-    if ((e.target as HTMLElement).closest(".plan-comments-rail")) return;
+    if (e.target instanceof Element && e.target.closest(".plan-comments-rail")) return;
     const resolved = resolveHoveredComment(e, comments);
     if (!resolved) {
       popoverComment = null;

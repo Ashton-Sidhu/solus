@@ -1,14 +1,52 @@
 import type { ContextUsage, NormalizedEvent, UsageData } from '../../../shared/types'
 import type { ClaudeEvent, StreamEvent, InitEvent, StatusEvent, AssistantEvent, UserEvent, ResultEvent, RateLimitEvent, PermissionEvent, ContentBlock, ContentDelta, ClaudeUsageData } from '../../../shared/claude-types'
 import type { TurnNormalizer, TurnSummary } from '../turn-normalizer'
-import { normalizeResetNumber } from '../../rate-limits'
+import { normalizeResetNumber, rateLimitEventFromMessage } from '../../rate-limits'
 import { parentSubagentEvent, type SubagentTranscriptEvent } from '../subagent-events'
 import { claudeToolResultText } from './claude-subagent-protocol'
+import { z } from 'zod'
 
-const SDK_TO_UI_PERMISSION_MODE: Record<string, 'ask' | 'auto' | 'plan'> = {
+const SDK_TO_UI_PERMISSION_MODE = {
   default: 'ask',
   acceptEdits: 'auto',
   plan: 'plan',
+} satisfies Record<string, 'ask' | 'auto' | 'plan'>
+
+const checkpointEventSchema = z.object({ type: z.literal('user'), uuid: z.string() })
+const permissionDenialSchema = z.object({
+  tool_name: z.string().optional(),
+  tool_use_id: z.string().optional(),
+})
+const permissionDenialsSchema = z.array(permissionDenialSchema)
+const editedFileInputSchema = z.object({
+  file_path: z.string().optional(),
+  notebook_path: z.string().optional(),
+})
+const todoInputSchema = z.object({
+  todos: z.array(z.object({
+    content: z.string().optional(),
+    status: z.string().optional(),
+  })),
+})
+const exitPlanInputSchema = z.object({
+  plan: z.string().optional(),
+  planFilePath: z.string().optional(),
+})
+const permissionToolSchema = z.object({ id: z.string().optional() })
+
+interface ClaudeTaskSystemEvent {
+  subtype: string
+  task_id?: string
+  tool_use_id?: string
+  description?: string
+  usage?: {
+    total_tokens?: number
+    tool_uses?: number
+    duration_ms?: number
+  }
+  last_tool_name?: string
+  status?: string
+  patch?: { status?: string }
 }
 
 /**
@@ -28,24 +66,31 @@ function normalize(
 ): NormalizedEvent[] {
   switch (raw.type) {
     case 'system':
+      // SAFETY: ClaudeEvent.type is the provider discriminant for system initialization and status events.
       return normalizeSystem(raw as InitEvent)
 
     case 'stream_event':
+      // SAFETY: ClaudeEvent.type is the provider discriminant for stream events.
       return normalizeStreamEvent(raw as StreamEvent, pendingToolInputs, thinkingBlocks)
 
     case 'assistant':
+      // SAFETY: ClaudeEvent.type is the provider discriminant for assistant events.
       return normalizeAssistant(raw as AssistantEvent)
 
     case 'user':
+      // SAFETY: ClaudeEvent.type is the provider discriminant for user events.
       return normalizeUser(raw as UserEvent)
 
     case 'result':
+      // SAFETY: ClaudeEvent.type is the provider discriminant for result events.
       return normalizeResult(raw as ResultEvent)
 
     case 'rate_limit_event':
+      // SAFETY: ClaudeEvent.type is the provider discriminant for rate-limit events.
       return normalizeRateLimit(raw as RateLimitEvent)
 
     case 'permission_request':
+      // SAFETY: ClaudeEvent.type is the provider discriminant for permission events.
       return normalizePermission(raw as PermissionEvent)
 
     default:
@@ -86,16 +131,17 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
     if (this.interrupted) return []
 
     const events: NormalizedEvent[] = []
-    if ((raw as any).type === 'user' && (raw as any).uuid) {
-      events.push({ type: 'checkpoint', checkpointId: (raw as any).uuid })
+    const checkpoint = checkpointEventSchema.safeParse(raw)
+    if (checkpoint.success) {
+      events.push({ type: 'checkpoint', checkpointId: checkpoint.data.uuid })
     }
 
     if (raw.type === 'result') {
-      const denials = (raw as any).permission_denials
-      if (Array.isArray(denials) && denials.length > 0) {
-        this.turnSummary.permissionDenials = denials.map((d: any) => ({
-          tool_name: d.tool_name || '',
-          tool_use_id: d.tool_use_id || '',
+      const denials = permissionDenialsSchema.safeParse(raw.permission_denials)
+      if (denials.success && denials.data.length > 0) {
+        this.turnSummary.permissionDenials = denials.data.map((denial) => ({
+          tool_name: denial.tool_name || '',
+          tool_use_id: denial.tool_use_id || '',
         }))
       }
     }
@@ -137,12 +183,10 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
     for (const block of content) {
       if (block.type !== 'tool_use') continue
       if (block.name !== 'Write' && block.name !== 'Edit' && block.name !== 'NotebookEdit') continue
-      const input = block.input
-      const filePath = typeof input?.file_path === 'string'
-        ? input.file_path
-        : typeof input?.notebook_path === 'string'
-          ? input.notebook_path
-          : null
+      const parsed = editedFileInputSchema.safeParse(block.input)
+      const filePath = parsed.success
+        ? parsed.data.file_path ?? parsed.data.notebook_path ?? null
+        : null
       if (filePath) this.editedFileSet.add(filePath)
     }
   }
@@ -160,20 +204,8 @@ function normalizeSystem(event: InitEvent | StatusEvent): NormalizedEvent[] {
   // `tool_use_id` links a task back to the tool call that spawned it — the
   // sub-agent card's anchor. task_started and task_notification carry it;
   // task_updated doesn't, so the renderer keys settles off `taskId` instead.
-  const sys = event as unknown as {
-    subtype: string
-    task_id?: string
-    tool_use_id?: string
-    description?: string
-    usage?: {
-      total_tokens?: number
-      tool_uses?: number
-      duration_ms?: number
-    }
-    last_tool_name?: string
-    status?: string
-    patch?: { status?: string }
-  }
+  // SAFETY: The SDK system union omits documented task lifecycle subtypes that use this exact field contract.
+  const sys = event as ClaudeTaskSystemEvent
   if (sys.subtype === 'task_started' && sys.task_id) {
     return [{ type: 'background_task_started', taskId: sys.task_id, toolUseId: sys.tool_use_id }]
   }
@@ -202,6 +234,7 @@ function normalizeSystem(event: InitEvent | StatusEvent): NormalizedEvent[] {
   }
 
   if (event.subtype === 'init') {
+    // SAFETY: The init subtype carries the InitEvent contract.
     const init = event as InitEvent
     return [{
       type: 'session_init',
@@ -212,6 +245,7 @@ function normalizeSystem(event: InitEvent | StatusEvent): NormalizedEvent[] {
   }
 
   if (event.subtype === 'status') {
+    // SAFETY: The status subtype carries the StatusEvent contract.
     const status = event as StatusEvent
     const uiMode = SDK_TO_UI_PERMISSION_MODE[status.permissionMode]
     if (uiMode) {
@@ -269,6 +303,7 @@ function normalizeStreamSub(
     }
 
     case 'content_block_delta': {
+      // SAFETY: The content_block_delta subtype carries the ContentDelta union.
       const delta = sub.delta as ContentDelta
       if (delta.type === 'text_delta') {
         return [{ type: 'text_chunk', text: delta.text }]
@@ -288,11 +323,12 @@ function normalizeStreamSub(
       }
       const toolInput = pendingToolInputs.get(sub.index)
       pendingToolInputs.delete(sub.index)
-      return [{
+      const event: NormalizedEvent = {
         type: 'tool_call_complete',
         index: sub.index,
-        ...(toolInput ? { toolInput } : {}),
-      }]
+      }
+      if (toolInput) event.toolInput = toolInput
+      return [event]
     }
 
     case 'message_start':
@@ -343,13 +379,13 @@ function normalizeAssistant(event: AssistantEvent): NormalizedEvent[] {
       // sub-agent's card instead of hijacking the main progress tracker, which
       // only the top-level agent (no parent) drives.
       if (block.type === 'tool_use' && block.name === 'TodoWrite') {
-        const todos = (block.input as any)?.todos
-        if (Array.isArray(todos)) {
+        const parsed = todoInputSchema.safeParse(block.input)
+        if (parsed.success) {
           events.push({
             type: 'progress',
-            todos: todos.map((t: any) => ({
-              content: String(t.content || ''),
-              status: t.status || 'pending',
+            todos: parsed.data.todos.map((todo) => ({
+              content: todo.content || '',
+              status: todo.status || 'pending',
             })),
             parentToolUseId,
           })
@@ -399,14 +435,15 @@ function normalizeUser(event: UserEvent): NormalizedEvent[] {
   const events: NormalizedEvent[] = []
   for (const block of content) {
     if (block.type !== 'tool_result' || !block.tool_use_id) continue
-    events.push({
+    const result: NormalizedEvent = {
       type: 'tool_result',
       toolUseId: block.tool_use_id,
       content: claudeToolResultText(block.content),
       isError: block.is_error,
       parentToolUseId,
-      ...(isAsyncLaunch ? { isAsyncLaunch: true } : {}),
-    })
+    }
+    if (isAsyncLaunch) result.isAsyncLaunch = true
+    events.push(result)
   }
   return events
 }
@@ -453,22 +490,26 @@ function normalizeResult(event: ResultEvent): NormalizedEvent[] {
   if (isTaskNotificationResult(event) && !event.is_error && event.subtype === 'success') return []
 
   if (event.is_error || event.subtype !== 'success') {
+    const message = resultErrorMessage(event)
+    const rateLimit = rateLimitEventFromMessage(message)
+    if (rateLimit) return [rateLimit]
     return [{
       type: 'error',
-      message: resultErrorMessage(event),
+      message,
       isError: true,
       sessionId: event.session_id,
     }]
   }
 
-  const denials = Array.isArray((event as any).permission_denials)
-    ? (event as any).permission_denials.map((d: any) => ({
-        toolName: d.tool_name || '',
-        toolUseId: d.tool_use_id || '',
+  const parsedDenials = permissionDenialsSchema.safeParse(event.permission_denials)
+  const denials = parsedDenials.success
+    ? parsedDenials.data.map((denial) => ({
+        toolName: denial.tool_name || '',
+        toolUseId: denial.tool_use_id || '',
       }))
     : undefined
 
-  return [{
+  const completed: NormalizedEvent = {
     type: 'task_complete',
     result: event.result || '',
     costUsd: event.total_cost_usd || 0,
@@ -476,8 +517,9 @@ function normalizeResult(event: ResultEvent): NormalizedEvent[] {
     numTurns: event.num_turns || 0,
     usage: normalizeClaudeUsage(event.usage),
     sessionId: event.session_id,
-    ...(denials && denials.length > 0 ? { permissionDenials: denials } : {}),
-  }]
+  }
+  if (denials && denials.length > 0) completed.permissionDenials = denials
+  return [completed]
 }
 
 /**
@@ -526,16 +568,16 @@ function normalizePermission(event: PermissionEvent): NormalizedEvent[] {
 
   // ExitPlanMode marks a plan ready for review; upgrade it to a plan event for richer UI.
   if (toolName === 'ExitPlanMode') {
-    const input = (event.tool?.input || {}) as any
-    const plan: string = input.plan || ''
-    const planFilePath: string = input.planFilePath || ''
+    const input = exitPlanInputSchema.parse(event.tool?.input || {})
+    const plan = input.plan || ''
+    const planFilePath = input.planFilePath || ''
     if (plan) {
       return [{
         type: 'plan',
         planContent: plan,
         planFilePath,
         questionId: event.question_id,
-        planToolUseId: (event.tool as any)?.id || '',
+        planToolUseId: permissionToolSchema.parse(event.tool || {}).id || '',
         options: (event.options || []).map((o) => ({
           id: o.id,
           label: o.label,

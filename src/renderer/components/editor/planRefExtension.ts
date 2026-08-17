@@ -1,6 +1,7 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { serializeReferenceToken } from './reference-tokens'
 import { tokenClassName, TOKEN_ICONS, type TokenVariant } from './tokenStyle'
+import { z } from 'zod'
 
 export interface PlanRefAttrs {
   planId: string
@@ -10,17 +11,22 @@ export interface PlanRefAttrs {
   status: 'pending' | 'accepted' | 'rejected'
 }
 
-const STATUS_VARIANT: Record<string, TokenVariant> = {
+const STATUS_VARIANT = {
   pending: 'plan-pending',
   accepted: 'plan-accepted',
   rejected: 'plan-rejected',
-}
+} satisfies Record<PlanRefAttrs['status'], TokenVariant>
 
-const STATUS_ICON: Record<string, keyof typeof TOKEN_ICONS> = {
+const STATUS_ICON = {
   pending: 'plan',
   accepted: 'planAccepted',
   rejected: 'planRejected',
-}
+} satisfies Record<PlanRefAttrs['status'], keyof typeof TOKEN_ICONS>
+
+const markdownPlanTokenSchema = z.object({
+  href: z.string(),
+  text: z.string().optional(),
+})
 
 export const PlanRefExtension = Node.create({
   name: 'planReference',
@@ -47,7 +53,8 @@ export const PlanRefExtension = Node.create({
   },
 
   parseMarkdown(token) {
-    const url = new URL(token.href as string)
+    const parsed = markdownPlanTokenSchema.parse(token)
+    const url = new URL(parsed.href)
     return {
       type: 'planReference',
       attrs: {
@@ -55,7 +62,7 @@ export const PlanRefExtension = Node.create({
         sessionId: url.searchParams.get('sessionId'),
         planToolUseId: url.searchParams.get('planToolUseId'),
         status: url.searchParams.get('status') || 'pending',
-        title: (token.text || '').replace(/\\([\[\]])/g, '$1'),
+        title: (parsed.text || '').replaceAll('\\[', '[').replaceAll('\\]', ']'),
       },
     }
   },

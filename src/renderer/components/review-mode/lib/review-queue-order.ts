@@ -49,8 +49,11 @@ export function orderReviewQueue(items: ReviewQueueItem[], stackGraph: StackGrap
     const queue = [item.number]
     componentByNumber.set(item.number, componentIndex)
     while (queue.length > 0) {
-      const number = queue.shift() as number
-      component.push(byNumber.get(number) as RankedItem)
+      const number = queue.shift()
+      if (number === undefined) break
+      const rankedItem = byNumber.get(number)
+      if (!rankedItem) continue
+      component.push(rankedItem)
       for (const neighbour of neighbours.get(number) ?? []) {
         if (componentByNumber.has(neighbour)) continue
         componentByNumber.set(neighbour, componentIndex)
@@ -96,8 +99,11 @@ function orderStack(items: RankedItem[], edges: StackGraph['edges']): RankedItem
   const ordered: RankedItem[] = []
 
   while (ready.length > 0) {
-    const number = ready.shift() as number
-    ordered.push(itemByNumber.get(number) as RankedItem)
+    const number = ready.shift()
+    if (number === undefined) break
+    const item = itemByNumber.get(number)
+    if (!item) continue
+    ordered.push(item)
     for (const child of children.get(number) ?? []) {
       const remaining = (indegree.get(child) ?? 0) - 1
       indegree.set(child, remaining)

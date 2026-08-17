@@ -79,6 +79,7 @@ function ensureWorker(): UtilityProcess {
     log.warn('transcription_worker_entry_missing', { workerPath: WORKER_PATH })
   }
   const child = utilityProcess.fork(WORKER_PATH, [], { serviceName: 'solus-transcription' })
+  // SAFETY: this utility process runs our worker entry, whose only messages implement WorkerResponse.
   child.on('message', (message) => handleWorkerMessage(child, message as WorkerResponse))
   child.once('exit', (code) => {
     const stoppedForIdle = idleStoppingWorkers.delete(child)

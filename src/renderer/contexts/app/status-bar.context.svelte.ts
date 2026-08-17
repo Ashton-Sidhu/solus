@@ -1,6 +1,6 @@
 import { createAppContext } from './create-app-context'
 import { MODEL_PROFILES } from '../../../shared/types'
-import type { StatusBarCtx, AgentId, RunConfig } from '../../../shared/types'
+import type { StatusBarCtx, RunConfig } from '../../../shared/types'
 import type { AgentContext } from './agent.context.svelte'
 import type { SettingsContext } from './settings.context.svelte'
 import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
@@ -36,7 +36,7 @@ export class StatusBarContext {
    *  the same answer without the caller knowing which it holds. */
   ctxForRun(run: RunConfig | undefined): StatusBarCtx {
     const defaults = this._session?.globalDefaults
-    const effectiveAgent = (run?.provider ?? this.settings.activeAgent) as AgentId
+    const effectiveAgent = run?.provider ?? this.settings.activeAgent
     const models = this._agent?.metadata[effectiveAgent]?.models ?? []
     const metaDefault = this._agent?.metadata[effectiveAgent]?.defaultModel ?? null
     const mc = run?.modelConfig ?? defaults?.modelConfig

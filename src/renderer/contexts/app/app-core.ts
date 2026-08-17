@@ -5,6 +5,10 @@ import { StatusBarContext, setStatusBarContext } from './status-bar.context.svel
 import { PlanStore, setPlanStore } from '../plans/plan.store.svelte'
 import { SessionEnvironmentStore, setSessionEnvironmentStore } from '../git/session-environment.store.svelte'
 import { ProjectConfigStore, setProjectConfigStore } from '../projects/project-config.store.svelte'
+import {
+  TextGenerationSettingsStore,
+  setTextGenerationSettingsStore,
+} from '../projects/text-generation-settings.store.svelte'
 import { AgentContext, setAgentContext } from './agent.context.svelte'
 import { SessionSidebarStore, setSessionSidebarStore } from '../workspace/session-sidebar.store.svelte'
 import { VoiceModelStore, setVoiceModelStore } from './voice-model.store.svelte'
@@ -22,6 +26,7 @@ export interface AppCore {
   planStore: PlanStore
   sessionEnvironmentStore: SessionEnvironmentStore
   projectConfigStore: ProjectConfigStore
+  textGenerationSettingsStore: TextGenerationSettingsStore
   sessionSidebarStore: SessionSidebarStore
   voiceModelStore: VoiceModelStore
   session: WorkspaceContext
@@ -45,6 +50,7 @@ export function createAppCore(): AppCore {
   const planStore = new PlanStore()
   const sessionEnvironmentStore = new SessionEnvironmentStore()
   const projectConfigStore = new ProjectConfigStore()
+  const textGenerationSettingsStore = new TextGenerationSettingsStore()
   const agent = new AgentContext(settings)
   const session = new WorkspaceContext(settings, windowCtx, statusBar, planStore, sessionEnvironmentStore, agent)
   const sessionSidebarStore = new SessionSidebarStore(settings, session, planStore)
@@ -86,6 +92,7 @@ export function createAppCore(): AppCore {
   setPlanStore(planStore)
   setSessionEnvironmentStore(sessionEnvironmentStore)
   setProjectConfigStore(projectConfigStore)
+  setTextGenerationSettingsStore(textGenerationSettingsStore)
   setSessionSidebarStore(sessionSidebarStore)
   setVoiceModelStore(voiceModelStore)
   setAgentContext(agent)
@@ -98,6 +105,7 @@ export function createAppCore(): AppCore {
     planStore,
     sessionEnvironmentStore,
     projectConfigStore,
+    textGenerationSettingsStore,
     sessionSidebarStore,
     voiceModelStore,
     session,

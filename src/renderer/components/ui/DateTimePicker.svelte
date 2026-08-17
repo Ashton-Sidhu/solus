@@ -33,7 +33,7 @@
   }
 
   function setTime(event: Event) {
-    const next = (event.currentTarget as HTMLInputElement).value;
+    const next = event.currentTarget instanceof HTMLInputElement ? event.currentTarget.value : "";
     if (next) onChange(`${datePart}T${next}`);
   }
 </script>

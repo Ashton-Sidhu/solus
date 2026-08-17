@@ -4,10 +4,10 @@ const ALL_HIGHLIGHT = "solus-conversation-find";
 const ACTIVE_HIGHLIGHT = "solus-conversation-find-active";
 
 const isSupported =
-  typeof CSS !== "undefined" &&
-  "highlights" in CSS &&
-  typeof Highlight !== "undefined" &&
-  typeof Range !== "undefined";
+  globalThis.CSS !== undefined &&
+  "highlights" in globalThis.CSS &&
+  globalThis.Highlight !== undefined &&
+  globalThis.Range !== undefined;
 
 let allHighlight: Highlight | null = null;
 let activeHighlight: Highlight | null = null;
@@ -60,10 +60,10 @@ function searchableTextNodes(root: HTMLElement): Text[] {
       return NodeFilter.FILTER_ACCEPT;
     },
   });
-  let node = walker.nextNode() as Text | null;
+  let node = walker.nextNode();
   while (node) {
-    nodes.push(node);
-    node = walker.nextNode() as Text | null;
+    if (node instanceof Text) nodes.push(node);
+    node = walker.nextNode();
   }
   return nodes;
 }

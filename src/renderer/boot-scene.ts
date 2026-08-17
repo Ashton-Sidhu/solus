@@ -401,9 +401,9 @@ export function renderFatal(
     </details>
   `)
 
-  const actions = detail.querySelector('.solus-boot-actions') as HTMLElement
-  actions.appendChild(bootButton('Try again', 'primary', () => location.reload()))
-  if (!isLocalHost) actions.appendChild(bootButton('Use this Mac', 'ghost', useLocalHost))
+  const actions = detail.querySelector<HTMLElement>('.solus-boot-actions')
+  actions?.appendChild(bootButton('Try again', 'primary', () => location.reload()))
+  if (!isLocalHost) actions?.appendChild(bootButton('Use this Mac', 'ghost', useLocalHost))
   detail.querySelector('.solus-boot-details summary')?.appendChild(copyTraceButton(raw))
 }
 

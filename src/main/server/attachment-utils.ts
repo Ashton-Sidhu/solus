@@ -3,12 +3,12 @@ import { readFileSync, statSync } from 'fs'
 import type { Attachment } from '../../shared/types'
 
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'])
-const MIME_MAP: Record<string, string> = {
+const MIME_MAP = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
   '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
   '.pdf': 'application/pdf', '.txt': 'text/plain', '.md': 'text/markdown',
   '.json': 'application/json', '.yaml': 'text/yaml', '.toml': 'text/toml',
-}
+} satisfies Record<string, string>
 
 export function mimeTypeForExtension(ext: string): string | undefined {
   return MIME_MAP[ext.toLowerCase()]

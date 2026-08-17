@@ -6,6 +6,7 @@ import { getDb, withTx } from '../db'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
 import { resolveProjectKey } from './project-config'
+import { z } from 'zod'
 
 const log = createLogger('main', 'projects-manifest')
 
@@ -18,6 +19,17 @@ interface ProjectRow {
   added_at: number
 }
 
+const projectRowSchema = z.object({
+  key: z.string(),
+  path: z.string(),
+  folder_name: z.string(),
+  added_at: z.number(),
+})
+
+function errorMessage(error: Parameters<typeof String>[0]): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 function fromRow(row: ProjectRow): ProjectEntry {
   return {
     key: row.key,
@@ -28,10 +40,10 @@ function fromRow(row: ProjectRow): ProjectEntry {
 }
 
 async function readManifest(): Promise<ProjectEntry[]> {
-  const rows = getDb().prepare(`
+  const rows = z.array(projectRowSchema).parse(getDb().prepare(`
     SELECT key, path, folder_name, added_at
     FROM projects
-  `).all() as unknown as ProjectRow[]
+  `).all())
   return rows.map(fromRow)
 }
 
@@ -93,7 +105,7 @@ export async function listProjects(): Promise<ProjectEntry[]> {
         }
       })
     } catch (err) {
-      log.warn('projects_manifest_persist_failed', { error: (err as Error).message })
+      log.warn('projects_manifest_persist_failed', { error: errorMessage(err) })
     }
   }
   return present.sort((a, b) => a.folderName.localeCompare(b.folderName))
@@ -118,7 +130,7 @@ export async function deleteProject(projectPath: string): Promise<void> {
   if (entry) {
     const dir = path.join(PROJECTS_DIR, entry.key)
     await rm(dir, { recursive: true, force: true }).catch((err) =>
-      log.warn('project_data_remove_failed', { projectPath, error: (err as Error).message }),
+      log.warn('project_data_remove_failed', { projectPath, error: errorMessage(err) }),
     )
   }
 }

@@ -11,13 +11,13 @@ import { relativeTime } from '../../lib/tasks-api'
 import { statusColor } from './task-page'
 
 /** The provider mark, on the 14×14 grid every glyph on this page is drawn on. */
-const PROVIDER_GLYPHS: Record<Exclude<TaskProviderId, 'local'>, string> = {
+const PROVIDER_GLYPHS = {
   github: 'M5.4 12.2v-1.9c-2.3.4-2.9-1.1-2.9-1.1-.4-.9-.9-1.2-.9-1.2-.8-.5.1-.5.1-.5.8.1 1.3.9 1.3.9.7 1.3 1.9.9 2.4.7.1-.5.3-.9.5-1.1-1.8-.2-3.7-.9-3.7-4 0-.9.3-1.6.8-2.2-.1-.2-.4-1 .1-2.1 0 0 .7-.2 2.2.8a7 7 0 013.4 0c1.5-1 2.2-.8 2.2-.8.5 1.1.2 1.9.1 2.1.5.6.8 1.3.8 2.2 0 3.1-1.9 3.8-3.7 4 .3.3.6.8.6 1.6v2.6',
-}
+} satisfies Record<Exclude<TaskProviderId, 'local'>, string>
 
-const PROVIDER_NAMES: Record<Exclude<TaskProviderId, 'local'>, string> = {
+const PROVIDER_NAMES = {
   github: 'GitHub',
-}
+} satisfies Record<Exclude<TaskProviderId, 'local'>, string>
 
 /** `ok` — this page and the ticket agree. `pending` — we are holding writes the
  *  ticket has not taken yet. `error` — the last exchange failed, so the page is
@@ -50,12 +50,12 @@ export interface TaskUpstreamState {
   url: string | null
 }
 
-const TONE_BY_SYNC_STATE: Record<TaskExternalLink['syncState'], TaskSyncTone> = {
+const TONE_BY_SYNC_STATE = {
   ok: 'ok',
   dirty: 'pending',
   error: 'error',
   auth_error: 'error',
-}
+} satisfies Record<TaskExternalLink['syncState'], TaskSyncTone>
 
 /**
  * Three shapes of task reach this page and only two of them have an upstream:

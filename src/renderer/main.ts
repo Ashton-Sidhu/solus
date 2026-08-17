@@ -5,7 +5,6 @@ import { installWsBackedSolusApi, localServerTarget, resolveActiveServerTarget, 
 import { serverConnections } from '@client-core/server-connections'
 import { renderConnecting, renderFatal } from './boot-scene'
 import { startScrollReveal } from './lib/scroll-reveal'
-import { setTabPersistenceServerInstallationId } from './contexts/workspace/tab-persistence'
 import type { LocalConnectionInfo, NativeSolusAPI } from '../preload'
 
 window.addEventListener('unhandledrejection', (event) => {
@@ -29,7 +28,7 @@ function currentRendererMode(): 'editor' | 'pill' {
     : 'pill'
 }
 
-function renderBootError(err: unknown): void {
+function renderBootError(err: Parameters<typeof String>[0]): void {
   renderFatal(root, {
     hostLabel: bootTarget?.label ?? 'Solus',
     isLocalHost: bootTarget?.local ?? true,
@@ -70,7 +69,6 @@ async function boot(): Promise<void> {
   if (!target.local) showConnecting('connecting', 0)
 
   setConnectionState({ status: 'connecting', attempt: 0, target })
-  setTabPersistenceServerInstallationId(target.installationId ?? target.id, { migrateLegacy: target.local })
 
   let appMounted = false
   const { transport, api } = installWsBackedSolusApi(target, nativeApi, {
@@ -87,6 +85,9 @@ async function boot(): Promise<void> {
   serverConnections.registerPrimary(target.id, api, transport, target)
 
   transport.start()
+  // Every catalog entry is eagerly desired: saved remote hosts hold live
+  // supervised sockets from boot, so their rows go live instead of cached.
+  serverConnections.startCatalogSupervisors()
 
   // RPC calls made before the socket opens queue and flush automatically
   // (see WsTransport.invoke/send), so mount as soon as the app bundle is

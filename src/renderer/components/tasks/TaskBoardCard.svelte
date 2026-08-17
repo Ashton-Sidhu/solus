@@ -48,11 +48,11 @@
 
   // The three columns worth a keystroke. In review is a decision, not a nudge,
   // so it stays a drag or a menu choice.
-  const QUICK_STATUS: Record<string, TaskStatus> = {
+  const QUICK_STATUS = {
     "1": "todo",
     "2": "in_progress",
     "3": "done",
-  };
+  } satisfies Record<string, TaskStatus>;
 
   const hasFooter = $derived(card.chips.length > 0 || card.people.length > 0);
 

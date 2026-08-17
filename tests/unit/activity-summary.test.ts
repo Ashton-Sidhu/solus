@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import {
   getToolDescription,
+  getToolDescriptionFromParsed,
   liveActivityLabel,
+  parseToolInput,
 } from '../../src/renderer/components/conversation/lib/activity-summary'
 
 describe('liveActivityLabel', () => {
@@ -52,5 +54,18 @@ describe('getToolDescription', () => {
 
   test('keeps argument-free Solus tools concise', () => {
     expect(getToolDescription('list_sessions', '{}', { truncate: false })).toBe('list_sessions')
+  })
+})
+
+describe('parseToolInput', () => {
+  test('carries the raw JSON that Solus tool descriptions render', () => {
+    // WHY: describeSolusTool prints parsed.sourceJson directly. A caller that
+    // parses tool input with its own schema loses that field and crashes the
+    // transcript on the first Solus tool call (ToolGroupItem regression).
+    const parsed = parseToolInput('{"query":"host selection"}')
+    expect(parsed?.sourceJson).toBe('{"query":"host selection"}')
+    expect(
+      getToolDescriptionFromParsed('mcp__solus__search_sessions', parsed!, { truncate: false }),
+    ).toBe('search_sessions: {"query":"host selection"}')
   })
 })

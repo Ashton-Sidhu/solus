@@ -91,7 +91,7 @@
     // Measured height decides whether the card flips, so it is a dependency of
     // the box, not an afterthought applied to it.
     const h = height;
-    item.id;
+    void item.id;
     return peekBox(
       anchor.getBoundingClientRect(),
       ledger.getBoundingClientRect(),

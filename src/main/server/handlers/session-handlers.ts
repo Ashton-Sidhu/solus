@@ -3,9 +3,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { z } from 'zod'
 import { WORKSPACE_DIR } from '../../workspace'
 import type { ControlPlane } from '../../control-plane'
-import type { AgentId, AgentMetadata, HeadlessSessionRequest, IpcContext, PromptOptions, RateLimitDecisionAction, ThreadGoalSetRequest } from '../../../shared/types'
+import { activityLeases } from '../activity-leases'
+import type { AgentId, AgentMetadata, IpcContext } from '../../../shared/types'
 import { AGENT_BIN } from '../../../shared/types'
 import { findOnPath, getCliEnv, warmCliPath } from '../../cli-env'
 import { createLogger } from '../../logger'
@@ -32,17 +34,21 @@ const _agentBinaryCache = new Map<AgentId, string | null>()
 const SOLUS_DIR = solusDir()
 const AGENT_BINARIES_FILE = join(SOLUS_DIR, 'agent-binaries.json')
 type PersistedAgentBinaries = Partial<Record<AgentId, string | null>>
+const persistedAgentBinariesSchema = z.object({
+  'claude-code': z.string().nullable().optional(),
+  codex: z.string().nullable().optional(),
+  opencode: z.string().nullable().optional(),
+}).strict()
 let _persistedBinaries: PersistedAgentBinaries | null = null
 
 function loadPersistedBinaries(): PersistedAgentBinaries {
   if (_persistedBinaries) return _persistedBinaries
   try {
-    const parsed = JSON.parse(readFileSync(AGENT_BINARIES_FILE, 'utf8'))
-    _persistedBinaries = parsed && typeof parsed === 'object' ? parsed : {}
+    _persistedBinaries = persistedAgentBinariesSchema.parse(JSON.parse(readFileSync(AGENT_BINARIES_FILE, 'utf8')))
   } catch {
     _persistedBinaries = {}
   }
-  return _persistedBinaries!
+  return _persistedBinaries
 }
 
 function savePersistedBinaries(): void {
@@ -79,8 +85,8 @@ async function probeAgentBinary(agentId: AgentId): Promise<string | null> {
 }
 
 async function resolveAgentBinary(agentId: AgentId): Promise<string | null> {
-  if (_agentBinaryCache.has(agentId)) {
-    const cached = _agentBinaryCache.get(agentId)!
+  const cached = _agentBinaryCache.get(agentId)
+  if (cached !== undefined) {
     log.info('agent_binary_memory_cache_hit', { agentId, path: cached ?? null })
     return cached
   }
@@ -160,26 +166,26 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   }
 
   server.register('watchSession', (args, handlerCtx) => {
-    const [input] = args as [{ sessionId?: string; agentSessionId?: string }]
+    const [input] = args
     const resolved = controlPlane.watchSession(input ?? {}, requireClientId(handlerCtx))
     log.info('rpc_watch_session', { sessionId: resolved.sessionId, requested: input?.sessionId ?? null })
     return resolved
   })
 
   server.register('unwatchSession', (args, handlerCtx) => {
-    const [sessionId] = args as [string]
+    const [sessionId] = args
     log.info('rpc_unwatch_session', { sessionId })
     controlPlane.unwatchSession(sessionId, requireClientId(handlerCtx))
   })
 
   server.register('createHeadlessSession', (args) => {
-    const [request] = args as [HeadlessSessionRequest]
+    const [request] = args
     log.info('rpc_create_headless_session', { provider: request.provider })
     return controlPlane.createSession(request)
   })
 
   server.register('bindRuntimeSession', (args, handlerCtx) => {
-    const [ctx] = args as [IpcContext]
+    const [ctx] = args
     log.info('rpc_bind_runtime_session', {
       sessionId: ctx.session.sessionId,
       agentSessionId: ctx.session.agentSessionId,
@@ -188,7 +194,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   })
 
   server.register('resetSession', (args) => {
-    const [ctx] = args as [IpcContext]
+    const [ctx] = args
     log.info('rpc_reset_session', { sessionId: ctx.session.sessionId })
     // Warm the same path the Files view queries: the worktree root when this
     // session has one, else the project directory. Warming the bare
@@ -201,13 +207,13 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   })
 
   server.register('switchSessionAgent', (args) => {
-    const [sessionId, provider, agentSessionId] = args as [string, AgentId, (string | null)?]
+    const [sessionId, provider, agentSessionId] = args
     log.info('rpc_switch_session_agent', { sessionId, provider, agentSessionId: agentSessionId ?? null })
     return controlPlane.switchSessionProvider(sessionId, provider, agentSessionId)
   })
 
   server.register('prompt', async (args, handlerCtx) => {
-    const [ctx, options] = args as [IpcContext, PromptOptions]
+    const [ctx, options] = args
     const sessionId = ctx.session.sessionId
     log.info('rpc_prompt', { sessionId })
     if (!sessionId) throw new Error('No sessionId provided — prompt rejected')
@@ -223,66 +229,76 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     }
   })
 
+  server.register('activityLease', (args, handlerCtx) => {
+    const [foreground] = args
+    // Foreground evidence gates watch-fired freshness work (dispatch-client
+    // step 7); a returning lease flushes whatever went stale in the dark.
+    const hadLease = activityLeases.hasForegroundLease()
+    activityLeases.report(handlerCtx.clientId ?? 'unknown-client', foreground === true)
+    if (!hadLease && foreground === true) controlPlane.flushDeferredGitRefreshes()
+    return { ok: true }
+  })
+
   server.register('retry', async (args, handlerCtx) => {
-    const [ctx, options] = args as [IpcContext, PromptOptions]
+    const [ctx, options] = args
     log.info('rpc_retry', { sessionId: ctx.session.sessionId })
     return controlPlane.retry(ctx, options, handlerCtx.clientId)
   })
 
   server.register('respondPermission', (args) => {
-    const [ctx, questionId, optionId, updatedPlan] = args as [IpcContext, string, string, string | undefined]
+    const [ctx, questionId, optionId, updatedPlan] = args
     log.info('rpc_respond_permission', { sessionId: ctx.session.sessionId, questionId, optionId, hasUpdatedPlan: !!updatedPlan })
     return controlPlane.respondToPermission(questionId, optionId, updatedPlan)
   })
 
   server.register('respondQuestion', (args) => {
-    const [ctx, questionId, answers] = args as [IpcContext, string, Record<string, string>]
+    const [ctx, questionId, answers] = args
     log.info('rpc_respond_question', { sessionId: ctx.session.sessionId, questionId })
     return controlPlane.respondToQuestion(questionId, answers)
   })
 
   server.register('rateLimitDecision', (args) => {
-    const [ctx, action] = args as [IpcContext, RateLimitDecisionAction]
+    const [ctx, action] = args
     log.info('rpc_rate_limit_decision', { sessionId: ctx.session.sessionId, action })
     return controlPlane.resolveRateLimit(ctx, action)
   })
 
   server.register('cancelQueuedPrompt', (args) => {
-    const [ctx, queueId] = args as [IpcContext, string]
+    const [ctx, queueId] = args
     log.info('rpc_cancel_queued_prompt', { sessionId: ctx.session.sessionId, queueId })
     return controlPlane.cancelQueuedPrompt(ctx, queueId)
   })
 
   server.register('editQueuedPrompt', (args) => {
-    const [ctx, queueId, text] = args as [IpcContext, string, string]
+    const [ctx, queueId, text] = args
     log.info('rpc_edit_queued_prompt', { sessionId: ctx.session.sessionId, queueId })
     return controlPlane.editQueuedPrompt(ctx, queueId, text)
   })
 
   server.register('rewindFiles', async (args) => {
-    const [ctx, checkpointId] = args as [IpcContext, string]
+    const [ctx, checkpointId] = args
     log.info('rpc_rewind_files', { sessionId: ctx.session.sessionId, checkpointId })
     await controlPlane.rewindSessionFiles(ctx, checkpointId)
     return true
   })
 
   server.register('getPluginCommands', (args) => {
-    const [workingDirectory, ctx] = args as [string, IpcContext | undefined]
+    const [workingDirectory, ctx] = args
     return controlPlane.listPluginCommands(agentIdFromContext(ctx), workingDirectory, ctx)
   })
 
   server.register('getThreadGoal', (args) => {
-    const [threadId, ctx, provider] = args as [string, IpcContext | undefined, AgentId | undefined]
+    const [threadId, ctx, provider] = args
     return controlPlane.getThreadGoal(provider ?? agentIdFromContext(ctx), threadId)
   })
 
   server.register('setThreadGoal', (args) => {
-    const [request, ctx, provider] = args as [ThreadGoalSetRequest, IpcContext | undefined, AgentId | undefined]
+    const [request, ctx, provider] = args
     return controlPlane.setThreadGoal(provider ?? agentIdFromContext(ctx), request)
   })
 
   server.register('clearThreadGoal', (args) => {
-    const [threadId, ctx, provider] = args as [string, IpcContext | undefined, AgentId | undefined]
+    const [threadId, ctx, provider] = args
     return controlPlane.clearThreadGoal(provider ?? agentIdFromContext(ctx), threadId)
   })
 }

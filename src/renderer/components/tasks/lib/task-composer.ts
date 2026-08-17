@@ -3,6 +3,7 @@
 // Kept out of the .svelte file per the renderer guidelines so the component stays
 // markup + thin handlers.
 import type { TaskKind, TaskPriority, TaskStatus } from '../../../../shared/task-types'
+import { z } from 'zod'
 
 /** Snapshot of the composer's fields, persisted so a closed-without-saving draft
  *  comes back. Only the plain "new task" case is persisted (no seed / no preset
@@ -25,6 +26,16 @@ interface ComposerDraft {
 
 const DRAFT_KEY = 'solus:task-composer-draft'
 const ANOTHER_KEY = 'solus:task-composer-create-another'
+const composerDraftSchema = z.object({
+  title: z.string().catch(''),
+  body: z.string().catch(''),
+  dueDate: z.string().catch(''),
+  priority: z.enum(['urgent', 'high', 'medium', 'low']).or(z.literal('')).catch(''),
+  status: z.enum(['inbox', 'todo', 'in_progress', 'in_review', 'done', 'dropped']).catch('todo'),
+  kind: z.enum(['task', 'epic']).catch('task'),
+  parentId: z.string().catch(''),
+  labels: z.array(z.string()).catch([]),
+})
 
 /** A draft is only worth restoring (or persisting) when the user actually typed
  *  something — an empty title/body/labels draft is noise. */
@@ -39,17 +50,7 @@ export function loadDraft(): ComposerDraft | null {
     localStorage.removeItem(DRAFT_KEY)
     const raw = sessionStorage.getItem(DRAFT_KEY)
     if (!raw) return null
-    const d = JSON.parse(raw) as Partial<ComposerDraft>
-    const draft: ComposerDraft = {
-      title: d.title ?? '',
-      body: d.body ?? '',
-      dueDate: d.dueDate ?? '',
-      priority: (d.priority as TaskPriority) ?? '',
-      status: (d.status as TaskStatus) ?? 'todo',
-      kind: d.kind === 'epic' ? 'epic' : 'task',
-      parentId: d.parentId ?? '',
-      labels: Array.isArray(d.labels) ? d.labels : [],
-    }
+    const draft: ComposerDraft = composerDraftSchema.parse(JSON.parse(raw))
     return hasContent(draft) ? draft : null
   } catch {
     return null
@@ -128,7 +129,9 @@ export function pickerKeydown(e: KeyboardEvent, container: HTMLElement | null): 
   const items = Array.from(container.querySelectorAll<HTMLElement>('[data-pick-item]'))
   if (!items.length) return
   e.preventDefault()
-  const idx = items.indexOf(document.activeElement as HTMLElement)
+  const idx = document.activeElement instanceof HTMLElement
+    ? items.indexOf(document.activeElement)
+    : -1
   const dir = e.key === 'ArrowDown' ? 1 : -1
   const next = items[(idx + dir + items.length) % items.length] ?? items[0]
   next.focus()

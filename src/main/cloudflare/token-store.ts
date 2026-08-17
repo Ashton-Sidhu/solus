@@ -1,4 +1,5 @@
 import { join } from 'path'
+import { z } from 'zod'
 import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
 import { secretStore } from '../platform/secrets'
@@ -15,12 +16,19 @@ export interface CloudflareStoredToken {
   expiresOn?: number
 }
 
+const cloudflareStoredTokenSchema = z.object({
+  apiToken: z.string(),
+  accountId: z.string(),
+  accountName: z.string().optional(),
+  expiresOn: z.number().optional(),
+})
+
 function tokenFile(): string {
   return join(dataDir(), 'cloudflare-api-token.bin')
 }
 
 export function loadToken(): CloudflareStoredToken | null {
-  return secretStore().loadJson<CloudflareStoredToken>(TOKEN_KEY, tokenFile())
+  return secretStore().loadJson(TOKEN_KEY, tokenFile(), cloudflareStoredTokenSchema)
 }
 
 export function persistToken(token: CloudflareStoredToken): void {

@@ -1,12 +1,12 @@
 import { createAppContext } from '../app/create-app-context'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
-import type { AgentId, PinnedSession, Session } from '../../../shared/types'
+import { untrack } from 'svelte'
+import { worktreeProjectRoot, type PinnedSession, type Session } from '../../../shared/types'
 import type { Task } from '../../../shared/task-types'
 import type { PullRequestSummary } from '../../../shared/providers'
 import { existingTaskId, parentTaskId } from './session-draft.svelte'
 import {
   buildProjectSummaries,
-  belongsToSelectedHost,
   compareTaskCreationOrder,
   groupTasks,
   prChipForBranches as resolvePrChip,
@@ -46,16 +46,20 @@ import type { WorkspaceContext } from './workspace.context.svelte'
 import { taskTabTarget } from './session-sidebar-selection'
 import {
   loadDismissedSidebarRowKeys,
+  loadOpenSidebarTaskIds,
   persistDismissedSidebarRow,
+  persistOpenSidebarTaskIds,
+  removeDismissedSidebarRows,
 } from './tab-persistence'
 import {
   reviewGuideStore,
   sessionGuideIdentity,
 } from '../../components/review/review-guide.store.svelte'
 import { serverConnections } from '@client-core/server-connections'
-import { resolveSessionMetaRef } from '@client-core/session-meta'
+import { readSessionMeta } from '@client-core/session-meta'
 import { subscribeAllHosts } from '@client-core/host-events'
 import type { HostApi } from '@client-core/host-api'
+import { prLinkDiscoveryKey, type PrLinkDiscoveryInput } from './pr-link-discovery'
 
 /** A running turn began at its prompt, so the tail-most user message dates it.
  *  Bounded because it only ever has to look at the turn in flight — a deep walk
@@ -107,14 +111,14 @@ export type SidebarSessionChild = {
   snoozeReminder?: string | null
 }
 
-const attentionRank: Record<NonNullable<AttentionState>, number> = {
+const attentionRank = {
   awaiting: 5,
   awaiting_plan: 5,
   queued: 4,
   error: 3,
   running: 2,
   unread: 1,
-}
+} satisfies Record<NonNullable<AttentionState>, number>
 
 function maxAttention(current: AttentionState, next: AttentionState): AttentionState {
   if (!next) return current
@@ -129,6 +133,8 @@ function projectLabel(projectKey: string): string {
 export class SessionSidebarStore {
   private taskModelsById = new Map<string, SidebarTask>()
   private liveSessionStatuses?: SidebarSessionStatusFeed
+  private openTaskIds: SvelteSet<string>
+  private hasSeededOpenTasks: boolean
 
   private sessionStatusFeed(): SidebarSessionStatusFeed {
     return this.liveSessionStatuses ??= new SidebarSessionStatusFeed()
@@ -138,15 +144,18 @@ export class SessionSidebarStore {
   pinnedSessions = $state<PinnedSession[]>([])
   visibleTabIds: string[] = $derived.by(() => this.session.tabOrder.filter((id) => this.session.tabs[id]))
 
-  /** Which tab, if any, has a given provider session mounted. Built once per
+  /** Which tab, if any, has a given stable or active provider session mounted. Built once per
    *  pass: every task row needs this answer for each of its linked sessions, and
    *  scanning the open tabs per lookup made the column O(tasks × sessions × tabs)
    *  on every stream tick. */
   private tabIdBySessionId: Map<string, string> = $derived.by(() => {
     const bySessionId = new Map<string, string>()
     for (const tabId of this.visibleTabIds) {
-      const sessionId = this.session.sessionFor(tabId)?.agentSessionId
-      if (sessionId) bySessionId.set(sessionId, tabId)
+      const tab = this.session.tabs[tabId]
+      const session = this.session.sessionFor(tabId)
+      if (tab?.sessionId) bySessionId.set(tab.sessionId, tabId)
+      if (session?.handoffId) bySessionId.set(session.handoffId, tabId)
+      if (session?.agentSessionId) bySessionId.set(session.agentSessionId, tabId)
     }
     return bySessionId
   })
@@ -224,7 +233,12 @@ export class SessionSidebarStore {
             ),
           )
         )
-        return shouldShowDurableSidebarTask(task, isDismissed, hasOpenSession)
+        return shouldShowDurableSidebarTask(
+          task,
+          isDismissed,
+          hasOpenSession,
+          this.openTaskIds.has(task.id),
+        )
       })
       .map((task): SidebarTask => {
         const children = this.childrenOf(task.id)
@@ -292,7 +306,9 @@ export class SessionSidebarStore {
             if (startedAt > 0) runStartedAt = runStartedAt === 0 ? startedAt : Math.min(runStartedAt, startedAt)
           }
         }
-        const projectKey = task.projectKey ?? '~'
+        // Older session-born tasks can contain the managed worktree path. Keep
+        // those durable rows in the base project's sidebar scope too.
+        const projectKey = worktreeProjectRoot(task.projectKey ?? '~')
         const lifecycle = resolveTaskSidebarLifecycle({
           task,
           now: this.session.tasksStore.lifecycleNow,
@@ -334,7 +350,8 @@ export class SessionSidebarStore {
       const session = this.session.sessionFor(tabId)
       const tab = this.session.tabs[tabId]
       if (!session || !tab) continue
-      const linkedTask = this.session.tasksStore.taskForSession(session.agentSessionId)
+      const linkedTask = this.session.tasksStore.taskForSession(session.handoffId ?? session.id)
+        ?? this.session.tasksStore.taskForSession(session.agentSessionId)
       if (linkedTask || this.pendingTaskFor(session)) continue
 
       const environment = this.session.environment.environmentFor(this.session.sessionFor(tabId)?.run)
@@ -375,31 +392,48 @@ export class SessionSidebarStore {
     )
   })
 
-  /** The sidebar is a view of the selected host, not the federation cache.
-   * A dispatched run stays with the host that owns its task record even when
-   * the agent itself runs on another connected machine. */
-  hostTasks: SidebarTask[] = $derived.by(() => {
-    const selectedServerId = serverConnections.connectionFor()?.serverId
-    return this.allTasks.filter((task) => {
-      const ownerServerId = task.taskId
-        ? this.session.tasksStore.hostFor(task.taskId)
-        : task.serverId
-      return belongsToSelectedHost(
-        ownerServerId ? serverConnections.resolveId(ownerServerId) : null,
-        selectedServerId,
-      )
-    })
+  /** The sidebar aggregates every catalog host's rows into one list
+   * (dispatch-client step 2); a row's own host still routes its actions. */
+  catalogTasks: SidebarTask[] = $derived(this.allTasks)
+
+  /** Transcript and status fields can rebuild sidebar rows. PR discovery only
+   * depends on task identity, host, project, linked PR, and branch inputs. */
+  private prDiscoveryInputKey: string = $derived.by(() => {
+    const inputs: PrLinkDiscoveryInput[] = []
+    for (const task of this.catalogTasks) {
+      if (!task.taskId) continue
+      const attempts = this.sessionsFor(task)
+      const branches = [...attempts.map((attempt) => attempt.branchName).reverse(), task.branchName]
+      if (!task.prNumber && !branches.some(Boolean)) continue
+      const serverId = this.session.tasksStore.hostFor(task.taskId) ?? task.serverId
+      if (!serverId) continue
+      inputs.push({
+        taskId: task.taskId,
+        serverId,
+        projectKey: task.projectKey,
+        prNumber: task.prNumber ?? null,
+        branches,
+        originSessionId: attempts.findLast((attempt) => !!attempt.branchName)?.sessionId ?? null,
+      })
+    }
+    return prLinkDiscoveryKey(inputs)
   })
+
+  /** Root tasks any catalog host can restore through the sidebar picker.
+   * Unlike `catalogTasks`, this includes rows the user dismissed earlier. */
+  pickableTasks: Task[] = $derived.by(() =>
+    this.session.tasksStore.tasks.filter((task) => !task.parentId),
+  )
 
   /** Every open project, with the counts and the lead task the breadcrumb's
    *  picker lands on. */
-  projectSummaries: ProjectSummary[] = $derived(buildProjectSummaries(this.hostTasks))
+  projectSummaries: ProjectSummary[] = $derived(buildProjectSummaries(this.catalogTasks))
 
   /** The project the list is scoped to, or null for all of them. Resolved
    *  against the column's own contents so a project that has left it never
    *  keeps scoping the list to something no longer there. */
   private openProjectFilter: string | null = $derived.by(() =>
-    resolveProjectFilter(this.settings.sidebarProjectFilter, this.hostTasks),
+    resolveProjectFilter(this.settings.sidebarProjectFilter, this.catalogTasks),
   )
 
   /** The project the trigger and the empty line name, or null while unfiltered. */
@@ -412,22 +446,22 @@ export class SessionSidebarStore {
   /** Every open task, before the filter. The order tasks arrived in, held:
    *  lifecycle changes update a row in place; only an explicit sidebar
    *  dismissal removes it. */
-  activeTasks: SidebarTask[] = $derived(this.hostTasks.filter((task) => task.lifecycle === 'active'))
+  activeTasks: SidebarTask[] = $derived(this.catalogTasks.filter((task) => task.lifecycle === 'active'))
 
   /** What the column actually lists. Filtering is a subset of the same order,
    *  never a re-sort. */
   visibleTasks: SidebarTask[] = $derived(this.inFilter(this.activeTasks))
   snoozedTasks: SidebarTask[] = $derived(
-    this.inFilter(this.hostTasks.filter((task) => task.lifecycle === 'snoozed'))
+    this.inFilter(this.catalogTasks.filter((task) => task.lifecycle === 'snoozed'))
       .toSorted((a, b) => a.snoozedUntil - b.snoozedUntil || a.id.localeCompare(b.id)),
   )
   completedTasks: SidebarTask[] = $derived(
-    this.inFilter(this.hostTasks.filter((task) => task.lifecycle === 'completed'))
+    this.inFilter(this.catalogTasks.filter((task) => task.lifecycle === 'completed'))
       .toSorted((a, b) => b.completedAt - a.completedAt || a.id.localeCompare(b.id)),
   )
 
   /** The filter's own choices, over every project the column knows about. */
-  projectFilterChoices: ProjectFilterChoice[] = $derived(projectFilterChoices(this.hostTasks))
+  projectFilterChoices: ProjectFilterChoice[] = $derived(projectFilterChoices(this.catalogTasks))
 
   /** Grouped by project, unfiltered — the phone lists projects as collapsible
    *  sections rather than filtering to one, and must not inherit a scope set on
@@ -476,7 +510,7 @@ export class SessionSidebarStore {
    *  one, as its own loose row when it does not — so a composer that has yet to
    *  dispatch needs no row of its own synthesized here. */
   taskForTab(tabId: string): SidebarTask | null {
-    return this.hostTasks.find((task) => task.tabIds.includes(tabId)) ?? null
+    return this.catalogTasks.find((task) => task.tabIds.includes(tabId)) ?? null
   }
 
   /** The task the leading breadcrumb names. */
@@ -490,7 +524,7 @@ export class SessionSidebarStore {
   /** The task choices for a breadcrumb scoped to either conversation pane. */
   tasksForProject(projectKey: string | null | undefined): SidebarTask[] {
     if (!projectKey) return []
-    return sortTasks(this.hostTasks.filter((task) => task.projectKey === projectKey))
+    return sortTasks(this.catalogTasks.filter((task) => task.projectKey === projectKey))
   }
 
   /** The sessions inside the active task: what the session crumb drops down. */
@@ -533,13 +567,51 @@ export class SessionSidebarStore {
     private session: WorkspaceContext,
     private planStore: PlanStore,
   ) {
+    const persistedOpenTaskIds = loadOpenSidebarTaskIds()
+    this.openTaskIds = new SvelteSet(persistedOpenTaskIds ?? [])
+    this.hasSeededOpenTasks = persistedOpenTaskIds !== null
+    $effect(() => {
+      if (!this.session.tasksStore.loaded) return
+      const rootTasks = this.session.tasksStore.tasks.filter((task) => !task.parentId)
+      let openTasksChanged = false
+
+      // Preserve the rows visible before sidebar ownership became client-local.
+      // After this one migration, host tasks start closed until this client opens them.
+      if (!this.hasSeededOpenTasks) {
+        for (const task of rootTasks) {
+          if (!this.dismissedRowKeys.has(task.id)) this.openTaskIds.add(task.id)
+        }
+        this.hasSeededOpenTasks = true
+        openTasksChanged = true
+      }
+
+      for (const task of rootTasks) {
+        const hasLocalTab = this.pendingTabByTaskId.has(task.id) || [task, ...this.childrenOf(task.id)].some((item) =>
+          (this.session.tasksStore.sessionsByTask.get(item.id) ?? []).some((link) =>
+            this.tabIdBySessionId.has(link.sessionId),
+          ),
+        )
+        if (hasLocalTab && !this.openTaskIds.has(task.id)) {
+          this.openTaskIds.add(task.id)
+          openTasksChanged = true
+        }
+      }
+
+      const currentRootTaskIds = new Set(rootTasks.map((task) => task.id))
+      for (const taskId of this.openTaskIds) {
+        if (currentRootTaskIds.has(taskId)) continue
+        this.openTaskIds.delete(taskId)
+        openTasksChanged = true
+      }
+      if (openTasksChanged) persistOpenSidebarTaskIds(this.openTaskIds)
+    })
     $effect(() => {
       for (const task of this.session.tasksStore.tasks) {
         const pr = this.prByTaskId.get(task.id) ?? this.session.prsStore.items.find((candidate) =>
           (task.branch && candidate.headRef === task.branch)
           || (this.session.tasksStore.prLinkFor(task.id)?.number === candidate.number),
         )
-        if (!pr || !shouldCompleteTaskForPr(task.status, pr.state)) continue
+        if (!pr || !shouldCompleteTaskForPr(task, pr)) continue
         const key = `${task.id}:${pr.state}`
         if (this.observedPrLifecycle.has(key)) continue
         this.observedPrLifecycle.add(key)
@@ -548,7 +620,8 @@ export class SessionSidebarStore {
       }
     })
     $effect(() => {
-      void this.refreshPrLinks(false)
+      void this.prDiscoveryInputKey
+      untrack(() => this.refreshPrLinks(false))
     })
   }
 
@@ -559,14 +632,14 @@ export class SessionSidebarStore {
       projectKey: string
       tasks: Array<{ task: SidebarTask; branches: (string | null)[]; originSessionId?: string }>
     }>()
-    for (const task of this.hostTasks) {
+    for (const task of this.catalogTasks) {
       if (!task.taskId) continue
       const attempts = this.sessionsFor(task)
       const branches = [...attempts.map((attempt) => attempt.branchName).reverse(), task.branchName]
       if (!task.prNumber && !branches.some(Boolean)) continue
-      const serverId = this.session.tasksStore.hostFor(task.taskId)
-        ?? task.serverId
-        ?? serverConnections.serverIdForApi(serverConnections.primaryApi())
+      // A row that names no host is skipped, never attributed to the primary.
+      const serverId = this.session.tasksStore.hostFor(task.taskId) ?? task.serverId
+      if (!serverId) continue
       const key = `${serverId}:${task.projectKey}`
       const existing = groups.get(key)
       const entry = {
@@ -642,21 +715,38 @@ export class SessionSidebarStore {
     }
   }
 
-  /** Hydrate the pinned list from the manifest. Called once on bootstrap. */
+  /** Hydrate the pinned list by fanning out over every connected host: pins
+   *  are host-authoritative (dispatch-client), so each host answers for its
+   *  own sessions. Rows read naked get the answering host stamped; a host
+   *  that fails the read keeps the rows it answered with last time. */
   async loadPinnedSessions(): Promise<void> {
-    try {
-      this.pinnedSessions = await serverConnections.primaryApi().pinnedSessionsList()
-    } catch {
-      this.pinnedSessions = []
-    }
+    const serverIds = serverConnections.connectedServerIds()
+    const results = await Promise.all(serverIds.map(async (serverId) => {
+      try {
+        const rows = await serverConnections.apiFor(serverId).pinnedSessionsList()
+        for (const row of rows) {
+          row.serverId = serverId
+        }
+        return rows
+      } catch {
+        return this.pinnedSessions.filter((pin) => pin.serverId === serverId)
+      }
+    }))
+    const seen = new Set<string>()
+    this.pinnedSessions = results.flat().filter((pin) => {
+      const key = `${pin.serverId ?? ''}:${pin.sessionId}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
   }
 
   isPinned(sessionId: string | null | undefined, serverId?: string): boolean {
-    if (!sessionId) return false
-    const resolvedServerId = serverId ? serverConnections.resolveId(serverId) : undefined
+    if (!sessionId || !serverId) return false
+    const resolvedServerId = serverConnections.resolveId(serverId)
     return this.pinnedSessions.some((pin) =>
       pin.sessionId === sessionId
-      && (!resolvedServerId || !pin.serverId || pin.serverId === resolvedServerId),
+      && pin.serverId === resolvedServerId,
     )
   }
 
@@ -688,6 +778,19 @@ export class SessionSidebarStore {
       }
     }
     return best
+  }
+
+  /** The first tab whose session is working right now. Used only as the
+   *  select-a-task fallback: a running session outranks the oldest tab when
+   *  nothing needs the user and they have not opened this branch yet. */
+  getRunningTarget(tabIds: string[]): string | null {
+    for (const tabId of tabIds) {
+      const tab = this.session.tabs[tabId]
+      const sess = this.session.sessionFor(tabId)
+      if (!tab || !sess) continue
+      if (getAttentionState(sess, tab, this.planStore.plans) === 'running') return tabId
+    }
+    return null
   }
 
   childForTab(tabId: string): SidebarSessionChild {
@@ -723,7 +826,7 @@ export class SessionSidebarStore {
    *  array identity each time. One derived pass keeps both costs at one. */
   private sessionsByTaskId: Map<string, SidebarSessionChild[]> = $derived.by(() => {
     const byTaskId = new Map<string, SidebarSessionChild[]>()
-    for (const task of this.hostTasks) byTaskId.set(task.id, this.buildSessionsFor(task))
+    for (const task of this.catalogTasks) byTaskId.set(task.id, this.buildSessionsFor(task))
     return byTaskId
   })
 
@@ -731,6 +834,31 @@ export class SessionSidebarStore {
     // Callers can hold a row the last derived pass hasn't caught up with, so a
     // miss still answers rather than reporting the task as empty.
     return this.sessionsByTaskId.get(task.id) ?? this.buildSessionsFor(task)
+  }
+
+  /** Put a durable task and every linked attempt back into the sidebar. The
+   * picker is an explicit reversal of per-row dismissal, so it restores the
+   * whole task tree without changing any task lifecycle state. */
+  restoreTask(taskId: string): void {
+    const task = this.session.tasksStore.taskForId(taskId)
+    if (!task) return
+    const root = task.parentId
+      ? this.session.tasksStore.taskForId(task.parentId) ?? task
+      : task
+    const taskTree = [root, ...this.childrenOf(root.id)]
+    const rowKeys = [
+      root.id,
+      ...taskTree.flatMap((record) => [
+        ...(record.parentId ? [`task:${record.id}`] : []),
+        ...(this.session.tasksStore.sessionsByTask.get(record.id) ?? []).map(
+          (link) => `session:${link.sessionId}`,
+        ),
+      ]),
+    ]
+    for (const rowKey of rowKeys) this.dismissedRowKeys.delete(rowKey)
+    removeDismissedSidebarRows(rowKeys)
+    this.openTaskIds.add(root.id)
+    persistOpenSidebarTaskIds(this.openTaskIds)
   }
 
   private buildSessionsFor(task: SidebarTask): SidebarSessionChild[] {
@@ -882,12 +1010,10 @@ export class SessionSidebarStore {
       if (record) await this.session.openTaskSession(record)
       return
     }
-    // The task link already names the exact session. Ask the index for that one
-    // record instead of scanning every provider's full project history first.
-    const meta = await resolveSessionMetaRef({
-      sessionId: child.sessionId,
-      serverId: child.serverId,
-    })
+    // The task link already names the exact session and its host. A legacy row
+    // without a host is inert — no probe, no guess.
+    if (!child.serverId) return
+    const meta = await readSessionMeta(child.serverId, child.sessionId)
     if (meta) await this.session.resumeSession(meta)
   }
 
@@ -895,7 +1021,8 @@ export class SessionSidebarStore {
     const attentionTarget = this.getAttentionTarget(tabIds)
     const isAlreadyActiveBranch = tabIds.includes(this.session.activeTabId)
     const lastActiveTabId = this.session.lastActiveTabForBranch(branchKey)
-    const target = taskTabTarget(tabIds, attentionTarget, lastActiveTabId)
+    const runningTabId = this.getRunningTarget(tabIds)
+    const target = taskTabTarget(tabIds, attentionTarget, lastActiveTabId, runningTabId)
     if (!target) return false
 
     if (
@@ -911,7 +1038,24 @@ export class SessionSidebarStore {
   }
 
   closeTabs(tabIds: string[]): void {
-    for (const tabId of [...tabIds]) this.session.closeTab(tabId)
+    for (const tabId of tabIds) this.session.closeTab(tabId)
+  }
+
+  /** The checkmark: completing says "I am finished with this", so it also
+   *  unloads the mounted conversation, exactly as the row's close control
+   *  does. A durable task moves to the Completed shelf and stays resumable
+   *  from there; a loose row is only its tab, so completing closes the row
+   *  itself. Reopening closes nothing. */
+  async completeTask(task: SidebarTask): Promise<void> {
+    const durable = task.taskId ? this.session.tasksStore.taskForId(task.taskId) : undefined
+    if (durable) {
+      const reopening = durable.status === 'done'
+      await this.session.tasksStore.setStatus(durable.id, reopening ? 'todo' : 'done')
+      if (!reopening) this.closeTabs(task.tabIds)
+      return
+    }
+    if (task.status === 'done') this.toggleTaskDone(task.id)
+    else this.closeTask(task)
   }
 
   /** The check is a toggle: it is the only affordance that sets the state, so
@@ -935,6 +1079,8 @@ export class SessionSidebarStore {
     if (task.taskId) {
       this.dismissedRowKeys.add(task.taskId)
       persistDismissedSidebarRow(task.taskId)
+      this.openTaskIds.delete(task.taskId)
+      persistOpenSidebarTaskIds(this.openTaskIds)
     }
     this.closeTabs(task.tabIds)
   }
@@ -944,14 +1090,14 @@ export class SessionSidebarStore {
    *  task is dismissed the same way closing its own row does, so nothing about
    *  their lifecycle changes and reopening any session brings its task back. */
   closeProject(projectKey: string): void {
-    for (const task of this.hostTasks.filter((item) => item.projectKey === projectKey)) {
+    for (const task of this.catalogTasks.filter((item) => item.projectKey === projectKey)) {
       this.closeTask(task)
     }
   }
 
   /** How many runs this project would stop, for surfaces that ask first. */
   runningTaskCountIn(projectKey: string): number {
-    return this.hostTasks.filter(
+    return this.catalogTasks.filter(
       (task) => task.projectKey === projectKey && task.status === 'running',
     ).length
   }
@@ -968,7 +1114,7 @@ export class SessionSidebarStore {
   /** Keyboard dismissal targets a mounted row by tab id. Durable children hide
    *  independently; a loose session owns its whole temporary task row. */
   closeSidebarTab(tabId: string): void {
-    for (const task of this.hostTasks) {
+    for (const task of this.catalogTasks) {
       const child = this.sessionsFor(task).find((candidate) => candidate.tabId === tabId)
       if (task.taskId && child) {
         this.closeChild(child)
@@ -987,15 +1133,19 @@ export class SessionSidebarStore {
     const session = this.session.sessionFor(tabId)
     if (!tab || !session?.agentSessionId) return
 
+    const pinServerId = serverConnections.resolveId(session.run.serverId)
     const pin: PinnedSession = {
       sessionId: session.agentSessionId,
-      serverId: serverConnections.resolveId(session.run.serverId),
-      provider: session.run.provider ?? (this.settings.activeAgent as AgentId),
+      serverId: pinServerId,
+      provider: session.run.provider ?? this.settings.activeAgent,
       title: sessionTitle(session),
       cwd: session.run.gitContext?.worktreePath ?? session.run.workingDirectory,
       pinnedAt: Date.now(),
     }
-    this.pinnedSessions = await serverConnections.primaryApi().togglePinnedSession(pin)
+    // The pin lives on the session's own host; the host's answer is only that
+    // host's manifest, so the federated list reloads rather than adopting it.
+    await serverConnections.apiFor(pinServerId).togglePinnedSession(pin)
+    await this.loadPinnedSessions()
   }
 
   /** Rename from a sidebar row. Pins carry their own label, so a pinned session
@@ -1023,9 +1173,13 @@ export class SessionSidebarStore {
     if (leadTabId) await this.renameSession(leadTabId, title)
   }
 
-  /** Unpin directly from a known pin (used by the sidebar's per-row pin). */
+  /** Unpin directly from a known host-scoped pin. */
   async unpinSession(pin: PinnedSession): Promise<void> {
-    this.pinnedSessions = await serverConnections.primaryApi().togglePinnedSession($state.snapshot(pin))
+    const serverId = pin.serverId
+    if (!serverId) return
+    const api = serverConnections.apiFor(serverConnections.resolveId(serverId))
+    await api.togglePinnedSession($state.snapshot(pin))
+    await this.loadPinnedSessions()
   }
 
   /** Focus an already-open tab for a pinned session, or resume it into a new tab. */

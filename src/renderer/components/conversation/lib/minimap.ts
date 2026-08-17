@@ -4,20 +4,23 @@
 
 const REM = 16;
 
-// Mirror of `--solus-reading-max: clamp(40rem, 92%, 80rem)` in index.css. The
-// rail only shows when the centered reading column leaves a wide-enough gutter,
-// so we reproduce the column width here to know how much empty space exists.
-const READING_MIN = 40 * REM; // 640px
-const READING_MAX = 80 * REM; // 1280px
-const READING_PCT = 0.92;
+// Mirror of `--solus-reading-max: clamp(30rem, 80%, 68rem)` in
+// index.css. The rail only shows when the centered reading column leaves a
+// wide-enough gutter, so we reproduce the column width here to know how much
+// empty space exists. `tests/unit/panel-sizing.test.ts` reads the token out of
+// index.css and fails if these drift from it.
+const READING_MIN = 30 * REM; // 480px
+const READING_MAX = 68 * REM; // 1088px
+const READING_PCT = 0.8;
 
-// The scroll container carries `px-4` (16px each side); the 92% clamp resolves
+// The scroll container carries `px-4` (16px each side); the percentage resolves
 // against that padded inner box.
 const SCROLL_PADDING = 32;
 
 // Minimum clear gutter (px, one side) needed before the rail is worth showing.
-// Below this the dashes would crowd the reading text. With reading-min 640px
-// this corresponds to a conversation pane of ~1130px and up.
+// Below this the dashes would crowd the reading text. Because the column grows
+// more slowly than the pane, the gutter opens at a conversation pane of ~600px
+// and keeps widening from there.
 export const MIN_GUTTER = 60;
 
 // Distance (px) from the scroll container's top that marks the "current"

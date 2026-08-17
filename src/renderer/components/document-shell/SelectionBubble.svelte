@@ -85,7 +85,7 @@
   });
 
   function isActive(name: string): boolean {
-    stateVersion;
+    void stateVersion;
     return editor?.isActive(name) ?? false;
   }
 

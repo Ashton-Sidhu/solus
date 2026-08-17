@@ -32,11 +32,12 @@ export function branchGuideIdentity(environment: {
   status?: { headSha: string } | null
 }): ReviewGuideIdentity | null {
   if (!environment.repoRoot || !environment.branch) return null
-  return {
+  const identity: ReviewGuideIdentity = {
     repoRoot: worktreeProjectRoot(environment.repoRoot),
     key: reviewGuideKeyFor(environment.branch, 'branch', null),
-    ...(environment.status?.headSha ? { headSha: environment.status.headSha } : {}),
   }
+  if (environment.status?.headSha) identity.headSha = environment.status.headSha
+  return identity
 }
 
 export function sessionGuideIdentity(

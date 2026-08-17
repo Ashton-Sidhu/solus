@@ -28,40 +28,44 @@ function notifyPrsChanged(cwd: string): void {
   for (const listener of prsChangedListeners) listener(cwd)
 }
 
-const listPrsShape = {
+const listPrsFields = {
   state: z.enum(PR_STATES).optional().describe("PR state filter. Defaults to 'open'."),
   author: z.string().optional().describe('Optional author login filter.'),
 }
 
-const prNumberShape = {
+const prNumberFields = {
   number: z.number().int().positive().describe('Pull request number.'),
 }
 
-const listThreadsShape = {
+const listThreadsFields = {
   number: z.number().int().positive().describe('Pull request number.'),
   include_resolved: z.boolean().optional().describe('Include resolved threads. Defaults to false.'),
 }
 
-const replyThreadShape = {
+const replyThreadFields = {
   thread_id: z.string().describe('Verbatim review thread id returned by list_pr_threads.'),
   body: z.string().describe('Reply body in markdown.'),
 }
 
-const resolveThreadShape = {
+const resolveThreadFields = {
   thread_id: z.string().describe('Verbatim review thread id returned by list_pr_threads.'),
 }
 
-const submitReviewShape = {
+const reviewCommentInputSchema = z.object({
+  path: z.string(),
+  line: z.number().int().positive(),
+  start_line: z.number().int().positive().optional(),
+  side: z.enum(SIDES).optional(),
+  body: z.string(),
+})
+
+type ReviewCommentInput = z.infer<typeof reviewCommentInputSchema>
+
+const submitReviewFields = {
   number: z.number().int().positive().describe('Pull request number.'),
   event: z.enum(REVIEW_EVENTS).describe("Review event. APPROVE is intentionally unavailable to agents; approval stays human."),
   body: z.string().describe('Review summary body in markdown.'),
-  comments: z.array(z.object({
-    path: z.string(),
-    line: z.number().int().positive(),
-    start_line: z.number().int().positive().optional(),
-    side: z.enum(SIDES).optional(),
-    body: z.string(),
-  })).optional().describe('Optional inline review comments anchored to the PR head.'),
+  comments: z.array(reviewCommentInputSchema).optional().describe('Optional inline review comments anchored to the PR head.'),
 }
 
 interface PrToolArgs {
@@ -71,8 +75,8 @@ interface PrToolArgs {
   include_resolved?: boolean
   thread_id?: string
   body?: string
-  event?: DraftReview['event']
-  comments?: unknown
+  event?: 'COMMENT' | 'REQUEST_CHANGES'
+  comments?: ReviewCommentInput[]
 }
 
 const LIST_PRS_DESC = 'List pull requests for the current git repository.'
@@ -122,20 +126,17 @@ function formatThreads(threads: ReviewThread[]): string {
   }).join('\n\n')
 }
 
-function toReviewComments(raw: unknown): DraftReviewComment[] {
-  if (!Array.isArray(raw)) return []
-  return raw.map((item) => {
-    const obj = item && typeof item === 'object'
-      ? item as { path?: unknown; line?: unknown; start_line?: unknown; side?: unknown; body?: unknown }
-      : {}
-    return {
-      path: String(obj.path ?? ''),
-      line: Number(obj.line ?? 0),
-      startLine: obj.start_line === undefined ? undefined : Number(obj.start_line),
-      side: (SIDES as readonly string[]).includes(String(obj.side)) ? obj.side as 'LEFT' | 'RIGHT' : 'RIGHT',
-      body: String(obj.body ?? ''),
+function toReviewComments(input: ReviewCommentInput[] | undefined): DraftReviewComment[] {
+  return (input ?? []).map((item) => {
+    const comment: DraftReviewComment = {
+      path: item.path,
+      line: item.line,
+      side: item.side ?? 'RIGHT',
+      body: item.body,
     }
-  }).filter((comment) => comment.path && comment.line > 0 && comment.body.trim())
+    if (item.start_line !== undefined) comment.startLine = item.start_line
+    return comment
+  }).filter((comment) => comment.body.trim())
 }
 
 export async function executePrTool(
@@ -173,8 +174,8 @@ export async function executePrTool(
 
     if (name === 'list_prs') {
       const filter: PrFilter = {
-        state: (PR_STATES as readonly string[]).includes(String(args.state)) ? args.state as PrFilter['state'] : 'open',
-        author: typeof args.author === 'string' && args.author.trim() ? args.author.trim() : undefined,
+        state: args.state ?? 'open',
+        author: args.author?.trim() || undefined,
       }
       const prs = await provider.review.listPullRequests(repo, filter)
       if (!prs.length) return { ok: true, text: 'No pull requests matched.' }
@@ -233,7 +234,7 @@ export async function executePrTool(
 
     if (name === 'reply_pr_thread') {
       const threadId = String(args.thread_id ?? '').trim()
-      const body = typeof args.body === 'string' ? args.body.trim() : ''
+      const body = args.body?.trim() ?? ''
       if (!threadId) return { ok: false, text: 'reply_pr_thread requires thread_id.' }
       if (!body) return { ok: false, text: 'reply_pr_thread requires a non-empty body.' }
       const comment = await provider.review.replyToThread(repo, threadId, body)
@@ -252,11 +253,11 @@ export async function executePrTool(
     if (name === 'submit_pr_review') {
       const number = Number(args.number ?? 0)
       if (!Number.isInteger(number) || number <= 0) return { ok: false, text: 'submit_pr_review requires a positive PR number.' }
-      const event = String(args.event ?? '')
-      if (!(REVIEW_EVENTS as readonly string[]).includes(event)) {
+      const event = args.event
+      if (event === undefined) {
         return { ok: false, text: `submit_pr_review event must be one of ${REVIEW_EVENTS.join(', ')}. APPROVE is human-only.` }
       }
-      const body = typeof args.body === 'string' ? args.body.trim() : ''
+      const body = args.body?.trim() ?? ''
       if (!body) return { ok: false, text: 'submit_pr_review requires a non-empty body.' }
       const detail = await provider.review.getPullRequest(repo, number)
       const repoRoot = (await resolveRepoRoot(cwd)) ?? cwd
@@ -270,7 +271,7 @@ export async function executePrTool(
       } catch {}
       const review: DraftReview = {
         body,
-        event: event as DraftReview['event'],
+        event,
         commitId: detail.headSha,
         baseSha: baseSha ?? undefined,
         comments: toReviewComments(args.comments),
@@ -304,13 +305,13 @@ export async function executePrTool(
 function prAgentTool(
   name: string,
   description: string,
-  inputShape: z.ZodRawShape,
+  inputFields: AgentTool['inputFields'],
   requiresApproval: boolean,
 ): AgentTool {
   return {
     name,
     description,
-    inputShape,
+    inputFields,
     requiresApproval,
     execute: async (args, context) => executePrTool(name, args, {
       ctx: { cwd: context.cwd, solusSessionId: context.solusSessionId() },
@@ -318,12 +319,12 @@ function prAgentTool(
   }
 }
 
-export const listPrsAgentTool = prAgentTool('list_prs', LIST_PRS_DESC, listPrsShape, false)
-export const readPrAgentTool = prAgentTool('read_pr', READ_PR_DESC, prNumberShape, false)
-export const listPrThreadsAgentTool = prAgentTool('list_pr_threads', LIST_THREADS_DESC, listThreadsShape, false)
-export const replyPrThreadAgentTool = prAgentTool('reply_pr_thread', REPLY_THREAD_DESC, replyThreadShape, true)
-export const resolvePrThreadAgentTool = prAgentTool('resolve_pr_thread', RESOLVE_THREAD_DESC, resolveThreadShape, true)
-export const submitPrReviewAgentTool = prAgentTool('submit_pr_review', SUBMIT_REVIEW_DESC, submitReviewShape, true)
+export const listPrsAgentTool = prAgentTool('list_prs', LIST_PRS_DESC, listPrsFields, false)
+export const readPrAgentTool = prAgentTool('read_pr', READ_PR_DESC, prNumberFields, false)
+export const listPrThreadsAgentTool = prAgentTool('list_pr_threads', LIST_THREADS_DESC, listThreadsFields, false)
+export const replyPrThreadAgentTool = prAgentTool('reply_pr_thread', REPLY_THREAD_DESC, replyThreadFields, true)
+export const resolvePrThreadAgentTool = prAgentTool('resolve_pr_thread', RESOLVE_THREAD_DESC, resolveThreadFields, true)
+export const submitPrReviewAgentTool = prAgentTool('submit_pr_review', SUBMIT_REVIEW_DESC, submitReviewFields, true)
 
 export const prAgentTools: AgentTool[] = [
   listPrsAgentTool,

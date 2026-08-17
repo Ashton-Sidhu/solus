@@ -12,6 +12,7 @@ import { promisify } from 'util'
 import { getCliEnv } from '../cli-env'
 import { createLogger } from '../logger'
 import type { AgentId, RemoteSkill, SkillInstallResult } from '../../shared/types'
+import { z } from 'zod'
 
 const execFileAsync = promisify(execFile)
 const log = createLogger('skills', 'skills-cli.ts')
@@ -25,6 +26,20 @@ const SEARCH_LIMIT = 20
 
 // eslint-disable-next-line no-control-regex
 const ANSI = /\x1b\[[0-9;]*m/g
+const skillSearchSchema = z.object({
+  skills: z.array(z.object({
+    id: z.string(),
+    skillId: z.string(),
+    name: z.string(),
+    installs: z.number(),
+    source: z.string(),
+  })),
+})
+const installedSkillSchema = z.array(z.object({ name: z.string().optional() }))
+
+function errorMessage(error: Parameters<typeof String>[0]): string {
+  return error instanceof Error ? error.message : String(error)
+}
 
 function formatInstalls(count: number): string | undefined {
   if (!count || count <= 0) return undefined
@@ -47,9 +62,7 @@ export async function searchSkills(query: string): Promise<RemoteSkill[]> {
     url.searchParams.set('limit', String(SEARCH_LIMIT))
     const response = await fetch(url)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const data = (await response.json()) as {
-      skills: Array<{ id: string; skillId: string; name: string; installs: number; source: string }>
-    }
+    const data = skillSearchSchema.parse(await response.json())
     return data.skills
       .sort((a, b) => (b.installs || 0) - (a.installs || 0))
       .map((skill) => ({
@@ -60,13 +73,9 @@ export async function searchSkills(query: string): Promise<RemoteSkill[]> {
         url: `https://skills.sh/${skill.id}`,
       }))
   } catch (err) {
-    log.warn('skills_search_failed', { query: q, error: (err as Error).message })
+    log.warn('skills_search_failed', { query: q, error: errorMessage(err) })
     return []
   }
-}
-
-interface CliInstalledSkill {
-  name?: string
 }
 
 /**
@@ -82,12 +91,12 @@ export async function listInstalledSkillNames(): Promise<string[]> {
       maxBuffer: 4 * 1024 * 1024,
     }))
   } catch (err) {
-    log.warn('skills_list_failed', { error: (err as Error).message })
+    log.warn('skills_list_failed', { error: errorMessage(err) })
     return []
   }
 
   try {
-    const parsed = JSON.parse(stdout.replace(ANSI, '')) as CliInstalledSkill[]
+    const parsed = installedSkillSchema.parse(JSON.parse(stdout.replace(ANSI, '')))
     return parsed.map((s) => s.name).filter((n): n is string => !!n)
   } catch {
     return []
@@ -114,7 +123,7 @@ export async function installSkill(id: string, agentIds: AgentId[]): Promise<Ski
     log.info('skill_installed', { skillId: id })
     return { ok: true, agents: agentIds }
   } catch (err) {
-    const msg = (err as Error).message
+    const msg = errorMessage(err)
     log.error('skill_install_failed', { skillId: id, error: msg })
     return { ok: false, agents: agentIds, error: msg }
   }

@@ -23,6 +23,7 @@ export class StacksStore {
   async load(api: HostApi, serverId: string, ctx: IpcContext): Promise<StackGraph> {
     this.loading = true
     try {
+      // SAFETY: the JSON round-trip only unwraps the Svelte proxy from this IpcContext.
       const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
       const snapshot = await api.stackGet(safeCtx)
       this.apply(serverId, snapshot.repoRoot, snapshot.graph)
@@ -34,6 +35,7 @@ export class StacksStore {
   }
 
   async detect(api: HostApi, serverId: string, ctx: IpcContext): Promise<StackGraph> {
+    // SAFETY: the JSON round-trip only unwraps the Svelte proxy from this IpcContext.
     const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
     const snapshot = await api.stackDetect(safeCtx)
     this.apply(serverId, snapshot.repoRoot, snapshot.graph)

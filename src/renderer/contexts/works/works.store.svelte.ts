@@ -113,10 +113,11 @@ export class WorksStore {
   }
 
   /** Legacy work ids can arrive from old transcript links before any list read
-   *  places them. Primary fallback preserves that single-host cold path only. */
+   *  places them. The default host preserves that single-host cold path only. */
   private apiForWork(workId: string): HostApi {
-    const serverId = this.hostByWorkId.get(workId)
-    return serverId ? serverConnections.apiFor(serverId) : serverConnections.primaryApi()
+    const serverId = this.hostByWorkId.get(workId) ?? serverConnections.defaultServerId()
+    if (!serverId) throw new Error('Primary Solus connection has not been registered')
+    return serverConnections.apiFor(serverId)
   }
 
   annotationComments(workId: string): PlanComment[] {
@@ -490,15 +491,19 @@ function applyMeta(work: Work, meta: WorkMeta & { id: string }): void {
   work.pinned = meta.pinned
 }
 
-function isMissingWorkError(err: unknown): boolean {
+function isMissingWorkError(err: Parameters<typeof String>[0]): boolean {
   return err instanceof Error && err.message.includes('Work not found:')
 }
 
-function logWorkLoad(level: 'debug' | 'info' | 'warn' | 'error', message: string, data: object): void {
+function logWorkLoad<Data extends object>(
+  level: 'debug' | 'info' | 'warn' | 'error',
+  message: string,
+  data: Data,
+): void {
   console[level](`[Solus][WorksStore] ${message}`, data)
 }
 
-function formatError(err: unknown): string {
+function formatError(err: Parameters<typeof String>[0]): string {
   if (err instanceof Error) return `${err.name}: ${err.message}`
   return String(err)
 }

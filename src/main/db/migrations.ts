@@ -533,6 +533,76 @@ CREATE UNIQUE INDEX task_comments_external
   ON task_comments(task_id, external_id)
   WHERE external_id IS NOT NULL;
 `,
+  // New cross-provider handoffs only. Provider transcript files remain the
+  // source of conversation content; this table records membership, order, and
+  // the active endpoint. Sessions that never enter a Solus handoff have no row.
+  `
+CREATE TABLE session_handoff_members (
+  handoff_id TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  provider TEXT NOT NULL,
+  provider_session_id TEXT,
+  cwd TEXT NOT NULL,
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (handoff_id, position)
+);
+CREATE UNIQUE INDEX session_handoff_member_provider_session
+  ON session_handoff_members(provider, provider_session_id)
+  WHERE provider_session_id IS NOT NULL;
+`,
+  // The lineage is now the identity record for every session, not just the ones
+  // that changed provider. `session_id` is the stable Solus session id; a lineage
+  // of length 1 has simply never been handed off. The partial unique index is what
+  // makes registration first-writer-wins: a second client proposing its own name
+  // for an already-registered provider thread loses.
+  `
+ALTER TABLE session_handoff_members RENAME TO session_lineage_members;
+ALTER TABLE session_lineage_members RENAME COLUMN handoff_id TO session_id;
+DROP INDEX IF EXISTS session_handoff_member_provider_session;
+CREATE UNIQUE INDEX session_lineage_member_provider_session
+  ON session_lineage_members(provider, provider_session_id)
+  WHERE provider_session_id IS NOT NULL;
+`,
+  // Workspace plan rows are a query model, not a second source of truth. Provider
+  // transcript readers update this table when a transcript changes; annotations
+  // remain authoritative for review status, titles, comments, and bookmarks.
+  // This makes opening Workspace proportional to its result set instead of the
+  // total size of every provider transcript on the host.
+  `
+CREATE TABLE indexed_plans (
+  provider TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  plan_tool_use_id TEXT NOT NULL,
+  project_path TEXT NOT NULL,
+  cwd TEXT NOT NULL,
+  project_root TEXT NOT NULL,
+  timestamp INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  excerpt TEXT NOT NULL,
+  plan_file_path TEXT,
+  content TEXT NOT NULL,
+  derived_status TEXT NOT NULL,
+  PRIMARY KEY (provider, session_id, plan_tool_use_id)
+);
+CREATE INDEX indexed_plans_by_project
+  ON indexed_plans(provider, project_root, timestamp DESC);
+CREATE INDEX indexed_plans_by_cwd
+  ON indexed_plans(provider, cwd, timestamp DESC);
+
+CREATE TABLE plan_index_providers (
+  provider TEXT PRIMARY KEY,
+  completed_at INTEGER NOT NULL
+);
+`,
+  // A saved plan outlives its provider transcript. Claude can remove session
+  // history after 30 days, so retain the artifact and record that its source
+  // conversation can no longer be resumed.
+  `
+ALTER TABLE indexed_plans
+  ADD COLUMN session_available INTEGER NOT NULL DEFAULT 1;
+`,
   // Saved Insights queries. Durable user config, so it lives here — exempt from
   // metrics.db rollover. Exactly one form owns a row: a builder-editable
   // QuerySpec (JSON in `spec`) or editor-owned SQL text; SQL never round-trips
@@ -551,6 +621,7 @@ CREATE TABLE saved_metrics_queries (
 ]
 
 export function runMigrations(db: DatabaseSync): void {
+  // SAFETY: SQLite PRAGMA user_version always returns one row with this integer column.
   const row = db.prepare('PRAGMA user_version').get() as { user_version: number }
   const currentVersion = row.user_version
 

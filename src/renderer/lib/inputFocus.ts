@@ -11,7 +11,7 @@ export function requestInputFocus(target?: { tabId?: string }) {
 
 export function blurActiveTextInputOnMobile() {
   if (!runtime.shouldSuppressFocus) return;
-  const active = document.activeElement as HTMLElement | null;
+  const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   if (!active || active === document.body) return;
 
   const isTextInput =

@@ -4,7 +4,6 @@
     ArrowsClockwiseIcon,
     CaretRightIcon,
     DesktopTowerIcon,
-    GlobeSimpleIcon,
     PlusIcon,
     WifiHighIcon,
   } from "phosphor-svelte";
@@ -16,6 +15,7 @@
   import { hostReadinessSummary } from "./lib/host-onboarding";
   import { hostSetupStore } from "./host-setup.store.svelte";
   import { hostOnboardingStore } from "./host-onboarding.store.svelte";
+  import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
 
   // The registry can point at a host that is no longer saved, so trust the
   // resolved active server rather than the stored id.
@@ -64,10 +64,12 @@
         <span
           class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary)"
         >
+          <!-- The OS logo marks a machine you dispatch to; the host you are
+               on keeps the plain device glyph. -->
           {#if server.local}
             <DesktopTowerIcon size={15} />
           {:else}
-            <GlobeSimpleIcon size={15} />
+            <HostOperatingSystemIcon os={server.os} size={15} />
           {/if}
         </span>
         <span class="min-w-0 flex-1">
@@ -77,7 +79,7 @@
             <span class="truncate">{server.label}</span>
             {#if isActive}
               <span
-                class="shrink-0 rounded-full bg-(--solus-accent-light) px-1.5 py-0.5 text-xs font-medium uppercase text-(--solus-accent)"
+                class="shrink-0 whitespace-nowrap rounded-full bg-(--solus-accent-light) px-1.5 py-0.5 text-[0.6875rem] leading-[1.4] font-medium uppercase tracking-[0.04em] text-(--solus-accent) sm:text-[0.625rem]"
               >
                 Running sessions
               </span>
@@ -126,7 +128,7 @@
             {host.server.name}
           </p>
           <span
-            class="shrink-0 rounded-full bg-(--solus-surface-active) px-1.5 py-0.5 text-xs font-medium uppercase text-(--solus-text-tertiary)"
+            class="shrink-0 whitespace-nowrap rounded-full bg-(--solus-surface-active) px-1.5 py-0.5 text-[0.6875rem] leading-[1.4] font-medium uppercase tracking-[0.04em] text-(--solus-text-tertiary) sm:text-[0.625rem]"
           >
             {host.server.source === "lan" ? "LAN" : "Tailnet"}
           </span>

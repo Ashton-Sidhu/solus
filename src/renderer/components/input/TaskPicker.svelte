@@ -57,9 +57,12 @@
       tooltipOpen = false;
       query = "";
       void workspace.tasksStore.ensureLoaded();
-    } else {
-      onDismiss();
     }
+  }
+
+  function handleCloseAutoFocus(event: Event) {
+    event.preventDefault();
+    onDismiss();
   }
 
   function select(next: TaskTarget) {
@@ -116,6 +119,7 @@
     align="start"
     sideOffset={6}
     collisionPadding={8}
+    onCloseAutoFocus={handleCloseAutoFocus}
     class="menu-surface z-[10002] w-[320px] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-menu shadow-[shadow:var(--solus-menu-shadow)] ring-0 lg:text-menu"
   >
     <Command.Root>

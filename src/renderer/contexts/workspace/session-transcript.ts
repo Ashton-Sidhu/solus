@@ -1,4 +1,5 @@
-import type { AgentId, AutomationTrigger, IpcContext, NormalizedEvent, PermissionRequest, QueuedPromptSnapshot, QuestionRequest, Session } from '../../../shared/types'
+import type { AgentId, AutomationTrigger, IpcContext, Message, NormalizedEvent, PermissionRequest, QueuedPromptSnapshot, QuestionRequest, Session, SessionProgress } from '../../../shared/types'
+import { z } from 'zod'
 import { encodePathAsFolder } from '../../../shared/types'
 import type { AgentConversationResultProjection, WireSessionLoadMessage } from '../../../shared/session-history'
 import { uuid } from '../../../shared/uuid'
@@ -90,7 +91,34 @@ export interface SessionTranscriptLoadArgs {
   shouldApply?: () => boolean
 }
 
-export async function loadSessionTranscript(ctx: WorkspaceContext, args: SessionTranscriptLoadArgs): Promise<{ messages: any[]; planIds: string[]; progress: any; truncated: boolean }> {
+interface SessionTranscriptLoadResult {
+  messages: Message[]
+  planIds: string[]
+  progress: SessionProgress | null
+  truncated: boolean
+}
+
+// Enum fields degrade alone: an unknown value from a newer host drops that
+// field, not the whole tool-input record (the card would lose its title).
+const createWorkInputSchema = z.object({
+  title: z.string().optional(),
+  doc_type: z.enum(['doc', 'slides', 'diagram']).optional().catch(undefined),
+})
+
+const automationInputSchema = z.object({
+  automation_id: z.string().optional(),
+  name: z.string().optional(),
+})
+
+const artifactInputSchema = z.object({
+  kind: z.enum(['image', 'html']).optional().catch(undefined),
+  html: z.string().optional(),
+  path: z.string().optional(),
+})
+
+const imageInputSchema = z.object({ path: z.string().optional() })
+
+export async function loadSessionTranscript(ctx: WorkspaceContext, args: SessionTranscriptLoadArgs): Promise<SessionTranscriptLoadResult> {
   const api = ctx.apiForSession(args.ctx.session.sessionId)
   const serverId = serverConnections.serverIdForApi(api)
   const history = await api.loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, args.limit)
@@ -102,25 +130,25 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
 
   const projectPath = encodePathAsFolder(args.displayCwd)
   const planIds: string[] = []
-  const messages: any[] = []
+  const messages: Message[] = []
   // Work ids already mapped to a card this pass, so repeated titles across
   // multiple create_work calls don't all resolve to the same work.
   const claimedWorks = new Set<string>()
   const claimedAutomations = new Set<string>()
   // Tool messages by tool_use id (main thread + nested) so sub-agent children
   // and the Agent tool's own result can be reattached to their tool message.
-  const toolById = new Map<string, any>()
+  const toolById = new Map<string, Message>()
   // Agent-conversation cards rebuild from session-tool rows + [session report] user turns,
   // mirroring the live AgentConversationTracker's one-card-per-agent-per-turn keying.
   const agentConversations = new AgentConversationTranscriptBuilder(messages)
 
   // Automation cards resolve against the store; ensure it's hydrated if this
   // transcript created/updated any automations.
-  if ((history as WireSessionLoadMessage[]).some((m) => m.role === 'tool' && isAutomationSaveTool(m.toolName)) && !ctx.automationsStore.loaded) {
+  if (history.some((m) => m.role === 'tool' && isAutomationSaveTool(m.toolName)) && !ctx.automationsStore.loaded) {
     await ctx.automationsStore.loadAll()
   }
 
-  const loadedHistory = history as WireSessionLoadMessage[]
+  const loadedHistory = history
   // Thinking is never rendered as a turn — only its duration is, folded onto the
   // tool call it preceded (mirrors the live reducer's thinkingSpans). Replay has
   // no span boundaries, so the run of reasoning turns is bracketed by the first
@@ -190,7 +218,7 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
 
     const msgTimestamp = m.timestamp ?? Date.now()
     const msg: any = {
-      id: nextMsgId(),
+      id: m.messageId ?? nextMsgId(),
       role: m.role,
       content: m.content,
       toolName: m.toolName,
@@ -198,6 +226,7 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
       toolInput: m.toolInput,
       toolStatus: m.toolStatus ?? (m.toolName ? 'completed' : undefined),
       planToolUseId: m.planToolUseId,
+      agentChangedTo: m.agentChangedTo,
       timestamp: msgTimestamp,
     }
     // Only a tool call keeps the figure — the activity block is the one place
@@ -252,9 +281,9 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
       let title = 'Untitled'
       let docType: 'doc' | 'slides' | 'diagram' = 'doc'
       try {
-        const input = JSON.parse(m.toolInput || '{}') as { title?: string; doc_type?: string }
+        const input = createWorkInputSchema.parse(JSON.parse(m.toolInput || '{}'))
         if (input.title) title = input.title
-        if (input.doc_type === 'slides' || input.doc_type === 'diagram') docType = input.doc_type
+        if (input.doc_type) docType = input.doc_type
       } catch {}
       const workId = resolveCreatedWork(ctx, title, args.sessionId, claimedWorks)
       messages.push({
@@ -270,9 +299,9 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
       // followed by its automation card. The id lived in the dropped tool result,
       // so resolve against the store by id (update) or name (create).
       messages.push(msg)
-      let input: { automation_id?: string; name?: string } = {}
+      let input = automationInputSchema.parse({})
       try {
-        input = JSON.parse(m.toolInput || '{}')
+        input = automationInputSchema.parse(JSON.parse(m.toolInput || '{}'))
       } catch {}
       const automationRef = resolveSavedAutomation(ctx, input, claimedAutomations)
       if (automationRef) {
@@ -290,9 +319,9 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
       // its rendered artifact. The tool input carries everything to re-render.
       messages.push(msg)
       try {
-        const input = JSON.parse(m.toolInput || '{}') as { kind?: string; html?: string; path?: string }
+        const input = artifactInputSchema.parse(JSON.parse(m.toolInput || '{}'))
         const kind = input.kind === 'image' ? 'image' : 'html'
-        let path = typeof input.path === 'string' ? input.path : undefined
+        let path = input.path
         // The stored path may be relative to the working directory; resolve it so
         // the solus-artifact protocol can locate the file on reload.
         if (path && !path.startsWith('/')) path = `${args.displayCwd.replace(/\/$/, '')}/${path}`
@@ -310,7 +339,7 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
       // followed by its agent-conversation card; report user turns below fill replies in.
       messages.push(msg)
       agentConversations.applyToolRow(
-        m.toolName!,
+        m.toolName ?? '',
         m.toolInput,
         m.agentConversationResult ?? agentConversationResultFor(loadedHistory, m.toolId),
         m.timestamp ?? Date.now(),
@@ -325,8 +354,8 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
     } else if (m.role === 'tool' && isCodexImageGenerationTool(m.toolName)) {
       // The image path was already resolved in the main process (codexItemToMessage).
       try {
-        const input = JSON.parse(m.toolInput || '{}') as { path?: string }
-        let path = typeof input.path === 'string' ? input.path : undefined
+        const input = imageInputSchema.parse(JSON.parse(m.toolInput || '{}'))
+        let path = input.path
         if (path && !path.startsWith('/')) path = `${args.displayCwd.replace(/\/$/, '')}/${path}`
         if (path) {
           messages.push({
@@ -369,8 +398,8 @@ export function syncPendingInputFromEvent(ctx: WorkspaceContext, session: Sessio
   const newQuestions: QuestionRequest[] = []
   const hasPlanEvent = events.some((e) => e.type === 'plan')
   for (const event of events) {
-    if (event.type === 'permission_request') newPermissions.push(toPermissionRequest(event as Extract<NormalizedEvent, { type: 'permission_request' }>))
-    else if (event.type === 'question_request') newQuestions.push(toQuestionRequest(event as Extract<NormalizedEvent, { type: 'question_request' }>))
+    if (event.type === 'permission_request') newPermissions.push(toPermissionRequest(event))
+    else if (event.type === 'question_request') newQuestions.push(toQuestionRequest(event))
   }
   session.permissionQueue.splice(0, session.permissionQueue.length, ...newPermissions)
   session.questionQueue.splice(0, session.questionQueue.length, ...newQuestions)

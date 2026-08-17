@@ -5,20 +5,26 @@
   import { SvelteSet } from "svelte/reactivity";
   import {
     GitPullRequestIcon,
+    GithubLogoIcon,
     ArrowsClockwiseIcon,
     BookOpenTextIcon,
     CircleNotchIcon,
     PlayIcon,
     UserIcon,
     WarningIcon,
+    WarningCircleIcon,
   } from "phosphor-svelte";
   import type { PullRequestSummary } from "../../../shared/providers";
-  import type { IpcContext } from "../../../shared/types";
+  import { projectScopeOf, type IpcContext } from "../../../shared/types";
   import {
     getWorkspaceContext,
     getSettingsContext,
     runtime,
     getSessionSidebarStore,
+    projectCatalog,
+    mergeProjectOptions,
+    projectRefKey,
+    serversStore,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import {
@@ -45,6 +51,7 @@
     virtualGroupItems,
     type ListFilterSpec,
     type ListPageView,
+    type ListProjectOption,
     type ListStatusOption,
   } from "../ui/list-page";
   import { filterPrs, sortPrs, type PrSortMode } from "./lib/pr-utils";
@@ -58,18 +65,30 @@
     type PrRowContext,
   } from "./lib/prs-list-view";
   import type { PrReviewTab } from "../../contexts/prs/prs.store.svelte";
+  import type { PrInboxProject } from "../../contexts/prs/pr-inbox.store.svelte";
   import { groupStackedPrRows } from "./lib/stack-grouping";
+  import {
+    flattenQualifiedProjects,
+    qualifiedKeyOf,
+    qualifiedStackParentOf,
+    type PrTarget,
+    type QualifiedProject,
+  } from "./lib/pr-cross-project";
   import GithubConnectionRequired from "./GithubConnectionRequired.svelte";
+  import {
+    prInboxFailure,
+    type PrInboxFailure,
+  } from "./lib/pr-inbox-failure";
   import PrDetailPanel from "./PrDetailPanel.svelte";
+  import PrContextMenu from "./PrContextMenu.svelte";
 
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
   const sessionSidebar = getSessionSidebarStore();
   const store = session.prsStore;
+  const inbox = session.prInboxStore;
   const stacks = session.stacksStore;
-  const reduceMotion =
-    typeof window !== "undefined" &&
-    !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const open = $derived(session.router.at("prs"));
 
@@ -87,6 +106,11 @@
   let pageWidth = $state(0);
   let stacksReady = $state(false);
   let viewerLogin = $state("");
+  let prContextMenu = $state<{
+    pr: PullRequestSummary;
+    x: number;
+    y: number;
+  } | null>(null);
 
   // Tick the clock so relative row times age instead of freezing at load.
   let now = $state(Date.now());
@@ -98,54 +122,109 @@
 
   // ── Review multi-select ──
   // Checked PRs narrow the Review action: with any checked, the header button
-  // opens Review Mode over just those instead of every filtered PR.
-  const reviewSelection = new SvelteSet<number>();
+  // opens Review Mode over just those instead of every filtered PR. Keyed by
+  // the row's qualified key (not a bare number) — All projects can hold the
+  // same PR number from two different repos.
+  const reviewSelection = new SvelteSet<string>();
 
   // ── Project scope ──
-  // The list is scoped to one project at a time. `null` follows the project
-  // currently being worked in (the default); a string pins another project
-  // chosen from the switcher. Every PR fetch goes through `prsCtx()` so data
-  // and cache keys stay consistent with the chosen project.
-  let selectedProjectPath = $state<string | null>(null);
+  // `null` (the default) is All projects: the workspace-wide inbox, aggregated
+  // in the renderer across every project the catalog and the sidebar know
+  // about. A specific option pins the list to one project — the only case
+  // that still drives the single-project `PrsStore` directly.
+  let scopedProjectKey = $state<string | null>(null);
 
-  const currentProjectPath = $derived(
-    sessionSidebar.activeProjectKey === "~"
-      ? ""
-      : sessionSidebar.activeProjectKey,
+  // The sidebar's live projects are all on whichever host is selected there;
+  // the catalog spans every host the client has ever recorded a project on.
+  const sidebarServerId = $derived(serverConnections.defaultServerId());
+  const projectOptions = $derived<ListProjectOption[]>(
+    mergeProjectOptions(
+      [
+        // With no default host there is nothing to attribute a sidebar project
+        // to; the catalog still carries its own host per entry.
+        sidebarServerId
+          ? sessionSidebar.projectSummaries
+              .filter((project) => project.projectKey !== "~")
+              .map((project) => ({
+                serverId: sidebarServerId,
+                projectRoot: project.projectKey,
+                label: project.label,
+              }))
+          : [],
+        projectCatalog.entries,
+      ],
+      (serverId) => serversStore.statusFor(serverId) !== "offline",
+      (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
+    ).map((option) => ({
+      key: option.key,
+      projectKey: option.projectRoot,
+      serverId: option.serverId,
+      label: option.label,
+      available: option.available,
+      historyOnly: !sessionSidebar.projectSummaries.some(
+        (project) => project.projectKey === option.projectRoot,
+      ),
+    })),
   );
-  const activeProjectPath = $derived(selectedProjectPath ?? currentProjectPath);
+  const scopedProject = $derived(
+    scopedProjectKey
+      ? (projectOptions.find((option) => option.key === scopedProjectKey) ?? null)
+      : null,
+  );
+  const isAllProjects = $derived(scopedProject === null);
+
+  // Meaningful only when one project is scoped — All projects reads through
+  // `inbox` (the aggregator) instead, one `(api, serverId, ctx)` per project.
+  // Null when nothing is connected to read from: a host is a precondition for
+  // loading, not something to assume, so every caller below guards rather than
+  // letting `primaryApi()` throw.
+  const prsServerId = $derived(
+    scopedProject?.serverId ?? serverConnections.defaultServerId(),
+  );
+  const prsApi = $derived(
+    prsServerId ? serverConnections.apiFor(prsServerId) : null,
+  );
   function prsCtx(): IpcContext {
-    return activeProjectPath === currentProjectPath || !activeProjectPath
-      ? session.ctx
-      : session.ctxForDirectory(activeProjectPath);
+    return scopedProject
+      ? session.ctxForDirectory(scopedProject.projectKey)
+      : session.ctx;
   }
 
-  // A project-scoped page follows the focused session for that project. A bare
-  // standalone list has no checkout owner to infer, so primary is the explicit
-  // default that preserves the single-host behavior.
-  const prsSourceTabId = $derived.by(() => {
-    if (!activeProjectPath) return null;
-    const focusedTabId = session.focusedChatTabId ?? session.activeTabId;
-    const ordered = [focusedTabId, ...session.tabOrder.filter((id) => id !== focusedTabId)];
-    return ordered.find((tabId) => {
-      const run = session.runFor(tabId);
-      return run?.gitContext?.repoRoot === activeProjectPath ||
-        run?.workingDirectory === activeProjectPath;
-    }) ?? null;
-  });
-  const prsApi = $derived(
-    prsSourceTabId ? session.apiFor(prsSourceTabId) : serverConnections.primaryApi(),
-  );
-  const prsServerId = $derived(serverConnections.serverIdForApi(prsApi));
-
-  const projectOptions = $derived(
-    sessionSidebar.projectSummaries
-      .filter((project) => project.projectKey !== "~")
-      .map((project) => ({
-        projectKey: project.projectKey,
-        label: project.label,
+  // ── All projects: the aggregate read ──
+  // Only projects on a host that is connected right now. A saved host that has
+  // never dialed keeps its request queued in the transport with nothing to age
+  // it out, and one of those inside the inbox's bounded worker pool blocks
+  // every project behind it — which is how All projects ends up waiting on a
+  // machine that is not there while the project you can actually read sits
+  // unfetched. The picker still offers every project; only the fan-out is
+  // narrowed, and the effect below re-runs as hosts connect.
+  const inboxProjects = $derived<PrInboxProject[]>(
+    projectOptions
+      .filter((option) => serversStore.statusFor(option.serverId) === "online")
+      .map((option) => ({
+        serverId: option.serverId,
+        projectRoot: option.projectKey,
+        label: option.label,
+        api: serverConnections.apiFor(option.serverId),
+        ctx: session.ctxForDirectory(option.projectKey),
       })),
   );
+  const qualifiedProjects = $derived<QualifiedProject[]>(
+    inbox.projects.map((project) => ({
+      serverId: project.serverId,
+      projectRoot: project.projectRoot,
+      label: project.label,
+      api: project.api,
+      ctx: project.ctx,
+      items: project.items,
+    })),
+  );
+  const qualified = $derived(flattenQualifiedProjects(qualifiedProjects));
+  const aggregateKeyFor = $derived(qualifiedKeyOf(qualified.byPr));
+  const aggregateStackParentOf = $derived(qualifiedStackParentOf(stacks, qualified.byPr));
+  const inboxHasMore = $derived(inbox.projects.some((project) => project.hasMore));
+  const inboxLoadingMore = $derived(inbox.projects.some((project) => project.loading && project.loadedAt > 0));
+  const activeRefreshing = $derived(isAllProjects ? inbox.loading : store.loading);
 
   const SORT_OPTIONS: { value: PrSortMode; label: string }[] = [
     { value: "updated", label: "Updated" },
@@ -158,16 +237,47 @@
   // asking for them has to widen the load before anything can be filtered.
   const statuses = $derived(new Set(listView.statusKeys));
   const fetchScope = $derived(prFetchScope(listView.statusKeys));
+  // The item list this visit is reading: one project's cache, or every
+  // project's last-safe snapshot merged together.
+  const activeItems = $derived(isAllProjects ? qualified.items : store.items);
+  // A host that is still dialing is not an empty inbox: until it settles the
+  // page is still on its way, so the skeleton holds rather than the list
+  // claiming there is nothing to read.
+  const inboxHostsConnecting = $derived(
+    projectOptions.some(
+      (option) => serversStore.statusFor(option.serverId) === "connecting",
+    ),
+  );
+  const activeLoading = $derived(
+    isAllProjects
+      ? (inbox.loading || inboxHostsConnecting) && activeItems.length === 0
+      : store.loading,
+  );
   const openCount = $derived(
-    store.items.filter((pr) => pr.state === "open").length,
+    activeItems.filter((pr) => pr.state === "open").length,
+  );
+  // A failed project keeps its last-safe rows, so a failure is only visible if
+  // it is said out loud: a banner when something did load, the page's own
+  // surface when nothing did.
+  const inboxFailure = $derived(
+    isAllProjects
+      ? prInboxFailure(inbox.projects, activeItems.length > 0)
+      : ({ kind: "none", placement: "none" } satisfies PrInboxFailure),
   );
 
   // ── The shared row grammar's view of a PR ──
   // `isMine` needs the connected viewer's login; until `loadViewer` lands it
   // falls back to "nobody is me", which under-fills the Yours filter rather than
-  // mislabelling someone else's PR as yours.
+  // mislabelling someone else's PR as yours. `checks` resolves through the PR's
+  // own project in All projects — a bare PR number cannot tell two repos apart.
   const rowContext = $derived<PrRowContext>({
-    checks: (number) => store.checksFor(prsServerId, prsCtx(), number),
+    checks: (pr) => {
+      if (!isAllProjects) {
+        return prsServerId ? store.checksFor(prsServerId, prsCtx(), pr.number) : undefined;
+      }
+      const owner = qualified.byPr.get(pr);
+      return owner ? store.checksFor(owner.serverId, owner.ctx, pr.number) : undefined;
+    },
     isMine: (pr) => !!viewerLogin && pr.author === viewerLogin,
   });
 
@@ -175,8 +285,8 @@
     sortPrs(
       filterPrs(
         store.needsReviewOnly
-          ? store.items.filter((pr) => pr.needsMyReview)
-          : store.items,
+          ? activeItems.filter((pr) => pr.needsMyReview)
+          : activeItems,
         listView.query,
         fetchScope,
       ),
@@ -189,7 +299,7 @@
     if (listView.minesOnly) rows = rows.filter((pr) => rowContext.isMine(pr));
     if (listView.failingOnly) {
       rows = rows.filter((pr) => {
-        const checks = store.checksFor(prsServerId, prsCtx(), pr.number);
+        const checks = rowContext.checks(pr);
         return (
           !!checks &&
           checks.headSha === pr.headSha &&
@@ -200,9 +310,12 @@
     return rows;
   });
 
+  // Stacks never cross a repository. In All projects each PR's stack parent
+  // comes from its own project's graph (`aggregateStackParentOf`); scoped to
+  // one project, it is that project's single graph as before.
   const stackGraph = $derived(
-    settings.stackedPrsEnabled && stacksReady
-      ? stacks.graphFor(prsServerId, activeProjectPath)
+    !isAllProjects && scopedProject && settings.stackedPrsEnabled && stacksReady && prsServerId
+      ? stacks.graphFor(prsServerId, scopedProject.projectKey)
       : null,
   );
   const groupedRows = $derived(groupStackedPrRows(filtered, stackGraph));
@@ -211,26 +324,23 @@
   const stackParents = $derived(
     new Map(
       groupedRows
-        .filter((row) => row.parent !== null)
-        .map((row) => [row.pr.number, row.parent as number]),
+        .flatMap((row) => row.parent === null ? [] : [[row.pr.number, row.parent] as const]),
     ),
   );
+  const stackParentOf = $derived(
+    isAllProjects ? aggregateStackParentOf : (pr: PullRequestSummary) => stackParents.get(pr.number) ?? null,
+  );
+  const rowKeyOf = $derived(isAllProjects ? aggregateKeyFor : undefined);
 
-  const groups = $derived(prGroups(filtered, rowContext, now, stackParents));
+  const groups = $derived(prGroups(filtered, rowContext, now, stackParentOf, rowKeyOf));
   // The row's verb picks the tab it lands on: a row that says Review opens on
   // the diff, everything else on Activity.
   const inboxGroups = $derived(
-    prInboxGroups(store.items, rowContext, now, {
+    prInboxGroups(activeItems, rowContext, now, {
       review: (pr) => selectPr(pr, "diff"),
       open: (pr) => selectPr(pr),
-      openExternal: (pr) => {
-        const repo = pr.baseRepo;
-        if (repo)
-          void localApi.openExternal(
-            `https://github.com/${repo.owner}/${repo.repo}/pull/${pr.number}`,
-          );
-      },
-    }, statuses),
+      openExternal: openPrExternal,
+    }, statuses, rowKeyOf),
   );
   const inboxVirtualItems = $derived(
     virtualGroupItems(inboxGroups, (row) => row.key),
@@ -244,16 +354,12 @@
   );
   const inboxActiveKey = $derived(
     inboxVirtualItems.find(
-      (item) =>
-        item.kind === "row" &&
-        item.row.key === String(listView.selectedNumber),
+      (item) => item.kind === "row" && item.row.key === selectedKey,
     )?.key ?? null,
   );
   const globalActiveKey = $derived(
     globalVirtualItems.find(
-      (item) =>
-        item.kind === "row" &&
-        item.row.key === String(listView.selectedNumber),
+      (item) => item.kind === "row" && item.row.key === selectedKey,
     )?.key ?? null,
   );
   const unreadCount = $derived(
@@ -281,7 +387,7 @@
       count: splitList
         ? undefined
         : searched.filter((pr) => {
-            const checks = store.checksFor(prsServerId, prsCtx(), pr.number);
+            const checks = rowContext.checks(pr);
             return (
               !!checks &&
               checks.headSha === pr.headSha &&
@@ -314,7 +420,7 @@
   // The lead statistic is the reason to be on this page — how much is waiting on
   // you — and it is the only coloured text in the header.
   const summary = $derived.by(() => {
-    const awaiting = store.items.filter(
+    const awaiting = activeItems.filter(
       (pr) =>
         pr.state === "open" &&
         !pr.draft &&
@@ -322,7 +428,7 @@
         !rowContext.isMine(pr),
     ).length;
     const totalOpen = openCount;
-    const mergedRecently = store.items.filter(
+    const mergedRecently = activeItems.filter(
       (pr) =>
         pr.state === "merged" &&
         now - (Date.parse(pr.updatedAt) || 0) < 30 * 24 * 60 * 60 * 1000,
@@ -335,31 +441,63 @@
   });
 
   const listNavigationItems = $derived(groupedRows.map((row) => row.pr));
+  // Every row's identity, list-wide — unique across projects in All projects.
+  const keyOf = $derived((pr: PullRequestSummary) => rowKeyOf?.(pr) ?? String(pr.number));
 
   // Publish the visible order so the review's crumb switcher and its `n of N`
   // stepper walk exactly these rows, in exactly this order. Written from the
   // page because this is where the filters and the stack grouping resolve.
+  // Meaningful for the single-project stepper only — All projects keeps its
+  // own local selection below, since `store.listOrder` is bare PR numbers.
   $effect(() => {
+    if (isAllProjects) return;
     const order = listNavigationItems.map((pr) => pr.number);
     untrack(() => (store.listOrder = order));
   });
 
-  const selectedPr = $derived(
-    listView.selectedNumber
-      ? (store.items.find((p) => p.number === listView.selectedNumber) ?? null)
-      : null,
+  // All projects keeps its own reading position: `PrsStore.listView` is reset
+  // only on a *project* scope change and is keyed by bare number, which two
+  // repos' identical PR numbers cannot share safely.
+  let aggregateSelectedKey = $state<string | null>(null);
+  let aggregateOpenKey = $state<string | null>(null);
+
+  const selectedKey = $derived(
+    isAllProjects
+      ? aggregateSelectedKey
+      : (listView.selectedNumber !== null ? String(listView.selectedNumber) : null),
   );
+  const openKey = $derived(
+    isAllProjects
+      ? aggregateOpenKey
+      : (listView.openNumber !== null ? String(listView.openNumber) : null),
+  );
+
+  function prByKey(key: string): PullRequestSummary | undefined {
+    return isAllProjects
+      ? qualified.byKey.get(key)?.pr
+      : store.items.find((pr) => String(pr.number) === key);
+  }
+
+  /** Which `(api, serverId, ctx)` a row's actions route through — the page's
+   *  single scope, or that row's own project in All projects. Null when no
+   *  host is connected to route to, so callers skip rather than throw. */
+  function targetFor(pr: PullRequestSummary): PrTarget | null {
+    const owner = isAllProjects ? qualified.byPr.get(pr) : undefined;
+    if (owner) return { api: owner.api, serverId: owner.serverId, ctx: owner.ctx }
+    if (!prsApi || !prsServerId) return null;
+    return { api: prsApi, serverId: prsServerId, ctx: prsCtx() };
+  }
+
+  const selectedPr = $derived(selectedKey ? (prByKey(selectedKey) ?? null) : null);
 
   // ── The detail panel ──
   // A pull request comes out from the side of the list rather than replacing it:
   // the rows stay on screen so the queue is still readable while one item is
   // being reviewed. Below the width where both fit, the panel covers the list
   // instead — a 380px column beside a 380px review is neither.
-  const openNumber = $derived(listView.openNumber);
-  const panelOpen = $derived(openNumber !== null);
-  const openPr = $derived(
-    openNumber ? (store.items.find((p) => p.number === openNumber) ?? null) : null,
-  );
+  const panelOpen = $derived(openKey !== null);
+  const openPr = $derived(openKey ? (prByKey(openKey) ?? null) : null);
+  const openTarget = $derived(openPr ? targetFor(openPr) : null);
   const roomForSplit = $derived(pageWidth >= 1040);
   const panelFullScreen = $derived(
     panelOpen && (listView.panelFullScreen || !roomForSplit),
@@ -367,7 +505,8 @@
   const splitList = $derived(panelOpen && !panelFullScreen);
 
   function closePanel() {
-    listView.openNumber = null;
+    if (isAllProjects) aggregateOpenKey = null;
+    else listView.openNumber = null;
     listView.panelFullScreen = false;
     void tick().then(() => {
       const selectedRow = listEl?.querySelector<HTMLElement>(
@@ -385,8 +524,8 @@
   /** Step to the pull request before or after the open one, in the list's own
    *  order — what J / K and the panel's stepper walk. */
   function stepPanel(delta: number) {
-    if (listNavigationItems.length === 0 || openNumber === null) return;
-    const index = listNavigationItems.findIndex((p) => p.number === openNumber);
+    if (listNavigationItems.length === 0 || openKey === null) return;
+    const index = listNavigationItems.findIndex((p) => keyOf(p) === openKey);
     if (index === -1) return;
     const next =
       listNavigationItems[
@@ -394,11 +533,27 @@
       ];
     // Stepping is a move inside one reading session, so it keeps the tab you
     // are reading; only picking a row afresh re-decides that.
-    if (next && next.number !== openNumber) selectPr(next, store.prReviewTab);
+    if (next && keyOf(next) !== openKey) selectPr(next, store.prReviewTab);
   }
 
-  function prByNumber(key: string): PullRequestSummary | undefined {
-    return store.items.find((pr) => String(pr.number) === key);
+  function prUrl(pr: PullRequestSummary): string | null {
+    const repo = pr.baseRepo;
+    return repo
+      ? `https://${repo.host}/${repo.owner}/${repo.repo}/pull/${pr.number}`
+      : null;
+  }
+
+  function openPrExternal(pr: PullRequestSummary) {
+    const url = prUrl(pr);
+    if (url) void localApi.openExternal(url);
+  }
+
+  function openPrContextMenu(event: MouseEvent, pr: PullRequestSummary) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (isAllProjects) aggregateSelectedKey = keyOf(pr);
+    else listView.selectedNumber = pr.number;
+    prContextMenu = { pr, x: event.clientX, y: event.clientY };
   }
 
   // ── Data loading ──
@@ -416,26 +571,66 @@
   // requires to survive the round trip. Only a change of project scope
   // (`selectProject`) forgets them.
   $effect(() => {
+    // The route names a bare path (other callers — the `prReview` exit route,
+    // the command palette — know nothing about qualified keys); resolve it
+    // against the current host, same as every other bare-path caller always
+    // implicitly meant "on the host I'm looking at".
     const requestedProjectPath =
       session.router.params("prs")?.projectPath ?? null;
     if (!open) return;
     untrack(() => {
-      selectedProjectPath =
-        requestedProjectPath && requestedProjectPath !== currentProjectPath
-          ? requestedProjectPath
-          : null;
-      store.filter = { state: fetchScope };
-      void store.loadAll(prsApi, prsServerId, prsCtx());
-      void store
-        .loadViewer(prsApi, prsServerId, prsCtx())
-        .then((login) => (viewerLogin = login))
-        .catch(() => {});
-      stacksReady = false;
-      void stacks.load(prsApi, prsServerId, prsCtx()).then(
-        () => (stacksReady = true),
-        () => (stacksReady = false),
-      );
+      scopedProjectKey = requestedProjectPath && sidebarServerId
+        ? projectRefKey({ serverId: sidebarServerId, projectRoot: requestedProjectPath })
+        : null;
+      void loadActiveScope();
       restoreReadingPosition();
+    });
+  });
+
+  /** Loads the one scoped project through `PrsStore`. All projects reads
+   *  through the inbox effect below instead, which follows the hosts that can
+   *  answer rather than the ones that happened to be up at page open. */
+  async function loadActiveScope(): Promise<void> {
+    if (isAllProjects) return;
+    // No connected host is a real state, not an error: nothing loads, and
+    // the page shows its empty surface rather than throwing on `apiFor`.
+    const api = prsApi;
+    const serverId = prsServerId;
+    if (!api || !serverId) return;
+    store.filter = { state: fetchScope };
+    void store.loadAll(api, serverId, prsCtx());
+    void store
+      .loadViewer(api, serverId, prsCtx())
+      .then((login) => (viewerLogin = login))
+      .catch(() => {});
+    stacksReady = false;
+    void stacks.load(api, serverId, prsCtx()).then(
+      () => (stacksReady = true),
+      () => (stacksReady = false),
+    );
+  }
+
+  // Which hosts are connected changes while the page is open — one finishes
+  // dialing, another drops — so the aggregate read is keyed on that set rather
+  // than fired once. The body is untracked because `inboxProjects` also carries
+  // live git context that the watcher churns on every on-disk change; tracking
+  // that would flip the list back to loading under the reader.
+  const reachableInboxKey = $derived(
+    inboxProjects
+      .map((project) => `${project.serverId} ${project.projectRoot}`)
+      .join("\n"),
+  );
+
+  $effect(() => {
+    if (!open || !isAllProjects || reachableInboxKey === "") return;
+    untrack(() => {
+      stacksReady = true;
+      void inbox.loadAll(store, inboxProjects, { state: fetchScope });
+      // Warm every project's stack graph too, so All projects can tell a stack
+      // apart from an unrelated pair of PRs from the first paint.
+      for (const project of inboxProjects) {
+        void stacks.load(project.api, project.serverId, project.ctx).catch(() => {});
+      }
     });
   });
 
@@ -459,33 +654,39 @@
   // local metadata after each graph update so target and own-delta guides never
   // borrow one another's timestamp.
   $effect(() => {
-    if (!open || !stackGraph) return;
+    if (!open || isAllProjects || !stackGraph || !prsApi || !prsServerId) return;
+    const api = prsApi;
+    const serverId = prsServerId;
     untrack(
-      () => void store.loadGuideMetadata(prsApi, prsServerId, prsCtx(), store.items).catch(() => {}),
+      () => void store.loadGuideMetadata(api, serverId, prsCtx(), store.items).catch(() => {}),
     );
   });
 
-  function selectProject(path: string) {
-    const next = path === currentProjectPath ? null : path;
-    if (next === selectedProjectPath) return;
-    selectedProjectPath = next;
+  function scopeTo(next: string | null): void {
+    if (next === scopedProjectKey) return;
+    scopedProjectKey = next;
     reviewSelection.clear();
-    // A different project is a different list — this is the one thing that
+    aggregateSelectedKey = null;
+    aggregateOpenKey = null;
+    // A different scope is a different list — this is the one thing that
     // earns forgetting where the old one was read to.
     store.resetListView();
     store.needsReviewOnly = false;
-    store.filter = { state: "open" };
-    void store.loadAll(prsApi, prsServerId, prsCtx());
-    void store
-      .loadViewer(prsApi, prsServerId, prsCtx())
-      .then((login) => (viewerLogin = login))
-      .catch(() => {});
-    stacksReady = false;
-    void stacks.load(prsApi, prsServerId, prsCtx()).then(
-      () => (stacksReady = true),
-      () => (stacksReady = false),
-    );
+    void loadActiveScope();
     void tick().then(() => searchEl?.focus());
+  }
+
+  function selectProject(option: ListProjectOption): void {
+    if (!option.available) return;
+    scopeTo(option.key);
+  }
+
+  function selectAllProjects(): void {
+    scopeTo(null);
+  }
+
+  function removeProjectHistory(option: ListProjectOption): void {
+    projectCatalog.remove({ serverId: option.serverId, projectRoot: option.projectKey });
   }
 
   $effect(() => {
@@ -493,10 +694,16 @@
     const unsub = subscribeAllHosts(
       "prs.invalidated",
       (emittingServerId, { projectRoot: changedCwd }) => {
-        if (emittingServerId !== prsServerId) return;
         if (!open) return;
+        if (isAllProjects) {
+          if (!inboxProjects.some((project) => project.serverId === emittingServerId && project.projectRoot === changedCwd)) return;
+          clearTimeout(timer);
+          timer = setTimeout(() => refreshList(), 500);
+          return;
+        }
+        if (emittingServerId !== prsServerId) return;
         const scopedCtx = prsCtx().session;
-        const ctxCwd = scopedCtx.projectPath || scopedCtx.workingDirectory;
+        const ctxCwd = projectScopeOf(scopedCtx);
         if (changedCwd !== ctxCwd) return;
         clearTimeout(timer);
         timer = setTimeout(() => refreshList(), 500);
@@ -511,31 +718,51 @@
   /** Open a pull request in the panel beside the list. The row stays selected,
    *  so closing the panel resumes the list on what was just read. */
   function selectPr(pr: PullRequestSummary, tab?: PrReviewTab) {
-    listView.selectedNumber = pr.number;
-    listView.openNumber = pr.number;
+    const key = keyOf(pr);
+    if (isAllProjects) {
+      aggregateSelectedKey = key;
+      aggregateOpenKey = key;
+    } else {
+      listView.selectedNumber = pr.number;
+      listView.openNumber = pr.number;
+    }
     // The row's verb picks the landing tab: a row that says Review opens on the
     // diff, everything else on Activity.
     store.prReviewTab = tab ?? "activity";
-    void store.loadEfforts(prsApi, prsServerId, prsCtx(), [pr.number]);
-    store.prefetchReview(prsApi, prsServerId, prsCtx(), pr.number);
+    const target = targetFor(pr);
+    if (!target) return;
+    void store.loadEfforts(target.api, target.serverId, target.ctx, [pr.number]);
+    store.prefetchReview(target.api, target.serverId, target.ctx, pr.number);
   }
 
   /** Arrow-key movement only highlights. Nothing is fetched or mounted until
    *  Enter opens the row, so walking the list costs no requests. */
   function highlightPr(pr: PullRequestSummary) {
-    listView.selectedNumber = pr.number;
-    void store.loadEfforts(prsApi, prsServerId, prsCtx(), [pr.number]);
+    if (isAllProjects) aggregateSelectedKey = keyOf(pr);
+    else listView.selectedNumber = pr.number;
+    const target = targetFor(pr);
+    if (!target) return;
+    void store.loadEfforts(target.api, target.serverId, target.ctx, [pr.number]);
   }
 
   // Checked PRs in the list order they're shown; stale checks (filtered out or
   // no longer loaded) simply drop out.
   const selected = $derived(
-    filtered.filter((pr) => reviewSelection.has(pr.number)),
+    filtered.filter((pr) => reviewSelection.has(keyOf(pr))),
   );
+  // Batch Review/Guides need one project's (api, serverId, ctx) — scoped to a
+  // project that's already true; All projects only when every checked PR is
+  // from the same repository, so a mixed batch never silently picks one host
+  // over another.
+  const selectedProjects = $derived(
+    new Set(selected.map((pr) => (isAllProjects ? (qualified.byPr.get(pr)?.serverId ?? "") + "\0" + (qualified.byPr.get(pr)?.projectRoot ?? "") : ""))),
+  );
+  const selectionSpansProjects = $derived(isAllProjects && selectedProjects.size > 1);
 
   function toggleReviewSelect(pr: PullRequestSummary) {
-    if (reviewSelection.has(pr.number)) reviewSelection.delete(pr.number);
-    else reviewSelection.add(pr.number);
+    const key = keyOf(pr);
+    if (reviewSelection.has(key)) reviewSelection.delete(key);
+    else reviewSelection.add(key);
   }
 
   function clearReviewSelection() {
@@ -546,7 +773,15 @@
   function openReviewMode() {
     const items = selected.length > 0 ? selected : filtered;
     if (items.length === 0) return;
-    void session.openReviewMode(items, prsCtx(), prsServerId);
+    if (selectionSpansProjects) {
+      toasts.error("Select pull requests from one project to start a review", {
+        description: "Review Mode reviews one repository's checkout at a time.",
+      });
+      return;
+    }
+    const target = targetFor(items[0]);
+    if (!target) return;
+    void session.openReviewMode(items, target.ctx, target.serverId);
   }
 
   // ── Opt-in guide generation ──
@@ -562,11 +797,17 @@
   );
 
   function generateGuides() {
+    if (selectionSpansProjects) {
+      toasts.error("Select pull requests from one project to generate guides");
+      return;
+    }
     const numbers = guideEligible.map((pr) => pr.number);
     if (numbers.length === 0) return;
-    const projectPath = activeProjectPath;
+    const target = targetFor(guideEligible[0]);
+    if (!target) return;
+    const projectPath = isAllProjects ? target.ctx.session.projectPath ?? null : scopedProject?.projectKey ?? null;
     void store
-      .requestGuides(prsApi, prsServerId, prsCtx(), numbers, {
+      .requestGuides(target.api, target.serverId, target.ctx, numbers, {
         onSettled: ({ total, failed }) => {
           const toastOptions = {
             action: {
@@ -592,13 +833,18 @@
         },
       })
       .catch((error) => {
-        toasts.error(
-          `Couldn't queue review guides: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        toasts.error("Couldn't queue review guides", {
+          description: error instanceof Error ? error.message : String(error),
+        });
       });
   }
 
   function refreshList() {
+    if (isAllProjects) {
+      void inbox.loadAll(store, inboxProjects, { state: fetchScope }, { force: true });
+      return;
+    }
+    if (!prsApi || !prsServerId) return;
     store.filter = { state: fetchScope };
     void store.loadAll(prsApi, prsServerId, prsCtx(), { force: true });
   }
@@ -612,6 +858,11 @@
     store.needsReviewOnly = false;
     listView.statusKeys = next;
     if (!refetch) return;
+    if (isAllProjects) {
+      void inbox.loadAll(store, inboxProjects, { state: scope });
+      return;
+    }
+    if (!prsApi || !prsServerId) return;
     store.filter = { state: scope };
     void store.loadAll(prsApi, prsServerId, prsCtx());
   }
@@ -632,10 +883,8 @@
   function onListKeydown(e: KeyboardEvent) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
-      const idx = listView.selectedNumber
-        ? listNavigationItems.findIndex(
-            (p) => p.number === listView.selectedNumber,
-          )
+      const idx = selectedKey
+        ? listNavigationItems.findIndex((p) => keyOf(p) === selectedKey)
         : -1;
       const next =
         e.key === "ArrowDown"
@@ -655,11 +904,14 @@
 
   // Viewport-rooted so clipping ancestors still apply inside the page's scroll
   // region.
-  function observeEffort(node: HTMLElement, number: number) {
+  function observeEffort(node: HTMLElement, pr: PullRequestSummary | undefined) {
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
-          void store.loadEfforts(prsApi, prsServerId, prsCtx(), [number]);
+          const target = pr ? targetFor(pr) : null;
+          if (pr && target) {
+            void store.loadEfforts(target.api, target.serverId, target.ctx, [pr.number]);
+          }
           observer.disconnect();
         }
       },
@@ -675,7 +927,15 @@
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
-        if (store.hasMore && !store.loadingMore)
+        if (isAllProjects) {
+          for (const project of inbox.projects) {
+            if (project.hasMore && !project.loading) {
+              void inbox.loadMore(store, project.serverId, project.projectRoot);
+            }
+          }
+          return;
+        }
+        if (store.hasMore && !store.loadingMore && prsApi && prsServerId)
           void store.loadMore(prsApi, prsServerId, prsCtx());
       },
       { rootMargin: "600px 0px" },
@@ -774,7 +1034,7 @@
        the window's top edge. The list uses the same fixed top measure as the
        Automations workspace; its position does not change with the sidebar. -->
   <div
-    class="@container relative flex min-h-0 flex-1 overflow-hidden bg-card focus:outline-none"
+    class="@container relative flex min-h-0 flex-1 overflow-hidden bg-card focus:outline-none [--pr-list-width:380px]"
     bind:clientWidth={pageWidth}
     role="dialog"
     aria-label="Pull Requests"
@@ -785,17 +1045,24 @@
          takes the room that is left, so the queue stays readable while one item
          is open; E gives the review the whole surface, and Esc walks that back
          one step at a time. -->
+    <!-- The list resizes in one layout pass, in both directions. It can, because
+         the panel beside it never shares this flow: it is positioned over the
+         room this width leaves (see below), so neither opening nor closing makes
+         the queue relayout frame by frame while the panel moves. -->
     <div
-      class="flex min-h-0 min-w-0 shrink-0 transition-[width] duration-200 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none {splitList
-        ? 'w-[380px]'
+      class="flex min-h-0 min-w-0 shrink-0 {splitList
+        ? 'w-(--pr-list-width)'
         : 'w-full'}"
     >
     <ListPage
       split={splitList}
       projects={projectOptions}
-      activeProjectKey={activeProjectPath}
-      emptyProjectLabel="Choose a project"
+      activeProjectKey={scopedProjectKey ?? ""}
+      emptyProjectLabel="All projects"
       onSelectProject={selectProject}
+      onRemoveProjectHistory={removeProjectHistory}
+      onSelectAllProjects={selectAllProjects}
+      allProjectsLabel="All projects"
       title="Pull requests"
       {summary}
       {view}
@@ -804,7 +1071,7 @@
       inboxLabel="My inbox"
       {unreadCount}
       onRefresh={refreshList}
-      refreshing={store.loading}
+      refreshing={activeRefreshing}
       onClose={close}
       actions={pageActions}
       filters={filterBar}
@@ -813,22 +1080,89 @@
     >
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div bind:this={listEl} onkeydown={onListKeydown} role="presentation">
-        {#if store.loading && filtered.length === 0}
+        {#if inboxFailure.placement === "banner"}
+          <!-- Partial failure: the rows that did load stay, and this line
+               carries the part that didn't. -->
+          <div class="px-3 pt-3">
+            <div
+              class="flex items-center gap-2.5 rounded-2xl border border-border bg-card px-3.5 py-3 text-[0.8125rem]"
+              role="alert"
+            >
+              {#if inboxFailure.kind === "github-auth"}
+                <GithubConnectionRequired serverId={inboxFailure.serverId} />
+              {:else}
+                <span class="min-w-0 flex-1 truncate"
+                  >{inboxFailure.summary}</span
+                >
+                <Button
+                  type="button"
+                  variant="ghost"
+                  class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-3 text-[0.8125rem] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  onclick={refreshList}
+                >
+                  <ArrowsClockwiseIcon size={12} class="shrink-0" />
+                  Retry
+                </Button>
+              {/if}
+            </div>
+          </div>
+        {/if}
+        {#if activeLoading && filtered.length === 0}
           <ListSkeleton identWidth={44} />
-        {:else if store.error?.kind === "github-auth"}
-          <PageEmpty title="Connect GitHub to load pull requests.">
-            <GithubConnectionRequired serverId={prsServerId} />
+        {:else if !isAllProjects && store.error?.kind === "github-auth"}
+          <PageEmpty
+            icon={GithubLogoIcon}
+            tone="muted"
+            title="Connect GitHub to load pull requests."
+          >
+            {#if prsServerId}
+              <GithubConnectionRequired serverId={prsServerId} layout="stacked" />
+            {/if}
           </PageEmpty>
-        {:else if store.error}
-          <PageEmpty title="Couldn’t load pull requests.">
+        {:else if inboxFailure.kind === "github-auth" && inboxFailure.placement === "page"}
+          <PageEmpty
+            icon={GithubLogoIcon}
+            tone="muted"
+            title="Connect GitHub to load pull requests."
+          >
+            <GithubConnectionRequired
+              serverId={inboxFailure.serverId}
+              layout="stacked"
+            />
+          </PageEmpty>
+        {:else if !isAllProjects && store.error}
+          <PageEmpty
+            icon={WarningCircleIcon}
+            tone="muted"
+            title="Couldn’t load pull requests."
+          >
             {store.error.message}
             {#snippet actions()}
-              <Button type="button" variant="outline" onclick={refreshList}>Retry</Button>
+              <Button type="button" variant="outline" onclick={refreshList}>
+                <ArrowsClockwiseIcon size={14} />
+                Retry
+              </Button>
             {/snippet}
           </PageEmpty>
-        {:else if store.items.length === 0}
+        {:else if inboxFailure.kind === "generic" && inboxFailure.placement === "page"}
+          <PageEmpty
+            icon={WarningCircleIcon}
+            tone="muted"
+            title="Couldn’t load pull requests."
+          >
+            {inboxFailure.detail}
+            {#snippet actions()}
+              <Button type="button" variant="outline" onclick={refreshList}>
+                <ArrowsClockwiseIcon size={14} />
+                Retry
+              </Button>
+            {/snippet}
+          </PageEmpty>
+        {:else if activeItems.length === 0}
           <PageEmpty icon={GitPullRequestIcon} title="No pull requests yet.">
-            Open pull requests from this project's remote will show up here.
+            {isAllProjects
+              ? "Open pull requests from any of your projects' remotes will show up here."
+              : "Open pull requests from this project's remote will show up here."}
             {#snippet actions()}
               <Button
                 type="button"
@@ -872,9 +1206,9 @@
                   <InboxRow
                     row={item.row}
                     hot={!!item.group.accent}
-                    selected={String(listView.selectedNumber) === item.row.key}
+                    selected={selectedKey === item.row.key}
                     onSelect={() => {
-                      const pr = prByNumber(item.row.key);
+                      const pr = prByKey(item.row.key);
                       if (pr)
                         selectPr(
                           pr,
@@ -882,6 +1216,10 @@
                             ? "diff"
                             : undefined,
                         );
+                    }}
+                    onContextMenu={(event) => {
+                      const pr = prByKey(item.row.key);
+                      if (pr) openPrContextMenu(event, pr);
                     }}
                   />
                   {/if}
@@ -939,28 +1277,28 @@
                     {#snippet children()}{/snippet}
                   </ListGroup>
                 {:else}
-                {@const pr = prByNumber(item.row.key)}
+                {@const pr = prByKey(item.row.key)}
                 {@const rowSelected =
-                  String(listView.selectedNumber) === item.row.key ||
-                  reviewSelection.has(Number(item.row.key))}
+                  selectedKey === item.row.key ||
+                  reviewSelection.has(item.row.key)}
                 {#snippet reviewCheckbox()}
                   <button
                     type="button"
                     class="mr-2 grid size-4 shrink-0 cursor-pointer place-items-center rounded border-0 text-xs transition-opacity {reviewSelection.has(
-                      Number(item.row.key),
+                      item.row.key,
                     )
                       ? 'bg-primary text-primary-foreground opacity-100'
                       : 'bg-[var(--wash-3)] text-transparent opacity-0 group-hover:opacity-100'}"
                     onclick={() => {
                       if (pr) toggleReviewSelect(pr);
                     }}
-                    aria-pressed={reviewSelection.has(Number(item.row.key))}
+                    aria-pressed={reviewSelection.has(item.row.key)}
                     aria-label="Select for review"
                   >
                     ✓
                   </button>
                 {/snippet}
-                <div use:observeEffort={Number(item.row.key)}>
+                <div use:observeEffort={pr}>
                   {#if splitList}
                     <ListRailRow
                       row={item.row}
@@ -968,6 +1306,9 @@
                       leading={reviewCheckbox}
                       onSelect={() => {
                         if (pr) selectPr(pr);
+                      }}
+                      onContextMenu={(event) => {
+                        if (pr) openPrContextMenu(event, pr);
                       }}
                     />
                   {:else}
@@ -979,6 +1320,9 @@
                       onSelect={() => {
                         if (pr) selectPr(pr);
                       }}
+                      onContextMenu={(event) => {
+                        if (pr) openPrContextMenu(event, pr);
+                      }}
                     />
                   {/if}
                 </div>
@@ -986,15 +1330,24 @@
               </div>
             {/snippet}
             {#snippet footer()}
-              {#if store.hasMore || store.loadingMore}
+              {#if isAllProjects ? (inboxHasMore || inboxLoadingMore) : (store.hasMore || store.loadingMore)}
                 <div use:loadMoreSentinel class="flex items-center justify-center py-3">
                   <Button
                     type="button"
                     class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-[0.8125rem] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={store.loadingMore}
-                    onclick={() => void store.loadMore(prsApi, prsServerId, prsCtx())}
+                    disabled={isAllProjects ? inboxLoadingMore : store.loadingMore}
+                    onclick={() => {
+                      if (isAllProjects) {
+                        for (const project of inbox.projects) {
+                          if (project.hasMore) void inbox.loadMore(store, project.serverId, project.projectRoot);
+                        }
+                        return;
+                      }
+                      if (prsApi && prsServerId)
+                        void store.loadMore(prsApi, prsServerId, prsCtx());
+                    }}
                   >
-                    {store.loadingMore ? "Loading…" : "Load more pull requests"}
+                    {(isAllProjects ? inboxLoadingMore : store.loadingMore) ? "Loading…" : "Load more pull requests"}
                   </Button>
                 </div>
               {/if}
@@ -1005,25 +1358,45 @@
     </ListPage>
     </div>
 
-    {#if openNumber !== null}
+    {#if panelOpen && openPr && openTarget}
+      <!-- Out of the list's flow on purpose, not just when full screen: it
+           covers the room the list's width leaves rather than claiming its own.
+           In flow, this panel's arrival and departure were layout events — the
+           list had to travel with it, animating a width that can never reach the
+           compositor, in the same frames PrDetailPanel mounts in. Over the top,
+           the fly is transform and opacity alone and nothing relayouts, so both
+           directions cost one layout pass. -->
       <div
         class="flex flex-col bg-background {panelFullScreen
           ? 'absolute inset-0 z-20'
-          : 'relative min-w-0 flex-1 shadow-[-1px_0_0_var(--hairline-strong),-18px_0_30px_-26px_rgba(0,0,0,.28)]'}"
+          : 'absolute inset-y-0 right-0 left-(--pr-list-width) z-10 min-w-0 shadow-[-1px_0_0_var(--hairline-strong),-18px_0_30px_-26px_rgba(0,0,0,.28)]'}"
         transition:fly={{ x: 14, duration: reduceMotion ? 0 : 200 }}
       >
         <PrDetailPanel
-          number={openNumber}
-          api={prsApi}
-          serverId={prsServerId}
-          ctx={prsCtx()}
-          title={openPr?.title ?? ""}
+          number={openPr.number}
+          api={openTarget.api}
+          serverId={openTarget.serverId}
+          ctx={openTarget.ctx}
+          title={openPr.title}
           fullScreen={panelFullScreen}
           onToggleFullScreen={roomForSplit ? toggleFullScreen : undefined}
           onClose={closePanel}
           onStep={stepPanel}
         />
       </div>
+    {/if}
+
+    {#if prContextMenu}
+      {@const menuPr = prContextMenu.pr}
+      <PrContextMenu
+        x={prContextMenu.x}
+        y={prContextMenu.y}
+        pr={menuPr}
+        onOpen={() => selectPr(menuPr)}
+        onReview={() => selectPr(menuPr, "diff")}
+        onOpenWeb={prUrl(menuPr) ? () => openPrExternal(menuPr) : undefined}
+        onClose={() => (prContextMenu = null)}
+      />
     {/if}
   </div>
 {/if}

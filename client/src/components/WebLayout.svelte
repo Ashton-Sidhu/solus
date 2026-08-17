@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { untrack } from "svelte";
   import ConversationView from "@renderer/components/conversation/ConversationView.svelte";
   import SessionBreadcrumb from "@renderer/components/conversation/SessionBreadcrumb.svelte";
   import SessionPicker from "@renderer/components/session/SessionPicker.svelte";
+  import TaskPicker from "@renderer/components/session/TaskPicker.svelte";
   // Eager, unlike the lazy surfaces below: it is what covers an async boundary,
   // so it cannot sit behind one itself.
   import DocumentModalSkeleton from "@renderer/components/document-modal/DocumentModalSkeleton.svelte";
@@ -10,7 +10,6 @@
   import WebMobileLayout from "./WebMobileLayout.svelte";
   import WebDesktopLayout from "./WebDesktopLayout.svelte";
   import { registerBackOverlay } from "../lib/back-stack.svelte";
-  import { toasts, type ToastId } from "@renderer/lib/toasts";
   import { webState } from "../lib/web-state.svelte";
   import {
     FILE_PREVIEW_EVENT,
@@ -50,65 +49,10 @@
 
   const isMobile = $derived(runtime.isMobileViewport);
 
-  let connectionTimer: ReturnType<typeof setTimeout> | null = null;
-  let connectionToastId: ToastId | null = null;
-  let connectionToastKind: "blocked" | "lost" | null = null;
-
-  function showConnectionLostToast() {
-    connectionTimer = null;
-    connectionToastKind = "lost";
-    connectionToastId = toasts.error("Connection lost — reconnecting…", {
-      duration: Infinity,
-      actions: [{ label: "Retry now", onAction: () => window.location.reload() }],
-    });
-  }
-
-  function showBlockedToast() {
-    connectionToastKind = "blocked";
-    connectionToastId = toasts.error("Re-pair this server to continue", {
-      duration: Infinity,
-      actions: [{
-        label: "Switch server",
-        onAction: () => document.dispatchEvent(new CustomEvent("solus:logout")),
-      }],
-    });
-  }
-
-  $effect(() => {
-    const status = webState.connectionStatus;
-    if (connectionTimer) clearTimeout(connectionTimer);
-    connectionTimer = null;
-
-    // With no host paired, "disconnected" is the resting state — not an outage.
-    if (!webState.connectedServer) return;
-
-    if (status === "blocked") {
-      showBlockedToast();
-      return;
-    }
-
-    if (status === "disconnected" || status === "connecting" || status === "reconnecting") {
-      const ownsActiveToast = connectionToastId !== null &&
-        untrack(() => toasts.isActive(connectionToastId));
-      if (ownsActiveToast) {
-        if (connectionToastKind === "blocked") showConnectionLostToast();
-        return;
-      }
-
-      connectionTimer = setTimeout(showConnectionLostToast, 5000);
-      return () => {
-        if (connectionTimer) clearTimeout(connectionTimer);
-        connectionTimer = null;
-      };
-    }
-
-    const recoveredToastId = connectionToastId;
-    connectionToastId = null;
-    connectionToastKind = null;
-    if (recoveredToastId !== null && untrack(() => toasts.dismiss(recoveredToastId))) {
-      toasts.info("Reconnected", { duration: 3000 });
-    }
-  });
+  // The global connection banner is retired (dispatch-client step 3): the
+  // client is host-agnostic, so an outage belongs to one host's row and the
+  // per-host status chip, never to a client-global toast — and "Retry now"
+  // dials that host's supervisor instead of reloading the whole window.
 
   // ── Mobile-only diff state ──
   // The desktop layout reads the shared location for its diff / plan / work
@@ -175,7 +119,7 @@
 
   $effect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ tabId?: string; scope?: DiffScope }>).detail;
+      const detail = e instanceof CustomEvent ? e.detail : undefined;
       const sourceTabId =
         detail?.tabId ?? session.focusedChatTabId ?? session.activeTabId;
       const canShowSourceDiff = !!session.sessionFor(sourceTabId)?.run.workingDirectory;
@@ -216,7 +160,7 @@
 
   $effect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent<FilePreviewRequest>).detail;
+      const detail = e instanceof CustomEvent ? e.detail : undefined;
       if (!detail?.path) return;
       const sourceTabId =
         detail.tabId ?? session.focusedChatTabId ?? session.activeTabId;
@@ -425,6 +369,10 @@
 <SessionPicker
   open={isMobile && session.sessionPickerOpen}
   onClose={() => { session.sessionPickerOpen = false; }}
+/>
+<TaskPicker
+  open={isMobile && session.taskPickerOpen}
+  onClose={() => { session.taskPickerOpen = false; }}
 />
 
 <style>

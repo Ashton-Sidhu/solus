@@ -34,10 +34,15 @@ function renderReasoning(messages: HandoffMessage[]): string {
   return messages.map((m) => m.text).join('\n\n---\n\n')
 }
 
+interface HandoffMessages {
+  conversation: HandoffMessage[]
+  reasoning: HandoffMessage[]
+}
+
 /** Splits the on-disk transcript into the visible User/Assistant conversation
  *  and the outgoing provider's private `reasoning` turns — each carried over
  *  in its own handoff file — dropping tool noise and blank turns. */
-function splitHandoffMessages(messages: SessionLoadMessage[]): { conversation: HandoffMessage[]; reasoning: HandoffMessage[] } {
+function splitHandoffMessages(messages: SessionLoadMessage[]): HandoffMessages {
   const conversation: HandoffMessage[] = []
   const reasoning: HandoffMessage[] = []
   for (const message of messages) {

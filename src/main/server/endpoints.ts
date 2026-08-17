@@ -3,6 +3,7 @@ import { execFile } from 'child_process'
 import { existsSync } from 'fs'
 import { createLogger } from '../logger'
 import type { DiscoveredServer } from '../../shared/types'
+import { z } from 'zod'
 
 const log = createLogger('main', 'endpoints')
 
@@ -13,8 +14,8 @@ const DISCOVERY_CONCURRENCY = 8
 const TAILSCALE_STATUS_TTL_MS = 5_000
 const TAILSCALE_STATUS_MAX_BYTES = 4 * 1024 * 1024
 
-let tailscaleStatusCache: { value: unknown | null; expiresAt: number } | null = null
-let tailscaleStatusPending: Promise<unknown | null> | null = null
+let tailscaleStatusCache: { value: TailscaleStatus | null; expiresAt: number } | null = null
+let tailscaleStatusPending: Promise<TailscaleStatus | null> | null = null
 
 export interface ReachableEndpoint {
   /** "loopback" | "lan" | "tailnet" */
@@ -31,11 +32,33 @@ export interface TailnetPeerCandidate {
 }
 
 interface TailscaleStatusPeer {
-  Online?: unknown
-  HostName?: unknown
-  DNSName?: unknown
-  TailscaleIPs?: unknown
+  Online?: boolean
+  HostName?: string
+  DNSName?: string
+  TailscaleIPs?: string[]
 }
+
+interface TailscaleStatus {
+  Peer?: Record<string, TailscaleStatusPeer>
+  Self?: { TailscaleIPs?: string[] }
+}
+
+const tailscaleStatusPeerSchema = z.object({
+  Online: z.boolean().optional(),
+  HostName: z.string().optional(),
+  DNSName: z.string().optional(),
+  TailscaleIPs: z.array(z.string()).optional(),
+})
+const tailscaleStatusSchema = z.object({
+  Peer: z.record(z.string(), tailscaleStatusPeerSchema).optional(),
+  Self: z.object({ TailscaleIPs: z.array(z.string()).optional() }).optional(),
+})
+const discoveredHealthSchema = z.object({
+  installationId: z.string(),
+  claimable: z.boolean().optional(),
+  name: z.string().optional(),
+  os: z.enum(['macos', 'windows', 'linux']).optional(),
+})
 
 interface DiscoveryProbeTarget {
   host: string
@@ -100,22 +123,21 @@ export async function discoverTailnetServers(opts: {
   return [...byInstallation.values()]
 }
 
-export function parseTailscalePeerCandidates(status: unknown): TailnetPeerCandidate[] {
-  const peers = (status as { Peer?: unknown } | null)?.Peer
-  if (!peers || typeof peers !== 'object') return []
+export function parseTailscalePeerCandidates<T>(status: T): TailnetPeerCandidate[] {
+  const parsed = tailscaleStatusSchema.safeParse(status)
+  const peers = parsed.success ? parsed.data.Peer : undefined
+  if (!peers) return []
 
   const out: TailnetPeerCandidate[] = []
   const seen = new Set<string>()
-  for (const peer of Object.values(peers as Record<string, TailscaleStatusPeer>)) {
+  for (const peer of Object.values(peers)) {
     if (peer?.Online !== true) continue
-    const ip = Array.isArray(peer.TailscaleIPs)
-      ? peer.TailscaleIPs.find((value): value is string => typeof value === 'string' && /^\d+\./.test(value))
-      : null
+    const ip = peer.TailscaleIPs?.find((value) => /^\d+\./.test(value)) ?? null
     if (!ip || seen.has(ip)) continue
     seen.add(ip)
-    const name = typeof peer.HostName === 'string' && peer.HostName
+    const name = peer.HostName
       ? peer.HostName
-      : typeof peer.DNSName === 'string' && peer.DNSName
+      : peer.DNSName
         ? peer.DNSName.replace(/\.$/, '')
         : ip
     out.push({ host: ip, name })
@@ -130,7 +152,7 @@ function findTailscaleBin(): string | null {
   return null
 }
 
-async function readTailscaleStatus(): Promise<unknown | null> {
+async function readTailscaleStatus(): Promise<TailscaleStatus | null> {
   const now = Date.now()
   if (tailscaleStatusCache && tailscaleStatusCache.expiresAt > now) return tailscaleStatusCache.value
   if (tailscaleStatusPending) return tailscaleStatusPending
@@ -138,7 +160,7 @@ async function readTailscaleStatus(): Promise<unknown | null> {
   const bin = findTailscaleBin()
   if (!bin) return null
 
-  tailscaleStatusPending = new Promise<unknown | null>((resolve) => {
+  tailscaleStatusPending = new Promise<TailscaleStatus | null>((resolve) => {
     execFile(
       bin,
       ['status', '--json'],
@@ -150,7 +172,7 @@ async function readTailscaleStatus(): Promise<unknown | null> {
           return
         }
         try {
-          resolve(JSON.parse(stdout))
+          resolve(tailscaleStatusSchema.parse(JSON.parse(stdout)))
         } catch (parseError) {
           log.debug('tailscale_status_invalid', {
             error: parseError instanceof Error ? parseError.message : String(parseError),
@@ -173,12 +195,28 @@ async function detectTailscaleEndpoint(port: number): Promise<ReachableEndpoint 
   return tailnetEndpointFromStatus(await readTailscaleStatus(), port)
 }
 
-export function tailnetEndpointFromStatus(parsed: unknown, port: number): ReachableEndpoint | null {
-  const ip = (parsed as { Self?: { TailscaleIPs?: unknown } } | null)?.Self?.TailscaleIPs
-  if (Array.isArray(ip)) {
-    const ipv4 = ip.find((s): s is string => typeof s === 'string' && /^\d+\./.test(s))
-    if (ipv4) return { kind: 'tailnet', label: `Tailnet (${ipv4})`, host: ipv4, port }
+/**
+ * Every address on this machine's tailnet — its own and its peers'. Membership
+ * in the user's tailnet is what "trusted network" means for requester auth:
+ * these devices already share a private, identity-checked network.
+ */
+export async function tailnetAddresses(): Promise<Set<string>> {
+  const status = await readTailscaleStatus()
+  const out = new Set<string>()
+  if (!status) return out
+  for (const address of status.Self?.TailscaleIPs ?? []) out.add(address)
+  for (const peer of Object.values(status.Peer ?? {})) {
+    for (const address of peer.TailscaleIPs ?? []) out.add(address)
   }
+  return out
+}
+
+export function tailnetEndpointFromStatus<T>(value: T, port: number): ReachableEndpoint | null {
+  const parsed = tailscaleStatusSchema.safeParse(value)
+  const ipv4 = parsed.success
+    ? parsed.data.Self?.TailscaleIPs?.find((address) => /^\d+\./.test(address))
+    : undefined
+  if (ipv4) return { kind: 'tailnet', label: `Tailnet (${ipv4})`, host: ipv4, port }
   return null
 }
 
@@ -206,18 +244,16 @@ async function probeDiscoveredServer(
   try {
     const res = await fetchImpl(`http://${target.host}:${target.port}/health`, { signal: controller.signal })
     if (!res.ok) return null
-    const body = await res.json().catch(() => null) as {
-      installationId?: unknown
-      claimable?: unknown
-      name?: unknown
-    } | null
-    if (!body || typeof body.installationId !== 'string' || body.installationId === ownInstallationId) return null
+    const parsed = discoveredHealthSchema.safeParse(await res.json().catch(() => null))
+    if (!parsed.success || parsed.data.installationId === ownInstallationId) return null
+    const body = parsed.data
     return {
       host: target.host,
       port: target.port,
-      name: typeof body.name === 'string' && body.name ? body.name : target.name,
+      name: body.name || target.name,
       installationId: body.installationId,
       claimable: body.claimable === true,
+      os: body.os,
       source: 'tailnet',
     }
   } catch {
@@ -232,7 +268,7 @@ async function mapWithConcurrency<T, R>(
   limit: number,
   mapper: (item: T) => Promise<R>,
 ): Promise<R[]> {
-  const out: R[] = new Array(items.length)
+  const out: R[] = []
   let next = 0
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (next < items.length) {

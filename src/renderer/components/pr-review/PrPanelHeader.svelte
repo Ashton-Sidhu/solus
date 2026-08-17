@@ -5,9 +5,11 @@
     ArrowsOutSimpleIcon,
     CaretLeftIcon,
     CaretRightIcon,
+    GitPullRequestIcon,
     XIcon,
   } from "phosphor-svelte";
   import type { Snippet } from "svelte";
+  import CopyButton from "../ui/CopyButton.svelte";
 
   /**
    * The chrome band of the review panel that slides out beside the list.
@@ -56,23 +58,28 @@
     actions?: Snippet;
   } = $props();
 
-  const positionLabel = $derived(position > 0 ? `${position} of ${total}` : "");
+  // A queue of one, or a pull request the list is not showing (opened, then
+  // filtered out) has nowhere to step to: `onStep` walks the published list
+  // order and returns early when this number is not in it. Offer the control
+  // only where it moves, rather than leaving two arrows and a blank count.
+  const canStepQueue = $derived(position > 0 && total > 1);
 
   const roundButton =
-    "flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30";
+    "no-drag pointer-events-auto flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30";
 </script>
 
 <!-- Beside the list this row starts at the panel's own edge. Covering the list
      it starts at the window's, where the macOS window controls are — so the
      lead inset applies there and only there. -->
 <div
-  class="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--hairline)] pr-2.5"
+  class="workspace-titlebar flex h-(--solus-chrome-row-h,2.75rem) shrink-0 items-center gap-2 border-b border-[var(--hairline)] pr-2.5"
   style={fullScreen
     ? "padding-left: max(0.875rem, var(--solus-chrome-lead-inset, 0px))"
     : "padding-left: 0.875rem"}
 >
-  <span class="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
-    #{number}
+  <span class="flex shrink-0 items-center gap-1.5 font-mono text-xs tabular-nums text-muted-foreground">
+    <GitPullRequestIcon size={11} aria-hidden="true" />
+    <span>#{number}</span>
   </span>
 
   {#if headRef && baseRef}
@@ -81,6 +88,7 @@
       class="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground opacity-70"
     >
       <span class="truncate">{headRef}</span>
+      <CopyButton text={headRef} title="Copy branch name" iconOnly />
       <ArrowRightIcon size={10} class="shrink-0 opacity-50" aria-hidden="true" />
       <span class="shrink-0">{baseRef}</span>
     </span>
@@ -95,34 +103,35 @@
   {#if actions}{@render actions()}{/if}
 
   <!-- Position, not history: how far through the queue this review is. -->
-  <div class="flex shrink-0 items-center gap-0.5">
-    <button
-      type="button"
-      class={roundButton}
-      title="Previous pull request (K)"
-      aria-label="Previous pull request"
-      disabled={total < 2}
-      onclick={() => onStep(-1)}
-    >
-      <CaretLeftIcon size={11} />
-    </button>
-    <span
-      class="min-w-[44px] text-center font-mono text-xs tabular-nums text-muted-foreground opacity-75"
-    >
-      {positionLabel}
-    </span>
-    <button
-      type="button"
-      class={roundButton}
-      title="Next pull request (J)"
-      aria-label="Next pull request"
-      disabled={total < 2}
-      onclick={() => onStep(1)}
-    >
-      <CaretRightIcon size={11} />
-    </button>
-  </div>
+  {#if canStepQueue}
+    <div class="flex shrink-0 items-center gap-0.5">
+      <button
+        type="button"
+        class={roundButton}
+        title="Previous pull request (K)"
+        aria-label="Previous pull request"
+        onclick={() => onStep(-1)}
+      >
+        <CaretLeftIcon size={11} />
+      </button>
+      <span
+        class="min-w-[44px] text-center font-mono text-xs tabular-nums text-muted-foreground opacity-75"
+      >
+        {position} of {total}
+      </span>
+      <button
+        type="button"
+        class={roundButton}
+        title="Next pull request (J)"
+        aria-label="Next pull request"
+        onclick={() => onStep(1)}
+      >
+        <CaretRightIcon size={11} />
+      </button>
+    </div>
+  {/if}
 
+  <!-- Seam between the surface's own actions and the pane controls. -->
   <span
     class="mx-1 h-[18px] w-px shrink-0 bg-[var(--hairline-strong)]"
     aria-hidden="true"

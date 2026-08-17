@@ -32,6 +32,7 @@ import {
 } from './task-sync-store'
 import { resolveTaskPublishTarget, taskSyncAdapter } from './adapters/registry'
 import type { TaskSyncAdapter } from './adapters/types'
+import { z } from 'zod'
 
 const log = createLogger('main', 'task-sync')
 const PUSH_DEBOUNCE_MS = 2_000
@@ -64,7 +65,12 @@ function refFor(link: TaskExternalLink): ExternalTicketRef {
   }
 }
 
-function providerError(error: unknown): { state: 'error' | 'auth_error'; message: string } {
+interface ProviderError {
+  state: 'error' | 'auth_error'
+  message: string
+}
+
+function providerError<Failure>(error: Failure): ProviderError {
   const message = error instanceof Error ? error.message : String(error)
   const isAuth = message.startsWith(TASKS_AUTH_ERROR_PREFIX)
     || /not connected|bad credentials|reconnect|401|unauthorized|authorization.*invalid/i.test(message)
@@ -76,12 +82,12 @@ function providerError(error: unknown): { state: 'error' | 'auth_error'; message
 
 function patchForDirtyFields(task: Task, link: TaskExternalLink): TicketPatch {
   const fields = new Set(link.dirtyFields)
-  return {
-    ...(fields.has('title') ? { title: task.title } : {}),
-    ...(fields.has('body') ? { body: task.body } : {}),
-    ...(fields.has('labels') ? { labels: task.labels } : {}),
-    ...(fields.has('status') ? { status: statusForExternal(task.status) } : {}),
-  }
+  const patch: TicketPatch = {}
+  if (fields.has('title')) patch.title = task.title
+  if (fields.has('body')) patch.body = task.body
+  if (fields.has('labels')) patch.labels = task.labels
+  if (fields.has('status')) patch.status = statusForExternal(task.status)
+  return patch
 }
 
 function acknowledgedFields(
@@ -368,7 +374,7 @@ export function publishTask(taskId: string, cwd: string): Promise<TaskDetails> {
 }
 
 export function taskHasPendingSync(taskId: string): boolean {
-  return hasPendingSync(taskId)
+  return hasPendingSync(taskId, getDb())
 }
 
 /** The provider merge path already has authoritative success. Use that event
@@ -377,7 +383,7 @@ export function taskHasPendingSync(taskId: string): boolean {
 export async function completeTasksForMergedPullRequest(cwd: string, number: number): Promise<string[]> {
   const config = await loadProjectConfig(cwd)
   if (config?.taskDoneOnMerge === false) return []
-  const rows = getDb().prepare(`
+  const rows = z.array(z.object({ id: z.string() })).parse(getDb().prepare(`
     SELECT DISTINCT tasks.id
     FROM tasks
     JOIN task_links ON task_links.task_id = tasks.id
@@ -385,7 +391,7 @@ export async function completeTasksForMergedPullRequest(cwd: string, number: num
       AND task_links.kind = 'pr'
       AND task_links.target_key = ?
       AND task_links.target_scope = ?
-  `).all(String(number), cwd) as unknown as Array<{ id: string }>
+  `).all(String(number), cwd))
   for (const row of rows) {
     await (await TaskModel.byId(row.id)).update({ status: 'done' }, { actor: 'system' })
   }

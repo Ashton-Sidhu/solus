@@ -198,7 +198,7 @@ describe('menu rows', () => {
           {
             id: 'cmd:/clear',
             title: 'clear',
-            meta: 'Clear conversation history',
+            meta: 'Clear current conversation',
             when: '',
             icon: GLYPH.cmd,
             mono: true,

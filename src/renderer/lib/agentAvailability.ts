@@ -7,11 +7,11 @@ export interface AgentAvailabilityRow {
   reason: string;
 }
 
-const FALLBACK_LABELS: Record<AgentId, string> = {
+const FALLBACK_LABELS = {
   "claude-code": "Claude Code",
   codex: "Codex",
   opencode: "OpenCode",
-};
+} satisfies Record<AgentId, string>;
 
 export function agentLabel(
   agentId: AgentId,

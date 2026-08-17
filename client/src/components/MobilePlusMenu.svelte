@@ -7,6 +7,7 @@
     FolderOpenIcon,
     ArrowsClockwiseIcon,
     GitCommitIcon,
+    GitPullRequestIcon,
     ArrowSquareUpIcon,
     ArrowCounterClockwiseIcon,
     CheckIcon,
@@ -14,6 +15,7 @@
     XIcon,
     CaretRightIcon,
     HardDrivesIcon,
+    GithubLogoIcon,
   } from "phosphor-svelte";
   import {
     getWorkspaceContext,
@@ -25,6 +27,9 @@
     serversStore,
   } from "@renderer/contexts";
   import { gitActionsFor } from "@renderer/lib/git-actions.svelte";
+  import { gitPublishModel } from "@renderer/components/project-panel/lib/git-action-selection";
+  import { repositorySetupStore } from "@renderer/contexts/git/repository-setup.store.svelte";
+  import PublishRepositoryDialog from "@renderer/components/project-panel/publish-repository/PublishRepositoryDialog.svelte";
   import { buildAgentAvailabilityRows } from "@renderer/lib/agentAvailability";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
   import { REASONING_EFFORT_LABELS } from "../../../src/shared/types";
@@ -33,6 +38,7 @@
   import WebPushBell from "./WebPushBell.svelte";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import { serverConnections } from "@client-core/server-connections";
+  import { localApi } from "@client-core/local-api";
 
   interface Props {
     open: boolean;
@@ -62,7 +68,9 @@
   const settings = getSettingsContext();
   const statusBar = getStatusBarContext();
   const attachmentServerId = $derived(
-    session.activeSession?.run.serverId ?? LOCAL_SERVER_ID,
+    session.activeSession?.run.serverId ??
+      serverConnections.defaultServerId() ??
+      LOCAL_SERVER_ID,
   );
   const attachmentCapabilities = $derived(
     hostCapabilitiesStore.for(attachmentServerId),
@@ -127,6 +135,68 @@
   const actions = $derived(
     gitActionsFor(session.activeTabId, session, environmentStore),
   );
+  const gitEnvironment = $derived(
+    environmentStore.environmentFor(session.runFor(session.activeTabId)),
+  );
+  const gitApi = $derived(session.apiFor(session.activeTabId));
+  const gitServerId = $derived(serverConnections.serverIdForApi(gitApi));
+  // The same readiness model the project panel renders: an unpublished project
+  // publishes from this row rather than offering a push into nowhere.
+  const gitModel = $derived(
+    gitPublishModel(gitEnvironment.status, {
+      repository: repositorySetupStore.statusFor(gitServerId, gitEnvironment.cwd),
+      githubConnected: repositorySetupStore.githubConnectedFor(gitServerId, gitEnvironment.cwd),
+    }),
+  );
+  const gitPrimaryAction = $derived(gitModel.pullRequest.primary);
+  const pushStep = $derived(gitModel.commit.steps.find((step) => step.key === "push"));
+  const isCommitActionRunning = $derived(
+    actions.running &&
+      (actions.activeAction === "commit" ||
+        actions.activeAction === "commit_push" ||
+        actions.activeAction === "commit_push_pull_request"),
+  );
+  const isPullRequestActionRunning = $derived(
+    actions.running &&
+      (actions.activeAction === "create_pull_request" ||
+        actions.activeAction === "commit_push_pull_request"),
+  );
+
+  $effect(() => {
+    if (!open || !gitEnvironment.cwd || gitEnvironment.cwd === "~") return;
+    return environmentStore.watchDetails(gitEnvironment.cwd);
+  });
+
+  // The readiness stage decides what these rows mean, so the sheet reads the
+  // repository probe — and, only on the publish path, the GitHub connection.
+  $effect(() => {
+    if (!open || !gitApi || !gitEnvironment.cwd || gitEnvironment.cwd === "~") return;
+    void repositorySetupStore.refresh(gitApi, gitServerId, gitEnvironment.cwd);
+    if (gitModel.readiness !== "local-only") return;
+    void repositorySetupStore.refreshGithubConnection(
+      gitApi,
+      gitServerId,
+      session.ctxForEnvironment(gitEnvironment.cwd, gitEnvironment.checkout, session.activeTabId),
+      gitEnvironment.cwd,
+    );
+  });
+
+  let publishDialogOpen = $state(false);
+
+  function runPrimaryGitAction() {
+    if (gitPrimaryAction.kind === "view") {
+      localApi.openExternal(gitPrimaryAction.url);
+      return;
+    }
+    if (gitPrimaryAction.kind === "publish" || gitPrimaryAction.kind === "connect") {
+      publishDialogOpen = true;
+      return;
+    }
+    if (gitPrimaryAction.kind !== "run") return;
+    void actions.run(gitPrimaryAction.action, {
+      createFeatureBranch: gitPrimaryAction.createFeatureBranch,
+    });
+  }
 
   // Discard arms in place — the row itself becomes the confirmation, which
   // beats a modal on touch. Re-armed closed every time the sheet opens.
@@ -329,7 +399,12 @@
       <!-- Source control -->
       {#if !gitDisabled}
         <div class={groupCard}>
-          <button class={listRow} onclick={() => void actions.sync()} disabled={actions.syncing}>
+          <button
+            class={listRow}
+            onclick={() => void actions.sync()}
+            disabled={actions.syncing || gitModel.sync.disabled}
+            title={gitModel.sync.reason}
+          >
             <span class="{listIcon} {actions.synced ? '!text-(--solus-status-complete)' : ''}">
               {#key actions.syncing ? "busy" : actions.synced ? "done" : "idle"}
                 <span class="icon-swap">
@@ -346,13 +421,13 @@
             <span class={listLabel}>{actions.synced ? "Synced" : "Sync"}</span>
           </button>
           <div class={rowDivider}></div>
-          <button class={listRow} onclick={() => void actions.commit()} disabled={actions.commitPushing}>
-            <span class="{listIcon} {actions.commitPushed ? '!text-(--solus-status-complete)' : ''}">
-              {#key actions.commitPushing ? "busy" : actions.commitPushed ? "done" : "idle"}
+          <button class={listRow} onclick={() => void actions.run("commit")} disabled={actions.running}>
+            <span class="{listIcon} {actions.lastResult?.commit.status === 'created' ? '!text-(--solus-status-complete)' : ''}">
+              {#key isCommitActionRunning ? "busy" : actions.lastResult?.commit.status === "created" ? "done" : "idle"}
                 <span class="icon-swap">
-                  {#if actions.commitPushing}
+                  {#if isCommitActionRunning}
                     <SpinnerIcon size={14} class="animate-spin" />
-                  {:else if actions.commitPushed}
+                  {:else if actions.lastResult?.commit.status === "created"}
                     <CheckIcon size={14} />
                   {:else}
                     <GitCommitIcon size={14} />
@@ -363,11 +438,34 @@
             <span class={listLabel}>Commit</span>
           </button>
           <div class={rowDivider}></div>
-          <button class={listRow} onclick={() => void actions.commitPush()} disabled={actions.commitPushing}>
+          <button
+            class={listRow}
+            onclick={() => void actions.run("commit_push")}
+            disabled={actions.running || gitModel.readiness !== "published"}
+            title={gitModel.readiness === "published" ? undefined : pushStep?.reason}
+          >
             <span class={listIcon}>
               <ArrowSquareUpIcon size={14} />
             </span>
             <span class={listLabel}>Commit & Push</span>
+          </button>
+          <div class={rowDivider}></div>
+          <button
+            class={listRow}
+            onclick={() => handleAction(runPrimaryGitAction)}
+            disabled={actions.running || gitPrimaryAction.kind === "disabled"}
+            title={gitPrimaryAction.kind === "disabled" ? gitPrimaryAction.reason : undefined}
+          >
+            <span class={listIcon}>
+              {#if isPullRequestActionRunning}
+                <SpinnerIcon size={14} class="animate-spin" />
+              {:else if gitPrimaryAction.kind === "publish" || gitPrimaryAction.kind === "connect"}
+                <GithubLogoIcon size={14} />
+              {:else}
+                <GitPullRequestIcon size={14} />
+              {/if}
+            </span>
+            <span class={listLabel}>{isPullRequestActionRunning ? (actions.activeLabel ?? gitPrimaryAction.label) : gitPrimaryAction.label}</span>
           </button>
           {#if changedFilesCount > 0}
             <div class={rowDivider}></div>
@@ -464,6 +562,14 @@
       {/if}
     </div>
   </div>
+{/if}
+
+<!-- Outside the sheet's subtree: the row that opens it also closes the sheet. -->
+{#if publishDialogOpen}
+  <PublishRepositoryDialog
+    sourceId={session.activeTabId}
+    onClose={() => (publishDialogOpen = false)}
+  />
 {/if}
 
 <style>

@@ -36,7 +36,12 @@
    *  rather than mutated when the root changes, so a component reused for a
    *  different project never shows the previous one's mark, and a root already
    *  resolved this session starts settled — no probe, and so no flash. */
-  let probe = $state({ root: "", index: 0, settled: false, url: null as string | null });
+  let probe = $state<{ root: string; index: number; settled: boolean; url: string | null }>({
+    root: "",
+    index: 0,
+    settled: false,
+    url: null,
+  });
   const state = $derived.by(() => {
     if (probe.root === projectRoot) return probe;
     const known = resolvedFavicon(projectRoot);

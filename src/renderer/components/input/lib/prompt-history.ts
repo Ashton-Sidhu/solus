@@ -1,14 +1,15 @@
 export const PROMPT_HISTORY_KEY = "solus-prompt-history";
 export const MAX_PROMPT_HISTORY = 100;
+import { z } from "zod";
+
+const promptHistorySchema = z.array(z.string());
 
 export function loadPromptHistory(storage: Pick<Storage, "getItem">): string[] {
   try {
     const stored = storage.getItem(PROMPT_HISTORY_KEY);
     if (!stored) return [];
-    const history: unknown = JSON.parse(stored);
-    return Array.isArray(history) && history.every((entry) => typeof entry === "string")
-      ? history
-      : [];
+    const history = promptHistorySchema.safeParse(JSON.parse(stored));
+    return history.success ? history.data : [];
   } catch {
     return [];
   }

@@ -39,6 +39,7 @@
   import type { Command } from "./components/command-palette/lib/commands";
   import {
     projectsStore,
+    projectCatalog,
     connectionsStore,
     serversStore,
     cloudflareStore,
@@ -53,7 +54,7 @@
   import { toasts } from "./lib/toasts";
   import { invalidateHomeCache } from "./components/layout/NewTabHome.svelte";
   import { setPopoverLayer } from "./components/popoverLayer.svelte";
-  import { worktreeProjectRoot } from "../shared/types";
+  import { projectScopeOf, worktreeProjectRoot } from "../shared/types";
   import type {
     AgentId,
     DesignAnnotation as DesignAnnotationType,
@@ -138,9 +139,7 @@
   } = createAppCore();
 
   function activePrScope() {
-    const api = session.activeTabId
-      ? session.apiFor(session.activeTabId)
-      : serverConnections.primaryApi();
+    const api = session.apiFor(session.activeTabId);
     return {
       api,
       serverId: serverConnections.serverIdForApi(api),
@@ -181,7 +180,7 @@
     if (session.hydrating) return;
     const tabs = snapshotPersistedTabs(session);
     const snapshot: PersistedTabs = {
-      version: 1,
+      version: 2,
       activeTabId: session.activeTabId,
       tabOrder: [...session.tabOrder],
       tabs,
@@ -218,6 +217,7 @@
       flushDrafts();
       flushPersistedTabs();
       flushPersistedSessionDrafts();
+      projectCatalog.flush();
     };
     const handlePageHide = (event: PageTransitionEvent) => {
       flush();
@@ -237,6 +237,7 @@
    *  path, which loads history and splices the live stream if a run is going. */
   function openSessionFromPointer(ptr: {
     sessionId: string;
+    serverId: string;
     provider: AgentId;
     cwd: string;
     title: string | null;
@@ -244,14 +245,20 @@
     // A session already open in this window is just a location — the same
     // `chat/@<sessionId>` route a notification click carries. Only a session
     // this window has never seen needs the handoff's resume metadata, which is
-    // why the handoff still carries more than a route.
-    if (session.tabOrder.some((id) => session.sessionFor(id)?.agentSessionId === ptr.sessionId)) {
-      session.openRoute({ name: "chat", params: { sessionId: ptr.sessionId } });
+    // why the handoff still carries more than a route. Same-id sessions on two
+    // hosts are distinct, so the match requires the handoff's host too.
+    const isOpenHere = session.tabOrder.some((id) => {
+      const sess = session.sessionFor(id);
+      return sess?.agentSessionId === ptr.sessionId && sess.run.serverId === ptr.serverId;
+    });
+    if (isOpenHere) {
+      session.openRoute({ name: "chat", params: { sessionId: ptr.sessionId, serverId: ptr.serverId } });
       return;
     }
     void session.resumeSession({
       provider: ptr.provider,
       sessionId: ptr.sessionId,
+      serverId: ptr.serverId,
       slug: ptr.title,
       firstMessage: ptr.title,
       lastTimestamp: "",
@@ -361,8 +368,7 @@
   const taskComposerServerId = $derived(
     taskComposer
       ? (session.tasksStore.hostForProject(taskComposer.projectKey) ??
-        serverConnections.connectionFor()?.serverId ??
-        null)
+        serverConnections.defaultServerId())
       : null,
   );
   const taskComposerHost = $derived(
@@ -480,8 +486,8 @@
   $effect(() => {
     if (!openProjectStore.isOpen || localGitIdentity) return;
     void serverConnections
-      .apiFor(LOCAL_SERVER_ID)
-      .setupHostReadiness()
+      .localHostApi()
+      ?.setupHostReadiness()
       .then((readiness) => (localGitIdentity = readiness.git.identity))
       .catch(() => {});
   });
@@ -520,14 +526,17 @@
       (directoryPickerTargetTabId
         ? session.sessionFor(directoryPickerTargetTabId)?.run.serverId
         : session.activeSession?.run.serverId) ??
+      serverConnections.defaultServerId() ??
       LOCAL_SERVER_ID,
   );
-  // apiFor() opens the connection as a side effect, so only reach for it while
-  // the picker is actually on screen.
+  // apiFor() opens the connection as a side effect, so only reach for the
+  // chosen host's api while the picker is actually on screen.
   const directoryPickerApi = $derived(
-    !directoryPickerOpen || directoryPickerServerId === serversStore.activeServerId
-      ? serverConnections.primaryApi()
-      : serverConnections.apiFor(directoryPickerServerId),
+    directoryPickerOpen
+      ? serverConnections.apiFor(directoryPickerServerId)
+      : serverConnections.apiFor(
+          serverConnections.defaultServerId() ?? LOCAL_SERVER_ID,
+        ),
   );
   const directoryPickerHostLabel = $derived(
     directoryPickerServerId === serversStore.activeServerId
@@ -573,19 +582,21 @@
     initializeRuntime(session, sessionSidebarStore);
   });
 
-  $effect(() => {
-    void connectionsStore.refreshCapabilities();
-  });
-
   const detectReconnect = createReconnectDetector(
     serversStore.connectionStatus,
   );
   $effect(() => {
     const connectionStatus = serversStore.connectionStatus;
-    if (detectReconnect(connectionStatus)) {
+    const reconnected = detectReconnect(connectionStatus);
+    if (connectionStatus === "connected") {
+      const defaultServerId = serverConnections.defaultServerId();
+      if (defaultServerId) {
+        void connectionsStore.refreshCapabilities({ serverId: defaultServerId });
+      }
+    }
+    if (reconnected) {
       refreshTheme(settings.setSystemTheme.bind(settings));
       initializeRuntime(session, sessionSidebarStore);
-      void connectionsStore.refreshCapabilities();
       const scope = activePrScope();
       session.prsStore.reportChecksActivity(scope.api, scope.ctx);
     }
@@ -715,13 +726,14 @@
     return untrack(() => notificationsStore.start({
       hostDisplay: (serverId) => {
         const host = serversStore.hostFor(serverId);
-        return {
+        const display: import("./contexts/notifications/notifications.store.svelte").NotificationHostDisplay = {
           label: host?.label ?? "this host",
-          ...(host && "installationId" in host && host.installationId
-            ? { installationId: host.installationId }
-            : {}),
-          isPrimary: serverConnections.connectionFor()?.serverId === serverId,
+          isPrimary: serverConnections.defaultServerId() === serverId,
         };
+        if (host && "installationId" in host && host.installationId) {
+          display.installationId = host.installationId;
+        }
+        return display;
       },
       isSessionFocused: (serverId, sessionId) =>
         document.visibilityState === "visible" &&
@@ -738,14 +750,14 @@
   // for their first report, but session changes must not reinstall every listener.
   $effect(() =>
     untrack(() => {
-      const events = serverConnections.eventsForPrimary();
       const unsubVoiceModel = subscribeAllHosts('voice.modelStatusChanged', (serverId, status) =>
         voiceModelStore.apply(status, serverId),
       );
       const unsubSessionStatuses = sessionSidebarStore.subscribeSessionStatuses();
       const unsubPrLifecycle = sessionSidebarStore.subscribePrLifecycle();
-      void voiceModelStore.refresh();
-      const unsubUsage = events.subscribe('usage.limitsChanged', ({ snapshots }) =>
+      const defaultServerId = serverConnections.defaultServerId();
+      if (defaultServerId) void voiceModelStore.refresh(defaultServerId);
+      const unsubUsage = subscribeAllHosts('usage.limitsChanged', (_serverId, { snapshots }) =>
         agent.applyUsage(snapshots),
       );
       void agent.refreshUsage();
@@ -830,7 +842,7 @@
   // store zeroes it rather than report another project's number. Fetch the new
   // project now; leaving it to the poll blanks the badge for up to a cycle.
   const needsReviewProjectKey = $derived(
-    session.ctx.session.projectPath || session.ctx.session.workingDirectory,
+    projectScopeOf(session.ctx.session),
   );
   $effect(() => {
     void needsReviewProjectKey;
@@ -862,10 +874,7 @@
         sel.toString().trim()
       ) {
         const node = sel.getRangeAt(0).commonAncestorContainer;
-        const el =
-          node.nodeType === Node.ELEMENT_NODE
-            ? (node as Element)
-            : node.parentElement;
+        const el = node instanceof Element ? node : node.parentElement;
         const conversation = el?.closest<HTMLElement>(
           ".conversation-selectable",
         );
@@ -1032,6 +1041,10 @@
   useKeybinding("global.session-picker-j", () =>
     window.dispatchEvent(new CustomEvent("solus:toggle-session-picker")),
   );
+  useKeybinding("global.task-picker", () => {
+    session.sessionPickerOpen = false;
+    session.taskPickerOpen = !session.taskPickerOpen;
+  });
   useKeybinding("global.toggle-expanded", () => session.toggleExpanded(), {
     enabled: () => viewMode === "pill",
   });
@@ -1107,7 +1120,7 @@
   });
   // Desktop-only: on web the browser owns these combos (and its own zoom), so
   // the disabled registration lets the events fall through untouched.
-  const zoomAvailable = typeof localApi.setZoomFactor === "function";
+  const zoomAvailable = localApi.setZoomFactor !== undefined;
   const showZoomToast = () => {
     toasts.info(`Zoom ${Math.round(settings.zoomFactor * 100)}%`, { id: "ui-zoom" });
   };
@@ -1154,6 +1167,102 @@
   });
   useKeybinding("global.go-to-file", () => (goToFileOpen = true), {
     enabled: () => canSearchProject,
+  });
+
+  // ── Actions that ship without a shortcut ───────────────────────────────────
+  // Each is otherwise pointer- or palette-only. They register the same way as
+  // everything above; the manifest simply gives them no default combo, so the
+  // handler waits until a user assigns one in Settings → Keybindings.
+
+  /** Open the palette drilled straight into one parent command's sub-page. */
+  function openPalettePage(id: string, title: string) {
+    paletteGitTarget = null;
+    paletteInitialPage = { id, title };
+    commandPaletteOpen = true;
+  }
+
+  const paletteAvailable = $derived(viewMode === "editor");
+  // The git sub-pages only exist while a session sits in a repository, matching
+  // the condition that builds those commands.
+  const hasGitContext = $derived(
+    !!(session.activeSession?.run.gitContext ?? session.globalDefaults.gitContext),
+  );
+
+  useKeybinding(
+    "global.switch-branch",
+    () => {
+      window.dispatchEvent(
+        new CustomEvent("solus:toggle-git-dropdown", {
+          detail: { view: "branches" },
+        }),
+      );
+    },
+    { enabled: () => hasGitContext },
+  );
+  useKeybinding("global.new-session-worktree", () => void session.createWorktreeTab(), {
+    enabled: () => hasGitContext,
+  });
+  useKeybinding(
+    "global.new-session-in",
+    () => openPalettePage("new-session-in", "New session in"),
+    { enabled: () => paletteAvailable && hasGitContext },
+  );
+  useKeybinding(
+    "global.working-tree-diff",
+    () => {
+      window.dispatchEvent(
+        new CustomEvent("solus:toggle-diff-panel", {
+          detail: { scope: { kind: "working-tree" }, switchScope: true },
+        }),
+      );
+    },
+    // Same gate as the diff-panel toggle: the pill has nowhere to show a diff.
+    { enabled: () => viewMode === "editor" },
+  );
+  useKeybinding("global.open-prs", () => session.openPrs(null, "keybinding"));
+  useKeybinding(
+    "global.review-pr",
+    () => {
+      window.dispatchEvent(
+        new CustomEvent("solus:review-pr", { detail: { tabId: keyboardTabId } }),
+      );
+    },
+    { enabled: () => paletteAvailable && hasGitContext },
+  );
+  useKeybinding("global.open-plan", () => openPalettePage("open-plan", "Open plan"), {
+    enabled: () => paletteAvailable,
+  });
+  useKeybinding("global.open-document", () => openPalettePage("open-work", "Open document"), {
+    enabled: () => paletteAvailable,
+  });
+  useKeybinding(
+    "global.open-automation",
+    () => openPalettePage("open-automation", "Open automation"),
+    { enabled: () => paletteAvailable },
+  );
+  useKeybinding("global.open-task", () => openPalettePage("go-to-task", "Open task"), {
+    // The sub-page is only built for the project the tasks store is scoped to.
+    enabled: () => paletteAvailable && !!session.tasksProjectCwd,
+  });
+  useKeybinding(
+    "global.create-task-in",
+    () => openPalettePage("create-task-in", "Create task in"),
+    { enabled: () => paletteAvailable },
+  );
+  useKeybinding("global.permission-menu", () => {
+    window.dispatchEvent(
+      new CustomEvent("solus:toggle-permission-menu", {
+        detail: { tabId: keyboardTabId },
+      }),
+    );
+  });
+  useKeybinding("global.add-server", () => serversStore.openAddServer());
+  useKeybinding("global.switch-server", () => openPalettePage("switch-server", "Switch server"), {
+    enabled: () => paletteAvailable,
+  });
+  useKeybinding("global.find-hosts", () => {
+    session.showSettings("api-access", "keybinding");
+    void serversStore.scanForServers();
   });
 
   const paletteGitProjectRoot = $derived.by(() => {
@@ -1657,26 +1766,6 @@
       const canContinueWorktree =
         !!activeSess?.agentSessionId && !activeSess.run.gitContext?.worktreePath;
       const worktreeCommands: Command[] = [
-        ...(canContinueWorktree
-          ? [
-              {
-                id: "continue-in-worktree",
-                label: "Continue in worktree",
-                group: "General",
-                icon: TreeStructureIcon,
-                keywords: [
-                  "worktree",
-                  "continue",
-                  "move",
-                  "branch",
-                  "isolated",
-                  "fork",
-                ],
-                hint: comboHint("global.continue-worktree"),
-                run: () => void session.continueInWorktree(activeTabId, "palette"),
-              } as Command,
-            ]
-          : []),
         {
           id: "new-session-new-worktree",
           label: "New session in new worktree",
@@ -1740,6 +1829,17 @@
           })),
         },
       ];
+      if (canContinueWorktree) {
+        worktreeCommands.unshift({
+          id: "continue-in-worktree",
+          label: "Continue in worktree",
+          group: "General",
+          icon: TreeStructureIcon,
+          keywords: ["worktree", "continue", "move", "branch", "isolated", "fork"],
+          hint: comboHint("global.continue-worktree"),
+          run: () => void session.continueInWorktree(activeTabId, "palette"),
+        });
+      }
       // Slot the git actions directly beneath "New session" so they stay near
       // session creation instead of drifting to the tail.
       const newTabIdx = commands.findIndex((c) => c.id === "new-tab");
@@ -1763,7 +1863,7 @@
 
   async function handleScreenshot(tabId?: string) {
     if (!desktopHandlersAvailable) return;
-    const result = await serverConnections.primaryApi().takeScreenshot();
+    const result = await serverConnections.localHostApi()?.takeScreenshot();
     if (!result) return;
     session.addAttachments([result], tabId);
   }
@@ -1771,7 +1871,8 @@
   async function handleAttachFile(tabId?: string) {
     const targetTabId = tabId ?? session.focusedChatTabId ?? session.activeTabId;
     const run = targetTabId ? session.runFor(targetTabId) : session.activeSession?.run;
-    const serverId = run?.serverId ?? LOCAL_SERVER_ID;
+    const serverId =
+      run?.serverId ?? serverConnections.defaultServerId() ?? LOCAL_SERVER_ID;
     const ctx = targetTabId ? session.ctxFor(targetTabId) : session.ctx;
     const targetApi = serverConnections.apiFor(serverId);
     try {
@@ -1789,7 +1890,7 @@
         if (files?.length) session.addAttachments(files, targetTabId);
         return;
       }
-      const localFiles = await serverConnections.apiFor(LOCAL_SERVER_ID).attachFiles(ctx);
+      const localFiles = await serverConnections.localHostApi()?.attachFiles(ctx);
       if (!localFiles?.length) return;
       const uploaded = await uploadLocalAttachments(
         targetApi,
@@ -1807,12 +1908,12 @@
   async function handleDesignMode(tabId?: string) {
     if (!desktopHandlersAvailable) return;
     designModeTargetTabId = tabId;
-    const result = await serverConnections.primaryApi().enterDesignMode();
+    const result = await serverConnections.localHostApi()?.enterDesignMode();
     if (!result) {
       designModeTargetTabId = undefined;
       // Capture failed: tell main to restore opacity so we don't leave the window invisible.
-      await serverConnections.primaryApi().designModeReady();
-      await serverConnections.primaryApi().exitDesignMode();
+      await serverConnections.localHostApi()?.designModeReady();
+      await serverConnections.localHostApi()?.exitDesignMode();
       return;
     }
     // Pre-decode so the <img> paints on first frame. Without this the editor UI (temporarily
@@ -1829,14 +1930,14 @@
     await new Promise<void>((r) =>
       requestAnimationFrame(() => requestAnimationFrame(() => r())),
     );
-    void serverConnections.primaryApi().designModeReady();
+    void serverConnections.localHostApi()?.designModeReady();
   }
 
   async function handleDesignConfirm(
     dataUrl: string,
     annotations: DesignAnnotationType[],
   ) {
-    const attachment = await serverConnections.primaryApi().submitDesignAnnotations({
+    const attachment = await serverConnections.localHostApi()?.submitDesignAnnotations({
       dataUrl,
       annotations,
     });
@@ -1846,21 +1947,21 @@
     designModeScreenshot = null;
     designModeTargetTabId = undefined;
     await tick();
-    await serverConnections.primaryApi().exitDesignMode();
+    await serverConnections.localHostApi()?.exitDesignMode();
   }
 
   async function handleDesignCancel() {
     designModeScreenshot = null;
     designModeTargetTabId = undefined;
     await tick();
-    await serverConnections.primaryApi().exitDesignMode();
+    await serverConnections.localHostApi()?.exitDesignMode();
   }
 
 
   $effect(() => {
     const handler = (event: Event) => {
-      const detail = (
-        event as CustomEvent<{
+      if (!(event instanceof CustomEvent)) return;
+      const detail: {
           tabId?: string;
           draftId?: string;
           /** A tab id or a draft id — the surface that asked, when the emitter
@@ -1868,8 +1969,7 @@
           requesterId?: string;
           serverId?: string;
           intent?: "dispatch" | "open-project";
-        }>
-      ).detail;
+        } | undefined = event.detail;
       const requesterId = detail?.requesterId;
       const requesterDraftId =
         requesterId && session.sessionDrafts.has(requesterId)
@@ -1888,20 +1988,19 @@
       directoryPickerOpen = true;
     };
     const openProjectHandler = (event: Event) => {
-      const detail = (event as CustomEvent<{ tabId?: string } | undefined>)
-        .detail;
+      if (!(event instanceof CustomEvent)) return;
+      const detail: { tabId?: string } | undefined = event.detail;
       startOpenProject({ tabId: detail?.tabId });
     };
     // The git "Review a PR" action reuses the palette's PR list: open the
     // command palette drilled straight into the "Review PR…" sub-page.
     const reviewPrHandler = (event: Event) => {
-      const detail = (
-        event as CustomEvent<{
+      if (!(event instanceof CustomEvent)) return;
+      const detail: {
           tabId?: string;
           cwd?: string;
           checkout?: GitCheckout | null;
-        }>
-      ).detail;
+        } | undefined = event.detail;
       const targetTabId = detail?.tabId ?? activeTabId;
       const targetSession = session.sessionFor(targetTabId);
       const dir =
@@ -2023,7 +2122,7 @@
       workspace: session,
       tabId,
       serverId,
-      isLocalHost: serverId === LOCAL_SERVER_ID,
+      isLocalHost: serverId === serverConnections.localServerId(),
       path,
       intent: options.intent ?? "open-project",
     });
@@ -2068,6 +2167,9 @@
     openProjectStore.close();
     if (!serverId) return;
 
+    const name = path.split(/[\\/]/).pop() || path;
+    projectCatalog.record({ serverId, projectRoot: path }, name);
+
     // The flow may have been started from a draft (RunOnPicker passes its
     // requester id through `tabId`); re-aim that draft instead of opening a
     // second one and orphaning the prompt already typed into it.
@@ -2103,7 +2205,8 @@
     // is 25 minutes away at PR time. Say so now, without blocking the session.
     if (pushNote) {
       const onboardingHost = { id: serverId, label: hostLabel || serverId };
-      toasts.info(pushNote, {
+      toasts.info("Git push is not set up", {
+        description: pushNote,
         actions: [
           {
             label: "Set up",
@@ -2115,7 +2218,6 @@
     }
 
     if (!cloned && hostIsLocal) return;
-    const name = path.split(/[\\/]/).pop();
     toasts.success(
       cloned
         ? `Cloned ${name} on ${hostLabel || "host"}`
@@ -2187,7 +2289,8 @@
       if (!files || files.length === 0) return;
       const targetTabId = session.focusedChatTabId ?? session.activeTabId;
       const run = targetTabId ? session.runFor(targetTabId) : session.activeSession?.run;
-      const serverId = run?.serverId ?? LOCAL_SERVER_ID;
+      const serverId =
+        run?.serverId ?? serverConnections.defaultServerId() ?? LOCAL_SERVER_ID;
       const ctx = targetTabId ? session.ctxFor(targetTabId) : session.ctx;
       try {
         const capabilities = await serverConnections.capabilitiesFor(serverId);
@@ -2213,7 +2316,7 @@
           .map((file) => localApi.getPathForFile(file))
           .filter(Boolean);
         if (paths.length === 0) return;
-        const attachments = await serverConnections.apiFor(LOCAL_SERVER_ID).attachFilePaths(paths, ctx);
+        const attachments = await serverConnections.localHostApi()?.attachFilePaths(paths, ctx);
         if (attachments) session.addAttachments(attachments, targetTabId);
       } catch (error) {
         toasts.error(error instanceof Error ? error.message : "Couldn't attach files");
@@ -2260,7 +2363,7 @@
   position="top-right"
   offset={{ top: "1rem", right: "1rem" }}
   visibleToasts={1}
-  duration={6000}
+  duration={3000}
   hotkey={TOAST_HOTKEY}
 />
 
@@ -2434,7 +2537,15 @@
 <!-- First run only. Mounted over everything, and never lazily pre-warmed: a
      client that has already been through it must not pay for the chunk. -->
 {#if !settings.onboardingCompleted}
-  {#await import("./components/onboarding/OnboardingSurface.svelte") then onboardingModule}
+  {#await import("./components/onboarding/OnboardingSurface.svelte")}
+    <!-- Opaque from the first frame: without this the workspace is visible for
+         as long as the lazy chunk takes to arrive. Same composite as the
+         surface itself — --background alone is translucent in dark mode. -->
+    <div
+      class="fixed inset-0 z-[10005]"
+      style="background: linear-gradient(var(--background), var(--background)) var(--solus-edge-bg)"
+    ></div>
+  {:then onboardingModule}
     {@const OnboardingSurface = onboardingModule.default}
     <OnboardingSurface />
   {/await}
@@ -2451,7 +2562,8 @@
       onOpenProject={(path) =>
         void openProjectAtPath(path, openProjectStore.source !== "local")}
       onBrowse={browseForOpenProject}
-      onBackgroundCloneFailure={(failure) => toasts.error(failure.title)}
+      onBackgroundCloneFailure={(failure) =>
+        toasts.error(failure.title, { description: failure.detail })}
       localIdentity={localGitIdentity}
     />
   {/await}
@@ -2500,7 +2612,7 @@
           toasts.success("Task created");
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          toasts.error(`Couldn't create task: ${message}`);
+          toasts.error("Couldn't create task", { description: message });
           // Rethrow so the composer keeps the modal open; it owns dismissal on
           // success (via onCancel) so "Create more" can stay open.
           throw err;

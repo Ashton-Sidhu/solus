@@ -1,13 +1,12 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { execFileSync, type ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
-import { existsSync, mkdirSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'fs'
 import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { PassThrough } from 'stream'
 import {
-  delegatedCheckoutPath,
   hasClaudeAuth,
   parseAgentSignInVerification,
   probeHostReadiness,
@@ -15,6 +14,8 @@ import {
   setupProjectsRoot,
   type SpawnProcess,
 } from '../../src/main/server/handlers/setup-handlers'
+import { dispatchCheckoutPath, resolveDispatchWorktree } from '../../src/main/project-config/dispatch-checkouts'
+import { listBranches } from '../../src/main/git/worktree-manager'
 import {
   agentInstallCompatibilityError,
   applyCloneProtocol,
@@ -45,36 +46,99 @@ describe('projects root', () => {
   })
 })
 
-describe('delegated checkout path', () => {
-  test('isolates the same repository by delegated GitHub login', () => {
-    // WHY: people sharing a remote host must never share a working tree or see
-    // one another's uncommitted work when they dispatch the same repository.
-    const octocatPath = delegatedCheckoutPath(
-      '/srv/projects',
-      'octocat',
-      'git@github.com:solus-sh/solus.git',
-    )
-    const monalisaPath = delegatedCheckoutPath(
-      '/srv/projects',
-      'monalisa',
-      'git@github.com:solus-sh/solus.git',
-    )
+describe('dispatch checkout path', () => {
+  test('isolates the same repository by paired device instead of credential login', () => {
+    const firstPath = dispatchCheckoutPath('/srv/projects', 'device-one', 'github.com/solus-sh/solus')
+    const secondPath = dispatchCheckoutPath('/srv/projects', 'device-two', 'github.com/solus-sh/solus')
 
-    expect(octocatPath).toBe('/srv/projects/solus-remote/octocat/solus-sh/solus')
-    expect(monalisaPath).not.toBe(octocatPath)
+    expect(firstPath).toBe('/srv/projects/solus-remote/device-one/github.com/solus-sh/solus')
+    expect(secondPath).not.toBe(firstPath)
   })
 
-  test('rejects traversal-shaped identity and repository segments', () => {
-    expect(() => delegatedCheckoutPath(
-      '/srv/projects',
-      '../octocat',
-      'https://github.com/solus-sh/solus.git',
-    )).toThrow('delegated login')
-    expect(() => delegatedCheckoutPath(
-      '/srv/projects',
-      'octocat',
-      'https://github.com/.hidden/solus.git',
-    )).toThrow('delegated owner')
+  test('rejects traversal-shaped device and repository segments', () => {
+    expect(() => dispatchCheckoutPath(
+      '/srv/projects', '../device', 'github.com/solus-sh/solus',
+    )).toThrow('paired device')
+    expect(() => dispatchCheckoutPath(
+      '/srv/projects', 'device', 'github.com/.hidden/solus',
+    )).toThrow('repository key')
+  })
+})
+
+describe('dispatch worktree selection', () => {
+  test('accepts only an existing isolated worktree from the dispatch checkout', async () => {
+    const root = await temporaryDirectory()
+    const checkout = join(root, 'checkout')
+    const worktree = join(root, 'release-worktree')
+    execFileSync('git', ['init', '-b', 'main', checkout], { stdio: 'ignore' })
+    execFileSync('git', ['-C', checkout, 'config', 'user.name', 'Test'], { stdio: 'ignore' })
+    execFileSync('git', ['-C', checkout, 'config', 'user.email', 'test@example.com'], { stdio: 'ignore' })
+    writeFileSync(join(checkout, 'file.txt'), 'main')
+    execFileSync('git', ['-C', checkout, 'add', 'file.txt'], { stdio: 'ignore' })
+    execFileSync('git', ['-C', checkout, 'commit', '-m', 'main'], { stdio: 'ignore' })
+    execFileSync('git', ['-C', checkout, 'worktree', 'add', '-b', 'release', worktree], { stdio: 'ignore' })
+
+    // WHY: a dispatched agent must never use the unattended base checkout or a
+    // path outside this device-specific repository's exact worktree list.
+    expect(resolveDispatchWorktree(checkout, worktree)).toBe(realpathSync(worktree))
+    expect(() => resolveDispatchWorktree(checkout, checkout)).toThrow('selected worktree')
+    expect(() => resolveDispatchWorktree(checkout, join(root, 'other'))).toThrow('selected worktree')
+  })
+})
+
+describe('dispatch branch sources', () => {
+  test('lists origin branches without including local-only branches', async () => {
+    const checkout = await temporaryDirectory()
+    execFileSync('git', ['init', '-b', 'main', checkout], { stdio: 'ignore' })
+    execFileSync('git', ['-C', checkout, 'config', 'user.name', 'Test'], { stdio: 'ignore' })
+    execFileSync('git', ['-C', checkout, 'config', 'user.email', 'test@example.com'], { stdio: 'ignore' })
+    writeFileSync(join(checkout, 'file.txt'), 'main')
+    execFileSync('git', ['-C', checkout, 'add', 'file.txt'], { stdio: 'ignore' })
+    execFileSync('git', ['-C', checkout, 'commit', '-m', 'main'], { stdio: 'ignore' })
+    execFileSync('git', ['-C', checkout, 'branch', 'local-only'], { stdio: 'ignore' })
+    execFileSync('git', ['-C', checkout, 'update-ref', 'refs/remotes/origin/release', 'HEAD'], { stdio: 'ignore' })
+
+    // WHY: a branch used on another host must exist on origin. Offering a
+    // source-host-only branch would fail after the target clone is prepared.
+    expect(listBranches(checkout, { remoteOnly: true })).toEqual(['release'])
+  })
+})
+
+describe('dispatch history roots', () => {
+  test('returns only matching repositories in the authenticated device namespace', async () => {
+    // WHY: connected devices can share a host, but their dispatch work and
+    // session history must remain isolated from one another.
+    const root = await temporaryDirectory()
+    const ownPath = dispatchCheckoutPath(root, 'device-one', 'github.com/solus-sh/solus')
+    const otherPath = dispatchCheckoutPath(root, 'device-two', 'github.com/solus-sh/solus')
+    for (const path of [ownPath, otherPath]) {
+      mkdirSync(path, { recursive: true })
+      execFileSync('git', ['init', path], { stdio: 'ignore' })
+      execFileSync('git', ['-C', path, 'remote', 'add', 'origin', 'https://github.com/solus-sh/solus.git'], { stdio: 'ignore' })
+    }
+    const server = new SolusServer()
+    registerSetupHandlers(server, { projectsRoot: () => root })
+
+    const roots = await server.handle(
+      'resolveDispatchHistoryRoots',
+      [['github.com/solus-sh/solus']],
+      { deviceId: 'device-one' },
+    )
+
+    expect(roots).toEqual([{ repoKey: 'github.com/solus-sh/solus', path: ownPath }])
+  })
+
+  test('requires a paired device and bounds repository requests', async () => {
+    const server = new SolusServer()
+    registerSetupHandlers(server)
+
+    await expect(server.handle('resolveDispatchHistoryRoots', [[]]))
+      .rejects.toThrow('authenticated device')
+    await expect(server.handle(
+      'resolveDispatchHistoryRoots',
+      [Array.from({ length: 33 }, (_, index) => `github.com/owner/repo-${index}`)],
+      { deviceId: 'device' },
+    )).rejects.toThrow('limited to 32 repositories')
   })
 })
 
@@ -333,14 +397,13 @@ describe('server setup clone dispatch', () => {
     }])).rejects.toThrow('Setup actions require an authenticated device.')
   })
 
-  test('the destination host clones when its own project registry has no checkout', async () => {
-    // WHY: the client sends only repository intent; checkout discovery and the
+  test('the destination host clones when its device-scoped checkout is missing', async () => {
+    // WHY: the client sends only repository intent; checkout placement and the
     // resulting filesystem action must happen on the destination host.
     const root = await temporaryDirectory()
     const calls: SpawnCall[] = []
     const server = new SolusServer()
     registerSetupHandlers(server, {
-      findProjectCheckout: async () => null,
       projectsRoot: () => root,
       loadGithubToken: () => null,
       registerProject: async (path) => resolveTestProjectKey(path),
@@ -351,28 +414,32 @@ describe('server setup clone dispatch', () => {
       cloneUrl: 'https://github.com/solus-sh/solus.git',
     }], { deviceId: 'test-device' }) as SetupPrepareProjectResult
 
+    const path = join(root, 'solus-remote/test-device/github.com/solus-sh/solus')
     expect(result).toEqual({
-      path: join(root, 'solus'),
-      projectKey: resolveTestProjectKey(join(root, 'solus')),
+      path,
+      projectKey: resolveTestProjectKey(path),
       action: 'cloned',
     })
     expect(calls[0].args[0]).toBe('clone')
   })
 
-  test('the destination host validates its matching checkout instead of cloning another', async () => {
-    // WHY: a stale or invalid registry path must fail where Host V can explain
-    // it; the renderer must not fall back to a second checkout behind its back.
-    const checkout = await temporaryDirectory()
+  test('the destination host refuses an occupied canonical checkout path', async () => {
+    // WHY: dispatch has one deterministic destination. It must not pick a
+    // sibling path and silently separate later sessions from earlier history.
+    const root = await temporaryDirectory()
+    const checkout = join(root, 'solus-remote/test-device/github.com/solus-sh/solus')
+    mkdirSync(checkout, { recursive: true })
+    writeFileSync(join(checkout, 'unrelated.txt'), 'occupied')
     const calls: SpawnCall[] = []
     const server = new SolusServer()
     registerSetupHandlers(server, {
-      findProjectCheckout: async () => checkout,
+      projectsRoot: () => root,
       spawnProcess: processSequence(calls, []),
     })
 
     await expect(server.handle('setupPrepareProject', [{
       cloneUrl: 'https://github.com/solus-sh/solus.git',
-    }], { deviceId: 'test-device' })).rejects.toThrow(`no git checkout at ${checkout}`)
+    }], { deviceId: 'test-device' })).rejects.toThrow(`${checkout} already exists and is not empty`)
     expect(calls).toEqual([])
   })
 
@@ -380,10 +447,14 @@ describe('server setup clone dispatch', () => {
     // WHY: worktree creation fetches its exact base branch next. Pulling the base
     // checkout here duplicates the network wait and can reject an otherwise safe
     // isolated dispatch because the unattended base checkout is dirty.
-    const checkout = await gitCheckout('https://github.com/solus-sh/solus.git')
+    const root = await temporaryDirectory()
+    const checkout = join(root, 'solus-remote/test-device/github.com/solus-sh/solus')
+    mkdirSync(checkout, { recursive: true })
+    execFileSync('git', ['init', checkout], { stdio: 'ignore' })
+    execFileSync('git', ['-C', checkout, 'remote', 'add', 'origin', 'https://github.com/solus-sh/solus.git'], { stdio: 'ignore' })
     const server = new SolusServer()
     registerSetupHandlers(server, {
-      findProjectCheckout: async () => checkout,
+      projectsRoot: () => root,
       registerProject: async (path) => resolveTestProjectKey(path),
     })
     const handle = server.handle.bind(server)
@@ -406,6 +477,39 @@ describe('server setup clone dispatch', () => {
       action: 'updated',
     })
     expect(handledMethods).toEqual(['setupPrepareProject', 'setupAdoptProject'])
+  })
+
+  test('routes an exact worktree only from the device-scoped checkout', async () => {
+    const root = await temporaryDirectory()
+    const checkout = dispatchCheckoutPath(root, 'test-device', 'github.com/solus-sh/solus')
+    const worktree = join(root, 'selected-worktree')
+    mkdirSync(checkout, { recursive: true })
+    execFileSync('git', ['init', '-b', 'main', checkout], { stdio: 'ignore' })
+    execFileSync('git', ['-C', checkout, 'config', 'user.name', 'Test'], { stdio: 'ignore' })
+    execFileSync('git', ['-C', checkout, 'config', 'user.email', 'test@example.com'], { stdio: 'ignore' })
+    execFileSync('git', ['-C', checkout, 'remote', 'add', 'origin', 'https://github.com/solus-sh/solus.git'], { stdio: 'ignore' })
+    writeFileSync(join(checkout, 'file.txt'), 'main')
+    execFileSync('git', ['-C', checkout, 'add', 'file.txt'], { stdio: 'ignore' })
+    execFileSync('git', ['-C', checkout, 'commit', '-m', 'main'], { stdio: 'ignore' })
+    execFileSync('git', ['-C', checkout, 'worktree', 'add', '-b', 'feature', worktree], { stdio: 'ignore' })
+    const server = new SolusServer()
+    registerSetupHandlers(server, {
+      projectsRoot: () => root,
+      registerProject: async (path) => resolveTestProjectKey(path),
+    })
+
+    const result = await server.handle('setupPrepareProject', [{
+      cloneUrl: 'https://github.com/solus-sh/solus.git',
+      worktreePath: worktree,
+    }], { deviceId: 'test-device' }) as SetupPrepareProjectResult
+
+    // WHY: the target path is host-local and must be checked against this
+    // paired device's dispatch checkout again when Send prepares the host.
+    expect(result).toEqual({
+      path: realpathSync(worktree),
+      projectKey: resolveTestProjectKey(checkout),
+      action: 'updated',
+    })
   })
 
   test('derives SSH from the repository, cleans its partial checkout, then falls back to anonymous HTTPS', async () => {

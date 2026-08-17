@@ -53,11 +53,22 @@
   $effect(() => {
     if (!open) return
     recomputePosition()
-    window.addEventListener('resize', recomputePosition)
-    window.addEventListener('scroll', recomputePosition, true)
+    // Scroll can fire several times per frame from nested scrollers; coalesce
+    // the getBoundingClientRect into at most one layout read per frame.
+    let rafId = 0
+    const queueRecompute = () => {
+      if (rafId) return
+      rafId = requestAnimationFrame(() => {
+        rafId = 0
+        recomputePosition()
+      })
+    }
+    window.addEventListener('resize', queueRecompute)
+    window.addEventListener('scroll', queueRecompute, { capture: true, passive: true })
     return () => {
-      window.removeEventListener('resize', recomputePosition)
-      window.removeEventListener('scroll', recomputePosition, true)
+      cancelAnimationFrame(rafId)
+      window.removeEventListener('resize', queueRecompute)
+      window.removeEventListener('scroll', queueRecompute, true)
     }
   })
 

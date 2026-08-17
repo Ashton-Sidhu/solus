@@ -7,13 +7,42 @@ import type { TaskStatus } from '../../session/lib/task-list'
 
 export type BreadcrumbDraftMode = 'existing-task' | 'new-task' | 'no-task' | null
 
+export interface BreadcrumbTaskGroups<T> {
+  open: T[]
+  completed: T[]
+}
+
+export interface BreadcrumbLeafLabels {
+  task: string | null
+  session: string
+}
+
+/** Keep the breadcrumb picker easy to scan without changing the urgency order
+ * it receives from the sidebar store. Work that can still continue comes first;
+ * completed work stays available in a separate section below it. */
+export function breadcrumbTaskGroups<T extends { status: TaskStatus }>(tasks: readonly T[]): BreadcrumbTaskGroups<T> {
+  const open: T[] = []
+  const completed: T[] = []
+  for (const task of tasks) {
+    if (task.status === 'done') completed.push(task)
+    else open.push(task)
+  }
+  return { open, completed }
+}
+
+/** Match what the picker shows. Keeping this explicit lets the command list
+ * omit whole rows, including each row's separate close action. */
+export function breadcrumbTaskMatches(label: string, query: string): boolean {
+  return label.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())
+}
+
 /** A draft names the destination being created rather than borrowing the
  * placeholder session title for every level of the path. */
 export function breadcrumbLeafLabels(
   taskLabel: string,
   sessionLabel: string,
   draftMode: BreadcrumbDraftMode,
-): { task: string | null; session: string } {
+): BreadcrumbLeafLabels {
   if (draftMode === 'no-task') return { task: null, session: 'New session' }
   if (draftMode === 'new-task') return { task: 'New task', session: 'New session' }
   if (draftMode === 'existing-task') return { task: taskLabel, session: 'New session' }
@@ -53,16 +82,16 @@ export interface StatusNote {
   color: string
 }
 
-const STATUS_TEXT: Partial<Record<TaskStatus, string>> = {
-  question: 'Needs you',
-  plan: 'Plan ready',
-  error: 'Failed',
-  limit: 'Rate limited',
-  running: 'Running',
-}
+const STATUS_TEXT = new Map<TaskStatus, string>([
+  ['question', 'Needs you'],
+  ['plan', 'Plan ready'],
+  ['error', 'Failed'],
+  ['limit', 'Rate limited'],
+  ['running', 'Running'],
+])
 
 export function statusNote(status: TaskStatus): StatusNote | null {
-  const text = STATUS_TEXT[status]
+  const text = STATUS_TEXT.get(status)
   const color = statusColor(status)
   if (!text || !color) return null
   return { text, color }

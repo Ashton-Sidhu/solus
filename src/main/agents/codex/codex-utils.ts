@@ -1,7 +1,10 @@
 import { createReadStream, existsSync, writeFileSync } from 'node:fs'
+import { open, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { extname, join } from 'node:path'
 import { createInterface } from 'node:readline'
+import { MemoryCache } from '../../../shared/cache'
+import { z } from 'zod'
 import { encodePathAsFolder, stripInjectedContext } from '../utils'
 import { extractPlanTitle } from '../plan-text'
 import type { AnnotationIndex } from '../../plans/annotations'
@@ -9,6 +12,166 @@ import { isSolusWorktreePath, worktreeProjectRoot } from '../../../shared/types'
 export { isSolusWorktreePath, worktreeProjectRoot }
 import type { AgentId, PlanDescriptor } from '../../../shared/types'
 import type { SessionLoadMessage } from '../../../shared/session-history'
+import type { AskForApproval, SandboxPolicy } from './generated/v2'
+
+const stringValueSchema = z.string()
+const finiteNumberSchema = z.number().finite()
+const messageContentPartSchema = z.union([
+  z.string(),
+  z.object({ text: z.string().optional() }),
+])
+const turnErrorSchema = z.union([
+  z.string(),
+  z.object({ message: z.string() }),
+])
+const spawnedThreadItemSchema = z.union([
+  z.object({
+    type: z.literal('subAgentActivity'),
+    kind: z.literal('started'),
+    id: z.string(),
+    agentThreadId: z.string(),
+  }),
+  z.object({
+    type: z.literal('collabAgentToolCall'),
+    tool: z.literal('spawnAgent'),
+    id: z.string(),
+    receiverThreadIds: z.array(z.string().min(1)),
+  }),
+])
+const toolResultSchema = z.object({
+  contentItems: z.array(messageContentPartSchema).optional(),
+  content: z.array(messageContentPartSchema).optional(),
+})
+const planItemSchema = z.object({
+  step: z.string().optional(),
+  text: z.string().optional(),
+  description: z.string().optional(),
+  title: z.string().optional(),
+  status: z.string().optional(),
+})
+const planTextSchema = z.object({
+  id: z.union([z.string(), finiteNumberSchema]).optional(),
+  text: z.string().optional(),
+  content: z.union([z.string(), z.array(messageContentPartSchema)]).optional(),
+  markdown: z.string().optional(),
+  message: z.union([
+    z.string(),
+    z.object({ content: z.union([z.string(), z.array(messageContentPartSchema)]).optional() }),
+  ]).optional(),
+  outputText: z.string().optional(),
+  output_text: z.string().optional(),
+  output: z.union([z.string(), z.array(messageContentPartSchema)]).optional(),
+})
+
+interface ChangedFileNodeObject {
+  file_path?: string
+  filePath?: string
+  path?: string
+  file?: string
+  fileName?: string
+  filename?: string
+  old_path?: string
+  new_path?: string
+  oldPath?: string
+  newPath?: string
+  changes?: ChangedFileNode
+  diff?: ChangedFileNode
+  patch?: ChangedFileNode
+}
+
+type ChangedFileNode = string | ChangedFileNode[] | ChangedFileNodeObject
+
+const changedFileNodeSchema: z.ZodType<ChangedFileNode> = z.lazy(() => z.union([
+  z.string(),
+  z.array(changedFileNodeSchema),
+  z.object({
+    file_path: z.string().optional(),
+    filePath: z.string().optional(),
+    path: z.string().optional(),
+    file: z.string().optional(),
+    fileName: z.string().optional(),
+    filename: z.string().optional(),
+    old_path: z.string().optional(),
+    new_path: z.string().optional(),
+    oldPath: z.string().optional(),
+    newPath: z.string().optional(),
+    changes: changedFileNodeSchema.optional(),
+    diff: changedFileNodeSchema.optional(),
+    patch: changedFileNodeSchema.optional(),
+  }),
+]))
+
+interface ImageArtifactNodeObject {
+  path?: string
+  filePath?: string
+  filepath?: string
+  file_path?: string
+  outputPath?: string
+  output_path?: string
+  localPath?: string
+  local_path?: string
+  imagePath?: string
+  image_path?: string
+  savedPath?: string
+  saved_path?: string
+  dataUrl?: string
+  data_url?: string
+  url?: string
+  imageUrl?: string
+  image_url?: string
+  data?: string
+  result?: ImageArtifactNode
+  output?: ImageArtifactNode
+  outputs?: ImageArtifactNode
+  image?: ImageArtifactNode
+  images?: ImageArtifactNode
+  content?: ImageArtifactNode
+  contentItems?: ImageArtifactNode
+}
+
+type ImageArtifactNode = string | ImageArtifactNode[] | ImageArtifactNodeObject
+
+const imageArtifactNodeSchema: z.ZodType<ImageArtifactNode> = z.lazy(() => z.union([
+  z.string(),
+  z.array(imageArtifactNodeSchema),
+  z.object({
+    path: z.string().optional(),
+    filePath: z.string().optional(),
+    filepath: z.string().optional(),
+    file_path: z.string().optional(),
+    outputPath: z.string().optional(),
+    output_path: z.string().optional(),
+    localPath: z.string().optional(),
+    local_path: z.string().optional(),
+    imagePath: z.string().optional(),
+    image_path: z.string().optional(),
+    savedPath: z.string().optional(),
+    saved_path: z.string().optional(),
+    dataUrl: z.string().optional(),
+    data_url: z.string().optional(),
+    url: z.string().optional(),
+    imageUrl: z.string().optional(),
+    image_url: z.string().optional(),
+    data: z.string().optional(),
+    result: imageArtifactNodeSchema.optional(),
+    output: imageArtifactNodeSchema.optional(),
+    outputs: imageArtifactNodeSchema.optional(),
+    image: imageArtifactNodeSchema.optional(),
+    images: imageArtifactNodeSchema.optional(),
+    content: imageArtifactNodeSchema.optional(),
+    contentItems: imageArtifactNodeSchema.optional(),
+  }),
+]))
+
+function parsedString<Value>(value: Value): string | undefined {
+  const parsed = stringValueSchema.safeParse(value)
+  return parsed.success ? parsed.data : undefined
+}
+
+function parsedFiniteNumber<Value>(value: Value): number | undefined {
+  const parsed = finiteNumberSchema.safeParse(value)
+  return parsed.success ? parsed.data : undefined
+}
 
 export const CODEX_CHANGE_PATH_KEYS = [
   'file_path',
@@ -34,12 +197,28 @@ export interface CodexThreadSummary {
 }
 
 export interface CodexTurnHistory {
+  id?: string
   status?: string | null
   error?: unknown
   startedAt?: number | string | null
   completedAt?: number | string | null
   durationMs?: number | null
   items?: CodexHistoryItem[]
+}
+
+/** Select the last source turn that a live-session fork may include. If the
+ * active turn is not in thread/read yet, the final returned turn is still safe. */
+export function codexForkCutoffTurnId(
+  turns: CodexTurnHistory[],
+  activeTurnId: string | null,
+): string | undefined {
+  if (turns.length === 0) return undefined
+  if (activeTurnId) {
+    const activeIndex = turns.findIndex((turn) => turn.id === activeTurnId)
+    if (activeIndex === -1) return turns[turns.length - 1]?.id
+    return activeIndex > 0 ? turns[activeIndex - 1]?.id : undefined
+  }
+  return turns.length > 1 ? turns[turns.length - 2]?.id : undefined
 }
 
 export type CodexHistoryItem = {
@@ -89,20 +268,21 @@ export function isNormalStreamingTextNotification(
 ): boolean {
   return kind === 'notification' &&
     msg.method === 'item/agentMessage/delta' &&
-    typeof params?.delta === 'string'
+    stringValueSchema.safeParse(params?.delta).success
 }
 
 export async function scanCodexPlans(thread: CodexThreadSummary, annotations: AnnotationIndex): Promise<ScannedCodexPlan[]> {
   if (!thread.id || !thread.path || !existsSync(thread.path)) return []
 
   const sessionId = thread.id
+  const transcriptPath = thread.path
   const cwd = thread.cwd || process.cwd()
   const projectPath = encodePathAsFolder(cwd)
   const out: ScannedCodexPlan[] = []
   let activePlanTurn: { turnId: string; timestamp: number } | null = null
 
   await new Promise<void>((resolve) => {
-    const rl = createInterface({ input: createReadStream(thread.path!) })
+    const rl = createInterface({ input: createReadStream(transcriptPath) })
     rl.on('line', (line: string) => {
       try {
         const obj = JSON.parse(line)
@@ -174,30 +354,80 @@ export function codexThreadBelongsToProject(thread: CodexThreadSummary, projectR
   return cwd === projectRoot || worktreeProjectRoot(cwd) === projectRoot
 }
 
-export async function scanCodexThreadActivityTimestamp(thread: CodexThreadSummary): Promise<number | null> {
-  if (!thread.path || !existsSync(thread.path)) return null
+// Newest entries live at the end of a thread's JSONL, so the latest activity
+// timestamp is derivable from the file tail; parsing the whole transcript
+// scales with total bytes on disk rather than with what changed.
+const ACTIVITY_SCAN_TAIL_BYTES = 64 * 1024
+const activityTimestampCache = new MemoryCache<string, { mtimeMs: number; size: number; timestamp: number | null }>({ maxEntries: 512 })
 
+function latestActivityTimestampInLine(line: string): number | null {
+  try {
+    const obj = JSON.parse(line)
+    if (obj.type === 'event_msg' && obj.payload?.type === 'task_started') {
+      return parseEpochMs(obj.payload?.started_at ?? obj.timestamp)
+    }
+    if (obj.type === 'response_item') return parseEpochMs(obj.timestamp)
+  } catch {}
+  return null
+}
+
+async function scanWholeTranscriptActivityTimestamp(transcriptPath: string): Promise<number | null> {
   let latest: number | null = null
   await new Promise<void>((resolve) => {
-    const rl = createInterface({ input: createReadStream(thread.path!) })
+    const rl = createInterface({ input: createReadStream(transcriptPath) })
     rl.on('line', (line: string) => {
-      try {
-        const obj = JSON.parse(line)
-        let timestamp: number | null = null
-
-        if (obj.type === 'event_msg' && obj.payload?.type === 'task_started') {
-          timestamp = parseEpochMs(obj.payload?.started_at ?? obj.timestamp)
-        } else if (obj.type === 'response_item') {
-          timestamp = parseEpochMs(obj.timestamp)
-        }
-
-        if (timestamp !== null) latest = Math.max(latest ?? 0, timestamp)
-      } catch {}
+      const timestamp = latestActivityTimestampInLine(line)
+      if (timestamp !== null) latest = Math.max(latest ?? 0, timestamp)
     })
     rl.on('close', () => resolve())
     rl.on('error', () => resolve())
   })
+  return latest
+}
 
+export async function scanCodexThreadActivityTimestamp(thread: CodexThreadSummary): Promise<number | null> {
+  if (!thread.path) return null
+  const transcriptPath = thread.path
+
+  let fileStat
+  try {
+    fileStat = await stat(transcriptPath)
+  } catch {
+    return null
+  }
+  const cached = activityTimestampCache.get(transcriptPath)
+  if (cached && cached.mtimeMs === fileStat.mtimeMs && cached.size === fileStat.size) return cached.timestamp
+
+  let latest: number | null = null
+  try {
+    const readStart = Math.max(0, fileStat.size - ACTIVITY_SCAN_TAIL_BYTES)
+    const handle = await open(transcriptPath, 'r')
+    try {
+      const length = fileStat.size - readStart
+      const buffer = Buffer.alloc(length)
+      // Honor short reads (file truncated between stat and read) — decoding the
+      // NUL-filled remainder would poison the newest line.
+      const { bytesRead } = await handle.read(buffer, 0, length, readStart)
+      const lines = buffer.toString('utf8', 0, bytesRead).split('\n')
+      // The tail almost always starts mid-line; drop the partial first entry.
+      if (readStart > 0) lines.shift()
+      for (const line of lines) {
+        const timestamp = latestActivityTimestampInLine(line)
+        if (timestamp !== null) latest = Math.max(latest ?? 0, timestamp)
+      }
+    } finally {
+      await handle.close()
+    }
+  } catch {
+    return null
+  }
+
+  // A tail holding no parsable timestamp (e.g. one oversized item) falls back
+  // to the full scan so the answer matches the whole-file read.
+  if (latest === null && fileStat.size > ACTIVITY_SCAN_TAIL_BYTES) {
+    latest = await scanWholeTranscriptActivityTimestamp(transcriptPath)
+  }
+  activityTimestampCache.set(transcriptPath, { mtimeMs: fileStat.mtimeMs, size: fileStat.size, timestamp: latest })
   return latest
 }
 
@@ -210,7 +440,8 @@ export function makeCodexPlan(opts: {
   content: string
   annotations: AnnotationIndex
 }): ScannedCodexPlan {
-  const ann = opts.annotations[`${opts.sessionId}__${opts.planToolUseId}`]
+  const ann = opts.annotations.get(`${opts.sessionId}__${opts.planToolUseId}`)
+  const status = z.enum(['pending', 'accepted', 'rejected']).catch('pending').parse(ann?.status)
   return {
     provider: 'codex',
     planToolUseId: opts.planToolUseId,
@@ -221,7 +452,7 @@ export function makeCodexPlan(opts: {
     title: ann?.title || extractPlanTitle(opts.content),
     excerpt: extractCodexPlanExcerpt(opts.content),
     planContent: opts.content,
-    derivedStatus: (ann?.status ?? 'pending') as 'pending' | 'accepted' | 'rejected',
+    derivedStatus: status,
     commentCount: ann?.comments?.length ?? 0,
     bookmarked: !!ann?.bookmarked,
     bookmarkedAt: ann?.bookmarkedAt,
@@ -277,19 +508,12 @@ export function groupCodexPlansBySession(scanned: ScannedCodexPlan[]): PlanDescr
   return descriptors.sort((a, b) => b.timestamp - a.timestamp)
 }
 
-export function textFromCodexMessageContent(content: unknown): string {
-  if (typeof content === 'string') return content
-  if (!Array.isArray(content)) return ''
-  return content
-    .map((part) => {
-      if (typeof part === 'string') return part
-      if (part && typeof part === 'object') {
-        const text = (part as { text?: unknown }).text
-        if (typeof text === 'string') return text
-      }
-      return ''
-    })
-    .join('')
+export function textFromCodexMessageContent<Content>(content: Content): string {
+  const plainText = parsedString(content)
+  if (plainText !== undefined) return plainText
+  const parsed = z.array(messageContentPartSchema).safeParse(content)
+  if (!parsed.success) return ''
+  return parsed.data.map((part) => parsedString(part) ?? part.text ?? '').join('')
 }
 
 export function extractCodexPlanExcerpt(planContent: string): string {
@@ -300,12 +524,11 @@ export function extractCodexPlanExcerpt(planContent: string): string {
   return lines.slice(0, 2).join(' · ').slice(0, 180)
 }
 
-export function extractCodexChangedFilePaths(source: unknown): string[] {
+export function extractCodexChangedFilePaths<Source>(source: Source): string[] {
   const paths = new Set<string>()
 
-  function addPath(value: unknown): void {
-    if (typeof value !== 'string') return
-    let path = value.trim()
+  function addPath(value: string | undefined): void {
+    let path = value?.trim() ?? ''
     if (!path || path === '/dev/null') return
     if ((path.startsWith('"') && path.endsWith('"')) || (path.startsWith("'") && path.endsWith("'"))) {
       path = path.slice(1, -1)
@@ -322,27 +545,26 @@ export function extractCodexChangedFilePaths(source: unknown): string[] {
     }
   }
 
-  function visit(value: unknown): void {
-    if (!value) return
-    if (typeof value === 'string') {
-      addDiffPaths(value)
+  function visit(value: ChangedFileNode): void {
+    const text = parsedString(value)
+    if (text !== undefined) {
+      addDiffPaths(text)
       return
     }
     if (Array.isArray(value)) {
       for (const item of value) visit(item)
       return
     }
-    if (typeof value !== 'object') return
-
     for (const key of CODEX_CHANGE_PATH_KEYS) {
-      addPath(Reflect.get(value, key))
+      addPath(value[key])
     }
-    visit(Reflect.get(value, 'changes'))
-    visit(Reflect.get(value, 'diff'))
-    visit(Reflect.get(value, 'patch'))
+    if (value.changes) visit(value.changes)
+    if (value.diff) visit(value.diff)
+    if (value.patch) visit(value.patch)
   }
 
-  visit(source)
+  const parsed = changedFileNodeSchema.safeParse(source)
+  if (parsed.success) visit(parsed.data)
   return [...paths]
 }
 
@@ -420,11 +642,7 @@ export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): S
   if (item.type === 'fileChange') {
     const toolInput = Array.isArray(item.changes)
       ? JSON.stringify({ changes: item.changes })
-      : typeof item.aggregatedOutput === 'string' && item.aggregatedOutput
-        ? item.aggregatedOutput
-        : typeof item.result === 'string' && item.result
-          ? item.result
-          : null
+      : parsedString(item.aggregatedOutput) || parsedString(item.result) || null
     if (!toolInput) return null
     return {
       role: 'tool',
@@ -472,19 +690,16 @@ export function codexTurnToMessages(turn: CodexTurnHistory): SessionLoadMessage[
   const messages = (turn.items ?? [])
     .map((item) => codexItemToMessage(item, startedAt))
     .filter((message): message is SessionLoadMessage => message !== null)
+  const durationMs = parsedFiniteNumber(turn.durationMs)
   const completedAt = parseEpochMs(turn.completedAt)
-    ?? (typeof turn.durationMs === 'number' && turn.durationMs > 0
-      ? startedAt + turn.durationMs
+    ?? (durationMs && durationMs > 0
+      ? startedAt + durationMs
       : null)
   if (turn.status === 'failed') {
-    const error =
-      typeof turn.error === 'string'
-        ? turn.error
-        : turn.error &&
-            typeof turn.error === 'object' &&
-            typeof (turn.error as { message?: unknown }).message === 'string'
-          ? (turn.error as { message: string }).message
-          : 'Codex turn failed'
+    const parsedError = turnErrorSchema.safeParse(turn.error)
+    const error = parsedError.success
+      ? parsedString(parsedError.data) ?? parsedError.data.message
+      : 'Codex turn failed'
     messages.push({
       role: 'system',
       content: `Error: ${error}`,
@@ -525,58 +740,31 @@ export function codexSubagentActivityInput(item: {
   agentThreadId?: unknown
   agentPath?: unknown
 }): string {
-  const agentPath = typeof item.agentPath === 'string' ? item.agentPath : ''
+  const agentPath = parsedString(item.agentPath) ?? ''
   const taskName = agentPath.split('/').filter(Boolean).at(-1)?.replaceAll('_', ' ') || 'Sub-agent'
   return JSON.stringify({
     subagent_type: 'codex',
     description: taskName,
-    agent_thread_id: typeof item.agentThreadId === 'string' ? item.agentThreadId : undefined,
+    agent_thread_id: parsedString(item.agentThreadId),
     agent_path: agentPath || undefined,
   })
 }
 
-export function codexSpawnedThreadLinks(item: unknown): Array<{ threadId: string; toolId: string }> {
-  if (!item || typeof item !== 'object') return []
-  const candidate = item as {
-    type?: unknown
-    kind?: unknown
-    tool?: unknown
-    id?: unknown
-    agentThreadId?: unknown
-    receiverThreadIds?: unknown
-  }
-  if (
-    candidate.type === 'subAgentActivity' &&
-    candidate.kind === 'started' &&
-    typeof candidate.id === 'string' &&
-    typeof candidate.agentThreadId === 'string'
-  ) {
+export function codexSpawnedThreadLinks<Item>(item: Item): Array<{ threadId: string; toolId: string }> {
+  const parsed = spawnedThreadItemSchema.safeParse(item)
+  if (!parsed.success) return []
+  const candidate = parsed.data
+  if (candidate.type === 'subAgentActivity') {
     return [{ threadId: candidate.agentThreadId, toolId: candidate.id }]
   }
-  if (
-    candidate.type === 'collabAgentToolCall' &&
-    candidate.tool === 'spawnAgent' &&
-    typeof candidate.id === 'string' &&
-    Array.isArray(candidate.receiverThreadIds)
-  ) {
-    const toolId = candidate.id
-    return candidate.receiverThreadIds
-      .filter((threadId: unknown): threadId is string => typeof threadId === 'string' && !!threadId)
-      .map((threadId: string) => ({ threadId, toolId }))
-  }
-  return []
+  return candidate.receiverThreadIds.map((threadId) => ({ threadId, toolId: candidate.id }))
 }
 
-function joinReasoningStrings(value: unknown): string {
-  if (!Array.isArray(value)) return ''
-  return value
-    .map((part) => {
-      if (typeof part === 'string') return part
-      if (part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string') {
-        return (part as { text: string }).text
-      }
-      return ''
-    })
+function joinReasoningStrings<Value>(value: Value): string {
+  const parsed = z.array(messageContentPartSchema).safeParse(value)
+  if (!parsed.success) return ''
+  return parsed.data
+    .map((part) => parsedString(part) ?? part.text ?? '')
     .filter(Boolean)
     .join('\n')
     .trim()
@@ -589,29 +777,21 @@ function codexReasoningText(item: CodexHistoryItem): string {
   return joinReasoningStrings(item.summary) || joinReasoningStrings(item.content)
 }
 
-function codexToolResultText(result: unknown): string {
-  if (typeof result === 'string') return result
-  if (!result || typeof result !== 'object') return ''
-  const record = result as { contentItems?: unknown; content?: unknown }
-  const content = record.contentItems ?? record.content
-  if (Array.isArray(content)) {
-    return content
-      .map((item) => {
-        if (typeof item === 'string') return item
-        if (!item || typeof item !== 'object') return ''
-        const part = item as { text?: unknown }
-        return typeof part.text === 'string' ? part.text : ''
-      })
-      .filter(Boolean)
-      .join('\n')
-  }
-  return ''
+function codexToolResultText<Result>(result: Result): string {
+  const text = parsedString(result)
+  if (text !== undefined) return text
+  const parsed = toolResultSchema.safeParse(result)
+  if (!parsed.success) return ''
+  const content = parsed.data.contentItems ?? parsed.data.content ?? []
+  return content
+    .map((item) => parsedString(item) ?? item.text ?? '')
+    .filter(Boolean)
+    .join('\n')
 }
 
-export function codexToolInputFromArguments(args: unknown): string | undefined {
+export function codexToolInputFromArguments<Arguments>(args: Arguments): string | undefined {
   if (args === undefined) return undefined
-  if (typeof args === 'string') return args
-  return JSON.stringify(args)
+  return parsedString(args) ?? JSON.stringify(args)
 }
 
 export function codexToolNameForItem(item: { type?: string; name?: string; server?: string; tool?: string; namespace?: string }): string | null {
@@ -645,53 +825,61 @@ export function codexToolNameForItem(item: { type?: string; name?: string; serve
 // normalizer and the history loader use this single helper so there is one
 // source of truth for "where's the image".
 
-const IMAGE_PATH_KEYS = [
-  'path',
-  'filePath',
-  'filepath',
-  'file_path',
-  'outputPath',
-  'output_path',
-  'localPath',
-  'local_path',
-  'imagePath',
-  'image_path',
-  'savedPath',
-  'saved_path',
-] as const
-
-const IMAGE_DATA_KEYS = ['dataUrl', 'data_url', 'url', 'imageUrl', 'image_url', 'data'] as const
-
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'])
 
 /** Resolve the on-disk image path for a Codex imageGeneration item, persisting
  *  inline data URLs to a temp file. Returns null when nothing renderable exists. */
-export function codexImageArtifactPath(value: unknown, seen = new WeakSet<object>()): string | null {
-  if (!value) return null
-  if (typeof value === 'string') return imagePathFromString(value)
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      const found = codexImageArtifactPath(entry, seen)
+export function codexImageArtifactPath<Value>(value: Value): string | null {
+  const parsed = imageArtifactNodeSchema.safeParse(value)
+  if (!parsed.success) return null
+
+  function visit(node: ImageArtifactNode): string | null {
+    const text = parsedString(node)
+    if (text !== undefined) return imagePathFromString(text)
+    if (Array.isArray(node)) {
+      for (const entry of node) {
+        const found = visit(entry)
+        if (found) return found
+      }
+      return null
+    }
+
+    const candidates = [
+      node.path,
+      node.filePath,
+      node.filepath,
+      node.file_path,
+      node.outputPath,
+      node.output_path,
+      node.localPath,
+      node.local_path,
+      node.imagePath,
+      node.image_path,
+      node.savedPath,
+      node.saved_path,
+      node.dataUrl,
+      node.data_url,
+      node.url,
+      node.imageUrl,
+      node.image_url,
+      node.data,
+    ]
+    for (const candidate of candidates) {
+      if (!candidate) continue
+      const found = imagePathFromString(candidate)
+      if (found) return found
+    }
+
+    const nested = [node.result, node.output, node.outputs, node.image, node.images, node.content, node.contentItems]
+    for (const child of nested) {
+      if (!child) continue
+      const found = visit(child)
       if (found) return found
     }
     return null
   }
-  if (typeof value !== 'object') return null
-  if (seen.has(value)) return null
-  seen.add(value)
 
-  for (const key of [...IMAGE_PATH_KEYS, ...IMAGE_DATA_KEYS]) {
-    const candidate = Reflect.get(value, key)
-    if (typeof candidate === 'string') {
-      const found = imagePathFromString(candidate)
-      if (found) return found
-    }
-  }
-  for (const nestedKey of ['result', 'output', 'outputs', 'image', 'images', 'content', 'contentItems']) {
-    const found = codexImageArtifactPath(Reflect.get(value, nestedKey), seen)
-    if (found) return found
-  }
-  return null
+  return visit(parsed.data)
 }
 
 function imagePathFromString(value: string): string | null {
@@ -723,9 +911,11 @@ export function toEpochMs(value: number | string | null | undefined): number {
 }
 
 export function parseEpochMs(value: number | string | null | undefined): number | null {
-  if (typeof value === 'number') return value < 10_000_000_000 ? value * 1000 : value
-  if (typeof value === 'string') {
-    const parsed = Date.parse(value)
+  const numericValue = parsedFiniteNumber(value)
+  if (numericValue !== undefined) return numericValue < 10_000_000_000 ? numericValue * 1000 : numericValue
+  const stringValue = parsedString(value)
+  if (stringValue !== undefined) {
+    const parsed = Date.parse(stringValue)
     if (Number.isFinite(parsed)) return parsed
   }
   return null
@@ -735,13 +925,13 @@ export function toIsoTimestamp(value: number | string | null | undefined): strin
   return new Date(toEpochMs(value)).toISOString()
 }
 
-export function approvalPolicyFor(mode: 'ask' | 'auto' | 'plan'): unknown {
+export function approvalPolicyFor(mode: 'ask' | 'auto' | 'plan'): AskForApproval {
   if (mode === 'auto') return 'never'
   if (mode === 'plan') return 'never'
   return 'untrusted'
 }
 
-export function sandboxPolicyFor(mode: 'ask' | 'auto' | 'plan'): unknown {
+export function sandboxPolicyFor(mode: 'ask' | 'auto' | 'plan'): SandboxPolicy {
   if (mode === 'plan') {
     return {
       type: 'readOnly',
@@ -764,10 +954,11 @@ export function planFromCompletedItem(params: any): { id: string; text: string }
 }
 
 export function planTextFromPlanUpdated(params: any): string {
-  const plan = Array.isArray(params?.plan) ? params.plan : []
+  const parsed = z.array(planItemSchema).safeParse(params?.plan)
+  const plan = parsed.success ? parsed.data : []
   const items = plan
-    .map((item: any) => {
-      const content = String(item?.step || item?.text || item?.description || item?.title || '').trim()
+    .map((item) => {
+      const content = (item.step || item.text || item.description || item.title || '').trim()
       if (!content) return null
       const marker = planItemMarker(item?.status)
       return marker ? `- ${marker} ${content}` : `- ${content}`
@@ -778,37 +969,31 @@ export function planTextFromPlanUpdated(params: any): string {
   return `# Plan\n\n${items.join('\n')}`
 }
 
-function planItemMarker(status: unknown): string {
-  if (typeof status !== 'string') return '[ ]'
-
+function planItemMarker(status: string | undefined): string {
+  if (!status) return '[ ]'
   const normalized = status.trim().replace(/[\s-]/g, '_').toLowerCase()
   if (normalized === 'completed' || normalized === 'complete' || normalized === 'done' || normalized === 'success') return '[x]'
   if (normalized === 'in_progress' || normalized === 'inprogress' || normalized === 'running' || normalized === 'active' || normalized === 'current') return '(In progress)'
   return '[ ]'
 }
 
-export function extractPlanText(value: any): string {
-  if (!value) return ''
-  if (typeof value === 'string') return value
+export function extractPlanText<Value>(value: Value): string {
+  const directText = parsedString(value)
+  if (directText !== undefined) return directText
 
-  for (const key of ['text', 'content', 'markdown', 'message', 'outputText', 'output_text']) {
-    const raw = value[key]
-    if (typeof raw === 'string' && raw.trim()) return raw
+  const parsed = planTextSchema.safeParse(value)
+  if (!parsed.success) return ''
+  const plan = parsed.data
+  for (const candidate of [plan.text, plan.markdown, plan.outputText, plan.output_text]) {
+    if (candidate?.trim()) return candidate
   }
-
-  const content = value.content || value.message?.content || value.output
-  if (!Array.isArray(content)) return ''
-
-  return content
-    .map((block: any) => {
-      if (typeof block === 'string') return block
-      if (typeof block?.text === 'string') return block.text
-      if (typeof block?.content === 'string') return block.content
-      return ''
-    })
-    .join('')
+  const messageText = parsedString(plan.message)
+  if (messageText?.trim()) return messageText
+  const messageContent = messageText === undefined && plan.message ? plan.message.content : undefined
+  const content = plan.content || messageContent || plan.output
+  return textFromCodexMessageContent(content)
 }
 
-export function isInterruptedTurnStatus(status: unknown): boolean {
+export function isInterruptedTurnStatus<Status>(status: Status): boolean {
   return status === 'interrupted' || status === 'cancelled' || status === 'canceled' || status === 'aborted'
 }

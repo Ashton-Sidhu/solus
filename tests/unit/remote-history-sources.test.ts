@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  remoteHistorySourceBatches,
   remoteHistorySources,
   type RemoteHistoryHosts,
 } from '../../src/renderer/components/session/lib/remote-history-sources'
@@ -19,12 +20,40 @@ function hosts(overrides: Partial<RemoteHistoryHosts> = {}): RemoteHistoryHosts 
       serverId === 'local'
         ? [identity('/Users/me/solus', SOLUS_REPO)]
         : [identity('/home/me/solus', SOLUS_REPO)],
+    dispatchHistoryRoots: async () => [],
     isReachable: async () => true,
     ...overrides,
   }
 }
 
 describe('remote history sources', () => {
+  test('a connected host resolves before an asleep saved host times out', async () => {
+    // WHY: remote scans start only after their discovery promise resolves. One
+    // asleep saved host must not add its health timeout to a connected host.
+    let releaseAsleep!: () => void
+    const asleep = new Promise<void>((resolve) => (releaseAsleep = resolve))
+    const batches = remoteHistorySourceBatches(hosts({
+      remoteServerIds: () => ['asleep', 'laptop'],
+      isReachable: async (serverId) => {
+        if (serverId === 'asleep') await asleep
+        return serverId !== 'asleep'
+      },
+    }), ['/Users/me/solus'])
+
+    const firstLaptopBatch = await Promise.race([
+      Promise.all(batches.slice(2)).then((results) => results.flat()),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('connected host was blocked')), 100)),
+    ])
+    releaseAsleep()
+
+    expect(firstLaptopBatch).toContainEqual({
+      id: 'laptop:/home/me/solus',
+      serverId: 'laptop',
+      projectPath: '/home/me/solus',
+      repoKey: SOLUS_REPO,
+    })
+  })
+
   test('the same repository is found on another host under its own path', async () => {
     // WHY: a checkout is /Users/me/solus here and /home/me/solus there. Matching
     // on path would find nothing, which is exactly the bug that makes a session
@@ -32,8 +61,40 @@ describe('remote history sources', () => {
     const sources = await remoteHistorySources(hosts(), ['/Users/me/solus'])
 
     expect(sources).toEqual([
-      { id: 'laptop:/home/me/solus', serverId: 'laptop', projectPath: '/home/me/solus' },
+      { id: 'laptop:/home/me/solus', serverId: 'laptop', projectPath: '/home/me/solus', repoKey: SOLUS_REPO },
     ])
+  })
+
+  test('a device-scoped dispatch checkout joins the matching host sources', async () => {
+    // WHY: dispatch checkouts are deliberately absent from the public project
+    // manifest, so this focused source is the only way their sessions survive
+    // after the tab closes.
+    const sources = await remoteHistorySources(hosts({
+      projectIdentities: async (serverId) =>
+        serverId === 'local' ? [identity('/Users/me/solus', SOLUS_REPO)] : [],
+      dispatchHistoryRoots: async () => [{
+        repoKey: SOLUS_REPO,
+        path: '/srv/projects/solus-remote/device/github.com/sidhu/solus',
+      }],
+    }), ['/Users/me/solus'])
+
+    expect(sources).toEqual([{
+      id: 'laptop:/srv/projects/solus-remote/device/github.com/sidhu/solus',
+      serverId: 'laptop',
+      projectPath: '/srv/projects/solus-remote/device/github.com/sidhu/solus',
+      repoKey: SOLUS_REPO,
+    }])
+  })
+
+  test('a path returned by both checkout sources is scanned once', async () => {
+    const path = '/srv/projects/solus-remote/device/github.com/sidhu/solus'
+    const sources = await remoteHistorySources(hosts({
+      projectIdentities: async (serverId) =>
+        serverId === 'local' ? [identity('/Users/me/solus', SOLUS_REPO)] : [identity(path, SOLUS_REPO)],
+      dispatchHistoryRoots: async () => [{ repoKey: SOLUS_REPO, path }],
+    }), ['/Users/me/solus'])
+
+    expect(sources).toHaveLength(1)
   })
 
   test('a host that has never held this repository is not asked for sessions', async () => {
@@ -89,6 +150,18 @@ describe('remote history sources', () => {
     )
 
     expect(sources.map((source) => source.serverId)).toEqual(['laptop'])
+  })
+
+  test('dispatch discovery failure does not hide a host normal project history', async () => {
+    const sources = await remoteHistorySources(hosts({
+      dispatchHistoryRoots: async () => {
+        throw new Error('dispatch discovery failed')
+      },
+    }), ['/Users/me/solus'])
+
+    expect(sources).toEqual([
+      { id: 'laptop:/home/me/solus', serverId: 'laptop', projectPath: '/home/me/solus', repoKey: SOLUS_REPO },
+    ])
   })
 
   test('a project missing from the local manifest resolves no repository to match', async () => {

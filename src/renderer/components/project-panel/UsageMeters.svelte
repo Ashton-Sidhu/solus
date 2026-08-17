@@ -21,11 +21,11 @@
     void agent.refreshUsage();
   });
 
-  const barTone: Record<string, string> = {
+  const barTone = {
     ok: "[&_[data-slot=progress-indicator]]:bg-(--solus-status-complete)",
     low: "[&_[data-slot=progress-indicator]]:bg-(--solus-status-running)",
     spent: "[&_[data-slot=progress-indicator]]:bg-(--solus-status-error)",
-  };
+  } satisfies Record<string, string>;
 </script>
 
 {#if rows.length > 0}
@@ -34,7 +34,7 @@
       <!-- The provider reads as a menu row — same glyph column, same size and
            weight as Files and Terminal — and its windows hang beneath it. -->
       <div
-        class="flex min-h-8 items-center gap-2 px-2 py-[0.3125rem] text-[0.8125rem] text-(--solus-text-secondary)"
+        class="flex min-h-8 items-center gap-2 px-2 py-[0.3125rem] text-xs text-(--solus-text-secondary)"
       >
         <!-- Same marks as the model picker, in the same treatment: Codex's is
              solid black, so it keeps a white plate to stay legible in dark
@@ -57,11 +57,19 @@
         <span class="min-w-0 flex-1 truncate">{row.label}</span>
       </div>
       <div class="flex flex-col gap-1.5 pt-0.5 pr-2 pb-1.5 pl-[1.8125rem]">
+        {#if row.meters.length === 0}
+          <!-- Claude reads its quota from an account endpoint that can answer
+               empty or rate-limited. Say so, rather than leaving the provider
+               with a blank space a reader would take for "no quota". -->
+          <span class="text-menu-meta text-(--solus-text-tertiary)"
+            >Usage unavailable</span
+          >
+        {/if}
         {#each row.meters as meter (meter.key)}
           <div class="flex flex-col gap-[0.1875rem]">
             <!-- The window and what's left of it read as one phrase; when it
                  refills is the qualifier, so it sits out at the right. -->
-            <div class="flex items-baseline gap-1.5 text-xs">
+            <div class="flex items-baseline gap-1.5 text-menu-meta">
               <span class="shrink-0 text-(--solus-text-secondary)"
                 >{meter.label}</span
               >

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, describe, expect, jest, mock, test } from 'bun:test'
 import type { Task } from '../../src/shared/task-types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
@@ -27,6 +27,7 @@ const previousDerived = (globalThis as unknown as { $derived?: unknown }).$deriv
 const previousEffect = (globalThis as unknown as { $effect?: unknown }).$effect
 
 afterEach(() => {
+  jest.useRealTimers()
   taskServerConnections.reset()
   connectionCreatedListener = undefined
   if (previousWindow === undefined) delete (globalThis as unknown as { window?: Window }).window
@@ -66,6 +67,100 @@ function task(): Task {
 }
 
 describe('renderer task hydration', () => {
+  test('refreshes visible task details without fanning out through the hidden cache', async () => {
+    // WHY: Editor and Pill keep hidden tabs mounted. A task invalidation must not
+    // turn every task detail ever opened in those tabs into a simultaneous RPC.
+    jest.useFakeTimers()
+    installStateRune()
+    const detailReads: string[] = []
+    const api = {
+      tasksSidebarSnapshot: async () => ({
+        tasks: [
+          { ...task(), id: 'visible' },
+          { ...task(), id: 'hidden' },
+        ],
+        sessionsByTask: {},
+      }),
+      tasksGet: async (taskId: string) => {
+        detailReads.push(taskId)
+        return {
+          task: { ...task(), id: taskId },
+          comments: [],
+          events: [],
+          links: [],
+          subtasks: [],
+        }
+      },
+    }
+    taskServerConnections.registerPrimary('local', api)
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: { solus: api },
+    })
+
+    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+    await store.loadDetails('visible')
+    await store.loadDetails('hidden')
+    detailReads.splice(0)
+
+    const stopWatching = store.watchDetails('visible')
+    taskServerConnections.emit('local', 'tasks.invalidated', {})
+    jest.advanceTimersByTime(101)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(detailReads).toEqual(['visible'])
+    stopWatching()
+  })
+
+  test('coalesces detail reads for the same task', async () => {
+    // WHY: the visible task page and its project rail can ask for the same detail
+    // on one frame. They must share the RPC rather than racing duplicate reads.
+    installStateRune()
+    let detailReads = 0
+    let resolveDetails!: (value: {
+      task: Task
+      comments: []
+      events: []
+      links: []
+      subtasks: []
+    }) => void
+    const details = new Promise<{
+      task: Task
+      comments: []
+      events: []
+      links: []
+      subtasks: []
+    }>((resolve) => { resolveDetails = resolve })
+    const api = {
+      tasksSidebarSnapshot: async () => ({ tasks: [task()], sessionsByTask: {} }),
+      tasksGet: () => {
+        detailReads++
+        return details
+      },
+    }
+    taskServerConnections.registerPrimary('local', api)
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: { solus: api },
+    })
+
+    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+    const first = store.loadDetails('task-1')
+    const second = store.loadDetails('task-1')
+
+    expect(first).toBe(second)
+    expect(detailReads).toBe(1)
+    resolveDetails({ task: task(), comments: [], events: [], links: [], subtasks: [] })
+    await first
+  })
+
   test('reloads after a host is restored during the cold snapshot', async () => {
     // WHY: restored tabs can create their host connection while the first task
     // read is in flight. The completed lifecycle on that host must reach the
@@ -170,6 +265,7 @@ describe('renderer task hydration', () => {
         { ...task(), id: 'child', parentId: 'parent' },
       ],
       sessionsByTask: {
+        parent: [{ taskId: 'parent', sessionId: 'resumed-session', role: 'referenced', linkedAt: 0 }],
         child: [{ taskId: 'child', sessionId: 'resumed-session', linkedAt: 1 }],
       },
     })
@@ -177,6 +273,12 @@ describe('renderer task hydration', () => {
 
     expect(store.taskForSession('resumed-session')?.id).toBe('child')
     expect(store.tasks.map(({ id }) => id).sort()).toEqual(['child', 'parent'])
+    expect(store.attemptsForTask('parent').map(({ sessionId }) => sessionId)).toEqual([
+      'resumed-session',
+    ])
+    expect(store.attemptsForTask('child').map(({ sessionId }) => sessionId)).toEqual([
+      'resumed-session',
+    ])
   })
 
   test('restores a durable PR link from the cold-start sidebar snapshot', async () => {
@@ -331,6 +433,67 @@ describe('renderer task hydration', () => {
       expect.objectContaining({ taskId: 'task-1', sessionId: 'session-1' }),
     ])
     expect(store.taskForSession('session-1')?.id).toBe('task-1')
+  })
+
+  test('re-keys a provider attempt to one stable handoff session', async () => {
+    // WHY: the sidebar reads this store in the same frame as a provider switch.
+    // Keeping the old attempt while adding the stable id creates two rows.
+    installStateRune()
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        solus: {
+          tasksSidebarSnapshot: async () => ({ tasks: [task()], sessionsByTask: {} }),
+        },
+      },
+    })
+
+    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+    store.trackSessionStart('task-1', 'provider-session')
+
+    store.rekeySessionBinding('provider-session', 'solus-session')
+
+    expect(store.taskForSession('provider-session')).toBeNull()
+    expect(store.taskForSession('solus-session')?.id).toBe('task-1')
+    expect(store.sessionsByTask.get('task-1')?.map((attempt) => attempt.sessionId)).toEqual([
+      'solus-session',
+    ])
+  })
+
+  test('forwards a dispatched handoff re-key to the task host', async () => {
+    // WHY: the provider switch runs on the execution host, but a dispatched
+    // session's attempt row lives on the task host. Updating only renderer state
+    // leaves the old provider attempt durable and it returns as a duplicate row.
+    installStateRune()
+    const rekeys: Array<[string, string]> = []
+    const api = {
+      tasksSidebarSnapshot: async () => ({ tasks: [task()], sessionsByTask: {} }),
+      tasksRekeySession: async (sourceSessionId: string, targetSessionId: string) => {
+        rekeys.push([sourceSessionId, targetSessionId])
+      },
+      tasksForSession: async () => null,
+    }
+    taskServerConnections.registerPrimary('task-host', api)
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: { solus: api },
+    })
+
+    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+    store.trackSessionStart('task-1', 'provider-session')
+
+    store.rekeySessionBinding('provider-session', 'solus-session', 'task-host')
+    await Promise.resolve()
+
+    expect(rekeys).toEqual([['provider-session', 'solus-session']])
+    expect(store.taskForSession('provider-session')).toBeNull()
+    expect(store.taskForSession('solus-session')?.id).toBe('task-1')
   })
 
   test('keeps GitHub issue sync loading until the upstream request settles', async () => {
@@ -517,6 +680,46 @@ describe('renderer task hydration', () => {
 
     store.restorePending(pending)
     expect(store.tasks.map(({ id }) => id)).toEqual(['task-1'])
+  })
+
+  test('bounds concurrent RPCs when a large task deletion commits', async () => {
+    // WHY: one RPC per selected task can exceed the transport's in-flight
+    // request limit. A large selection must drain through a small worker pool.
+    installStateRune()
+    const tasks = Array.from({ length: 105 }, (_, index) => ({
+      ...task(),
+      id: `task-${index + 1}`,
+    }))
+    let activeDeletes = 0
+    let maximumActiveDeletes = 0
+    const deletedIds: string[] = []
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        solus: {
+          tasksSidebarSnapshot: async () => ({ tasks, sessionsByTask: {} }),
+          tasksDelete: async (taskId: string) => {
+            activeDeletes++
+            maximumActiveDeletes = Math.max(maximumActiveDeletes, activeDeletes)
+            await Promise.resolve()
+            deletedIds.push(taskId)
+            activeDeletes--
+          },
+        },
+      },
+    })
+
+    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+    const pending = store.softRemove(tasks.map(({ id }) => id))
+
+    await store.commitPending(pending)
+
+    expect(deletedIds).toHaveLength(105)
+    expect(new Set(deletedIds).size).toBe(105)
+    expect(maximumActiveDeletes).toBeLessThanOrEqual(8)
   })
 
   test('publishes a newly posted GitHub comment into open task details', async () => {

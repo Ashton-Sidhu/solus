@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
   import type { PrReviewTarget } from "../../../shared/providers";
+  import { projectScopeOf } from "../../../shared/types";
   import { getWorkspaceContext } from "../../contexts";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
@@ -10,7 +11,6 @@
   import StackDiffBanner from "./StackDiffBanner.svelte";
   import { existingPrReviewState } from "./lib/pr-review.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { serverConnections } from "@client-core/server-connections";
 
   // The review's change, popped out beside it. Reading a diff is a two-handed
   // job — the conversation on one side, the code on the other — so this is a
@@ -26,12 +26,17 @@
   const pane = paneActions(paneId);
 
   // Never created here: this pane exists only alongside a review that already
-  // opened, and state it invented would have no worktree to read.
+  // opened, and state it invented would have no worktree to read. The review's
+  // host comes from the open review route, or this pane's own params; with
+  // neither there is no review state to find.
   const reviewServerId = $derived(
-    session.router.params("prReview")?.serverId ??
-      serverConnections.serverIdForApi(serverConnections.primaryApi()),
+    session.router.params("prReview")?.serverId ?? params.serverId ?? null,
   );
-  const review = $derived(existingPrReviewState(reviewServerId, params.cwd ?? "", params.number));
+  const review = $derived(
+    reviewServerId
+      ? existingPrReviewState(reviewServerId, params.cwd ?? "", params.number)
+      : undefined,
+  );
   const pr = $derived<PrReviewTarget | null>(review?.pr ?? null);
   const checkout = $derived(review?.checkout ?? null);
 
@@ -55,17 +60,9 @@
   }
 </script>
 
-<PaneChrome
-  onClose={close}
-  onToggleMaximize={pane.toggleMaximize}
-  maximized={pane.maximized}
-  isLeading={pane.isLeading}
-  closeLabel="Close diff"
-/>
-
 {#if review && pr}
   <div class="flex h-full min-h-0 flex-col">
-    {#if review.ownDeltaBase}
+    {#if !review.commitScope && review.ownDeltaBase}
       <StackDiffBanner
         parent={review.ownDeltaBase.parent}
         fileCount={review.ownDeltaFileCount}
@@ -83,17 +80,21 @@
       />
     {/if}
     <div class="min-h-0 flex-1">
-      {#if review.diffLoading && review.diffPatch === null}
-        <div class="grid h-full place-items-center text-xs text-muted-foreground" role="status">Loading pull request diff…</div>
-      {:else if review.diffError}
-        <div class="grid h-full place-items-center px-6 text-center text-xs text-destructive" role="alert">{review.diffError}</div>
+      {#if review.commitScope ? review.commitDiffLoading && review.commitDiffPatch === null : review.diffLoading && review.diffPatch === null}
+        <div class="grid h-full place-items-center text-xs text-muted-foreground" role="status">
+          Loading {review.commitScope ? "commit" : "pull request"} diff…
+        </div>
+      {:else if review.commitScope ? review.commitDiffError : review.diffError}
+        <div class="grid h-full place-items-center px-6 text-center text-xs text-destructive" role="alert">
+          {review.commitScope ? review.commitDiffError : review.diffError}
+        </div>
       {:else}
       <DiffPanel
         bind:this={diffPanelRef}
         tabId={reviewTabId}
         getCtx={() => review.ctx}
         getApi={() => review.api}
-        projectPath={checkout?.worktreePath ?? params.cwd ?? review.ctx.session.projectPath ?? review.ctx.session.workingDirectory}
+        projectPath={checkout?.worktreePath ?? params.cwd ?? projectScopeOf(review.ctx.session)}
         worktreePath={checkout?.worktreePath}
         worktreeBranch={pr.headRef}
         targetBranch={pr.baseRef}
@@ -102,18 +103,41 @@
         embedded
         onToggleMaximize={pane.toggleMaximize}
         initialScope={review.diffScope}
-        patchOverride={review.isSinceReviewMode ? (review.interdiff?.patch ?? "") : (review.diffPatch ?? "")}
-        patchOverrideFileLoader={review.isSinceReviewMode ? undefined : review.loadDiffFiles}
-        emptyState={review.isSinceReviewMode
+        commentingDisabled={!!review.commitScope}
+        commitSha={review.commitScope?.sha ?? null}
+        onClearCommitScope={() => {
+          review.clearCommitScope();
+          requestInputFocus();
+        }}
+        patchOverride={review.commitScope
+          ? (review.commitDiffPatch ?? "")
+          : review.isSinceReviewMode
+            ? (review.interdiff?.patch ?? "")
+            : (review.diffPatch ?? "")}
+        patchOverrideFileLoader={review.commitScope
+          ? review.loadCommitDiffFiles
+          : review.isSinceReviewMode
+            ? undefined
+            : review.loadDiffFiles}
+        emptyState={review.commitScope
           ? {
-              title: "No patch changes since your review",
-              description: "The PR head moved, but its effective patch stayed the same.",
+              title: "No file changes in this commit",
+              description: "This commit did not change any reviewable files.",
             }
-          : undefined}
-        externalComments={review.drafts.diffComments}
+          : review.isSinceReviewMode
+            ? {
+                title: "No patch changes since your review",
+                description: "The PR head moved, but its effective patch stayed the same.",
+              }
+            : undefined}
+        externalComments={review.commitScope ? [] : review.drafts.diffComments}
         onExternalCommentSave={(comment) => review.drafts.save(comment)}
         onExternalCommentDelete={(id) => review.drafts.remove(id)}
-        reviewThreads={review.isSinceReviewMode ? review.sinceReviewThreads : review.threads}
+        reviewThreads={review.commitScope
+          ? []
+          : review.isSinceReviewMode
+            ? review.sinceReviewThreads
+            : review.threads}
         onThreadReply={(threadId, body) => review.replyToThread(threadId, body)}
         onThreadResolve={(threadId, resolved) => review.resolveThread(threadId, resolved)}
       />
@@ -127,7 +151,7 @@
        line breaks in half while the diff is on its way. -->
   <div class="flex h-full min-h-0 flex-col">
     <div
-      class="h-(--solus-chrome-row-h,2.5rem) shrink-0 border-b border-[var(--solus-container-border)]"
+      class="workspace-titlebar h-(--solus-chrome-row-h,2.5rem) shrink-0 border-b border-[var(--solus-container-border)]"
       aria-hidden="true"
     ></div>
     <div class="grid min-h-0 flex-1 place-items-center text-xs text-muted-foreground" role="status">
@@ -135,3 +159,13 @@
     </div>
   </div>
 {/if}
+
+<!-- After the content: the chrome rows above are window drag regions, and a
+     drag rect later in the DOM would re-cover this cluster's no-drag holes. -->
+<PaneChrome
+  onClose={close}
+  onToggleMaximize={pane.toggleMaximize}
+  maximized={pane.maximized}
+  isLeading={pane.isLeading}
+  closeLabel="Close diff"
+/>

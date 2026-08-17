@@ -1,6 +1,6 @@
 <script lang="ts">
   /**
-   * "Six keys worth learning." The caps are drawn from the live binding table
+   * "Seven keys worth learning." The caps are drawn from the live binding table
    * rather than typed in, so a rebound shortcut teaches the combo the app
    * actually answers to. Pressing one here lights it: onboarding holds an
    * exclusive keybinding scope, so the real command never fires behind the
@@ -37,7 +37,7 @@
 
   const title = $derived(
     triedCount === 0
-      ? "Six keys worth learning"
+      ? "Seven keys worth learning"
       : triedCount < keys.length
         ? `${triedCount} of ${keys.length} tried`
         : "That is all of them",
@@ -107,7 +107,6 @@
     continueLabel="Continue"
     continueEnabled
     oncontinue={() => store.advance()}
-    onback={() => store.back()}
     onskip={() => store.advance()}
   />
 </div>
