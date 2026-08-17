@@ -5,7 +5,7 @@ import type {
   MetricsQuerySpec,
   MetricsTimeBucket,
 } from '../../shared/observability-types'
-import { fieldExpression, fieldsForKind } from './field-registry'
+import { fieldExpression, fieldsForKind, viewNameForKind } from './field-registry'
 import { SPAN_KINDS, type SpanKind } from './registries'
 
 // ─── QuerySpec → parameterized SQL ───
@@ -19,6 +19,9 @@ import { SPAN_KINDS, type SpanKind } from './registries'
 export interface CompiledQuery {
   sql: string
   params: Array<string | number>
+  /** The view of the pinned kind, when the spec pins one — the declared grain
+   *  the handler forwards on the result. */
+  sourceView?: string
 }
 
 export const DEFAULT_QUERY_LIMIT = 1_000
@@ -296,14 +299,17 @@ export function compileQuerySpec(spec: MetricsQuerySpec): CompiledQuery {
   const aggregates = aggregateItems(spec.aggregates ?? [], kind)
   assertUniqueAliases([...groups.map((g) => g.alias), ...aggregates.map((a) => a.alias)])
 
+  const withGrain = (compiled: CompiledQuery): CompiledQuery =>
+    kind === undefined ? compiled : { ...compiled, sourceView: viewNameForKind(kind) }
+
   if (aggregates.length === 0) {
     if (groups.length > 0) throw new Error('groupBy needs at least one aggregate')
-    return compileListing(spec, kind)
+    return withGrain(compileListing(spec, kind))
   }
 
   const where = buildWhere(spec, kind)
   const hasPercentile = aggregates.some((aggregate) => PERCENTILES[aggregate.fn] !== undefined)
-  return hasPercentile
+  return withGrain(hasPercentile
     ? compileWithPercentiles(spec, groups, aggregates, where)
-    : compilePlainAggregation(spec, groups, aggregates, where)
+    : compilePlainAggregation(spec, groups, aggregates, where))
 }

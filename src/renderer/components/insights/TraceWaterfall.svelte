@@ -34,11 +34,18 @@
     trace: TraceView;
     /** Rendered inside a page (roomy) or a drawer (compact). */
     dense?: boolean;
+    /** Span whose detail opens on arrival — how a deep link lands on one span.
+     *  A click on any row takes over from there. */
+    selectedSpanId?: string | null;
   }
 
-  let { trace, dense = false }: Props = $props();
+  let { trace, dense = false, selectedSpanId = null }: Props = $props();
 
-  let openSpanId = $state<string | null>(null);
+  /** `undefined` = no click yet, follow the deep link; a click owns it after. */
+  let openSpanIdOverride = $state<string | null | undefined>(undefined);
+  const openSpanId = $derived(
+    openSpanIdOverride === undefined ? selectedSpanId : openSpanIdOverride,
+  );
   let hoveredSpanId = $state<string | null>(null);
 
   /** Row height, shared by the band scale and the HTML columns beside it —
@@ -62,7 +69,7 @@
   const fullWidth = (): [number, number] => [0, trace.totalMs];
 
   function toggle(spanId: string): void {
-    openSpanId = openSpanId === spanId ? null : spanId;
+    openSpanIdOverride = openSpanId === spanId ? null : spanId;
   }
 
   function durationColor(row: WaterfallRow): string {
@@ -187,7 +194,7 @@
       <button
         type="button"
         class="cursor-pointer text-[0.6875rem] text-muted-foreground transition-colors hover:text-foreground"
-        onclick={() => (openSpanId = null)}>Close</button
+        onclick={() => (openSpanIdOverride = null)}>Close</button
       >
     </div>
     {#if attributes.length > 0}

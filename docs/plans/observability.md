@@ -60,6 +60,17 @@ both-providers exit-ordering hazard — folded throughout).
   form owns it; SQL does not round-trip into the builder.
 - **Insights** — the renderer surface (`src/renderer/components/insights/`). Peer of
   Git/Run/Tasks/Works/Automations in the project panel.
+- **Declared grain** — the registry view one query read, stated by the server on the
+  result (`MetricsQueryResult.sourceView`) when exactly one view is identifiable.
+  An ambiguous query (a join of two views, or raw `spans`) declares none. The
+  client picks a result shape from the declared grain; it never overrides it.
+- **Result shape** — how the console renders one result. Exactly four:
+  **turn listing** (turn-grained rows: histogram brush, rich list, drawer,
+  waterfall), **event listing** (span-grained rows from one non-turn view: a
+  time/duration scatter, a stat strip, a formatted table whose rows link into
+  their turn's waterfall), **trend** (a time column plus one numeric series,
+  drawn as a line above the grid), and **rollup** (the plain grid). Do not coin
+  "chart view", "detail table", or "drill-down mode" for these.
 - **Internals toggle** — the Insights setting that reveals `internal.*` kinds and the
   Solus-health presets. Affects authoring surfaces only, never query execution.
 - **Rollover** — retention pruning of `metrics.db`, default 30 days
@@ -484,6 +495,20 @@ Components never call `window.solus.*` directly.
     schema and value caches live in `insights.store.svelte.ts`.
 - **NL option:** a prompt input beside the editor; `metricsCompileNl` fills the SQL
   editor with the generated query for inspection, tweaks, execution, and saving.
+- **Result shapes: the rendered grain matches the question's grain, and every
+  rendered row carries a drill path back to its context.** The server declares
+  the grain (`sourceView` on the result — from the single view a guarded SQL
+  statement reads, or from the pinned `kind` of a compiled QuerySpec); the
+  client maps it to one of the four result shapes. A turn-grained result gets
+  the turn listing; a span-grained result gets the event listing whose rows
+  deep-link to `insightsTurn` with that span pre-selected; a time-bucketed
+  aggregate gets a trend line; everything else stays the honest plain grid.
+  When no grain is declared (older host, ambiguous SQL), the client falls back
+  to the turn-column sniff only — a span listing without a declared grain
+  renders as a grid rather than masquerading as turns. "What do these rows
+  have in common" is deliberately **not** a view: the event listing's stat
+  strip (count, p50/p95, failure rate) covers the cheap 80%, and the NL tab
+  answers the rest with a computed rollup. A comparison canvas is out of scope.
 - **Internals toggle** ("Show Solus internals", persisted per user): adds
   `internal.*` kinds to the builder and reveals the Solus-health preset pack (RPC p95
   by method, indexer sweeps, worktree ops). Saved queries against internal kinds
@@ -569,11 +594,33 @@ the natural cross-host aggregation point for dispatch.
   runs arbitrary SQL, so most answers are rollups. The page reads a result as
   turns only when it carries `trace_id` and `started_at`; anything else gets a
   generic grid rather than being forced into a shape with no waterfall behind
-  it.
+  it. **Amended 2026-08-16 — superseded by the result-shape model.** Column
+  sniffing alone misread a tool-call listing that happened to select `trace_id`
+  as a turn listing, and it rendered span-grained questions ("how long has
+  `bun run test` taken over time") as an unformatted grid of epoch numbers. The
+  grain is now **declared by the server** (`sourceView`), and the client maps it
+  to one of four locked result shapes (see Vocabulary and the Insights UI
+  section). The old column sniff survives only as the compatibility fallback for
+  results from hosts that predate `sourceView` — where a declared grain is
+  present it is authoritative, including declaring that a result is *not* turns.
+- **Event rows link to the span, not just the turn.** `insightsTurn` carries an
+  optional `spanId`; the waterfall opens with that span's detail expanded. The
+  drill target for "characteristics of one tool call" is the existing waterfall
+  detail — input, exit code, siblings, permission wait beside it — not a new
+  inspector surface. Identity columns (`span_id`, `trace_id`, `parent_span_id`)
+  are link data in the event listing, carried by the query but not rendered as
+  cells.
+- **No comparison canvas.** Cross-turn/cross-session commonality is a computed
+  claim, not a picture: the event listing's stat strip covers the cheap case,
+  and the NL tab compiles the diagnostic GROUP BY for the rest. Side-by-side
+  waterfall diffing is explicitly not planned.
 - **The histogram is not the question.** Turn volume runs its own QuerySpec over
   the window and stays fixed while the query changes; brushing it narrows the
   list client-side. A histogram that re-ran with every question would flatten
-  the shape the answer is meant to be read against.
+  the shape the answer is meant to be read against. It is fixed against the
+  *question*, not against *time*: a refresh — entering the page, or `opt+R` —
+  re-reads the histogram and re-asks the question on screen together, because a
+  chart that advanced alone shows a failed turn as a bar with no row under it.
 - **The internals toggle persists in client storage, not server settings.** It
   changes which kinds and presets are offered on one screen; it never affects
   query execution, and a saved query against an internal kind still runs with
@@ -631,6 +678,20 @@ Each WP lands green (`bun run build`, focused unit tests) before the next starts
   sorting/grouping, bucketing, half-open brush selection) and
   `tests/unit/insights-waterfall.test.ts` (interval unions, tree assembly,
   orphan re-parenting, bar placement, denied permissions, value completion).
+- **WP4.1 — Result shapes (landed).** The declared-grain contract and the two
+  missing renderings. Server: `scanSql` additionally collects the table names
+  referenced after `FROM`/`JOIN`; `runGuardedSql` declares `sourceView` when
+  exactly one registered view is read, and `compileQuerySpec` declares it from
+  the pinned `kind`. Client: `lib/result-shape.ts` (shape detection from the
+  declared grain, event-row mapping, trend-series extraction, event stats),
+  `EventList.svelte` (stat strip + scatter + formatted table, rows deep-linking
+  to the waterfall), `ResultTrendChart.svelte` (LayerChart `Points`/`Spline`
+  over one linear time scale, kind-coloured, failures in the status colour),
+  the `insightsTurn` route's optional `spanId`, and the waterfall's
+  pre-selected span. The NL prompt now tells the agent to include `span_id`,
+  `trace_id`, and `started_at` on span listings so rows stay linkable. Tests:
+  `tests/unit/insights-result-shape.test.ts` plus sql-guard and compiler cases
+  for the declared grain.
 - **WP5 — OTel + app emitters.** Settings-driven exporter (traces/metrics/logs,
   per-service resources, privacy gates) — note `otel.ts` today exports only
   logs/metrics over HTTP, so WP5 adds the trace SDK and gRPC exporter packages

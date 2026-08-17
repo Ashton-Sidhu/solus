@@ -53,6 +53,13 @@ interface CachedValues {
   at: number
 }
 
+/** How the answer on screen is re-run. An NL question re-runs the SQL it
+ *  compiled to, never the compile: the question is already answered, and a
+ *  second agent call would charge the user to ask it again. */
+type LastRun =
+  | { form: 'sql'; sql: string }
+  | { form: 'spec'; spec: MetricsQuerySpec }
+
 function readInternalsPreference(): boolean {
   try {
     return globalThis.localStorage?.getItem(INTERNALS_KEY) === 'true'
@@ -96,6 +103,7 @@ export class InsightsStore {
   private valuesInFlight = new Set<string>()
   private traces = new SvelteMap<string, MetricsTurnTrace>()
   private sessionSummaries = new SvelteMap<string, MetricsSessionSummary>()
+  private lastRun: LastRun | null = null
   private loadToken = 0
 
   private get api(): HostApi {
@@ -112,6 +120,7 @@ export class InsightsStore {
     this.result = null
     this.error = null
     this.compiledSql = ''
+    this.lastRun = null
     this.volumeRows = []
     this.schema = null
     this.savedQueries = []
@@ -141,14 +150,28 @@ export class InsightsStore {
     if (token !== this.loadToken) return
     if (schema) this.schema = schema
     this.savedQueries = saved
+    await this.refresh()
+  }
+
+  /**
+   * Re-reads the window: the histogram and the answer under it describe the
+   * same turns, so they always move together. Refreshing the histogram alone
+   * would leave the list on an older window — a failed turn would appear as a
+   * red bar with no row below it to explain it.
+   */
+  async refresh(): Promise<void> {
+    const token = this.loadToken
     await this.refreshVolume()
     if (token !== this.loadToken) return
-    if (!this.result) await this.runSql(this.sqlText)
+    const last = this.lastRun
+    if (!last) await this.runSql(this.sqlText)
+    else if (last.form === 'sql') await this.runSql(last.sql)
+    else await this.runSpec(last.spec)
   }
 
   /** The histogram's query. Kept separate from the user's question so the shape
    *  the answer sits in does not collapse when the question narrows. */
-  async refreshVolume(): Promise<void> {
+  private async refreshVolume(): Promise<void> {
     const token = this.loadToken
     this.windowTo = Date.now()
     try {
@@ -181,6 +204,7 @@ export class InsightsStore {
     try {
       const result = await this.api.metricsRunSql(text)
       this.result = result
+      this.lastRun = { form: 'sql', sql: text }
       this.lastRunMs = Math.round(performance.now() - startedAt)
       this.record('sql', text, result.rows.length, this.lastRunMs)
     } catch (cause) {
@@ -197,6 +221,7 @@ export class InsightsStore {
     const startedAt = performance.now()
     try {
       this.result = await this.api.metricsQuery(spec)
+      this.lastRun = { form: 'spec', spec }
       this.lastRunMs = Math.round(performance.now() - startedAt)
     } catch (cause) {
       this.result = null
@@ -229,6 +254,7 @@ export class InsightsStore {
       }
       const result = await this.api.metricsRunSql(compiled.sql)
       this.result = result
+      this.lastRun = { form: 'sql', sql: compiled.sql }
       this.lastRunMs = Math.round(performance.now() - startedAt)
       this.record('nl', text, result.rows.length, this.lastRunMs)
     } catch (cause) {

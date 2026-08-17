@@ -42,7 +42,8 @@ export function registerObservabilityHandlers(server: SolusServer, deps: { contr
   server.register('metricsQuery', (args) => {
     const [spec] = args as [MetricsQuerySpec]
     const compiled = compileQuerySpec(spec)
-    return runCompiledSql(compiled.sql, compiled.params)
+    const result = runCompiledSql(compiled.sql, compiled.params)
+    return compiled.sourceView === undefined ? result : { ...result, sourceView: compiled.sourceView }
   })
 
   server.register('metricsRunSql', (args) => {

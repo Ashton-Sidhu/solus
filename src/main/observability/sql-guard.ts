@@ -1,4 +1,5 @@
 import type { MetricsQueryResult, MetricsSqlValidation, MetricsValue } from '../../shared/observability-types'
+import { registeredViewNames } from './field-registry'
 import { getReadOnlyMetricsDb } from './metrics-db'
 
 // ─── Guarded read-only SQL executor ───
@@ -18,15 +19,20 @@ interface SqlScan {
   error: string | null
   /** Index of the single trailing `;`, when present, to strip before wrapping. */
   terminatorIndex: number | null
+  /** Bare identifiers that immediately follow FROM or JOIN — the statement's
+   *  table references, CTE names included. */
+  tables: string[]
 }
 
 function scanSql(sql: string): SqlScan {
   let firstToken: string | null = null
   let terminatorIndex: number | null = null
+  const tables: string[] = []
+  let captureTable = false
   let index = 0
 
-  const contentAfterTerminator = (): SqlScan =>
-    ({ error: 'Only one SQL statement is allowed.', terminatorIndex })
+  const failed = (error: string): SqlScan => ({ error, terminatorIndex, tables })
+  const contentAfterTerminator = (): SqlScan => failed('Only one SQL statement is allowed.')
 
   while (index < sql.length) {
     const char = sql[index]
@@ -38,7 +44,7 @@ function scanSql(sql: string): SqlScan {
     }
     if (char === '/' && sql[index + 1] === '*') {
       const end = sql.indexOf('*/', index + 2)
-      if (end === -1) return { error: 'Unterminated block comment.', terminatorIndex }
+      if (end === -1) return failed('Unterminated block comment.')
       index = end + 2
       continue
     }
@@ -57,13 +63,15 @@ function scanSql(sql: string): SqlScan {
         }
         end++
       }
-      if (end >= sql.length) return { error: 'Unterminated string literal.', terminatorIndex }
+      if (end >= sql.length) return failed('Unterminated string literal.')
+      captureTable = false
       index = end + 1
       continue
     }
     if (char === '[') {
       const end = sql.indexOf(']', index + 1)
-      if (end === -1) return { error: 'Unterminated identifier.', terminatorIndex }
+      if (end === -1) return failed('Unterminated identifier.')
+      captureTable = false
       index = end + 1
       continue
     }
@@ -79,25 +87,45 @@ function scanSql(sql: string): SqlScan {
       if (firstToken === null) {
         firstToken = token
         if (token !== 'select' && token !== 'with') {
-          return { error: 'Only SELECT and WITH statements are allowed.', terminatorIndex }
+          return failed('Only SELECT and WITH statements are allowed.')
         }
       }
       if (FORBIDDEN_TOKENS.has(token)) {
-        return { error: `${token.toUpperCase()} is not allowed.`, terminatorIndex }
+        return failed(`${token.toUpperCase()} is not allowed.`)
       }
+      if (captureTable) tables.push(token)
+      captureTable = token === 'from' || token === 'join'
       index = end
       continue
     }
+    // Any punctuation — `(` opening a subquery, a `.` qualifier — means the
+    // next identifier is not a plain table reference.
+    captureTable = false
     index++
   }
 
-  if (firstToken === null) return { error: 'Empty SQL statement.', terminatorIndex }
-  return { error: null, terminatorIndex }
+  if (firstToken === null) return failed('Empty SQL statement.')
+  return { error: null, terminatorIndex, tables }
 }
 
 /** The guard violation for this SQL text, or null when it may run. */
 export function sqlGuardError(sql: string): string | null {
   return scanSql(sql).error
+}
+
+/**
+ * The declared grain of one guarded statement: the registered view it reads,
+ * when that is unambiguous. A statement whose FROM/JOIN references resolve to
+ * anything other than exactly one registered view — two views, raw `spans`, a
+ * CTE name — declares nothing, and the client falls back to a plain rendering.
+ */
+export function declaredSourceView(sql: string): string | undefined {
+  const scan = scanSql(sql)
+  if (scan.error) return undefined
+  const referenced = new Set(scan.tables)
+  if (referenced.size !== 1) return undefined
+  const [table] = referenced
+  return registeredViewNames().has(table) ? table : undefined
 }
 
 interface PreparedColumns {
@@ -143,7 +171,9 @@ export function runGuardedSql(sql: string, rowCap = SQL_ROW_CAP): MetricsQueryRe
   const body = scan.terminatorIndex === null
     ? sql
     : `${sql.slice(0, scan.terminatorIndex)} ${sql.slice(scan.terminatorIndex + 1)}`
-  return runCompiledSql(`SELECT * FROM (\n${body}\n) LIMIT ${rowCap}`, [])
+  const result = runCompiledSql(`SELECT * FROM (\n${body}\n) LIMIT ${rowCap}`, [])
+  const sourceView = declaredSourceView(sql)
+  return sourceView === undefined ? result : { ...result, sourceView }
 }
 
 function errorOffset(error: unknown): number | undefined {

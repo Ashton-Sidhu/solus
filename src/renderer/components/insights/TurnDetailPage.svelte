@@ -304,7 +304,7 @@
                 {/each}
               </div>
               <div class="px-5 pt-2.5 pb-4">
-                <TraceWaterfall trace={view} />
+                <TraceWaterfall trace={view} selectedSpanId={params.spanId ?? null} />
               </div>
             </section>
 

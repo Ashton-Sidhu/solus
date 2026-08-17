@@ -79,6 +79,18 @@ const CLAUDE_METADATA: AgentMetadata = {
 
 const log = createLogger('ClaudeBackend', 'claude-backend.ts')
 
+/**
+ * The model id the SDK is asked for. `[1m]` is a variant only some models have,
+ * so the window alone cannot select it: a stale 1M riding a 200K model (a
+ * restored tab, a switched model) asks for a variant that does not exist and
+ * Claude answers `400 The long context beta is not yet available`, killing the
+ * turn before it starts.
+ */
+function claudeModelId(baseModel: string, contextWindow: number | null | undefined): string {
+  const offersLongContext = claudeProfiles[baseModel]?.contextWindows.includes(1_000_000) ?? false
+  return contextWindow === 1_000_000 && offersLongContext ? `${baseModel}[1m]` : baseModel
+}
+
 type TurnBlock =
   | { type: 'text'; text: string }
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
@@ -178,8 +190,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
    *  and serialized across cache misses. No persistent session is kept. */
   private builtinCommands(ctx: IpcContext): Promise<AgentSlashCommand[]> {
     const cwd = ctx.session.workingDirectory
-    const baseModel = ctx.statusBar.model
-    const model = ctx.session.contextWindow === 1_000_000 ? `${baseModel}[1m]` : baseModel
+    const model = claudeModelId(ctx.statusBar.model, ctx.session.contextWindow)
     return this.commandDiscovery.get({ cwd, model })
   }
 
@@ -212,8 +223,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     }
 
     const workTree = request.cwd
-    const baseModel = request.model ?? this.metadata.defaultModel
-    const model = request.contextWindow === 1_000_000 ? `${baseModel}[1m]` : baseModel
+    const model = claudeModelId(request.model ?? this.metadata.defaultModel, request.contextWindow)
     const adaptedTools = adaptClaudeTools(request.tools, {
       provider: 'claude-code',
       cwd: request.cwd,

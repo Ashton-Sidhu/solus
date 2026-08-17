@@ -13,8 +13,8 @@
   import { formatRowCount } from "./lib/format";
   import { defaultExploreSql, type InsightsPreset } from "./lib/insights-queries";
   import type { SqlEditorSources } from "./lib/sql-editor-extensions";
+  import { eventsWithinSelection, resultShape, toEventTable } from "./lib/result-shape";
   import {
-    isTurnResult,
     toTurnRows,
     type TurnRow,
     type TurnSort,
@@ -23,8 +23,10 @@
   import { withinSelection, type TimeSelection } from "./lib/volume";
   import { buildTraceView } from "./lib/waterfall";
   import { insightsStore, type QueryForm, type QueryRunRecord } from "./insights.store.svelte";
+  import EventList from "./EventList.svelte";
   import QueryConsole from "./QueryConsole.svelte";
   import ResultTable from "./ResultTable.svelte";
+  import ResultTrendChart from "./ResultTrendChart.svelte";
   import TurnDrawer from "./TurnDrawer.svelte";
   import TurnList from "./TurnList.svelte";
   import TurnVolumeChart from "./TurnVolumeChart.svelte";
@@ -62,9 +64,10 @@
     store.useHost(serverId);
   });
 
-  // The page loads once per host, on entry. Re-entering an already-loaded host
-  // keeps the last answer on screen rather than re-running the default query
-  // underneath whatever the user was reading.
+  // The page loads once per host, on entry. Re-entering re-asks the question
+  // already on screen rather than replacing it with the default one — but it
+  // does re-ask it, because the histogram is re-read on the same entry and the
+  // two must describe the same window.
   $effect(() => {
     if (!open || loaded) return;
     loaded = true;
@@ -76,8 +79,17 @@
   });
 
   const rows = $derived(toTurnRows(store.result));
-  const shapedAsTurns = $derived(isTurnResult(store.result));
+  /** Which of the four result shapes this answer renders as. */
+  const shape = $derived(resultShape(store.result, store.schema));
+  const eventTable = $derived(
+    shape.shape === "events" && store.result
+      ? toEventTable(store.result, store.schema, shape.view)
+      : null,
+  );
   const visibleRows = $derived(withinSelection(rows, selection));
+  const visibleEventRows = $derived(
+    eventTable ? eventsWithinSelection(eventTable.rows, selection) : [],
+  );
   const volumeSelection = $derived(withinSelection(store.volumeRows, selection));
 
   const selectedIndex = $derived(
@@ -200,6 +212,11 @@
     selectedTraceId = null;
   }
 
+  /** An event row's drill path: the turn's waterfall, landed on this span. */
+  function openSpan(traceId: string, spanId: string | null): void {
+    workspace.openInsightsTurn(traceId, spanId ?? undefined);
+  }
+
   function resetQuery(): void {
     store.sqlText = defaultExploreSql();
     store.form = "sql";
@@ -220,7 +237,7 @@
   );
   useKeybinding("insights.natural-language", () => (store.form = "nl"), { enabled: () => open });
   useKeybinding("insights.sql", () => (store.form = "sql"), { enabled: () => open });
-  useKeybinding("insights.refresh", () => void store.refreshVolume(), { enabled: () => open });
+  useKeybinding("insights.refresh", () => void store.refresh(), { enabled: () => open });
 </script>
 
 <div class="relative flex h-full w-full flex-col overflow-hidden bg-background text-foreground">
@@ -299,7 +316,7 @@
       selectedRows={volumeSelection}
     />
 
-    {#if shapedAsTurns || !store.result}
+    {#if shape.shape === "turns" || !store.result}
       <TurnList
         rows={visibleRows}
         {sort}
@@ -313,6 +330,31 @@
         onOpenSession={(sessionId) => void openSession(sessionId)}
         {emptyHint}
       />
+    {:else if shape.shape === "events" && eventTable}
+      <EventList
+        table={eventTable}
+        view={shape.view}
+        kind={shape.kind}
+        rows={visibleEventRows}
+        onOpenSpan={openSpan}
+        {emptyHint}
+      />
+    {:else if shape.shape === "trend"}
+      <section
+        class="flex shrink-0 flex-col gap-1 rounded-xl bg-card px-4 py-2.5 shadow-[shadow:var(--elev-ring)]"
+        aria-label="Trend"
+      >
+        <header class="flex items-baseline gap-2">
+          <h2 class="text-xs font-medium">{shape.series.valueColumn}</h2>
+          <span class="text-[0.6875rem] text-muted-foreground">by {shape.series.timeColumn}</span>
+        </header>
+        <ResultTrendChart
+          points={shape.series.points}
+          mark={shape.series.mark}
+          valueFormat={shape.series.valueFormat}
+        />
+      </section>
+      <ResultTable result={store.result} />
     {:else}
       <ResultTable result={store.result} />
     {/if}

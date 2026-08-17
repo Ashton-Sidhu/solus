@@ -54,6 +54,11 @@ export interface MetricsQueryResult {
   columns: string[]
   /** Row cells aligned to `columns`. */
   rows: MetricsValue[][]
+  /** The registry view the query read — the declared grain the client picks a
+   *  result shape from. Absent when no single view is identifiable (a join of
+   *  two views, raw `spans`, a CTE-wrapped source) or on results from hosts
+   *  that predate the field. */
+  sourceView?: string
 }
 
 export type MetricsFieldType = 'string' | 'number' | 'boolean' | 'duration'

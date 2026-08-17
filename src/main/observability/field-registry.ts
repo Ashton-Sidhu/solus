@@ -177,6 +177,15 @@ export function viewNameForKind(kind: SpanKind): string {
   return KIND_REGISTRY[kind].view
 }
 
+const VIEW_NAMES: ReadonlySet<string> = new Set(
+  Object.values(KIND_REGISTRY).map((registration) => registration.view),
+)
+
+/** Every generated view name — what a declared result grain must be one of. */
+export function registeredViewNames(): ReadonlySet<string> {
+  return VIEW_NAMES
+}
+
 /** All fields of one kind's view, base columns included, in view column order. */
 export function fieldsForKind(kind: SpanKind): RegisteredField[] {
   return [...BASE_FIELDS, ...KIND_REGISTRY[kind].fields]

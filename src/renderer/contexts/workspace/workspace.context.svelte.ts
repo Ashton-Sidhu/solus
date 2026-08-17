@@ -3077,9 +3077,10 @@ export class WorkspaceContext {
     this.showPage({ name: 'insights', params: {} }, via, 'insights')
   }
 
-  /** One turn's waterfall, by the trace that identifies it. */
-  openInsightsTurn(traceId: string, via: Via = 'click'): void {
-    this.showPage({ name: 'insightsTurn', params: { traceId } }, via, 'insights')
+  /** One turn's waterfall, by the trace that identifies it. Naming a span opens
+   *  the waterfall with that span's detail already expanded. */
+  openInsightsTurn(traceId: string, spanId?: string, via: Via = 'click'): void {
+    this.showPage({ name: 'insightsTurn', params: spanId ? { traceId, spanId } : { traceId } }, via, 'insights')
   }
 
   // ─── Automations page ───

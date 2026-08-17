@@ -70,8 +70,9 @@ export interface RouteParams {
   /** The query surface over the host's `metrics.db`. */
   insights: Record<string, never>
   /** One turn's spans. A trace id is the turn's identity, so the waterfall is
-   *  deep-linkable and survives the list that led to it. */
-  insightsTurn: { traceId: string }
+   *  deep-linkable and survives the list that led to it. A span id opens that
+   *  span's detail — how an event-listing row lands on its own span. */
+  insightsTurn: { traceId: string; spanId?: string }
   reviewMode: Record<string, never>
   settings: { tab?: SettingsTab; projectCwd?: string }
   folio: Record<string, never>
@@ -282,8 +283,12 @@ export const ROUTES = defineRoutes({
   // One turn replaces the list rather than sitting beside it: the waterfall
   // wants the full width, and the page's own crumb is the way back.
   insightsTurn: {
-    parse: (s) => (s ? { traceId: s } : null),
-    serialize: (p) => p.traceId,
+    parse: (s) => {
+      const [traceId, spanId] = s.split('/')
+      if (!traceId) return null
+      return spanId ? { traceId, spanId } : { traceId }
+    },
+    serialize: (p) => (p.spanId ? `${p.traceId}/${p.spanId}` : p.traceId),
     placement: 'any',
     exclusiveGroup: 'page',
     ownsTitlebarChrome: true,

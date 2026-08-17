@@ -163,8 +163,10 @@ export const SQL_PRESETS: InsightsPreset[] = [
     label: 'Build latency',
     description: 'Duration of every Bash call whose command mentions build',
     form: 'sql',
+    // span_id and trace_id ride along unrendered so each row can open its
+    // turn's waterfall on that span.
     text: [
-      'select started_at, session_id, command, duration_ms, exit_code',
+      'select span_id, trace_id, started_at, session_id, command, duration_ms, exit_code',
       'from tool_calls',
       `where started_at > ${since7d}`,
       "  and command like '%build%'",

@@ -23,6 +23,9 @@ Rules:
   rn = MAX(1, CAST(cnt * 0.95 + 0.5 AS INTEGER)).
 - Bucket time with strftime/date over started_at / 1000, 'unixepoch'.
 - Prefer readable column aliases; keep results under a few hundred rows.
+- When listing individual spans or tool calls (not aggregating), include
+  span_id, trace_id, and started_at in the SELECT so each row can be opened
+  in the UI.
 
 Example — average turn duration by model over the last 7 days:
 SELECT model, AVG(duration_ms) AS avg_duration_ms, COUNT(*) AS turns

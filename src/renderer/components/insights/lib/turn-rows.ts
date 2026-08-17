@@ -42,7 +42,12 @@ function asString(value: MetricsValue | undefined): string | null {
 
 export function isTurnResult(result: MetricsQueryResult | null): boolean {
   if (!result) return false
-  return REQUIRED_TURN_COLUMNS.every((column) => result.columns.includes(column))
+  const hasColumns = REQUIRED_TURN_COLUMNS.every((column) => result.columns.includes(column))
+  // A declared grain is authoritative — including declaring that a span-grained
+  // result is NOT turns, however turn-shaped its columns look. The column sniff
+  // survives only for results from hosts that predate `sourceView`.
+  if (result.sourceView !== undefined) return result.sourceView === 'turns' && hasColumns
+  return hasColumns
 }
 
 /** Rows a `turns` query produced, in the order the query returned them. Rows

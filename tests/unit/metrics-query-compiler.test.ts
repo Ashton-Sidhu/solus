@@ -219,3 +219,16 @@ describe.serial('metrics query compiler', () => {
     expect(compiled.sql).not.toContain('tool_call')
   })
 })
+
+describe.serial('declared grain (sourceView)', () => {
+  test('a pinned kind declares its view; an unpinned spec declares nothing', () => {
+    expect(compiler.compileQuerySpec({
+      filters: [{ field: 'kind', op: 'eq', value: 'turn' }],
+    }).sourceView).toBe('turns')
+    expect(compiler.compileQuerySpec({
+      filters: [{ field: 'kind', op: 'eq', value: 'tool_call' }],
+      aggregates: [{ fn: 'p95', field: 'duration_ms' }],
+    }).sourceView).toBe('tool_calls')
+    expect(compiler.compileQuerySpec({}).sourceView).toBeUndefined()
+  })
+})

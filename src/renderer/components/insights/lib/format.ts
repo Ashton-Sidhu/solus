@@ -34,6 +34,14 @@ export function formatClock(epochMs: number | null | undefined): string {
   return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
 }
 
+/** `Aug 12 14:03` — for rows and ticks spanning more than a day, where a bare
+ *  clock is ambiguous. */
+export function formatDayClock(epochMs: number | null | undefined): string {
+  if (epochMs == null || !Number.isFinite(epochMs)) return '—'
+  const at = new Date(epochMs)
+  return `${at.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${formatClock(epochMs)}`
+}
+
 export function formatPercent(fraction: number): string {
   if (!Number.isFinite(fraction) || fraction <= 0) return '0%'
   return fraction < 0.01 ? '<1%' : `${Math.round(fraction * 100)}%`
