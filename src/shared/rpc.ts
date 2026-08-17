@@ -68,6 +68,7 @@ export const RPC_INVOKE_METHODS = [
   'openInFileManager',
   'openInTerminal',
   'openWorktreeTerminal',
+  'resolveTerminal',
   'attachFiles',
   'attachFilePaths',
   'attachUpload',
@@ -85,6 +86,7 @@ export const RPC_INVOKE_METHODS = [
   'createDirectory',
   'readProjectFile',
   'listProjectFiles',
+  'mutateProjectFile',
   'writeFile',
   'updateAgentFiles',
 

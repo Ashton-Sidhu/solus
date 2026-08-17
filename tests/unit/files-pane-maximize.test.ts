@@ -21,15 +21,15 @@ describe('files pane maximize control', () => {
     expect(filesTreePane).toContain('maximized={pane.maximized}')
   })
 
-  test('the maximize tooltip names this pane’s own shortcut', () => {
-    // WHY: The chrome used to hard-code the diff panel's ⌥M. In the files pane
-    // ⌥M toggles the Markdown view, so a fixed hint would name a key that does
-    // something else. The files binding ships unassigned, and an empty hint must
-    // leave the tooltip with no shortcut at all rather than a wrong one.
+  test('the maximize tooltip names the one key that works here', () => {
+    // WHY: The files pane used to spend ⌥M on the Markdown view, so it had no
+    // maximize key of its own and its tooltip had to stay silent. Now the shared
+    // pane key reaches this pane like every other, and the tooltip must teach it
+    // rather than leave the control looking pointer-only.
     expect(paneChrome).toContain('comboHint(maximizeBinding)')
     expect(paneChrome).toContain('maximizeHint ? ` (${maximizeHint})` : ""')
-    expect(filesTreePane).toContain('maximizeBinding="files-pane.maximize"')
-    expect(comboHint('files-pane.maximize')).toBe('')
-    expect(comboHint('diff-panel.maximize')).not.toBe('')
+    expect(paneChrome).toContain('maximizeBinding = "pane.maximize"')
+    expect(filesTreePane).not.toContain('maximizeBinding=')
+    expect(comboHint('pane.maximize')).not.toBe('')
   })
 })

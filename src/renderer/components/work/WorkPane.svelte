@@ -251,6 +251,8 @@
     <PaneChrome
       onClose={pane.close}
       onOpenInSplit={pane.moveAcross}
+      onToggleMaximize={pane.toggleMaximize}
+      maximized={pane.maximized}
       isLeading={pane.isLeading}
       closeLabel={work.type === "diagram" ? "Close diagram" : "Close document"}
       closeTestId={work.type === "diagram" ? undefined : "document-modal-close"}

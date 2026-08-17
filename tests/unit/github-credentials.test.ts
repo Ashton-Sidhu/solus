@@ -40,7 +40,7 @@ function resolveTokens(): {
     console.log(JSON.stringify({
       dispatch: githubTokenForCheckout(DISPATCH),
       dispatchWorktree: githubTokenForCheckout(DISPATCH + '/.solus-worktrees/acme__fix'),
-      unpaired: githubTokenForCheckout('/Users/host/projects/solus-remote/gone/github.com/acme/widgets'),
+      unpaired: githubTokenForCheckout('/Users/host/projects/solus-remote/web-device/github.com/acme/widgets'),
       hostProject: githubTokenForCheckout('/Users/host/projects/solus'),
     }))
   `
@@ -63,10 +63,12 @@ describe('GitHub credential for a checkout', () => {
     expect(resolved.dispatchWorktree).toBe('delegated-token')
   })
 
-  test('a dispatch checkout never falls back to the host account', () => {
-    // The dangerous failure: publishing or opening a PR as the host owner using
-    // a checkout whose commits are authored by someone else.
-    expect(resolved.unpaired).toBeNull()
+  test('a dispatch checkout with no delegation acts as the host', () => {
+    // A web client has no credential store to delegate from, so `prepareHostCheckout`
+    // sends none and `configureDelegatedCheckout` never runs — but the clone still
+    // lands under solus-remote/<deviceId>/. No delegation means no client identity
+    // was written either, so the commits are the host's and so is the token.
+    expect(resolved.unpaired).toBe('host-token')
   })
 
   test('an ordinary project acts as the host, whichever client asked', () => {

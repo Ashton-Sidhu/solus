@@ -1,6 +1,6 @@
 {
   "name": "solus",
-  "version": "0.23.0",
+  "version": "0.24.0",
   "description": "Solus — Command Line User Interface for Coding Agents.",
   "license": "BUSL-1.1",
   "homepage": "https://solus.sh",
@@ -30,7 +30,8 @@
     "package:server": "bun scripts/package-server.ts",
     "deploy:server": "bash scripts/deploy-server.sh",
     "generate:codex-types": "codex app-server generate-ts --out src/main/agents/codex/generated",
-    "generate:icon": "bun scripts/generate-icon.ts"
+    "generate:icon": "bun scripts/generate-icon.ts",
+    "generate:app-icons": "bun scripts/generate-app-icons.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.141",

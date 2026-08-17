@@ -10,6 +10,8 @@
   import type { HostApi } from "@client-core/host-api";
   import type { EditorId, TerminalAppId } from "../../../shared/types";
   import { Button } from "../ui/button";
+  import AppLogo from "./AppLogo.svelte";
+  import { terminalRowDescription } from "./lib/terminal-summary";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
   import SettingsHostUnsupported from "./SettingsHostUnsupported.svelte";
@@ -43,13 +45,19 @@
     if (isSupported) void tools.loadDetectedToolsFor(serverId, api);
   });
 
+  // Re-asked on every visit and on every change of fallback: which terminal
+  // holds the session depends on what the user has open right now.
+  $effect(() => {
+    void tools.refreshResolvedTerminal(theme.fallbackTerminal);
+  });
+
   function selectEditor(editorId: EditorId) {
     theme.update({ defaultEditor: editorId });
     requestInputFocus();
   }
 
   function selectTerminal(terminalId: TerminalAppId) {
-    theme.update({ defaultTerminal: terminalId });
+    theme.update({ fallbackTerminal: terminalId });
     requestInputFocus();
   }
 
@@ -60,7 +68,7 @@
 
   const settingItems: SettingItem[] = [
     { id: "code-editor", keywords: ["code", "editor", "vscode", "ide", "open"] },
-    { id: "terminal", keywords: ["terminal", "shell", "command", "console"] },
+    { id: "terminal", keywords: ["terminal", "shell", "command", "console", "tmux", "fallback"] },
   ];
 
   function isVisible(id: string): boolean {
@@ -71,6 +79,10 @@
     return item.keywords.some((k) => k.includes(q));
   }
 
+  const selectedTerminal = $derived<TerminalAppId>(theme.fallbackTerminal ?? "default-terminal");
+  const selectedEditorApp = $derived(detected.editors.find((e) => e.id === theme.defaultEditor));
+  const selectedTerminalApp = $derived(detected.terminals.find((t) => t.id === selectedTerminal));
+  const resolvedDescription = $derived(terminalRowDescription(tools.resolvedTerminal));
   const editorVisible = $derived(isVisible("code-editor") && detected.editors.length > 0);
   const terminalVisible = $derived(isVisible("terminal") && detected.terminals.length > 0);
   const anyVisible = $derived(settingItems.some((s) => isVisible(s.id)));
@@ -93,16 +105,22 @@
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" aria-label="Code editor" class="min-w-28 justify-between text-xs shadow-xs">
-              <span class="max-w-28 truncate">{detected.editors.find((e) => e.id === theme.defaultEditor)?.name ?? "None"}</span>
+            <Button {...props} variant="outline" size="sm" aria-label="Code editor" class="min-w-32 justify-between gap-2 text-xs shadow-xs">
+              <span class="flex min-w-0 items-center gap-1.5">
+                <AppLogo id={theme.defaultEditor} kind="editor" size={13} />
+                <span class="max-w-28 truncate">{selectedEditorApp?.name ?? "None"}</span>
+              </span>
               <CaretDownIcon size={11} style="opacity:0.6" />
             </Button>
           {/snippet}
         </DropdownMenu.Trigger>
-        <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[160px]">
+        <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[180px]">
           <DropdownMenu.RadioGroup value={theme.defaultEditor ?? ""}>
             {#each detected.editors as editor (editor.id)}
-              <DropdownMenu.RadioItem value={editor.id} onSelect={() => selectEditor(editor.id)}><span class="truncate">{editor.name}</span></DropdownMenu.RadioItem>
+              <DropdownMenu.RadioItem value={editor.id} onSelect={() => selectEditor(editor.id)}>
+                <AppLogo id={editor.id} kind="editor" size={13} />
+                <span class="truncate">{editor.name}</span>
+              </DropdownMenu.RadioItem>
             {/each}
           </DropdownMenu.RadioGroup>
         </DropdownMenu.Content>
@@ -111,24 +129,30 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Terminal"
-    description="Where “Open in terminal” launches a shell."
+    label="Fallback terminal"
+    description={resolvedDescription}
     visible={terminalVisible}
   >
     {#snippet control()}
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" aria-label="Terminal" class="min-w-28 justify-between text-xs shadow-xs">
-              <span class="max-w-28 truncate">{detected.terminals.find((t) => t.id === (theme.defaultTerminal ?? "default-terminal"))?.name ?? "Default"}</span>
+            <Button {...props} variant="outline" size="sm" aria-label="Fallback terminal" class="min-w-32 justify-between gap-2 text-xs shadow-xs">
+              <span class="flex min-w-0 items-center gap-1.5">
+                <AppLogo id={selectedTerminal} kind="terminal" size={13} />
+                <span class="max-w-28 truncate">{selectedTerminalApp?.name ?? "Default"}</span>
+              </span>
               <CaretDownIcon size={11} style="opacity:0.6" />
             </Button>
           {/snippet}
         </DropdownMenu.Trigger>
-        <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[160px]">
-          <DropdownMenu.RadioGroup value={theme.defaultTerminal ?? "default-terminal"}>
+        <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[180px]">
+          <DropdownMenu.RadioGroup value={selectedTerminal}>
             {#each detected.terminals as terminal (terminal.id)}
-              <DropdownMenu.RadioItem value={terminal.id} onSelect={() => selectTerminal(terminal.id)}><span class="truncate">{terminal.name}</span></DropdownMenu.RadioItem>
+              <DropdownMenu.RadioItem value={terminal.id} onSelect={() => selectTerminal(terminal.id)}>
+                <AppLogo id={terminal.id} kind="terminal" size={13} />
+                <span class="truncate">{terminal.name}</span>
+              </DropdownMenu.RadioItem>
             {/each}
           </DropdownMenu.RadioGroup>
         </DropdownMenu.Content>

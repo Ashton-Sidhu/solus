@@ -3,7 +3,6 @@
   import {
     SparkleIcon,
     FilesIcon,
-    TerminalWindowIcon,
     ArrowsOutSimpleIcon,
     ArrowsClockwiseIcon,
     GitForkIcon,
@@ -25,6 +24,7 @@
     getSessionEnvironmentStore,
     runtime,
     serversStore,
+    toolsStore,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
@@ -38,6 +38,7 @@
   } from "../review/review-guide.store.svelte";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import Kbd from "../ui/Kbd.svelte";
+  import TerminalAppLogo from "../settings/TerminalAppLogo.svelte";
   import * as Popover from "../ui/popover";
   import ActionOrbProgress from "./ActionOrbProgress.svelte";
   import DiffSummaryCard from "../conversation/DiffSummaryCard.svelte";
@@ -142,10 +143,14 @@
     const host = serversStore.hostFor(sess?.run.serverId);
     return host ?? null;
   });
+  // Names the terminal that will actually open — the one already attached to
+  // the shared tmux session, or the Settings fallback when none is.
   const terminalTooltip = $derived(
     remoteHost
       ? `Runs on ${remoteHost.label} — not available for remote sessions`
-      : "Open session in terminal",
+      : toolsStore.resolvedTerminal
+        ? `Open session in ${toolsStore.resolvedTerminal.name}`
+        : "Open session in terminal",
   );
   // Forking mid-turn is allowed: the fork branches from the source's last
   // settled turn rather than the one still being written.
@@ -412,7 +417,12 @@
 
   function handleOpenTerminal() {
     if (!tab || remoteHost) return;
-    session.apiFor(tabId).openInTerminal(session.ctxFor(tabId));
+    // Opening one attaches a terminal to the shared session, so re-resolve:
+    // the next launch reuses it rather than starting the fallback.
+    void session
+      .apiFor(tabId)
+      .openInTerminal(session.ctxFor(tabId))
+      .then(() => toolsStore.refreshResolvedTerminal(theme.fallbackTerminal));
     requestInputFocus();
   }
 
@@ -771,7 +781,7 @@
           title={terminalTooltip}
           aria-label="Open session in terminal"
         >
-          <TerminalWindowIcon size={13} weight="regular" />
+          <TerminalAppLogo size={13} />
           <span>Terminal</span>
           <Kbd variant="inline" class="opacity-35 ml-[0.1875rem]"
             >{shortcutLabel("orb.open-terminal")}</Kbd

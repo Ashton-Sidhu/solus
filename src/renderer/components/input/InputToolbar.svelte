@@ -24,6 +24,10 @@
     /** This row belongs to the workspace's own composer, so dismissing a menu
      *  returns focus to it. */
     isPrimary?: boolean;
+    /** The session draft these controls compose for, when there is no tab yet.
+     *  The destination cluster is addressed by it, so it names the draft's own
+     *  project, host, and branch rather than the workspace defaults. */
+    draftId?: string;
     /** A session draft's run and the model selection over it. */
     run?: RunConfig;
     onRun?: (next: RunConfig) => void;
@@ -39,6 +43,7 @@
   let {
     mode = "pill",
     tabId,
+    draftId,
     isPrimary = false,
     run,
     onRun,
@@ -95,6 +100,11 @@
   {@render savedPromptsControl?.()}
 
   <div class="ml-auto flex min-w-0 items-center">
-    <StatusBarControls {mode} {tabId} {isPrimary} {trailingActions} />
+    <StatusBarControls
+      {mode}
+      sourceId={tabId ?? draftId}
+      {isPrimary}
+      {trailingActions}
+    />
   </div>
 </div>

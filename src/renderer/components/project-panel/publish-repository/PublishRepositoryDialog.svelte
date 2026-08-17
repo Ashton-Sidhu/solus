@@ -155,7 +155,7 @@
     onkeydown={onPanelKeydown}
   >
     <div
-      class="flex max-h-[min(38rem,80vh)] w-[clamp(20rem,40vw,26rem)] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] [.dark_&]:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] outline-none [animation:publish-repository-enter_200ms_cubic-bezier(0.22,1,0.36,1)_backwards]"
+      class="flex max-h-[min(38rem,80svh)] w-[clamp(20rem,40vw,26rem)] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl max-md:max-h-[88svh] max-md:w-[calc(100vw-1.5rem)] max-md:max-w-none min-[1801px]:w-[min(26vw,32rem)] border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] [.dark_&]:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] outline-none [animation:publish-repository-enter_200ms_cubic-bezier(0.22,1,0.36,1)_backwards]"
       role="dialog"
       aria-label="Publish to GitHub"
       aria-modal="true"
@@ -173,7 +173,7 @@
         >
         <button
           type="button"
-          class="ml-auto inline-flex size-6 flex-shrink-0 cursor-pointer items-center justify-center rounded-md border-none bg-transparent text-(--solus-text-tertiary) transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) disabled:opacity-50"
+          class="relative ml-auto inline-flex size-7 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg border-none bg-transparent text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] disabled:opacity-50 after:absolute after:-inset-1.5 after:content-[''] max-md:after:-inset-2.5"
           onclick={onClose}
           disabled={publishing}
           aria-label="Close"
@@ -211,45 +211,47 @@
             {/if}
           {/if}
           <label class="flex flex-col gap-1">
-            <span class="text-menu-meta text-muted-foreground"
+            <span class="text-menu-meta text-muted-foreground max-md:text-xs"
               >Organization <span class="opacity-60">(optional)</span></span
             >
             <Input
               bind:value={owner}
-              class="h-7 text-xs"
+              class="h-7 text-xs max-md:h-11 max-md:text-base"
               placeholder="Your account"
               spellcheck={false}
               autocomplete="off"
             />
           </label>
           <label class="flex flex-col gap-1">
-            <span class="text-menu-meta text-muted-foreground"
+            <span class="text-menu-meta text-muted-foreground max-md:text-xs"
               >Repository name</span
             >
             <Input
               bind:value={name}
               autofocus
-              class="h-7 text-xs"
+              class="h-7 text-xs max-md:h-11 max-md:text-base"
               spellcheck={false}
               autocomplete="off"
             />
           </label>
-          <div class="flex items-center justify-between gap-2 py-0.5">
-            <span class="text-xs text-muted-foreground">Private repository</span
+          <div class="flex items-center justify-between gap-2 py-0.5 max-md:py-2">
+            <span class="text-xs text-muted-foreground max-md:text-[0.8125rem]">Private repository</span
             >
             <Switch
               checked={isPrivate}
               onCheckedChange={(next) => (isPrivate = next)}
               size="default"
+              class="max-md:after:-inset-y-4"
               aria-label="Private repository"
             />
           </div>
-          <div class="flex items-center justify-between gap-2 py-0.5">
-            <span class="text-xs text-muted-foreground">Use SSH</span>
+          <div class="flex items-center justify-between gap-2 py-0.5 max-md:py-2">
+            <span class="text-xs text-muted-foreground max-md:text-[0.8125rem]">Use SSH</span>
             <Switch
               checked={useSsh}
               onCheckedChange={(next) => (useSsh = next)}
               size="default"
+              class="max-md:after:-inset-y-4"
               aria-label="Publish over SSH"
             />
           </div>
@@ -263,18 +265,18 @@
         </div>
 
         <div
-          class="relative flex h-[3.25rem] flex-shrink-0 items-center justify-end gap-1.5 px-[1.125rem] before:absolute before:left-[1.125rem] before:right-[1.125rem] before:top-0 before:h-[0.0625rem] before:bg-(--solus-popover-border) before:opacity-[0.35] before:content-['']"
+          class="relative flex h-[3.25rem] flex-shrink-0 items-center justify-end gap-1.5 px-[1.125rem] max-md:h-auto max-md:flex-col-reverse max-md:items-stretch max-md:gap-2 max-md:py-3 before:absolute before:left-[1.125rem] before:right-[1.125rem] before:top-0 before:h-[0.0625rem] before:bg-(--solus-popover-border) before:opacity-[0.35] before:content-['']"
         >
           <Button
             variant="ghost"
             size="sm"
-            class="text-[0.8125rem]"
+            class="text-[0.8125rem] max-md:h-11"
             disabled={publishing}
             onclick={onClose}>Cancel</Button
           >
           <Button
             size="sm"
-            class="gap-1.5 text-[0.8125rem]"
+            class="gap-1.5 text-[0.8125rem] max-md:h-11"
             disabled={publishing || !name.trim()}
             onclick={() => void submit()}
           >

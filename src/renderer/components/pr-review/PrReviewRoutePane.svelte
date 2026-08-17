@@ -5,6 +5,7 @@
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import PrReviewPane from "./PrReviewPane.svelte";
   import { serverConnections } from "@client-core/server-connections";
+  import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
 
   // The review surface's route adapter. The surface itself is also mounted
   // headless by Review Mode, so it keeps a plain prop contract; everything
@@ -19,6 +20,13 @@
   const session = getWorkspaceContext();
   const pane = paneActions(paneId);
   const embedded = $derived(!pane.isLeading);
+  // The workspace binds the maximize key to the companion pane, which is where
+  // this route usually sits. Leading it — a review with the workspace to itself —
+  // is the one case with no companion to act on, and full screen is this
+  // surface's own maximize, so the key keeps meaning the same thing.
+  useKeybinding("pane.maximize", () => pane.toggleMaximize(), {
+    enabled: () => pane.isLeading && session.router.asidePanes.length === 0,
+  });
 
   const ref = $derived({ name: "prReview" as const, params });
   const pr = $derived(session.router.resolvedFor(ref));

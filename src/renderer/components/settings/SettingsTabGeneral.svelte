@@ -598,10 +598,11 @@
           menuSide="bottom"
           ariaLabel="Text-generation model"
           returnFocusOnClose
+          class="min-w-40"
           onSelectionChange={(selection) => void selectTextGenerationModel(selection)}
         />
       {:else}
-        <Button variant="outline" size="sm" disabled class="min-w-32 text-xs shadow-xs">
+        <Button variant="outline" size="sm" disabled class="min-w-40 text-xs shadow-xs">
           Loading…
         </Button>
       {/if}
@@ -633,10 +634,11 @@
           menuSide="bottom"
           ariaLabel="Backup text-generation model"
           returnFocusOnClose
+          class="min-w-40"
           onSelectionChange={(selection) => void selectBackupTextGenerationModel(selection)}
         />
       {:else}
-        <Button variant="outline" size="sm" disabled class="min-w-32 text-xs shadow-xs">
+        <Button variant="outline" size="sm" disabled class="min-w-40 text-xs shadow-xs">
           Loading…
         </Button>
       {/if}

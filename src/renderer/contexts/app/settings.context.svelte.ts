@@ -3,7 +3,7 @@
 import { z } from 'zod'
 
 import { createAppContext } from './create-app-context'
-import type { AgentId, AppCodeFontFamily, AppFontFamily, EditorId, ReasoningEffort, SettingsCtx, TerminalAppId } from '../../../shared/types'
+import { EDITOR_IDS, TERMINAL_APP_IDS, type AgentId, type AppCodeFontFamily, type AppFontFamily, type EditorId, type ReasoningEffort, type SettingsCtx, type TerminalAppId } from '../../../shared/types'
 import type { KeyCombo } from '../../lib/keybindings/types'
 import { KEYBINDINGS } from '../../lib/keybindings/manifest'
 import { setAnalyticsEnabled } from '../../lib/analytics'
@@ -38,7 +38,7 @@ export type SettingsFields = {
   autoSendVoiceTranscripts: boolean
   vadSilenceMs: number
   defaultEditor: EditorId | null
-  defaultTerminal: TerminalAppId | null
+  fallbackTerminal: TerminalAppId | null
   activeAgent: AgentId
   defaultModels: Record<string, string>  // per-agent model for new sessions; missing → that agent's built-in default
   reviewAgent: AgentId | null     // review companion backend; null → use activeAgent
@@ -168,8 +168,7 @@ function applyCodeFontSize(size: number): void {
 
 const SETTINGS_KEY = 'solus-settings'
 
-const VALID_EDITORS = ['vscode', 'vim', 'nvim', 'helix'] as const satisfies readonly EditorId[]
-const VALID_TERMINALS = ['default-terminal', 'ghostty'] as const satisfies readonly TerminalAppId[]
+
 const VALID_AGENTS = ['claude-code', 'codex', 'opencode'] as const satisfies readonly AgentId[]
 /**
  * Drop unknown binding ids and malformed combos so a stale or hand-edited
@@ -207,8 +206,8 @@ const savedSettingsSchema = z.object({
   voiceModeEnabled: z.boolean().catch(false),
   autoSendVoiceTranscripts: z.boolean().catch(false),
   vadSilenceMs: z.number().transform((value) => Math.max(1000, Math.min(8000, value))).catch(1500),
-  defaultEditor: z.enum(VALID_EDITORS).nullable().catch(null),
-  defaultTerminal: z.enum(VALID_TERMINALS).nullable().catch(null),
+  defaultEditor: z.enum(EDITOR_IDS).nullable().catch(null),
+  fallbackTerminal: z.enum(TERMINAL_APP_IDS).nullable().catch(null),
   activeAgent: z.enum(VALID_AGENTS).catch('claude-code'),
   defaultModels: z.record(z.string(), z.string()).catch({}),
   reviewAgent: z.enum(VALID_AGENTS).nullable().catch(null),
@@ -239,12 +238,23 @@ const savedSettingsSchema = z.object({
   onboardingCompleted: z.boolean().catch(true),
 })
 
+/** `defaultTerminal` became `fallbackTerminal` when terminal choice turned into a
+ * fallback for sessions with no attached terminal. Keep the old pick. */
+const legacyTerminalSchema = z.object({ defaultTerminal: z.enum(TERMINAL_APP_IDS) })
+
 function loadSettings(): SettingsFields {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
     if (raw) {
-      const parsed = savedSettingsSchema.safeParse(JSON.parse(raw))
-      if (parsed.success) return parsed.data
+      const stored: unknown = JSON.parse(raw)
+      const parsed = savedSettingsSchema.safeParse(stored)
+      if (parsed.success) {
+        if (parsed.data.fallbackTerminal === null) {
+          const legacy = legacyTerminalSchema.safeParse(stored)
+          if (legacy.success) parsed.data.fallbackTerminal = legacy.data.defaultTerminal
+        }
+        return parsed.data
+      }
     }
   } catch {}
   return {
@@ -254,7 +264,7 @@ function loadSettings(): SettingsFields {
     autoSendVoiceTranscripts: false,
     vadSilenceMs: 1500,
     defaultEditor: 'vim',
-    defaultTerminal: 'default-terminal',
+    fallbackTerminal: 'default-terminal',
     activeAgent: 'claude-code',
     defaultModels: {},
     reviewAgent: null,
@@ -293,7 +303,7 @@ export class SettingsContext {
   autoSendVoiceTranscripts = $state(false)
   vadSilenceMs = $state(1500)
   defaultEditor = $state<EditorId | null>(null)
-  defaultTerminal = $state<TerminalAppId | null>(null)
+  fallbackTerminal = $state<TerminalAppId | null>(null)
   activeAgent = $state<AgentId>('claude-code')
   defaultModels = $state<Record<string, string>>({})
   reviewAgent = $state<AgentId | null>(null)
@@ -334,7 +344,7 @@ export class SettingsContext {
     this.autoSendVoiceTranscripts = saved.autoSendVoiceTranscripts
     this.vadSilenceMs = saved.vadSilenceMs
     this.defaultEditor = saved.defaultEditor
-    this.defaultTerminal = saved.defaultTerminal
+    this.fallbackTerminal = saved.fallbackTerminal
     this.activeAgent = saved.activeAgent
     this.defaultModels = saved.defaultModels
     this.reviewAgent = saved.reviewAgent
@@ -401,7 +411,7 @@ export class SettingsContext {
       voiceModeEnabled: this.voiceModeEnabled,
       vadSilenceMs: this.vadSilenceMs,
       defaultEditor: this.defaultEditor,
-      defaultTerminal: this.defaultTerminal,
+      fallbackTerminal: this.fallbackTerminal,
       activeAgent: this.activeAgent,
       reviewAgent: this.reviewAgent,
       reviewModel: this.reviewModel,
@@ -447,7 +457,7 @@ export class SettingsContext {
     if (patch.autoSendVoiceTranscripts !== undefined) this.autoSendVoiceTranscripts = patch.autoSendVoiceTranscripts
     if (patch.vadSilenceMs !== undefined) this.vadSilenceMs = Math.max(1000, Math.min(8000, patch.vadSilenceMs))
     if (patch.defaultEditor !== undefined) this.defaultEditor = patch.defaultEditor
-    if (patch.defaultTerminal !== undefined) this.defaultTerminal = patch.defaultTerminal
+    if (patch.fallbackTerminal !== undefined) this.fallbackTerminal = patch.fallbackTerminal
     if (patch.activeAgent !== undefined) this.activeAgent = patch.activeAgent
     if (patch.defaultModels !== undefined) this.defaultModels = patch.defaultModels
     if (patch.reviewAgent !== undefined) this.reviewAgent = patch.reviewAgent
@@ -539,7 +549,7 @@ export class SettingsContext {
         autoSendVoiceTranscripts: this.autoSendVoiceTranscripts,
         vadSilenceMs: this.vadSilenceMs,
         defaultEditor: this.defaultEditor,
-        defaultTerminal: this.defaultTerminal,
+        fallbackTerminal: this.fallbackTerminal,
         activeAgent: this.activeAgent,
         defaultModels: this.defaultModels,
         reviewAgent: this.reviewAgent,

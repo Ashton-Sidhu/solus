@@ -1,8 +1,10 @@
 <script lang="ts" module>
-  import { XIcon } from "phosphor-svelte";
+  import type { Component } from "svelte";
 
   export type ActionRowPhase = "idle" | "loading" | "success" | "error";
-  export type ActionRowIcon = typeof XIcon;
+  /** Every Phosphor glyph satisfies this, and so does a brand logo that renders
+   *  at the same metric — a row's icon is not always a glyph from one set. */
+  export type ActionRowIcon = Component<{ size?: number }>;
 
   /** One row in a project-panel action list — every card renders the same language. */
   export interface ActionRowItem {

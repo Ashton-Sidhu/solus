@@ -54,6 +54,14 @@ export type BindingDef = {
    * moving; left off for toggles/actions that must not double-fire.
    */
   repeatable?: boolean
+  /**
+   * Survives an exclusive scope: the key belongs to this action everywhere, so
+   * an overlay that otherwise swallows the keyboard still lets it through. A
+   * scope that binds the same combo itself still wins — reserved bindings are
+   * checked last. Reserve a key only for an action that stays meaningful under
+   * any surface; the workspace-level maximize is the whole reason this exists.
+   */
+  reserved?: boolean
   scope: Scope
   label: string
   group: string

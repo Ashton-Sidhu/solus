@@ -29,11 +29,17 @@ export function delegatedGithubToken(deviceId: string): string | null {
 /**
  * The credential a checkout operates under — the same one its git credential
  * helper hands a `git push`, since a dispatch checkout is cloned for exactly
- * one paired device and configured to push as it. Null when that device has no
- * stored delegation: a dispatch checkout must never borrow the host's own
- * credential, which would file the client's work under the wrong account.
+ * one paired device and configured to push as it.
+ *
+ * Falling back to the host is not a loophole: `configureDelegatedCheckout`
+ * stores the delegation and sets the checkout's `user.name`/`user.email` in one
+ * step, so no delegation means no client identity was ever written and the
+ * commits are the host's. A web client dispatches this way by design — a
+ * browser has no credential store to delegate from — and its checkout still
+ * lands under `solus-remote/<deviceId>/` because the path is keyed on the
+ * device, not on whether a credential came with it.
  */
 export function githubTokenForCheckout(cwd: string): string | null {
   const deviceId = dispatchCheckoutDeviceId(cwd)
-  return deviceId ? delegatedGithubToken(deviceId) : hostGithubToken()
+  return (deviceId ? delegatedGithubToken(deviceId) : null) ?? hostGithubToken()
 }

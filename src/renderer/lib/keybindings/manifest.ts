@@ -25,6 +25,13 @@ export const KEYBINDINGS = {
   'global.toggle-diff-panel':    { combo: { alt: true, shift: true, code: 'KeyD' },        scope: 'global',             label: 'Toggle diff panel',        group: 'View' },
   'global.toggle-files':         { combo: { alt: true, shift: true, code: 'KeyO' },        scope: 'global',             label: 'Open files',               group: 'View' },
   'global.open-in-split': { combo: { alt: true, shift: true, code: 'Backslash' }, scope: 'global',             label: 'Open artifact in split',   group: 'View' },
+  // ⌥M is the pane's key wherever a pane is: `reserved` carries it through an
+  // exclusive scope (a plan or document shell inline in a pane), and no other
+  // scope may bind it. It is declared before the project panel so it takes the
+  // key first in this scope, and its handler is enabled only while a companion
+  // pane is open — with no companion the same press falls through to the rail
+  // below, which a companion minimizes anyway.
+  'pane.maximize':            { combo: { alt: true, code: 'KeyM' }, reserved: true,      scope: 'global',             label: 'Maximize / restore pane',  group: 'View' },
   'global.toggle-project-panel': { combo: { alt: true, code: 'KeyM' },                   scope: 'global',             label: 'Toggle project panel',     group: 'View' },
   'global.toggle-workspace':     { combo: { alt: true, shift: true, code: 'KeyL' },       scope: 'global',             label: 'Open workspace',           group: 'View' },
   'global.toggle-automations': { combo: { alt: true, shift: true, code: 'KeyV' },          scope: 'global',             label: 'Open automations',         group: 'View' },
@@ -79,7 +86,6 @@ export const KEYBINDINGS = {
 
   // ── Diff panel ─────────────────────────────────────────────────────────────
   'diff-panel.close':             { combo: { code: 'Escape' },                             scope: 'diff-panel',         label: 'Close panel',              group: 'Panel' },
-  'diff-panel.maximize':          { combo: { alt: true, code: 'KeyM' },                    scope: 'diff-panel',         label: 'Maximize / restore',       group: 'Panel' },
   'diff-panel.refresh':           { combo: { alt: true, code: 'KeyR' },                    scope: 'diff-panel',         label: 'Refresh diff',             group: 'Panel' },
   'diff-panel.next-file':         { combo: { alt: true, code: 'KeyN' },                    scope: 'diff-panel',         label: 'Next file',                group: 'Navigate' },
   'diff-panel.prev-file':         { combo: { alt: true, code: 'KeyP' },                    scope: 'diff-panel',         label: 'Previous file',            group: 'Navigate' },
@@ -97,18 +103,18 @@ export const KEYBINDINGS = {
   // ── File editor ────────────────────────────────────────────────────────────
   'file-editor.close':            { combo: { code: 'Escape' },                             scope: 'file-editor',        label: 'Close file',               group: 'Editor' },
   'file-editor.save':             { combo: { alt: true, code: 'KeyS' },                    scope: 'file-editor',        label: 'Save file',                group: 'Editor' },
-  'file-editor.toggle-markdown':  { combo: { alt: true, code: 'KeyM' },                    scope: 'file-editor',        label: 'Toggle Markdown view',     group: 'Editor' },
+  // ⌥R for "rendered". This used to be ⌥M, which a pane scope sits above — so
+  // the one key that maximizes every other pane silently did something else in
+  // the two that host a file. Toggling rendered/source keeps its own letter.
+  'file-editor.toggle-markdown':  { combo: { alt: true, code: 'KeyR' },                    scope: 'file-editor',        label: 'Toggle Markdown view',     group: 'Editor' },
 
   // ── Files pane ─────────────────────────────────────────────────────────────
   'files-pane.close':             { combo: { code: 'Escape' },                             scope: 'files-pane',         label: 'Close files',              group: 'Panel' },
-  // Unassigned: every ⌥ letter this pane could use is already spoken for here
-  // (⌥M toggles the Markdown view), so the action ships bindable but silent.
-  'files-pane.maximize':          { combo: null,                                           scope: 'files-pane',         label: 'Maximize / restore',       group: 'Panel' },
   'files-pane.toggle-tree':       { combo: { alt: true, code: 'KeyT' },                    scope: 'files-pane',         label: 'Toggle file tree',         group: 'Navigate' },
   'files-pane.focus-search':      { combo: { code: 'Slash' },                              scope: 'files-pane',         label: 'Focus search',             group: 'Navigate' },
   'files-pane.next-file':         { combo: { alt: true, code: 'KeyJ' },                    scope: 'files-pane',         label: 'Next file',                group: 'Navigate' },
   'files-pane.prev-file':         { combo: { alt: true, code: 'KeyK' },                    scope: 'files-pane',         label: 'Previous file',            group: 'Navigate' },
-  'files-pane.toggle-markdown':   { combo: { alt: true, code: 'KeyM' },                    scope: 'files-pane',         label: 'Toggle Markdown view',     group: 'Editor' },
+  'files-pane.toggle-markdown':   { combo: { alt: true, code: 'KeyR' },                    scope: 'files-pane',         label: 'Toggle Markdown view',     group: 'Editor' },
 
   // ── Workspace (plans + docs + diagrams ledger) ─────────────────────────────
   'workspace.close':              { combo: { code: 'Escape' },                             scope: 'workspace',          label: 'Close',                    group: 'Workspace' },
@@ -138,7 +144,9 @@ export const KEYBINDINGS = {
   'plan-modal.save':              { combo: { alt: true, code: 'KeyS' },                    scope: 'plan-modal',         label: 'Save',                     group: 'Modal' },
   'plan-modal.copy':              { combo: { alt: true, code: 'KeyC' },                    scope: 'plan-modal',         label: 'Copy to clipboard',        group: 'Modal' },
   'plan-modal.toggle-bookmark':   { combo: { alt: true, code: 'KeyB' },                    scope: 'plan-modal',         label: 'Toggle bookmark',          group: 'Modal' },
-  'plan-modal.toggle-comments':   { combo: { alt: true, code: 'KeyM' },                    scope: 'plan-modal',         label: 'Toggle comments',          group: 'Modal' },
+  // ⌥T for the comment threads. This was ⌥M until that key was reserved for the
+  // pane — a plan opens inline in a companion pane, so the two met there.
+  'plan-modal.toggle-comments':   { combo: { alt: true, code: 'KeyT' },                    scope: 'plan-modal',         label: 'Toggle comments',          group: 'Modal' },
   'plan-modal.resume':            { combo: { alt: true, code: 'KeyO' },                    scope: 'plan-modal',         label: 'Resume session',           group: 'Modal' },
   'plan-modal.find':              { combo: { mod: true, code: 'KeyF' },                    scope: 'plan-modal',         label: 'Find & replace',           group: 'Modal' },
   'plan-modal.pin-outline':       { combo: { mod: true, alt: true, code: 'Backslash' },    scope: 'plan-modal',         label: 'Pin table of contents',    group: 'Modal' },

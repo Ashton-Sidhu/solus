@@ -41,7 +41,11 @@
   import type { PullRequestSummary } from "../../../shared/providers";
   import type { GitAction } from "../../../shared/types";
   import { serverConnections } from "@client-core/server-connections";
-  import { gitPublishModel, type GitMenuStep } from "./lib/git-action-selection";
+  import {
+    gitPublishModel,
+    isPullRequestRunning,
+    type GitMenuStep,
+  } from "./lib/git-action-selection";
   import { repositorySetupStore } from "../../contexts/git/repository-setup.store.svelte";
   import CommitComposer from "./commit-composer/CommitComposer.svelte";
   import PublishRepositoryDialog from "./publish-repository/PublishRepositoryDialog.svelte";
@@ -100,7 +104,6 @@
   const primaryAction = $derived(model.pullRequest.primary);
   const MENU_STEP_ICON = {
     commit_with_options: GitCommitIcon,
-    commit_only: GitCommitIcon,
     push: CloudArrowUpIcon,
     create_pull_request: GitPullRequestIcon,
   } satisfies Record<GitMenuStep["key"], ActionRowIcon>;
@@ -112,8 +115,7 @@
   );
   const isPullRequestActionRunning = $derived(
     actions.running &&
-      (actions.activeAction === "create_pull_request" ||
-        actions.activeAction === "commit_push_pull_request"),
+      isPullRequestRunning(actions.activeAction, actions.activePhase),
   );
   const currentBranch = $derived(
     status === undefined ? env.branch : (status?.branch ?? null),
