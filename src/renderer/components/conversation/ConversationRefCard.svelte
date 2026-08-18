@@ -235,7 +235,7 @@
 
   .conversation-ref-card__kicker {
     margin-bottom: 0.3125rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
 
     text-transform: uppercase;
@@ -244,14 +244,14 @@
   }
 
   .conversation-ref-card__title {
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     font-weight: 500;
     color: var(--solus-text-primary);
   }
 
   .conversation-ref-card__subtitle {
     margin-top: 0.125rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--muted-foreground);
     text-wrap: pretty;
   }
@@ -264,7 +264,7 @@
     background: transparent;
     padding: 0 0.75rem;
     color: var(--muted-foreground);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     transition:
       background var(--duration-quick) var(--ease-premium),
@@ -309,7 +309,7 @@
     position: relative;
     padding: 0.875rem 1rem 0;
     border-top: 0.0625rem solid var(--solus-tx-rule);
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     line-height: 1.6;
     color: var(--muted-foreground);
     text-wrap: pretty;

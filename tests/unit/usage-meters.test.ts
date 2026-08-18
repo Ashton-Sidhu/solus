@@ -94,6 +94,20 @@ describe('providerUsage', () => {
       { 'claude-code': limits('claude-code', { fiveHour: null, weekly: null, stale: true }) },
       NOW,
     )
-    expect(rows).toEqual([{ provider: 'claude-code', label: 'Claude', stale: true, meters: [] }])
+    expect(rows).toEqual([
+      { provider: 'claude-code', label: 'Claude', stale: true, meters: [], status: 'unavailable' },
+    ])
+  })
+
+  test('describes API billing instead of treating missing subscription windows as a failed read', () => {
+    const rows = providerUsage(
+      [agent('codex')],
+      { codex: limits('codex', { fiveHour: null, weekly: null, usageMode: 'api' }) },
+      NOW,
+    )
+
+    expect(rows).toEqual([
+      { provider: 'codex', label: 'Codex', stale: false, meters: [], status: 'api' },
+    ])
   })
 })

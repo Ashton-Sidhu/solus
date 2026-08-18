@@ -16,6 +16,7 @@ import WebToaster from './components/WebToaster.svelte'
 import { routeForPushClick, serverIdForInstallation, type PushClickPayload } from './lib/push-click'
 import { isStaleBuildError, reportStaleBuild } from './lib/stale-build'
 import { installWindowSolusApi } from '@client-core/native-api-overlay'
+import { createNoHostSolusApi } from '@client-core/no-host-api'
 import { z } from 'zod'
 
 const serviceWorkerMessageSchema = z.object({
@@ -204,6 +205,13 @@ function resolveActiveSavedServer(servers: SavedServer[]): SavedServer | null {
 }
 
 // Boot
+
+// The workspace API belongs to a connected host, but the entry chunk runs
+// before one exists: reaching this client over a LAN address leaves the
+// serving origin untrusted, so pairing and the hostless home are the whole
+// session. Seed `window.solus` with the no-host API so client-shell reads such
+// as getPlatform() answer instead of throwing; connectToServer replaces it.
+installWindowSolusApi(createNoHostSolusApi())
 
 /**
  * Opening a pairing QR / link lands on this SPA at `/pair#token=…` — pair

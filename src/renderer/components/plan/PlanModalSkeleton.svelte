@@ -37,7 +37,7 @@
     <!-- The title is known before the content is, so it stays real type; only
          the verbs on the right are ghosts. -->
     <header class="workspace-titlebar flex h-[2.875rem] shrink-0 items-center pl-[1.375rem]">
-      <span class="text-[0.8125rem] font-medium text-(--solus-text-primary)">
+      <span class="text-sm font-medium text-(--solus-text-primary)">
         Review Plan
       </span>
       <div class="min-w-4 flex-auto"></div>
@@ -142,7 +142,7 @@
      the shell container, which is what makes a split pane narrow the column
      instead of the window doing it. */
   .plan-skeleton-column {
-    --solus-doc-size: calc(0.875rem * var(--solus-font-scale, 1));
+    --solus-doc-size: var(--text-body);
     --solus-doc-measure: clamp(66ch, 68cqi, 112ch);
     --solus-doc-rail-w: clamp(13.5rem, 26cqi, 18rem);
   }
@@ -189,7 +189,7 @@
   }
   @container (max-width: 45rem) {
     .plan-skeleton-column {
-      --solus-doc-size: calc(0.875rem * var(--solus-font-scale, 1));
+      --solus-doc-size: var(--text-body);
     }
     .plan-skeleton-prose {
       --doc-pad-x: 1.375rem;
@@ -197,7 +197,7 @@
   }
   @media (max-width: 767px) {
     .plan-skeleton-column {
-      --solus-doc-size: calc(0.875rem * var(--solus-font-scale, 1));
+      --solus-doc-size: var(--text-body);
     }
     .plan-skeleton-prose {
       padding-top: 1.25rem;

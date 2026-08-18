@@ -796,7 +796,7 @@
           bind:value={sort}
           options={SORT_OPTIONS}
           ariaLabel="Sort tasks"
-          class="h-7 gap-1.5 rounded-lg px-2.5 text-[0.8125rem] font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
+          class="h-7 gap-1.5 rounded-lg px-2.5 text-sm font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
         />
       {/if}
     {/snippet}
@@ -1061,7 +1061,7 @@
           role="toolbar"
           aria-label="Bulk actions"
         >
-          <span class="px-1.5 text-[0.8125rem] font-medium tabular-nums">
+          <span class="px-1.5 text-sm font-medium tabular-nums">
             {selection.size} selected
           </span>
           <span

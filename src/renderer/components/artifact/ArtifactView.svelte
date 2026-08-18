@@ -251,7 +251,7 @@
     >
       <div class="artifact-skeleton__head">
         <span class="artifact-skeleton__kicker">Artifact</span>
-        <span class="artifact-skeleton__status font-mono">rendering</span>
+        <span class="artifact-skeleton__status">rendering</span>
       </div>
       <div class="artifact-skeleton__rule"></div>
       <div class="artifact-skeleton__body">
@@ -290,7 +290,7 @@
     >
       {#if artifactError}
         <div
-          class="flex min-h-28 items-center justify-center rounded-2xl border border-(--solus-status-error)/20 bg-(--solus-status-error)/5 px-5 text-center text-[0.8125rem] text-(--solus-text-secondary)"
+          class="flex min-h-28 items-center justify-center rounded-2xl border border-(--solus-status-error)/20 bg-(--solus-status-error)/5 px-5 text-center text-sm text-(--solus-text-secondary)"
           role="alert"
           data-testid="artifact-error"
         >
@@ -658,7 +658,7 @@
   }
 
   .artifact-skeleton__kicker {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
 
     text-transform: uppercase;
@@ -668,7 +668,7 @@
 
   .artifact-skeleton__status {
     margin-left: auto;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--muted-foreground);
     animation: artifact-sk-breathe 2.6s ease-in-out infinite;
   }

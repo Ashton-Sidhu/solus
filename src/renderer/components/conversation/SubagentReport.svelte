@@ -56,7 +56,7 @@
   let briefOpen = $state(false);
 </script>
 
-<div class="px-[1.125rem] pt-4 pb-8">
+<div class="text-xs px-[1.125rem] pt-4 pb-8">
   {#if brief}
     <!-- The brief keeps a chassis because it is the one thing on this tab the
          agent didn't write. Collapsed it states what it asked for and what the
@@ -81,18 +81,18 @@
         </span>
         <span class="min-w-0 flex-1">
           <span
-            class="mb-1 block text-xs font-medium text-(--muted-foreground) uppercase opacity-70"
+            class="mb-1 block font-medium text-(--muted-foreground) uppercase opacity-70"
             >Dispatch brief · from you</span
           >
           <!-- The title is the brief's own first line, so it is a stand-in for
                the prompt, not a heading over it: once the prompt is open it
                would print the same sentence twice. -->
           {#if !briefOpen}
-            <span class="block truncate text-[0.8125rem] font-medium">{briefTitle}</span>
+            <span class="block truncate text-sm font-medium">{briefTitle}</span>
           {/if}
           {#if meta.length > 0}
             <span
-              class="mt-[0.1875rem] flex items-center gap-[0.4375rem] text-xs text-(--muted-foreground)"
+              class="mt-[0.1875rem] flex items-center gap-[0.4375rem] text-(--muted-foreground)"
             >
               {#each meta as clause, i (clause)}
                 {#if i > 0}<span class="opacity-35" aria-hidden="true">·</span>{/if}
@@ -102,7 +102,7 @@
           {/if}
         </span>
         <span
-          class="flex shrink-0 items-center gap-1.5 rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] py-0.5 pr-2 pl-1.5 text-xs font-medium text-(--muted-foreground) {briefOpen
+          class="flex shrink-0 items-center gap-1.5 rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] py-0.5 pr-2 pl-1.5 font-medium text-(--muted-foreground) {briefOpen
  ? ''
  : 'mt-[0.875rem]'}"
         >
@@ -131,7 +131,7 @@
   {/if}
 
   {#if !report}
-    <div class="text-[0.8125rem] text-(--muted-foreground)">
+    <div class="text-sm text-(--muted-foreground)">
       {running ? "Still working — the answer lands here." : "This agent returned no answer."}
     </div>
   {:else if !outline}
@@ -166,9 +166,9 @@
       {#each outline.sections as section (section.n)}
         <!-- The numeral matches the body cell's own offset exactly — 1rem for
              the first section, 2rem (margin + padding) after — so it shares the
-             kicker's baseline; both are text-xs, so equal offsets align them. -->
+             kicker's baseline; both are, so equal offsets align them. -->
         <div
-          class="font-mono text-xs tabular-nums text-(--muted-foreground) opacity-50 {section.n ===
+          class="tabular-nums text-(--muted-foreground) opacity-50 {section.n ===
  1
  ? 'pt-4'
  : 'pt-8'}"
@@ -185,7 +185,7 @@
                the tertiary one: at this size a label the reader scans for can't
                also be the faintest thing on the tab. -->
           <div
-            class="mb-2.5 text-xs font-medium text-(--solus-text-secondary) uppercase"
+            class="mb-2.5 font-medium text-(--solus-text-secondary) uppercase"
           >
             {section.heading}
           </div>

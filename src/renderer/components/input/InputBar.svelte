@@ -1342,7 +1342,7 @@
   <div
     class="[--solus-font-weight-body:var(--solus-font-weight-user-content)] {mode ===
     'editor'
-      ? '[--plain-editor-font-size:0.875rem] [--plain-editor-padding:1.25rem_0_1.25rem_0]'
+      ? '[--plain-editor-font-size:var(--text-body)] [--plain-editor-padding:1.25rem_0_1.25rem_0]'
       : ''}"
   >
     {#if hasMountedWaveform}

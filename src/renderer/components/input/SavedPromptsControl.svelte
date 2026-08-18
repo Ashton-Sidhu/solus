@@ -282,11 +282,11 @@
           disabled={!projectRoot}
           aria-label="Saved prompts"
           aria-expanded={open}
-          class="flex h-full items-center gap-1.5 rounded-r-lg px-2.5 text-[0.8125rem] text-(--solus-text-tertiary) transition-[background-color,color,scale] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:bg-(--solus-accent-light) focus-visible:outline-none disabled:opacity-50"
+          class="flex h-full items-center gap-1.5 rounded-r-lg px-2.5 text-sm text-(--solus-text-tertiary) transition-[background-color,color,scale] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:bg-(--solus-accent-light) focus-visible:outline-none disabled:opacity-50"
           style="cursor:{projectRoot ? 'pointer' : 'not-allowed'}"
         >
           <span>Saved</span>
-          <span class="font-mono text-xs tabular-nums opacity-60"
+          <span class="text-xs tabular-nums opacity-60"
             >{count}</span
           >
           <!-- The caret points at where the sheet appears, and flips while it
@@ -391,7 +391,7 @@
                 >{promptPreview(prompt.text)}</span
               >
               <span
-                class="flex shrink-0 items-center gap-2 text-menu-meta text-(--solus-text-tertiary)"
+                class="flex shrink-0 items-center gap-2 text-xs text-(--solus-text-tertiary)"
               >
                 <span class="whitespace-nowrap">{relativeTime(prompt.createdAt)}</span>
                 <!-- Command binds onclick to select, so a bare click here would

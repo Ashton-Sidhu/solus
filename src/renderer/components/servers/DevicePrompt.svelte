@@ -51,8 +51,8 @@
   }
 </script>
 
-<div class="mt-3.5 flex flex-wrap items-baseline gap-3">
-  <span class="min-w-0 flex-1 text-pretty text-xs leading-relaxed text-(--solus-text-tertiary)">
+<div class="text-xs mt-3.5 flex flex-wrap items-baseline gap-3">
+  <span class="min-w-0 flex-1 text-pretty leading-relaxed text-(--solus-text-tertiary)">
     {submitState === "sent" ? `Code sent — finishing sign-in on the host…` : why}
   </span>
   {#if code}
@@ -65,7 +65,7 @@
   {/if}
   <button
     type="button"
-    class="inline-flex shrink-0 items-center gap-1 text-xs text-(--solus-accent) hover:underline"
+    class="inline-flex shrink-0 items-center gap-1 text-(--solus-accent) hover:underline"
     onclick={() => void localApi.openExternal(url)}
   >
     Open
@@ -74,7 +74,7 @@
   {#if oncancel}
     <button
       type="button"
-      class="shrink-0 text-xs text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)"
+      class="shrink-0 text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)"
       onclick={oncancel}
     >
       Cancel
@@ -83,7 +83,7 @@
   {#if requiresCodeInput}
     {#if submitState === "sent"}
       <span
-        class="flex w-full items-center gap-2 text-xs text-(--solus-text-tertiary)"
+        class="flex w-full items-center gap-2 text-(--solus-text-tertiary)"
         role="status"
       >
         <CircleNotchIcon size={12} class="shrink-0 animate-spin text-(--solus-accent)" />
@@ -93,7 +93,7 @@
       <form class="flex w-full items-center gap-2" onsubmit={submit}>
         <Input
           bind:value={returnedCode}
-          class="h-8 min-w-0 flex-1 font-mono text-xs"
+          class="h-8 min-w-0 flex-1 font-mono"
           placeholder="Paste the code from {label}"
           autocomplete="one-time-code"
           aria-label="{label} sign-in code"

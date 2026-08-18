@@ -3,6 +3,7 @@ import {
   breadcrumbLeafLabels,
   breadcrumbTaskGroups,
   breadcrumbTaskMatches,
+  completedSectionExpanded,
   projectNote,
   statusColor,
 } from '../../src/renderer/components/conversation/lib/session-breadcrumb'
@@ -27,6 +28,30 @@ describe('breadcrumbTaskMatches', () => {
   it('matches task names without case sensitivity or surrounding query spaces', () => {
     expect(breadcrumbTaskMatches('Remote Session Creation Hang', ' session ')).toBe(true)
     expect(breadcrumbTaskMatches('Remote Session Creation Hang', 'resolved')).toBe(false)
+  })
+})
+
+describe('completedSectionExpanded', () => {
+  it('keeps the archive folded until it is asked for', () => {
+    // WHY: the picker exists to reach open work. Completed tasks stay out of the
+    // way while no query names them.
+    expect(completedSectionExpanded(null, '', 4)).toBe(false)
+    expect(completedSectionExpanded(null, 'reconnect', 0)).toBe(false)
+  })
+
+  it('opens itself for a query that has matches inside it', () => {
+    expect(completedSectionExpanded(null, 'reconnect', 2)).toBe(true)
+  })
+
+  it('lets a click fold a search open, and forgets it on the next keystroke', () => {
+    // WHY: the click has to win over the auto-open, or the control looks dead
+    // mid-search; but the decision belongs to that query, not to the next one.
+    expect(completedSectionExpanded({ query: 'recon', expanded: false }, 'recon', 2)).toBe(false)
+    expect(completedSectionExpanded({ query: 'recon', expanded: false }, 'reconn', 2)).toBe(true)
+  })
+
+  it('lets a click open the archive with no query at all', () => {
+    expect(completedSectionExpanded({ query: '', expanded: true }, '', 4)).toBe(true)
   })
 })
 

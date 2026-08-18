@@ -343,6 +343,9 @@ export interface HeadlessSessionRequest {
   reasoningEffort: ReasoningEffort
   contextWindow: number | null
   cwd: string
+  /** Background work that is not a piece of the user's own work — automation
+   *  drafting — sets this so no task is minted for the session. */
+  skipTaskCreation?: boolean
 }
 
 // ─── Model Profiles ───
@@ -1372,9 +1375,12 @@ export type NormalizedEvent =
   /** Extended-thinking span boundaries. The transcript never renders the thought
    *  itself — only how long it took, folded into the following activity block. */
   | { type: 'thinking'; state: 'start' | 'stop'; parentToolUseId?: string }
-  | { type: 'tool_call'; toolName: string; toolId: string; index: number; toolInput?: string; content?: string; parentToolUseId?: string; isSubagent?: boolean; subagentType?: string }
+  | { type: 'tool_call'; toolName: string; toolId: string; index: number; toolInput?: string; content?: string; parentToolUseId?: string; isSubagent?: boolean; subagentType?: string; startedAtMs?: number }
   | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; content?: string; parentToolUseId?: string }
-  | { type: 'tool_call_complete'; index: number; toolId?: string; toolInput?: string; parentToolUseId?: string }
+  /** With an outcome or completedAtMs, the tool execution completed. Without
+   *  either field, Claude only finished streaming the tool input; tool_result
+   *  is the later execution boundary. */
+  | { type: 'tool_call_complete'; index: number; toolId?: string; toolInput?: string; parentToolUseId?: string; completedAtMs?: number; outcome?: { status?: string; exitCode?: number; error?: string; declined?: boolean; durationMs?: number } }
   | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string; isAsyncLaunch?: boolean; isSubagentReport?: boolean }
   | { type: 'subagent_report'; toolUseId: string; text: string; isError?: boolean }
   | { type: 'assistant_message'; text: string; parentToolUseId?: string; isFinal?: boolean }
@@ -1389,8 +1395,9 @@ export type NormalizedEvent =
   | { type: 'session_dead'; exitCode: number | null; signal: string | null; stderrTail: string[] }
   | { type: 'rate_limit'; status: string; resetsAt: number; rateLimitType: string; isUsingOverage?: boolean; usedPercent?: number; windowDurationMins?: number; info?: RateLimitInfo; message?: string; deferCurrentRun?: boolean }
   | { type: 'usage'; context?: ContextUsage; run?: UsageData }
+  | { type: 'model_rerouted'; fromModel: string; toModel: string; reason?: string }
   | { type: 'session_changed_files_updated'; paths: string[] }
-  | { type: 'permission_request'; questionId: string; toolName: string; toolDescription?: string; toolInput?: PermissionToolInput; options: PermissionOption[] }
+  | { type: 'permission_request'; questionId: string; toolName: string; toolDescription?: string; toolInput?: PermissionToolInput; options: PermissionOption[]; startedAtMs?: number }
   | { type: 'permission_resolved'; questionId: string }
   /** `kind` rides along from Codex's MCP elicitation normalizer — an elicitation
    *  form is answered with an extra `__action` entry, so anything answering this
@@ -1435,6 +1442,8 @@ export type WireNormalizedEvent =
 
 export type PromptDelivery = 'steer' | 'queue'
 
+export type PromptSource = 'typed' | 'queued' | 'automation' | 'agent' | 'dispatch'
+
 /** Non-human origin of an injected prompt. 'session-report' marks another agent's
  *  session's report — turn input for the model, never rendered as a bubble. */
 export type PromptVia = 'automation' | 'session-report'
@@ -1448,6 +1457,9 @@ export interface PromptDispatchResult {
 
 export interface PromptOptions {
   prompt: string
+  /** Explicit source of this turn for observability. Queue drain replaces it
+   *  with `queued`; a remote execution host receives `dispatch`. */
+  promptSource?: PromptSource
   /** Stable renderer-generated identity for correlating optimistic delivery state. */
   clientPromptId?: string
   /** How to deliver input when the target already has an active turn.
@@ -1502,6 +1514,8 @@ export interface SessionCtx {
    *  the host knows. Empty string when the source is a draft that has not
    *  started a session yet. */
   sessionId: string
+  /** Present when this context executes a run dispatched from another host. */
+  origin?: 'dispatch'
   provider: AgentId | null
   agentSessionId: string | null
   handoffFrom?: SessionHandoffLineage
@@ -1540,7 +1554,8 @@ export interface SettingsCtx {
   voiceModeEnabled: boolean
   vadSilenceMs: number
   defaultEditor: EditorId | null
-  defaultTerminal: TerminalAppId | null
+  /** Terminal opened only when no terminal is attached to the shared tmux session. */
+  fallbackTerminal: TerminalAppId | null
   activeAgent: AgentId
   /** Effective review-companion choices used by foreground and background guide generation. */
   reviewAgent: AgentId | null
@@ -1770,6 +1785,8 @@ export interface AgentUsageLimits {
   fiveHour: UsageWindow | null
   weekly: UsageWindow | null
   planType: string | null
+  /** API-key sessions use metered API billing, not subscription quota windows. */
+  usageMode?: 'subscription' | 'api'
   fetchedAt: number
   /** Last refresh failed — these numbers are old, not live. */
   stale: boolean
@@ -1988,14 +2005,49 @@ export interface ProjectConfig {
 
 // ─── Editor / Terminal Types ───
 
-export type EditorId = 'vscode' | 'vim' | 'nvim' | 'helix'
-export type TerminalAppId = 'default-terminal' | 'ghostty'
+/**
+ * Every editor and terminal Solus knows, as runtime values. These are the one
+ * source of truth: the ids are validated at the client I/O boundary and
+ * persisted in settings, and a second hand-written copy of either list silently
+ * dropped every id it had not heard of — which is how newly added editors
+ * reached the host but never the Settings dropdown.
+ */
+export const EDITOR_IDS = [
+  'vscode',
+  'cursor',
+  'zed',
+  'sublime',
+  'intellij',
+  'pycharm',
+  'webstorm',
+  'goland',
+  'datagrip',
+  'dataspell',
+  'phpstorm',
+  'rubymine',
+  'vim',
+  'nvim',
+  'helix',
+  'emacs',
+] as const
+export type EditorId = (typeof EDITOR_IDS)[number]
+
+export const TERMINAL_APP_IDS = [
+  'default-terminal',
+  'ghostty',
+  'iterm2',
+  'wezterm',
+  'kitty',
+  'alacritty',
+] as const
+export type TerminalAppId = (typeof TERMINAL_APP_IDS)[number]
 
 export interface DetectedEditor {
   id: EditorId
   name: string
   isTerminal: boolean
-  binPath: string
+  /** Shell command, when one is installed. */
+  binPath: string | null
 }
 
 export interface DetectedTerminal {
@@ -2003,16 +2055,26 @@ export interface DetectedTerminal {
   name: string
 }
 
+/** Which terminal "Open in terminal" will use right now. */
+export interface ResolvedTerminal {
+  /** Catalog id when Solus knows the app, null for one it can only detect. */
+  id: TerminalAppId | null
+  name: string
+  /** `attached` when a terminal already holds the shared tmux session. */
+  source: 'attached' | 'fallback'
+}
+
 export interface TerminalLaunchRequest {
   command: string
-  terminalId: TerminalAppId
+  /** Terminal to open only when no terminal is attached to the shared tmux session. */
+  fallbackTerminalId: TerminalAppId
   cwd?: string
 }
 
 export interface OpenInEditorRequest {
   filePaths: string[]
   editorId: EditorId
-  terminalId?: TerminalAppId
+  fallbackTerminalId?: TerminalAppId
   cwd?: string
 }
 
@@ -2023,6 +2085,8 @@ export interface FilePreviewRequest {
 
 export interface ProjectFilesRequest {
   cwd?: string
+  /** The files pane also draws folders, so it needs the ones no file reveals. */
+  includeEmptyDirectories?: boolean
 }
 
 export type ProjectFilesResult =
@@ -2030,6 +2094,9 @@ export type ProjectFilesResult =
       ok: true
       root: string
       files: string[]
+      /** Root-relative, trailing-slash directory paths holding no indexed file.
+       *  Present only when the request asked for them. */
+      emptyDirectories?: string[]
       truncated: boolean
       source: 'index'
     }
@@ -2099,6 +2166,34 @@ export type WriteFileResult =
       path: string
       error: string
       conflict?: boolean
+    }
+
+/**
+ * A structural change to the project's file tree. Paths are root-relative and
+ * posix-separated; a folder path may carry a trailing slash. `createFile` and
+ * `createFolder` never overwrite — an existing entry is reported as an error so
+ * the tree can put the user back in the rename input.
+ */
+export type ProjectFileMutation =
+  | { op: 'createFile'; path: string }
+  | { op: 'createFolder'; path: string }
+  | { op: 'rename'; path: string; toPath: string }
+  | { op: 'delete'; path: string }
+
+export interface ProjectFileMutationRequest {
+  cwd?: string
+  mutation: ProjectFileMutation
+}
+
+export type ProjectFileMutationResult =
+  | {
+      ok: true
+      /** Root-relative path the entry now lives at; empty for a delete. */
+      path: string
+    }
+  | {
+      ok: false
+      error: string
     }
 
 /** A file-autocomplete result row, fully resolved by the backend. */

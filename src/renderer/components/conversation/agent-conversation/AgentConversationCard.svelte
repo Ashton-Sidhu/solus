@@ -152,7 +152,7 @@
 </script>
 
 <div
-  class="group/agent-card bg-card rounded-2xl overflow-hidden {stateRing} {state ===
+  class="text-xs group/agent-card bg-card rounded-2xl overflow-hidden {stateRing} {state ===
  'closed'
  ? 'opacity-70'
  : ''} {skipMotion ? '' : 'animate-msg-in-side'}"
@@ -208,7 +208,7 @@
       {:else if provider === "claude-code"}
         <ClaudeIcon size={14} />
       {:else}
-        <span class="text-xs font-medium">Oc</span>
+        <span class="font-medium">Oc</span>
       {/if}
     </span>
     <span
@@ -216,7 +216,7 @@
     >
       {agentName}
     </span>
-    <span class="min-w-0 truncate text-[0.8125rem] text-muted-foreground"
+    <span class="min-w-0 truncate text-sm text-muted-foreground"
       >{title}</span
     >
     <span class="flex-1"></span>
@@ -230,7 +230,7 @@
            everywhere else in this card, and one tinted "you" would undo it. -->
       <span class="flex items-center gap-[7px] shrink-0">
         <span
-          class="text-xs {flow === 'to-agent'
+          class="{flow === 'to-agent'
  ? 'font-medium text-foreground'
  : 'text-muted-foreground'}"
         >
@@ -247,29 +247,29 @@
           {/if}
         </span>
         <span
-          class="text-xs {flow === 'to-you'
+          class="{flow === 'to-you'
  ? 'font-medium text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]'
  : 'text-muted-foreground'}"
         >
           {agentName}
         </span>
         <span
-          class="ml-[3px] font-mono text-xs text-muted-foreground/55 tabular-nums"
+          class="ml-[3px]  text-muted-foreground/55 tabular-nums"
         >
           {elapsed}
         </span>
       </span>
     {:else if state === "failed"}
-      <span class="shrink-0 text-[0.8125rem] text-(--destructive)">
+      <span class="shrink-0 text-sm text-(--destructive)">
         {neverStarted ? "never started" : "stopped replying"}
       </span>
-      <span class="shrink-0 text-[0.8125rem] text-muted-foreground">
+      <span class="shrink-0 text-sm text-muted-foreground">
         {messageCount}
         {messageCount === 1 ? "message" : "messages"} kept
       </span>
       {#if !neverStarted}
         <button
-          class="shrink-0 rounded-lg px-2 py-1 text-xs text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+          class="shrink-0 rounded-lg px-2 py-1  text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
           onclick={retry}
         >
           Retry
@@ -277,7 +277,7 @@
       {/if}
     {:else}
       {#if state === "closed"}
-        <span class="shrink-0 text-[0.8125rem] text-muted-foreground">
+        <span class="shrink-0 text-sm text-muted-foreground">
           closed its session · transcript kept
         </span>
       {:else}
@@ -287,7 +287,7 @@
           class="shrink-0 text-[color-mix(in_oklch,var(--chart-3)_64%,var(--foreground))]"
         />
       {/if}
-      <span class="shrink-0 text-[0.8125rem] text-muted-foreground">
+      <span class="shrink-0 text-sm text-muted-foreground">
         {messageCount}
         {messageCount === 1 ? "message" : "messages"}
       </span>
@@ -325,7 +325,7 @@
                an empty block plus its separator is worse than neither. -->
           {#if provenance}
             <div
-              class="text-menu-meta px-2.5 pt-1 pb-2 font-mono break-words text-(--solus-text-tertiary)"
+              class="px-2.5 pt-1 pb-2 break-words text-(--solus-text-tertiary)"
             >
               {provenance}
             </div>

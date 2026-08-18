@@ -271,7 +271,7 @@
 
   .diagram-thumbnail__group text {
     fill: var(--solus-text-tertiary);
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     font-weight: 500;
   }
 
@@ -311,7 +311,7 @@
 
   .diagram-thumbnail__node-title {
     fill: var(--solus-text-primary);
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     font-weight: 500;
   }
 
@@ -322,7 +322,7 @@
 
   .diagram-thumbnail__field {
     fill: var(--solus-text-tertiary);
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 500;
   }
 

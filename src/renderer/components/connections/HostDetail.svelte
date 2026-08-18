@@ -39,7 +39,7 @@
 <div class="flex flex-col gap-6">
   <div class="min-w-0">
     <h2
-      class="text-[1.5rem] font-medium text-foreground"
+      class="text-2xl font-medium text-foreground"
     >
       {host.label}
     </h2>

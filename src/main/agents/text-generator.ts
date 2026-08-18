@@ -3,6 +3,7 @@ import type { AgentTool } from './tools/agent-tool'
 import { buildSystemPrompt } from './system-hint'
 import { isWorkspacePath } from '../workspace'
 import type { AgentId, ReasoningEffort } from '../../shared/types'
+import { SPAN_SERVICES, type SpanService } from '../observability/registries'
 
 const DEFAULT_TIMEOUT_MS = 120_000
 
@@ -24,6 +25,8 @@ export interface TextGenerationOptions {
   tools?: AgentTool[]
   /** Background runs must never park on an interaction no surface can answer. */
   unattended?: boolean
+  /** Span attribution for the ephemeral run; defaults to text generation. */
+  service?: SpanService
 }
 
 export class TextGenerator {
@@ -46,6 +49,7 @@ export class TextGenerator {
       reasoningEffort: options.disableReasoning ? 'none' : reasoningEffort,
       permissionMode: options.provider === 'codex' ? 'plan' : 'auto',
       persistence: 'ephemeral',
+      service: options.service ?? SPAN_SERVICES.textGeneration,
       additionalDirectories: options.additionalDirs,
       fastMode: options.fastMode,
       systemPrompt,

@@ -5,6 +5,7 @@ import type {
   GitActionResult,
 } from '../../shared/types'
 import {
+  toolsStore,
   type WorkspaceContext,
   type SessionEnvironmentStore,
 } from '../contexts'
@@ -219,7 +220,10 @@ export class GitActions {
 
   openTerminal(): void {
     if (!connectionsStore.desktopHandlersAvailable || !hostPolicy.isClientMachine(this.session.runFor(this.sourceId)?.serverId)) return
-    void this.api().openWorktreeTerminal(this.target().ctx)
+    const ctx = this.target().ctx
+    // Opening one attaches a terminal to the shared session, so what "Open in
+    // terminal" resolves to has just changed for every surface that shows it.
+    void this.api().openWorktreeTerminal(ctx).then(() => toolsStore.refreshResolvedTerminal(ctx.settings.fallbackTerminal))
     requestInputFocus()
   }
 }

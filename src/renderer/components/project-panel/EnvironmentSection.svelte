@@ -4,18 +4,18 @@
     FolderIcon,
     GitBranchIcon,
     GitForkIcon,
-    TerminalWindowIcon,
   } from "phosphor-svelte";
   import {
     getSessionEnvironmentStore,
     getWorkspaceContext,
-    getSettingsContext,
     serversStore,
+    toolsStore,
   } from "../../contexts";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { requestInputFocus } from "../../lib/inputFocus";
   import GitDropdown from "../GitDropdown.svelte";
+  import TerminalAppLogo from "../settings/TerminalAppLogo.svelte";
   import MenuRow, { type ActionRowItem } from "./MenuRow.svelte";
   import UsageMeters from "./UsageMeters.svelte";
   import {
@@ -34,7 +34,6 @@
 
   const environmentStore = getSessionEnvironmentStore();
   const session = getWorkspaceContext();
-  const settings = getSettingsContext();
   const sectionRun = $derived(session.runFor(sourceId));
   const env = $derived(environmentStore.environmentFor(sectionRun));
   const detailCwd = $derived(env.cwd);
@@ -83,6 +82,7 @@
         key: "files",
         label: "Files",
         icon: FolderIcon,
+        hint: comboHint("global.toggle-files"),
         phase: "idle",
         disabled: !onOpenFiles,
         run: () => {
@@ -92,10 +92,12 @@
       {
         key: "terminal",
         label: "Terminal",
-        // The row trails with the terminal configured in Settings.
-        badge: settings.defaultTerminal === "ghostty" ? "Ghostty" : undefined,
+        // The row trails with the terminal that will actually open: the one
+        // already attached to the shared tmux session, or the Settings fallback
+        // when none is. `TerminalAppLogo` keeps it current.
+        badge: toolsStore.resolvedTerminal?.name,
+        icon: TerminalAppLogo,
         hint: comboHint("orb.open-terminal"),
-        icon: TerminalWindowIcon,
         phase: "idle",
         disabled: !!hostAffinity,
         tooltip: hostAffinity
@@ -233,7 +235,7 @@
     margin: 0;
     padding: 0.125rem 0;
     color: var(--solus-text-tertiary);
-    font-size: var(--text-menu-meta);
+    font-size: var(--text-xs);
   }
 
   .env {
@@ -246,7 +248,7 @@
   .menu-trail {
     flex-shrink: 0;
     color: var(--solus-text-tertiary);
-    font-size: var(--text-menu-meta);
+    font-size: var(--text-xs);
     font-weight: 400;
     font-variant-numeric: tabular-nums;
   }
@@ -271,9 +273,9 @@
       background-color 0.15s ease,
       color 0.15s ease;
   }
-  @container (max-width: 15rem) {
+  @container (max-width: 17rem) {
     .branch-row {
-      font-size: 0.75rem;
+      font-size: var(--text-xs);
     }
   }
   .branch-row:hover {
@@ -330,7 +332,7 @@
   }
   .stat-add,
   .stat-del {
-    font-size: var(--text-menu-meta);
+    font-size: var(--text-xs);
     font-weight: 400;
   }
   .stat-add {

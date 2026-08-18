@@ -1,8 +1,10 @@
 <script lang="ts" module>
-  import { XIcon } from "phosphor-svelte";
+  import type { Component } from "svelte";
 
   export type ActionRowPhase = "idle" | "loading" | "success" | "error";
-  export type ActionRowIcon = typeof XIcon;
+  /** Every Phosphor glyph satisfies this, and so does a brand logo that renders
+   *  at the same metric — a row's icon is not always a glyph from one set. */
+  export type ActionRowIcon = Component<{ size?: number }>;
 
   /** One row in a project-panel action list — every card renders the same language. */
   export interface ActionRowItem {
@@ -118,9 +120,9 @@
       background-color 0.15s ease,
       color 0.15s ease;
   }
-  @container (max-width: 15rem) {
+  @container (max-width: 17rem) {
     .menu-row {
-      font-size: 0.75rem;
+      font-size: var(--text-xs);
     }
   }
   .menu-row.split-primary {
@@ -191,7 +193,7 @@
   .menu-trail {
     flex-shrink: 0;
     color: var(--solus-text-tertiary);
-    font-size: var(--text-menu-meta);
+    font-size: var(--text-xs);
     font-weight: 400;
     font-variant-numeric: tabular-nums;
   }
@@ -223,7 +225,7 @@
     flex-shrink: 0;
     color: var(--solus-text-tertiary);
     font-family: var(--solus-code-font-family);
-    font-size: var(--text-menu-meta);
+    font-size: var(--text-xs);
     opacity: 0.7;
   }
 

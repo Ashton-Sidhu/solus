@@ -279,7 +279,7 @@
     background: var(--solus-surface-hover);
     padding: 0 0.5rem;
     color: var(--solus-text-primary);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     outline: none;
     box-shadow: none;
   }
@@ -292,7 +292,7 @@
     padding-inline: 0.25rem;
     text-align: right;
     color: var(--solus-text-tertiary);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-variant-numeric: tabular-nums;
   }
   .find-bar__btn {
@@ -357,7 +357,7 @@
     background: var(--solus-surface-hover);
     padding: 0 0.5rem;
     color: var(--solus-text-secondary);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     cursor: pointer;
     transition:

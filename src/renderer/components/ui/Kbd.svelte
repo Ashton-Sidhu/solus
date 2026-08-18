@@ -37,6 +37,6 @@
   )
 </script>
 
-<kbd class="inline-flex items-center justify-center font-mono leading-none tabular-nums {variantClass} {shiftClass} {extraClass}">
+<kbd class="text-xs inline-flex items-center justify-center leading-none tabular-nums {variantClass} {shiftClass} {extraClass}">
   {@render children()}
 </kbd>

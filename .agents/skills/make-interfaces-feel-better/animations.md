@@ -8,12 +8,14 @@ Users change intent mid-interaction. If animations aren't interruptible, the int
 
 ### CSS Transitions vs. Keyframes
 
-| | CSS Transitions | CSS Keyframe Animations |
-| --- | --- | --- |
-| **Behavior** | Interpolate toward latest state | Run on a fixed timeline |
-| **Interruptible** | Yes — retargets mid-animation | No — restarts from beginning |
-| **Use for** | Interactive state changes (hover, toggle, open/close) | Staged sequences that run once (enter animations, loading) |
-| **Duration** | Adapts to remaining distance | Fixed regardless of state |
+
+|                   | CSS Transitions                                       | CSS Keyframe Animations                                    |
+| ----------------- | ----------------------------------------------------- | ---------------------------------------------------------- |
+| **Behavior**      | Interpolate toward latest state                       | Run on a fixed timeline                                    |
+| **Interruptible** | Yes — retargets mid-animation                         | No — restarts from beginning                               |
+| **Use for**       | Interactive state changes (hover, toggle, open/close) | Staged sequences that run once (enter animations, loading) |
+| **Duration**      | Adapts to remaining distance                          | Fixed regardless of state                                  |
+
 
 ```css
 /* Good — interruptible transition for a toggle */
@@ -46,8 +48,8 @@ Don't animate a single large container. Break content into semantic chunks and a
 ### Step by Step
 
 1. **Split** into logical groups (title, description, buttons)
-2. **Stagger** with ~100ms delay between groups
-3. **For titles**, consider splitting into individual words with ~80ms stagger
+2. **Stagger** with \~100ms delay between groups
+3. **For titles**, consider splitting into individual words with \~80ms stagger
 4. **Combine** `opacity`, `blur`, and `translateY` for the enter effect
 
 ### Code Example
@@ -177,6 +179,7 @@ Exit animations should be softer and less attention-grabbing than enter animatio
 ```
 
 **Key points:**
+
 - Use a small fixed `translateY` (e.g., `-12px`) instead of the full container height
 - Keep some directional movement to indicate where the element went
 - Exit duration should be shorter than enter duration (150ms vs 300ms)
@@ -254,25 +257,30 @@ The non-absolute icon (InactiveIcon) defines the layout size. The absolute icon 
 
 ### Choosing Between Motion and CSS
 
-| | Motion (Framer Motion) | CSS transitions (both icons in DOM) |
-| --- | --- | --- |
-| **Enter animation** | Yes | Yes |
-| **Exit animation** | Yes (via `AnimatePresence`) | Yes (cross-fade — icon never unmounts) |
-| **Spring physics** | Yes | No — use `cubic-bezier(0.2, 0, 0, 1)` as approximation |
-| **When to use** | Project already uses `motion/react` | No motion dependency, or keeping bundle small |
+
+|                     | Motion (Framer Motion)              | CSS transitions (both icons in DOM)                    |
+| ------------------- | ----------------------------------- | ------------------------------------------------------ |
+| **Enter animation** | Yes                                 | Yes                                                    |
+| **Exit animation**  | Yes (via `AnimatePresence`)         | Yes (cross-fade — icon never unmounts)                 |
+| **Spring physics**  | Yes                                 | No — use `cubic-bezier(0.2, 0, 0, 1)` as approximation |
+| **When to use**     | Project already uses `motion/react` | No motion dependency, or keeping bundle small          |
+
 
 **Rule:** Check the project's `package.json` for `motion` or `framer-motion`. If present, use the Motion approach. If not, use the CSS cross-fade pattern — don't add a dependency just for icon transitions.
 
 ### When to Animate Icons
 
-| Animate | Don't animate |
-| --- | --- |
-| Icons that appear on hover (action buttons) | Static navigation icons |
-| State change icons (play → pause, like → liked) | Decorative icons |
-| Icons in contextual toolbars | Icons that are always visible |
-| Loading/success state indicators | Icon labels (text next to icon) |
+
+| Animate                                         | Don't animate                   |
+| ----------------------------------------------- | ------------------------------- |
+| Icons that appear on hover (action buttons)     | Static navigation icons         |
+| State change icons (play → pause, like → liked) | Decorative icons                |
+| Icons in contextual toolbars                    | Icons that are always visible   |
+| Loading/success state indicators                | Icon labels (text next to icon) |
+
 
 **Important:** Always use exactly these values for contextual icon animations — do not deviate:
+
 - `scale`: `0.25` → `1` (never use `0.5` or `0.6`)
 - `opacity`: `0` → `1`
 - `filter`: `"blur(4px)"` → `"blur(0px)"`

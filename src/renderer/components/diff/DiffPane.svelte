@@ -45,7 +45,6 @@
       "HEAD"}
     isWorktree={environment.isolated || !!session.globalDefaults.gitContext?.worktreePath}
     onClose={pane.closeOverlay}
-    onToggleMaximize={pane.toggleMaximize}
     initialScope={params.scope}
     initialFilePath={params.filePath}
     {navigationRequestId}

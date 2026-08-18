@@ -13,8 +13,8 @@ describe('session sidebar layout', () => {
     // WHY: the sidebar is a narrow working rail. Its navigation must not use
     // more vertical space or left padding than the task list below it.
     const source = readSessionSource('SessionSidebar.svelte')
-    expect(source.match(/size="sm"/g)).toHaveLength(5)
-    expect(source.match(/h-7 w-full[\s\S]*?pl-\[0\.125rem\]/g)).toHaveLength(5)
+    expect(source.match(/size="sm"/g)).toHaveLength(6)
+    expect(source.match(/h-7 w-full[\s\S]*?pl-\[0\.125rem\]/g)).toHaveLength(6)
   })
 
   test('does not indent open task titles with disclosure chrome', () => {

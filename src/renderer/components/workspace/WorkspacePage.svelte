@@ -427,7 +427,7 @@
    *  colour carries the `color:` hint so tailwind-merge classifies it and drops
    *  the trigger's own default rather than leaving both in the sheet. */
   const FILTER_CHIP =
-    "h-7 shrink-0 gap-1.5 rounded-lg bg-transparent px-2.5 py-0 text-[0.8125rem] font-normal text-[color:var(--muted-foreground)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:bg-[var(--wash-2)] hover:text-foreground";
+    "h-7 shrink-0 gap-1.5 rounded-lg bg-transparent px-2.5 py-0 text-sm font-normal text-[color:var(--muted-foreground)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:bg-[var(--wash-2)] hover:text-foreground";
 
   // ── Selection bookkeeping ──
   $effect(() => {
@@ -728,7 +728,7 @@
 )}
   <button
     type="button"
-    class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 text-[0.8125rem] transition-colors duration-150 {active
+    class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 text-sm transition-colors duration-150 {active
  ? 'bg-[color-mix(in_oklch,var(--primary)_13%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
  : 'bg-transparent text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:bg-[var(--wash-2)] hover:text-foreground'}"
     {onclick}
@@ -737,7 +737,7 @@
     <Icon size={11} class="shrink-0 opacity-75" />
     {label}
     {#if !active}
-      <span class="font-mono text-xs tabular-nums opacity-60">{count}</span>
+      <span class="text-xs tabular-nums opacity-60">{count}</span>
     {/if}
   </button>
 {/snippet}
@@ -771,7 +771,7 @@
     {label}
   </span>
   <span
-    class="font-mono text-xs tabular-nums text-muted-foreground opacity-70"
+    class="text-xs tabular-nums text-muted-foreground opacity-70"
     >{count}</span
   >
   <span class="h-px flex-1 bg-[var(--hairline)]"></span>
@@ -779,7 +779,7 @@
 
 {#if open}
   <div
-    class="workspace-root relative flex min-h-0 flex-1 flex-col bg-background text-[0.8125rem] text-foreground"
+    class="workspace-root relative flex min-h-0 flex-1 flex-col bg-background text-sm text-foreground"
     style={isEditorMode ? "" : "max-height:var(--pill-body-max)"}
     role="dialog"
     aria-label="Workspace"
@@ -793,7 +793,7 @@
           class="workspace-titlebar flex shrink-0 items-end justify-between gap-6 pt-[42px] pb-3.5 mx-auto w-full max-w-[72rem] @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] px-8 @max-[44rem]:px-5 @max-[34rem]:px-4"
         >
           <div class="flex min-w-0 flex-col gap-[7px]">
-            <h1 class="m-0 text-[1.5rem] font-medium ">
+            <h1 class="m-0 text-2xl font-medium ">
               Workspace
             </h1>
             <!-- While the ledger is still empty the stats are all zero, which
@@ -843,7 +843,7 @@
                   <button
                     {...props}
                     type="button"
-                    class="flex h-[30px] cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] text-[0.8125rem] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]"
+                    class="flex h-[30px] cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] text-sm font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]"
                     data-testid="workspace-new"
                   >
                     <PlusIcon size={12} weight="bold" class="shrink-0" />

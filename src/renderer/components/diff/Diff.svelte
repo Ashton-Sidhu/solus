@@ -222,7 +222,7 @@
 <button
   type="button"
   class:hidden={!autoCollapse || expanded}
-  class="flex min-h-10 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left font-mono text-xs text-(--solus-accent) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96]"
+  class="flex min-h-10 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-xs text-(--solus-accent) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96]"
   aria-label={`Expand ${collapsedSummary}`}
   onclick={() => (expanded = true)}
 >
@@ -234,7 +234,7 @@
 <button
   type="button"
   class:hidden={!formatOnlyCollapsed || (autoCollapse && !expanded)}
-  class="flex min-h-10 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left font-mono text-xs text-(--solus-accent) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96]"
+  class="flex min-h-10 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-xs text-(--solus-accent) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96]"
   aria-label={`Expand ${formatSummary}`}
   onclick={() => (formatExpanded = true)}
 >

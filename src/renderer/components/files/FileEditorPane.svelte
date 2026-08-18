@@ -19,6 +19,7 @@
   import {
     initialMarkdownFileViewMode,
     isMarkdownFile,
+    MARKDOWN_FILE_VIEW_OPTIONS,
     persistMarkdownFileViewMode,
     type MarkdownFileViewMode,
   } from "./lib/markdown-file";
@@ -64,6 +65,7 @@
   let isReadOnly = $state(false);
   let isTruncated = $state(false);
   let saveState = $state<FileSaveState>("idle");
+  let markdownSurfaceRef: MarkdownFileSurface | null = $state(null);
   let markdownViewMode = $state<MarkdownFileViewMode>(
     untrack(() => initialMarkdownFileViewMode(file.path, file.line)),
   );
@@ -71,13 +73,6 @@
   const headerPath = $derived(displayPath || file.path);
   const headerIcon = $derived(fileTypeIcon(headerPath));
   const isMarkdown = $derived(isMarkdownFile(headerPath));
-  const markdownViewOptions: {
-    value: MarkdownFileViewMode;
-    label: string;
-  }[] = [
-    { value: "rendered", label: "Rendered" },
-    { value: "source", label: "Source" },
-  ];
 
   const statusLabel = $derived.by(() => {
     if (isTruncated) return "Truncated — read only";
@@ -103,14 +98,15 @@
     requestInputFocus();
   }
 
-  function selectMarkdownView(mode: MarkdownFileViewMode) {
+  async function selectMarkdownView(mode: MarkdownFileViewMode) {
+    await markdownSurfaceRef?.prepareModeChange(mode);
     markdownViewMode = mode;
     persistMarkdownFileViewMode(mode);
   }
 
   function toggleMarkdownView() {
     if (!isMarkdown) return;
-    selectMarkdownView(markdownViewMode === "rendered" ? "source" : "rendered");
+    void selectMarkdownView(markdownViewMode === "rendered" ? "source" : "rendered");
   }
 
   async function loadFile(path: string) {
@@ -151,7 +147,7 @@
 </script>
 
 <div
-  class="flex h-full min-h-0 min-w-0 flex-col border-l border-(--solus-container-border) bg-(--solus-container-bg)"
+  class="text-xs flex h-full min-h-0 min-w-0 flex-col border-l border-(--solus-container-border) bg-(--solus-container-bg)"
   data-file-editor-pane
 >
   <!-- In-content path line on the shared chrome centreline. The pane's close
@@ -164,13 +160,13 @@
       <Icon icon={headerIcon} width="14" height="14" class="shrink-0" />
     {:else}
       <span
-        class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 font-mono text-xs font-medium text-(--solus-text-tertiary)"
+        class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5  font-medium text-(--solus-text-tertiary)"
       >
         {ext(headerPath)}
       </span>
     {/if}
     <div
-      class="min-w-0 flex-1 truncate font-mono text-[0.8125rem]"
+      class="min-w-0 flex-1 truncate text-sm"
       title={headerPath}
     >
       <span class="text-(--solus-text-tertiary)">{dirName(headerPath)}</span>
@@ -178,7 +174,7 @@
     </div>
     {#if isMarkdown}
       <SegmentedControl
-        options={markdownViewOptions}
+        options={MARKDOWN_FILE_VIEW_OPTIONS}
         isActive={(mode) => markdownViewMode === mode}
         onSelect={selectMarkdownView}
         ariaLabel="Markdown file view"
@@ -187,7 +183,7 @@
       />
     {/if}
     {#if statusLabel}
-      <div class="flex shrink-0 items-center gap-1 text-xs font-medium {statusClass}" role="status">
+      <div class="flex shrink-0 items-center gap-1  font-medium {statusClass}" role="status">
         {#if isReadOnly}
           <LockSimpleIcon size={11} class="shrink-0" />
         {:else}
@@ -199,7 +195,7 @@
     {#if saveState === "conflict"}
       <button
         type="button"
-        class="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-primary) ring-1 ring-(--solus-container-border) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
+        class="shrink-0 rounded-md px-2 py-1  font-medium text-(--solus-text-primary) ring-1 ring-(--solus-container-border) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
         onclick={() => void loadFile(file.path)}
       >
         Reload
@@ -213,13 +209,14 @@
       <span class="sr-only">Opening file...</span>
     </div>
   {:else if fileError}
-    <div class="flex flex-1 items-center justify-center gap-2 p-6 text-center text-xs text-(--solus-status-error)">
+    <div class="flex flex-1 items-center justify-center gap-2 p-6 text-center  text-(--solus-status-error)">
       <WarningCircleIcon size={14} weight="fill" class="shrink-0" />
       <span>{fileError}</span>
     </div>
   {:else if contents !== null}
     {#if isMarkdown}
       <MarkdownFileSurface
+        bind:this={markdownSurfaceRef}
         api={workspace.apiForSession(ctx.session.sessionId)}
         {ctx}
         {cwd}

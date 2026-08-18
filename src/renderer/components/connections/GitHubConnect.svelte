@@ -179,7 +179,7 @@
 
       <div class="flex items-center justify-center gap-2">
         <code
-          class="text-[1.5rem] font-medium text-(--solus-text-primary) tabular-nums"
+          class="text-2xl font-medium text-(--solus-text-primary) tabular-nums"
           style="font-family: 'Geist Mono', ui-monospace, monospace"
           >{connections.providerPrompt.userCode}</code
         >

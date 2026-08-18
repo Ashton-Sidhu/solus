@@ -42,10 +42,12 @@
     breadcrumbLeafLabels,
     breadcrumbTaskGroups,
     breadcrumbTaskMatches,
+    completedSectionExpanded,
     projectNote,
     statusColor,
     statusNote,
     type BreadcrumbDraftMode,
+    type CompletedSectionOverride,
   } from "./lib/session-breadcrumb";
 
   interface Props {
@@ -121,10 +123,18 @@
     ),
   );
   const taskGroups = $derived(breadcrumbTaskGroups(filteredTasksInProject));
-  const taskSections = $derived([
-    { heading: "Open tasks", items: taskGroups.open },
-    { heading: "Completed", items: taskGroups.completed },
-  ]);
+  // Completed work is history, so it stays folded away until asked for — either
+  // by clicking the section or by typing a query that lands inside it. A click
+  // is remembered against the query it was made at, so it can fold a search's
+  // matches away again without the next keystroke inheriting that decision.
+  let completedOverride = $state<CompletedSectionOverride | null>(null);
+  const completedVisible = $derived(
+    completedSectionExpanded(
+      completedOverride,
+      taskQuery,
+      taskGroups.completed.length,
+    ),
+  );
   const current = $derived(sessions.find((child) => child.tabId === tabId));
   const displayedSession = $derived(session.sessionFor(tabId));
   const draftMode = $derived.by((): BreadcrumbDraftMode => {
@@ -230,7 +240,10 @@
   }
 
   function openTaskPicker() {
-    if (menu !== "task") taskQuery = "";
+    if (menu !== "task") {
+      taskQuery = "";
+      completedOverride = null;
+    }
     menu = "task";
   }
 
@@ -310,7 +323,7 @@
   const menuRow =
     "flex h-[2.125rem] w-full cursor-pointer items-center gap-[0.5625rem] rounded-md px-[0.5625rem] text-left transition-[background] duration-150 hover:bg-accent";
   const menuLabel =
-    "min-w-0 flex-1 overflow-hidden text-[0.8125rem] text-ellipsis whitespace-nowrap";
+    "min-w-0 flex-1 overflow-hidden text-sm text-ellipsis whitespace-nowrap";
   const menuHeading =
     "px-[0.5625rem] pt-1.5 pb-1.5 text-xs font-medium  text-muted-foreground uppercase";
   // Rows you can close reserve the slot the X lands in, so nothing reflows the
@@ -342,6 +355,41 @@
   }
 </script>
 
+<!-- One task row, shared by the open and completed sections of the picker. -->
+{#snippet taskRow(item: SidebarTask)}
+  {@const note = statusNote(item.status)}
+  <div class="group/row relative">
+    <Command.Item
+      value="{item.title} {item.taskId ?? item.id}"
+      class={menuRowClosable}
+      data-menu-current={item.key === task?.key ? "" : undefined}
+      onSelect={() => selectTask(item)}
+      oncontextmenu={(event) => openTaskContextMenu(event, item)}
+    >
+      <span class={menuLabel}>{item.title}</span>
+      {#if item.status === "running"}
+        <span class={rowStatus} role="img" aria-label="Running" title="Running">
+          <SpinnerGapIcon
+            size={14}
+            class="animate-spin motion-reduce:animate-none"
+          />
+        </span>
+      {:else if note}
+        <span class={rowStatus} style:color={note.color}>{note.text}</span>
+      {/if}
+    </Command.Item>
+    <button
+      type="button"
+      class={rowClose}
+      title="Close task"
+      aria-label="Close {item.title}"
+      onclick={() => closeTask(item)}
+    >
+      <XIcon size={14} weight="bold" />
+    </button>
+  </div>
+{/snippet}
+
 {#if task || draft}
   <!-- Scrim: the transcript dissolves into the background under the band rather
        than being clipped by a hard edge. -->
@@ -359,7 +407,7 @@
        a centreline. The crumb has no container of its own — it is plain text on
        the band, and the only affordance is the hover wash under each part. -->
   <div
-    class="workspace-titlebar crumb-band @container z-[3] flex items-center gap-px text-sm @max-[52rem]:text-[0.8125rem] {variant ===
+    class="workspace-titlebar crumb-band @container z-[3] flex items-center gap-px text-sm @max-[52rem]:text-xs {variant ===
  'inline'
  ? 'crumb-band--inline relative h-full min-w-0 flex-1 px-1'
  : 'absolute inset-x-0 top-1 h-[2.875rem] pr-3.5'}"
@@ -374,7 +422,7 @@
       <!-- The band, not the list, owns the type scale and the neutral colour:
            each crumb states its own, and the leaf stays full-contrast. -->
       <Breadcrumb.List
-        class="min-w-0 flex-nowrap gap-px text-sm text-foreground @max-[52rem]:text-[0.8125rem]"
+        class="min-w-0 flex-nowrap gap-px text-sm text-foreground @max-[52rem]:text-xs"
       >
         <Breadcrumb.Item
           class="relative shrink-0"
@@ -403,7 +451,10 @@
             {/snippet}
           </Breadcrumb.Link>
           {#if menu === "project"}
-            <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
+            <!-- no-drag: the band is a window-drag region on the mac editor,
+                 which swallows the pointer over anything that is not a control
+                 and reads as a mouseleave that closes the menu. -->
+            <div class="no-drag absolute top-[1.875rem] left-0 z-[8] pt-1.5">
               <div class="menu-surface w-[min(18.25rem,calc(100vw-2rem))] p-[0.3125rem]">
                 <div class={menuHeading}>Projects</div>
                 {#each sidebarStore.projectSummaries as project (project.projectKey)}
@@ -435,7 +486,7 @@
                       >
                     {/if}
                     <span
-                      class="shrink-0 font-mono text-xs text-muted-foreground opacity-50 tabular-nums"
+                      class="shrink-0 text-xs text-muted-foreground opacity-50 tabular-nums"
                       >{project.count}</span
                     >
                   </button>
@@ -458,7 +509,7 @@
                   }}
                 >
                   <FolderOpenIcon size={14} class="shrink-0" />
-                  <span class="flex-1 text-[0.8125rem]">Open project…</span>
+                  <span class="flex-1 text-sm">Open project…</span>
                 </button>
               </div>
             </div>
@@ -513,7 +564,7 @@
               {/snippet}
             </Breadcrumb.Link>
             {#if menu === "task"}
-              <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
+              <div class="no-drag absolute top-[1.875rem] left-0 z-[8] pt-1.5">
                 <div class="menu-surface w-[min(19.75rem,calc(100vw-2rem))] overflow-hidden p-0">
                   <Command.Root shouldFilter={false}>
                     <MenuSearch
@@ -531,56 +582,66 @@
                         </div>
                       {/if}
 
-                      {#each taskSections as section (section.heading)}
-                        {#if section.items.length > 0}
-                          <Command.Group heading={section.heading}>
-                            {#each section.items as item (item.id)}
-                              {@const note = statusNote(item.status)}
-                              <div class="group/row relative">
-                                <Command.Item
-                                  value="{item.title} {item.taskId ?? item.id}"
-                                  class={menuRowClosable}
-                                  data-menu-current={item.key === task?.key
-                                    ? ""
-                                    : undefined}
-                                  onSelect={() => selectTask(item)}
-                                  oncontextmenu={(event) =>
-                                    openTaskContextMenu(event, item)}
-                                >
-                                  <span class={menuLabel}>{item.title}</span>
-                                  {#if item.status === "running"}
-                                    <span
-                                      class={rowStatus}
-                                      role="img"
-                                      aria-label="Running"
-                                      title="Running"
-                                    >
-                                      <SpinnerGapIcon
-                                        size={14}
-                                        class="animate-spin motion-reduce:animate-none"
-                                      />
-                                    </span>
-                                  {:else if note}
-                                    <span
-                                      class={rowStatus}
-                                      style:color={note.color}>{note.text}</span
-                                    >
-                                  {/if}
-                                </Command.Item>
-                                <button
-                                  type="button"
-                                  class={rowClose}
-                                  title="Close task"
-                                  aria-label="Close {item.title}"
-                                  onclick={() => closeTask(item)}
-                                >
-                                  <XIcon size={14} weight="bold" />
-                                </button>
-                              </div>
+                      {#if taskGroups.open.length > 0}
+                        <Command.Group>
+                          <!-- Both section headers are written here rather than
+                               taken from the group's own heading slot: one of
+                               them is a control, and the two only read as a pair
+                               while they share one type and one label column.
+                               The empty leading box is the caret's column. -->
+                          <div
+                            class="flex h-[1.625rem] items-center gap-1.5 px-[0.5625rem] text-xs font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
+                          >
+                            <span
+                              class="size-[0.6875rem] shrink-0"
+                              aria-hidden="true"
+                            ></span>
+                            <span>Open</span>
+                            <span class="tabular-nums opacity-50"
+                              >{taskGroups.open.length}</span
+                            >
+                          </div>
+                          {#each taskGroups.open as item (item.id)}
+                            {@render taskRow(item)}
+                          {/each}
+                        </Command.Group>
+                      {/if}
+
+                      {#if taskGroups.completed.length > 0}
+                        <Command.Group>
+                          <!-- A row, not a label beside one: the pointer moving
+                               onto it has to take the highlight off the task
+                               above, and the keyboard has to be able to arrow
+                               onto it and open the section with Enter. -->
+                          <Command.Item
+                            value="completed tasks section"
+                            class="h-[1.625rem] gap-1.5 rounded-md px-[0.5625rem] text-xs font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
+                            aria-expanded={completedVisible}
+                            onSelect={() =>
+                              (completedOverride = {
+                                query: taskQuery,
+                                expanded: !completedVisible,
+                              })}
+                          >
+                            <CaretDownIcon
+                              size={11}
+                              weight="bold"
+                              class="shrink-0 transition-transform duration-150 {completedVisible
+ ? ''
+ : '-rotate-90'}"
+                            />
+                            <span>Completed</span>
+                            <span class="tabular-nums opacity-50"
+                              >{taskGroups.completed.length}</span
+                            >
+                          </Command.Item>
+                          {#if completedVisible}
+                            {#each taskGroups.completed as item (item.id)}
+                              {@render taskRow(item)}
                             {/each}
-                          </Command.Group>
-                        {/if}
-                      {/each}
+                          {/if}
+                        </Command.Group>
+                      {/if}
 
                       <div
                         class="mx-[0.5625rem] my-[0.3125rem] h-px bg-[color-mix(in_oklch,var(--foreground)_10%,transparent)]"
@@ -591,8 +652,8 @@
                         onSelect={newTask}
                       >
                         <PlusIcon size={14} class="shrink-0" />
-                        <span class="flex-1 text-[0.8125rem]">New task</span>
-                        <span class="font-mono text-xs opacity-60"
+                        <span class="flex-1 text-sm">New task</span>
+                        <span class="text-xs opacity-60"
                           >{comboHint("global.new-task")}</span
                         >
                       </Command.Item>
@@ -628,7 +689,7 @@
               <SessionNameInput
                 value={current?.label ?? leafLabels.session}
                 variant="band"
-                class="text-sm font-medium @max-[52rem]:text-[0.8125rem]"
+                class="text-sm font-medium @max-[52rem]:text-xs"
                 onCommit={(next) => {
                   void session.renameTab(tabId, next);
                   renamingTabId = null;
@@ -676,7 +737,7 @@
             </Breadcrumb.Link>
           {/if}
           {#if menu === "session"}
-            <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
+            <div class="no-drag absolute top-[1.875rem] left-0 z-[8] pt-1.5">
               <div class="menu-surface w-[min(18rem,calc(100vw-2rem))] p-[0.3125rem]">
                 <div class={menuHeading}>Sessions</div>
                 {#each sessions as child (child.sessionId ?? child.tabId ?? child.taskId)}
@@ -735,10 +796,10 @@
                   onclick={newSession}
                 >
                   <PlusIcon size={14} class="shrink-0" />
-                  <span class="flex-1 text-[0.8125rem]"
+                  <span class="flex-1 text-sm"
                     >New session in this task</span
                   >
-                  <span class="font-mono text-xs opacity-60"
+                  <span class="text-xs opacity-60"
                     >{comboHint("global.new-session")}</span
                   >
                 </button>
@@ -770,7 +831,7 @@
           <CheckIcon size={14} weight="bold" class="shrink-0 text-chart-3" />
         {/if}
         <span
-          class="font-mono text-xs whitespace-nowrap {taskDone
+          class="text-xs whitespace-nowrap {taskDone
  ? 'text-chart-3'
  : 'opacity-75'}">{taskRef(record)}</span
         >
@@ -802,7 +863,7 @@
         class="{bandAction} @max-[36rem]:hidden"
         title="Open task page"
         aria-label="Open task page"
-        onclick={() => session.goToTask(record.id)}
+        onclick={() => session.goToTask(record.id, "click", "secondary")}
       >
         <ArrowSquareOutIcon size={14} />
       </button>
@@ -826,7 +887,7 @@
       >
         <PlusIcon size={14} class="text-muted-foreground" />
         <span
-          class="text-[0.8125rem] font-medium whitespace-nowrap @max-[36rem]:hidden"
+          class="text-sm font-medium whitespace-nowrap @max-[36rem]:hidden"
           >New Task</span
         >
       </button>
@@ -908,7 +969,7 @@
               }
             }
           : undefined}
-        onOpenTask={() => session.goToTask(menuTask.id)}
+        onOpenTask={() => session.goToTask(menuTask.id, "click", "secondary")}
         onOpenSource={menuTask.url
           ? () => void localApi.openExternal(menuTask.url!)
           : undefined}

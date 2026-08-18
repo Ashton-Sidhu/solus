@@ -60,7 +60,7 @@
               {@const detail = record[field.key]}
               {#if detail}
                 <div class="flex flex-col gap-1">
-                  <p class="font-mono text-xs font-medium text-(--solus-text-tertiary) uppercase">
+                  <p class="text-xs font-medium text-(--solus-text-tertiary) uppercase">
                     {field.label}
                   </p>
                   <div class="prose-cloud prose-reading font-secondary text-(--solus-text-secondary)">

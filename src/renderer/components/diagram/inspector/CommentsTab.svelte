@@ -147,7 +147,7 @@
 <style>
   .ct-empty {
     margin: 0;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     line-height: 1.55;
     color: var(--solus-text-tertiary);
     text-wrap: pretty;
@@ -225,18 +225,18 @@
     border-radius: 9999px;
     background: var(--solus-accent);
     color: var(--solus-text-on-accent);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
   }
 
   .ct-name {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     color: var(--solus-text-primary);
   }
 
   .ct-meta {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-text-tertiary);
     white-space: nowrap;
   }
@@ -248,7 +248,7 @@
     line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     line-height: 1.55;
     color: var(--solus-text-tertiary);
     text-wrap: pretty;
@@ -256,13 +256,13 @@
 
   .ct-spark {
     flex: none;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-accent);
   }
 
   .ct-agent-name {
     flex: none;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     color: var(--solus-accent);
   }
@@ -270,7 +270,7 @@
   .ct-agent-note {
     flex: 1;
     min-width: 0;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-text-tertiary);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -283,7 +283,7 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.375rem 0.125rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-text-tertiary);
   }
 
@@ -323,7 +323,7 @@
     border-radius: 0.625rem;
     background: color-mix(in srgb, var(--solus-accent) 5%, var(--solus-container-bg));
     color: var(--solus-text-tertiary);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     text-align: left;
     cursor: pointer;
     transition: background var(--duration-quick) var(--ease-premium);
@@ -342,7 +342,7 @@
     gap: 0.5rem;
     padding-top: 0.75rem;
     border-top: 0.0625rem solid var(--solus-container-border);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-text-tertiary);
   }
 

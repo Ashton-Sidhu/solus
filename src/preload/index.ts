@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
-import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, ReasoningEffort, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, Attachment, SessionMeta, SessionSearchResult, SessionGeneratedMetadata, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionLineageResolution, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, PrRepoCheckoutResult } from '../shared/types'
+import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, ReasoningEffort, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, Attachment, SessionMeta, SessionSearchResult, SessionGeneratedMetadata, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionLineageResolution, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, PrRepoCheckoutResult } from '../shared/types'
 import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrEffortRequest, PrEffortResult, PrFilter, PrLifecycleAction, PrListPage, PrReviewer, PrReviewerCandidate, PrReviewTarget, PullRequestDetail, PullRequestOverview, PullRequestSummary, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview } from '../shared/providers'
 import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskCandidateOptions, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskListFilter, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarSnapshot, TaskSnapshot, TaskSnoozeInput, TaskUpdatePatch } from '../shared/task-types'
 import type { OutboxApplyResult, OutboxOp } from '../shared/outbox-types'
@@ -9,6 +9,7 @@ import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewGuide
 import type { StackGraph } from '../shared/stack-types'
 import type { PrChecksSnapshot } from '../shared/checks-rpc-types'
 import type { AssetCreateUrlRequest, AssetCreateUrlResult, AttachmentUploadRequest, SearchSessionsRequest } from '../shared/rpc'
+import type { MetricsNlCompileResult, MetricsQueryResult, MetricsQuerySpec, MetricsSchema, MetricsSessionSummary, MetricsSqlValidation, MetricsTurnTrace, MetricsValue, SavedMetricsQuery } from '../shared/observability-types'
 import type { ClientNotificationRequest } from '../shared/notification-types'
 
 import type { TextGenerationSettings, TextGenerationSettingsSnapshot } from '../shared/types'
@@ -38,6 +39,7 @@ export interface SolusAPI {
   openInFileManager(path: string): Promise<boolean>
   openInTerminal(ctx: IpcContext): Promise<boolean>
   openWorktreeTerminal(ctx: IpcContext): Promise<boolean>
+  resolveTerminal(fallbackTerminalId: TerminalAppId | null): Promise<ResolvedTerminal>
   attachFiles(ctx?: IpcContext): Promise<Attachment[] | null>
   attachFilePaths(paths: string[], ctx?: IpcContext): Promise<Attachment[] | null>
   attachUpload(ctx: IpcContext, request: AttachmentUploadRequest): Promise<string>
@@ -68,6 +70,8 @@ export interface SolusAPI {
   createDirectory(path: string): Promise<CreateDirectoryResult>
   readProjectFile(ctx: IpcContext, request: FilePreviewRequest): Promise<FilePreviewResult>
   listProjectFiles(ctx: IpcContext, request?: ProjectFilesRequest): Promise<ProjectFilesResult>
+  /** Create, rename, or delete one entry inside the project root. */
+  mutateProjectFile(ctx: IpcContext, request: ProjectFileMutationRequest): Promise<ProjectFileMutationResult>
   writeFile(ctx: IpcContext, request: WriteFileRequest): Promise<WriteFileResult>
   respondPermission(ctx: IpcContext, questionId: string, optionId: string, updatedPlan?: string): Promise<boolean>
   writePlanFile(filePath: string, content: string, ctx?: IpcContext): Promise<{ ok: boolean; error?: string }>
@@ -232,6 +236,27 @@ export interface SolusAPI {
   /** Cached subscription quota per provider. Asking also keeps the backend's
    *  poll alive — it suspends itself once nobody is watching. */
   usageLimits(): Promise<AgentUsageLimits[]>
+
+  // Observability / Insights (metrics.db query engine)
+  /** Grouped rows from a builder/preset QuerySpec, compiled server-side. */
+  metricsQuery(spec: MetricsQuerySpec): Promise<MetricsQueryResult>
+  /** Rows from guarded read-only SQL (editor and NL paths). */
+  metricsRunSql(sql: string): Promise<MetricsQueryResult>
+  /** prepare()-only validation: guard violations, SQLite errors, result columns. */
+  metricsValidateSql(sql: string): Promise<MetricsSqlValidation>
+  /** Compile a natural-language question to SQL via an ephemeral agent. */
+  metricsCompileNl(ctx: IpcContext, question: string): Promise<MetricsNlCompileResult>
+  /** The field registry: views, columns, types, descriptions. */
+  metricsSchema(): Promise<MetricsSchema>
+  /** Distinct values for a registered low-cardinality column. */
+  metricsDistinctValues(column: string): Promise<MetricsValue[]>
+  metricsListSavedQueries(): Promise<SavedMetricsQuery[]>
+  metricsSaveQuery(query: SavedMetricsQuery): Promise<SavedMetricsQuery[]>
+  metricsDeleteQuery(id: string): Promise<SavedMetricsQuery[]>
+  /** Root-turn rollup for session surfaces. */
+  metricsSessionSummary(sessionId: string): Promise<MetricsSessionSummary>
+  /** One turn's full span tree for the waterfall. */
+  metricsTurnTrace(traceId: string): Promise<MetricsTurnTrace>
 
   readLedger(ctx: IpcContext): Promise<ReviewLedger | null>
   writeLedger(ctx: IpcContext, ledger: ReviewLedger): Promise<boolean>

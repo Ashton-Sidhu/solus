@@ -46,7 +46,7 @@
 
           <div class="flex min-w-0 flex-col">
             <span
-              class="text-[0.8125rem] leading-4 transition-colors {state === 'active'
+              class="text-sm leading-4 transition-colors {state === 'active'
                 ? 'font-medium text-(--solus-text-primary)'
                 : state === 'done'
                   ? 'font-secondary text-(--solus-text-secondary)'

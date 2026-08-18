@@ -64,7 +64,7 @@
   // gets its own full-width outlined row beneath Merge instead of competing for
   // horizontal room with Guide.
   const quietButtonClass =
-    "h-auto min-w-0 cursor-pointer gap-1.5 rounded-none border-0 bg-transparent p-0 text-[0.8125rem] transition-colors hover:bg-transparent";
+    "h-auto min-w-0 cursor-pointer gap-1.5 rounded-none border-0 bg-transparent p-0 text-sm transition-colors hover:bg-transparent";
   const allowedActions = $derived(new Set(detail?.viewerPermissions.actions ?? []));
   const mergeMethods = $derived(detail?.capabilities.mergeMethods ?? []);
   const canMerge = $derived(
@@ -104,7 +104,7 @@
     <Button
       variant="ghost"
       disabled={!addressCommentsReady || addressingComments}
-      class="flex h-[34px] w-full min-w-0 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 text-[0.8125rem] font-medium text-foreground shadow-[0_1px_1px_rgba(0,0,0,0.02)] transition-[background-color,border-color,scale] hover:border-[color-mix(in_oklab,var(--foreground)_18%,var(--border))] hover:bg-muted active:scale-[0.96]"
+      class="flex h-[34px] w-full min-w-0 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 text-sm font-medium text-foreground shadow-[0_1px_1px_rgba(0,0,0,0.02)] transition-[background-color,border-color,scale] hover:border-[color-mix(in_oklab,var(--foreground)_18%,var(--border))] hover:bg-muted active:scale-[0.96]"
       title={addressingComments
         ? "Opening fix agent…"
         : addressCommentsReady

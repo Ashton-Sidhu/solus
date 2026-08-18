@@ -1,28 +1,39 @@
 import { isArtifactRoute, isPageRoute, type RouteRef } from '../../../contexts/workspace/routing/route-registry'
+import type { PaneId } from '../../../contexts/workspace/routing/location'
 import type { Session, Tab } from '../../../../shared/types'
-import { paneBoundsPercent, pixelsToPercent } from '../../../lib/resizablePane'
 
 export const MIN_PRIMARY_PANE_WIDTH = 400
-export const MIN_SECONDARY_PANE_WIDTH = 360
-/**
- * Bounds for a primary pane holding a list sidebar rather than a chat column.
- * The docked PR inbox is navigation beside its review, so 400px — sized for a
- * conversation and its composer — strands it at nearly half the split.
- */
-export const MIN_LIST_PRIMARY_PANE_WIDTH = 228
-export const MAX_LIST_PRIMARY_PANE_WIDTH = 340
 
 /**
- * The docked list sidebar's own measure: clamp(228px, 19%, 340px). Expressed as
- * a width rather than a split ratio because the design caps it — past ~1790px
- * of split, a ratio keeps widening a column that holds one line of text.
+ * Every pane constraint below is a percentage of the split it sits in, which is
+ * what PaneForge takes and what lets its own `autoSaveId` persistence work: the
+ * library keys a saved layout by the panes' constraints, so a constraint derived
+ * from the live container width would change the key on every window resize and
+ * lose the layout it just saved.
+ *
+ * A share scales with the viewport on its own, which is the point — no measuring,
+ * no conversion, one number per role.
  */
-export function listSidebarPrimaryWidth(containerWidth: number): number {
-  return Math.min(
-    MAX_LIST_PRIMARY_PANE_WIDTH,
-    Math.max(MIN_LIST_PRIMARY_PANE_WIDTH, Math.round(containerWidth * 0.19)),
-  )
-}
+export const PRIMARY_PANE_MIN_SIZE = 25
+export const COMPANION_PANE_MIN_SIZE = 25
+export const COMPANION_PANE_DEFAULT_SIZE = 50
+/**
+ * A primary pane holding a list sidebar rather than a chat column. The docked PR
+ * inbox is navigation beside its review, so the chat column's floor — sized for a
+ * conversation and its composer — would strand it at nearly half the split.
+ */
+export const LIST_PRIMARY_PANE_MIN_SIZE = 15
+export const LIST_PRIMARY_PANE_SIZE = 19
+
+/**
+ * The session sidebar's share of the window: ~218px at 1280, ~245px at 1440,
+ * ~490px at 2880. A share has no ceiling, so a very wide display gives the
+ * sidebar more room than one line of text per row needs — that is the trade a
+ * percentage makes in exchange for scaling with no measurement.
+ */
+export const SIDEBAR_PANE_MIN_SIZE = 14
+export const SIDEBAR_PANE_DEFAULT_SIZE = 17
+export const SIDEBAR_PANE_MAX_SIZE = 24
 export const MAX_RETAINED_CONVERSATION_TRANSCRIPTS = 4
 
 /**
@@ -111,56 +122,6 @@ export function defaultWorkspaceRailWidth(viewportWidth: number): number {
   )
 }
 
-export function clampSecondaryPaneWidth(
-  desiredWidth: number,
-  containerWidth: number,
-  minPrimaryWidth = MIN_PRIMARY_PANE_WIDTH,
-): number {
-  if (containerWidth < minPrimaryWidth + MIN_SECONDARY_PANE_WIDTH) {
-    return Math.round(containerWidth / 2)
-  }
-  return Math.min(
-    containerWidth - minPrimaryWidth,
-    Math.max(MIN_SECONDARY_PANE_WIDTH, desiredWidth),
-  )
-}
-
-export interface SecondaryPaneBounds {
-  min: number
-  max: number
-}
-
-export function secondaryPaneBounds(
-  containerWidth: number,
-  minPrimaryWidth = MIN_PRIMARY_PANE_WIDTH,
-): SecondaryPaneBounds {
-  if (containerWidth < minPrimaryWidth + MIN_SECONDARY_PANE_WIDTH) {
-    return { min: 50, max: 50 }
-  }
-  return paneBoundsPercent(
-    containerWidth,
-    MIN_SECONDARY_PANE_WIDTH,
-    containerWidth - minPrimaryWidth,
-  )
-}
-
-export function primaryPaneMinSize(
-  containerWidth: number,
-  minPrimaryWidth = MIN_PRIMARY_PANE_WIDTH,
-): number {
-  return containerWidth < minPrimaryWidth + MIN_SECONDARY_PANE_WIDTH
-    ? 50
-    : pixelsToPercent(minPrimaryWidth, containerWidth)
-}
-
-export function secondaryPaneDefaultSize(
-  width: number,
-  containerWidth: number,
-  bounds: { min: number; max: number },
-): number {
-  return Math.min(bounds.max, Math.max(bounds.min, pixelsToPercent(width, containerWidth)))
-}
-
 interface WorkspaceTabs {
   tabOrder: string[]
   tabs: Record<string, Tab>
@@ -191,6 +152,23 @@ export function visibleWorkspaceTabIds(
   return openTabIds.filter(
     (tabId) => tabId === splitTabId || branchKeyOf(tabId) === activeBranchKey,
   )
+}
+
+/**
+ * Which pane the maximize key acts on. Only a companion pane can be maximized —
+ * the leading pane already owns the column the maximized surface would cover —
+ * so the key follows focus into a companion and otherwise takes the last one
+ * opened. A pane that is already maximized stays the target wherever focus sits,
+ * so the same press always restores it.
+ */
+export function maximizeTargetPaneId(
+  companionPaneIds: readonly PaneId[],
+  focusedPaneId: PaneId,
+  maximizedPaneId: PaneId | null,
+): PaneId | null {
+  if (maximizedPaneId && companionPaneIds.includes(maximizedPaneId)) return maximizedPaneId
+  if (companionPaneIds.includes(focusedPaneId)) return focusedPaneId
+  return companionPaneIds.at(-1) ?? null
 }
 
 /**

@@ -117,7 +117,7 @@
 
     <!-- Slot 2 — the only full-strength text in the row. -->
     <span
-      class="min-w-0 truncate text-[0.8125rem] font-normal "
+      class="min-w-0 truncate text-sm font-normal "
       title={a.name}
     >
       {a.name}
@@ -136,12 +136,12 @@
          for the verbs rather than sharing the line with them, so the right end
          is never two things at once. -->
     <span
-      class="truncate text-right font-mono text-xs whitespace-nowrap text-muted-foreground opacity-85 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0 @max-[44rem]:hidden"
+      class="truncate text-right text-xs whitespace-nowrap text-muted-foreground opacity-85 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0 @max-[44rem]:hidden"
     >
       {schedule}
     </span>
     <span
-      class="text-right font-mono text-xs tabular-nums text-muted-foreground opacity-70 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
+      class="text-right text-xs tabular-nums text-muted-foreground opacity-70 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
     >
       {age}
     </span>

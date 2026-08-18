@@ -1,5 +1,13 @@
 export type MarkdownFileViewMode = "rendered" | "source";
 
+export const MARKDOWN_FILE_VIEW_OPTIONS: {
+  value: MarkdownFileViewMode;
+  label: string;
+}[] = [
+  { value: "rendered", label: "Editor" },
+  { value: "source", label: "Markdown" },
+];
+
 export const MARKDOWN_FILE_VIEW_MODE_KEY = "solus-markdown-file-view-mode";
 
 export function isMarkdownFile(path: string): boolean {

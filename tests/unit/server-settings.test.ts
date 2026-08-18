@@ -51,6 +51,14 @@ describe.serial('server settings defaults', () => {
     expect(settings.getServerSettings().remoteAccess).toBe(false)
   })
 
+  test('defaults retention to 30 days and persists a replacement value', async () => {
+    const settings = await loadSettings('metrics-retention')
+    expect(settings.getServerSettings().metricsRetentionDays).toBe(30)
+
+    settings.setMetricsRetentionDays(14)
+    expect(settings.getServerSettings().metricsRetentionDays).toBe(14)
+  })
+
   test('loads a persisted autonomous task lifecycle policy', async () => {
     const settings = await loadSettings('autonomous-task-lifecycle', {
       remoteAccess: true,

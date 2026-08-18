@@ -20,7 +20,6 @@
   import ConversationView from "../conversation/ConversationView.svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { frameChrome } from "./frame-chrome.store.svelte";
-  import { DEFAULT_PANEL_WIDTH } from "../../contexts/workspace/routing/pane-geometry.store.svelte";
   import type {
     PaneEntry,
     PaneId,
@@ -30,30 +29,24 @@
   import { CompanionPanes } from "./lib/companion-panes.svelte";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import {
-    clampSecondaryPaneWidth,
-    defaultWorkspaceRailWidth,
+    COMPANION_PANE_DEFAULT_SIZE,
+    COMPANION_PANE_MIN_SIZE,
     isCompanionVisible,
     isFramedRoute,
     isHomeVisible,
-    listSidebarPrimaryWidth,
-    SIDEBAR_MAX_WIDTH,
-    SIDEBAR_MIN_WIDTH,
-    MIN_LIST_PRIMARY_PANE_WIDTH,
-    MIN_PRIMARY_PANE_WIDTH,
-    primaryPaneMinSize,
+    LIST_PRIMARY_PANE_MIN_SIZE,
+    LIST_PRIMARY_PANE_SIZE,
+    maximizeTargetPaneId,
+    PRIMARY_PANE_MIN_SIZE,
     primaryProjectPanelOpen,
     retainedConversationTabIds,
-    secondaryPaneBounds,
-    secondaryPaneDefaultSize,
+    SIDEBAR_PANE_DEFAULT_SIZE,
+    SIDEBAR_PANE_MAX_SIZE,
+    SIDEBAR_PANE_MIN_SIZE,
   } from "./lib/workspace-body";
   import { hasSessionStarted } from "../../lib/sessionUtils";
   import { isProjectRailOpen } from "../project-panel/lib/rail-width";
   import * as Resizable from "../ui/resizable";
-  import {
-    paneBoundsPercent,
-    percentToPixels,
-    pixelsToPercent,
-  } from "../../lib/resizablePane";
   import { provideOuterScrollbarContext } from "./lib/outer-scrollbar.context";
 
   interface Props {
@@ -82,7 +75,6 @@
   const settings = getSettingsContext();
   const environmentStore = getSessionEnvironmentStore();
   const router = session.router;
-  const geometry = session.geometry;
   const companions = new CompanionPanes(
     () => !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
   );
@@ -192,7 +184,7 @@
     leadingRef?.name === "review" ||
       leadingRef?.name === "prReview",
   );
-  const maximizedPaneId = $derived(geometry.maximizedPaneId);
+  const maximizedPaneId = $derived(session.maximizedPaneId);
 
   // The tab strip, the composer and the project rail are one set of chrome: all
   // three belong to a conversation in the primary slot. Any non-conversation
@@ -294,7 +286,6 @@
     workspaceBodyWidth ||
       window.innerWidth,
   );
-  const defaultSidebarWidth = $derived(defaultWorkspaceRailWidth(workspaceWidth));
 
   let sidebarOpen = $state(true);
   let sidebarClosedForOverlay = $state(false);
@@ -316,14 +307,6 @@
   }
   $effect(() => () => clearTimeout(sidebarSnapTimer));
 
-  const sidebarBounds = $derived(
-    paneBoundsPercent(workspaceBodyWidth, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH),
-  );
-  const sidebarDefaultSize = $derived(
-    workspaceBodyWidth > 0
-      ? pixelsToPercent(defaultSidebarWidth, workspaceBodyWidth)
-      : 19,
-  );
 
   function openSidebar() {
     sidebarOpen = true;
@@ -390,6 +373,25 @@
   useKeybinding("global.toggle-sidebar", () => toggleSidebar(), {
     enabled: () => active,
   });
+  // ⌥M maximizes the companion pane whatever surface it holds — the diff panel
+  // used to own this key alone, so every other pane (files, review, plan, work,
+  // split chat) had no keyboard way out of a half-width column.
+  const maximizePaneId = $derived(
+    maximizeTargetPaneId(
+      router.asidePanes.map((pane) => pane.id),
+      router.focusedPaneId,
+      session.maximizedPaneId,
+    ),
+  );
+  useKeybinding(
+    "pane.maximize",
+    () => {
+      if (!maximizePaneId) return;
+      session.maximizedPaneId =
+        session.maximizedPaneId === maximizePaneId ? null : maximizePaneId;
+    },
+    { enabled: () => active && !!maximizePaneId },
+  );
   useKeybinding(
     "global.toggle-project-panel",
     () =>
@@ -443,16 +445,13 @@
     { enabled: () => active },
   );
 
-  const secondaryContainerWidth = $derived(
-    conversationSplitWidth || windowCtx.workAreaWidth,
-  );
   // A PR review docks beside the PR inbox, which is a list sidebar rather than
   // a chat column — it gets the narrower floor so the review keeps the width.
   const primaryIsListSidebar = $derived(
     leadingRef?.name === "prs" && companionRef?.name === "prReview",
   );
-  const minPrimaryWidth = $derived(
-    primaryIsListSidebar ? MIN_LIST_PRIMARY_PANE_WIDTH : MIN_PRIMARY_PANE_WIDTH,
+  const primaryMinSize = $derived(
+    primaryIsListSidebar ? LIST_PRIMARY_PANE_MIN_SIZE : PRIMARY_PANE_MIN_SIZE,
   );
   // Pages that own an edge-to-edge surface: each ends in its own footer band or
   // full-bleed background, so the card gutter would read as that background
@@ -466,69 +465,31 @@
     "folio",
   ]);
   const pageFlush = $derived(FLUSH_PAGES.has(leadingRef?.name ?? ""));
-  const autoSecondaryWidth = $derived.by(() =>
-    clampSecondaryPaneWidth(
-      primaryIsListSidebar
-        ? secondaryContainerWidth -
-            listSidebarPrimaryWidth(secondaryContainerWidth)
-        : Math.round(
-            secondaryContainerWidth * geometry.weightFor(companion?.id ?? ""),
-          ),
-      secondaryContainerWidth,
-      minPrimaryWidth,
-    ),
-  );
-  const secondaryBounds = $derived(
-    secondaryPaneBounds(secondaryContainerWidth, minPrimaryWidth),
-  );
-  const primaryMinSize = $derived(
-    primaryPaneMinSize(secondaryContainerWidth, minPrimaryWidth),
-  );
-  const secondaryDefaultSize = $derived.by(() => {
-    const paneId = companion?.id ?? "";
-    const width = geometry.hasResized(paneId)
-      ? geometry.widthFor(paneId)
-      : autoSecondaryWidth;
-    return secondaryPaneDefaultSize(
-      width,
-      secondaryContainerWidth,
-      secondaryBounds,
-    );
+  const secondaryBounds = $derived({
+    min: COMPANION_PANE_MIN_SIZE,
+    max: 100 - primaryMinSize,
   });
+  // The companion states its own measure when it opens — a diff asks for more of
+  // the split than a goal does. A docked list sidebar is the one case the
+  // *primary* names its share instead, so the companion takes the rest.
+  const secondaryDefaultSize = $derived(
+    primaryIsListSidebar
+      ? 100 - LIST_PRIMARY_PANE_SIZE
+      : (companion?.defaultSize ?? COMPANION_PANE_DEFAULT_SIZE),
+  );
 
-  // PaneForge reports every pane's share; the leading column is index 0 and the
-  // companions follow in render order, so each pane records its own width.
-  function handleSplitLayout(layout: number[]) {
-    if (conversationSplitWidth <= 0) return;
-    companionPanes.forEach((pane, index) => {
-      const share = layout[index + 1];
-      if (share === undefined) return;
-      geometry.setWidth(
-        pane.id,
-        clampSecondaryPaneWidth(
-          percentToPixels(share, conversationSplitWidth),
-          conversationSplitWidth,
-          minPrimaryWidth,
-        ),
-      );
-    });
-  }
-
-  function handleCompanionDragging(paneId: PaneId, dragging: boolean) {
+  function handleCompanionDragging(dragging: boolean) {
     isResizingSecondary = dragging;
-    if (!dragging) return;
-    geometry.markResized(paneId);
   }
 
   // Frozen the moment a companion starts closing: the pane leaves the layout
   // flow to fade out, so it needs the width it had rather than a share.
-  let secondaryClosingWidth = $state(DEFAULT_PANEL_WIDTH);
+  let secondaryClosingWidth = $state(560);
 
   // One effect drives every companion's mount/exit timing, keyed by pane id.
-  // The location is the only thing tracked here: `sync` and `prune` both read
-  // and write the state they own, so tracking them would make this effect
-  // retrigger itself — the failure mode the one-directional router exists to
-  // rule out.
+  // The location is the only thing tracked here: `sync` reads and writes the
+  // state it owns, so tracking it would make this effect retrigger itself — the
+  // failure mode the one-directional router exists to rule out.
   $effect(() => {
     const live = router.asidePanes;
     untrack(() => {
@@ -537,11 +498,14 @@
           secondaryPaneEl.clientWidth || secondaryClosingWidth;
       }
       companions.sync(live);
-      // Geometry outlives a pane only for the length of its exit animation.
-      geometry.prune([
-        ...router.panes.map((pane) => pane.id),
-        ...companions.ids,
-      ]);
+      // A maximized pane covers the window, so a stale id would keep the whole
+      // workspace hidden behind a surface that has already closed.
+      if (
+        session.maximizedPaneId &&
+        !router.panes.some((pane) => pane.id === session.maximizedPaneId)
+      ) {
+        session.maximizedPaneId = null;
+      }
     });
   });
   $effect(() => () => companions.dispose());
@@ -616,16 +580,27 @@
     else if (!sidebarOpen && !pane.isCollapsed()) pane.collapse();
   });
 
-  // A surface entering a pane deliberately resets to its own measure. Once the
-  // user drags, PaneForge keeps that manual layout until the next surface opens
-  // and clears the pane's `resized` flag in PaneGeometryStore.
+  // A *new* surface entering the pane resets it to that surface's own measure.
+  // Nothing else may resize: a re-render, the layout PaneForge restored on mount,
+  // and the user's own drag all have to stand, or the saved layout is overwritten
+  // by the default the moment anything upstream recomputes. The key is what the
+  // pane is showing and what it asked for, so only a genuine change fires it.
+  let lastCompanionMeasure: string | null = null;
   $effect(() => {
-    const pane = secondaryPane;
-    const defaultSize = secondaryDefaultSize;
     const paneId = companion?.id;
-    if (!pane || !paneId || !secondaryVisible) return;
-    if (geometry.hasResized(paneId) || maximizedPaneId !== null) return;
-    pane.resize(defaultSize);
+    const defaultSize = secondaryDefaultSize;
+    if (!paneId || !secondaryVisible) {
+      lastCompanionMeasure = null;
+      return;
+    }
+    const measure = `${paneId}:${defaultSize}`;
+    if (measure === lastCompanionMeasure) return;
+    const isFirstMeasure = lastCompanionMeasure === null;
+    lastCompanionMeasure = measure;
+    // On the first pass the pane's own `defaultSize` prop — or the layout
+    // PaneForge restored — already applies. Only a later change is a reset.
+    if (isFirstMeasure || maximizedPaneId !== null) return;
+    untrack(() => secondaryPane?.resize(defaultSize));
   });
 </script>
 
@@ -650,17 +625,24 @@
   bind:clientWidth={workspaceBodyWidth}
 >
   <OuterScrollbar target={active ? outerScrollTarget : null} />
+  <!-- `autoSaveId` hands PaneForge the widths outright: it restores the layout on
+       mount and writes every drag back itself, which is why no width is measured,
+       converted, or stored here. It only works because the constraints below are
+       fixed percentages — PaneForge keys a saved layout by them, so a constraint
+       derived from the live container width would change the key on every window
+       resize and lose the layout it had just saved. -->
   <Resizable.PaneGroup
     direction="horizontal"
     keyboardResizeBy={2}
+    autoSaveId="solus-workspace-rail"
     class="workspace-pane-group"
   >
     <Resizable.Pane
       bind:this={sidebarPane}
       order={1}
-      defaultSize={sidebarOpen ? sidebarDefaultSize : 0}
-      minSize={sidebarBounds.min}
-      maxSize={sidebarBounds.max}
+      defaultSize={sidebarOpen ? SIDEBAR_PANE_DEFAULT_SIZE : 0}
+      minSize={SIDEBAR_PANE_MIN_SIZE}
+      maxSize={SIDEBAR_PANE_MAX_SIZE}
       collapsedSize={0}
       collapsible
       onCollapse={closeSidebar}
@@ -695,8 +677,8 @@
         <Resizable.PaneGroup
           direction="horizontal"
           keyboardResizeBy={2}
+          autoSaveId="solus-workspace-split"
           class="flex-1 min-w-0"
-          onLayoutChange={handleSplitLayout}
         >
           <Resizable.Pane
             order={1}
@@ -848,14 +830,13 @@
           {#each companionPanes as pane, index (pane.id)}
             {@const closing = companions.isClosing(pane.id)}
             {@const ref = visibleRef(pane)}
-            {@const maximized = geometry.isMaximized(pane.id)}
+            {@const maximized = session.maximizedPaneId === pane.id}
             {#if !closing}
               <Resizable.Handle
                 aria-label="Resize panel"
                 disabled={maximized}
                 class={maximized ? "pointer-events-none opacity-0" : ""}
-                onDraggingChange={(dragging) =>
-                  handleCompanionDragging(pane.id, dragging)}
+                onDraggingChange={handleCompanionDragging}
               />
             {/if}
             <Resizable.Pane
@@ -946,7 +927,11 @@
   :global(.secondary-pane-wrap) {
     padding-bottom: var(--solus-pane-gutter);
     opacity: 1;
-    transform: translateX(0);
+    /* No resting transform, and none may be added: any transform other than
+       `none` makes this wrap the containing block for the `position: fixed`
+       maximized surface inside it, so `inset: 0` would resolve to the pane's own
+       box and maximize would only ever fill the pane. The exit transition below
+       still runs — `none` interpolates as the identity transform. */
     /* No standing will-change here: it pinned every open pane (a full-height
        surface) to its own compositing layer for its whole lifetime to serve a
        180ms close transition the browser layerizes on its own anyway. */

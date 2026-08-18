@@ -67,6 +67,12 @@ export interface RouteParams {
   tasks: Record<string, never>
   task: { taskId: string; serverId?: string }
   prs: { projectPath?: string }
+  /** The query surface over the host's `metrics.db`. A trace id opens that
+   *  turn's detail panel beside the list — the trace id is the turn's identity,
+   *  so the waterfall is deep-linkable and survives the list that led to it. A
+   *  span id lands the waterfall on that span's detail — how an event-listing
+   *  row drills into its own span. */
+  insights: { traceId?: string; spanId?: string }
   reviewMode: Record<string, never>
   settings: { tab?: SettingsTab; projectCwd?: string }
   folio: Record<string, never>
@@ -263,6 +269,24 @@ export const ROUTES = defineRoutes({
     // The list keeps the same fixed top measure in either sidebar state.
     ownsTitlebarChrome: true,
     component: () => import('../../../components/prs/PrsPage.svelte'),
+  },
+  // A turn opens as a panel beside the list, PRs-style: the params name the
+  // open turn, so the page and the turn are one destination and one surface.
+  insights: {
+    parse: (s) => {
+      if (!s) return {}
+      const [traceId, spanId] = s.split('/')
+      if (!traceId) return {}
+      return spanId ? { traceId, spanId } : { traceId }
+    },
+    serialize: (p) =>
+      p.traceId ? (p.spanId ? `${p.traceId}/${p.spanId}` : p.traceId) : '',
+    placement: 'any',
+    exclusiveGroup: 'page',
+    // Keeps the console at the same fixed top measure as the other workspace
+    // pages whether or not the session sidebar is showing.
+    ownsTitlebarChrome: true,
+    component: () => import('../../../components/insights/InsightsPage.svelte'),
   },
   reviewMode: {
     parse: () => ({}),

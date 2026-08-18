@@ -137,7 +137,7 @@
   }
 
   .step-badge {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     padding: 0.125rem 0.5rem;
     border-radius: 9999px;

@@ -108,7 +108,7 @@
     size="icon-xs"
     aria-expanded={!collapsed}
     aria-label="{collapsed ? 'Expand' : 'Collapse'} comment from {author}"
-    class="shrink-0 cursor-pointer text-muted-foreground opacity-0 transition-[opacity,color] hover:text-foreground focus-visible:opacity-100 group-hover/comment:opacity-100 {collapsed
+    class="text-sm shrink-0 cursor-pointer text-muted-foreground opacity-0 transition-[opacity,color] hover:text-foreground focus-visible:opacity-100 group-hover/comment:opacity-100 {collapsed
       ? 'opacity-100'
       : ''}"
     onclick={() => toggleComment(key)}
@@ -123,7 +123,7 @@
 
 <!-- The spine: a 1px rail under 22px nodes, so every row's content column
      starts 30px in (node + gap) and the rail runs through the node centers. -->
-<ol class="relative flex flex-col gap-5" role="list">
+<ol class="text-sm relative flex flex-col gap-5" role="list">
   <span
     class="absolute top-2 bottom-2 left-[11px] w-px bg-border"
     aria-hidden="true"
@@ -139,7 +139,7 @@
       <GitPullRequestIcon size={13} weight="bold" />
     </span>
     <div class="min-w-0 flex-1 pt-1">
-      <p class="text-[0.8125rem] text-muted-foreground">
+      <p class="text-muted-foreground">
         <span class="font-medium text-foreground">{authorName}</span>
         opened this pull request{#if openedAt}<TooltipUI.Root>
           <TooltipUI.Trigger>
@@ -188,7 +188,7 @@
             <GitCommitIcon size={12} weight="bold" />
           </span>
           <div class="min-w-0 flex-1 pt-1">
-            <p class="text-[0.8125rem] text-muted-foreground">
+            <p class="text-muted-foreground">
               <span class="font-medium text-foreground"
                 >{commitRunAuthorLabel(event.commits, authorName)}</span
               >
@@ -228,7 +228,7 @@
                       >{commit.sha.slice(0, 7)}</code
                     >
                     <span
-                      class="min-w-0 flex-1 truncate text-[0.8125rem] text-muted-foreground transition-colors group-hover/commit:text-foreground"
+                      class="min-w-0 flex-1 truncate  text-muted-foreground transition-colors group-hover/commit:text-foreground"
                       >{commit.message}</span
                     >
                   </button>
@@ -292,7 +292,7 @@
               {/if}
             </span>
             <div class="group/comment min-w-0 flex-1 pt-1">
-              <p class="flex items-start gap-2 text-[0.8125rem] font-medium">
+              <p class="flex items-start gap-2  font-medium">
                 <span class="min-w-0 flex-1">
                   {event.comment.author}
                   {milestone.headline}<TooltipUI.Root>
@@ -336,7 +336,7 @@
               />
             </span>
             <div class="group/comment min-w-0 flex-1 pt-0.5">
-              <div class="flex items-start gap-2 text-[0.8125rem]">
+              <div class="flex items-start gap-2 ">
                 <span class="min-w-0 flex-1">
                 <span class="font-medium text-foreground"
                   >{event.comment.author}</span
@@ -381,7 +381,7 @@
     {#if filtered && events.length === 0}
       <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
         <span class="size-[22px] shrink-0" aria-hidden="true"></span>
-        <p class="min-w-0 flex-1 pt-1 text-[0.8125rem] text-muted-foreground">
+        <p class="min-w-0 flex-1 pt-1  text-muted-foreground">
           Nothing matches this filter.
         </p>
       </li>

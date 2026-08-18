@@ -18,7 +18,7 @@
 
 <div
   data-solus-ui
-  class="fixed inset-0 z-[10020] grid place-items-center bg-(--solus-edge-bg) font-secondary"
+  class="text-sm fixed inset-0 z-[10020] grid place-items-center bg-(--solus-edge-bg) font-secondary"
   role="alert"
 >
   <!-- Same mark and size as the boot shell, so a crash lands on a surface the
@@ -47,12 +47,12 @@
     </svg>
 
     <div
-      class="mt-7 max-w-88 text-center text-sm text-(--solus-text-primary)"
+      class="mt-7 max-w-88 text-center  text-(--solus-text-primary)"
     >
       Solus hit an unexpected error
     </div>
     <p
-      class="mt-1.5 max-w-88 text-center text-sm leading-relaxed text-(--solus-text-tertiary)"
+      class="mt-1.5 max-w-88 text-center  leading-relaxed text-(--solus-text-tertiary)"
     >
       The interface stopped rendering. Your sessions live on the host and are not
       affected.
@@ -61,7 +61,7 @@
     <div class="mt-4.5 flex gap-2">
       <button
         type="button"
-        class="rounded-lg bg-(--solus-accent) px-3.5 py-1.5 text-[0.8125rem] text-white transition-[filter] hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
+        class="rounded-lg bg-(--solus-accent) px-3.5 py-1.5  text-white transition-[filter] hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
         onclick={() => location.reload()}
       >
         Reload Solus
@@ -69,7 +69,7 @@
       {#if host && !host.local}
         <button
           type="button"
-          class="rounded-lg border border-(--solus-input-border) px-3.5 py-1.5 text-[0.8125rem] text-(--solus-text-secondary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
+          class="rounded-lg border border-(--solus-input-border) px-3.5 py-1.5  text-(--solus-text-secondary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
           onclick={() => serversStore.useLocalHost()}
         >
           Use this Mac
@@ -81,7 +81,7 @@
       class="group mt-4 w-full overflow-hidden rounded-lg border border-(--solus-menu-hairline) bg-(--solus-surface-hover)"
     >
       <summary
-        class="flex cursor-pointer list-none items-center justify-between gap-3 border-(--solus-menu-hairline) py-1.5 pr-2 pl-3 text-[0.8125rem] text-(--solus-text-secondary) group-open:border-b"
+        class="flex cursor-pointer list-none items-center justify-between gap-3 border-(--solus-menu-hairline) py-1.5 pr-2 pl-3  text-(--solus-text-secondary) group-open:border-b"
       >
         Technical details
         <!-- Inside <summary>, a click would toggle the disclosure shut on the
@@ -96,7 +96,7 @@
       <!-- The trace is the one thing here a user may need to read closely or
            hand to someone else, so it gets body-text contrast, not footnote. -->
       <pre
-        class="m-0 max-h-72 overflow-auto px-3 py-2.5 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-(--solus-text-secondary) select-text">{raw}</pre>
+        class="m-0 max-h-72 overflow-auto px-3 py-2.5 text-xs leading-relaxed break-words whitespace-pre-wrap text-(--solus-text-secondary) select-text">{raw}</pre>
     </details>
   </div>
 </div>

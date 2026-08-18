@@ -124,7 +124,7 @@
     min-height: 1.75rem;
     padding: 0.1875rem 0.3125rem 0.1875rem 0.5625rem;
     border-radius: 0.5rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     /* Single weight across all states — active/attention differentiate via color +
        background only, avoiding the layout reflow a weight change causes. */
     font-weight: 400;
@@ -154,6 +154,15 @@
     width: clamp(11rem, 24vw, 16rem);
     max-width: 16rem;
     color: var(--solus-text-primary);
+  }
+
+  /* The composing-session chip is an indicator, not a tab: only its discard
+     button is interactive, so it takes neither the pointer nor the hover wash
+     every real tab answers a click with. */
+  .tab-item.tab-item-draft,
+  .tab-item.tab-item-draft:hover {
+    cursor: default;
+    background: transparent;
   }
 
   .tab-item:focus-visible {

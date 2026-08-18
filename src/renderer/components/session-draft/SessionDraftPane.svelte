@@ -177,7 +177,7 @@
     class="draft-column relative flex h-full min-h-0 w-full flex-col items-center justify-center gap-5 px-6 py-3"
   >
     <h1
-      class="max-w-[40rem] text-center text-pretty text-[1.5rem] font-medium leading-[1.25] text-(--solus-text-primary)"
+      class="max-w-[40rem] text-center text-pretty text-2xl font-medium leading-[1.25] text-(--solus-text-primary)"
     >
       {#if hasProject}
         What should we build in

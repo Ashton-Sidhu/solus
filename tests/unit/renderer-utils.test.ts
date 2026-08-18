@@ -71,12 +71,31 @@ const NAMESPACES: Record<string, { utility: (name: string) => string; companion:
   animate: 'safe',
 }
 
-const themeKeys = blocks(indexCss, /@theme[^{]*\{/g).flatMap(topLevelKeys)
+const allThemeKeys = blocks(indexCss, /@theme[^{]*\{/g).flatMap(topLevelKeys)
+
+/** Tailwind v4 reads `--text-body--line-height` as a *modifier* on `--text-body`,
+ *  not as a key of its own: it emits no `text-body--line-height` utility, so
+ *  there is nothing for tailwind-merge to drop. Modifiers are checked by the
+ *  parent-key test below instead of being run through cn(). */
+const MODIFIER_SUFFIXES = ['--line-height', '--letter-spacing', '--font-weight']
+const isModifier = (key: string) => MODIFIER_SUFFIXES.some((suffix) => key.endsWith(suffix))
+const themeKeys = allThemeKeys.filter((key) => !isModifier(key))
 
 describe('custom @theme keys survive cn()', () => {
   test('index.css actually parses (guards the parser, not the CSS)', () => {
     expect(themeKeys).toContain('--text-menu')
     expect(themeKeys).toContain('--font-weight-secondary')
+  })
+
+  test('every modifier hangs off a key that exists', () => {
+    // WHY: a modifier whose parent is missing or misspelled is silently inert —
+    // the rung renders at Tailwind's default leading and nothing reports it.
+    for (const key of allThemeKeys.filter(isModifier)) {
+      const suffix = MODIFIER_SUFFIXES.find((candidate) => key.endsWith(candidate))!
+      expect(themeKeys, `${key} has no parent key in @theme`).toContain(
+        key.slice(0, -suffix.length),
+      )
+    }
   })
 
   for (const key of [...new Set(themeKeys)]) {
