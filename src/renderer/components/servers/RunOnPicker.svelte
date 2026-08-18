@@ -488,7 +488,7 @@
                   <Button
                     {...mergeProps(tooltipProps, props)}
                     variant="ghost"
-                    class="group relative h-auto max-w-44 gap-1.5 rounded-lg px-2 py-1 text-[0.8125rem] font-normal transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-0 after:absolute after:left-0 after:top-1/2 after:h-10 after:w-full after:-translate-y-1/2 after:content-[''] {open
+                    class="group relative h-auto max-w-44 gap-1.5 rounded-lg px-2 py-1 text-sm font-normal transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-0 after:absolute after:left-0 after:top-1/2 after:h-10 after:w-full after:-translate-y-1/2 after:content-[''] {open
  ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
  : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
                   >

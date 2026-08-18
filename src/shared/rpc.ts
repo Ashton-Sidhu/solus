@@ -68,6 +68,7 @@ export const RPC_INVOKE_METHODS = [
   'openInFileManager',
   'openInTerminal',
   'openWorktreeTerminal',
+  'resolveTerminal',
   'attachFiles',
   'attachFilePaths',
   'attachUpload',
@@ -85,6 +86,7 @@ export const RPC_INVOKE_METHODS = [
   'createDirectory',
   'readProjectFile',
   'listProjectFiles',
+  'mutateProjectFile',
   'writeFile',
   'updateAgentFiles',
 
@@ -345,6 +347,19 @@ export const RPC_INVOKE_METHODS = [
 
   // Subscription quota per agent provider
   'usageLimits',
+
+  // Observability / Insights (metrics.db query engine)
+  'metricsQuery',
+  'metricsRunSql',
+  'metricsValidateSql',
+  'metricsCompileNl',
+  'metricsSchema',
+  'metricsDistinctValues',
+  'metricsListSavedQueries',
+  'metricsSaveQuery',
+  'metricsDeleteQuery',
+  'metricsSessionSummary',
+  'metricsTurnTrace',
 ] as const
 
 export type RpcInvokeMethod = (typeof RPC_INVOKE_METHODS)[number]

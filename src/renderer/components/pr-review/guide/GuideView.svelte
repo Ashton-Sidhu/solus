@@ -78,7 +78,7 @@
   const railItems = $derived(mainSections.map((s) => ({ id: s.id, title: s.title })));
 </script>
 
-<div class="relative min-h-0 flex-1">
+<div class="text-sm relative min-h-0 flex-1">
   <GuideRail items={railItems} {scrollEl} />
 
   <div bind:this={scrollEl} class="h-full overflow-y-auto">
@@ -90,13 +90,13 @@
              deep top pad on top of them read as a hole rather than as air. The
              weight stays below the header, where the guide starts. -->
         <header class="guide-intro border-b border-(--solus-art-border) pt-6 pr-8 pb-10 pl-14">
-          <h1 class="text-[1.5rem] leading-[1.15] font-medium text-balance text-(--solus-text-primary)">
+          <h1 class="text-2xl leading-[1.15] font-medium text-balance text-(--solus-text-primary)">
             {guide.title}
           </h1>
 
           {#if meta || guide.generatedAt}
             <div
-              class="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8125rem] text-(--solus-text-tertiary)"
+              class="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-(--solus-text-tertiary)"
             >
               {#if meta?.repo}
                 <span class="font-medium text-(--solus-text-secondary)">{meta.repo}#{meta.number}</span>
@@ -178,7 +178,7 @@
         {#if lowSignalSections.length > 0}
           <details class="group border-t border-(--solus-art-border)">
             <summary
-              class="flex cursor-pointer list-none items-center gap-1.5 py-3.5 pr-8 pl-14 text-[0.8125rem] font-medium text-(--solus-text-tertiary) select-none hover:text-(--solus-text-secondary)"
+              class="flex cursor-pointer list-none items-center gap-1.5 py-3.5 pr-8 pl-14 font-medium text-(--solus-text-tertiary) select-none hover:text-(--solus-text-secondary)"
             >
               <span
                 class="inline-block size-1.5 rotate-45 border-r-[1.5px] border-b-[1.5px] border-current transition-transform duration-150 group-open:rotate-[225deg]"

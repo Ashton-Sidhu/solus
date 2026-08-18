@@ -93,7 +93,7 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
-  class="flex h-full min-h-0 flex-col gap-3 p-4"
+  class="text-xs flex h-full min-h-0 flex-col gap-3 p-4"
   role="region"
   aria-label="Change heat map"
   tabindex="-1"
@@ -106,7 +106,7 @@
     >
       <button
         type="button"
-        class="shrink-0 cursor-pointer rounded-md px-1.5 py-0.5 text-xs font-medium hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) {trail.length ===
+        class="shrink-0 cursor-pointer rounded-md px-1.5 py-0.5 font-medium hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) {trail.length ===
         0
           ? 'text-(--solus-text-primary)'
           : 'text-(--solus-text-secondary)'}"
@@ -121,7 +121,7 @@
         />
         <button
           type="button"
-          class="min-w-0 cursor-pointer truncate rounded-md px-1.5 py-0.5 text-xs font-medium hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) {crumb.path ===
+          class="min-w-0 cursor-pointer truncate rounded-md px-1.5 py-0.5 font-medium hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) {crumb.path ===
           current.path
             ? 'text-(--solus-text-primary)'
             : 'text-(--solus-text-secondary)'}"
@@ -149,14 +149,14 @@
       </span>
       <span class="flex items-center gap-1.5" aria-hidden="true">
         <span class="h-1.5 w-3 rounded-full bg-(--solus-surface-hover)"></span>
-        <span class="text-[0.625rem] text-(--solus-text-tertiary)"
+        <span class="text-xs text-(--solus-text-tertiary)"
           >unchanged</span
         >
         <span
           class="ml-1.5 h-1.5 w-16 rounded-full"
           style="background: linear-gradient(to right, color-mix(in srgb, var(--solus-accent) 8%, var(--solus-surface-hover)), color-mix(in srgb, var(--solus-accent) 60%, var(--solus-surface-hover)))"
         ></span>
-        <span class="text-[0.625rem] text-(--solus-text-tertiary)">changed</span
+        <span class="text-xs text-(--solus-text-tertiary)">changed</span
         >
       </span>
     </div>
@@ -180,7 +180,7 @@
         {#if rect.width > 72 && rect.height > 36}
           <div class="flex h-full flex-col justify-between p-1.5">
             <span
-              class="truncate text-[0.6875rem] font-medium {rect.node.changed
+              class="truncate font-medium {rect.node.changed
                 ? 'text-(--solus-text-primary)'
                 : 'text-(--solus-text-tertiary)'}"
             >
@@ -188,7 +188,7 @@
             </span>
             {#if rect.node.changed}
               <span
-                class="flex items-center gap-1.5 overflow-hidden text-[0.625rem] whitespace-nowrap tabular-nums text-(--solus-text-secondary)"
+                class="flex items-center gap-1.5 overflow-hidden whitespace-nowrap tabular-nums text-(--solus-text-secondary)"
               >
                 {#if rect.node.kind === "folder"}
                   <span>{rect.node.changedFileCount}f</span>

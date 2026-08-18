@@ -49,12 +49,12 @@
     <div class="flex items-center gap-6">
       <div class="min-w-0 flex-1">
         <div
-          class="flex items-center gap-2 text-[0.8125rem] font-medium text-(--solus-text-primary)"
+          class="flex items-center gap-2 text-sm font-medium text-(--solus-text-primary)"
         >
           <span>{label}{@render labelExtra?.()}</span>
           {#if comingSoon}
             <span
-              class="shrink-0 whitespace-nowrap rounded-full border border-border px-1.5 py-px text-[0.6875rem] leading-[1.5] font-medium uppercase tracking-[0.04em] text-muted-foreground sm:text-[0.625rem]"
+              class="shrink-0 whitespace-nowrap rounded-full border border-border px-1.5 py-px text-xs leading-[1.5] font-medium uppercase tracking-[0.04em] text-muted-foreground sm:text-xs"
             >
               Coming soon
             </span>

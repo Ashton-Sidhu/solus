@@ -394,7 +394,7 @@
   .edge-label-display {
     padding: 0.0625rem 0.3125rem;
     border-radius: 0.3125rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     color: var(--solus-text-tertiary);
     background: var(--solus-container-bg);
@@ -498,7 +498,7 @@
     border-radius: 0.25rem;
     background: var(--solus-container-bg);
     color: var(--solus-text-primary);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     outline: none;
     box-shadow: 0 0 0 0.125rem var(--solus-accent-soft);

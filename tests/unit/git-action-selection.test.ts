@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   gitPublishModel,
   gitReadiness,
+  isPullRequestRunning,
   type GitRepositorySetup,
 } from '../../src/renderer/components/project-panel/lib/git-action-selection'
 import type { GitRepositoryStatus, GitState } from '../../src/shared/types'
@@ -117,19 +118,16 @@ describe('gitPublishModel — published', () => {
   // offered once, from the row that stands for pull requests.
   test('the commit menu carries local steps and push; the PR menu carries PR creation', () => {
     const model = gitPublishModel(status({ uncommittedChanges: dirty() }), PUBLISHED)
-    expect(model.commit.steps.map((entry) => entry.key)).toEqual([
-      'commit_with_options',
-      'commit_only',
-      'push',
-    ])
+    expect(model.commit.steps.map((entry) => entry.key)).toEqual(['commit_with_options', 'push'])
     expect(model.pullRequest.steps.map((entry) => entry.key)).toEqual(['create_pull_request'])
   })
 
+  // The composer is the only way to commit without pushing, so its step must
+  // carry the row's full action for the dialog to offer both halves.
   test('the commit steps commit as far as the row does', () => {
     const model = gitPublishModel(status({ uncommittedChanges: dirty() }), PUBLISHED)
     expect(model.commit.primary).toMatchObject({ label: 'Commit and push', action: 'commit_push' })
     expect(step(model, 'commit_with_options').action).toBe('commit_push')
-    expect(step(model, 'commit_only').action).toBe('commit')
   })
 
   test('the commit steps need uncommitted changes', () => {
@@ -230,5 +228,32 @@ describe('gitPublishModel — no repository', () => {
     const model = gitPublishModel(null)
     expect(model.commit.primary).toMatchObject({ kind: 'disabled', reason: 'Git status is unavailable.' })
     expect(model.sync.disabled).toBe(true)
+  })
+})
+
+// The two rows report the run in the order it works: a user who asked to commit
+// and push should not see the pull-request row claim to be busy before the run
+// has reached the pull request at all.
+describe('isPullRequestRunning', () => {
+  test('a commit or push never lights the pull-request row', () => {
+    expect(isPullRequestRunning('commit', 'commit')).toBe(false)
+    expect(isPullRequestRunning('commit_push', 'push')).toBe(false)
+  })
+
+  test('the combined action waits for its pull-request phases', () => {
+    expect(isPullRequestRunning('commit_push_pull_request', 'commit')).toBe(false)
+    expect(isPullRequestRunning('commit_push_pull_request', 'push')).toBe(false)
+    expect(isPullRequestRunning('commit_push_pull_request', 'author_pull_request')).toBe(true)
+    expect(isPullRequestRunning('commit_push_pull_request', 'create_pull_request')).toBe(true)
+  })
+
+  // Opening a pull request pushes on the way, and that push is this row's work.
+  test('opening a pull request lights the row for every phase', () => {
+    expect(isPullRequestRunning('create_pull_request', null)).toBe(true)
+    expect(isPullRequestRunning('create_pull_request', 'push')).toBe(true)
+  })
+
+  test('nothing runs when no action runs', () => {
+    expect(isPullRequestRunning(null, null)).toBe(false)
   })
 })

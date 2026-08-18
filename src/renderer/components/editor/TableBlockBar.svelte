@@ -161,7 +161,7 @@
     border-radius: 0.375rem;
     background: transparent;
     font-family: inherit;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: color-mix(in srgb, var(--solus-text-primary) 86%, var(--solus-text-tertiary));
     cursor: pointer;
     transition:
@@ -170,7 +170,7 @@
   }
   .doc-table-bar__btn--mono {
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
   }
   .doc-table-bar__btn--icon {
     min-width: 1.5rem;

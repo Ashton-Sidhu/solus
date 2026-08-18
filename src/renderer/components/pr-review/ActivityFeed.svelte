@@ -615,7 +615,7 @@
         class="mx-auto w-full max-w-[min(1384px,100%)] px-[clamp(20px,2.6vw,56px)] pt-4"
       >
         <div
-          class="flex items-center gap-2.5 rounded-2xl border border-border bg-card px-3.5 py-3 text-[0.8125rem]"
+          class="flex items-center gap-2.5 rounded-2xl border border-border bg-card px-3.5 py-3 text-sm"
           role="alert"
         >
           {#if loadError?.kind === "github-auth"}
@@ -627,7 +627,7 @@
             <Button
               type="button"
               variant="ghost"
-              class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-3 text-[0.8125rem] font-medium text-muted-foreground transition-colors hover:text-foreground"
+              class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
               onclick={refresh}
             >
               <ArrowsClockwiseIcon size={12} class="shrink-0" />
@@ -664,7 +664,7 @@
         <header>
           {#if showIdentity && !masthead}
             <p
-              class="flex items-center gap-2 font-mono text-xs st text-muted-foreground uppercase"
+              class="flex items-center gap-2 text-xs st text-muted-foreground uppercase"
             >
               <!-- Identity, not state — the subtitle chip below carries the
                    state, and a tinted mark up here read as a second one. -->
@@ -679,7 +679,7 @@
             <input
               bind:this={titleInput}
               bind:value={titleDraft}
-              class="{masthead || !showIdentity ? '' : 'mt-3.5'} w-full rounded-lg border border-border bg-card px-3 py-2 text-[1.5rem] leading-[1.28] font-medium outline-none transition-colors focus:border-ring"
+              class="{masthead || !showIdentity ? '' : 'mt-3.5'} w-full rounded-lg border border-border bg-card px-3 py-2 text-2xl leading-[1.28] font-medium outline-none transition-colors focus:border-ring"
               aria-label="Pull request title"
               onkeydown={(event) => {
                 if (event.key === "Escape") cancelEditing();
@@ -691,7 +691,7 @@
             />
           {:else if prTitle}
             <h1
-              class="{masthead || !showIdentity ? '' : 'mt-3.5'} text-[1.5rem] leading-[1.28] font-medium text-pretty"
+              class="{masthead || !showIdentity ? '' : 'mt-3.5'} text-2xl leading-[1.28] font-medium text-pretty"
             >
               {prTitle}
             </h1>
@@ -726,7 +726,7 @@
                    Only when the masthead is absent — it states the refs itself,
                    and one line above the title is enough. -->
               <span
-                class="flex min-w-0 items-center gap-1.5 rounded-md bg-muted px-2 py-1 font-mono text-xs text-muted-foreground"
+                class="flex min-w-0 items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground"
               >
                 {#if headBranch}
                   <span class="truncate">{headBranch}</span>
@@ -737,9 +737,9 @@
             {/if}
             {#if !filesLoading && changedFiles.length > 0}
               <span class="opacity-40" aria-hidden="true">·</span>
-              <span class="shrink-0 font-mono">{filesLabel}</span>
+              <span class="shrink-0">{filesLabel}</span>
               <span class="opacity-40" aria-hidden="true">·</span>
-              <span class="shrink-0 font-mono tabular-nums">
+              <span class="shrink-0 tabular-nums">
                 <span class="text-[color:color-mix(in_oklch,var(--success)_62%,var(--foreground))]"
                   >+{diffStat.additions}</span
                 >
@@ -800,7 +800,7 @@
                 type="button"
                 variant="ghost"
                 disabled={saving}
-                class="h-8 cursor-pointer rounded-lg px-3 text-[0.8125rem] text-muted-foreground"
+                class="h-8 cursor-pointer rounded-lg px-3 text-sm text-muted-foreground"
                 onclick={cancelEditing}
               >
                 Cancel
@@ -808,7 +808,7 @@
               <Button
                 type="button"
                 disabled={saving || !titleDraft.trim()}
-                class="h-8 cursor-pointer rounded-lg px-3 text-[0.8125rem] font-medium disabled:cursor-not-allowed disabled:opacity-50"
+                class="h-8 cursor-pointer rounded-lg px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
                 onclick={savePullRequest}
               >
                 {saving ? "Saving…" : "Save changes"}

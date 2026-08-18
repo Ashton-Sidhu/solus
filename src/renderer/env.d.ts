@@ -1,3 +1,5 @@
+/// <reference types="vite/client" />
+
 import type { NativeSolusAPI } from '../preload/index'
 import type { LocalApi } from '../client-core/host-api'
 import type { IconifyIcon } from '@iconify/types'

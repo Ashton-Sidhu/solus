@@ -109,12 +109,12 @@
         </span>
         <span class="flex min-w-0 flex-1 items-baseline gap-1.5">
           <span
-            class="min-w-0 truncate text-menu font-normal text-(--solus-text-secondary) transition-colors duration-150 @max-[15rem]:text-xs group-hover:text-(--solus-text-primary)"
+            class="min-w-0 truncate text-menu font-normal text-(--solus-text-secondary) transition-colors duration-150 @max-[17rem]:text-xs group-hover:text-(--solus-text-primary)"
           >
             {a.name}
           </span>
           <span
-            class="max-w-28 shrink-0 truncate text-menu-meta tabular-nums whitespace-nowrap"
+            class="max-w-28 shrink-0 truncate text-xs tabular-nums whitespace-nowrap"
             style:color={statusColor(a)}
           >
             {statusLabel(a)}
@@ -173,7 +173,7 @@
 </ul>
 
 {#if board.rows.length === 0}
-  <p class="m-0 px-2 py-1.5 text-menu-meta text-(--solus-text-tertiary)">
+  <p class="m-0 px-2 py-1.5 text-xs text-(--solus-text-tertiary)">
     Nothing scheduled or running.
   </p>
 {/if}
@@ -181,7 +181,7 @@
 {#if board.total > board.rows.length}
   <button
     type="button"
-    class="group mt-px flex w-full cursor-pointer items-center gap-1 rounded-[0.4375rem] border-none bg-transparent px-2 py-1.5 text-left text-menu-meta font-normal text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
+    class="group mt-px flex w-full cursor-pointer items-center gap-1 rounded-[0.4375rem] border-none bg-transparent px-2 py-1.5 text-left text-xs font-normal text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
     onclick={viewAll}
   >
     View all {board.total}

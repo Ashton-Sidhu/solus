@@ -7,14 +7,13 @@ import {
 import {
   defaultWorkspaceRailWidth,
   MIN_PRIMARY_PANE_WIDTH,
+  SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
 } from '../../src/renderer/components/layout/lib/workspace-body'
 
-// The rail is not draggable and no longer has a band of its own: it is the
-// session sidebar's twin, so it takes the sidebar's width off the same window.
-// These tests pin the two properties the layout depends on — the rail matches
-// the sidebar, and it still never squeezes the conversation below its minimum
-// when the view hosting it is narrower than the window (a split).
+// The rail starts as the session sidebar's twin, then accepts a manually chosen
+// width from any card border. These tests pin both modes and the shared safety
+// rule: it never squeezes the conversation below its minimum in a narrow split.
 
 describe('project rail width', () => {
   test('matches the session sidebar on the same window', () => {
@@ -35,6 +34,17 @@ describe('project rail width', () => {
     const split = PROJECT_RAIL_MIN_CONTAINER_WIDTH + 40
     expect(projectRailWidth(2560, split)).toBe(split - MIN_PRIMARY_PANE_WIDTH)
     expect(split - projectRailWidth(2560, split)).toBe(MIN_PRIMARY_PANE_WIDTH)
+  })
+
+  test('uses a manually selected width within the rail constraints', () => {
+    expect(projectRailWidth(1440, 1200, 340)).toBe(340)
+    expect(projectRailWidth(1440, 1200, 120)).toBe(SIDEBAR_MIN_WIDTH)
+    expect(projectRailWidth(1440, 1200, 520)).toBe(SIDEBAR_MAX_WIDTH)
+  })
+
+  test('keeps the conversation minimum when a manual width no longer fits', () => {
+    const containerWidth = MIN_PRIMARY_PANE_WIDTH + 260
+    expect(projectRailWidth(2560, containerWidth, 380)).toBe(260)
   })
 
   test('threshold leaves exactly the conversation minimum beside the rail', () => {

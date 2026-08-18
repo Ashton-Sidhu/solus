@@ -22,6 +22,10 @@ export interface PaneEntry {
   base: RouteRef | null
   /** A temporary viewer covering the base without replacing it. */
   overlay: RouteRef | null
+  /** The share of the split this pane asks for when it opens, as a percentage.
+   *  A surface states its own measure here — a diff wants more room than a plan
+   *  — and PaneForge owns every width after that, including the user's drags. */
+  defaultSize?: number
 }
 
 export interface Location {

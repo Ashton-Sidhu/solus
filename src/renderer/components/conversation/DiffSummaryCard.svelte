@@ -168,7 +168,7 @@
               <svg class="diff-icon text-(--muted-foreground)" viewBox={FILE_ICON_VIEWBOX} fill="currentColor">
                 <path d={FOLDER_ICON_PATH} />
               </svg>
-              <span class="diff-path font-mono truncate">{row.node.label}</span>
+              <span class="diff-path truncate">{row.node.label}</span>
               <span class="shrink-0 font-mono text-xs text-(--muted-foreground) opacity-55">
                 {row.node.fileCount}
               </span>
@@ -199,7 +199,7 @@
                    there, a file has nothing to open and says what happened to
                    it instead. Both row kinds then share an icon and a label
                    column, so a file and its sibling folder line up. -->
-              <span class="diff-status status-{row.node.status} font-mono shrink-0">{row.node.status}</span>
+              <span class="diff-status status-{row.node.status} shrink-0">{row.node.status}</span>
               {#if brandIcon}
                 <Icon icon={brandIcon} width="13" height="13" class="shrink-0" />
               {:else}
@@ -228,7 +228,7 @@
               <!-- Stands in for the disclosure and icon columns, so the text
                    starts on the same axis as the filenames it stands for. -->
               <span class="diff-label-offset shrink-0"></span>
-              <span class="font-mono text-xs text-(--muted-foreground) opacity-55">
+              <span class="text-xs text-(--muted-foreground) opacity-55">
                 {row.hidden} more in this folder
               </span>
               <span class="flex-1"></span>
@@ -312,7 +312,7 @@
   /* Exactly the caret's width, because it stands in the caret's column. */
   .diff-status {
     width: 0.5625rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
   }
 
   /* Disclosure column + gap + icon column: what a row with neither has to skip
@@ -335,7 +335,7 @@
 
   .diff-path {
     min-width: 0;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
   }
 
   /* The only place in the transcript where colour carries meaning rather than
@@ -343,7 +343,7 @@
   .diff-add,
   .diff-del {
     flex-shrink: 0;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-variant-numeric: tabular-nums;
   }
   .diff-add {
@@ -378,7 +378,7 @@
     background: transparent;
     padding: 0;
     color: var(--solus-text-primary);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     cursor: pointer;
   }

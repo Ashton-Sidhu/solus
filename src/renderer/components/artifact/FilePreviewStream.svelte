@@ -109,7 +109,7 @@
       border: 0;
       border-radius: 0.375rem;
       padding-inline: 0.5rem;
-      font-size: 0.75rem;
+      font-size: var(--text-xs);
       line-height: 1.625rem;
       box-shadow: none;
     }
@@ -124,7 +124,7 @@
       padding-inline: 0.25rem;
       color: var(--solus-text-tertiary);
       text-align: right;
-      font-size: 0.75rem;
+      font-size: var(--text-xs);
       font-weight: 400;
       font-variant-numeric: tabular-nums;
       line-height: 1.5rem;
@@ -258,6 +258,7 @@
     revealEpoch?: number;
     onSaveStateChange?: (state: FileSaveState) => void;
     onContentsChange?: (contents: string) => void;
+    onContentsSaved?: (contents: string) => void;
   }
 
   let {
@@ -273,6 +274,7 @@
     revealEpoch = 0,
     onSaveStateChange,
     onContentsChange,
+    onContentsSaved,
   }: Props = $props();
 
   type AnnotationMeta =
@@ -596,7 +598,7 @@
     });
   }
 
-  async function flushSave() {
+  export async function flushSave() {
     if (isReadOnly) return;
     if (saveTimer) {
       clearTimeout(saveTimer);
@@ -617,6 +619,7 @@
     if (result.ok) {
       lastSavedContents = contentsToSave;
       setSaveState("saved");
+      onContentsSaved?.(contentsToSave);
     } else if (result.conflict) {
       setSaveState("conflict");
       toasts.error("File changed on disk", {
@@ -628,6 +631,26 @@
         description: `${displayPath || filePath} — ${result.error}`,
       });
     }
+  }
+
+  export function getCurrentContents(): string {
+    return latestContents;
+  }
+
+  export function replaceContents(nextContents: string, isSaved = true) {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+    latestContents = nextContents;
+    if (isSaved) lastSavedContents = nextContents;
+    fileInstance?.render({
+      file: buildFile(nextContents),
+      lineAnnotations: buildAnnotations(),
+      forceRender: true,
+    });
+    syncContainerBackground();
+    setSaveState(isSaved ? "idle" : "dirty");
   }
 
   function scheduleSave(nextContents: string) {

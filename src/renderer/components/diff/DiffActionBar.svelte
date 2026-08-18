@@ -252,7 +252,7 @@
     background: var(--solus-accent-light);
     color: var(--solus-accent);
     border: none;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     line-height: 1;
     cursor: pointer;

@@ -109,7 +109,7 @@
             role="status"
             aria-label="Loading diagram preview"
           >
-            <span class="diagram-loading__status font-mono">rendering preview</span>
+            <span class="diagram-loading__status">rendering preview</span>
           </div>
         {:then diagramThumbnailModule}
           {@const DiagramThumbnail = diagramThumbnailModule.default}
@@ -207,7 +207,7 @@
   .work-ref-preview {
     max-height: 6.75rem;
     overflow: hidden;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     line-height: 1.6;
   }
 
@@ -245,7 +245,7 @@
   }
 
   .plan-card-placeholder-text {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     line-height: 1.4;
     font-weight: 500;
     color: var(--solus-accent);
@@ -271,7 +271,7 @@
     background: transparent;
     padding: 0.3125rem 0.5rem;
     color: var(--muted-foreground);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     cursor: pointer;
     transition: background var(--duration-quick) var(--ease-premium);
   }
@@ -284,7 +284,7 @@
     padding-right: 0.25rem;
     color: var(--muted-foreground);
     font-family: var(--solus-code-font-family);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     opacity: 0.6;
   }
 
@@ -310,7 +310,7 @@
   }
 
   .diagram-loading__status {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
 
     text-transform: uppercase;
     color: var(--solus-text-tertiary);

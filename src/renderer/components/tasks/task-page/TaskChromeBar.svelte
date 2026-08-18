@@ -66,7 +66,7 @@
     >
   {/if}
   <span style="color:{tone}">{syncing ? "Syncing" : state.label}</span>
-  <span class="font-mono text-xs opacity-70">{state.ref}</span>
+  <span class="text-xs opacity-70">{state.ref}</span>
 {/snippet}
 
 <div
@@ -74,7 +74,7 @@
 >
   <button
     type="button"
-    class="flex h-7 cursor-pointer items-center gap-[7px] rounded px-[7px] text-[0.8125rem] text-muted-foreground hover:bg-[var(--wash-1)]"
+    class="flex h-7 cursor-pointer items-center gap-[7px] rounded px-[7px] text-sm text-muted-foreground hover:bg-[var(--wash-1)]"
     onclick={onOpenList}
   >
     {#if projectRoot}
@@ -84,16 +84,16 @@
     {/if}
     {projectLabel}
   </button>
-  <span class="px-[3px] text-[0.8125rem] opacity-30" aria-hidden="true">/</span>
+  <span class="px-[3px] text-sm opacity-30" aria-hidden="true">/</span>
   <button
     type="button"
-    class="flex h-7 cursor-pointer items-center rounded px-[7px] text-[0.8125rem] text-muted-foreground hover:bg-[var(--wash-1)]"
+    class="flex h-7 cursor-pointer items-center rounded px-[7px] text-sm text-muted-foreground hover:bg-[var(--wash-1)]"
     onclick={onOpenList}
   >
     Tasks
   </button>
-  <span class="px-[3px] text-[0.8125rem] opacity-30" aria-hidden="true">/</span>
-  <span class="flex h-7 items-center rounded px-[7px] font-mono text-[0.8125rem] ">
+  <span class="px-[3px] text-sm opacity-30" aria-hidden="true">/</span>
+  <span class="flex h-7 items-center rounded px-[7px] text-sm ">
     {taskRef(task)}
   </span>
   <CopyButton text={task.id} title="Copy task ID" iconOnly />

@@ -295,7 +295,7 @@
     padding: 0 0.625rem;
     border-radius: 0.4375rem;
     font-family: inherit;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 400;
     color: var(--solus-text-tertiary);
     background: transparent;
@@ -338,7 +338,7 @@
     gap: 0.4375rem;
     padding: 0 0.4375rem 0 0.6875rem;
     font-family: inherit;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 500;
     background: transparent;
     color: inherit;
@@ -439,7 +439,7 @@
     flex-shrink: 0;
   }
   .wha-diff-title {
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 500;
     color: var(--solus-text-primary);
   }
@@ -454,7 +454,7 @@
     gap: 0.3125rem;
     padding: 0.25rem 0.625rem;
     border-radius: 0.4375rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     color: var(--solus-accent);
     background: var(--solus-accent-light);

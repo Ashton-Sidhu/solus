@@ -202,7 +202,7 @@
     flex: none;
     width: 0.75rem;
     color: var(--solus-accent);
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     line-height: 1;
   }
 
@@ -211,7 +211,7 @@
   .link__node {
     flex: 1;
     min-width: 0;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     color: var(--solus-text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -221,7 +221,7 @@
   .link__label {
     flex: 0 1 auto;
     min-width: 0;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-text-tertiary);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -230,7 +230,7 @@
 
   .empty {
     margin: 0;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     line-height: 1.55;
     color: var(--solus-text-tertiary);
   }
@@ -252,7 +252,7 @@
     border-radius: 0.5rem;
     background: var(--solus-surface-hover);
     color: var(--solus-text-secondary);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     cursor: pointer;
     transition:
       border-color var(--duration-quick) var(--ease-premium),

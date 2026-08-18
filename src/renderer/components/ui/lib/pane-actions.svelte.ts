@@ -12,14 +12,13 @@ import { requestInputFocus } from '../../../lib/inputFocus'
 export function paneActions(paneId: PaneId) {
   const session = getWorkspaceContext()
   const router = session.router
-  const geometry = session.geometry
 
   return {
     get isLeading(): boolean {
       return router.leadingPane.id === paneId
     },
     get maximized(): boolean {
-      return geometry.isMaximized(paneId)
+      return session.maximizedPaneId === paneId
     },
     close(): void {
       router.closePane(paneId)
@@ -28,7 +27,7 @@ export function paneActions(paneId: PaneId) {
       router.closeOverlay(paneId)
     },
     toggleMaximize(): void {
-      geometry.toggleMaximize(paneId)
+      session.maximizedPaneId = session.maximizedPaneId === paneId ? null : paneId
     },
     /** Send this pane's surface one position over — out to a companion pane, or
      *  back into the leading one. Returning to the lead hands focus to the

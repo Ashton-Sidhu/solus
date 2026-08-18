@@ -89,14 +89,14 @@
   }
 
   const crumbButton =
-    "flex h-7 cursor-pointer items-center rounded px-[7px] text-[0.8125rem] text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-1)] hover:text-foreground";
+    "flex h-7 cursor-pointer items-center rounded px-[7px] text-sm text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-1)] hover:text-foreground";
   const stepButton =
     "flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30";
 </script>
 
-<div class="relative flex min-w-0 items-center gap-1.5">
+<div class="text-sm text-xs relative flex min-w-0 items-center gap-1.5">
   <Breadcrumb.Root aria-label="Location" class="flex min-w-0 shrink items-center">
-    <Breadcrumb.List class="min-w-0 flex-nowrap gap-px text-[0.8125rem] text-foreground">
+    <Breadcrumb.List class="min-w-0 flex-nowrap gap-px  text-foreground">
       {#if project}
         <Breadcrumb.Item class="shrink-0">
           <Breadcrumb.Link class="{crumbButton} gap-[7px]">
@@ -111,7 +111,7 @@
             {/snippet}
           </Breadcrumb.Link>
         </Breadcrumb.Item>
-        <Breadcrumb.Separator class="px-[3px] text-[0.8125rem] opacity-30" />
+        <Breadcrumb.Separator class="px-[3px]  opacity-30" />
       {/if}
 
       <Breadcrumb.Item class="shrink-0">
@@ -123,13 +123,13 @@
           {/snippet}
         </Breadcrumb.Link>
       </Breadcrumb.Item>
-      <Breadcrumb.Separator class="px-[3px] text-[0.8125rem] opacity-30" />
+      <Breadcrumb.Separator class="px-[3px]  opacity-30" />
 
       <!-- The leaf is the switcher. -->
       <Breadcrumb.Item class="shrink-0">
         <button
           type="button"
-          class="flex h-7 cursor-pointer items-center gap-[7px] rounded pr-1.5 pl-2 text-[0.8125rem] text-foreground transition-colors duration-150 hover:bg-[var(--wash-1)] {menuOpen
+          class="flex h-7 cursor-pointer items-center gap-[7px] rounded pr-1.5 pl-2  text-foreground transition-colors duration-150 hover:bg-[var(--wash-1)] {menuOpen
  ? 'bg-[var(--wash-2)]'
  : ''}"
           aria-expanded={menuOpen}
@@ -141,7 +141,7 @@
             style="background:{statusDot}"
             aria-hidden="true"
           ></span>
-          <span class="font-mono text-[0.8125rem] tabular-nums">#{number}</span>
+          <span class="tabular-nums">#{number}</span>
           <CaretDownIcon
             size={11}
             class="opacity-45 transition-transform duration-150 {menuOpen ? 'rotate-180' : ''}"
@@ -164,7 +164,7 @@
       <CaretLeftIcon size={11} />
     </button>
     <span
-      class="min-w-[44px] text-center font-mono text-xs tabular-nums text-muted-foreground opacity-75"
+      class="min-w-[44px] text-center tabular-nums text-muted-foreground opacity-75"
     >
       {positionLabel}
     </span>
@@ -203,7 +203,7 @@
               >{group.label}</span
             >
             <span class="h-px flex-1 bg-[var(--hairline)]"></span>
-            <span class="font-mono text-xs text-muted-foreground opacity-50"
+            <span class="text-muted-foreground opacity-50"
               >{group.rows.length}</span
             >
           </div>
@@ -225,11 +225,11 @@
                 aria-hidden="true"
               ></span>
               <span
-                class="w-[34px] shrink-0 font-mono text-xs tabular-nums text-muted-foreground"
+                class="w-[34px] shrink-0 tabular-nums text-muted-foreground"
                 >{row.ident}</span
               >
               <span
-                class="min-w-0 flex-1 truncate text-left text-[0.8125rem] {active
+                class="min-w-0 flex-1 truncate text-left  {active
  ? 'font-medium'
  : ''}">{row.title}</span
               >
@@ -245,7 +245,7 @@
       >
         <span class="text-xs text-muted-foreground">Same order as the list behind it</span>
         <span class="flex-1"></span>
-        <span class="font-mono text-xs text-muted-foreground opacity-70">↑↓ move · ⏎ open</span>
+        <span class="text-muted-foreground opacity-70">↑↓ move · ⏎ open</span>
       </div>
     </div>
   {/if}

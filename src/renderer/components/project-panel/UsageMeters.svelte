@@ -55,21 +55,19 @@
           {/if}
         </span>
         <span class="min-w-0 flex-1 truncate">{row.label}</span>
-      </div>
-      <div class="flex flex-col gap-1.5 pt-0.5 pr-2 pb-1.5 pl-[1.8125rem]">
-        {#if row.meters.length === 0}
-          <!-- Claude reads its quota from an account endpoint that can answer
-               empty or rate-limited. Say so, rather than leaving the provider
-               with a blank space a reader would take for "no quota". -->
-          <span class="text-menu-meta text-(--solus-text-tertiary)"
-            >Usage unavailable</span
-          >
+        {#if row.status}
+          <span class="shrink-0 text-xs text-(--solus-text-tertiary)">
+            {row.status === "api" ? "API billing" : "Unavailable"}
+          </span>
         {/if}
+      </div>
+      {#if row.meters.length > 0}
+        <div class="flex flex-col gap-1.5 pt-0.5 pr-2 pb-1.5 pl-[1.8125rem]">
         {#each row.meters as meter (meter.key)}
           <div class="flex flex-col gap-[0.1875rem]">
             <!-- The window and what's left of it read as one phrase; when it
                  refills is the qualifier, so it sits out at the right. -->
-            <div class="flex items-baseline gap-1.5 text-menu-meta">
+            <div class="flex items-baseline gap-1.5 text-xs">
               <span class="shrink-0 text-(--solus-text-secondary)"
                 >{meter.label}</span
               >
@@ -91,7 +89,8 @@
             />
           </div>
         {/each}
-      </div>
+        </div>
+      {/if}
     {/each}
   </div>
 {/if}

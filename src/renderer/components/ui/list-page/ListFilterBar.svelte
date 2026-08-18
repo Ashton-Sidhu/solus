@@ -35,11 +35,11 @@
       bind:value={query}
       type="text"
       {placeholder}
-      class="w-full border-0 bg-transparent text-[0.8125rem] caret-[var(--primary)] outline-none placeholder:text-muted-foreground"
+      class="w-full border-0 bg-transparent text-sm caret-[var(--primary)] outline-none placeholder:text-muted-foreground"
       aria-label={placeholder}
     />
     <span
-      class="shrink-0 rounded-md bg-[var(--wash-2)] px-[7px] py-[3px] font-mono text-xs text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent),inset_0_-1px_0_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
+      class="shrink-0 rounded-md bg-[var(--wash-2)] px-[7px] py-[3px] text-xs text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent),inset_0_-1px_0_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
       aria-hidden="true">/</span
     >
   </div>
@@ -48,7 +48,7 @@
     {@const Icon = filter.icon}
     <button
       type="button"
-      class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 text-[0.8125rem] transition-colors duration-150 {filter.active
+      class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 text-sm transition-colors duration-150 {filter.active
  ? 'bg-[color-mix(in_oklch,var(--primary)_13%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
  : 'bg-transparent text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)]'}"
       onclick={filter.toggle}
@@ -57,7 +57,7 @@
       {#if Icon}<Icon size={14} class="shrink-0 opacity-75" />{/if}
       {filter.label}
       {#if filter.count !== undefined && !filter.active}
-        <span class="font-mono text-xs tabular-nums opacity-60">{filter.count}</span>
+        <span class="text-xs tabular-nums opacity-60">{filter.count}</span>
       {/if}
     </button>
   {/each}

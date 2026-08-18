@@ -337,13 +337,13 @@
   {@const conflict = pendingConflict?.id === id ? pendingConflict : null}
   {@const custom = isOverridden(id) && !recording && !conflict}
   <div
-    class="flex items-center justify-between gap-4 min-h-[2.375rem] px-4 py-[0.3125rem] border-t border-border first:border-t-0
+    class="text-xs flex items-center justify-between gap-4 min-h-[2.375rem] px-4 py-[0.3125rem] border-t border-border first:border-t-0
  {recording ? 'bg-(--solus-accent)/5' : ''}"
   >
-    <span class="text-[0.8125rem] text-(--solus-text-primary) min-w-0">{def.label}</span>
+    <span class="text-sm text-(--solus-text-primary) min-w-0">{def.label}</span>
     <div class="flex items-center gap-1.5 shrink-0">
       {#if conflict}
-        <span class="inline-flex items-center gap-1 text-xs font-secondary text-(--solus-text-secondary)">
+        <span class="inline-flex items-center gap-1  font-secondary text-(--solus-text-secondary)">
           <WarningCircleIcon size={13} class="text-(--solus-art-negative)" />
           Used by "{conflict.otherLabel}"
         </span>
@@ -366,11 +366,11 @@
           Cancel
         </Button>
       {:else if recording}
-        <button type="button" class="inline-flex items-center gap-2 text-xs text-(--solus-accent) py-1 px-2.5 rounded-md border border-dashed border-(--solus-accent) bg-(--solus-accent)/8" onclick={cancelRecord}>
-          Press shortcut… <span class="text-xs text-(--solus-text-tertiary)">Esc to cancel</span>
+        <button type="button" class="inline-flex items-center gap-2  text-(--solus-accent) py-1 px-2.5 rounded-md border border-dashed border-(--solus-accent) bg-(--solus-accent)/8" onclick={cancelRecord}>
+          Press shortcut… <span class="text-(--solus-text-tertiary)">Esc to cancel</span>
         </button>
       {:else}
-        {#if custom}<span class="text-xs font-medium text-(--solus-accent) bg-(--solus-accent)/10 border border-(--solus-accent)/30 py-px px-1.5 rounded-full">Custom</span>{/if}
+        {#if custom}<span class="font-medium text-(--solus-accent) bg-(--solus-accent)/10 border border-(--solus-accent)/30 py-px px-1.5 rounded-full">Custom</span>{/if}
         <button
           type="button"
           class="inline-flex items-center gap-[0.1875rem] py-1 px-1.5 rounded-md border border-transparent [transition:border-color_var(--duration-base)_var(--ease-premium),background_var(--duration-base)_var(--ease-premium)] hover:bg-(--solus-surface-hover) hover:border-(--solus-container-border)
@@ -383,7 +383,7 @@
               <Kbd variant="standalone" class={k === "⇧" ? "kbd-shift" : ""}>{k}</Kbd>
             {/each}
           {:else}
-            <span class="text-xs text-(--solus-text-tertiary) px-0.5">Unassigned</span>
+            <span class="text-(--solus-text-tertiary) px-0.5">Unassigned</span>
           {/if}
         </button>
         {#if isOverridden(id)}
@@ -408,13 +408,13 @@
   {@const combo = appShortcuts[key]}
   {@const recording = recordingId === `app:${key}`}
   {@const failed = appFailed[key]}
-  <div class="flex items-center justify-between gap-4 min-h-[2.375rem] px-4 py-[0.3125rem] border-t border-border first:border-t-0
+  <div class="text-xs flex items-center justify-between gap-4 min-h-[2.375rem] px-4 py-[0.3125rem] border-t border-border first:border-t-0
  {recording ? 'bg-(--solus-accent)/5' : ''}">
-    <span class="text-[0.8125rem] text-(--solus-text-primary) min-w-0">{label}</span>
+    <span class="text-sm text-(--solus-text-primary) min-w-0">{label}</span>
     <div class="flex items-center gap-1.5 shrink-0">
       {#if recording}
-        <button type="button" class="inline-flex items-center gap-2 text-xs text-(--solus-accent) py-1 px-2.5 rounded-md border border-dashed border-(--solus-accent) bg-(--solus-accent)/8" onclick={cancelRecord}>
-          Press shortcut… <span class="text-xs text-(--solus-text-tertiary)">Esc to cancel</span>
+        <button type="button" class="inline-flex items-center gap-2  text-(--solus-accent) py-1 px-2.5 rounded-md border border-dashed border-(--solus-accent) bg-(--solus-accent)/8" onclick={cancelRecord}>
+          Press shortcut… <span class="text-(--solus-text-tertiary)">Esc to cancel</span>
         </button>
       {:else}
         {#if failed}
@@ -442,11 +442,11 @@
   </div>
 {/snippet}
 
-<div class="flex flex-col gap-1">
+<div class="text-xs flex flex-col gap-1">
   <div class="flex items-center justify-between gap-4 pb-3">
     <div class="flex items-center gap-2">
       <KeyboardIcon size={15} class="text-(--solus-text-tertiary)" />
-      <span class="text-xs text-(--solus-text-tertiary)">Click a shortcut to rebind it.</span>
+      <span class="text-(--solus-text-tertiary)">Click a shortcut to rebind it.</span>
     </div>
     {#if anyOverride}
       <Button variant="ghost" size="xs" onclick={resetAll}>
@@ -456,7 +456,7 @@
   </div>
 
   {#if windowCtx.isWeb}
-    <p class="flex items-center gap-1.5 flex-wrap text-xs text-(--solus-text-tertiary) pb-3">
+    <p class="flex items-center gap-1.5 flex-wrap  text-(--solus-text-tertiary) pb-3">
       Some <Kbd variant="standalone">⌘</Kbd> combinations are reserved by your browser and can't be rebound to those keys.
     </p>
   {/if}
@@ -476,12 +476,12 @@
           aria-current={active ? "true" : undefined}
           onclick={() => selectScope(item.key)}
         >
-          <span class="text-[0.8125rem] min-w-0 overflow-hidden text-ellipsis whitespace-nowrap {active ? 'font-medium' : 'font-normal'}">{item.label}</span>
+          <span class="text-sm min-w-0 overflow-hidden text-ellipsis whitespace-nowrap {active ? 'font-medium' : 'font-normal'}">{item.label}</span>
           <span class="inline-flex items-center gap-1.5 shrink-0">
             {#if item.overrides > 0}
               <span class="w-1.5 h-1.5 rounded-full bg-(--solus-accent)" title={`${item.overrides} customized`}></span>
             {/if}
-            <span class="text-xs tabular-nums {active ? 'text-(--solus-accent)' : 'text-(--solus-text-tertiary)'}">{searchQuery ? item.matchCount : item.total}</span>
+            <span class="tabular-nums {active ? 'text-(--solus-accent)' : 'text-(--solus-text-tertiary)'}">{searchQuery ? item.matchCount : item.total}</span>
           </span>
         </button>
       {/each}
@@ -490,7 +490,7 @@
     <div class="flex-1 min-w-0 flex flex-col gap-[1.125rem]">
       {#if searchQuery}
         {#if !hasSearchResults}
-          <div class="py-8 text-center text-[0.8125rem] text-(--solus-text-tertiary)">No shortcuts match your search</div>
+          <div class="py-8 text-center text-sm text-(--solus-text-tertiary)">No shortcuts match your search</div>
         {:else}
           {#each searchSections as section (section.scope)}
             <SettingsSection label={section.label}>
@@ -502,7 +502,7 @@
         {/if}
       {:else if selectedScope === "system"}
         <div class="flex flex-col gap-[0.4375rem]">
-          <p class="text-xs text-(--solus-text-tertiary) px-0.5 pb-0.5">Global shortcuts that summon Solus from anywhere on your computer.</p>
+          <p class="text-(--solus-text-tertiary) px-0.5 pb-0.5">Global shortcuts that summon Solus from anywhere on your computer.</p>
           <SettingsSection>
             {#each APP_ROWS as appRow (appRow.key)}
               {@render appBindingRow(appRow.key, appRow.label)}

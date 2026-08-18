@@ -617,7 +617,7 @@
 {#snippet renameField()}
   <!-- svelte-ignore a11y_autofocus -->
   <input
-    class="doc-shell-title-input min-w-24 max-w-96 flex-1 rounded-md border border-(--solus-accent-border) bg-(--solus-surface-hover) px-1.5 py-0.5 text-[0.8125rem] font-medium text-(--solus-text-primary) outline-none"
+    class="doc-shell-title-input min-w-24 max-w-96 flex-1 rounded-md border border-(--solus-accent-border) bg-(--solus-surface-hover) px-1.5 py-0.5 text-sm font-medium text-(--solus-text-primary) outline-none"
     bind:value={renameValue}
     onblur={commitRename}
     onkeydown={renameKeydown}
@@ -946,7 +946,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
 
     color: var(--solus-text-tertiary);
   }
@@ -955,7 +955,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 500;
     color: var(--solus-text-primary);
     background: transparent;
@@ -981,7 +981,7 @@
     height: 1.75rem;
     padding: 0 0.625rem;
     border-radius: 0.4375rem;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 400;
     color: var(--solus-text-tertiary);
     background: transparent;
@@ -1037,7 +1037,7 @@
     width: 1.875rem;
     height: 1.875rem;
     border-radius: 0.4375rem;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 500;
     color: var(--solus-text-tertiary);
     background: transparent;
@@ -1079,11 +1079,11 @@
     z-index: 30;
   }
   .doc-shell-toolbar-text {
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 500;
   }
   .doc-shell-toolbar-text sub {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     vertical-align: baseline;
     position: relative;
     top: 0.0625rem;
@@ -1159,7 +1159,7 @@
       height: 1.1875rem;
     }
     .doc-shell-toolbar-text {
-      font-size: 0.875rem;
+      font-size: var(--text-sm);
     }
     .doc-shell-toolbar-sep {
       height: 1.375rem;

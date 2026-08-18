@@ -603,6 +603,21 @@ CREATE TABLE plan_index_providers (
 ALTER TABLE indexed_plans
   ADD COLUMN session_available INTEGER NOT NULL DEFAULT 1;
 `,
+  // Saved Insights queries. Durable user config, so it lives here — exempt from
+  // metrics.db rollover. Exactly one form owns a row: a builder-editable
+  // QuerySpec (JSON in `spec`) or editor-owned SQL text; SQL never round-trips
+  // into the builder.
+  `
+CREATE TABLE saved_metrics_queries (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  form TEXT NOT NULL,
+  spec TEXT,
+  sql TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

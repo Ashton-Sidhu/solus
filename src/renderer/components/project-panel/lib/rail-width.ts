@@ -1,6 +1,7 @@
 import {
   defaultWorkspaceRailWidth,
   MIN_PRIMARY_PANE_WIDTH,
+  SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
 } from '../../layout/lib/workspace-body'
 
@@ -28,16 +29,20 @@ export function isProjectRailOpen(
 }
 
 /**
- * The rail matches the session sidebar — same window, same furniture, same
- * width — instead of taking its own share of the conversation view. Sizing it
- * off the window alone would break in a split, where the hosting view can be far
- * narrower than the window, so the sidebar's measure is capped by what the
- * conversation can actually give away. Above `PROJECT_RAIL_MIN_CONTAINER_WIDTH`
- * that floor is never below the sidebar's own.
+ * Before the user resizes it, the rail matches the session sidebar. A preferred
+ * width then remains inside the same usable band and is still capped by what
+ * the hosting conversation can spare. That cap matters in a split, where the
+ * conversation can be far narrower than the window.
  */
-export function projectRailWidth(workspaceWidth: number, containerWidth: number): number {
+export function projectRailWidth(
+  workspaceWidth: number,
+  containerWidth: number,
+  preferredWidth?: number | null,
+): number {
+  const requestedWidth = preferredWidth ?? defaultWorkspaceRailWidth(workspaceWidth)
   return Math.min(
-    defaultWorkspaceRailWidth(workspaceWidth),
+    SIDEBAR_MAX_WIDTH,
     containerWidth - MIN_PRIMARY_PANE_WIDTH,
+    Math.max(SIDEBAR_MIN_WIDTH, requestedWidth),
   )
 }

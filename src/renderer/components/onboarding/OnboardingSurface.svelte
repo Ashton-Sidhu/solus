@@ -140,7 +140,7 @@
       {:else}
         <span class="flex items-center justify-center">
           <span
-            class="text-[1.5rem] font-medium sm:text-[1.5rem]"
+            class="text-2xl font-medium sm:text-2xl"
             >{store.introTyped}</span
           >
           <span

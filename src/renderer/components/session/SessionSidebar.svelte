@@ -11,6 +11,7 @@
     PushPinIcon,
     GearIcon,
     ArrowsClockwiseIcon,
+    ChartBarIcon,
     ListChecksIcon,
     GitPullRequestIcon,
     PlusIcon,
@@ -35,6 +36,7 @@
   import TaskListHeader from "./TaskListHeader.svelte";
   import TaskRow from "./TaskRow.svelte";
   import DraftRow from "./DraftRow.svelte";
+  import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
   import SnoozeTaskMenu from "./SnoozeTaskMenu.svelte";
   import type { TaskSnoozeAnchor } from "./lib/task-snooze";
   import type { DraftRow as DraftRowModel } from "./lib/draft-list";
@@ -48,6 +50,7 @@
   } from "./lib/task-list";
   import { treeKeyIntent } from "./lib/task-tree-keys";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
+  import * as TooltipUI from "../ui/tooltip";
 
   interface Props {
     open?: boolean;
@@ -505,10 +508,24 @@
     requestInputFocus();
   }
 
-  /** Closing a task unloads its mounted sessions. Their durable history remains
-   *  available from the session picker and task page. */
-  function closeTask(task: SidebarTask) {
-    removeTask(task);
+  /** Closing a task ends it: the durable task is marked closed, and its row and
+   *  mounted sessions leave the sidebar. Their history remains available from
+   *  the session picker and task page, and the task page can reopen it. A loose
+   *  session has no task to close, so it is only unloaded. */
+  async function closeTask(task: SidebarTask) {
+    if (!task.taskId) {
+      removeTask(task);
+      return;
+    }
+    try {
+      await session.tasksStore.setStatus(task.taskId, "dropped");
+      removeTask(task);
+    } catch (error) {
+      toasts.error("Couldn't close task", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+      requestInputFocus();
+    }
   }
 
   function lifecycleBlocked(
@@ -661,9 +678,10 @@
         requestInputFocus();
         break;
       case "close":
-        // Sidebar dismissal never stops the run, so keyboard and pointer paths
-        // have the same presentation-only behavior.
-        if (task) closeTask(task);
+        // Keyboard dismissal only takes the row off the column: it never stops
+        // the run and never changes task status. Ending the task itself is the
+        // row's own close control.
+        if (task) removeTask(task);
         else if (focused!.dataset.tabId) closeSession(focused!.dataset.tabId);
         break;
     }
@@ -784,7 +802,7 @@
       if (record) void wakeTask(record);
     }}
     onComplete={() => completeTask(task)}
-    onClose={() => closeTask(task)}
+    onClose={() => void closeTask(task)}
     onOpenPr={() => {
       const chip = sidebarStore.prChipFor(task);
       if (chip) openTaskPr(task, chip);
@@ -830,9 +848,9 @@
             <span class="flex shrink-0 items-center"
               ><BooksIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.875rem] @max-[15rem]:text-[0.8125rem]">Workspace</span>
+            <span class="flex-1 text-left text-menu">Workspace</span>
             <span
-              class="shrink-0 font-mono text-menu-meta opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
+              class="shrink-0 text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
               >{comboHint("global.toggle-workspace")}</span
             >
           </Sidebar.MenuButton>
@@ -851,10 +869,31 @@
             <span class="flex shrink-0 items-center"
               ><ArrowsClockwiseIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.875rem] @max-[15rem]:text-[0.8125rem]">Automations</span>
+            <span class="flex-1 text-left text-menu">Automations</span>
+            <span
+              class="shrink-0 text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
+              >{comboHint("global.toggle-automations")}</span
+            >
+          </Sidebar.MenuButton>
+        </Sidebar.MenuItem>
+        <Sidebar.MenuItem>
+          <Sidebar.MenuButton
+            size="sm"
+            class="group flex h-7 w-full cursor-pointer items-center gap-[0.5625rem] rounded-lg bg-transparent pr-2 pl-[0.125rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
+              'insights',
+            )
+              ? 'text-foreground'
+              : ''}"
+            isActive={session.router.at("insights")}
+            onclick={() => session.toggleInsights()}
+          >
+            <span class="flex shrink-0 items-center"
+              ><ChartBarIcon size={14} /></span
+            >
+            <span class="flex-1 text-left text-[0.875rem] @max-[15rem]:text-[0.8125rem]">Insights</span>
             <span
               class="shrink-0 font-mono text-menu-meta opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
-              >{comboHint("global.toggle-automations")}</span
+              >{comboHint("global.toggle-insights")}</span
             >
           </Sidebar.MenuButton>
         </Sidebar.MenuItem>
@@ -872,10 +911,10 @@
             <span class="flex shrink-0 items-center"
               ><GitPullRequestIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.875rem] @max-[15rem]:text-[0.8125rem]">Pull requests</span>
+            <span class="flex-1 text-left text-menu">Pull requests</span>
             {#if needsReviewCount > 0}
               <span
-                class="shrink-0 font-mono text-menu-meta text-muted-foreground opacity-60 tabular-nums"
+                class="shrink-0 text-xs text-muted-foreground opacity-60 tabular-nums"
                 title={`${needsReviewCount} pull ${needsReviewCount === 1 ? "request needs" : "requests need"} your review`}
                 aria-label={`${needsReviewCount} need your review`}
                 >{needsReviewCount > 99 ? "99+" : needsReviewCount}</span
@@ -897,9 +936,9 @@
             <span class="flex shrink-0 items-center"
               ><ListChecksIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.875rem] @max-[15rem]:text-[0.8125rem]">Tasks</span>
+            <span class="flex-1 text-left text-menu">Tasks</span>
             <span
-              class="shrink-0 font-mono text-menu-meta opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
+              class="shrink-0 text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
               >{comboHint("global.toggle-tasks")}</span
             >
           </Sidebar.MenuButton>
@@ -916,9 +955,9 @@
             <span class="flex shrink-0 items-center"
               ><ClockIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.875rem] @max-[15rem]:text-[0.8125rem]">History</span>
+            <span class="flex-1 text-left text-menu">History</span>
             <span
-              class="shrink-0 font-mono text-menu-meta opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
+              class="shrink-0 text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
               >{comboHint("global.session-picker")}</span
             >
           </Sidebar.MenuButton>
@@ -978,7 +1017,7 @@
           placeholder="Search tasks"
           aria-label="Search sidebar tasks"
           title={`Search sidebar tasks (${comboHint("global.focus-sidebar-task-search")})`}
-          class="w-full h-7 rounded-lg border-0 bg-transparent pr-8 pl-[1.5625rem] text-[0.8125rem] tracking-[-0.006em] text-foreground outline-none placeholder:text-[color-mix(in_oklch,var(--foreground)_45%,transparent)] [&::-webkit-search-cancel-button]:hidden"
+          class="w-full h-7 rounded-lg border-0 bg-transparent pr-8 pl-[1.5625rem] text-sm tracking-[-0.006em] text-foreground outline-none placeholder:text-[color-mix(in_oklch,var(--foreground)_45%,transparent)] [&::-webkit-search-cancel-button]:hidden"
           onkeydown={(event) => {
             if (event.key !== "Escape") return;
             event.preventDefault();
@@ -1000,7 +1039,7 @@
           </button>
         {:else}
           <kbd
-            class="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 font-sans text-[0.625rem] leading-none font-medium text-[color-mix(in_oklch,var(--foreground)_35%,transparent)] opacity-0 transition-opacity duration-150 group-hover/search:opacity-100 group-focus-within/search:opacity-0"
+            class="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 font-sans text-xs leading-none font-medium text-[color-mix(in_oklch,var(--foreground)_35%,transparent)] opacity-0 transition-opacity duration-150 group-hover/search:opacity-100 group-focus-within/search:opacity-0"
             aria-hidden="true"
             >{comboHint("global.focus-sidebar-task-search")}</kbd
           >
@@ -1113,12 +1152,12 @@
         <div class="mt-3">
           <button
             type="button"
-            class="-mx-2 flex h-7 w-[calc(100%+1rem)] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.625rem] text-menu-meta font-medium text-(--solus-status-unread) transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:text-[color-mix(in_oklch,var(--solus-status-unread)_78%,var(--foreground))]"
+            class="-mx-2 flex h-7 w-[calc(100%+1rem)] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.625rem] text-xs font-medium text-(--solus-status-unread) transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:text-[color-mix(in_oklch,var(--solus-status-unread)_78%,var(--foreground))]"
             aria-expanded={snoozedShelfOpen}
             onclick={() => (snoozedShelfOpen = !snoozedShelfOpen)}
           >
             Snoozed
-            <span class="ml-auto font-mono tabular-nums opacity-60"
+            <span class="ml-auto tabular-nums opacity-60"
               >{searchedSnoozedTasks.length}</span
             >
             <span class="flex size-4 shrink-0 items-center justify-center">
@@ -1143,12 +1182,12 @@
         <div class="mt-2">
           <button
             type="button"
-            class="-mx-2 flex h-7 w-[calc(100%+1rem)] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.625rem] text-menu-meta font-medium text-muted-foreground transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:text-foreground"
+            class="-mx-2 flex h-7 w-[calc(100%+1rem)] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.625rem] text-xs font-medium text-muted-foreground transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:text-foreground"
             aria-expanded={isCompletedShelfExpanded}
             onclick={() => (completedShelfOpen = !completedShelfOpen)}
           >
             Completed
-            <span class="ml-auto font-mono tabular-nums opacity-60"
+            <span class="ml-auto tabular-nums opacity-60"
               >{searchedCompletedTasks.length}</span
             >
             <span class="flex size-4 shrink-0 items-center justify-center">
@@ -1186,9 +1225,9 @@
             <span class="flex shrink-0 items-center"
               ><PushPinIcon size={14} weight="fill" /></span
             >
-            <span class="flex-1 text-left text-[0.875rem] @max-[15rem]:text-[0.8125rem]">Saved sessions</span>
+            <span class="flex-1 text-left text-menu">Saved sessions</span>
             <span
-              class="shrink-0 font-mono text-menu-meta text-muted-foreground opacity-60 tabular-nums"
+              class="shrink-0 text-xs text-muted-foreground opacity-60 tabular-nums"
               >{sidebarStore.pinnedSessions.length}</span
             >
             <CaretRightIcon
@@ -1205,11 +1244,14 @@
               {@const openTabId = sidebarStore.openTabIdForPinned(pin)}
               {@const isActive =
                 !!openTabId && openTabId === session.onScreenTabId}
+              <TooltipUI.Root>
+                <TooltipUI.Trigger>
+                  {#snippet child({ props: tooltipProps })}
               <div
+                {...tooltipProps}
                 class="group/pin flex h-[1.875rem] cursor-pointer items-center gap-2 rounded-lg pr-1.5 pl-[2.25rem] transition-[background] duration-150 hover:bg-accent"
                 role="button"
                 tabindex="0"
-                title={pin.title}
                 onclick={() => {
                   void sidebarStore.openPinnedSession(pin);
                   onSessionSelect?.();
@@ -1243,6 +1285,14 @@
                   <PushPinIcon size={14} weight="fill" />
                 </button>
               </div>
+                  {/snippet}
+                </TooltipUI.Trigger>
+                <SessionSidebarTooltip
+                  title={pin.title}
+                  projectKey={pin.cwd}
+                  serverId={pin.serverId}
+                />
+              </TooltipUI.Root>
             {/each}
           </div>
         {/if}
@@ -1256,7 +1306,7 @@
             class="flex shrink-0 items-center motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:rotate-90"
             ><BooksIcon size={14} /></span
           >
-          <span class="flex-1 text-left text-[0.875rem] @max-[15rem]:text-[0.8125rem]">Docs</span>
+          <span class="flex-1 text-left text-menu">Docs</span>
         </Sidebar.MenuButton>
       </Sidebar.MenuItem>
       <Sidebar.MenuItem>
@@ -1273,9 +1323,9 @@
             class="flex shrink-0 items-center motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:rotate-90"
             ><GearIcon size={14} /></span
           >
-          <span class="flex-1 text-left text-[0.875rem] @max-[15rem]:text-[0.8125rem]">Settings</span>
+          <span class="flex-1 text-left text-menu">Settings</span>
           <span
-            class="shrink-0 font-mono text-menu-meta opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
+            class="shrink-0 text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
             >{comboHint("global.settings")}</span
           >
         </Sidebar.MenuButton>

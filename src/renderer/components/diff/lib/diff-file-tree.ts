@@ -20,7 +20,7 @@ const DIFF_TREE_CSS = `
   ${FILE_TREE_CHEVRON_CSS}
   [data-item-section='decoration'] {
     font-variant-numeric: tabular-nums;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     letter-spacing: 0.01em;
     opacity: 0.75;
   }

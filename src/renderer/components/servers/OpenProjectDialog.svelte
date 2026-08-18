@@ -307,7 +307,7 @@
 {#if store.isOpen && store.step !== "browse" && layer.el}
   <div
     use:portal={layer.el}
-    class="fixed inset-0 z-[200] flex items-start justify-center overflow-hidden overscroll-contain bg-[rgba(28,22,15,0.12)] pt-[12vh]
+    class="text-xs fixed inset-0 z-[200] flex items-start justify-center overflow-hidden overscroll-contain bg-[rgba(28,22,15,0.12)] pt-[12vh]
       max-md:bottom-auto max-md:h-[100dvh] max-md:items-end max-md:pt-0"
     role="presentation"
     onmousedown={(e) => e.target === e.currentTarget && close()}
@@ -358,7 +358,7 @@
                 <button
                   {...props}
                   type="button"
-                  class="flex h-6 max-w-44 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground
+                  class="flex h-6 max-w-44 shrink-0 items-center gap-1.5 rounded-md px-2  text-muted-foreground
                     [transition:background-color_var(--duration-quick)_var(--ease-premium)] motion-reduce:transition-none
                     hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent)"
                   aria-label="Run on {store.hostLabel || 'this machine'}"
@@ -438,9 +438,9 @@
           {:else if store.step === "cloning"}
             <div class="flex flex-col gap-3 border-t border-border px-5 pb-6 pt-[1.125rem]">
               <div class="flex items-baseline gap-2">
-                <span class="shrink-0 text-[0.8125rem] font-medium">{store.projectName ?? "Repository"}</span>
+                <span class="shrink-0 text-sm font-medium">{store.projectName ?? "Repository"}</span>
                 <span
-                  class="min-w-0 truncate font-mono text-xs text-muted-foreground"
+                  class="min-w-0 truncate  text-muted-foreground"
                   title={destination ?? undefined}
                 >
                   {destination ? abbreviateHome(destination) : rootLabel}
@@ -451,8 +451,8 @@
               <div class="relative h-[0.1875rem] overflow-hidden rounded-full bg-muted">
                 <div class="clone-bar absolute inset-y-0 left-0 w-[32%] rounded-full bg-primary"></div>
               </div>
-              <p class="h-4 truncate font-mono text-xs text-muted-foreground">{tailLogLine}</p>
-              <p class="text-pretty text-xs leading-relaxed text-muted-foreground">
+              <p class="h-4 truncate  text-muted-foreground">{tailLogLine}</p>
+              <p class="text-pretty  leading-relaxed text-muted-foreground">
                 Keep working — the project opens as soon as the checkout finishes.
               </p>
             </div>
@@ -480,7 +480,7 @@
           aria-live="polite"
         >
           {#each store.logLines as line, index (index)}
-            <p class="truncate font-mono text-xs leading-relaxed text-muted-foreground">{line}</p>
+            <p class="truncate  leading-relaxed text-muted-foreground">{line}</p>
           {/each}
         </div>
       {/if}
@@ -493,10 +493,10 @@
           {#if store.cloneFailure}
             {@const failure = store.cloneFailure}
             <span class="min-w-0 flex-1">
-              <span class="block text-pretty text-xs font-medium leading-relaxed text-(--solus-status-error)">
+              <span class="block text-pretty  font-medium leading-relaxed text-(--solus-status-error)">
                 {failure.title}
               </span>
-              <span class="mt-0.5 block text-pretty text-xs leading-relaxed text-muted-foreground">
+              <span class="mt-0.5 block text-pretty  leading-relaxed text-muted-foreground">
                 {failure.detail}
               </span>
             </span>
@@ -504,7 +504,7 @@
               <!-- The folder is probably the very checkout being asked for, so
                    using it is one click rather than a manual clean-up. -->
               <Button
-                class="shrink-0 px-3.5 text-[0.8125rem]"
+                class="shrink-0 px-3.5 text-sm"
                 disabled={store.adoptingProject}
                 onclick={() => void adoptExistingFolder()}
               >
@@ -513,7 +513,7 @@
             {:else if failure.kind === "auth"}
               <Button
                 variant="outline"
-                class="shrink-0 text-[0.8125rem]"
+                class="shrink-0 text-sm"
                 disabled={store.setup?.runningStep === "github"}
                 onclick={() => void connectGithub()}
               >
@@ -522,7 +522,7 @@
             {:else if store.partialPath}
               <Button
                 variant="ghost"
-                class="shrink-0 text-[0.8125rem] text-muted-foreground"
+                class="shrink-0 text-sm text-muted-foreground"
                 onclick={() => void store.clone({ clean: true })}
               >
                 Remove partial &amp; retry
@@ -530,7 +530,7 @@
             {/if}
           {:else}
             <span
-              class="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground"
+              class="min-w-0 flex-1 truncate  text-muted-foreground"
               title={destination ?? undefined}
             >
               {destination ? abbreviateHome(destination) : `${rootLabel}/…`}
@@ -539,7 +539,7 @@
           {#if store.logLines.length > 0}
             <Button
               variant="ghost"
-              class="shrink-0 text-[0.8125rem] font-normal text-muted-foreground"
+              class="shrink-0 text-sm font-normal text-muted-foreground"
               onclick={() => (showOutput = !showOutput)}
             >
               {showOutput ? "Hide output" : "Show output"}
@@ -547,13 +547,13 @@
           {/if}
           <Button
             variant="ghost"
-            class="shrink-0 text-[0.8125rem] max-md:h-11 max-md:flex-1"
+            class="shrink-0 text-sm max-md:h-11 max-md:flex-1"
             onclick={goBack}
           >
             Cancel
           </Button>
           <Button
-            class="shrink-0 px-3.5 text-[0.8125rem] max-md:h-11 max-md:flex-1"
+            class="shrink-0 px-3.5 text-sm max-md:h-11 max-md:flex-1"
             disabled={!store.canSubmit}
             onclick={() => void submit()}
           >

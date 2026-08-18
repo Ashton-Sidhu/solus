@@ -554,26 +554,28 @@ describe('session minting and durable links', () => {
     expect(await taskSessions.tasksForSession('legacy-solus-session')).toBeNull()
   })
 
-  test('generated session metadata preserves the deterministic first-message task title', async () => {
+  test('generated session metadata names and describes its newly created task', async () => {
     const task = await taskSessions.prepareSessionTask({
       sessionId: 'session-title',
       projectKey: '/workspace/solus',
       worktreeKey: 'title-work',
       prompt: 'Raw first prompt',
     })
-    expect(await taskSessions.updateGeneratedDescriptionForSession(
+    expect(await taskSessions.updateGeneratedMetadataForSession(
       'session-title',
+      'Generated task title',
       'A generated task description.',
     )).toMatchObject({
       id: task!.id,
-      title: 'Raw first prompt',
-      titleSource: 'prompt',
+      title: 'Generated task title',
+      titleSource: 'generated',
       body: 'A generated task description.',
     })
 
     await (await tasks.Task.byId(task!.id)).update({ title: 'Human title' })
-    expect(await taskSessions.updateGeneratedDescriptionForSession(
+    expect(await taskSessions.updateGeneratedMetadataForSession(
       'session-title',
+      'Late generated title',
       'Late generated description.',
     )).toBeNull()
     expect((await tasks.Task.byId(task!.id)).record()).toMatchObject({ title: 'Human title', titleSource: 'manual' })
@@ -586,13 +588,36 @@ describe('session minting and durable links', () => {
     })
     await (await tasks.Task.byId(task!.id)).update({ body: 'Human-authored description' })
 
-    expect(await taskSessions.updateGeneratedDescriptionForSession(
+    expect(await taskSessions.updateGeneratedMetadataForSession(
       'session-description-race',
+      'Generated task title',
       'Generated description',
-    )).toBeNull()
-    expect((await tasks.Task.byId(task!.id)).record()).toMatchObject({
-      title: 'Raw first prompt',
+    )).toMatchObject({
+      title: 'Generated task title',
+      titleSource: 'generated',
       body: 'Human-authored description',
+    })
+    expect((await tasks.Task.byId(task!.id)).record()).toMatchObject({
+      title: 'Generated task title',
+      body: 'Human-authored description',
+    })
+  })
+
+  test('generated metadata preserves a title edited while generation is in flight', async () => {
+    const task = await taskSessions.prepareSessionTask({
+      sessionId: 'session-title-race',
+      prompt: 'Raw first prompt',
+    })
+    await (await tasks.Task.byId(task!.id)).update({ title: 'Human-authored title' })
+
+    expect(await taskSessions.updateGeneratedMetadataForSession(
+      'session-title-race',
+      'Generated task title',
+      'Generated description',
+    )).toMatchObject({
+      title: 'Human-authored title',
+      titleSource: 'manual',
+      body: 'Generated description',
     })
   })
 
@@ -605,8 +630,9 @@ describe('session minting and durable links', () => {
     })
     await (await tasks.Task.byId(task!.id)).linkSession('linked-session', 'working')
 
-    expect(await taskSessions.updateGeneratedDescriptionForSession(
+    expect(await taskSessions.updateGeneratedMetadataForSession(
       'linked-session',
+      'Linked session title',
       'Linked session description.',
     )).toBeNull()
     expect((await tasks.Task.byId(task!.id)).record()).toMatchObject({

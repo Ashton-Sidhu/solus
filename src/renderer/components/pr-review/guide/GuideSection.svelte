@@ -124,10 +124,10 @@
 {#snippet typeBadge(path: string)}
   {@const icon = fileTypeIcon(path)}
   {#if icon}
-    <Icon {icon} width="14" height="14" class="shrink-0" />
+    <Icon {icon} width="14" height="14" class="text-xs shrink-0" />
   {:else}
     <span
-      class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 font-mono text-xs font-medium text-(--solus-text-tertiary)"
+      class="text-xs shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 font-mono text-xs font-medium text-(--solus-text-tertiary)"
     >
       {ext(path)}
     </span>
@@ -136,13 +136,13 @@
 
 <section
   data-guide-section-id={section.id}
-  class="grid items-start gap-x-10 gap-y-6 border-b border-(--solus-art-border) py-12 pr-8 pl-14 lg:grid-cols-[24rem_minmax(0,1fr)] xl:grid-cols-[28rem_minmax(0,1fr)]"
+  class="text-xs grid items-start gap-x-10 gap-y-6 border-b border-(--solus-art-border) py-12 pr-8 pl-14 lg:grid-cols-[24rem_minmax(0,1fr)] xl:grid-cols-[28rem_minmax(0,1fr)]"
 >
   <!-- Left: the "why", pinned while the diffs scroll past. -->
   <div class="guide-why flex flex-col gap-5 lg:sticky lg:top-12 lg:self-start">
     {#if index && total}
       <span
-        class="tabular-nums text-[0.8125rem] font-medium text-(--solus-text-tertiary)"
+        class="tabular-nums text-sm font-medium text-(--solus-text-tertiary)"
       >
         {String(index).padStart(2, "0")} / {String(total).padStart(2, "0")}
       </span>
@@ -167,7 +167,7 @@
             >
               {@render typeBadge(file.path)}
               <span
-                class="min-w-0 flex-1 truncate font-mono text-xs font-secondary text-(--solus-text-secondary)"
+                class="min-w-0 flex-1 truncate font-mono  font-secondary text-(--solus-text-secondary)"
               >
                 <span class="text-(--solus-text-primary)"
                   >{fileName(file.path)}</span
@@ -178,13 +178,13 @@
               </span>
               {#if file.additions}
                 <span
-                  class="tabular-nums shrink-0 text-xs text-(--solus-art-positive)"
+                  class="tabular-nums shrink-0  text-(--solus-art-positive)"
                   >+{file.additions}</span
                 >
               {/if}
               {#if file.deletions}
                 <span
-                  class="tabular-nums shrink-0 text-xs text-(--solus-art-negative)"
+                  class="tabular-nums shrink-0  text-(--solus-art-negative)"
                   >−{file.deletions}</span
                 >
               {/if}
@@ -228,7 +228,7 @@
  : 'rotate-45'}"
             ></span>
             {@render typeBadge(file.path)}
-            <span class="min-w-0 flex-1 truncate font-mono text-[0.8125rem]">
+            <span class="min-w-0 flex-1 truncate font-mono text-sm">
               <span class="text-(--solus-text-tertiary)"
                 >{dirName(file.path)}</span
               >
@@ -267,7 +267,7 @@
               </div>
             {:else if fileVisible}
               <p
-                class="guide-diff-in px-3 py-3 text-xs text-(--solus-text-tertiary)"
+                class="guide-diff-in px-3 py-3  text-(--solus-text-tertiary)"
               >
                 Diff unavailable for this file (binary, or not in the current
                 change).

@@ -280,12 +280,12 @@
     border-radius: 0.5rem;
     background: color-mix(in srgb, var(--group-accent) 14%, transparent);
     color: var(--group-accent);
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     line-height: 1;
   }
 
   .diagram-group__label {
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 500;
     color: var(--solus-text-primary);
     white-space: nowrap;
@@ -301,7 +301,7 @@
     border-bottom: 0.09375rem solid var(--solus-accent-border);
     outline: none;
     color: var(--solus-text-primary);
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 500;
     padding: 0;
   }

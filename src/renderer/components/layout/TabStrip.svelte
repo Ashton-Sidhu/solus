@@ -57,6 +57,16 @@
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
   const renderedTabIds = $derived(session.tabOrder);
+  // The session being composed right now. It has no tab, so the strip would
+  // otherwise show nothing at all for it — and with `onScreenTabId` empty while
+  // a draft leads, no tab reads as selected either, leaving ⌘T and ⌘N with no
+  // visible answer. The chip is that answer, and the way to abandon it.
+  const composingDraft = $derived.by(() => {
+    const base = session.router.leadingPane.base;
+    return base?.name === "draft"
+      ? (session.sessionDrafts.get(base.params.draftId) ?? null)
+      : null;
+  });
   const splitTabId = $derived(session.splitChatTabId);
   const splitFocused = $derived(
     session.router.focusedPaneId !== session.router.leadingPane.id,
@@ -542,6 +552,46 @@
               </Tabs.Trigger>
             </div>
           {/each}
+        {/if}
+        <!-- Nothing has started here yet, so this is not a tab: it names the
+             session being composed and goes away the moment Send mints the real
+             one. Dashed, and never `aria-selected`, so it never competes with a
+             conversation for what the strip says is current. -->
+        {#if composingDraft}
+          {@const draftId = composingDraft.id}
+          <div
+            class="flex shrink-0"
+            in:scale={{ start: 0.92, duration: 130 }}
+            out:scale={{ start: 0.96, duration: 90, easing: quintOut }}
+          >
+            <div
+              class="tab-item tab-item-draft border border-dashed border-(--solus-container-border)"
+              data-testid="tab-draft"
+              title="New session — nothing sent yet"
+            >
+              <div class="flex min-w-0 items-center gap-[0.3125rem]">
+                <CircleDashedIcon
+                  size={14}
+                  style="color:var(--solus-text-tertiary);flex-shrink:0"
+                />
+                <span
+                  class="tab-label min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
+                  >New session</span
+                >
+                <button
+                  onclick={() => {
+                    session.discardSessionDraft(draftId);
+                    requestInputFocus();
+                  }}
+                  class="tab-close"
+                  aria-label="Discard new session"
+                  title="Discard new session"
+                >
+                  <XIcon size={14} />
+                </button>
+              </div>
+            </div>
+          </div>
         {/if}
         </div>
       </Tabs.List>

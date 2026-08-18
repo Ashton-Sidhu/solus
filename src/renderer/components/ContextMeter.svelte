@@ -105,7 +105,7 @@
           >
       {@render meter("h-[0.1875rem] w-[2.625rem] shrink-0")}
       <span
-        class="tabular-nums {context ? 'font-mono opacity-65' : 'opacity-55'}"
+        class="tabular-nums {context ? ' opacity-65' : 'opacity-55'}"
         data-testid="context-meter-label">{label}</span
       >
           </button>
@@ -149,7 +149,7 @@
           </span>
           <div class="flex min-w-0 items-baseline gap-2">
             <Popover.Title
-              class="truncate text-[0.8125rem] leading-[1.25] font-medium text-(--solus-text-primary)"
+              class="truncate text-sm leading-[1.25] font-medium text-(--solus-text-primary)"
               >Context window</Popover.Title
             >
             <span

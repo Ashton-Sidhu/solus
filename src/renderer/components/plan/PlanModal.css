@@ -29,7 +29,7 @@
     gap: 0.375rem;
     height: 1.75rem;
     padding: 0 0.625rem;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 400;
     border-radius: 0.5rem;
     background: transparent;
@@ -90,7 +90,7 @@
   /* Runtime owns the laptop threshold and publishes it on <html>, so the plan
      surface cannot drift from Pill mode or the web client. */
   @media (min-width: 768px) {
-    html.is-laptop-viewport .plan-shell:not(.h-full) {
+    html.is-laptop-display .plan-shell:not(.h-full) {
       width: 100dvw !important;
       max-width: none !important;
       border-inline: none !important;
@@ -135,14 +135,10 @@
       gap: 0;
       justify-content: center;
     }
-    /* Mobile reading typography also comes from the base document editor. */
-    .plan-document-editor .solus-doc-raw {
-      padding: 0.625rem 0.875rem 1.5rem;
-    }
     /* Text fields read at the mobile minimum (16px) so they line up with the
        document body and iOS doesn't zoom the viewport when they're focused. */
     .plan-action-bar-sleeve .inp {
-      font-size: 0.875rem;
+      font-size: var(--text-sm);
     }
   }
 

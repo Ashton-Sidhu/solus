@@ -138,7 +138,7 @@
 </script>
 
 <div
-  class="diff-toolbar {hasHostHeaderRow ? '' : 'workspace-titlebar'}"
+  class="text-xs diff-toolbar {hasHostHeaderRow ? '' : 'workspace-titlebar'}"
   class:is-subrow={hasHostHeaderRow}
   data-testid="diff-toolbar"
 >
@@ -156,7 +156,7 @@
               onclick={onClearCommitScope}
               disabled={!onClearCommitScope}
               aria-label={`Showing commit ${commitSha.slice(0, 7)}. View all changes`}
-              class="h-7 shrink-0 gap-1.5 rounded-lg px-1.5 font-mono text-xs text-(--solus-accent) pointer-coarse:h-10"
+              class="h-7 shrink-0 gap-1.5 rounded-lg px-1.5 font-mono  text-(--solus-accent) pointer-coarse:h-10"
             >
               <GitCommitIcon size={14} weight="duotone" />
               <span>{commitSha.slice(0, 7)}</span>
@@ -176,27 +176,27 @@
       />
       {#if mode === "working-tree"}
         <span
-          class="text-xs font-medium truncate text-(--solus-text-primary)"
+          class="font-medium truncate text-(--solus-text-primary)"
           style="font-family:{MONO_FONT}"
         >
           Working tree
         </span>
       {:else if isWorktree}
         <span
-          class="text-xs font-medium truncate text-(--solus-text-primary)"
+          class="font-medium truncate text-(--solus-text-primary)"
           style="font-family:{MONO_FONT}"
         >
           {worktreeBranch}
         </span>
         <span
-          class="text-xs text-(--solus-text-tertiary) flex-shrink-0"
+          class="text-(--solus-text-tertiary) flex-shrink-0"
           style="font-family:{MONO_FONT}"
         >
           →&nbsp;{targetBranch}
         </span>
       {:else if fallbackBranch}
         <span
-          class="text-xs font-medium text-(--solus-text-primary) truncate"
+          class="font-medium text-(--solus-text-primary) truncate"
           style="font-family:{MONO_FONT}"
         >
           {fallbackBranch}
@@ -211,7 +211,7 @@
            The counts use the same sage/red as the diff rows themselves, so the
            header summary and the stream read as one palette. -->
       <span
-        class="shrink-0 rounded-full border border-(--solus-container-border) px-1.5 py-px text-xs text-(--solus-text-tertiary)"
+        class="shrink-0 rounded-full border border-(--solus-container-border) px-1.5 py-px  text-(--solus-text-tertiary)"
         style="font-family:{MONO_FONT}"
       >
         {headerStats.files}
@@ -762,7 +762,7 @@
     border-radius: 0.375rem;
     background: transparent;
     color: var(--solus-text-tertiary);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     white-space: nowrap;
     cursor: pointer;
@@ -819,7 +819,7 @@
     padding: 0 0.375rem;
     border-radius: 0.3125rem;
     color: var(--solus-text-tertiary);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     cursor: pointer;
     white-space: nowrap;
@@ -894,7 +894,7 @@
     padding: 0 0.375rem;
     border-radius: 0.3125rem;
     color: var(--solus-text-secondary);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     white-space: nowrap;
     cursor: pointer;
@@ -922,7 +922,7 @@
   }
   .turn-menu-stats {
     color: var(--solus-text-tertiary);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-variant-numeric: tabular-nums;
   }
 </style>

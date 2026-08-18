@@ -46,7 +46,7 @@
       >{label}</span
     >
     <span
-      class="rounded-full bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] px-1.5 py-0.5 font-mono text-xs text-[color-mix(in_oklch,var(--foreground)_68%,transparent)] tabular-nums"
+      class="rounded-full bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] px-1.5 py-0.5 text-xs text-[color-mix(in_oklch,var(--foreground)_68%,transparent)] tabular-nums"
       >{count}</span
     >
   {/if}

@@ -554,7 +554,7 @@
     flex-shrink: 0;
     width: 0.875rem;
     height: 0.875rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     line-height: 1;
     /* Neutral by default: a canvas of tinted glyphs is noise. A node the user
        deliberately coloured keeps its tint here, so colour-coding still reads. */
@@ -566,7 +566,7 @@
   }
 
   .diagram-node__label {
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     font-weight: 500;
     line-height: 1.15;
     display: -webkit-box;
@@ -580,7 +580,7 @@
   }
 
   .diagram-node__subtitle {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-text-tertiary);
     font-weight: 500;
     line-height: 1.2;
@@ -599,7 +599,7 @@
     border-bottom: 0.09375rem solid var(--solus-accent-border);
     outline: none;
     color: var(--solus-text-primary);
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     font-weight: 500;
     padding: 0;
   }
@@ -657,7 +657,7 @@
     border: none;
     border-radius: 0.25rem;
     font-family: var(--solus-code-font-family);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-variant-numeric: tabular-nums;
     color: var(--solus-accent);
     background: color-mix(in srgb, var(--solus-accent) 10%, transparent);
@@ -697,7 +697,7 @@
     background: transparent;
     border: 0.0625rem solid color-mix(in srgb, var(--solus-text-tertiary) 20%, transparent);
     color: var(--solus-text-secondary);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
@@ -728,7 +728,7 @@
   }
 
   .diagram-node__field-key--letters {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     line-height: 0.5625rem;
     color: var(--solus-text-tertiary);
@@ -738,7 +738,7 @@
     flex: 1;
     min-width: 0;
     font-family: var(--solus-code-font-family);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
 
     color: var(--solus-text-primary);
     overflow: hidden;
@@ -755,7 +755,7 @@
     flex: 0 1 auto;
     min-width: 0;
     font-family: var(--solus-code-font-family);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-text-tertiary);
     font-variant-numeric: tabular-nums;
     overflow: hidden;
@@ -765,7 +765,7 @@
 
   .diagram-node__field-more {
     font-family: var(--solus-code-font-family);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-text-tertiary);
     opacity: 0.8;
     padding: 0.1875rem 0.6875rem 0.3125rem 1.6875rem;
@@ -780,7 +780,7 @@
   }
 
   .diagram-node__meta {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-text-secondary);
     font-weight: 400;
   }
@@ -808,14 +808,14 @@
   }
 
   .diagram-node__metric-key {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     color: var(--solus-text-tertiary);
     white-space: nowrap;
   }
 
   .diagram-node__metric-val {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     color: var(--solus-text-primary);
     font-variant-numeric: tabular-nums;
@@ -831,7 +831,7 @@
   }
 
   .diagram-node__tag {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     color: var(--solus-text-tertiary);
     padding: 0.0625rem 0.25rem;
@@ -841,7 +841,7 @@
 
   /* Expanded body/custom html */
   .diagram-node__body {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-text-secondary);
     line-height: 1.55;
     margin: 0;
@@ -852,7 +852,7 @@
   }
 
   .diagram-node__custom {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-text-secondary);
     line-height: 1.55;
     max-height: 12rem;

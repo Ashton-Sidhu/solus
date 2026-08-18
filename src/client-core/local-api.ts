@@ -8,7 +8,7 @@ export const localApi: LocalApi = new Proxy(
     get(_target, property) {
       // SAFETY: Proxy reads originate from the LocalApi contract, so each property is a LocalApi key.
       const key = property as keyof LocalApi
-      return globalThis.window.solus[key]
+      return globalThis.window?.solus?.[key]
     },
   },
 )

@@ -107,7 +107,7 @@
     color: var(--solus-text-secondary);
   }
   .slash-block-menu__label {
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 500;
     line-height: 1.25;
     color: var(--solus-text-primary);

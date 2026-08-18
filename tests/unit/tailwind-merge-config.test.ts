@@ -20,6 +20,10 @@ const customFontSizes = [...THEME_CSS.matchAll(/^\s*--text-([\w-]+):/gm)]
   .map(([, key]) => `text-${key}`)
   // Tailwind's own scale is already known to tailwind-merge.
   .filter((cls) => !/^text-(xs|sm|base|lg|xl|\d?xl)$/.test(cls))
+  // `--text-body--line-height` is a *modifier* on `--text-body`, not a key of
+  // its own: Tailwind emits no `text-body--line-height` utility, so there is no
+  // class for tailwind-merge to drop. The parent rung is still checked below.
+  .filter((cls) => !/--(line-height|letter-spacing|font-weight)$/.test(cls))
 
 describe('custom @theme font sizes survive class merging', () => {
   test('index.css defines custom font-size keys worth guarding', () => {
@@ -37,7 +41,7 @@ describe('custom @theme font sizes survive class merging', () => {
   })
 
   test('a later size still overrides an earlier one', () => {
-    expect(cn('text-menu', 'text-menu-meta')).toBe('text-menu-meta')
+    expect(cn('text-menu', 'text-xs')).toBe('text-xs')
   })
 })
 

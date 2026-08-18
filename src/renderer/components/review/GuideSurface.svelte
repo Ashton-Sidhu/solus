@@ -56,7 +56,7 @@
   );
 </script>
 
-<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+<div class="text-sm flex min-h-0 flex-1 flex-col overflow-hidden">
   <!-- Either kind of generation earns the progress screen: this loader's own
        call, or the durable background one the Generate button queues. Showing it
        only for the former left the button spinning against an unchanged empty
@@ -93,12 +93,12 @@
           <BookOpenTextIcon size={20} />
         </span>
 
-        <h2 class="mt-4 text-sm font-medium ">
+        <h2 class="mt-4  font-medium ">
           No guide yet for this pull request
         </h2>
 
         <p
-          class="mt-2 text-sm leading-[1.7] text-pretty text-muted-foreground"
+          class="mt-2  leading-[1.7] text-pretty text-muted-foreground"
         >
           {loader.guide?.summary ??
             "Guides are opt-in. Generate one and the review companion reads the diff, orders the files into a narrative, and explains what each change is doing and why it matters."}
@@ -107,7 +107,7 @@
         <div class="mt-5 flex flex-wrap items-center justify-center gap-2.5">
           <Button
             type="button"
-            class="inline-flex h-[34px] cursor-pointer items-center gap-2 rounded-lg border-0 bg-primary px-3.5 text-[0.8125rem] font-medium text-primary-foreground transition-[filter] duration-100 hover:brightness-[1.07]"
+            class="inline-flex h-[34px] cursor-pointer items-center gap-2 rounded-lg border-0 bg-primary px-3.5  font-medium text-primary-foreground transition-[filter] duration-100 hover:brightness-[1.07]"
             disabled={generationInProgress}
             onclick={() => (onGenerate ? onGenerate() : loader.refresh())}
           >
@@ -125,7 +125,7 @@
           {#if onAlwaysGenerate}
             <Button
               type="button"
-              class="inline-flex h-[34px] cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-[0.8125rem] font-medium text-muted-foreground transition-colors hover:text-foreground"
+              class="inline-flex h-[34px] cursor-pointer items-center rounded-lg border-0 bg-muted px-3  font-medium text-muted-foreground transition-colors hover:text-foreground"
               onclick={onAlwaysGenerate}
             >
               Always generate on open

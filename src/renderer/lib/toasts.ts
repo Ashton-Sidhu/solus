@@ -63,7 +63,10 @@ interface ActiveToast {
 
 type ToastOptions = Omit<ToastSpec, "message" | "variant">
 
-async function copyText(text: string): Promise<void> {
+/** Write text to the clipboard, falling back to a detached textarea where the
+ *  async API is unavailable or denied. Exported because every surface that
+ *  offers a "copy this" affordance needs the same fallback. */
+export async function copyText(text: string): Promise<void> {
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text)

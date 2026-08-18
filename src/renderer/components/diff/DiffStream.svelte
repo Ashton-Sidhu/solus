@@ -954,7 +954,7 @@
     background: var(--solus-accent-light);
     color: var(--solus-text-tertiary);
     font-family: var(--solus-code-font-family);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     line-height: 1.4;
   }
@@ -964,7 +964,7 @@
     align-items: baseline;
     min-width: 0;
     font-family: var(--solus-code-font-family);
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
 
   }
 
@@ -996,7 +996,7 @@
   }
 
   :global(.diff-placeholder-label) {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-style: italic;
     color: var(--solus-text-tertiary);
     white-space: nowrap;
@@ -1010,7 +1010,7 @@
     padding: 0;
     margin-right: 0.375rem;
     color: var(--solus-text-tertiary);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-style: italic;
     white-space: nowrap;
   }
@@ -1078,7 +1078,7 @@
     gap: 0.375rem;
     padding-inline: 0.5rem;
     border-radius: 0.5rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     white-space: nowrap;
     opacity: 1;
   }

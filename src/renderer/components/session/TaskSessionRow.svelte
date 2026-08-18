@@ -15,6 +15,8 @@
   import SessionNameInput from "./SessionNameInput.svelte";
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
   import UnreadDot from "./UnreadDot.svelte";
+  import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
+  import * as TooltipUI from "../ui/tooltip";
   import {
     formatElapsed,
     hasGlyph,
@@ -23,6 +25,7 @@
 
   interface Props {
     session: SidebarSessionChild;
+    projectLabel: string;
     selected: boolean;
     /** The parent task holds the session you are reading, so this cluster leads
      *  in full ink; sessions elsewhere rest at the secondary tone. */
@@ -43,6 +46,7 @@
   }
   let {
     session,
+    projectLabel,
     selected,
     onPath,
     renaming,
@@ -112,8 +116,12 @@
 
 <!-- One step in from the task title's spine, with no plate of its own: the
      connector carries the hierarchy, so nothing here needs a box. -->
+<TooltipUI.Root>
+  <TooltipUI.Trigger>
+    {#snippet child({ props: tooltipProps })}
 <div
-  class="group/session relative -mx-2 flex h-[2.875rem] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-11 transition-[background] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)]"
+  {...tooltipProps}
+  class="group/session relative -mx-2 flex h-[2.875rem] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-11 @max-[15rem]:gap-1.5 @max-[15rem]:pl-[2.375rem] transition-[background] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)]"
   role="treeitem"
   tabindex="-1"
   data-tab-id={session.tabId}
@@ -193,7 +201,7 @@
       {#if renaming}
         <SessionNameInput
           value={session.label}
-          class="text-[0.8125rem] {titleIsEmphasized
+          class="text-sm {titleIsEmphasized
             ? 'font-medium '
             : ''}"
           onCommit={onRename}
@@ -201,7 +209,7 @@
         />
       {:else}
         <span
-          class="min-w-0 flex-1 overflow-hidden text-[0.8125rem] leading-[1.125rem] text-ellipsis whitespace-nowrap transition-colors duration-150 {titleIsEmphasized
+          class="min-w-0 flex-1 overflow-hidden text-sm leading-[1.125rem] text-ellipsis whitespace-nowrap transition-colors duration-150 {titleIsEmphasized
             ? 'font-medium '
             : ''} {titleLeads
             ? 'text-foreground'
@@ -253,7 +261,7 @@
                    so the row you are reading states its own state in one
                    colour. -->
               <span
-                class="shrink-0 font-mono text-xs tabular-nums {selected
+                class="shrink-0 text-xs tabular-nums {selected
                   ? 'text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))]'
                   : 'text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]'}">{elapsed}</span
               >
@@ -270,9 +278,11 @@
         <span
           class="-mr-1 hidden shrink-0 items-center gap-px group-hover/session:flex"
         >
-          <!-- Same three actions, same order, as the task row above it. -->
+          <!-- Same three actions, same order, as the task row above it —
+               including dropping snooze on a narrow column so the hover
+               cluster stops eating the title. -->
           <button
-            class={iconButton}
+            class="{iconButton} @max-[15rem]:hidden"
             title="Snooze"
             aria-label="Snooze subtask"
             disabled={!onSnooze}
@@ -317,20 +327,41 @@
          the project, so what is left to say is which worktree — and which
          machine, because a subtask can be running somewhere its siblings are
          not. -->
+    <!-- This line starts 44px in, so it is the first thing a narrow column
+         crushes: a branch like `solus/mcp-discovery-modes` has barely half the
+         width the title above it gets. One step down in size and gap, and the
+         separator and the local-machine mark dropped, hand those characters
+         back; both marks stay in the row's tooltip, and a remote host keeps its
+         globe at every width. -->
     <span
-      class="mt-1 flex max-w-full items-center gap-[0.375rem] text-xs text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]"
+      class="mt-1 flex max-w-full items-center gap-[0.375rem] text-xs text-[color-mix(in_oklch,var(--foreground)_64%,transparent)] @max-[15rem]:gap-1 @max-[15rem]:text-xs"
     >
       {#if session.branchName}
         <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
           >{session.branchName}</span
         >
-        <span class="shrink-0">·</span>
+        <span class="shrink-0 @max-[15rem]:hidden">·</span>
       {/if}
       {#if isRemote}
         <GlobeIcon size={11} class="shrink-0" aria-label={host?.label} />
       {:else}
-        <LaptopIcon size={11} class="shrink-0" aria-label="This machine" />
+        <LaptopIcon
+          size={11}
+          class="shrink-0 @max-[15rem]:hidden"
+          aria-label="This machine"
+        />
       {/if}
     </span>
   </span>
 </div>
+    {/snippet}
+  </TooltipUI.Trigger>
+  <SessionSidebarTooltip
+    title={session.label}
+    projectKey={session.projectKey}
+    {projectLabel}
+    branchName={session.branchName}
+    serverId={session.serverId}
+    attention={session.attention}
+  />
+</TooltipUI.Root>

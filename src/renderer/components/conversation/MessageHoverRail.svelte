@@ -51,7 +51,7 @@
   class:is-touch={runtime.isTouchDevice}
 >
   {#if label}
-    <span class="hover-rail-time font-mono" {title}>{label}</span>
+    <span class="hover-rail-time" {title}>{label}</span>
   {/if}
   {#if text}
     <button
@@ -104,7 +104,7 @@
   }
 
   .hover-rail-time {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     line-height: 1;
     color: var(--muted-foreground);
     opacity: 0.55;
