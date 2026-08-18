@@ -77,14 +77,14 @@
       <span class="activity-glyph {glyphClass}">{@render glyph()}</span>
       <span class="activity-label min-w-0">{@render label()}</span>
       {#if target}
-        <span class="activity-target truncate">{@render target()}</span>
+        <span class="activity-target font-mono truncate">{@render target()}</span>
       {/if}
       <span class="flex-1"></span>
     </button>
 
     {#if actions}{@render actions()}{/if}
     {#if rail}
-      <span class="activity-rail shrink-0">{@render rail()}</span>
+      <span class="activity-rail font-mono shrink-0">{@render rail()}</span>
     {/if}
   </div>
 

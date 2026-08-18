@@ -71,7 +71,6 @@
   "src/renderer/components/tasks/task-page/TaskHeader.svelte",
   "src/renderer/components/tasks/task-page/TaskLinkPicker.svelte",
   "src/renderer/components/tasks/task-page/TaskSidebar.svelte",
-  "src/renderer/components/ui/DateTimePicker.svelte",
   "src/renderer/components/ui/Kbd.svelte",
   "src/renderer/components/ui/SegmentedControl.svelte",
   "src/renderer/components/ui/input/input.svelte",

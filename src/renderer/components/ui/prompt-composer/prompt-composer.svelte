@@ -275,7 +275,7 @@
       enterInsertsNewline
       {menuPlacement}
       maxHeight={260}
-      class="[--plain-editor-font-size:var(--text-body)] [--plain-editor-padding:1.25rem_0_1.25rem_0]"
+      class="[--plain-editor-font-size:var(--text-caption)] [--plain-editor-padding:1.25rem_0_1.25rem_0]"
     />
   </div>
   <!-- Same geometry as the input bar's toolbar row (InputBar.svelte): the

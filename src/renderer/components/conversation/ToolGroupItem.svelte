@@ -183,7 +183,7 @@
          more important than the answer above it. -->
     {#snippet detail()}
       {#if failureLine}
-        <div class="tool-stderr">{failureLine}</div>
+        <div class="tool-stderr font-mono">{failureLine}</div>
       {/if}
       {#each tools as tool, i (tool.id)}
         {@const parsed = parsedInputs[i]}
@@ -200,7 +200,7 @@
           <button
             type="button"
             class:is-expanded={expandedToolId === tool.id}
-            class="tool-step-text"
+            class="tool-step-text font-mono"
             aria-expanded={expandedToolId === tool.id}
             onclick={() => toggleToolExpanded(tool.id)}
           >
@@ -208,7 +208,7 @@
           </button>
           <span class="flex-1"></span>
           {#if tool.toolCompletedAt}
-            <span class="tool-step-duration shrink-0">
+            <span class="tool-step-duration font-mono shrink-0">
               {formatActivityDuration(tool.toolCompletedAt - tool.timestamp)}
             </span>
           {/if}

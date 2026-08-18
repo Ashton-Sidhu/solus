@@ -890,7 +890,7 @@
             <span class="flex shrink-0 items-center"
               ><ChartBarIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-[0.875rem] @max-[15rem]:text-[0.8125rem]">Insights</span>
+            <span class="flex-1 text-left text-menu">Insights</span>
             <span
               class="shrink-0 font-mono text-menu-meta opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
               >{comboHint("global.toggle-insights")}</span

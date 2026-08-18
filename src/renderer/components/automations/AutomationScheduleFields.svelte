@@ -169,7 +169,7 @@
           onCommit();
         }}
         label="Time"
-        class="-mr-1.5 h-7 rounded-md border-0 px-1.5 font-mono text-[0.8125rem] transition-colors duration-120 hover:bg-muted focus-within:border-transparent focus-within:ring-0 pointer-coarse:h-10"
+        class="-mr-1.5 h-7 rounded-md border-0 px-1.5 font-mono text-sm transition-colors duration-120 hover:bg-muted focus-within:border-transparent focus-within:ring-0 pointer-coarse:h-10"
       />
     </div>
   {/if}

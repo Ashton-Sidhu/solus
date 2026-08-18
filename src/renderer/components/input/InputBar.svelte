@@ -1340,9 +1340,9 @@
        the waveform inherits the same padding and stands exactly as tall as the
        text well it replaces — entering voice mode must not resize the card. -->
   <div
-    class="[--solus-font-weight-body:var(--solus-font-weight-user-content)] {mode ===
+    class="[--plain-editor-font-size:var(--text-caption)] [--solus-font-weight-body:var(--solus-font-weight-user-content)] {mode ===
     'editor'
-      ? '[--plain-editor-font-size:var(--text-body)] [--plain-editor-padding:1.25rem_0_1.25rem_0]'
+      ? '[--plain-editor-padding:1.25rem_0_1.25rem_0]'
       : ''}"
   >
     {#if hasMountedWaveform}

@@ -178,7 +178,7 @@
           <span class="turn-error">{turn.end.detail}</span>
         {/if}
         {#if filesTouched > 0}
-          <span class="turn-survived"
+          <span class="turn-survived font-mono"
             >{filesTouched} file{filesTouched === 1 ? "" : "s"} changed</span
           >
         {/if}

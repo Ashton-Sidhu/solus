@@ -96,7 +96,7 @@
           open = false;
         }}
         captionLayout="dropdown"
-        class="px-2.5 py-1.5 [--cell-size:1.625rem] [&_td]:text-[0.6875rem] [&_th]:text-[0.625rem] [&_select+span]:gap-0.5 [&_select+span]:ps-1.5 [&_select+span]:pe-0.5 [&_select+span]:text-[0.6875rem] [&_select+span>svg]:size-3 pointer-coarse:[--cell-size:2.25rem] pointer-coarse:px-3 pointer-coarse:py-2 pointer-coarse:[&_td]:text-xs pointer-coarse:[&_th]:text-[0.6875rem] pointer-coarse:[&_select+span]:text-xs"
+        class="px-2.5 py-1.5 [--cell-size:1.625rem] [&_td]:text-xs [&_th]:text-xs [&_select+span]:gap-0.5 [&_select+span]:ps-1.5 [&_select+span]:pe-0.5 [&_select+span]:text-xs [&_select+span>svg]:size-3 pointer-coarse:[--cell-size:2.25rem] pointer-coarse:px-3 pointer-coarse:py-2 pointer-coarse:[&_td]:text-xs pointer-coarse:[&_th]:text-xs pointer-coarse:[&_select+span]:text-xs"
       />
     </Popover.Content>
   </Popover.Root>
