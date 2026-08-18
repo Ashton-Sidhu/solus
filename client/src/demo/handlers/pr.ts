@@ -88,6 +88,22 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
   backend.register('readReviewState', (args) => store.readReviewState(args[1] as string))
   backend.register('writeReviewState', (args) => store.writeReviewState(args[1] as ReviewState))
   backend.register('readGuide', () => store.prGuide())
+  // The report is written already, so every entry point reports it ready and
+  // both request paths just hand the same one back rather than queueing an
+  // agent the visitor cannot wait for.
+  const guideStatus = (args: unknown[]) =>
+    store.reviewGuideStatus(
+      args[0] as IpcContext,
+      (args[1] as { scope?: 'branch' | 'session' } | undefined)?.scope ?? 'branch',
+    )
+  backend.register('reviewGuideStatus', guideStatus)
+  backend.register('requestReviewGuide', guideStatus)
+  backend.register('generateGuide', (args) => ({
+    key: guideStatus(args).key,
+    guide: store.prGuide(),
+    persisted: true,
+  }))
+  backend.register('cancelGenerateGuide', () => undefined)
   backend.register('getReviewContext', (args) => store.reviewContext(args[0] as IpcContext))
   backend.register('prOpenReview', (args) => store.prReviewContext(args[1] as number))
   backend.register('prGetDiff', (args) => {

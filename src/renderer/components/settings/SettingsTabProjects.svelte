@@ -119,7 +119,7 @@
           <Button
             variant="ghost"
             size="icon-sm"
-            class="mr-1 text-(--solus-text-tertiary) hover:text-(--solus-status-error) hover:bg-(--solus-status-error)/12 opacity-0 group-hover:opacity-100 focus-visible:opacity-100
+            class="mr-1 text-(--solus-text-tertiary) hover:text-(--solus-status-error) hover:bg-(--solus-status-error)/12 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100
               {selected === project.path ? '!opacity-100' : ''}"
             aria-label="Remove {project.folderName || folderName(project.path)}"
             onclick={() => (confirming = project.path)}

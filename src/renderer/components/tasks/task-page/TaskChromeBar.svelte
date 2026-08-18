@@ -22,6 +22,7 @@
     onPrevious?: (() => void) | null;
     onNext?: (() => void) | null;
     onOpenSource?: (() => void) | null;
+    onOpenAsPage?: () => void;
     onOpenList: () => void;
     onClose: () => void;
   }
@@ -36,6 +37,7 @@
     onPrevious,
     onNext,
     onOpenSource,
+    onOpenAsPage,
     onOpenList,
     onClose,
   }: Props = $props();
@@ -74,7 +76,7 @@
 >
   <button
     type="button"
-    class="flex h-7 cursor-pointer items-center gap-[7px] rounded px-[7px] text-sm text-muted-foreground hover:bg-[var(--wash-1)]"
+    class="flex h-7 min-w-0 max-w-40 cursor-pointer items-center gap-[7px] rounded px-[7px] text-sm text-muted-foreground hover:bg-[var(--wash-1)] @max-[42rem]:hidden"
     onclick={onOpenList}
   >
     {#if projectRoot}
@@ -82,9 +84,9 @@
     {:else}
       <span class="size-4 shrink-0 rounded bg-(--chart-4)" aria-hidden="true"></span>
     {/if}
-    {projectLabel}
+    <span class="truncate">{projectLabel}</span>
   </button>
-  <span class="px-[3px] text-sm opacity-30" aria-hidden="true">/</span>
+  <span class="px-[3px] text-sm opacity-30 @max-[42rem]:hidden" aria-hidden="true">/</span>
   <button
     type="button"
     class="flex h-7 cursor-pointer items-center rounded px-[7px] text-sm text-muted-foreground hover:bg-[var(--wash-1)]"
@@ -93,7 +95,7 @@
     Tasks
   </button>
   <span class="px-[3px] text-sm opacity-30" aria-hidden="true">/</span>
-  <span class="flex h-7 items-center rounded px-[7px] text-sm ">
+  <span class="flex h-7 min-w-0 max-w-36 items-center truncate rounded px-[7px] text-sm">
     {taskRef(task)}
   </span>
   <CopyButton text={task.id} title="Copy task ID" iconOnly />
@@ -108,7 +110,7 @@
     {#if onSync}
       <button
         type="button"
-        class="{PILL} cursor-pointer transition-colors hover:bg-[var(--wash-1)] hover:text-foreground disabled:pointer-events-none"
+        class="{PILL} cursor-pointer transition-colors hover:bg-[var(--wash-1)] hover:text-foreground disabled:pointer-events-none @max-[42rem]:hidden"
         onclick={onSync}
         disabled={syncing}
         title="{upstream.title} · click to sync now"
@@ -117,12 +119,12 @@
         {@render pillBody(upstream, tone)}
       </button>
     {:else}
-      <span class={PILL} title={upstream.title}>
+    <span class="{PILL} @max-[42rem]:hidden" title={upstream.title}>
         {@render pillBody(upstream, tone)}
       </span>
     {/if}
   {:else}
-    <span class={PILL} title="This task lives only in Solus">
+    <span class="{PILL} @max-[42rem]:hidden" title="This task lives only in Solus">
       <svg
         width="11"
         height="11"
@@ -139,6 +141,18 @@
       </svg>
       {providerLabel}
     </span>
+  {/if}
+
+  {#if onOpenAsPage}
+    <button
+      type="button"
+      class={ICON_BTN}
+      onclick={onOpenAsPage}
+      title="Open as page"
+      aria-label="Open as page"
+    >
+      <ArrowSquareOutIcon size={13} />
+    </button>
   {/if}
 
   {#if onOpenSource}

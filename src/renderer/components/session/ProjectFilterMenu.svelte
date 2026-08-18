@@ -78,7 +78,6 @@
             initial={choice.initial}
             active={false}
             class="size-[0.875rem]"
-            letterClass="text-xs"
           />
           <span class="min-w-0 flex-1 truncate text-left">{choice.label}</span>
           <span

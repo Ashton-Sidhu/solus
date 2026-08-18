@@ -5,10 +5,24 @@ import { describe, expect, test } from 'bun:test'
 const readRendererSource = (path: string) =>
   readFileSync(join(import.meta.dir, '../../src/renderer/components', path), 'utf8')
 
+const rendererCss = readFileSync(
+  join(import.meta.dir, '../../src/renderer/index.css'),
+  'utf8',
+)
+
 describe('persistent panel typography', () => {
-  test('keeps session sidebar navigation at the compact 13px size', () => {
-    // WHY: the sidebar sits at 245–257px on MacBook Pro screens. The compact
-    // menu token keeps its primary destinations proportional to that rail.
+  test('uses one client-display type rung for persistent workspace chrome', () => {
+    // WHY: resizing a pane must not resize its text. A 1512px MacBook stays on
+    // the compact 12px rung, while large desktop and mobile clients use 14px.
+    expect(rendererCss).toContain('--text-workspace-chrome: 0.75rem;')
+    expect(rendererCss).toMatch(
+      /@media \(min-width: 100rem\), \(max-width: 48rem\) and \(pointer: coarse\)[\s\S]*?--text-workspace-chrome: 0\.875rem;/,
+    )
+
+    const breadcrumb = readRendererSource('conversation/SessionBreadcrumb.svelte')
+    expect(breadcrumb).toContain('gap-px text-workspace-chrome')
+    expect(breadcrumb).not.toContain('@max-[52rem]:text-xs')
+
     const source = readRendererSource('session/SessionSidebar.svelte')
     for (const label of [
       'Workspace',
@@ -19,32 +33,28 @@ describe('persistent panel typography', () => {
       'Saved sessions',
       'Settings',
     ]) {
-      expect(source).toContain(`text-left text-menu">${label}</span>`)
+      expect(source).toContain(`text-left text-workspace-chrome">${label}</span>`)
     }
-    expect(source).not.toContain('text-left text-sm')
+    expect(source).not.toContain('text-left text-menu')
   })
 
-  test('steps session task titles down one rung at laptop rail widths', () => {
-    // WHY: the step is real — a task title gives up a rung when the rail is
-    // tight — but its target moved from 13px to 12px when ADR-0013 retired 13.
-    // The step must land on a rung that still exists, not collapse into a
-    // self-cancelling `text-sm @max-[…]:text-sm`, which renders no step at all
-    // and reports nothing.
+  test('keeps session task titles stable while the rail resizes', () => {
+    // WHY: task titles and navigation share the same workspace-chrome rung;
+    // the rail width may change spacing and truncation, but never typography.
     const source = readRendererSource('session/TaskRow.svelte')
-    expect(source).toContain('text-sm @max-[15rem]:text-xs')
-    expect(source).not.toContain('@max-[15rem]:text-sm')
-    expect(source).not.toContain('@max-[13rem]:')
+    expect(source).toContain('class="text-workspace-chrome')
+    expect(source).not.toContain('text-sm @max-[15rem]:text-xs')
   })
 
-  test('steps project rows down to 12px, with metadata alongside them', () => {
-    // WHY: the compact hierarchy keeps the dense project rail useful at the
-    // 245–257px widths used by MacBook Pro screens.
+  test('keeps project rows on the parent display rung, with compact metadata', () => {
+    // WHY: all project cards must agree even when the project rail is resized.
+    const panel = readRendererSource('project-panel/ProjectPanel.svelte')
+    expect(panel).toContain('font-size: var(--text-workspace-chrome);')
+
     const source = readRendererSource('project-panel/MenuRow.svelte')
-    // The rung, not the number: ADR-0013 moved every numeric font-size into
-    // index.css, so a literal here would mean the file had drifted back off the
-    // scale. `--text-xs` is the same 12px this test always meant.
-    expect(source).toMatch(
-      /@container \(max-width: 17rem\)\s*{\s*\.menu-row\s*{\s*font-size: var\(--text-xs\);/,
+    expect(source).toMatch(/\.menu-row\s*{[\s\S]*?font-size: inherit;/)
+    expect(source).not.toMatch(
+      /@container \(max-width: 17rem\)[\s\S]*?\.menu-row/,
     )
     // WHY: the trail and the hint used to sit at 11px, a rung that existed only
     // to optically match monospace keycaps against 12px sans. Chrome no longer
@@ -63,6 +73,14 @@ describe('persistent panel typography', () => {
     const source = readRendererSource('project-panel/PanelSection.svelte')
     expect(source).toContain('bg-transparent text-xs font-medium')
     expect(source).not.toContain('bg-transparent text-sm font-medium')
+  })
+
+  test('lets compact segmented controls tighten without resizing their labels', () => {
+    // WHY: a reusable chrome control may give back padding in a narrow parent,
+    // but its label must stay on the client-display type rung.
+    const source = readRendererSource('ui/SegmentedControl.svelte')
+    expect(source).toContain('@max-[16rem]:px-1.5')
+    expect(source).not.toContain('@max-[16rem]:text-xs')
   })
 
   test('steps Action Orb labels down to 12px on laptop displays', () => {

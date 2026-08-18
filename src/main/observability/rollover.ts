@@ -1,4 +1,4 @@
-import { rolloverSpans } from './facade'
+import { rolloverSpans } from './span-table'
 
 const ROLLOVER_INTERVAL_MS = 24 * 60 * 60 * 1000
 

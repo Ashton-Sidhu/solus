@@ -136,19 +136,19 @@
          for the verbs rather than sharing the line with them, so the right end
          is never two things at once. -->
     <span
-      class="truncate text-right text-xs whitespace-nowrap text-muted-foreground opacity-85 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0 @max-[44rem]:hidden"
+      class="truncate text-right text-xs whitespace-nowrap text-muted-foreground opacity-85 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0 pointer-coarse:opacity-0 @max-[44rem]:hidden"
     >
       {schedule}
     </span>
     <span
-      class="text-right text-xs tabular-nums text-muted-foreground opacity-70 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
+      class="text-right text-xs tabular-nums text-muted-foreground opacity-70 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0 pointer-coarse:opacity-0"
     >
       {age}
     </span>
   </button>
 
   <div
-    class="pointer-events-none absolute right-2 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+    class="pointer-events-none absolute right-2 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100"
   >
     <button
       type="button"

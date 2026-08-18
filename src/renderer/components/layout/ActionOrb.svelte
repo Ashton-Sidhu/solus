@@ -3,7 +3,6 @@
   import {
     SparkleIcon,
     FilesIcon,
-    ArrowsOutSimpleIcon,
     ArrowsClockwiseIcon,
     GitForkIcon,
     TreeStructureIcon,
@@ -48,12 +47,10 @@
 
   let {
     tabId,
-    onDiffToggle,
     observeLayout = false,
     leftReservedWidth = 0,
   }: {
     tabId: string;
-    onDiffToggle?: () => void;
     observeLayout?: boolean;
     leftReservedWidth?: number;
   } = $props();
@@ -65,8 +62,7 @@
     | "fork"
     | "continueWorktree"
     | "pin"
-    | "review"
-    | "diff";
+    | "review";
   type PrimaryAction = "stop" | null;
   type OrbBadge = {
     kind: "running" | "success" | "count" | "branch";
@@ -103,9 +99,6 @@
   const isBranchDiff = $derived(
     !!sess?.run.gitContext &&
       sess.run.gitContext.branch !== sess.run.gitContext.targetBranch,
-  );
-  const showViewDiff = $derived(
-    !!onDiffToggle && sessionChangedFiles.length > 0,
   );
   const hasSessionChanges = $derived(sessionChangedFiles.length > 0);
   const hasUncommittedChanges = $derived(uncommittedFiles.length > 0);
@@ -218,10 +211,10 @@
 
   const reviewLabel = $derived(
     reviewStatus === "done"
-      ? "View Review"
+      ? "Review changes"
       : reviewStatus === "generating"
         ? "Reviewing…"
-        : "Review",
+        : "Review changes",
   );
 
   // ── Progress integrated into the action row ──
@@ -262,7 +255,6 @@
       fork: showFork ? idx++ : -1,
       continueWorktree: showContinueWorktree ? idx++ : -1,
       review: showReview ? idx++ : -1,
-      diff: showViewDiff ? idx++ : -1,
     };
   });
 
@@ -281,7 +273,6 @@
     if (showFork) ids.push("fork");
     if (showContinueWorktree) ids.push("continueWorktree");
     if (showReview) ids.push("review");
-    if (showViewDiff) ids.push("diff");
     return ids;
   });
   const primaryAction = $derived.by((): PrimaryAction => {
@@ -427,10 +418,14 @@
   }
 
   async function handleReview(regenerate = false) {
-    if (!regenerate && reviewStatus === "done" && reviewGuideKey) {
-      session.enterReview(reviewGuideKey, "session", tabId);
+    // One click, always: open the review pane on its diff, and queue the
+    // generation behind it when there is nothing to read yet. Generation is
+    // durable, so the pane reports its progress rather than the click ending in
+    // a panel the reader still has to go and find.
+    if (!regenerate) {
+      session.enterReview("session", tabId);
       closeExpanded();
-      return;
+      if (reviewStatus === "done" && reviewGuideKey) return;
     }
     if (reviewStatus === "generating") return;
     const identity = sessionReviewIdentity;
@@ -975,33 +970,6 @@
         </span>
       {/if}
 
-      {#if showViewDiff}
-        <TooltipUI.Root>
-          <TooltipUI.Trigger>
-            {#snippet child({ props: tooltipProps })}
-              <button {...tooltipProps}
-          class="dock-btn stagger-item"
-          data-orb-action="diff"
-          tabindex={tabIndexFor("diff")}
-          style="--item-index:{itemIndices.diff}"
-          onclick={() => {
-            onDiffToggle?.();
-            closeExpanded();
-          }}
-          title="View diff"
-          aria-label="View diff"
-        >
-          <ArrowsOutSimpleIcon size={13} weight="regular" />
-          <span>Diff</span>
-          <Kbd variant="inline" class="opacity-35 ml-[0.1875rem]"
-            >{shortcutLabel("global.toggle-diff-panel")}</Kbd
-          >
-        </button>
-            {/snippet}
-          </TooltipUI.Trigger>
-          <TooltipUI.Content value={"View diff"} />
-        </TooltipUI.Root>
-      {/if}
     </div>
   </div>
 </div>

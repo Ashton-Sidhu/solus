@@ -199,6 +199,10 @@ export interface MetricsTurnSummary {
   model: string | null
   origin: string | null
   promptSource: string | null
+  /** The turn's own ask, as one line and capped for the wire: a session rollup
+   *  names its turns by what was asked, and a full prompt is unbounded text
+   *  nobody reads in a list row. Null when the turn recorded no prompt. */
+  prompt: string | null
   costUsd: number | null
   inputTokens: number | null
   outputTokens: number | null
@@ -207,6 +211,10 @@ export interface MetricsTurnSummary {
 
 export interface MetricsSessionSummary {
   sessionId: string
+  /** First task identity recorded by any turn in the session. Optional for
+   *  hosts that predate session-level task context. */
+  taskId?: string | null
+  taskTitle?: string | null
   turnCount: number
   totalDurationMs: number
   /** Sum of turns with known cost. Null when no turn has a known cost. */

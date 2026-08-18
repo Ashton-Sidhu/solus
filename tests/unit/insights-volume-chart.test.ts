@@ -14,6 +14,15 @@ const source = readFileSync(
 )
 
 describe('Insights volume chart interaction composition', () => {
+  test('the main bars split volume by provider rather than completion status', () => {
+    expect(source).toContain('bucket.claudeCode')
+    expect(source).toContain('bucket.codex')
+    expect(source).toContain('Claude Code')
+    expect(source).toContain('Codex')
+    expect(source).not.toContain('FAILED_FILL')
+    expect(source).not.toContain('>failed</span>')
+  })
+
   test('the chart owns both the brush and tooltip so drag events reach the brush layer', () => {
     expect(source).toContain('tooltipContext={{ mode: "band" }}')
     expect(source).toContain('brush={{')

@@ -8,7 +8,9 @@
   import { attentionLabel } from "../../lib/sessionUtils";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
+  import ReviewGuideGlyph from "../review/ReviewGuideGlyph.svelte";
   import * as TooltipUI from "../ui/tooltip";
+  import type { ReviewGuideIndicatorStatus } from "./lib/task-list";
 
   interface Props {
     title: string;
@@ -17,6 +19,7 @@
     branchName?: string | null;
     serverId?: string | null;
     attention?: AttentionState;
+    reviewGuideStatus?: ReviewGuideIndicatorStatus;
   }
 
   let {
@@ -26,6 +29,7 @@
     branchName,
     serverId,
     attention,
+    reviewGuideStatus,
   }: Props = $props();
 
   const host = $derived(serversStore.hostFor(serverId));
@@ -74,6 +78,24 @@
       {/if}
       {#if attention}
         <div class="text-(--solus-text-secondary)">{attentionLabel(attention)}</div>
+      {/if}
+      {#if reviewGuideStatus}
+        <div
+          class="flex min-w-0 items-center gap-2 {reviewGuideStatus === 'ready'
+            ? 'text-(--solus-art-positive)'
+            : 'text-(--solus-status-running-icon)'}"
+        >
+          <ReviewGuideGlyph
+            size={12}
+            weight={reviewGuideStatus === "ready" ? "fill" : "regular"}
+            class="shrink-0"
+          />
+          <span>
+            {reviewGuideStatus === "ready"
+              ? "Review guide ready"
+              : "Review guide loading"}
+          </span>
+        </div>
       {/if}
     </div>
   </div>

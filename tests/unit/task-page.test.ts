@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  commentSessionName,
   linkRow,
   linkedTableLinks,
   taskPageCapabilities,
@@ -14,7 +15,7 @@ import {
 import { taskPrRows } from '../../src/renderer/components/tasks/task-page/lib/task-prs'
 import { taskRow } from '../../src/renderer/components/tasks/lib/tasks-list-view'
 import { upstreamTaskDetails } from '../../src/renderer/contexts/tasks/upstream-task-details'
-import type { Task, TaskComment, TaskExternalLink, TaskLink } from '../../src/shared/task-types'
+import type { Task, TaskComment, TaskExternalLink, TaskLink, TaskSessionLink } from '../../src/shared/task-types'
 
 // Attempt naming is `sessionDisplayName`, shared by every surface that lists a
 // session — see session-utils.test.ts.
@@ -28,6 +29,29 @@ describe('task page provider labels', () => {
 
   test('identifies a local task as living in Solus', () => {
     expect(taskProviderLabel({ providerId: 'local' } as Task)).toBe('Local task')
+  })
+})
+
+describe('task comment session attribution', () => {
+  const session: TaskSessionLink = {
+    sessionId: 'session-123456789',
+    sessionTitle: 'Fix comment attribution',
+    provider: 'codex',
+    lastActivityAt: 1,
+    linkedAt: 1,
+  }
+
+  test('uses the indexed session title in an agent comment header', () => {
+    // WHY: a raw provider id does not tell the user which conversation left a
+    // task note when several sessions worked on the same task.
+    expect(commentSessionName({ originSessionId: session.sessionId }, [session]))
+      .toBe('Fix comment attribution')
+  })
+
+  test('keeps attribution useful before the session link is indexed', () => {
+    expect(commentSessionName({ originSessionId: '01M0B1F57R0HSH0R0SY2P9AMYX' }, []))
+      .toBe('01M0B1F5')
+    expect(commentSessionName({}, [session])).toBeNull()
   })
 })
 

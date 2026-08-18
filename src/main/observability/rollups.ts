@@ -241,6 +241,16 @@ function attrString(attrs: Record<string, MetricsAttrValue>, key: string): strin
   return typeof value === 'string' ? value : null
 }
 
+/** Characters of a turn's ask the rollup carries. A row shows one truncated
+ *  line, and a 200-turn session must not send 200 whole prompts to say so. */
+const SUMMARY_PROMPT_CHARS = 200
+
+function summaryPrompt(prompt: string | null): string | null {
+  const line = prompt?.replace(/\s+/g, ' ').trim() ?? ''
+  if (!line) return null
+  return line.length > SUMMARY_PROMPT_CHARS ? `${line.slice(0, SUMMARY_PROMPT_CHARS)}…` : line
+}
+
 /** Root-turn rollup for session surfaces. Turn numbers are display ordinals
  *  over `(started_at, span_id)` — computed here, never persisted. */
 export function sessionSummary(sessionId: string): MetricsSessionSummary {
@@ -250,8 +260,15 @@ export function sessionSummary(sessionId: string): MetricsSessionSummary {
     ORDER BY started_at, span_id
   `).all(SPAN_KINDS.turn, sessionId) as unknown as SpanRow[]
 
-  const turns: MetricsTurnSummary[] = rows.map((row, index) => {
-    const attrs = parseAttrs(row.attrs)
+  const rowsWithAttrs = rows.map((row) => ({ row, attrs: parseAttrs(row.attrs) }))
+  const firstTaskId = rowsWithAttrs
+    .map(({ attrs }) => attrString(attrs, 'taskId'))
+    .find((value) => value !== null) ?? null
+  const firstTaskTitle = rowsWithAttrs
+    .map(({ attrs }) => attrString(attrs, 'taskTitle'))
+    .find((value) => value !== null) ?? null
+
+  const turns: MetricsTurnSummary[] = rowsWithAttrs.map(({ row, attrs }, index) => {
     return {
       turnNumber: index + 1,
       traceId: row.trace_id,
@@ -262,6 +279,7 @@ export function sessionSummary(sessionId: string): MetricsSessionSummary {
       model: row.model,
       origin: row.origin,
       promptSource: attrString(attrs, 'promptSource'),
+      prompt: summaryPrompt(attrString(attrs, 'prompt')),
       costUsd: attrNumber(attrs, 'costUsd'),
       inputTokens: attrNumber(attrs, 'inputTokens'),
       outputTokens: attrNumber(attrs, 'outputTokens'),
@@ -272,6 +290,8 @@ export function sessionSummary(sessionId: string): MetricsSessionSummary {
 
   return {
     sessionId,
+    taskId: firstTaskId,
+    taskTitle: firstTaskTitle,
     turnCount: turns.length,
     totalDurationMs: turns.reduce((total, turn) => total + (turn.durationMs ?? 0), 0),
     totalCostUsd: knownCosts.length > 0

@@ -397,6 +397,24 @@
     "provider": "claude",
     "lastActivityAt": 1784041440000
    }
+  ],
+  "demo-task-7": [
+   {
+    "sessionId": "demo-session-webhooks",
+    "linkedAt": 1784045400000,
+    "sessionTitle": "Fix the flaky retry logic in webhook delivery. Preserve idempotency and make the timing tests deterministic.",
+    "provider": "claude",
+    "lastActivityAt": 1784045880000
+   }
+  ],
+  "demo-task-4": [
+   {
+    "sessionId": "demo-session-billing",
+    "linkedAt": 1784023800000,
+    "sessionTitle": "Plan the migration from flat subscriptions to usage-based pricing. Do not edit code yet.",
+    "provider": "claude",
+    "lastActivityAt": 1784024100000
+   }
   ]
  }
 }

@@ -192,7 +192,7 @@
 
 <!-- The rail is never lost: below the review's ~1000px it folds under the main
      column at full width instead of hiding. -->
-<aside class="text-xs w-[clamp(280px,22%,360px)] shrink-0 @max-[1000px]:w-full">
+<aside class="text-xs w-[var(--pr-activity-rail-width)] [--pr-activity-rail-width:clamp(280px,22%,360px)] shrink-0 [.is-laptop-display_&]:[--pr-activity-rail-width:clamp(260px,20%,320px)] @max-[1000px]:w-full">
   <!-- The cap is what makes `sticky` safe. Pinned at top:0, a rail taller than
        the scrollport never moves, so everything past the fold — the tail of an
        expanded checks list, and all of Changed files — becomes unreachable.
@@ -334,7 +334,7 @@
                   variant="ghost"
                   size="icon-sm"
                   disabled={reviewerMutation === reviewer.login}
-                  class="size-4 shrink-0 cursor-pointer text-muted-foreground opacity-0 transition-opacity group-hover/reviewer:opacity-100 focus-visible:opacity-100 hover:text-foreground"
+                  class="size-4 shrink-0 cursor-pointer text-muted-foreground opacity-0 transition-opacity group-hover/reviewer:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 hover:text-foreground"
                   aria-label={`Remove ${reviewer.login} as a requested reviewer`}
                   onclick={() => onRemoveReviewer?.(reviewer.login)}
                 >

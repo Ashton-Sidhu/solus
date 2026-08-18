@@ -187,9 +187,27 @@ describe.serial('Claude turn capture end to end', () => {
     const children = rows.filter((row) => row.kind !== 'turn')
     expect(children.every((row) => row.trace_id === turn.trace_id)).toBe(true)
     expect(children.every((row) => row.ended_at >= row.started_at)).toBe(true)
-    expect(rows.map((row) => row.kind).sort()).toEqual([
-      'response_stream', 'setup', 'thinking', 'tool_call', 'turn',
+    // The turn's own shape, without the dispatch steps: those are Solus's
+    // interior and are counted separately below, so adding one does not
+    // rewrite what a turn is made of.
+    expect(rows
+      .map((row) => row.kind)
+      .filter((kind) => kind !== 'internal.dispatch_step')
+      .sort(),
+    ).toEqual([
+      'response_stream', 'setup', 'thinking', 'tool_call', 'turn', 'turn_settlement',
     ])
+
+    // Dispatch steps hang off setup, not off the turn: they measure the
+    // interior of the setup bar, and a step reparented to the root would claim
+    // to be a phase of the turn beside thinking and tools.
+    const setup = rows.find((row) => row.kind === 'setup')!
+    const dispatchSteps = rows.filter((row) => row.kind === 'internal.dispatch_step')
+    expect(dispatchSteps.length).toBeGreaterThan(0)
+    const dispatchSpanIds = new Set(dispatchSteps.map((row) => row.span_id))
+    expect(dispatchSteps.every((row) =>
+      row.parent_span_id === setup.span_id || dispatchSpanIds.has(row.parent_span_id!),
+    )).toBe(true)
 
     const tool = rows.find((row) => row.kind === 'tool_call')!
     expect(tool.name).toBe('Bash')

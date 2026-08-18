@@ -145,10 +145,10 @@ describe('panel sizing across displays', () => {
     expect(800 - gutterWidth(800) * 2).toBeCloseTo((800 - 32) * 0.8, 6)
   })
 
-  test('a session draft keeps its compact composer measure', () => {
-    // WHY: drafts place one prompt below one headline. They must respond to a
-    // narrow pane, but must not inherit the wider transcript cap on a laptop or
-    // large monitor.
+  test('a session draft keeps one compact composer measure in every pane', () => {
+    // WHY: Ask Solus moves the draft beside the document. Its input bar must
+    // not resize only because its pane role changed; max-width still lets the
+    // bar contract if the pane itself is narrower than the fixed measure.
     const source = readFileSync(
       new URL(
         '../../src/renderer/components/session-draft/SessionDraftPane.svelte',
@@ -157,7 +157,8 @@ describe('panel sizing across displays', () => {
       'utf8',
     )
     expect(source).toContain('class="draft-column ')
-    expect(source).toContain('--solus-reading-max: clamp(40rem, 50%, 52rem)')
+    expect(source).toContain('--solus-reading-max: 52rem')
+    expect(source).not.toContain('draft-column--aside')
   })
 
   test('a laptop lands inside the band rather than on either bound', () => {

@@ -55,6 +55,7 @@ export interface EventRow {
   startedAt: number
   durationMs: number | null
   status: string | null
+  provider: string | null
   /** Link data for the waterfall deep link; rows without a trace stay plain. */
   traceId: string | null
   spanId: string | null
@@ -168,6 +169,7 @@ export function toEventTable(
       startedAt,
       durationMs: asFiniteNumber(cell(row, 'duration_ms')),
       status: asStringOrNull(cell(row, 'status')),
+      provider: asStringOrNull(cell(row, 'provider')),
       traceId: asStringOrNull(cell(row, 'trace_id')),
       spanId: asStringOrNull(cell(row, 'span_id')),
       cells: displayNames.map((name) => cell(row, name) ?? null),
@@ -180,11 +182,12 @@ export function toEventTable(
   }
 }
 
-/** Event rows as the histogram counts them — one bar per span, failures drawn
- *  from the same baseline, exactly as turns are counted. */
+/** Event rows as the histogram counts them — one bar per span, split by the
+ *  provider recorded on the event. */
 export function eventPoints(rows: EventRow[]): VolumePoint[] {
   return rows.map((row) => ({
     at: row.startedAt,
+    provider: row.provider,
     failed: isFailedStatus(row.status),
     // A span records no cost; only its enclosing turn does.
     costUsd: null,

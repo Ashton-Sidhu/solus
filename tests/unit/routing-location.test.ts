@@ -24,7 +24,7 @@ const PLAN: RouteRef = { name: 'plan', params: { planId: 'p_1' } }
 const WORK: RouteRef = { name: 'work', params: { workId: 'w_1' } }
 const PR_REVIEW: RouteRef = { name: 'prReview', params: { number: 4821 } }
 const PR_DIFF: RouteRef = { name: 'prDiff', params: { number: 4821 } }
-const DIFF: RouteRef = { name: 'diff', params: { sourceTabId: 'tab_a' } }
+const DIFF: RouteRef = { name: 'review', params: { sourceTabId: 'tab_a', view: 'diff' } }
 
 function locationWith(...refs: (RouteRef | null)[]): Location {
   const panes = refs.map((ref) => makePane(ref))
@@ -189,6 +189,17 @@ describe('moving a route between panes', () => {
 
     expect(location.panes).toHaveLength(1)
     expect(location.panes[0].base).toEqual(PLAN)
+  })
+
+  test('opening a companion overlay as a page moves it into the lead', () => {
+    const location = locationWith(CHAT_ROUTE)
+    place(location, DIFF, 'aside')
+
+    movePane(location, location.panes[1].id, -1)
+
+    expect(location.panes).toHaveLength(1)
+    expect(location.panes[0].base).toBeNull()
+    expect(location.panes[0].overlay).toEqual(DIFF)
   })
 })
 

@@ -32,6 +32,11 @@ function installHost(): void {
       solus: {
         metricsSchema: async () => ({ views: [] }),
         metricsListSavedQueries: async () => [],
+        metricsCompileNl: async () => ({
+          sql: 'SELECT model, COUNT(*) AS turns FROM turns GROUP BY model ORDER BY turns DESC',
+          ok: true,
+          attempts: 1,
+        }),
         metricsQuery: async (spec: MetricsQuerySpec) => {
           volumeRuns++
           volumeSpecs.push(spec)
@@ -145,5 +150,20 @@ describe('Insights window refresh', () => {
     expect(store.windowFrom).toBe(1_000)
     expect(store.windowTo).toBe(2_000)
     expect(volumeSpecs.at(-1)?.timeRange).toEqual({ from: 1_000, to: 2_000 })
+  })
+
+  test('an NL compile enters the editor and executor as formatted SQL', async () => {
+    // WHY: generated SQL is the editable explanation of the answer. A dense
+    // agent response is hard to audit even when the database can execute it.
+    const { InsightsStore } = await import('../../src/renderer/components/insights/insights.store.svelte')
+    const store = new InsightsStore()
+    store.useHost('local')
+
+    // SAFETY: this host mock ignores the renderer context argument.
+    await store.compileAndRun(null as never, 'turn count by model')
+
+    expect(store.sqlText).toContain('select\n  model,')
+    expect(store.compiledSql).toBe(store.sqlText)
+    expect(sqlRuns.at(-1)).toBe(store.sqlText)
   })
 })

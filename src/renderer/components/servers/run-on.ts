@@ -86,6 +86,7 @@ export function moveTabToHost(opts: MoveTabToHostOptions): MoveTabToHostResult {
   session.run = intent === 'dispatch'
     ? withHost(session.run, serverId, { path })
     : withProjectHost(session.run, serverId, { path })
+  if (intent === 'open-project') session.task = { kind: 'new' }
   const selectedDispatchBranch = selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch
   if (selectedDispatchBranch && path) {
     // Preserve the selected path as a worktree while the target host resolves

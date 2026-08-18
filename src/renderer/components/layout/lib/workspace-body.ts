@@ -1,6 +1,6 @@
 import { isArtifactRoute, isPageRoute, type RouteRef } from '../../../contexts/workspace/routing/route-registry'
 import type { PaneId } from '../../../contexts/workspace/routing/location'
-import type { Session, Tab } from '../../../../shared/types'
+import type { Tab } from '../../../../shared/types'
 
 export const MIN_PRIMARY_PANE_WIDTH = 400
 
@@ -35,29 +35,6 @@ export const SIDEBAR_PANE_MIN_SIZE = 14
 export const SIDEBAR_PANE_DEFAULT_SIZE = 17
 export const SIDEBAR_PANE_MAX_SIZE = 24
 export const MAX_RETAINED_CONVERSATION_TRANSCRIPTS = 4
-
-/**
- * Whether the conversation column is showing the new-tab home rather than a
- * transcript. Mirrors ConversationView's own gate so the shell can lay the home
- * out as one centred block with the composer, instead of docking the composer at
- * the bottom of an otherwise empty column.
- */
-export function isHomeVisible(
-  session:
-    | Pick<Session, 'agentSessionId' | 'handoffFrom' | 'messages' | 'statusCard' | 'loadingHistory'>
-    | undefined,
-  hasConversationNotice = false,
-): boolean {
-  if (!session) return false
-  return (
-    !session.loadingHistory &&
-    !session.agentSessionId &&
-    !session.handoffFrom &&
-    session.messages.length === 0 &&
-    !session.statusCard &&
-    !hasConversationNotice
-  )
-}
 
 /**
  * A fresh tab starts without the project rail, even when the user's conversation
@@ -185,15 +162,15 @@ export function isFramedRoute(ref: RouteRef | null): boolean {
 }
 
 /**
- * A companion pane earns its width once it has something to show. A diff whose
- * source session has no working directory has nothing to diff, so the pane stays
- * closed rather than opening onto an error.
+ * A companion pane earns its width once it has something to show. A review whose
+ * source session has no working directory has no change to read, so the pane
+ * stays closed rather than opening onto an error.
  */
 export function isCompanionVisible(
   ref: RouteRef | null,
   workspace: Pick<WorkspaceTabs, 'sessionFor'>,
 ): boolean {
   if (!ref) return false
-  if (ref.name === 'diff') return !!workspace.sessionFor(ref.params.sourceTabId)?.run.workingDirectory
+  if (ref.name === 'review') return !!workspace.sessionFor(ref.params.sourceTabId)?.run.workingDirectory
   return true
 }

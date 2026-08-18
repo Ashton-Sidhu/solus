@@ -42,7 +42,7 @@
        twice, and a duplicate key is a crash rather than a wrong chart. -->
   {#each bars as bar, index (index)}
     <li
-      class="group flex items-center gap-2.5 rounded-md py-1 text-[0.6875rem] transition-colors hover:bg-[var(--wash-1)]"
+      class="group flex min-h-10 items-center gap-2.5 rounded-md py-2 text-[0.6875rem] transition-colors hover:bg-[var(--wash-1)] sm:min-h-8 sm:py-1 sm:[@media(min-height:1000px)]:min-h-10 sm:[@media(min-height:1000px)]:py-2"
     >
       <span
         class="w-24 shrink-0 truncate pl-1 text-right text-muted-foreground transition-colors group-hover:text-foreground sm:w-36"
@@ -52,7 +52,10 @@
       <!-- The track is the full scale, drawn once so every bar is read against
            the same length rather than against whatever the neighbours happen to
            be. It is a wash, never mistakable for a measured quantity. -->
-      <span class="relative h-4 min-w-0 flex-1 rounded-r-[4px] bg-[var(--wash-1)]" aria-hidden="true">
+      <span
+        class="relative h-6 min-w-0 flex-1 rounded-r-[4px] bg-[var(--wash-1)] sm:h-5 sm:[@media(min-height:1000px)]:h-6"
+        aria-hidden="true"
+      >
         <!-- Flat, and softened against the card like every other chart mark: a
              gradient along a length reads as a second quantity, and the length
              is the only one being stated. -->

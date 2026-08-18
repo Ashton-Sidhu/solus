@@ -115,7 +115,7 @@
 </script>
 
 <section
-  class="flex min-h-35 flex-1 flex-col overflow-hidden rounded-xl bg-card shadow-[shadow:var(--insights-card-shadow)] ring-1 ring-[color-mix(in_oklch,var(--foreground)_5%,transparent)]"
+  class="flex min-h-35 flex-1 flex-col overflow-hidden"
   aria-label="Query result"
 >
   <header
@@ -135,9 +135,9 @@
 
   <div class="min-h-0 flex-1 overflow-auto" data-sb>
     <Table.Root containerClass="overflow-visible" class="min-w-full border-separate border-spacing-0">
-      <Table.Header class="sticky top-0 z-10 bg-card shadow-[0_1px_0_var(--hairline-strong),0_3px_8px_-6px_rgba(0,0,0,0.28)]">
+      <Table.Header class="sticky top-0 z-10 bg-background shadow-[0_1px_0_var(--hairline-strong),0_3px_8px_-6px_rgba(0,0,0,0.28)]">
         {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}
-          <Table.Row class="border-0 bg-[color-mix(in_oklch,var(--wash-1)_82%,var(--card))] hover:bg-[color-mix(in_oklch,var(--wash-1)_82%,var(--card))]">
+          <Table.Row class="border-0 bg-[color-mix(in_oklch,var(--wash-1)_82%,var(--background))] hover:bg-[color-mix(in_oklch,var(--wash-1)_82%,var(--background))]">
             {#each headerGroup.headers as header (header.id)}
               {@const index = Number(header.column.id)}
               {@const sorted = header.column.getIsSorted()}

@@ -8,8 +8,8 @@
     relativeTime,
   } from "./lib/automation-format";
 
-  // The rail's History block: one line per run — a status dot, what the run did,
-  // and when. Clicking a run resumes the session it spawned.
+  // The rail's History block: one line per run — what the run did and when.
+  // Clicking a run resumes the session it spawned.
   interface Props {
     runs: AutomationRun[];
     expanded: boolean;
@@ -24,6 +24,7 @@
 
   const ROW =
     "flex w-full min-w-0 h-9.5 -mx-2 items-center gap-2.5 rounded-lg border-0 bg-transparent px-2 text-left " +
+    "[.is-laptop-display_&]:h-8 [.is-laptop-display_&]:gap-2 " +
     "transition-colors duration-100 cursor-pointer hover:not-disabled:bg-muted disabled:cursor-default " +
     "focus-visible:outline-2 focus-visible:[outline-offset:-0.0625rem] focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]";
 
@@ -38,7 +39,7 @@
   }
 </script>
 
-<div class="text-xs text-xs flex min-w-0 flex-col gap-3">
+<div class="flex min-w-0 flex-col gap-3 text-workspace-chrome">
   <div class="flex items-baseline justify-between gap-2.5">
     <span
       class="font-normal text-muted-foreground uppercase"
@@ -53,7 +54,7 @@
   </div>
 
   {#if runs.length === 0}
-    <p class="m-0 text-sm leading-normal text-muted-foreground">
+    <p class="m-0 leading-normal text-muted-foreground">
       No runs yet. Use Run now to test it.
     </p>
   {:else}
@@ -69,13 +70,7 @@
           disabled={!run.agentSessionId}
         >
           <span
-            class="size-1.5 shrink-0 rounded-full {failed
- ? 'bg-[var(--solus-status-error,#e53e3e)]'
- : 'bg-[color:color-mix(in_oklab,var(--chart-3)_70%,transparent)]'}"
-            aria-hidden="true"
-          ></span>
-          <span
-            class="min-w-0 flex-1 truncate text-sm {failed
+            class="min-w-0 flex-1 truncate {failed
  ? 'text-[var(--solus-status-error,#e53e3e)]'
  : 'text-[color:color-mix(in_oklab,var(--foreground)_82%,var(--muted-foreground))]'}"
             >{summary(run)}</span

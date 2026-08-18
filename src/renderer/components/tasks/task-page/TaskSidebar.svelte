@@ -79,7 +79,7 @@
   const ROW = "flex h-[34px] items-center";
   const ROW_LABEL = "w-[78px] shrink-0 pl-0.5 text-xs text-muted-foreground";
   const VALUE_BTN =
-    "flex h-[34px] flex-1 cursor-pointer items-center gap-2 rounded-md px-2 text-sm hover:bg-[var(--wash-2)]";
+    "flex h-[34px] flex-1 cursor-pointer items-center gap-2 rounded-md px-2 hover:bg-[var(--wash-2)]";
   const GROUP = "flex flex-col gap-1 px-3.5 pt-[15px] pb-4";
 
   function addLabel() {
@@ -113,7 +113,7 @@
 {/snippet}
 
 <div
-  class="text-xs sticky top-0 flex w-[308px] shrink-0 flex-col rounded-2xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent),0_1px_2px_-1px_rgba(0,0,0,.05),0_12px_28px_-12px_rgba(0,0,0,.14)]"
+  class="sticky top-0 flex w-[var(--task-rail-width)] [--task-rail-width:308px] shrink-0 flex-col rounded-2xl bg-card text-workspace-chrome shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent),0_1px_2px_-1px_rgba(0,0,0,.05),0_12px_28px_-12px_rgba(0,0,0,.14)] [.is-laptop-display_&]:[--task-rail-width:260px] @max-[60rem]:static @max-[60rem]:w-full"
 >
   <div class={GROUP}>
     <div class={ROW}>
@@ -198,7 +198,7 @@
     <div class={ROW}>
       <span class={ROW_LABEL}>Assignee</span>
       {#if task.assignee}
-        <span class="flex h-[34px] flex-1 items-center gap-2 px-2 text-sm">
+        <span class="flex h-[34px] flex-1 items-center gap-2 px-2">
           <span
             class="flex size-[18px] shrink-0 items-center justify-center rounded-full  font-medium shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
             style="background:color-mix(in oklch, var(--chart-1) 22%, transparent);color:color-mix(in oklch, var(--chart-1) 72%, var(--foreground))"
@@ -208,7 +208,7 @@
           {task.assignee}
         </span>
       {:else}
-        <span class="flex h-[34px] flex-1 items-center px-2 text-sm text-muted-foreground">
+        <span class="flex h-[34px] flex-1 items-center px-2 text-muted-foreground">
           Unassigned
         </span>
       {/if}
@@ -216,7 +216,7 @@
 
     <div class={ROW}>
       <span class={ROW_LABEL}>Project</span>
-      <span class="flex h-[34px] min-w-0 flex-1 items-center gap-2 px-2 text-sm">
+      <span class="flex h-[34px] min-w-0 flex-1 items-center gap-2 px-2">
         {#if projectRoot}
           <ProjectFavicon
             projectRoot={projectRoot}
@@ -307,7 +307,7 @@
             >
               <span class="min-w-0 flex-1 truncate">{branch}</span>
               <span
-                class="shrink-0 opacity-0 transition-opacity group-hover/branch:opacity-100 focus-within:opacity-100"
+                class="shrink-0 opacity-0 transition-opacity group-hover/branch:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100"
               >
                 <CopyButton text={branch} title="Copy branch name" iconOnly />
               </span>
@@ -341,7 +341,7 @@
               </span>
             </button>
           {:else}
-            <span class="flex h-[34px] min-w-0 flex-1 items-center gap-2 px-2 text-sm">
+            <span class="flex h-[34px] min-w-0 flex-1 items-center gap-2 px-2">
               {@render providerMark(upstream.glyph)}
               <span class="truncate">{upstream.provider}</span>
             </span>
@@ -351,7 +351,7 @@
         <div class={ROW}>
           <span class={ROW_LABEL}>State</span>
           <span
-            class="flex h-[34px] min-w-0 flex-1 items-center gap-2 px-2 text-sm"
+            class="flex h-[34px] min-w-0 flex-1 items-center gap-2 px-2"
             title={upstream.title}
           >
             <span class="size-[6px] shrink-0 rounded-full" style="background:{tone}"></span>
@@ -362,7 +362,7 @@
         {#if upstream.canSync && autoPost !== null}
           <div class={ROW}>
             <span class={ROW_LABEL}>Auto-post</span>
-            <span class="flex h-[34px] min-w-0 flex-1 items-center gap-2 px-2 text-sm">
+            <span class="flex h-[34px] min-w-0 flex-1 items-center gap-2 px-2">
               <Switch
                 size="sm"
                 checked={autoPost}
@@ -379,7 +379,7 @@
         {#if upstream.canSync}
           <div class={ROW}>
             <span class={ROW_LABEL}>Pending</span>
-            <span class="flex h-[34px] min-w-0 flex-1 items-center gap-2 px-2 text-sm">
+            <span class="flex h-[34px] min-w-0 flex-1 items-center gap-2 px-2">
               <span
                 class="truncate {upstream.pendingCount ? '' : 'text-muted-foreground'}"
                 title={upstream.title}
@@ -441,7 +441,7 @@
                already in, so naming it here spends the row's width on something
                the user knows. It rides the Publish button's title instead. -->
           <span
-            class="flex h-[34px] min-w-0 flex-1 items-center px-2 text-sm"
+            class="flex h-[34px] min-w-0 flex-1 items-center px-2"
             title={publishTarget.repo ?? undefined}
           >
             <span class="truncate">{publishTarget.provider}</span>
@@ -449,7 +449,7 @@
         </div>
         <div class={ROW}>
           <span class={ROW_LABEL}>State</span>
-          <span class="flex h-[34px] min-w-0 flex-1 items-center gap-2 px-2 text-sm">
+          <span class="flex h-[34px] min-w-0 flex-1 items-center gap-2 px-2">
             <span class="truncate text-muted-foreground">Solus only</span>
             <span class="flex-1"></span>
             <button

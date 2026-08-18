@@ -177,7 +177,7 @@
     class="draft-column relative flex h-full min-h-0 w-full flex-col items-center justify-center gap-5 px-6 py-3"
   >
     <h1
-      class="max-w-[40rem] text-center text-pretty text-2xl font-medium leading-[1.25] text-(--solus-text-primary)"
+      class="max-w-[40rem] text-center text-pretty text-2xl font-medium leading-[1.25] text-(--solus-text-primary) lg:max-w-[52rem] lg:text-4xl"
     >
       {#if hasProject}
         What should we build in
@@ -215,6 +215,8 @@
           {paneId}
           run={current.run}
           {pluginCommands}
+          boundWorkId={current.boundWorkId}
+          onUnbindWork={() => (current.boundWorkId = null)}
           bind:prompt={current.prompt}
           onDispatch={dispatch}
         >
@@ -253,6 +255,7 @@
       {paneId}
       {draft}
       centered
+      onOpenAsPage={() => session.router.movePane(paneId, -1)}
       onClose={discard}
       closeLabel="Discard draft"
     >
@@ -264,10 +267,11 @@
 {/if}
 
 <style>
-  /* A session draft is a compact prompt surface under one headline, not a
-     transcript. Keep it responsive, but do not let the wider conversation
-     reading measure turn the composer into a large horizontal card. */
+  /* A session draft is one compact prompt surface, whether it fills the
+     leading pane or sits beside a document. Keep one stable measure so opening
+     Ask Solus cannot resize the bar. max-width still lets it contract when the
+     pane itself is narrower than 52rem. */
   .draft-column {
-    --solus-reading-max: clamp(40rem, 50%, 52rem);
+    --solus-reading-max: 52rem;
   }
 </style>

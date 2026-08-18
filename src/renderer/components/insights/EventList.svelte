@@ -154,7 +154,7 @@
 </script>
 
 <section
-  class="flex min-h-35 flex-1 flex-col overflow-hidden rounded-xl bg-card shadow-[shadow:var(--insights-card-shadow)] ring-1 ring-[color-mix(in_oklch,var(--foreground)_5%,transparent)]"
+  class="flex min-h-35 flex-1 flex-col overflow-hidden"
   aria-label="Events"
 >
   <header
@@ -193,9 +193,9 @@
 
   <div class="min-h-0 flex-1 overflow-auto" data-sb>
     <Table.Root containerClass="overflow-visible" class="min-w-full border-separate border-spacing-0">
-      <Table.Header class="sticky top-0 z-10 bg-card shadow-[0_1px_0_var(--hairline-strong),0_3px_8px_-6px_rgba(0,0,0,0.28)]">
+      <Table.Header class="sticky top-0 z-10 bg-background shadow-[0_1px_0_var(--hairline-strong),0_3px_8px_-6px_rgba(0,0,0,0.28)]">
         {#each dataTable.getHeaderGroups() as headerGroup (headerGroup.id)}
-          <Table.Row class="border-0 bg-[color-mix(in_oklch,var(--wash-1)_82%,var(--card))] hover:bg-[color-mix(in_oklch,var(--wash-1)_82%,var(--card))]">
+          <Table.Row class="border-0 bg-[color-mix(in_oklch,var(--wash-1)_82%,var(--background))] hover:bg-[color-mix(in_oklch,var(--wash-1)_82%,var(--background))]">
             {#each headerGroup.headers as header (header.id)}
               {@const index = Number(header.column.id)}
               {@const column = eventTable.columns[index]}
@@ -235,7 +235,7 @@
       <Table.Body class="select-text">
         {#each dataTable.getRowModel().rows as row (row.original.spanId ?? `${row.original.startedAt}:${row.id}`)}
           <Table.Row
-            class="h-10 border-0 outline-none shadow-[inset_0_-0.5px_0_var(--hairline)] transition-[background-color,box-shadow] hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--primary) {row.original.traceId != null ? 'cursor-pointer hover:shadow-[inset_2px_0_0_color-mix(in_oklch,var(--solus-art-1)_55%,transparent),inset_0_-0.5px_0_var(--hairline)]' : ''}"
+            class="h-10 border-0 outline-none shadow-[inset_0_-0.5px_0_var(--hairline)] transition-[background-color,box-shadow] hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--primary) {row.original.traceId != null ? 'cursor-pointer' : ''}"
             tabindex={row.original.traceId != null ? 0 : undefined}
             title={row.original.traceId != null ? "Open this span in its turn's waterfall" : undefined}
             onclick={() => open(row.original)}

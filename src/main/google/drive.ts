@@ -12,16 +12,33 @@ export async function uploadMarkdownAsDoc(
   title: string,
   markdown: string,
 ): Promise<DriveDoc> {
+  return uploadContentAsDoc(accessToken, title, markdown, 'text/markdown')
+}
+
+export async function uploadHtmlAsDoc(
+  accessToken: string,
+  title: string,
+  html: string,
+): Promise<DriveDoc> {
+  return uploadContentAsDoc(accessToken, title, html, 'text/html')
+}
+
+async function uploadContentAsDoc(
+  accessToken: string,
+  title: string,
+  content: string,
+  contentType: 'text/markdown' | 'text/html',
+): Promise<DriveDoc> {
   const boundary = `solus_boundary_${Date.now()}`
   const metadata = JSON.stringify({ name: title, mimeType: 'application/vnd.google-apps.document' })
-  const markdownBytes = Buffer.from(markdown, 'utf-8')
+  const contentBytes = Buffer.from(content, 'utf-8')
   const metadataBytes = Buffer.from(metadata, 'utf-8')
 
   const body = Buffer.concat([
     Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`),
     metadataBytes,
-    Buffer.from(`\r\n--${boundary}\r\nContent-Type: text/markdown\r\n\r\n`),
-    markdownBytes,
+    Buffer.from(`\r\n--${boundary}\r\nContent-Type: ${contentType}; charset=UTF-8\r\n\r\n`),
+    contentBytes,
     Buffer.from(`\r\n--${boundary}--`),
   ])
 

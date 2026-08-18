@@ -26,6 +26,7 @@ import {
   sameRange,
   type TimeRange,
 } from './lib/time-range'
+import { formatGeneratedSql } from './lib/sql-format'
 import { toTurnRows, type TurnRow } from './lib/turn-rows'
 
 /**
@@ -44,6 +45,7 @@ import { toTurnRows, type TurnRow } from './lib/turn-rows'
 const HISTORY_LIMIT = 24
 const VALUES_TTL_MS = 60_000
 const RANGE_KEY = 'solus.insights.timeRange'
+const SOLUS_INTERNALS_KEY = 'solus.insights.showSolusInternals'
 
 export type QueryForm = 'nl' | 'sql'
 
@@ -87,6 +89,22 @@ export class InsightsStore {
   /** The window every answer on this page is asked in. */
   range = $state.raw<TimeRange>(readRangePreference())
 
+  /** Whether a trace draws the work Solus did around the agent's — dispatch and
+   *  its steps, the queue, settlement. Off by default: the ordinary question a
+   *  reader opens a turn with is what the agent did. It outlives the page for
+   *  the same reason the range does — someone investigating Solus's own
+   *  overhead is doing it across many turns, not one. */
+  showSolusInternals = $state(globalThis.localStorage?.getItem(SOLUS_INTERNALS_KEY) === 'true')
+
+  setShowSolusInternals(next: boolean): void {
+    this.showSolusInternals = next
+    try {
+      globalThis.localStorage?.setItem(SOLUS_INTERNALS_KEY, String(next))
+    } catch {
+      // A client that refuses storage still gets the choice for this session.
+    }
+  }
+
   form = $state<QueryForm>('nl')
   question = $state('')
   sqlText = $state(defaultExploreSql(this.range))
@@ -126,6 +144,10 @@ export class InsightsStore {
   private valuesInFlight = new Set<string>()
   private traces = new SvelteMap<string, MetricsTurnTrace>()
   private sessionSummaries = new SvelteMap<string, MetricsSessionSummary>()
+  /** Null is an answer: the host has no session by that id, or it was deleted
+   *  after its spans were recorded. Re-asking on every render would then be one
+   *  RPC per frame. */
+  private sessionNames = new SvelteMap<string, string | null>()
   private lastRun: LastRun | null = null
   private loadToken = 0
 
@@ -152,6 +174,7 @@ export class InsightsStore {
     this.valuesByColumn.clear()
     this.traces.clear()
     this.sessionSummaries.clear()
+    this.sessionNames.clear()
   }
 
   /**
@@ -320,8 +343,9 @@ export class InsightsStore {
         `${text}\n\n${rangeInstruction(this.range)}`,
       )
       this.compiling = false
-      this.compiledSql = compiled.sql
-      this.sqlText = compiled.sql
+      const sql = formatGeneratedSql(compiled.sql)
+      this.compiledSql = sql
+      this.sqlText = sql
       // The compiled statement is text like any other the user could edit, so a
       // later range change re-runs it rather than rewriting it — and says so.
       this.generated = null
@@ -331,9 +355,9 @@ export class InsightsStore {
         this.error = compiled.error ?? 'The generated query did not compile'
         return
       }
-      const result = await this.api.metricsRunSql(compiled.sql)
+      const result = await this.api.metricsRunSql(sql)
       this.result = result
-      this.lastRun = { form: 'sql', sql: compiled.sql }
+      this.lastRun = { form: 'sql', sql }
       this.lastRunMs = Math.round(performance.now() - startedAt)
       this.record('nl', text, result.rows.length, this.lastRunMs)
     } catch (cause) {
@@ -420,6 +444,31 @@ export class InsightsStore {
       return summary
     } catch {
       return null
+    }
+  }
+
+  /**
+   * The name a session is listed under, when the host still holds the session.
+   *
+   * `metrics.db` records ids, never names — a name is editable and a recorded
+   * span is not — so the name is read from the host that owns the session and
+   * cached beside the rollup. A turn whose session has been deleted keeps its
+   * id, which is what every other insights surface shows.
+   */
+  sessionName(sessionId: string): string | null {
+    return this.sessionNames.get(sessionId) ?? null
+  }
+
+  async loadSessionName(sessionId: string): Promise<void> {
+    if (this.sessionNames.has(sessionId)) return
+    // Claimed before the await so two mounts of one turn do not both ask.
+    this.sessionNames.set(sessionId, null)
+    try {
+      const meta = await this.api.getSessionInfo(sessionId)
+      const name = meta?.customTitle?.trim() || meta?.slug?.trim() || ''
+      if (name) this.sessionNames.set(sessionId, name)
+    } catch {
+      // A host that cannot answer leaves the id showing, which is correct.
     }
   }
 }

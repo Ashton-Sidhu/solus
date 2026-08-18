@@ -643,6 +643,7 @@ export interface SessionSpec {
   prompt: Prompt
   run: RunConfig
   task: TaskTarget
+  boundWorkId: string | null
 }
 
 /** UI-only state. One per open tab in the renderer. */
@@ -1109,6 +1110,20 @@ export interface WorkReference {
   workId: string
   title: string
   type: 'doc' | 'slides' | 'diagram'
+}
+
+export interface GoogleDiagramAsset {
+  workId: string
+  title: string
+  mimeType: 'image/png'
+  base64: string
+}
+
+export interface GoogleUploadDocRequest {
+  title: string
+  markdown: string
+  diagramAssets?: GoogleDiagramAsset[]
+  oauthCallbackBaseUrl?: string
 }
 
 export interface SessionReference {
@@ -1954,6 +1969,39 @@ export interface StartInfo {
 export interface TextGenerationModelSelection {
   provider: AgentId
   model: string
+}
+
+/** Where this host sends its own telemetry. A host setting, not a device one:
+ *  the exporter runs beside the server, so a phone configuring OTel is
+ *  configuring the machine it is connected to. */
+export interface OtelSettings {
+  /** Master switch. Off means nothing leaves the machine, whatever else is set. */
+  enabled: boolean
+  /** Base OTLP/HTTP endpoint, e.g. `https://otlp.example.com`. Signal paths
+   *  (`/v1/traces`) are appended per signal. */
+  endpoint: string
+  /** `key=value` pairs, comma separated — how a hosted collector is authorized. */
+  headers: string
+  exportLogs: boolean
+  exportMetrics: boolean
+  /** Every span Solus records: turns, tools, waits, and dispatch steps. */
+  exportTraces: boolean
+}
+
+/** What is exporting right now — the answer to "is this actually on?", which
+ *  the saved settings alone cannot give once the environment overrides them. */
+export interface OtelActiveSignals {
+  logs: boolean
+  metrics: boolean
+  traces: boolean
+}
+
+export interface OtelSettingsSnapshot {
+  settings: OtelSettings
+  /** True when `OTEL_EXPORTER_OTLP_*` env vars are set on the host. They win,
+   *  and the form goes read-only rather than pretending to control the export. */
+  managedByEnvironment: boolean
+  active: OtelActiveSignals
 }
 
 export interface TextGenerationSettings {

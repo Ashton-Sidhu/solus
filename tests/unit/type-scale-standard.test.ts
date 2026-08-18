@@ -43,6 +43,7 @@ const RUNGS = [
   'text-base',
   'text-2xl',
   'text-menu',
+  'text-workspace-chrome',
   'text-caption',
   'text-body',
   'text-h1',

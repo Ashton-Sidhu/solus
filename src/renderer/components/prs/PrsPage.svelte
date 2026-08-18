@@ -997,6 +997,7 @@
   <ListFilterBar
     bind:query={listView.query}
     bind:searchEl
+    compactText
     placeholder={view === "global"
       ? splitList
         ? "Search pull requests…"
@@ -1011,6 +1012,7 @@
           selected={listView.statusKeys}
           onChange={onStatusChange}
           ariaLabel="Filter pull requests by status"
+          compactText
         />
       {/if}
       {#if view === "global" && !splitList}
@@ -1018,7 +1020,7 @@
           bind:value={listView.sortMode}
           options={SORT_OPTIONS}
           ariaLabel="Sort pull requests"
-          class="h-7 gap-1.5 rounded-lg px-2.5 text-sm font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
+          class="h-7 gap-1.5 rounded-lg px-2.5 text-xs font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
         />
       {/if}
     {/snippet}
@@ -1063,12 +1065,14 @@
       onRemoveProjectHistory={removeProjectHistory}
       onSelectAllProjects={selectAllProjects}
       allProjectsLabel="All projects"
+      compactProjectPickerText
       title="Pull requests"
       {summary}
       {view}
       onViewChange={(next) => (view = next)}
       globalLabel="All PRs"
       inboxLabel="My inbox"
+      compactViewSwitcherText
       {unreadCount}
       onRefresh={refreshList}
       refreshing={activeRefreshing}

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick, untrack } from "svelte";
+  import { onMount, tick, untrack, type Snippet } from "svelte";
   import { uuid } from "../../../shared/uuid";
   import { FileTree } from "@pierre/trees";
   import DiffActionBar from "./DiffActionBar.svelte";
@@ -9,7 +9,6 @@
   import DiffLoadingSkeleton from "./DiffLoadingSkeleton.svelte";
   import DiffMobileFileSheet from "./DiffMobileFileSheet.svelte";
   import DiffCommentsPopover from "./DiffCommentsPopover.svelte";
-  import DiffHeatMap from "./DiffHeatMap.svelte";
   import DiffStream from "./DiffStream.svelte";
   import { FindBar } from "../ui/find-bar";
   import DiffResizableContent from "./DiffResizableContent.svelte";
@@ -43,7 +42,8 @@
   import type { DiffReviewThread } from "./lib/interdiff-annotations";
   import { mountDiffFileTree } from "./lib/diff-file-tree";
   import type { HostApi } from "@client-core/host-api";
-  import type { FileDiffContentsLoader } from "@pierre/diffs";
+  import type { FileDiffContentsLoader, FileDiffMetadata } from "@pierre/diffs";
+  import type { ReviewView } from "../../contexts/workspace/routing/route-registry";
   import { serverConnections } from "@client-core/server-connections";
   import { hostPolicy } from "@client-core/host-policy";
   import { supportsEditor } from "@client-core/host-capabilities";
@@ -86,6 +86,11 @@
     emptyState,
     onThreadReply,
     onThreadResolve,
+    view = $bindable("diff"),
+    viewTabs,
+    mapView,
+    guideView,
+    initialSkeletonVisible = false,
   }: {
     tabId: string;
     getCtx?: () => IpcContext;
@@ -133,6 +138,20 @@
     emptyState?: { title: string; description: string };
     onThreadReply?: (threadId: string, body: string) => Promise<ReviewComment>;
     onThreadResolve?: (threadId: string, resolved: boolean) => Promise<void>;
+    /** Which face of the change is showing. The panel owns Diff and drives this
+     *  back to it on any file- or line-targeted navigation; the host owns the
+     *  other two and supplies them below. */
+    view?: ReviewView;
+    /** The host's Map · Guide · Diff row, drawn in the toolbar. */
+    viewTabs?: Snippet;
+    /** The map, handed this panel's ordered files so both views describe the
+     *  same change without a second parse of the same patch. */
+    mapView?: Snippet<[FileDiffMetadata[]]>;
+    guideView?: Snippet<[FileDiffMetadata[]]>;
+    /** Keep an already-visible route skeleton continuous while this panel
+     *  takes ownership of loading. Direct mounts still use the delayed state
+     *  below so a cached diff does not flash a placeholder. */
+    initialSkeletonVisible?: boolean;
   } = $props();
 
   const hasExternalCommentStore = $derived(externalComments !== null);
@@ -175,10 +194,11 @@
   // template (guarded on diffState.loading) so the empty state never flashes.
   const SKELETON_DELAY_MS = 120;
   const SKELETON_MIN_MS = 140;
-  let showLoading = $state(false);
-  let skeletonShownAt = 0;
+  let showLoading = $state(untrack(() => initialSkeletonVisible));
+  let skeletonShownAt = showLoading ? performance.now() : 0;
   $effect(() => {
     if (diffState.loading) {
+      if (showLoading) return;
       const timer = setTimeout(() => {
         skeletonShownAt = performance.now();
         showLoading = true;
@@ -228,41 +248,30 @@
   let diffStyleState = $state<"unified" | "split">(
     savedDiffStyle === "split" ? "split" : "unified",
   );
-  // The 10,000-foot view: a drillable heat map of where the change landed.
-  // The stream stays mounted underneath (display:none) so scroll position,
-  // collapse state, and loaded file contents survive toggling.
-  //
-  // The map leads by default — reading a change starts with where it landed.
-  // Two openings skip it: an embedded panel (the PR review's Diff tab, whose
-  // host has its own Map tab) and a file-targeted open, where the caller asked
-  // for one file's lines, not an overview.
-  let panelView = $state<"diff" | "map">(
-    embedded || initialFilePath ? "diff" : "map",
-  );
-  let hasMountedMap = $state(!(embedded || initialFilePath));
+  // Each view is mounted on first visit and then hidden with display:none, so
+  // the stream's scroll position, collapse state, and loaded file contents —
+  // and the map's drill state — all survive switching tabs.
+  let hasMountedMap = $state(untrack(() => view === "map"));
+  let hasMountedGuide = $state(untrack(() => view === "guide"));
   $effect(() => {
-    if (panelView === "map") hasMountedMap = true;
+    if (view === "map") hasMountedMap = true;
+    else if (view === "guide") hasMountedGuide = true;
   });
 
   /** Every file- or line-targeted navigation lands in the diff view. */
   function showDiffView() {
-    if (panelView !== "diff") panelView = "diff";
+    if (view !== "diff") view = "diff";
   }
 
-  async function openFileFromMap(displayPath: string) {
+  /** Open a file the host's map drilled into. Exported because the map lives
+   *  with the host now, while the stream it has to move stays here. */
+  export async function openFileFromMap(displayPath: string) {
     const fullPath = toFullPath(displayPath);
-    panelView = "diff";
+    view = "diff";
     await tick();
     draft.clear();
     streamRef?.scrollToFile(fullPath);
     syncTreeTo(fullPath);
-  }
-
-  async function loadRepoFilesForMap(repoRoot: string): Promise<readonly string[] | null> {
-    const result = await getApi().listProjectFiles(getCtx?.() ?? session.ctxFor(tabId), {
-      cwd: repoRoot,
-    });
-    return result.ok ? result.files : null;
   }
   // Token (word-level) highlighting inside changed lines. Defaults on; only an
   // explicit "off" stored value disables it.
@@ -916,8 +925,8 @@
   async function handleMobileFileSelect(path: string) {
     draft.clear();
     mobileTreeOpen = false;
-    if (panelView === "map") {
-      panelView = "diff";
+    if (view !== "diff") {
+      view = "diff";
       await tick();
     }
     streamRef?.scrollToFile(path);
@@ -997,12 +1006,28 @@
     {hasHostHeaderRow}
     {commitSha}
     {onClearCommitScope}
-    {panelView}
-    onSetPanelView={(view) => (panelView = view)}
+    {view}
+    {viewTabs}
   />
 
+  <!-- The guide is not a view of the diff load: it has its own loader and its
+       own progress screen, so it sits outside the states below rather than
+       being covered by a skeleton for a patch it does not read. -->
+  {#if hasMountedGuide}
+    <div
+      class="flex min-h-0 flex-1 flex-col"
+      class:panel-view-hidden={view !== "guide"}
+    >
+      {@render guideView?.(treeFiles)}
+    </div>
+  {/if}
+
+  <div
+    class="flex min-h-0 flex-1 flex-col"
+    class:panel-view-hidden={view === "guide"}
+  >
   {#if showLoading}
-    <DiffLoadingSkeleton variant={panelView === "map" ? "map" : "diff"} />
+    <DiffLoadingSkeleton variant={view === "map" ? "map" : "diff"} />
   {:else if diffState.loading}
     <!-- Pre-skeleton window: a fast load resolves here and swaps straight to
          content without ever flashing the skeleton or the empty state. -->
@@ -1027,19 +1052,14 @@
     {#if hasMountedMap}
       <div
         class="min-h-0 flex-1"
-        class:panel-view-hidden={panelView !== "map"}
+        class:panel-view-hidden={view !== "map"}
       >
-        <DiffHeatMap
-          files={treeFiles}
-          onOpenFile={openFileFromMap}
-          repoRoot={worktreePath ?? projectPath}
-          loadRepoFiles={loadRepoFilesForMap}
-        />
+        {@render mapView?.(treeFiles)}
       </div>
     {/if}
     <div
       class="flex min-h-0 flex-1 flex-col"
-      class:panel-view-hidden={panelView === "map"}
+      class:panel-view-hidden={view !== "diff"}
     >
     <DiffResizableContent
       {panelWidth}
@@ -1101,6 +1121,7 @@
     </DiffResizableContent>
     </div>
   {/if}
+  </div>
 
   <DiffCommentsPopover
     open={commentsPopoverOpen}
@@ -1113,9 +1134,11 @@
   />
 
   {#if !hasExternalCommentStore}
-    <!-- Feedback targets lines you are reading; the map has none, so the bar
-         hides there — display:none keeps the typed draft alive across toggles. -->
-    <div class="contents" class:panel-view-hidden={panelView === "map"}>
+    <!-- One footer for every view: a comment written on a guide's diff card and
+         one written in the stream are the same comment, and this is what sends
+         them. Feedback targets lines you are reading, and the map has none, so
+         the bar hides there — display:none keeps the typed draft alive. -->
+    <div class="contents" class:panel-view-hidden={view === "map"}>
       <DiffActionBar
         pendingInlineDraft={pendingFormHasContent}
         filePath={draft.filePath}

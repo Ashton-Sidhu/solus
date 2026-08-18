@@ -2,13 +2,13 @@
   import { scaleBand } from "d3-scale";
   import { Axis, Bars, Chart, Highlight, Svg, Text, Tooltip, type TextProps } from "layerchart";
   import { XIcon } from "phosphor-svelte";
+  import { TIME_AXIS_INSET_PX, TIME_AXIS_LABEL_GAP_PX } from "./lib/chart-axis";
   import {
     axisInstantFormat,
     formatClock,
     formatCost,
     formatDayClock,
     formatDuration,
-    formatPercent,
   } from "./lib/format";
   import {
     bucketCountForWidth,
@@ -21,6 +21,7 @@
     type VolumeBucket,
     type VolumePoint,
   } from "./lib/volume";
+  import { providerMark } from "./lib/provider";
 
   /**
    * How many rows the answer holds, across the window it covers.
@@ -30,10 +31,9 @@
    * it. Only when the answer places nothing in time does the chart fall back to
    * turn volume, as the context an empty answer is missing from.
    *
-   * Two bar layers rather than a stack: the first is every row, the second the
-   * failed ones drawn from the same baseline, so a bar's full height is the
-   * volume and its red foot is the failures. Reading either quantity never
-   * requires subtracting one from the other.
+   * The bars stack the two agent providers. Provider is a stable dimension of
+   * the work; completion status remains in the listing instead of turning a
+   * small number of failed rows into the loudest mark on the volume plot.
    *
    * Dragging across the plot brushes a time range, which narrows the list below
    * without re-running the query — the brush filters the answer, it is not the
@@ -81,24 +81,14 @@
   );
   const yMax = $derived(Math.max(1, ...buckets.map((bucket) => bucket.total)) * 1.12);
 
-  /**
-   * Chart marks wear the art ramp, including its negative.
-   *
-   * `--failure` is a cold #ef4444 that belongs to buttons and status pills. Set
-   * on a parchment card beside a dusty blue it is the loudest thing in the
-   * panel and reads as an alert rather than a measurement. `--solus-art-negative`
-   * is the same warning in the chart family's own warm register, and it
-   * self-inverts in dark mode with the rest of the ramp.
-   *
-   * Both fills are mixed toward the card: the ramp at full strength is a print
-   * colour, and the surface is what pulls it into the app's own softer register.
-   * Mixing against `--card` rather than white keeps that true in dark mode.
-   */
-  const BAR_FILL = "color-mix(in oklch, var(--solus-art-5) 70%, var(--card))";
-  const FAILED_FILL = "color-mix(in oklch, var(--solus-art-negative) 78%, var(--card))";
-  /** The mark is softened against the card; ink is not. A pastel is unreadable
-   *  as text, and the stat strip and tooltip are text. */
-  const FAILED_INK = "var(--solus-art-negative)";
+  /** Each backend's bar carries that backend's own colour — the ramp's terracotta
+   * is Claude's accent already, and Codex takes the violet-blue of its own app
+   * icon — so the same two hues name the backends here and in `ProviderMark`.
+   * The ramp's dusty blue named neither of them. Mixing toward the card keeps
+   * both themes soft. */
+  const CLAUDE_FILL = "color-mix(in oklch, var(--solus-art-1) 72%, var(--card))";
+  const CODEX_FILL = "color-mix(in oklch, var(--brand-codex) 72%, var(--card))";
+  const UNKNOWN_FILL = "color-mix(in oklch, var(--muted-foreground) 38%, var(--card))";
 
   const summary = $derived([
     { label: countLabel, value: String(stats.counted), tone: "var(--foreground)" },
@@ -107,12 +97,11 @@
       : [{ label: "Spend", value: formatCost(stats.totalCostUsd), tone: "var(--foreground)" }]),
     { label: "p50", value: formatDuration(stats.p50DurationMs), tone: "var(--foreground)" },
     { label: "p95", value: formatDuration(stats.p95DurationMs), tone: "var(--foreground)" },
-    {
-      label: "Failed",
-      value: formatPercent(stats.failureRate),
-      tone: stats.failed > 0 ? FAILED_INK : "var(--foreground)",
-    },
   ]);
+
+  const hasUnknownProvider = $derived(
+    selectedPoints.some((point) => providerMark(point.provider) === null),
+  );
 
 
   /** Past a day, a bare clock repeats across the axis and names no instant. */
@@ -194,6 +183,26 @@
       <span class="text-[0.6875rem] text-muted-foreground">Drag across the chart to zoom</span>
     {/if}
     <span class="flex-1"></span>
+    <div class="flex items-center gap-3 text-[0.6875rem] text-muted-foreground" aria-label="Providers">
+      <!-- The swatch is the whole mark here: it keys the name to a bar, and now
+           carries that backend's own colour, so a logo beside it would say the
+           same thing twice. -->
+      <span class="flex items-center gap-1.5">
+        <span class="h-1.5 w-3 rounded-sm" style="background:{CLAUDE_FILL}" aria-hidden="true"></span>
+        Claude Code
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="h-1.5 w-3 rounded-sm" style="background:{CODEX_FILL}" aria-hidden="true"></span>
+        Codex
+      </span>
+      {#if hasUnknownProvider}
+        <span class="flex items-center gap-1.5">
+          <span class="h-1.5 w-3 rounded-sm" style="background:{UNKNOWN_FILL}" aria-hidden="true"></span>
+          Unknown
+        </span>
+      {/if}
+    </div>
+    <span class="h-3.5 w-px shrink-0 bg-[var(--hairline)]" aria-hidden="true"></span>
     <!-- Value first, label after: a stat strip is read for its numbers, and a
          row of same-weight label/value pairs makes the eye read the words. -->
     <div class="flex items-center gap-3.5">
@@ -211,7 +220,10 @@
     </div>
   </header>
 
-  <div class="relative h-52 w-full cursor-crosshair" bind:clientWidth={plotWidth}>
+  <div
+    class="relative h-52 w-full cursor-crosshair sm:h-44 sm:[@media(min-height:1000px)]:h-52"
+    bind:clientWidth={plotWidth}
+  >
     {#key `${viewport.from}:${viewport.to}`}
       <Chart
         data={buckets}
@@ -219,7 +231,7 @@
         xScale={scaleBand().padding(0.18)}
         y={(bucket: VolumeBucket) => bucket.total}
         yDomain={[0, yMax]}
-        padding={{ left: AXIS_GUTTER_PX, bottom: 22, right: 12, top: 4 }}
+        padding={{ left: AXIS_GUTTER_PX, bottom: TIME_AXIS_INSET_PX, right: 12, top: 4 }}
         tooltipContext={{ mode: "band" }}
         brush={{
           axis: "x",
@@ -254,6 +266,7 @@
             {ticks}
             tickMarks={false}
             tickLength={0}
+            tickLabelProps={{ dy: TIME_AXIS_LABEL_GAP_PX }}
             format={(value: unknown) => formatTick(Number(value))}
             classes={{ tickLabel: "text-[0.6875rem] tabular-nums fill-[var(--muted-foreground)]" }}
           >
@@ -273,12 +286,26 @@
             {/snippet}
           </Axis>
           <Highlight area={{ class: "fill-[var(--wash-2)]" }} />
-          <Bars rounded="top" radius={3} fill={BAR_FILL} />
           <Bars
-            y={(bucket: VolumeBucket) => bucket.failed}
+            y={(bucket: VolumeBucket) => [0, bucket.claudeCode]}
             rounded="top"
             radius={2}
-            fill={FAILED_FILL}
+            fill={CLAUDE_FILL}
+          />
+          <Bars
+            y={(bucket: VolumeBucket) => [bucket.claudeCode, bucket.claudeCode + bucket.codex]}
+            rounded="top"
+            radius={2}
+            fill={CODEX_FILL}
+          />
+          <Bars
+            y={(bucket: VolumeBucket) => [
+              bucket.claudeCode + bucket.codex,
+              bucket.total,
+            ]}
+            rounded="top"
+            radius={2}
+            fill={UNKNOWN_FILL}
           />
         </Svg>
         <Tooltip.Root
@@ -296,10 +323,25 @@
                 <span class="text-xs font-medium tabular-nums">{data.total}</span>
                 <span class="text-muted-foreground">{countLabel.toLowerCase()}</span>
               </span>
-              {#if data.failed > 0}
-                <span class="flex items-baseline gap-1.5" style="color:{FAILED_INK}">
-                  <span class="text-xs font-medium tabular-nums">{data.failed}</span>
-                  <span>failed</span>
+              {#if data.claudeCode > 0}
+                <span class="flex items-center gap-1.5">
+                  <span class="h-1.5 w-2.5 rounded-sm" style="background:{CLAUDE_FILL}" aria-hidden="true"></span>
+                  <span class="text-xs font-medium tabular-nums">{data.claudeCode}</span>
+                  <span class="text-muted-foreground">Claude Code</span>
+                </span>
+              {/if}
+              {#if data.codex > 0}
+                <span class="flex items-center gap-1.5">
+                  <span class="h-1.5 w-2.5 rounded-sm" style="background:{CODEX_FILL}" aria-hidden="true"></span>
+                  <span class="text-xs font-medium tabular-nums">{data.codex}</span>
+                  <span class="text-muted-foreground">Codex</span>
+                </span>
+              {/if}
+              {#if data.unknownProvider > 0}
+                <span class="flex items-center gap-1.5">
+                  <span class="h-1.5 w-2.5 rounded-sm" style="background:{UNKNOWN_FILL}" aria-hidden="true"></span>
+                  <span class="text-xs font-medium tabular-nums">{data.unknownProvider}</span>
+                  <span class="text-muted-foreground">Unknown</span>
                 </span>
               {/if}
             </div>

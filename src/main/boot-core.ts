@@ -2,6 +2,8 @@ import { ControlPlane } from './control-plane'
 import { createBackends } from './agents/backend-registry'
 import { syncBundledPlugins } from './agents/plugins'
 import { bootServer, type BootOptions, type BootedServer } from './server'
+import { configureOtel } from './otel'
+import { getServerSettings } from './server/settings'
 import type { AgentId, IpcContext } from '../shared/types'
 
 const DEFAULT_AGENT_ID: AgentId = 'claude-code'
@@ -23,6 +25,10 @@ export async function bootCore(opts: BootCoreOptions = {}): Promise<BootCore> {
   // Both the desktop app and the standalone server boot through here, so the
   // headless host serves the same bundled skills as the desktop one.
   await syncBundledPlugins()
+  // Telemetry export follows the host's saved settings from the first span
+  // onward. Both the desktop app and the standalone server boot through here,
+  // so neither can end up exporting on a different rule from the other.
+  await configureOtel(getServerSettings().otel)
   const controlPlane = new ControlPlane(createBackends())
   const booted = await bootServer({
     ...opts,

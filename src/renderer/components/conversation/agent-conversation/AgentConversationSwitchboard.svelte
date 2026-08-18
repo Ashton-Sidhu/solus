@@ -187,17 +187,17 @@
      Same pair, same menu as the single-agent card. -->
 {#snippet openControls(ref: AgentConversationRef, name: string)}
   <button
-    class="shrink-0 rounded-lg px-2 py-1 text-xs text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+    class="shrink-0 rounded-md px-2 py-0.5 text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
     onclick={(e) => open(ref, { split: e.metaKey || e.ctrlKey, background: e.shiftKey })}
   >
     Open session
   </button>
   <DropdownMenu.Root>
     <DropdownMenu.Trigger
-      class="flex items-center justify-center shrink-0 size-[26px] rounded-lg text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+      class="flex items-center justify-center shrink-0 size-[22px] rounded-md text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
       aria-label="{name} session actions"
     >
-      <DotsThreeIcon size={14} weight="bold" />
+      <DotsThreeIcon size={13} weight="bold" />
     </DropdownMenu.Trigger>
     <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[252px]">
       {#if provenanceFor(ref)}
@@ -219,31 +219,32 @@
 {/snippet}
 
 <div
-  class="bg-card rounded-2xl overflow-hidden shadow-[shadow:var(--solus-agent-card-shadow)] {skipMotion
+  class="text-xs bg-card rounded-2xl overflow-hidden shadow-[shadow:var(--solus-agent-card-shadow)] {skipMotion
     ? ''
     : 'animate-msg-in-side'}"
   data-testid="agent-conversation-switchboard"
 >
   {#if atRest}
-    <!-- The glyph sits in a fixed 12px slot and the rows carry the matching 36px
-         indent, so the summary and every agent name below it start on the same
-         vertical instead of the summary hanging out to its right. -->
-    <div class="flex items-center gap-2 px-4 py-2.5 border-b-[0.5px] border-(--solus-agent-card-rule)">
+    <!-- The glyph sits in a fixed 12px slot and the rows carry the matching
+         34px indent (14px gutter + 12px glyph + 8px gap), so the summary and
+         every agent name below it start on the same vertical instead of the
+         summary hanging out to its right. -->
+    <div class="flex items-center gap-2 px-3.5 py-2.5 border-b-[0.5px] border-(--solus-agent-card-rule)">
       <CheckIcon
         size={12}
         weight="bold"
         class="shrink-0 w-3 text-[color-mix(in_oklch,var(--chart-3)_64%,var(--foreground))]"
       />
-      <span class="text-sm font-medium">
+      <span class="font-medium">
         Round complete · {refs.length} agents replied
       </span>
       <span class="flex-1"></span>
-      <span class="text-xs text-muted-foreground/55 tabular-nums">
+      <span class="text-muted-foreground/55 tabular-nums">
         {totalMessages}
         {totalMessages === 1 ? "message" : "messages"} · {totalElapsed}
       </span>
       <button
-        class="rounded-lg px-2 py-1 text-xs text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+        class="rounded-md px-2 py-0.5 text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
         onclick={() => (reopened = true)}
       >
         Read
@@ -258,7 +259,7 @@
            the row reads the transcript here, the buttons leave for the session,
            and one can't be nested in the other. -->
       <div
-        class="group/agent-row flex items-center gap-2.5 w-full pl-9 pr-2.5 hover:bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)] {index >
+        class="group/agent-row flex items-center gap-2.5 w-full pl-[2.125rem] pr-2.5 hover:bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)] {index >
         0
           ? 'border-t-[0.5px] border-(--solus-agent-card-rule)'
           : ''}"
@@ -274,12 +275,12 @@
                row's subject and never truncates; the worktree beside it is the
                disambiguator and gives way, in mono because it is a path. -->
           <span class="flex items-baseline gap-1.5 shrink-0 w-[120px]">
-            <span class="shrink-0 text-sm font-medium">{nameOf(ref)}</span>
-            <span class="min-w-0 truncate text-xs text-muted-foreground">
+            <span class="shrink-0 font-medium">{nameOf(ref)}</span>
+            <span class="min-w-0 truncate text-muted-foreground">
               {worktreeLabel(ref, meta)}
             </span>
           </span>
-          <span class="flex-1 min-w-0 truncate text-sm text-muted-foreground">
+          <span class="flex-1 min-w-0 truncate text-muted-foreground">
             {agentLatestLine(ref, states[index])}
           </span>
         </button>
@@ -288,7 +289,7 @@
                four rosters' worth of buttons would out-shout the conclusions
                they sit beside, which are what the summary is for. -->
           <span
-            class="flex items-center gap-0.5 shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover/agent-row:opacity-100 has-[[data-state=open]]:opacity-100"
+            class="flex items-center gap-0.5 shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover/agent-row:opacity-100 has-[[data-state=open]]:opacity-100 pointer-coarse:opacity-100"
           >
             {@render openControls(ref, nameOf(ref))}
           </span>
@@ -299,7 +300,7 @@
     <!-- Tab row — the roster, and it replaces the single-agent header. Never
          grows, never re-sorts; past six agents it scrolls rather than wraps. -->
     <div
-      class="flex items-center gap-[7px] px-[11px] py-[9px] overflow-x-auto border-b-[0.5px] border-(--solus-agent-card-rule)"
+      class="flex items-center gap-1.5 px-2.5 py-2 overflow-x-auto border-b-[0.5px] border-(--solus-agent-card-rule)"
     >
       {#each refs as ref, index (ref.agentSessionId)}
         {@const meta = agentConversationStatus.metaFor(ref.agentSessionId)}
@@ -307,7 +308,7 @@
         {@const isLive = isLiveAgentConversationState(state)}
         {@const isSelected = index === selectedIndex}
         <button
-          class="flex items-center gap-[7px] shrink-0 rounded-lg px-[9px] py-[5px] cursor-pointer {isSelected
+          class="flex items-center gap-1.5 shrink-0 rounded-md px-2 py-1 cursor-pointer {isSelected
             ? state === 'waiting'
               ? 'bg-[color-mix(in_oklch,var(--chart-2)_15%,transparent)]'
               : 'bg-[color-mix(in_oklch,var(--agent-accent)_14%,transparent)]'
@@ -329,24 +330,24 @@
             </span>
           {:else}
             <span
-              class="text-sm font-medium {isLive
+              class="font-medium {isLive
                 ? 'text-[color-mix(in_oklch,var(--agent-accent)_76%,var(--foreground))]'
                 : 'text-muted-foreground'}"
             >
               {nameOf(ref)}
             </span>
           {/if}
-          <span class="text-xs text-muted-foreground {isLive ? '' : 'opacity-80'}">
+          <span class="text-muted-foreground {isLive ? '' : 'opacity-80'}">
             {worktreeLabel(ref, meta)}
           </span>
           {#if state === "waiting"}
             <span
-              class="rounded-full px-1.5 py-px text-xs font-medium bg-[color-mix(in_oklch,var(--chart-2)_18%,transparent)] text-[color-mix(in_oklch,var(--chart-2)_74%,var(--foreground))]"
+              class="rounded-full px-1.5 py-px font-medium bg-[color-mix(in_oklch,var(--chart-2)_18%,transparent)] text-[color-mix(in_oklch,var(--chart-2)_74%,var(--foreground))]"
             >
               needs you
             </span>
           {:else if state === "failed"}
-            <span class="text-xs font-medium text-(--destructive)">failed</span>
+            <span class="font-medium text-(--destructive)">failed</span>
           {:else if isLive}
             <AgentTypingDots variant="chip" />
           {:else}
@@ -360,7 +361,7 @@
       {/each}
       <span class="flex-1"></span>
       {#if selectedLive}
-        <span class="shrink-0 text-xs text-muted-foreground/55 tabular-nums">
+        <span class="shrink-0 text-muted-foreground/55 tabular-nums">
           {formatAgentConversationDuration(agentConversationElapsedMs(selected, now))}
         </span>
       {:else if !isPendingAgent(selected)}
@@ -373,7 +374,7 @@
     <div
       bind:this={bodyEl}
       onscroll={rememberScroll}
-      class="h-[264px] overflow-y-auto px-4 pt-1"
+      class="h-[264px] overflow-y-auto px-3.5 pt-1"
       style:--agent-accent={selectedLive ? agentAccent(selectedIndex) : "var(--muted-foreground)"}
     >
       <AgentDialogue

@@ -25,6 +25,7 @@ interface RunOwner {
   run: RunConfig
   session?: Session
   apply(next: RunConfig): void
+  startNewTask(): void
 }
 
 const AGENT_LABELS = {
@@ -41,7 +42,7 @@ export interface SessionConfigControllerDeps {
   /** Start a new prompt pointed at `cwd`. No session and no tab exist until it
    *  is sent, which is what makes "change where work happens" free when the
    *  conversation on screen has already started. */
-  openSessionDraft(cwd?: string): void
+  openSessionDraft(cwd?: string, freshTask?: boolean): void
   /** The draft a source id names, when it names one rather than a tab. */
   draftFor(sourceId: string): SessionDraft | undefined
   ctx(tabId?: string): IpcContext
@@ -95,14 +96,31 @@ export class SessionConfigController {
   private ownerFor(sourceId?: string): RunOwner | null {
     if (sourceId) {
       const session = this.deps.registry.sessionFor(sourceId)
-      if (session) return { id: sourceId, run: session.run, session, apply: (next) => { session.run = next } }
+      if (session) return {
+        id: sourceId,
+        run: session.run,
+        session,
+        apply: (next) => { session.run = next },
+        startNewTask: () => { session.task = { kind: 'new' } },
+      }
       const draft = this.deps.draftFor(sourceId)
-      if (draft) return { id: sourceId, run: draft.run, apply: (next) => { draft.run = next } }
+      if (draft) return {
+        id: sourceId,
+        run: draft.run,
+        apply: (next) => { draft.run = next },
+        startNewTask: () => { draft.task = { kind: 'new' } },
+      }
       return null
     }
     const session = this.deps.registry.activeSession
     if (!session || session.agentSessionId) return null
-    return { id: this.deps.registry.activeTabId, run: session.run, session, apply: (next) => { session.run = next } }
+    return {
+      id: this.deps.registry.activeTabId,
+      run: session.run,
+      session,
+      apply: (next) => { session.run = next },
+      startNewTask: () => { session.task = { kind: 'new' } },
+    }
   }
 
   /** Single write path for the global Git start target: environment resolution
@@ -436,11 +454,12 @@ export class SessionConfigController {
     // not get moved to a different project beneath the user, and with no source
     // at all there is nothing to move.
     if (!owner) {
-      this.deps.openSessionDraft(dir)
+      this.deps.openSessionDraft(dir, true)
       void this.deps.apiForRun(undefined).trackRecentProject(dir)
       return
     }
     const api = this.deps.apiForRun(owner.run)
+    owner.startNewTask()
     owner.apply(withCheckout(owner.run, dir, null))
     // Detaching the provider thread and its plugin commands is session reset; a
     // draft has neither, so it only re-resolves its checkout below.

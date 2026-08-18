@@ -13,7 +13,6 @@
   import SessionBreadcrumb from "../conversation/SessionBreadcrumb.svelte";
   import FrameExpandButton from "./FrameExpandButton.svelte";
   import OuterScrollbar from "./OuterScrollbar.svelte";
-  import SolusTips from "./SolusTips.svelte";
   import SessionPicker from "../session/SessionPicker.svelte";
   import TaskPicker from "../session/TaskPicker.svelte";
   import Pane from "../ui/Pane.svelte";
@@ -33,7 +32,6 @@
     COMPANION_PANE_MIN_SIZE,
     isCompanionVisible,
     isFramedRoute,
-    isHomeVisible,
     LIST_PRIMARY_PANE_MIN_SIZE,
     LIST_PRIMARY_PANE_SIZE,
     maximizeTargetPaneId,
@@ -105,12 +103,7 @@
     },
   });
   const sess = $derived(session.sessionFor(session.activeTabId));
-  const snoozeReminder = $derived(
-    session.tasksStore.snoozeReminderForSession(sess?.agentSessionId),
-  );
   const hasStartedSession = $derived(hasSessionStarted(sess));
-  // The home reads as a headline sitting on top of the composer, so the column
-  // centres the pair as one block rather than pinning the composer to the floor.
   const leadingPane = $derived(router.leadingPane);
   const leadingRef = $derived(visibleRef(leadingPane));
   // The leading pane resting on the conversation pool: naming no session means
@@ -125,14 +118,11 @@
       ? (session.sessionDrafts.get(leadingRef.params.draftId) ?? null)
       : null,
   );
-  const centerHome = $derived(
-    isHomeVisible(sess, !!snoozeReminder) && poolInLead,
-  );
   // A draft's rail follows the fresh-tab rule regardless of what the tab behind
   // it was doing: nothing has started here either.
   const leadingStarted = $derived(!leadingDraft && hasStartedSession);
   const activeProjectPanelTabKey = $derived(
-    leadingDraft?.id ?? (session.activeTabId || "new-tab-home"),
+    leadingDraft?.id ?? (session.activeTabId || "workspace"),
   );
   let projectPanelPopoutTabKey = $state<string | null>(null);
   const newTabProjectPanelPoppedOut = $derived(
@@ -215,9 +205,7 @@
   const showLeadingBand = $derived(
     active && locationChromeVisible && (!!leadingDraft || !!session.activeTabId),
   );
-  // A session with nothing in it yet is already the thing "start another" would
-  // create, so the band drops that action until there is a conversation to leave.
-  const bandOffersNewSession = $derived(!leadingDraft && !centerHome);
+  const bandOffersNewSession = $derived(!leadingDraft);
   let homeSessionMenu = $state<{
     tabId: string;
     x: number;
@@ -714,7 +702,6 @@
 
                       <div
                         class="primary-column relative flex h-full flex-1 flex-col min-w-0"
-                        class:justify-center={centerHome}
                       >
                         {#if showLeadingBand}
                           <SessionBreadcrumb
@@ -745,8 +732,7 @@
                  re-mounted. That is what `keepAlive` declares in the registry:
                  the pool owns a chat's lifecycle, not the route. -->
                         <div
-                          class="conversation-pool flex flex-col min-h-0"
-                          class:flex-1={!centerHome}
+                          class="conversation-pool flex min-h-0 flex-1 flex-col"
                           class:mode-hidden={!poolInLead}
                           onfocusin={() => router.focusPane(leadingPane.id)}
                         >
@@ -763,7 +749,6 @@
                                   retainTranscriptRows={retainedTranscriptTabIds.has(
                                     tId,
                                   )}
-                                  onDiffToggle={() => session.toggleDiff(tId)}
                                 />
                               </div>
                             {/if}
@@ -787,15 +772,6 @@
                           {@render inputRow()}
                         </div>
 
-                        <!-- The home centres its headline and composer as one
-                             block, so that block's bottom is the composer, not
-                             the page's. The tip belongs to the column, whose
-                             bottom is the only one that sits under everything. -->
-                        {#if centerHome}
-                          <SolusTips
-                            class="pointer-events-none absolute inset-x-0 bottom-6 mx-auto px-6"
-                          />
-                        {/if}
                       </div>
                     </div>
                   </div>
@@ -857,7 +833,7 @@
               } ${isResizingSecondary ? "is-resizing" : ""}`}
               style={closing ? `width:${secondaryClosingWidth}px` : undefined}
             >
-              {#if companions.settled.has(pane.id)}
+              {#if companions.settled.has(pane.id) || ref?.name === "review"}
                 <!-- Maximize fixes THIS element, not the pane wrap: the wrap
                      keeps holding its slot in the split, so the fully-covered
                      workspace behind never relayouts on maximize or restore —
@@ -865,6 +841,7 @@
                 <div
                   class="secondary-pane-content h-full min-h-0"
                   class:secondary-pane-content--maximized={maximized}
+                  class:secondary-pane-content--continuous={ref?.name === "review"}
                 >
                   <Pane
                     {pane}
@@ -917,10 +894,21 @@
   }
   /* Horizontal room the pane's floating chrome cluster (PaneChrome) occupies at
      the top-right. In-content top strips reserve it as padding so their own
-     controls never slide under the cluster. */
+     controls never slide under the cluster. Measured off the cluster's real box
+     — its 0.625rem right inset, three 1.625rem buttons and the two 0.25rem gaps
+     between them — plus one more gap, so a header's last control clears the
+     first icon at the cluster's own rhythm instead of touching it. */
   .primary-column,
   :global(.secondary-pane-wrap) {
-    --solus-pane-chrome-inset: 5.5rem;
+    --solus-pane-chrome-inset: 6.25rem;
+  }
+  /* Touch grows every chrome button to 2.75rem (PAGE_ICON_BTN), so the same
+     arithmetic gives the cluster proportionally more room. */
+  @media (pointer: coarse) {
+    .primary-column,
+    :global(.secondary-pane-wrap) {
+      --solus-pane-chrome-inset: 9.625rem;
+    }
   }
   /* The secondary pane is a sibling of the primary one, not a child of
      .content-column, so it has to spend the gutter itself. */
@@ -1061,6 +1049,12 @@
      a compositor-only fade turns that mount from a pop into a reveal. */
   .secondary-pane-content {
     animation: secondary-content-in 160ms cubic-bezier(0.2, 0, 0, 1) backwards;
+  }
+  /* Review mounts its async outlet immediately and paints a final-shape
+     skeleton. Fading that outlet from opacity:0 would reveal the framed pane's
+     stepped background before drawing the container-colour surface. */
+  .secondary-pane-content--continuous {
+    animation: none;
   }
   @keyframes secondary-content-in {
     from {

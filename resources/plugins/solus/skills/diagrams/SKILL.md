@@ -7,7 +7,17 @@ description: Author or edit a Solus diagram work — architecture, system, data-
 
 A Solus `diagram` work is a node/edge graph rendered on an editable canvas. Unlike documents and slides (whose `content` is markdown), a diagram's `content` is **serialized JSON** shaped like `{"nodes":[...],"edges":[...]}`. The user can then drag, edit, and re-style every node and edge, so author clean declarative data — not a picture.
 
-Create a diagram only when the user asks for a system/architecture/data diagram they can edit.
+Create a diagram when the user asks for a system/architecture/data diagram they can edit. You may also create one for a durable document or plan when component relationships are central to understanding it and prose would be materially less clear. Do not add diagrams to routine plans.
+
+## Embedding in documents and plans
+
+`create_work` returns a canonical embed token after it creates a diagram. Put that token on its own line. Never copy the diagram JSON into document or plan markdown.
+
+- **New document:** create the diagram first, then include its returned token in the markdown passed to the document's `create_work` call.
+- **Existing document:** call `read_work`, create the diagram, insert the returned token into the current markdown, then call `update_work` with the complete revised content.
+- **Plan:** create the diagram before completing the plan, then include the returned token on its own line in the plan markdown.
+
+Preserve existing `work://embed` lines when revising a document or plan unless the user asks to remove or replace them.
 
 ## Content contract
 

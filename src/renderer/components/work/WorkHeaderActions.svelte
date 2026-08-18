@@ -33,6 +33,7 @@
     workId?: string;
     title?: string;
     currentContent?: string;
+    getCurrentContent?: () => string;
     /** Work kind — gates the Download .md action (docs/slides only). */
     docType?: "doc" | "slides" | "diagram";
     /** Restore the previous snapshot. When set, the diff modal shows "Restore". */
@@ -42,8 +43,7 @@
     /** Duplicate the work into a new independent copy. */
     onDuplicate?: () => void | Promise<void>;
     workStorage?: WorkStorage;
-    onPromoteToProject?: () => void | Promise<void>;
-    promoting?: boolean;
+    onSaveToProject?: (content: string) => void | Promise<void>;
     /** Upload to Google Docs (provided by the shell when it has the binding). */
     onGoogleUpload?: () => void;
     uploading?: boolean;
@@ -59,13 +59,13 @@
     workId,
     title = "Work",
     currentContent = "",
+    getCurrentContent,
     docType,
     onRevert,
     onDelete,
     onDuplicate,
     workStorage,
-    onPromoteToProject,
-    promoting = false,
+    onSaveToProject,
     onGoogleUpload,
     uploading = false,
     uploaded = false,
@@ -81,15 +81,18 @@
 
   const canDownload = $derived(docType === "doc" || docType === "slides");
   const canExportToFile = $derived(canDownload && connectionsStore.desktopHandlersAvailable);
-  const isProjectWork = $derived(workStorage?.kind === "project");
-  const canPromote = $derived(!isProjectWork && !!onPromoteToProject);
+  const canSaveToProject = $derived(!!onSaveToProject);
+
+  function resolvedContent() {
+    return getCurrentContent?.() ?? currentContent;
+  }
 
   function safeFileName() {
     return (title || "document").replace(/[^\w.\- ]+/g, "_").trim() || "document";
   }
 
   function downloadMarkdown() {
-    const blob = new Blob([currentContent], { type: "text/markdown" });
+    const blob = new Blob([resolvedContent()], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -101,7 +104,7 @@
   async function exportToFile() {
     if (!connectionsStore.desktopHandlersAvailable) return;
     // Export targets the user's client-side file picker, not the work's owner host.
-    await serverConnections.localHostApi()?.saveFileDialog(`${safeFileName()}.md`, currentContent);
+    await serverConnections.localHostApi()?.saveFileDialog(`${safeFileName()}.md`, resolvedContent());
   }
 
   function handleRestore() {
@@ -117,7 +120,7 @@
   // save both writes a new snapshot and bumps the store content we read here).
   $effect(() => {
     const id = workId;
-    const contentKey = currentContent; // re-run when content advances
+    const contentKey = currentContent; // re-run when persisted content advances
     if (!id) return;
     const cwd = workStorage?.kind === "project" ? workStorage.projectRoot : undefined;
     void session.worksStore.loadPrevious(id, cwd, contentKey);
@@ -125,7 +128,7 @@
 
   const hasChanges = $derived(!!previous && previous.content !== currentContent);
   const hasOverflow = $derived(
-    !!onStartRename || !!onGoogleUpload || canPromote || isProjectWork || !!onDuplicate || canDownload || !!onDelete,
+    !!onStartRename || !!onGoogleUpload || canSaveToProject || !!onDuplicate || canDownload || !!onDelete,
   );
 </script>
 
@@ -173,16 +176,12 @@
           <span class="ml-auto"><Kbd variant="inline">⌥G</Kbd></span>
         </DropdownMenu.Item>
       {/if}
-      {#if canPromote}
-        <DropdownMenu.Item data-testid="promote-work" disabled={promoting} onSelect={() => onPromoteToProject?.()}>
-          <FolderIcon size={14} /><span class="flex-1 text-left">{promoting ? "Saving…" : "Save to project"}</span>
-        </DropdownMenu.Item>
-      {:else if isProjectWork}
-        <DropdownMenu.Item data-testid="project-work-location" disabled>
-          <FolderIcon size={14} /><span class="flex-1 text-left">Saved in project</span>
+      {#if canSaveToProject}
+        <DropdownMenu.Item data-testid="save-work-to-project" onSelect={() => onSaveToProject?.(resolvedContent())}>
+          <FolderIcon size={14} /><span class="flex-1 text-left">Save to project…</span>
         </DropdownMenu.Item>
       {/if}
-      {#if (onStartRename || onGoogleUpload || canPromote || isProjectWork) && (onDuplicate || canDownload || onDelete)}
+      {#if (onStartRename || onGoogleUpload || canSaveToProject) && (onDuplicate || canDownload || onDelete)}
         <DropdownMenu.Separator />
       {/if}
       {#if onDuplicate}
@@ -278,7 +277,7 @@
       <div class="wha-diff-body">
         <Diff
           oldFile={{ name: title, contents: previous.content }}
-          newFile={{ name: title, contents: currentContent }}
+          newFile={{ name: title, contents: resolvedContent() }}
         />
       </div>
     </div>

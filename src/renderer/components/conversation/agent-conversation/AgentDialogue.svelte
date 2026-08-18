@@ -30,39 +30,44 @@
   const visible = $derived(foldOpenByUser ? messages : fold.open);
 </script>
 
-{#if fold.folded.length > 0}
-  <button
-    class="flex items-center gap-2 w-full py-2.5 text-left text-sm text-muted-foreground cursor-pointer hover:text-foreground"
-    onclick={() => (foldOpenByUser = !foldOpenByUser)}
-  >
-    <svg
-      width="9"
-      height="9"
-      viewBox="0 0 12 12"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.7"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      class="shrink-0 transition-transform {foldOpenByUser ? 'rotate-90' : ''}"
+<!-- The stream is the card's one reading surface, so it declares the content
+     rung here and every message below inherits it; the card chrome around it
+     stays on the chrome ladder. -->
+<div class="text-caption">
+  {#if fold.folded.length > 0}
+    <button
+      class="flex items-center gap-2 w-full py-2.5 text-left text-xs text-muted-foreground cursor-pointer hover:text-foreground"
+      onclick={() => (foldOpenByUser = !foldOpenByUser)}
     >
-      <path d="M4.2 2.4L7.8 6l-3.6 3.6" />
-    </svg>
-    <span class="shrink-0">
-      {fold.folded.length}
-      {fold.folded.length === 1 ? "earlier message" : "earlier messages"}
-    </span>
-    <span class="truncate opacity-60">{foldTrail(fold.folded)}</span>
-  </button>
-{/if}
+      <svg
+        width="9"
+        height="9"
+        viewBox="0 0 12 12"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.7"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        class="shrink-0 transition-transform {foldOpenByUser ? 'rotate-90' : ''}"
+      >
+        <path d="M4.2 2.4L7.8 6l-3.6 3.6" />
+      </svg>
+      <span class="shrink-0">
+        {fold.folded.length}
+        {fold.folded.length === 1 ? "earlier message" : "earlier messages"}
+      </span>
+      <span class="truncate opacity-60">{foldTrail(fold.folded)}</span>
+    </button>
+  {/if}
 
-{#each visible as message, index (message.key)}
-  <AgentMessageBlock
-    {message}
-    {agentName}
-    {live}
-    {clampPx}
-    {onOpen}
-    first={index === 0 && fold.folded.length === 0}
-  />
-{/each}
+  {#each visible as message, index (message.key)}
+    <AgentMessageBlock
+      {message}
+      {agentName}
+      {live}
+      {clampPx}
+      {onOpen}
+      first={index === 0 && fold.folded.length === 0}
+    />
+  {/each}
+</div>

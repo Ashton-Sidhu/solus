@@ -12,8 +12,6 @@
     PushPinIcon,
     CaretRightIcon,
     HardDrivesIcon,
-    BookOpenTextIcon,
-    CircleNotchIcon,
     NotePencilIcon,
     PaperclipIcon,
     SunIcon,
@@ -27,6 +25,7 @@
     groupTasks,
   } from "@renderer/components/session/lib/task-list";
   import ProjectMark from "@renderer/components/session/ProjectMark.svelte";
+  import ReviewGuideGlyph from "@renderer/components/review/ReviewGuideGlyph.svelte";
   import { toasts } from "@renderer/lib/toasts";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
   import { getAttentionIcon, attentionLabel, type AttentionState } from "@renderer/lib/sessionUtils";
@@ -297,17 +296,20 @@
 {#snippet reviewMark(status: "generating" | "ready")}
   <span
     class="text-sm shrink-0 flex items-center {status === 'ready'
-      ? 'text-(--solus-art-positive)'
-      : 'text-(--solus-status-running-icon)'}"
+      ? 'text-(--solus-status-complete)'
+      : 'text-chart-5'}"
     title={status === "ready" ? "Review guide ready" : "Generating review guide"}
     aria-label={status === "ready" ? "Review guide ready" : "Generating review guide"}
   >
     {#if status === "ready"}
-      <BookOpenTextIcon size={14} weight="fill" />
+      <ReviewGuideGlyph size={15} weight="fill" />
     {:else}
-      <CircleNotchIcon
-        size={14}
-        class="animate-spin [animation-duration:0.9s] motion-reduce:animate-none"
+      <!-- Generating and ready are one object at two stages: the outline guide
+           breathes while it is written, then fills once it can be read. A
+           spinner would repeat what the attention mark beside it already says. -->
+      <ReviewGuideGlyph
+        size={15}
+        class="animate-pulse [animation-duration:1.4s] motion-reduce:animate-none"
       />
     {/if}
   </span>
@@ -499,7 +501,6 @@
             initial={group.initial}
             active={false}
             class="size-4"
-            letterClass="text-xs"
           />
           <span class="min-w-0 flex-1 truncate">{group.projectLabel}</span>
           <span class="text-xs opacity-60 tabular-nums">{group.tasks.length}</span>

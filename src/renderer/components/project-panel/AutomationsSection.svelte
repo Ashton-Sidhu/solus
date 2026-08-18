@@ -109,7 +109,7 @@
         </span>
         <span class="flex min-w-0 flex-1 items-baseline gap-1.5">
           <span
-            class="min-w-0 truncate text-menu font-normal text-(--solus-text-secondary) transition-colors duration-150 @max-[17rem]:text-xs group-hover:text-(--solus-text-primary)"
+            class="min-w-0 truncate font-normal text-(--solus-text-secondary) transition-colors duration-150 group-hover:text-(--solus-text-primary)"
           >
             {a.name}
           </span>
@@ -130,7 +130,7 @@
           </span>
         {/if}
         <span
-          class="absolute top-1/2 right-2 inline-flex -translate-y-1/2 shrink-0 text-(--solus-text-tertiary) opacity-55 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
+          class="absolute top-1/2 right-2 inline-flex -translate-y-1/2 shrink-0 text-(--solus-text-tertiary) opacity-55 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0 pointer-coarse:opacity-0"
           aria-hidden="true"
         >
           <CaretRightIcon size={11} />
@@ -142,7 +142,7 @@
           variant="ghost"
           size="icon-xs"
           type="button"
-          class="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 text-(--solus-status-error) hover:bg-[color-mix(in_srgb,var(--solus-status-error)_12%,transparent)] hover:text-(--solus-status-error)"
+          class="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 text-(--solus-status-error) hover:bg-[color-mix(in_srgb,var(--solus-status-error)_12%,transparent)] hover:text-(--solus-status-error)"
           title="Stop run"
           aria-label="Stop run"
           onclick={(event) => void stop(a, event)}
@@ -154,7 +154,7 @@
           variant="ghost"
           size="icon-xs"
           type="button"
-          class="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 {toggleButtonClass(
+          class="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 {toggleButtonClass(
             a,
           )}"
           title={a.enabled ? "Pause automation" : "Resume automation"}

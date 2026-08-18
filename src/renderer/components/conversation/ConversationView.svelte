@@ -53,6 +53,8 @@
   import { FindBar } from "../ui/find-bar";
   import { previewText } from "./lib/minimap";
   import {
+    CONVERSATION_BREADCRUMB_OFFSET,
+    conversationFindTopInset,
     findConversationMatches,
     type ConversationFindMatch,
   } from "./lib/find";
@@ -76,8 +78,6 @@
   import ActionOrb from "../layout/ActionOrb.svelte";
   import ConversationSkeleton from "./ConversationSkeleton.svelte";
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
-  import NewTabHome from "../layout/NewTabHome.svelte";
-  import { isHomeVisible } from "../layout/lib/workspace-body";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
@@ -106,13 +106,11 @@
   );
   let {
     tabId,
-    onDiffToggle,
     forceVisible = false,
     surfaceVisible = true,
     retainTranscriptRows = true,
   }: {
     tabId: string;
-    onDiffToggle?: () => void;
     forceVisible?: boolean;
     surfaceVisible?: boolean;
     retainTranscriptRows?: boolean;
@@ -160,7 +158,7 @@
   // (forceVisible) sits below a row that already took its own height.
   const reservesBandRoom = $derived(isEditorMode && isVisible && !forceVisible);
   // 46px of band plus the gap under it.
-  const CRUMB_OFFSET = 58;
+  const CRUMB_OFFSET = CONVERSATION_BREADCRUMB_OFFSET;
   let stripMenu = $state<{ tabId: string; x: number; y: number } | null>(null);
 
   // ── Smooth typewriter reveal ──────────────────────────────────────────────
@@ -995,8 +993,6 @@
 
 {#if tab && sess && sess.loadingHistory}
   <ConversationSkeleton />
-{:else if tab && sess && isHomeVisible(sess, !!snoozeReminder)}
-  <NewTabHome {tab} />
 {:else if tab && sess}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -1007,7 +1003,10 @@
   >
     <div class="cv-root relative {isEditorMode ? 'flex-1 min-h-0' : ''}">
       {#if findOpen}
-        <div class="absolute top-2 right-3 z-20">
+        <div
+          class="absolute right-3 z-20"
+          style:top="{conversationFindTopInset(reservesBandRoom)}px"
+        >
           <FindBar
             bind:this={findBarRef}
             query={findQuery}
@@ -1450,7 +1449,6 @@
       {#if tab && !runtime.isMobileViewport}
         <ActionOrb
           {tabId}
-          {onDiffToggle}
           observeLayout={isVisible}
           leftReservedWidth={showActivityStrip ? activityReservedWidth : 0}
         />

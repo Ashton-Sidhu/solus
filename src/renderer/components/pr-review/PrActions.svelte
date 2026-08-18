@@ -1,6 +1,5 @@
 <script lang="ts">
   import {
-    BookOpenTextIcon,
     ChatTextIcon,
     CheckIcon,
     CircleNotchIcon,
@@ -10,6 +9,7 @@
   import type { PrGuideStatus } from "../../../shared/review";
   import { Button } from "../ui/button";
   import MergeControl from "./MergeControl.svelte";
+  import ReviewGuideGlyph from "../review/ReviewGuideGlyph.svelte";
   import ResolveConflictsButton from "./ResolveConflictsButton.svelte";
   import type { HostApi } from "@client-core/host-api";
 
@@ -157,7 +157,7 @@
             class="shrink-0 text-(--solus-art-positive)"
           />
         {:else}
-          <BookOpenTextIcon size={12} class="shrink-0" />
+          <ReviewGuideGlyph size={12} class="shrink-0" />
         {/if}
         <span class="truncate">
           {guideStatus === "queued"

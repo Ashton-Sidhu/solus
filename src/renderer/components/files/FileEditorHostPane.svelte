@@ -51,6 +51,7 @@
        rect later in the DOM would re-cover this cluster's no-drag holes. -->
   <PaneChrome
     onClose={pane.closeOverlay}
+    onOpenInSplit={!pane.isLeading ? pane.moveAcross : undefined}
     onToggleMaximize={pane.toggleMaximize}
     maximized={pane.maximized}
     isLeading={pane.isLeading}

@@ -167,7 +167,7 @@
       <!-- The two ways back in. The slot is reserved at rest, so the name has
            the same measure whether or not the pointer is here. -->
       <span
-        class="flex w-11 shrink-0 justify-end gap-0.5 opacity-0 transition-opacity duration-150 group-focus-within:opacity-100 group-hover:opacity-100"
+        class="flex w-11 shrink-0 justify-end gap-0.5 opacity-0 transition-opacity duration-150 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
       >
         {#if onOpenSession}
           <button
@@ -219,7 +219,7 @@
       type="button"
       class="flex size-[22px] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent transition-[background-color,color,opacity] duration-150 hover:bg-[var(--wash-3)] focus-visible:opacity-100 {item.pinned
  ? 'text-[color-mix(in_oklch,var(--primary)_78%,var(--foreground))] opacity-100'
- : 'text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'} {selected
+ : 'text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100'} {selected
  ? 'opacity-100'
  : ''}"
       onclick={(e) => {
@@ -270,7 +270,7 @@
     {#if onDelete}
       <button
         type="button"
-        class="flex size-[22px] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground opacity-0 transition-[background-color,color,opacity] duration-150 group-focus-within:opacity-100 group-hover:opacity-60 hover:bg-[color-mix(in_oklch,var(--failure)_10%,transparent)] hover:text-[var(--failure)] hover:opacity-100! focus-visible:opacity-100 {selected
+        class="flex size-[22px] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground opacity-0 transition-[background-color,color,opacity] duration-150 group-focus-within:opacity-100 group-hover:opacity-60 hover:bg-[color-mix(in_oklch,var(--failure)_10%,transparent)] hover:text-[var(--failure)] hover:opacity-100! focus-visible:opacity-100 pointer-coarse:opacity-60 {selected
  ? 'opacity-60'
  : ''}"
         onclick={(e) => {

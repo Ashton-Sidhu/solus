@@ -6,14 +6,14 @@ import { Database } from 'bun:sqlite'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type FacadeModule = typeof import('../../src/main/observability/facade')
+type SpanTableModule = typeof import('../../src/main/observability/span-table')
 type MetricsDbModule = typeof import('../../src/main/observability/metrics-db')
 type FieldRegistryModule = typeof import('../../src/main/observability/field-registry')
 type RegistriesModule = typeof import('../../src/main/observability/registries')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
-let facade: FacadeModule
+let spanTable: SpanTableModule
 let metricsDb: MetricsDbModule
 let fieldRegistry: FieldRegistryModule
 let registries: RegistriesModule
@@ -21,7 +21,7 @@ let registries: RegistriesModule
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-metrics-views-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  facade = await import('../../src/main/observability/facade')
+  spanTable = await import('../../src/main/observability/span-table')
   metricsDb = await import('../../src/main/observability/metrics-db')
   fieldRegistry = await import('../../src/main/observability/field-registry')
   registries = await import('../../src/main/observability/registries')
@@ -75,17 +75,17 @@ describe.serial('the two-table query model', () => {
       service: registries.SPAN_SERVICES.sessions,
       status: 'ok' as const,
     }
-    facade.writeSpan({
-      ...base, spanId: 'tool-good', name: 'Bash', startedAt: 1, endedAt: 2,
+    spanTable.writeSpan({
+      ...base, spanId: 'tool-good', traceId: 'tool-good', name: 'Bash', startedAt: 1, endedAt: 2,
       attrs: { input: '{"command":"bun run build"}' },
     })
-    facade.writeSpan({
-      ...base, spanId: 'tool-truncated', name: 'Bash', startedAt: 3, endedAt: 4,
+    spanTable.writeSpan({
+      ...base, spanId: 'tool-truncated', traceId: 'tool-truncated', name: 'Bash', startedAt: 3, endedAt: 4,
       attrs: { input: '{"command":"bun run bui', inputTruncated: true },
     })
-    facade.writeSpan({
+    spanTable.writeSpan({
       kind: registries.SPAN_KINDS.thinking, service: registries.SPAN_SERVICES.sessions,
-      spanId: 'think-1', name: 'thinking', startedAt: 5, endedAt: 6, status: 'ok',
+      spanId: 'think-1', traceId: 'think-1', name: 'thinking', startedAt: 5, endedAt: 6, status: 'ok',
     })
 
     const rows = metricsDb.getMetricsDb()
@@ -99,9 +99,9 @@ describe.serial('the two-table query model', () => {
   })
 
   test('turn attrs lift into typed view columns', () => {
-    facade.writeSpan({
+    spanTable.writeSpan({
       kind: registries.SPAN_KINDS.turn, service: registries.SPAN_SERVICES.sessions,
-      spanId: 'turn-1', name: 'turn', startedAt: 10, endedAt: 20, status: 'ok',
+      spanId: 'turn-1', traceId: 'turn-1', name: 'turn', startedAt: 10, endedAt: 20, status: 'ok',
       sessionId: 'session-1', model: 'fable',
       attrs: {
         costUsd: 0.5, promptSource: 'typed', hasThinking: true, toolCallCount: 3,
@@ -150,13 +150,13 @@ describe.serial('the two-table query model', () => {
       startedAt: number,
       endedAt: number,
     ) =>
-      facade.writeSpan({
+      spanTable.writeSpan({
         kind, service: registries.SPAN_SERVICES.sessions,
         spanId, traceId, name: kind === registries.SPAN_KINDS.toolCall ? 'Bash' : kind,
         startedAt, endedAt, status: 'ok',
       })
 
-    facade.writeSpan({
+    spanTable.writeSpan({
       kind: registries.SPAN_KINDS.turn, service: registries.SPAN_SERVICES.sessions,
       spanId: 'turn-a', traceId: 'turn-a', name: 'turn', startedAt: 100, endedAt: 300, status: 'ok',
     })
@@ -166,7 +166,7 @@ describe.serial('the two-table query model', () => {
     child('think-a', 'turn-a', registries.SPAN_KINDS.thinking, 200, 230)
     child('settle-a', 'turn-a', registries.SPAN_KINDS.turnSettlement, 290, 300)
 
-    facade.writeSpan({
+    spanTable.writeSpan({
       kind: registries.SPAN_KINDS.turn, service: registries.SPAN_SERVICES.sessions,
       spanId: 'turn-b', traceId: 'turn-b', name: 'turn', startedAt: 400, endedAt: 500, status: 'ok',
     })
@@ -189,52 +189,57 @@ describe.serial('the two-table query model', () => {
     ])
   })
 
-  test('ids drill, names query: snapshotted names surface on turns, and events inherit them from their trace root', () => {
-    facade.writeSpan({
+  test('snapshotted names and execution-host facts surface on turns, and events inherit them from their trace root', () => {
+    spanTable.writeSpan({
       kind: registries.SPAN_KINDS.turn, service: registries.SPAN_SERVICES.sessions,
       spanId: 'turn-c', traceId: 'turn-c', name: 'turn', startedAt: 600, endedAt: 700, status: 'ok',
       attrs: {
         automationId: '01AUTO', automationName: 'Nightly triage',
         taskId: '01TASK', taskTitle: 'Fix flaky tests',
         branch: 'solus/fix-flaky', projectName: 'solus',
+        hostname: 'builder-07', hostOs: 'linux',
       },
     })
-    facade.writeSpan({
+    spanTable.writeSpan({
       kind: registries.SPAN_KINDS.toolCall, service: registries.SPAN_SERVICES.sessions,
       spanId: 'tool-c1', traceId: 'turn-c', name: 'Bash', startedAt: 610, endedAt: 620, status: 'ok',
     })
 
     const turn = metricsDb.getMetricsDb()
-      .prepare('SELECT automation, task, project, branch, automation_id FROM turns WHERE span_id = ?')
+      .prepare('SELECT automation, task, project, branch, hostname, host_os, automation_id FROM turns WHERE span_id = ?')
       .get('turn-c')
     expect(turn).toEqual({
       automation: 'Nightly triage',
       task: 'Fix flaky tests',
       project: 'solus',
       branch: 'solus/fix-flaky',
+      hostname: 'builder-07',
+      host_os: 'linux',
       automation_id: '01AUTO',
     })
 
     const event = metricsDb.getMetricsDb()
-      .prepare('SELECT automation, task, branch FROM events WHERE span_id = ?')
+      .prepare('SELECT automation, task, branch, hostname, host_os FROM events WHERE span_id = ?')
       .get('tool-c1')
     expect(event).toEqual({
       automation: 'Nightly triage',
       task: 'Fix flaky tests',
       branch: 'solus/fix-flaky',
+      hostname: 'builder-07',
+      host_os: 'linux',
     })
 
-    // An event whose trace root recorded no names stays null, not wrong.
+    // An event whose trace root recorded no dimensions stays null, not wrong.
     const bare = metricsDb.getMetricsDb()
-      .prepare('SELECT automation, task, branch FROM events WHERE span_id = ?')
+      .prepare('SELECT automation, task, branch, hostname, host_os FROM events WHERE span_id = ?')
       .get('tool-a1')
-    expect(bare).toEqual({ automation: null, task: null, branch: null })
+    expect(bare).toEqual({ automation: null, task: null, branch: null, hostname: null, host_os: null })
   })
 
   test('each view exposes only its own kinds — turn and internal spans never surface in events', () => {
-    facade.writeSpan({
+    spanTable.writeSpan({
       kind: registries.SPAN_KINDS.internalRpc, service: registries.SPAN_SERVICES.rpc,
-      spanId: 'rpc-1', name: 'listSessions', startedAt: 1_000, endedAt: 1_001, status: 'ok',
+      spanId: 'rpc-1', traceId: 'rpc-1', name: 'listSessions', startedAt: 1_000, endedAt: 1_001, status: 'ok',
     })
     const db = metricsDb.getMetricsDb()
     const spanIdsIn = (view: string) =>

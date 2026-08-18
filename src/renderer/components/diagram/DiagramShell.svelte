@@ -124,8 +124,7 @@
     /** Duplicate the work into a new independent copy. */
     onDuplicate?: () => void | Promise<void>;
     workStorage?: WorkStorage;
-    onPromoteToProject?: () => void | Promise<void>;
-    promoting?: boolean;
+    onSaveToProject?: (content: string) => void | Promise<void>;
     /** Rename the work title. */
     onRename?: (title: string) => void;
   }
@@ -159,8 +158,7 @@
     onDelete,
     onDuplicate,
     workStorage,
-    onPromoteToProject,
-    promoting = false,
+    onSaveToProject,
     onRename,
   }: Props = $props();
 
@@ -2378,13 +2376,13 @@
       {workId}
       {title}
       currentContent={content}
+      getCurrentContent={() => serializeDiagram(fullDoc())}
       docType="diagram"
       {onRevert}
       {onDelete}
       {onDuplicate}
       {workStorage}
-      {onPromoteToProject}
-      {promoting}
+      {onSaveToProject}
     />
   </div>
 

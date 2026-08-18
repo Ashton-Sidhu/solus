@@ -9,6 +9,20 @@
  *  remainder, not a claim about model work or agent activity. */
 export const UNATTRIBUTED_KIND = 'unattributed'
 
+/** What the remainder means, for the reader who hovers it. It says what the
+ *  trace does not know, and refuses to name a cause the spans never recorded. */
+export const UNATTRIBUTED_EXPLANATION =
+  'Time inside the turn that no recorded span covers. It is what is left after every measured interval is counted once, so it names missing trace coverage — not model thinking, and not idle time.'
+
+/** The things such an interval can hold. Listed, because a reader who sees a
+ *  large remainder asks what could be in it. */
+export const UNATTRIBUTED_CAUSES = [
+  'provider queueing and rate limiting outside a recorded wait',
+  'inference the provider reported without start and stop boundaries',
+  'transport delay between the provider and Solus',
+  'work on older traces recorded before a boundary existed',
+]
+
 const KIND_COLORS: Record<string, string> = {
   turn: 'var(--muted-foreground)',
   [UNATTRIBUTED_KIND]: 'var(--solus-art-5)',
@@ -16,6 +30,9 @@ const KIND_COLORS: Record<string, string> = {
   response_stream: 'var(--solus-art-2)',
   tool_call: 'var(--solus-art-4)',
   setup: 'var(--solus-art-3)',
+  // Setup's interior, so it wears setup's hue pulled toward the neutral: a
+  // dispatch step reads as part of the bar above it, not as a rival to it.
+  'internal.dispatch_step': 'color-mix(in oklch, var(--solus-art-3) 60%, var(--muted-foreground))',
   permission_wait: 'var(--solus-art-2)',
   queue_wait: 'var(--solus-art-6)',
   rate_limit_wait: 'var(--solus-art-6)',
@@ -31,6 +48,7 @@ const KIND_LABELS: Record<string, string> = {
   response_stream: 'Response streaming',
   tool_call: 'Tool calls',
   setup: 'Setup',
+  'internal.dispatch_step': 'Dispatch steps',
   permission_wait: 'Permission waits',
   queue_wait: 'Queue waits',
   rate_limit_wait: 'Rate-limit waits',

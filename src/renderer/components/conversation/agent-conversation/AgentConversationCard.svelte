@@ -165,7 +165,7 @@
        exchange progresses. The title truncates first; the name and the state
        never truncate. -->
   <div
-    class="flex items-center gap-[11px] pt-[13px] pr-[15px] pb-[13px] pl-[14px] border-b-[0.5px] transition-colors duration-200 {bodyOpen
+    class="flex items-center gap-2 px-3.5 py-2.5 border-b-[0.5px] transition-colors duration-200 {bodyOpen
  ? 'border-(--solus-agent-card-rule)'
  : 'border-transparent'}"
   >
@@ -173,7 +173,7 @@
          body is folded: a control that is always available is not always worth
          looking at, and the header's job is to be read, not operated. -->
     <button
-      class="flex items-center justify-center shrink-0 -ml-1 -mr-[3px] size-[18px] rounded-[0.3125rem] cursor-pointer transition-colors hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] focus-visible:text-foreground {bodyOpen
+      class="flex items-center justify-center shrink-0 -ml-1 -mr-0.5 size-[18px] rounded-[0.3125rem] cursor-pointer transition-colors hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] focus-visible:text-foreground {bodyOpen
  ? 'text-transparent group-hover/agent-card:text-muted-foreground'
  : 'text-muted-foreground'}"
       aria-expanded={bodyOpen}
@@ -195,7 +195,7 @@
       </svg>
     </button>
     <span
-      class="flex items-center justify-center shrink-0 size-6 rounded-lg {provider ===
+      class="flex items-center justify-center shrink-0 size-5 rounded-md {provider ===
  'codex'
  ? 'bg-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.1)]'
  : provider === 'claude-code'
@@ -204,21 +204,19 @@
       aria-label="{agentName} session"
     >
       {#if provider === "codex"}
-        <OpenAIBlossom size={14} />
+        <OpenAIBlossom size={12} />
       {:else if provider === "claude-code"}
-        <ClaudeIcon size={14} />
+        <ClaudeIcon size={12} />
       {:else}
         <span class="font-medium">Oc</span>
       {/if}
     </span>
     <span
-      class="shrink-0 text-sm font-medium text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]"
+      class="shrink-0 font-medium text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]"
     >
       {agentName}
     </span>
-    <span class="min-w-0 truncate text-sm text-muted-foreground"
-      >{title}</span
-    >
+    <span class="min-w-0 truncate text-muted-foreground">{title}</span>
     <span class="flex-1"></span>
 
     {#if live}
@@ -253,23 +251,21 @@
         >
           {agentName}
         </span>
-        <span
-          class="ml-[3px]  text-muted-foreground/55 tabular-nums"
-        >
+        <span class="ml-0.5 text-muted-foreground/55 tabular-nums">
           {elapsed}
         </span>
       </span>
     {:else if state === "failed"}
-      <span class="shrink-0 text-sm text-(--destructive)">
+      <span class="shrink-0 text-(--destructive)">
         {neverStarted ? "never started" : "stopped replying"}
       </span>
-      <span class="shrink-0 text-sm text-muted-foreground">
+      <span class="shrink-0 text-muted-foreground">
         {messageCount}
         {messageCount === 1 ? "message" : "messages"} kept
       </span>
       {#if !neverStarted}
         <button
-          class="shrink-0 rounded-lg px-2 py-1  text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+          class="shrink-0 rounded-md px-2 py-0.5 text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
           onclick={retry}
         >
           Retry
@@ -277,17 +273,17 @@
       {/if}
     {:else}
       {#if state === "closed"}
-        <span class="shrink-0 text-sm text-muted-foreground">
+        <span class="shrink-0 text-muted-foreground">
           closed its session · transcript kept
         </span>
       {:else}
         <CheckIcon
-          size={12}
+          size={11}
           weight="bold"
           class="shrink-0 text-[color-mix(in_oklch,var(--chart-3)_64%,var(--foreground))]"
         />
       {/if}
-      <span class="shrink-0 text-sm text-muted-foreground">
+      <span class="shrink-0 text-muted-foreground">
         {messageCount}
         {messageCount === 1 ? "message" : "messages"}
       </span>
@@ -295,21 +291,21 @@
 
     {#if !neverStarted}
       <button
-        class="flex items-center justify-center shrink-0 size-[26px] rounded-lg text-muted-foreground cursor-pointer transition-[background-color,color,scale] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground active:scale-[0.96]"
+        class="flex items-center justify-center shrink-0 size-[22px] rounded-md text-muted-foreground cursor-pointer transition-[background-color,color,scale] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground active:scale-[0.96]"
         title="Open session in a new tab"
         aria-label="Open {agentName} session in a new tab"
         onclick={() => open()}
       >
-        <ArrowSquareOutIcon size={14} />
+        <ArrowSquareOutIcon size={13} />
       </button>
       <DropdownMenu.Root>
         <DropdownMenu.Trigger
-          class="flex items-center justify-center shrink-0 size-[26px] rounded-lg text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+          class="flex items-center justify-center shrink-0 size-[22px] rounded-md text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
           aria-label="{agentName} exchange actions"
         >
-          <DotsThreeIcon size={14} weight="bold" />
+          <DotsThreeIcon size={13} weight="bold" />
         </DropdownMenu.Trigger>
-        <!-- Width is explicit because the trigger is a 26px glyph and Content
+        <!-- Width is explicit because the trigger is a 22px glyph and Content
              defaults to the anchor's width — left alone it collapses to the
              128px floor and every row wraps out of its 32px box. -->
         <DropdownMenu.Content
@@ -325,7 +321,7 @@
                an empty block plus its separator is worse than neither. -->
           {#if provenance}
             <div
-              class="px-2.5 pt-1 pb-2 break-words text-(--solus-text-tertiary)"
+              class="text-xs px-2.5 pt-1 pb-2 break-words text-(--solus-text-tertiary)"
             >
               {provenance}
             </div>
@@ -346,7 +342,7 @@
 
   <div class="agent-card-fold {bodyOpen ? '' : 'agent-card-fold--closed'}">
     <div class="min-h-0 overflow-hidden">
-      <div class="px-4 pt-1">
+      <div class="px-3.5 pt-1">
         <AgentDialogue
           {ref}
           {agentName}

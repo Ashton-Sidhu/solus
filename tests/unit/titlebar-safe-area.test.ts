@@ -50,7 +50,7 @@ const titlebarSurfacePaths = [
   'src/renderer/components/pr-review/PrDiffPane.svelte',
   'src/renderer/components/pr-review/PrPanelHeader.svelte',
   'src/renderer/components/pr-review/PrReviewPane.svelte',
-  'src/renderer/components/review/ReviewGuidePane.svelte',
+  'src/renderer/components/review/ReviewSurface.svelte',
   'src/renderer/components/review-mode/ReviewModeHost.svelte',
   'src/renderer/components/settings/SettingsPage.svelte',
   'src/renderer/components/settings/SettingsPageSkeleton.svelte',

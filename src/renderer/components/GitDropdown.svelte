@@ -165,10 +165,10 @@
          tailwind-merge drops Popover.Content's stock rounded-lg + bg-popover +
          shadow-md, which are emitted after the utility and would otherwise win
          the cascade — bg-popover is what made this panel a different colour from
-         the DropdownMenu-based ones. `lg:text-menu` is the same move for the
+         the DropdownMenu-based ones. `lg:text-workspace-chrome` is the same move for the
          primitive's `lg:text-sm`: a different breakpoint is a different
-         merge group, so the bare `text-menu` never touches it and the 15px won
-         at every window wider than 1024px. -->
+         merge group, so the bare responsive rung never touches it. The nested
+         selectors keep the command rows and search field on that same rung. -->
     <Popover.Content
       data-solus-ui
       customAnchor={triggerEl}
@@ -178,7 +178,7 @@
       collisionPadding={8}
       onCloseAutoFocus={handleCloseAutoFocus}
       onInteractOutside={(event) => { if (triggerEl?.contains(event.target as Node)) event.preventDefault() }}
-      class="menu-surface z-[10002] w-[316px] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-menu lg:text-menu shadow-[shadow:var(--solus-menu-shadow)] ring-0"
+      class="menu-surface z-[10002] w-[316px] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome"
     >
       {#if view === "worktrees"}
         <Command.Root>

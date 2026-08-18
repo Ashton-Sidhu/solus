@@ -16,6 +16,7 @@ import {
   TableIcon,
   MinusIcon,
   SparkleIcon,
+  GraphIcon,
 } from 'phosphor-svelte'
 
 export interface EditorBlockCommand {
@@ -145,6 +146,18 @@ export function askSolusCommand(onAskSolus: () => void): EditorBlockCommand {
     group: 'agent',
     accent: true,
     action: () => onAskSolus(),
+  }
+}
+
+export function embedDiagramCommand(onEmbedDiagram: () => void): EditorBlockCommand {
+  return {
+    id: 'diagram',
+    label: 'Embed Diagram',
+    description: 'Insert a live architecture diagram',
+    keywords: ['architecture', 'graph', 'system', 'flow', 'embed'],
+    icon: GraphIcon,
+    group: 'advanced',
+    action: () => onEmbedDiagram(),
   }
 }
 

@@ -110,20 +110,15 @@
     border-radius: 0.4375rem;
     background: transparent;
     color: var(--solus-text-secondary);
-    /* The app's native menu size — these rows claim that language, so they use
-       its token. On a narrow laptop rail they step down with the rest of it. */
-    font-size: var(--text-menu);
+    /* The project rail declares its device-based type rung once. Rows inherit
+       it so resizing this container cannot change their typography. */
+    font-size: inherit;
     font-weight: 400;
     text-align: left;
     cursor: pointer;
     transition:
       background-color 0.15s ease,
       color 0.15s ease;
-  }
-  @container (max-width: 17rem) {
-    .menu-row {
-      font-size: var(--text-xs);
-    }
   }
   .menu-row.split-primary {
     flex: 1;

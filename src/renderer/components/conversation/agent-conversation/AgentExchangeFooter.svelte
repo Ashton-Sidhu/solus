@@ -36,12 +36,12 @@
 </script>
 
 <div
-  class="flex items-center gap-2.5 px-[15px] py-2.5 border-t-[0.5px] border-(--solus-agent-card-rule) {needsYou
+  class="flex items-center gap-2.5 px-3.5 py-2 text-xs border-t-[0.5px] border-(--solus-agent-card-rule) {needsYou
     ? 'bg-[color-mix(in_oklch,var(--chart-2)_7%,transparent)]'
     : 'bg-[color-mix(in_oklch,var(--foreground)_2.5%,transparent)]'}"
 >
   {#if needsYou && answerInSessionOnly}
-    <span class="text-sm text-muted-foreground">
+    <span class="text-muted-foreground">
       {agentName} needs an answer in its own session
     </span>
     <span class="flex-1"></span>
@@ -58,7 +58,7 @@
 
   {#if onStop}
     <button
-      class="flex items-center gap-1.5 shrink-0 rounded-lg px-2.5 py-1 text-xs text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--destructive)_12%,transparent)] hover:text-(--destructive)"
+      class="flex items-center gap-1.5 shrink-0 rounded-md px-2 py-0.5 text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--destructive)_12%,transparent)] hover:text-(--destructive)"
       onclick={onStop}
     >
       <svg
@@ -77,7 +77,7 @@
   {/if}
 
   <button
-    class="flex items-center gap-1.5 shrink-0 rounded-lg px-2.5 py-1 text-xs text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
+    class="flex items-center gap-1.5 shrink-0 rounded-md px-2 py-0.5 text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
     title="Open in a new tab"
     onclick={(e) =>
       onOpen({ split: e.metaKey || e.ctrlKey, background: e.shiftKey })}

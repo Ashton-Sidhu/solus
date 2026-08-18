@@ -68,6 +68,7 @@
     projectPanelOpen?: boolean;
     onProjectPanelToggle?: () => void;
     /** Optional pane-close control in the shared header action cluster. */
+    onOpenAsPage?: () => void;
     onClose?: () => void;
     closeLabel?: string;
   }
@@ -79,6 +80,7 @@
     showProjectPanelAction = true,
     projectPanelOpen,
     onProjectPanelToggle,
+    onOpenAsPage,
     onClose,
     closeLabel = "Close pane",
   }: Props = $props();
@@ -333,7 +335,7 @@
   const menuRowClosable = `${menuRow} pr-7 group-hover/row:bg-accent`;
   const rowStatus = "shrink-0 text-xs font-medium whitespace-nowrap";
   const rowClose =
-    "absolute top-1/2 right-[0.4375rem] flex size-[1.125rem] -translate-y-1/2 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-[opacity,background,color] duration-150 hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100";
+    "absolute top-1/2 right-[0.4375rem] flex size-[1.125rem] -translate-y-1/2 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-[opacity,background,color] duration-150 hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100 pointer-coarse:opacity-100";
   const bandAction =
     "flex size-[1.875rem] shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-[background,color] duration-150 hover:bg-accent hover:text-foreground";
   const isProjectPanelOpen = $derived(
@@ -342,6 +344,7 @@
   const hasTrailingActions = $derived(
     showNewSessionAction ||
       (showProjectPanelAction && !isProjectPanelOpen) ||
+      !!onOpenAsPage ||
       !!onClose,
   );
 
@@ -407,7 +410,7 @@
        a centreline. The crumb has no container of its own — it is plain text on
        the band, and the only affordance is the hover wash under each part. -->
   <div
-    class="workspace-titlebar crumb-band @container z-[3] flex items-center gap-px text-sm @max-[52rem]:text-xs {variant ===
+    class="workspace-titlebar crumb-band @container z-[3] flex items-center gap-px text-workspace-chrome {variant ===
  'inline'
  ? 'crumb-band--inline relative h-full min-w-0 flex-1 px-1'
  : 'absolute inset-x-0 top-1 h-[2.875rem] pr-3.5'}"
@@ -422,7 +425,7 @@
       <!-- The band, not the list, owns the type scale and the neutral colour:
            each crumb states its own, and the leaf stays full-contrast. -->
       <Breadcrumb.List
-        class="min-w-0 flex-nowrap gap-px text-sm text-foreground @max-[52rem]:text-xs"
+        class="min-w-0 flex-nowrap gap-px text-workspace-chrome text-foreground"
       >
         <Breadcrumb.Item
           class="relative shrink-0"
@@ -442,7 +445,6 @@
                   initial={projectInitial(projectLabel)}
                   active
                   class="size-4"
-                  letterClass="text-xs"
                 />
                 <span class="whitespace-nowrap text-muted-foreground"
                   >{projectLabel}</span
@@ -470,7 +472,6 @@
                       initial={project.initial}
                       active={project.projectKey === projectKey}
                       class="size-[1.125rem]"
-                      letterClass="text-xs"
                     />
                     <span
                       class="{menuLabel} {project.projectKey === projectKey
@@ -689,7 +690,7 @@
               <SessionNameInput
                 value={current?.label ?? leafLabels.session}
                 variant="band"
-                class="text-sm font-medium @max-[52rem]:text-xs"
+                class="text-workspace-chrome font-medium"
                 onCommit={(next) => {
                   void session.renameTab(tabId, next);
                   renamingTabId = null;
@@ -902,6 +903,18 @@
         onclick={toggleProjectPanel}
       >
         <SidebarSimpleIcon size={14} mirrored />
+      </button>
+    {/if}
+
+    {#if onOpenAsPage}
+      <button
+        type="button"
+        class={bandAction}
+        title="Open as page"
+        aria-label="Open as page"
+        onclick={onOpenAsPage}
+      >
+        <ArrowSquareOutIcon size={15} />
       </button>
     {/if}
 

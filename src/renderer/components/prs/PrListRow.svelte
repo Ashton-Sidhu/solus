@@ -1,6 +1,5 @@
 <script lang="ts">
   import {
-    BookOpenTextIcon,
     CaretRightIcon,
     CheckSquareIcon,
     CircleNotchIcon,
@@ -18,6 +17,7 @@
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { Button } from "../ui/button";
   import PrChecksChip from "./PrChecksChip.svelte";
+  import ReviewGuideGlyph from "../review/ReviewGuideGlyph.svelte";
   import { checksPresentation } from "./lib/checks";
   import { relativeTime, reviewEffortTooltip } from "./lib/pr-utils";
 
@@ -335,7 +335,7 @@
                     ? ''
                     : 'text-chart-2'}"
                 >
-                  <BookOpenTextIcon size={10} class="shrink-0" />
+                  <ReviewGuideGlyph size={10} class="shrink-0" />
                   Guide {guideTime}
                 </span>
               {/snippet}

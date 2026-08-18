@@ -34,13 +34,12 @@
     /** Duplicate the work into a new independent copy. */
     onDuplicate?: () => void | Promise<void>;
     workStorage?: WorkStorage;
-    onPromoteToProject?: () => void | Promise<void>;
-    promoting?: boolean;
+    onSaveToProject?: (content: string) => void | Promise<void>;
     /** Rename the work title. */
     onRename?: (title: string) => void;
   }
 
-  let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, minimizeOutline = false, onOpenChat, originalSessionMeta, docType, onRevert, onDelete, onDuplicate, workStorage, onPromoteToProject, promoting = false, onRename }: DocumentModalProps = $props();
+  let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, minimizeOutline = false, onOpenChat, originalSessionMeta, docType, onRevert, onDelete, onDuplicate, workStorage, onSaveToProject, onRename }: DocumentModalProps = $props();
 
   const session = getWorkspaceContext();
   const commentExtensions = [CommentMark];
@@ -245,13 +244,13 @@
       {workId}
       title={doc.title}
       currentContent={doc.content}
+      getCurrentContent={() => shell?.getCurrentMarkdown() ?? doc.content}
       {docType}
       {onRevert}
       {onDelete}
       {onDuplicate}
       {workStorage}
-      {onPromoteToProject}
-      {promoting}
+      {onSaveToProject}
       onGoogleUpload={googleUpload}
       {uploading}
       {uploaded}

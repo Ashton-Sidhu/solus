@@ -5,8 +5,21 @@ import type { Session, Tab } from '../../src/shared/types'
 const previousWindow = globalThis.window
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 const previousAudio = globalThis.Audio
+const previousLocalStorage = globalThis.localStorage
 
 function installRendererGlobals(): void {
+  const storage = new Map<string, string>()
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      get length() { return storage.size },
+      clear: () => storage.clear(),
+      getItem: (key: string) => storage.get(key) ?? null,
+      key: (index: number) => [...storage.keys()][index] ?? null,
+      removeItem: (key: string) => storage.delete(key),
+      setItem: (key: string, value: string) => storage.set(key, value),
+    } satisfies Storage,
+  })
   ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
     <T>(value: T) => value,
     { snapshot: <T>(value: T) => value },
@@ -35,6 +48,8 @@ afterEach(() => {
   else (globalThis as unknown as { $state: unknown }).$state = previousState
   if (previousAudio === undefined) delete (globalThis as unknown as { Audio?: typeof Audio }).Audio
   else globalThis.Audio = previousAudio
+  if (previousLocalStorage === undefined) delete (globalThis as unknown as { localStorage?: Storage }).localStorage
+  else Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: previousLocalStorage })
 })
 
 const GLOBAL_MODEL_CONFIG = {
@@ -278,6 +293,24 @@ describe('session drafts', () => {
     const started = workspace.sessionFor(tabId)
     expect(started.prompt.text).toBe('Implement it')
     expect(started.task).toEqual({ kind: 'existing', taskId: 'task-root' })
+  })
+
+  test('carries a bound work into the session it creates', async () => {
+    const { workspace } = await makeWorkspace()
+    const draft = workspace.openSessionDraft({ freshTask: true, workId: 'work-1' }, '/repo')
+    draft.prompt.text = 'Revise the document'
+
+    const snapshot = JSON.parse(JSON.stringify(workspace.sessionDraftsSnapshot))
+    const restoredWorkspace = await makeWorkspace()
+    restoredWorkspace.workspace.restoreSessionDrafts(snapshot)
+    const restored = restoredWorkspace.workspace.sessionDrafts.get(draft.id)
+
+    // WHY: a work-bound composer can survive navigation or reload before Send.
+    // The binding must remain on that prompt, not fall back to the active tab.
+    expect(restored.boundWorkId).toBe('work-1')
+
+    const tabId = restoredWorkspace.workspace.startSessionDraft(draft.id)
+    expect(restoredWorkspace.workspace.sessionFor(tabId).boundWorkId).toBe('work-1')
   })
 
   test('a fresh task takes the app defaults, not the current session tuning', async () => {

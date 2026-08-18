@@ -186,12 +186,55 @@ export function spanDetailLabel(span: MetricsSpan): string {
   return ''
 }
 
+/** The kinds that are Solus's own work rather than the agent's: the dispatch it
+ *  ran before the provider saw the prompt, the queue it held the prompt in, and
+ *  the settlement after the provider finished. They are one group behind one
+ *  toggle because they answer one question — what did Solus itself cost? */
+export const SOLUS_INTERNAL_KINDS = new Set([
+  'setup',
+  'internal.dispatch_step',
+  'queue_wait',
+  'turn_settlement',
+])
+
+/**
+ * The rows a reader has asked to see. Hiding a row hides everything nested
+ * under it, so the depth-first list never keeps a child whose parent is gone —
+ * a dispatch step orphaned onto the turn root would claim to be a top-level
+ * phase of the turn, which is the one thing it is not.
+ */
+export function visibleRows(rows: WaterfallRow[], showInternals: boolean): WaterfallRow[] {
+  if (showInternals) return rows
+  const kept: WaterfallRow[] = []
+  let hiddenAboveDepth: number | null = null
+  for (const row of rows) {
+    if (hiddenAboveDepth !== null && row.depth > hiddenAboveDepth) continue
+    hiddenAboveDepth = null
+    if (row.depth > 0 && SOLUS_INTERNAL_KINDS.has(row.kind)) {
+      hiddenAboveDepth = row.depth
+      continue
+    }
+    kept.push(row)
+  }
+  return kept
+}
+
+/** Whether a trace has anything the internals toggle would reveal. A turn that
+ *  resumed an existing session and settled instantly has nothing, and offering
+ *  a switch that changes nothing is worse than offering none. */
+export function hasInternalRows(trace: TraceView): boolean {
+  return trace.rows.some((row) => row.depth > 0 && SOLUS_INTERNAL_KINDS.has(row.kind))
+}
+
 function rowLabel(span: MetricsSpan): string {
   if (span.kind === 'tool_call' || span.kind === 'permission_wait') {
     const detail = spanDetailLabel(span)
     return detail ? `${span.name} · ${detail}` : span.name
   }
   if (span.kind === 'setup') return 'Solus setup'
+  // A dispatch step's name is its identifier — `worktree_create`, `task_prepare`.
+  // Read as a phrase it is a plain description of what Solus was doing.
+  if (span.kind === 'internal.dispatch_step') return span.name.replace(/_/g, ' ')
   return span.name
 }
 
@@ -340,30 +383,6 @@ export function barExtent(row: WaterfallRow, totalMs: number): [number, number] 
   const length = Math.max(row.durationMs ?? 0, minimum)
   const end = Math.min(row.startOffsetMs + length, totalMs)
   return [row.startOffsetMs, Math.max(end, row.startOffsetMs + minimum)]
-}
-
-export interface KindGroup {
-  kind: string
-  color: string
-  rows: WaterfallRow[]
-}
-
-/**
- * Rows split by kind, in first-appearance order.
- *
- * The chart draws one bar layer per kind so each keeps its own fixed colour.
- * Colouring through an ordinal scale instead would make a kind's hue depend on
- * which kinds happen to appear in this trace, and the legend beside it states
- * that the mapping is fixed.
- */
-export function rowsByKind(rows: WaterfallRow[]): KindGroup[] {
-  const groups = new Map<string, KindGroup>()
-  for (const row of rows) {
-    const group = groups.get(row.kind)
-    if (group) group.rows.push(row)
-    else groups.set(row.kind, { kind: row.kind, color: row.color, rows: [row] })
-  }
-  return [...groups.values()]
 }
 
 export interface SpanAttribute {

@@ -11,15 +11,8 @@
     active: boolean;
     /** Box size — 15px in the rail, 19px on a group header. */
     class: string;
-    letterClass: string;
   }
-  let {
-    projectKey,
-    initial,
-    active,
-    class: className,
-    letterClass,
-  }: Props = $props();
+  let { projectKey, initial, active, class: className }: Props = $props();
 
   // `~` stands in for a session with no repo behind it, so there is no root to
   // look a favicon up in.
@@ -32,6 +25,14 @@
   // as the eye is concerned, which is exactly what a single brand-filled tile
   // did to every project in the band.
   const markColor = $derived(projectFallbackColor(projectKey));
+
+  // The letters are measured from the plate, not from the surrounding text. A
+  // fixed size cannot be right for every caller — the same 12px that filled the
+  // 18px group header overflowed the 14px menu tile, and "MR" was wider than
+  // the plate it sat on. `cqw` is a share of the plate's own width, so one rule
+  // fits every box size. Two letters get the smaller share: they pay for a
+  // second advance width out of the same span.
+  const letterSize = $derived(initial.length > 1 ? "54cqw" : "64cqw");
 </script>
 
 <!--
@@ -54,7 +55,7 @@
     what give the tile an edge at 15px, where a flat rectangle reads as a gap.
   -->
   <span
-    class="flex size-full items-center justify-center rounded font-semibold tracking-[-0.02em] uppercase {letterClass}"
+    class="@container flex size-full items-center justify-center overflow-hidden rounded font-semibold tracking-[-0.02em] uppercase"
     style:--project-mark={markColor}
     style:background="linear-gradient(180deg, color-mix(in oklch, var(--project-mark) {active
       ? 28
@@ -66,7 +67,8 @@
       : 26}%, transparent)"
     style:color="color-mix(in oklch, var(--project-mark) {active
       ? 84
-      : 70}%, var(--foreground))">{initial}</span
+      : 70}%, var(--foreground))"
+    ><span class="leading-none" style:font-size={letterSize}>{initial}</span></span
   >
 {/snippet}
 

@@ -679,13 +679,15 @@ describe('SessionConfigController session start target', () => {
 
     const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
     let createdCwd: string | undefined
+    let startsFreshTask = false
     const controller = new SessionConfigController({
       settings: { activeAgent: 'codex', defaultModels: {}, tabGroupMode: 'flat', worktreeEnabled: false } as any,
       registry: { activeSession: undefined, activeTabId: '', tabOrder: [], sessionFor: () => undefined } as any,
       statusBar: { ctx: { workingDirectory: '/workspace' } } as any,
       setPluginCommands: () => {},
-      openSessionDraft: (cwd) => {
+      openSessionDraft: (cwd, freshTask) => {
         createdCwd = cwd
+        startsFreshTask = freshTask ?? false
       },
       ctx: () => ({ session: { sessionId: '' } }) as IpcContext,
       ctxForDirectory: () => ({ session: { sessionId: '' } }) as IpcContext,
@@ -701,6 +703,9 @@ describe('SessionConfigController session start target', () => {
     await controller.setBaseDirectory('/new-project')
 
     expect(createdCwd).toBe('/new-project')
+    // WHY: the tab-less home can still have an active task elsewhere in the
+    // workspace. The new project's composer must not inherit that task.
+    expect(startsFreshTask).toBe(true)
   })
 
   test('keeps project selection pending until Git and worktree intent resolve together', async () => {
@@ -734,6 +739,7 @@ describe('SessionConfigController session start target', () => {
       sessionChangedFiles: [],
       pluginCommands: { global: [], project: [] },
       readOnlyReason: null,
+      task: { kind: 'existing', taskId: 'old-project-task' },
     } as unknown as Session
     let resolveRefresh!: () => void
     const refresh = new Promise<void>((resolve) => { resolveRefresh = resolve })
@@ -771,6 +777,9 @@ describe('SessionConfigController session start target', () => {
     expect(controller.pendingSessionStartTarget('tab-1')).not.toBeNull()
     expect(session.run.workingDirectory).toBe('/new-project')
     expect(session.run.gitContext).toBeNull()
+    // WHY: changing projects must not carry the old project's selected task
+    // into the new project and attach the next session to the wrong work.
+    expect(session.task).toEqual({ kind: 'new' })
 
     resolveRefresh()
     await selection

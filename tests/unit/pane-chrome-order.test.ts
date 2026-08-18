@@ -45,7 +45,7 @@ describe('pane chrome document order', () => {
     // the same-file scan above cannot see the row. The chrome must still come
     // after the content that carries it.
     const hosts = [
-      'components/diff/DiffPane.svelte',
+      'components/review/ReviewPane.svelte',
       'components/files/FilesTreePane.svelte',
       'components/files/FileEditorHostPane.svelte',
       'components/conversation/SubagentHostPane.svelte',

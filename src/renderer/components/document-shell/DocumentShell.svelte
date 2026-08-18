@@ -22,7 +22,7 @@
     MagnifyingGlassIcon,
     DotsThreeIcon,
   } from "phosphor-svelte";
-  import { runtime } from "../../contexts";
+  import { runtime, getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import DocumentEditor from "../editor/DocumentEditor.svelte";
@@ -41,6 +41,8 @@
   import type { Scope } from "../../lib/keybindings/types";
   import { localApi } from "@client-core/local-api";
   import { serverConnections } from "@client-core/server-connections";
+  import { createDiagramEmbedExtension } from "../editor/diagramEmbedExtension";
+  import { buildGoogleDiagramAssets } from "./lib/google-diagrams";
 
   interface Props {
     /** Document title. Shown in the header's title cluster (alongside the pane
@@ -173,6 +175,22 @@
   }: Props = $props();
 
   const isMobile = $derived(runtime.isMobileViewport);
+  const session = getWorkspaceContext();
+  const diagramEmbedExtension = createDiagramEmbedExtension({
+    worksStore: session.worksStore,
+    onOpen: (workId) => session.openWork(workId, "aside"),
+  });
+  const editorExtensions = $derived([...extraExtensions, diagramEmbedExtension]);
+  const diagramChoices = $derived(
+    Object.values(session.worksStore.works)
+      .filter((work) => work.type === "diagram")
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .map((work) => ({ workId: work.id, title: work.title, updatedAt: work.updatedAt })),
+  );
+
+  $effect(() => {
+    void session.worksStore.loadAll();
+  });
 
   // Pane width, not window width: a narrow split pane on a wide monitor has to
   // fold its margin too, or the measure pays for a rail nobody can read.
@@ -484,7 +502,7 @@
   }
 
   // Copy the *live* editor content, not the (possibly stale, pre-save) prop.
-  function currentMarkdown(): string {
+  export function getCurrentMarkdown(): string {
     return (
       editorRef?.getCurrentMarkdown() ?? tiptapEditor?.getMarkdown() ?? content
     );
@@ -492,7 +510,7 @@
 
   function handleCopy() {
     navigator.clipboard
-      .writeText(currentMarkdown())
+      .writeText(getCurrentMarkdown())
       .then(() => {
         copied = true;
         setTimeout(() => (copied = false), 1800);
@@ -528,8 +546,17 @@
     const api = serverConnections.apiFor(defaultServerId);
     uploading = true;
     try {
-      const markdown = currentMarkdown();
-      const request = { title, markdown, oauthCallbackBaseUrl: googleOAuthCallbackBaseUrl() };
+      const markdown = getCurrentMarkdown();
+      const diagramAssets = await buildGoogleDiagramAssets(
+        markdown,
+        (workId) => session.worksStore.ensureContent(workId, "google-doc-upload"),
+      );
+      const request = {
+        title,
+        markdown,
+        diagramAssets: diagramAssets.length ? diagramAssets : undefined,
+        oauthCallbackBaseUrl: googleOAuthCallbackBaseUrl(),
+      };
       let result = await api.googleUploadDoc(request);
       if ("authUrl" in result) {
         await openUrl(result.authUrl);
@@ -687,7 +714,7 @@
         type="button"
         data-testid={closeTestId}
         onclick={onClose}
-        class="doc-shell-close absolute right-3 top-3 z-30"
+        class="doc-shell-close absolute right-3 top-2 z-30"
         aria-label="Close"
         title="Close"
       >
@@ -839,7 +866,8 @@
           onEditorReady={handleEditorReady}
           onModeChange={(m) => (editorMode = m)}
           onAskSolus={onAskSolus ? () => onAskSolus("") : undefined}
-          {extraExtensions}
+          extraExtensions={editorExtensions}
+          {diagramChoices}
           {placeholder}
           class={editorClass}
         />
@@ -931,11 +959,11 @@
      underneath), so there is no rule and no blur to separate them: the chrome
      and the paper are one surface, and only the type says which is which. */
   .doc-shell-toolbar {
-    height: 2.875rem;
+    height: var(--solus-chrome-row-h, 2.5rem);
     padding-left: 1.375rem;
   }
   .doc-shell-root--inline .doc-shell-toolbar {
-    height: var(--solus-chrome-row-h, 2.875rem);
+    height: var(--solus-chrome-row-h, 2.5rem);
     padding-left: max(1.375rem, var(--solus-chrome-lead-inset, 0px));
   }
   /* Where the document lives, in the same mono face as the section numerals. */

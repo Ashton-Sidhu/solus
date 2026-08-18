@@ -10,6 +10,8 @@
   import ConversationPaneSkeleton from "../conversation/ConversationPaneSkeleton.svelte";
   import SettingsPageSkeleton from "../settings/SettingsPageSkeleton.svelte";
   import PrsPageSkeleton from "../prs/PrsPageSkeleton.svelte";
+  import TaskPageSkeleton from "../tasks/task-page/TaskPageSkeleton.svelte";
+  import ReviewLoadingSurface from "../review/ReviewLoadingSurface.svelte";
   import PaneChrome from "./PaneChrome.svelte";
   import { paneActions } from "./lib/pane-actions.svelte";
 
@@ -45,6 +47,18 @@
         <SettingsPageSkeleton />
       {:else if ref.name === "prs"}
         <PrsPageSkeleton />
+      {:else if ref.name === "task"}
+        <TaskPageSkeleton />
+      {:else if ref.name === "review"}
+        <div class="relative h-full min-h-0 w-full">
+          <ReviewLoadingSurface view={ref.params.view ?? "diff"} />
+          <PaneChrome
+            onClose={actions.closeOverlay}
+            onOpenInSplit={!actions.isLeading ? actions.moveAcross : undefined}
+            isLeading={actions.isLeading}
+            closeLabel="Close loading review"
+          />
+        </div>
       {:else if ref.name === "chat"}
         <ConversationPaneSkeleton />
       {:else}
@@ -64,6 +78,7 @@
                  the cluster's no-drag holes must come after the row's drag rect. -->
             <PaneChrome
               onClose={actions.closeOverlay}
+              onOpenInSplit={!actions.isLeading ? actions.moveAcross : undefined}
               isLeading={actions.isLeading}
               closeLabel="Close loading pane"
             />

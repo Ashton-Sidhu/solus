@@ -29,7 +29,13 @@
   } from "@renderer/contexts/app/runtime-boot";
   import { createAppCore } from "@renderer/contexts/app/app-core";
   import { subscribe } from "@client-core/connection-state";
-  import { connectionsStore, parseRoute, serversStore, runtime } from "@renderer/contexts";
+  import {
+    connectionsStore,
+    parseRoute,
+    projectsStore,
+    serversStore,
+    runtime,
+  } from "@renderer/contexts";
   import { toasts } from "@renderer/lib/toasts";
   import { serverConnections } from "@client-core/server-connections";
   import { unsupportedOnHost } from "@client-core/host-capabilities";
@@ -51,7 +57,6 @@
     registerSuperProps,
     track,
   } from "@renderer/lib/analytics";
-  import { invalidateHomeCache } from "@renderer/components/layout/NewTabHome.svelte";
   import * as Tooltip from "@renderer/components/ui/tooltip";
   import WebLayout from "./components/WebLayout.svelte";
 
@@ -596,7 +601,7 @@
 
   async function handleDirectorySelected(dir: string) {
     directoryPickerOpen = false;
-    invalidateHomeCache();
+    projectsStore.invalidateRecentProjects();
     if (directoryPickerForOpenProject) {
       await finishBrowsedOpenProject(dir);
       return;
@@ -616,6 +621,7 @@
           draftHostOverride && draft.run.serverId !== draftHostOverride
             ? applyHostIntent(draft.run, draftHostOverride, dir, draftIntent)
             : withCheckout(draft.run, dir, null);
+        if (draftIntent === "open-project") draft.task = { kind: "new" };
         void session.environment.refresh(dir);
       }
       requestInputFocus();
@@ -631,7 +637,10 @@
       // A started conversation keeps its folder; the project opens as a new
       // draft beside it. Choosing a host is part of that draft's run config —
       // there is no tab to move, because nothing has started.
-      const draft = session.openSessionDraft({}, dir);
+      const draft = session.openSessionDraft(
+        { freshTask: intent === "open-project" },
+        dir,
+      );
       if (overrideServerId) {
         draft.run = applyHostIntent(draft.run, overrideServerId, dir, intent);
       }
@@ -743,13 +752,14 @@
         serverId,
         { path },
       );
+      requesterDraft.task = { kind: "new" };
       void session.environment.refresh(path);
       requestInputFocus();
     } else if (reusableTabId) {
       placeTabOnHost(reusableTabId, serverId, path);
       requestInputFocus({ tabId: reusableTabId });
     } else {
-      const draft = session.openSessionDraft({}, path);
+      const draft = session.openSessionDraft({ freshTask: true }, path);
       draft.run = withProjectHost(draft.run, serverId, { path });
       requestInputFocus();
     }

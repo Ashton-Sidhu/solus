@@ -99,6 +99,17 @@ describe('session sidebar layout', () => {
     expect(source).toContain('pr-8 pl-[1.5625rem]')
   })
 
+  test('keeps draft rows inside the sidebar width without a nested vertical scroller', () => {
+    // WHY: draft rows recover a small amount of right-side space for their
+    // discard action, so the section clips horizontally. It must not claim a
+    // separate vertical scrollbar from the task list below it.
+    const source = readSessionSource('SessionSidebar.svelte')
+    expect(source).toContain(
+      'class="overflow-x-hidden px-3.5 pb-1 @max-[15rem]:px-2.5"',
+    )
+    expect(source).not.toContain('flex max-h-[10.5rem] flex-shrink-0 flex-col')
+  })
+
   test('expands matching completed tasks while search is active', () => {
     // WHY: a matching completed task is not a usable search result if the
     // Completed shelf stays collapsed. The manual shelf preference remains
@@ -122,5 +133,18 @@ describe('session sidebar layout', () => {
     expect(source).toContain('text-primary')
     expect(source).not.toContain('All projects')
     expect(source).not.toContain('ProjectMark')
+  })
+
+  test('compacts task search actions only on fine-pointer laptop displays', () => {
+    // WHY: the task sidebar needs a denser toolbar on laptop screens without
+    // shrinking the same controls on large desktops or coarse-pointer clients.
+    const sidebar = readSessionSource('SessionSidebar.svelte')
+    const header = readSessionSource('TaskListHeader.svelte')
+
+    expect(sidebar).toContain('text-workspace-chrome')
+    expect(sidebar).toContain('[.is-laptop-display_&]:h-6 pointer-coarse:h-7')
+    expect(sidebar).toContain('[.is-laptop-display_&]:size-6 pointer-coarse:size-7')
+    expect(header).toContain('[.is-laptop-display_&]:h-7 pointer-coarse:h-8')
+    expect(header).toContain('[.is-laptop-display_&]:size-6 pointer-coarse:size-7')
   })
 })

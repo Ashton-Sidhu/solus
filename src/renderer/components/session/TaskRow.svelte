@@ -1,10 +1,8 @@
 <script lang="ts">
   import {
-    BookOpenTextIcon,
     ArrowUUpLeftIcon,
     AlarmIcon,
     CheckIcon,
-    CircleNotchIcon,
     GlobeIcon,
     LaptopIcon,
     MoonIcon,
@@ -16,6 +14,7 @@
   import { liveActivityClock } from "../../lib/shared-clock";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import ProjectMark from "./ProjectMark.svelte";
+  import ReviewGuideGlyph from "../review/ReviewGuideGlyph.svelte";
   import PrChip from "./PrChip.svelte";
   import SessionNameInput from "./SessionNameInput.svelte";
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
@@ -295,7 +294,6 @@
           initial={projectInitial(task.projectLabel)}
           active={false}
           class="size-4"
-          letterClass="text-xs"
         />
       </span>
     {/if}
@@ -315,7 +313,7 @@
         {#if renamingLead}
           <SessionNameInput
             value={task.title}
-            class="text-sm @max-[15rem]:text-xs {titleIsEmphasized
+            class="text-workspace-chrome {titleIsEmphasized
  ? 'font-medium'
  : ''}"
             onCommit={(next) => onRename(null, next)}
@@ -323,7 +321,7 @@
           />
         {:else}
           <span
-            class="min-w-0 flex-1 overflow-hidden text-sm leading-[1.1875rem] text-ellipsis whitespace-nowrap transition-colors duration-150 @max-[15rem]:text-xs {titleIsEmphasized
+            class="min-w-0 flex-1 overflow-hidden text-workspace-chrome text-ellipsis whitespace-nowrap transition-colors duration-150 {titleIsEmphasized
  ? 'font-medium'
  : ''} {titleLeads
  ? 'text-foreground'
@@ -342,25 +340,27 @@
               >
             {/if}
             {#if reviewGuideStatus === "generating"}
+              <!-- Writing a guide is work in flight, so it shares the cool tone
+                   the run spinner below already spends on that. -->
               <span
-                class="flex shrink-0 items-center text-(--solus-status-running-icon)"
+                class="flex shrink-0 items-center text-chart-5"
                 role="img"
                 aria-label="Generating review guide"
                 title="Generating review guide"
               >
-                <CircleNotchIcon
-                  size={14}
-                  class="animate-spin [animation-duration:0.9s] motion-reduce:animate-none"
+                <ReviewGuideGlyph
+                  size={15}
+                  class="animate-pulse [animation-duration:1.4s] motion-reduce:animate-none"
                 />
               </span>
             {:else if reviewGuideStatus === "ready"}
               <span
-                class="flex shrink-0 items-center text-(--solus-art-positive)"
+                class="flex shrink-0 items-center text-(--solus-status-complete)"
                 role="img"
                 aria-label="Review guide ready"
                 title="Review guide ready"
               >
-                <BookOpenTextIcon size={14} weight="fill" />
+                <ReviewGuideGlyph size={15} weight="fill" />
               </span>
             {/if}
             {#if task.woke}
@@ -422,7 +422,7 @@
              session has no task to close, so its cross only unloads it. -->
         {#if task.tabIds[0] || task.taskId}
           <span
-            class="-mr-1 hidden shrink-0 items-center gap-px group-hover/row:flex group-focus-within/row:flex"
+            class="-mr-1 hidden shrink-0 items-center gap-px group-hover/row:flex group-focus-within/row:flex pointer-coarse:flex"
           >
             <!-- Reversible first, destructive last, so the pointer never lands
                  on remove while aiming for the lifecycle action.
@@ -498,7 +498,7 @@
              One step down in size and gap buys the name back several
              characters, which is what the line is for. -->
         <span
-          class="mt-[0.625rem] flex h-5 min-w-0 max-w-full items-center gap-[0.375rem] text-xs text-[color-mix(in_oklch,var(--foreground)_64%,transparent)] @max-[15rem]:gap-1 @max-[15rem]:text-xs"
+          class="mt-[0.625rem] flex h-5 min-w-0 max-w-full items-center gap-[0.375rem] text-xs text-[color-mix(in_oklch,var(--foreground)_64%,transparent)] @max-[15rem]:gap-1"
         >
           <!-- The project's own mark identifies it faster than its name does.
                The band above already names the project while the list is
@@ -524,7 +524,6 @@
                 initial={projectInitial(task.projectLabel)}
                 active={false}
                 class="size-4 @max-[15rem]:size-[0.875rem]"
-                letterClass="text-xs @max-[15rem]:text-xs"
               />
               <span
                 class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
@@ -568,6 +567,7 @@
       branchName={task.branchName}
       serverId={task.serverId}
       attention={task.attention}
+      {reviewGuideStatus}
     />
   </TooltipUI.Root>
 

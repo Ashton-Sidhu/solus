@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Message } from "../../src/shared/types";
 import {
+  conversationFindTopInset,
   findConversationMatches,
   isSearchableConversationMessage,
 } from "../../src/renderer/components/conversation/lib/find";
@@ -15,6 +16,13 @@ function message(
 }
 
 describe("conversation find", () => {
+  test("clears the floating conversation breadcrumb without moving other surfaces", () => {
+    // WHY: the retained transcript slot is paint-contained, so the find bar
+    // cannot use z-index to rise above the sibling breadcrumb stacking layer.
+    expect(conversationFindTopInset(true)).toBe(66);
+    expect(conversationFindTopInset(false)).toBe(8);
+  });
+
   test("searches only visible user and plain assistant prose", () => {
     const messages = [
       message("user", "user", "Find this"),

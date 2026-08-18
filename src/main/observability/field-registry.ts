@@ -185,6 +185,8 @@ export const KIND_REGISTRY: Record<SpanKind, KindRegistration> = {
         attr('task', 'taskTitle', 'string', 'Task the turn ran under, by title'),
         attr('project', 'projectName', 'string', 'Project folder name — the tail of project_root'),
         attr('branch', 'branch', 'string', 'Git branch the turn ran on, when the session had a checkout'),
+        attr('hostname', 'hostname', 'string', 'Hostname of the machine that executed the turn'),
+        attr('host_os', 'hostOs', 'string', "Operating system of the execution host: 'macos', 'windows', or 'linux'"),
         attr('prompt_source', 'promptSource', 'string', "How the turn was dispatched: 'typed', 'queued', 'automation', 'agent', or 'dispatch'"),
         attr('reasoning_effort', 'reasoningEffort', 'string', 'Requested reasoning effort for the turn'),
         attr('is_resume', 'isResume', 'boolean', 'True when the provider continued an existing session'),
@@ -198,6 +200,12 @@ export const KIND_REGISTRY: Record<SpanKind, KindRegistration> = {
         attr('prompt', 'prompt', 'string', 'Prompt text, capped at 4 KB (see prompt_truncated)'),
         attr('prompt_chars', 'promptChars', 'number', 'Full prompt length in characters before capping'),
         attr('prompt_truncated', 'promptTruncated', 'boolean', 'True when the stored prompt text was capped'),
+        attr('system_prompt', 'systemPrompt', 'string', 'Composed system prompt the turn ran under, capped at 16 KB (see system_prompt_truncated)'),
+        attr('system_prompt_chars', 'systemPromptChars', 'number', 'Full system-prompt length in characters before capping'),
+        attr('system_prompt_truncated', 'systemPromptTruncated', 'boolean', 'True when the stored system prompt was capped'),
+        attr('response', 'response', 'string', "The agent's answer text, capped at 8 KB (see response_truncated)"),
+        attr('response_chars', 'responseChars', 'number', 'Full response length in characters before capping'),
+        attr('response_truncated', 'responseTruncated', 'boolean', 'True when the stored response text was capped'),
       ]),
     ],
   },
@@ -269,6 +277,13 @@ export const KIND_REGISTRY: Record<SpanKind, KindRegistration> = {
       attr('timed_out', 'timedOut', 'boolean', 'True when the run hit its timeout'),
     ],
   },
+  [SPAN_KINDS.internalDispatchStep]: {
+    description: 'one step of the Solus work that runs before a turn reaches the provider; nests under the turn\'s setup span',
+    fields: [
+      attr('step', 'step', 'string', 'Dot path of the step inside dispatch, e.g. launch_run.worktree_create'),
+      attr('error', 'error', 'string', 'Failure message when the step threw'),
+    ],
+  },
   [SPAN_KINDS.internalRpc]: {
     description: 'one RPC request handled by the Solus server',
     fields: [],
@@ -321,6 +336,8 @@ const EVENT_FIELDS = (): RegisteredField[] => [
   rootAttr('automation', 'automationName', 'string', "Name of the automation whose turn produced the event, when any"),
   rootAttr('task', 'taskTitle', 'string', "Title of the task the event's turn ran under, when any"),
   rootAttr('branch', 'branch', 'string', "Git branch the event's turn ran on, when any"),
+  rootAttr('hostname', 'hostname', 'string', "Hostname of the machine that executed the event's turn"),
+  rootAttr('host_os', 'hostOs', 'string', "Operating system of the machine that executed the event's turn"),
   ...withGroup('tool', [
     inputAttr('command', 'command', 'string', 'The command field of a tool input (Bash and command tools)'),
     inputAttr('file_path', 'file_path', 'string', 'The file_path field of a tool input (file tools)'),
@@ -337,7 +354,7 @@ const EVENT_FIELDS = (): RegisteredField[] => [
 const INTERNAL_EVENT_FIELDS = (): RegisteredField[] => [
   ...withGroup('dimension', [
     column('kind', 'kind', 'string', kindColumnDescription(internalEventKinds())),
-    column('name', 'name', 'string', 'The RPC method, sweep, or worktree operation'),
+    column('name', 'name', 'string', 'The dispatch step, RPC method, sweep, or worktree operation'),
   ]),
   ...BASE_FIELDS,
   column('attrs', 'attrs', 'string', 'JSON object of the kind-specific fields; read with json_extract'),

@@ -242,11 +242,11 @@
                the prompts below it slide instead of snapping. The bubble's
                min-width stops "Edit … Remove" clipping under a short prompt. -->
           <div
-            class="grid grid-rows-[0fr] transition-[grid-template-rows] duration-150 ease-out group-hover/bubble:grid-rows-[1fr] group-focus-within/bubble:grid-rows-[1fr]"
+            class="grid grid-rows-[0fr] transition-[grid-template-rows] duration-150 ease-out group-hover/bubble:grid-rows-[1fr] group-focus-within/bubble:grid-rows-[1fr] pointer-coarse:grid-rows-[1fr]"
           >
             <div class="overflow-hidden">
               <div
-                class="mt-2 flex items-center gap-2.5 border-t border-[color-mix(in_oklch,var(--foreground)_8%,transparent)] pt-1.5 opacity-0 transition-opacity duration-150 ease-out group-hover/bubble:opacity-100 group-focus-within/bubble:opacity-100"
+                class="mt-2 flex items-center gap-2.5 border-t border-[color-mix(in_oklch,var(--foreground)_8%,transparent)] pt-1.5 opacity-0 transition-opacity duration-150 ease-out group-hover/bubble:opacity-100 group-focus-within/bubble:opacity-100 pointer-coarse:opacity-100"
               >
                 {#if onEditSubmit}
                   <button

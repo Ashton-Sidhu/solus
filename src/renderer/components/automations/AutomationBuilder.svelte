@@ -91,13 +91,14 @@
   const MAIN_COLUMN =
     "flex w-full min-w-0 max-w-[53.75rem] flex-1 flex-col @max-[65rem]:max-w-none @max-[65rem]:flex-none";
   const RAIL_BLOCK =
-    "flex min-w-0 flex-col gap-3 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]";
+    "flex min-w-0 flex-col gap-3 [.is-laptop-display_&]:gap-2.5 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]";
   const STAT_LABEL =
     "text-xs font-normal  text-muted-foreground uppercase";
   const STAT_VALUE = "text-sm font-medium ";
   // Pill actions in the title row. Both sit at 2.0625rem so they read as one
   // pair; only "Run now" carries fill.
-  const PILL = "h-[2.0625rem] shrink-0 rounded-full text-sm";
+  const PILL =
+    "h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome [.is-laptop-display_&]:h-[1.875rem]";
   // Sidebar background — also used by the inline pane container. Kept a hair
   // warmer than the page so the pane reads as its own surface.
   const SIDEBAR_PANEL_BG =
@@ -402,8 +403,8 @@
   }
 
   // ── Persistence (auto-save) ──
-  // Header save indicator — mirrors DocumentShell's auto-save status: a pulsing
-  // dot + "Saving…" while a write is in flight, then a check + self-refreshing
+  // Header save indicator — mirrors DocumentShell's auto-save status: a spinner
+  // + "Saving…" while a write is in flight, then a check + self-refreshing
   // "Last saved …" once it lands. `savedStatusNow` is ticked on an interval so
   // the relative timestamp stays current without an edit.
   let isSaving = $state(false);
@@ -593,10 +594,7 @@
     role="status"
   >
     {#if isSaving}
-      <span
-        class="size-1.5 shrink-0 animate-pulse rounded-full bg-(--solus-accent)"
-        aria-hidden="true"
-      ></span>
+      <CircleNotchIcon size={11} class="animate-spin" aria-hidden="true" />
       <span>Saving…</span>
     {:else if lastSavedAt !== null}
       <CheckIcon size={11} />
@@ -612,7 +610,7 @@
   <div
     class="workspace-titlebar flex h-(--solus-chrome-row-h) shrink-0 items-center justify-between gap-3 border-b border-border/45 pr-[max(0.875rem,var(--solus-pane-chrome-inset,0px))] pl-[max(1.25rem,var(--solus-chrome-lead-inset,0px))]"
   >
-    <Breadcrumb.Root class="min-w-0">
+    <Breadcrumb.Root class="min-w-0 flex-1 overflow-hidden">
       <Breadcrumb.List class="min-w-0 flex-nowrap gap-[0.4375rem] text-sm">
         <Breadcrumb.Item>
           <Breadcrumb.Link class={CRUMB_LINK}>
@@ -645,12 +643,6 @@
   >
     <div class="flex min-w-0 flex-1 flex-col gap-2.5">
       <div class="flex items-center gap-2">
-        <span
-          class="size-1.5 shrink-0 rounded-full {enabled
- ? 'bg-chart-3'
- : 'bg-muted-foreground/60'} {isRunning ? 'animate-pulse' : ''}"
-          aria-hidden="true"
-        ></span>
         <span
           class="text-xs font-normal uppercase {enabled
  ? 'text-[color:color-mix(in_oklab,var(--chart-3)_72%,var(--foreground))]'
@@ -686,7 +678,7 @@
       {#if isEditing}
         <Button
           variant="outline"
-          class="{PILL} gap-1.5 border-border/85 bg-transparent px-3 font-medium text-[color:color-mix(in_oklab,var(--foreground)_85%,var(--muted-foreground))] dark:bg-transparent"
+          class="{PILL} gap-1.5 border-border/85 bg-transparent px-3 font-medium text-[color:color-mix(in_oklab,var(--foreground)_85%,var(--muted-foreground))] [.is-laptop-display_&]:px-2.5 dark:bg-transparent"
           onclick={endEdit}
         >
           <CheckIcon size={12} weight="bold" />
@@ -695,7 +687,7 @@
       {:else}
         <Button
           variant="outline"
-          class="{PILL} gap-1.5 border-border/85 bg-transparent px-3 font-medium text-[color:color-mix(in_oklab,var(--foreground)_85%,var(--muted-foreground))] dark:bg-transparent"
+          class="{PILL} gap-1.5 border-border/85 bg-transparent px-3 font-medium text-[color:color-mix(in_oklab,var(--foreground)_85%,var(--muted-foreground))] [.is-laptop-display_&]:px-2.5 dark:bg-transparent"
           onclick={beginEdit}
         >
           <PencilSimpleIcon size={12} />
@@ -706,7 +698,7 @@
       {#if isRunning}
         <Button
           variant="destructive"
-          class="{PILL} gap-1.5 px-3.5 font-medium"
+          class="{PILL} gap-1.5 px-3.5 font-medium [.is-laptop-display_&]:px-2.5"
           onclick={cancelRun}
           disabled={cancelling}
           aria-label="Stop run"
@@ -721,7 +713,7 @@
         </Button>
       {:else}
         <Button
-          class="{PILL} gap-[0.4375rem] pr-[0.9375rem] pl-[0.8125rem] font-medium hover:bg-[color:color-mix(in_oklab,var(--primary)_89%,black)]"
+          class="{PILL} gap-[0.4375rem] pr-[0.9375rem] pl-[0.8125rem] font-medium hover:bg-[color:color-mix(in_oklab,var(--primary)_89%,black)] [.is-laptop-display_&]:pr-[0.6875rem] [.is-laptop-display_&]:pl-[0.625rem]"
           onclick={runNow}
           aria-label="Run now"
         >
@@ -829,7 +821,7 @@
 <!-- ── The rail: machine facts, set like data ── -->
 {#snippet railCard()}
   <div
-    class="flex flex-col gap-6.5 rounded-2xl border border-border/55 bg-card p-5 @max-[65rem]:flex-row @max-[65rem]:flex-wrap @max-[65rem]:gap-x-10 @max-[65rem]:gap-y-6.5"
+    class="flex flex-col gap-6.5 rounded-2xl border border-border/55 bg-card p-5 [.is-laptop-display_&]:gap-5 [.is-laptop-display_&]:p-4 @max-[65rem]:flex-row @max-[65rem]:flex-wrap @max-[65rem]:gap-x-10 @max-[65rem]:gap-y-6.5"
   >
     <!-- Schedule -->
     <div class={RAIL_BLOCK}>
@@ -940,6 +932,7 @@
                 commitAction();
               }}
               size="default"
+              class="[.is-laptop-display_&]:h-[14px] [.is-laptop-display_&]:w-6 [.is-laptop-display_&]:[&_[data-slot=switch-thumb]]:size-3"
               aria-label="Run each fire on an isolated git branch"
               title="Run each fire on an isolated git branch"
             />
@@ -972,7 +965,7 @@
       {@render statStrip()}
       {@render instructionsBlock()}
     </main>
-    <aside class="w-[21.25rem] shrink-0 @max-[65rem]:w-auto">
+    <aside class="w-[21.25rem] shrink-0 [.is-laptop-display_&]:w-[19rem] @max-[65rem]:w-auto">
       {@render railCard()}
     </aside>
   </div>

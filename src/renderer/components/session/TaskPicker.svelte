@@ -307,9 +307,9 @@
         {@const bars = priorityBars(selectedTask.priority)}
         {@const openedAt = selectedTask.createdAt ? relativeTime(selectedTask.createdAt) : ""}
         <div class="mx-auto flex max-w-xl flex-col">
-          <div class="flex flex-wrap items-center gap-x-[13px] gap-y-1.5 pb-[11px]">
+          <div class="flex flex-wrap items-center gap-x-[13px] gap-y-1.5 pb-[11px] text-workspace-chrome leading-5">
             <span
-              class="inline-flex items-center gap-1.5 text-sm"
+              class="inline-flex h-5 items-center gap-1.5"
               style="color:{statusTextColor(selectedTask.status)}"
             >
               <svg
@@ -326,7 +326,7 @@
               {status.label}
             </span>
             <span class="h-[11px] w-px bg-[var(--hairline-strong)]" aria-hidden="true"></span>
-            <span class="inline-flex items-center gap-1.5 text-sm text-(--solus-text-tertiary)">
+            <span class="inline-flex h-5 items-center gap-1.5 text-(--solus-text-tertiary)">
               <span class="flex h-[9px] shrink-0 items-end gap-[1.5px]" aria-hidden="true">
                 {#each bars as bar (bar.height)}
                   <span
@@ -338,10 +338,10 @@
               {priorityLabel(selectedTask.priority)}
             </span>
             <span class="h-[11px] w-px bg-[var(--hairline-strong)]" aria-hidden="true"></span>
-            <span class="text-sm text-(--solus-text-tertiary)">{projectLabel(selectedTask)}</span>
+            <span class="inline-flex h-5 items-center text-(--solus-text-tertiary)">{projectLabel(selectedTask)}</span>
             {#if openedAt}
               <span class="h-[11px] w-px bg-[var(--hairline-strong)]" aria-hidden="true"></span>
-              <span class="text-xs text-(--solus-text-tertiary) opacity-75">opened {openedAt}</span>
+              <span class="inline-flex h-5 items-center text-(--solus-text-tertiary) opacity-75">opened {openedAt}</span>
             {/if}
           </div>
           <h2 class="m-0 text-2xl font-medium leading-[1.25] text-pretty text-(--solus-text-primary)">{selectedTask.title}</h2>
@@ -453,7 +453,7 @@
   </div>
 {:else if open && layer.el}
   <div use:portal={layer.el} class="pointer-events-auto fixed inset-0 z-[200] flex items-center justify-center overflow-hidden overscroll-contain bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] motion-safe:animate-[backdrop-fade_140ms_ease-out]" style={centringStyle}>
-    <div bind:this={pickerEl} class="flex h-3/4 max-h-[75%] w-3/4 origin-top flex-col overflow-hidden overscroll-contain rounded-2xl border border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-(--solus-container-bg) max-md:shadow-none" role="dialog" aria-label="Task picker" tabindex="-1" onkeydown={handleKeyDown}>
+    <div bind:this={pickerEl} class="flex h-3/4 max-h-[75%] w-4/5 origin-top flex-col overflow-hidden overscroll-contain rounded-2xl border border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards] [.is-laptop-display_&]:w-[90%] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-(--solus-container-bg) max-md:shadow-none" role="dialog" aria-label="Task picker" tabindex="-1" onkeydown={handleKeyDown}>
       {@render pickerContent()}
     </div>
   </div>

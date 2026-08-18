@@ -159,8 +159,8 @@ export interface SessionGroup {
   turns: TurnRow[]
   totalDurationMs: number
   totalCostUsd: number | null
-  /** The most recent prompt in the group — what the collapsed row shows. */
-  latestPrompt: string
+  /** The session's first prompt — what the collapsed row shows. */
+  firstPrompt: string
 }
 
 /** Groups in first-appearance order, so the group list follows whatever sort
@@ -176,7 +176,7 @@ export function groupBySession(rows: TurnRow[]): SessionGroup[] {
         turns: [],
         totalDurationMs: 0,
         totalCostUsd: null,
-        latestPrompt: '',
+        firstPrompt: '',
       }
       groups.set(sessionId, group)
     }
@@ -185,8 +185,10 @@ export function groupBySession(rows: TurnRow[]): SessionGroup[] {
     if (row.costUsd != null) group.totalCostUsd = (group.totalCostUsd ?? 0) + row.costUsd
   }
   for (const group of groups.values()) {
-    const latest = group.turns.reduce((newest, row) => (row.startedAt > newest.startedAt ? row : newest))
-    group.latestPrompt = latest.prompt
+    const first = group.turns.reduce((earliest, row) =>
+      row.startedAt < earliest.startedAt ? row : earliest,
+    )
+    group.firstPrompt = first.prompt
   }
   return [...groups.values()]
 }

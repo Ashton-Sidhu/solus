@@ -30,6 +30,7 @@ export type SettingsTab =
   | 'tools'
   | 'skills'
   | 'voice'
+  | 'telemetry'
   | 'experimental'
   | 'projects'
   | 'keybindings'
@@ -44,6 +45,7 @@ const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
   'tools',
   'skills',
   'voice',
+  'telemetry',
   'experimental',
   'projects',
   'keybindings',
@@ -51,6 +53,15 @@ const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
 
 function isSettingsTab(value: string): value is SettingsTab {
   return SETTINGS_TABS.has(value)
+}
+
+/** Which face of a change the review pane is showing. */
+export type ReviewView = 'map' | 'guide' | 'diff'
+
+const REVIEW_VIEWS: ReadonlySet<string> = new Set<ReviewView>(['map', 'guide', 'diff'])
+
+function isReviewView(value: string): value is ReviewView {
+  return REVIEW_VIEWS.has(value)
 }
 
 /** The params each destination carries. Serializable by construction. */
@@ -83,7 +94,19 @@ export interface RouteParams {
   /** A goal belongs to a thread, so the pane names the session — not whichever
    *  tab happened to open it, which may since have closed. */
   goal: { sessionId: string; serverId?: string }
-  review: { key: string; scope: 'branch' | 'session'; sourceTabId?: string }
+  /** The one surface for reading a local change: map, guide, and diff. `view`
+   *  is which face is showing; `scope` is *which* change all three read. An
+   *  absent scope is the branch review — the whole branch against its target,
+   *  which has no `DiffScope` kind of its own because its base sha is live Git
+   *  state the pane resolves rather than something a link may pin. The working
+   *  directory and checkout come off the source tab's environment for the same
+   *  reason. */
+  review: {
+    sourceTabId: string
+    view?: ReviewView
+    scope?: DiffScope
+    filePath?: string
+  }
   prReview: {
     number: number
     title?: string
@@ -93,10 +116,6 @@ export interface RouteParams {
     expectedRepo?: { host: string; owner: string; repo: string }
   }
   prDiff: { number: number; cwd?: string; serverId?: string }
-  // The working directory and checkout a viewer runs against are derived from
-  // its source tab's environment, not carried: they are live Git state, and a
-  // route that pinned them would go stale the moment the branch moved.
-  diff: { sourceTabId: string; scope?: DiffScope; filePath?: string }
   // A file tree names a run source — a tab or a draft — not a conversation:
   // which machine the files are on and which directory they sit in both come
   // off the run, and a draft has one before it has a session.
@@ -380,15 +399,47 @@ export const ROUTES = defineRoutes({
   },
   review: {
     parse: (s) => {
-      const slash = s.indexOf('/')
-      if (slash === -1) return s ? { key: s, scope: 'branch' } : null
-      const key = s.slice(0, slash)
-      const [scope, sourceTabId] = s.slice(slash + 1).split('/')
-      if (!key || (scope !== 'branch' && scope !== 'session')) return null
-      return { key, scope, sourceTabId: optional(sourceTabId) }
+      const [head, second, ...rest] = s.split('/')
+      if (!head) return null
+      // The guide route this one absorbed: `<key>/<branch|session>/<sourceTabId>`.
+      // `branch`/`session` can never be a view name, so the two forms never
+      // collide. The cached-guide key is dropped — it is derivable from the
+      // checkout, which is why it was never load-bearing.
+      if (second === 'branch' || second === 'session') {
+        const sourceTabId = rest[0]
+        if (!sourceTabId) return null
+        const legacy: RouteParams['review'] = { sourceTabId, view: 'guide' }
+        if (second === 'session') legacy.scope = { kind: 'session' }
+        return legacy
+      }
+      // Parsing is canonicalising: a location always names its view, so a
+      // round trip through the address bar cannot quietly change one.
+      const params: RouteParams['review'] = {
+        sourceTabId: head,
+        view: second && isReviewView(second) ? second : 'diff',
+      }
+      // `branch` in the scope slot is the branch review, whose base is resolved
+      // live. Anything else is a real DiffScope.
+      const scopeSegment = rest[0]
+      if (scopeSegment && scopeSegment !== 'branch') params.scope = parseDiffScope(scopeSegment)
+      const filePath = optional(rest.slice(1).join('/'))
+      if (filePath) params.filePath = filePath
+      return params
     },
-    serialize: (p) => [p.key, p.scope, p.sourceTabId ?? ''].join('/').replace(/\/+$/, ''),
-    placement: 'any',
+    serialize: (p) =>
+      [
+        p.sourceTabId,
+        p.view ?? 'diff',
+        p.scope ? serializeDiffScope(p.scope) : 'branch',
+        p.filePath ?? '',
+      ]
+        .join('/')
+        .replace(/\/+$/, ''),
+    // The diff's placement, not the old guide's leading pane: reading changes
+    // beside a running conversation is the high-frequency gesture, and the
+    // guide is now a tab away rather than a different destination.
+    placement: 'overlay',
+    defaultWeight: 0.6,
     component: () => import('../../../components/review/ReviewPane.svelte'),
   },
   prReview: {
@@ -451,22 +502,6 @@ export const ROUTES = defineRoutes({
     placement: 'aside',
     defaultWeight: 0.5,
     component: () => import('../../../components/pr-review/PrDiffPane.svelte'),
-  },
-  diff: {
-    parse: (s) => {
-      const [sourceTabId, scope, ...rest] = s.split('/')
-      if (!sourceTabId) return null
-      return {
-        sourceTabId,
-        scope: parseDiffScope(scope),
-        filePath: optional(rest.join('/')),
-      }
-    },
-    serialize: (p) =>
-      [p.sourceTabId, serializeDiffScope(p.scope), p.filePath ?? ''].join('/').replace(/\/+$/, ''),
-    placement: 'overlay',
-    defaultWeight: 0.6,
-    component: () => import('../../../components/diff/DiffPane.svelte'),
   },
   files: {
     parse: (s) => (s ? { sourceId: s } : null),
@@ -531,12 +566,42 @@ export function serializeRef(ref: RouteRef): string {
   return segment ? `${ref.name}/${segment}` : ref.name
 }
 
+/**
+ * Route names that no longer exist, and what they became. A persisted location
+ * or a shared link outlives the route it names, so a retired name is a redirect
+ * here rather than a dropped pane.
+ *
+ * Each entry brings its own parser: the old name had its own segment grammar,
+ * and reading it with the successor's parser would silently mis-seat every
+ * field rather than fail.
+ */
+const RENAMED_ROUTES = new Map<string, (segment: string) => RouteRef | null>([
+  // The diff became the review pane's Diff view. Its grammar was
+  // `<sourceTabId>/<scope>/<filePath>` — a scope where the review pane now
+  // writes a view — so it is read here and re-seated.
+  [
+    'diff',
+    (segment: string) => {
+      const [sourceTabId, scope, ...rest] = segment.split('/')
+      if (!sourceTabId) return null
+      const params: RouteParams['review'] = { sourceTabId, view: 'diff' }
+      if (scope) params.scope = parseDiffScope(scope)
+      const filePath = optional(rest.join('/'))
+      if (filePath) params.filePath = filePath
+      return { name: 'review', params }
+    },
+  ],
+])
+
 /** Total: unparseable input yields null so the caller can drop one pane. */
 export function parseRef(text: string): RouteRef | null {
   const slash = text.indexOf('/')
   const name = slash === -1 ? text : text.slice(0, slash)
+  const segment = slash === -1 ? '' : text.slice(slash + 1)
+  const renamed = RENAMED_ROUTES.get(name)
+  if (renamed) return renamed(segment)
   if (!isRouteName(name)) return null
-  const params = ROUTES[name].parse(slash === -1 ? '' : text.slice(slash + 1))
+  const params = ROUTES[name].parse(segment)
   // SAFETY: The selected descriptor parses the parameter type paired with name.
   return params ? ({ name, params } as RouteRef) : null
 }

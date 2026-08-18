@@ -119,7 +119,7 @@
               {...mergeProps(tooltipProps, props)}
               bind:ref={triggerEl}
               variant="ghost"
-              class="group relative h-auto min-w-0 shrink gap-1.5 rounded-lg px-2 py-1 text-sm font-normal transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-0 after:absolute after:left-0 after:top-1/2 after:h-10 after:w-full after:-translate-y-1/2 after:content-[''] {open
+              class="group relative h-auto min-w-0 shrink gap-1.5 rounded-lg px-2 py-1 text-workspace-chrome font-normal transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-0 after:absolute after:left-0 after:top-1/2 after:h-10 after:w-full after:-translate-y-1/2 after:content-[''] {open
  ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
  : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
               style="max-width:12rem"
@@ -144,10 +144,10 @@
     {/snippet}
   </Popover.Trigger>
   <!-- The composer is bottom-anchored, so the list opens over the transcript.
-       `lg:text-menu` restates the size for the `lg:` breakpoint: Popover.Content
+       `lg:text-workspace-chrome` restates the size for the `lg:` breakpoint: Popover.Content
        ships `lg:text-sm`, and a breakpoint-prefixed class is a separate
-       merge group, so the bare `text-menu` leaves it standing and the 15px wins
-       above 1024px. -->
+       merge group. Nested rows and the search field otherwise keep their own
+       fixed menu rung, so this surface opts all three into the display rung. -->
   <Popover.Content
     data-solus-ui
     customAnchor={triggerEl}
@@ -156,7 +156,7 @@
     sideOffset={6}
     collisionPadding={8}
     onCloseAutoFocus={handleCloseAutoFocus}
-    class="menu-surface z-[10002] w-[288px] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-menu lg:text-menu shadow-[shadow:var(--solus-menu-shadow)] ring-0"
+    class="menu-surface z-[10002] w-[288px] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome"
   >
     <Command.Root>
       <MenuSearch bind:value={query} placeholder="Search projects" />

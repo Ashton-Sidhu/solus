@@ -6,14 +6,14 @@ import { Database } from 'bun:sqlite'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type FacadeModule = typeof import('../../src/main/observability/facade')
+type SpanTableModule = typeof import('../../src/main/observability/span-table')
 type MetricsDbModule = typeof import('../../src/main/observability/metrics-db')
 type RollupsModule = typeof import('../../src/main/observability/rollups')
 type RegistriesModule = typeof import('../../src/main/observability/registries')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
-let facade: FacadeModule
+let spanTable: SpanTableModule
 let metricsDb: MetricsDbModule
 let rollups: RollupsModule
 let registries: RegistriesModule
@@ -21,7 +21,7 @@ let registries: RegistriesModule
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-metrics-rollups-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  facade = await import('../../src/main/observability/facade')
+  spanTable = await import('../../src/main/observability/span-table')
   metricsDb = await import('../../src/main/observability/metrics-db')
   rollups = await import('../../src/main/observability/rollups')
   registries = await import('../../src/main/observability/registries')
@@ -51,14 +51,14 @@ describe.serial('turn trace', () => {
     const service = registries.SPAN_SERVICES.sessions
     const shared = { traceId: 'trace-1', sessionId: 'session-1', service, status: 'ok' as const }
     // Root turn [0, 100]; the root's span id IS the trace id.
-    facade.writeSpan({ ...shared, spanId: 'trace-1', kind: turn, name: 'turn', startedAt: 0, endedAt: 100 })
+    spanTable.writeSpan({ ...shared, spanId: 'trace-1', kind: turn, name: 'turn', startedAt: 0, endedAt: 100 })
     // Overlapping tools [10,40] and [30,60] → union [10,60] = 50.
-    facade.writeSpan({ ...shared, spanId: 'tool-a', parentSpanId: 'trace-1', kind: toolCall, name: 'Bash', startedAt: 10, endedAt: 40 })
-    facade.writeSpan({ ...shared, spanId: 'tool-b', parentSpanId: 'trace-1', kind: toolCall, name: 'Read', startedAt: 30, endedAt: 60 })
+    spanTable.writeSpan({ ...shared, spanId: 'tool-a', parentSpanId: 'trace-1', kind: toolCall, name: 'Bash', startedAt: 10, endedAt: 40 })
+    spanTable.writeSpan({ ...shared, spanId: 'tool-b', parentSpanId: 'trace-1', kind: toolCall, name: 'Read', startedAt: 30, endedAt: 60 })
     // Permission [90,95] adds 5.
-    facade.writeSpan({ ...shared, spanId: 'perm-a', parentSpanId: 'trace-1', kind: permissionWait, name: 'Bash', startedAt: 90, endedAt: 95 })
+    spanTable.writeSpan({ ...shared, spanId: 'perm-a', parentSpanId: 'trace-1', kind: permissionWait, name: 'Bash', startedAt: 90, endedAt: 95 })
     // Background work covers everything but never blocks — excluded.
-    facade.writeSpan({ ...shared, spanId: 'bg-a', parentSpanId: 'trace-1', kind: backgroundTask, name: 'bg', startedAt: 0, endedAt: 100, attrs: { blocking: false } })
+    spanTable.writeSpan({ ...shared, spanId: 'bg-a', parentSpanId: 'trace-1', kind: backgroundTask, name: 'bg', startedAt: 0, endedAt: 100, attrs: { blocking: false } })
 
     const trace = rollups.turnTrace('trace-1')
     expect(trace.spans.map((span) => span.spanId)).toEqual(['bg-a', 'trace-1', 'tool-a', 'tool-b', 'perm-a'])
@@ -71,7 +71,7 @@ describe.serial('turn trace', () => {
     const { turn, setup, thinking, toolCall, responseStream } = registries.SPAN_KINDS
     const service = registries.SPAN_SERVICES.sessions
     const shared = { traceId: 'trace-gaps', sessionId: 'session-gaps', service, status: 'ok' as const }
-    facade.writeSpan({
+    spanTable.writeSpan({
       ...shared,
       spanId: 'trace-gaps',
       kind: turn,
@@ -85,10 +85,10 @@ describe.serial('turn trace', () => {
         timeToProviderCompleteMs: 85,
       },
     })
-    facade.writeSpan({ ...shared, spanId: 'setup', parentSpanId: 'trace-gaps', kind: setup, name: 'setup', startedAt: 0, endedAt: 5 })
-    facade.writeSpan({ ...shared, spanId: 'thinking', parentSpanId: 'trace-gaps', kind: thinking, name: 'thinking', startedAt: 20, endedAt: 30 })
-    facade.writeSpan({ ...shared, spanId: 'tool', parentSpanId: 'trace-gaps', kind: toolCall, name: 'Read', startedAt: 40, endedAt: 60 })
-    facade.writeSpan({ ...shared, spanId: 'response', parentSpanId: 'trace-gaps', kind: responseStream, name: 'response_stream', startedAt: 70, endedAt: 75 })
+    spanTable.writeSpan({ ...shared, spanId: 'setup', parentSpanId: 'trace-gaps', kind: setup, name: 'setup', startedAt: 0, endedAt: 5 })
+    spanTable.writeSpan({ ...shared, spanId: 'thinking', parentSpanId: 'trace-gaps', kind: thinking, name: 'thinking', startedAt: 20, endedAt: 30 })
+    spanTable.writeSpan({ ...shared, spanId: 'tool', parentSpanId: 'trace-gaps', kind: toolCall, name: 'Read', startedAt: 40, endedAt: 60 })
+    spanTable.writeSpan({ ...shared, spanId: 'response', parentSpanId: 'trace-gaps', kind: responseStream, name: 'response_stream', startedAt: 70, endedAt: 75 })
 
     const trace = rollups.turnTrace('trace-gaps')
     expect(trace.unattributedMs).toBe(60)
@@ -103,7 +103,7 @@ describe.serial('turn trace', () => {
   })
 
   test('a trace with no root turn reports null unattributed time', () => {
-    facade.writeSpan({
+    spanTable.writeSpan({
       spanId: 'orphan', traceId: 'trace-2', kind: registries.SPAN_KINDS.toolCall, name: 'Bash',
       service: registries.SPAN_SERVICES.sessions, startedAt: 0, endedAt: 10, status: 'ok',
     })
@@ -117,9 +117,9 @@ describe.serial('session summary', () => {
     const service = registries.SPAN_SERVICES.sessions
     const shared = { kind: turn, name: 'turn', service, sessionId: 'session-2', status: 'ok' as const }
     // Same started_at: span_id breaks the tie.
-    facade.writeSpan({ ...shared, spanId: 'b-turn', traceId: 'b-turn', startedAt: 1_000, endedAt: 3_000, model: 'fable', attrs: { costUsd: 0.5, inputTokens: 10, outputTokens: 20, toolCallCount: 2, promptSource: 'typed' } })
-    facade.writeSpan({ ...shared, spanId: 'a-turn', traceId: 'a-turn', startedAt: 1_000, endedAt: 2_000, model: 'fable', attrs: { costUsd: 0.25, inputTokens: 5, outputTokens: 5 } })
-    facade.writeSpan({ ...shared, spanId: 'c-turn', traceId: 'c-turn', startedAt: 5_000, endedAt: 6_000, model: 'opus', status: 'error', attrs: {} })
+    spanTable.writeSpan({ ...shared, spanId: 'b-turn', traceId: 'b-turn', startedAt: 1_000, endedAt: 3_000, model: 'fable', attrs: { costUsd: 0.5, inputTokens: 10, outputTokens: 20, toolCallCount: 2, promptSource: 'typed', taskId: 'task-1', taskTitle: 'Fix observability' } })
+    spanTable.writeSpan({ ...shared, spanId: 'a-turn', traceId: 'a-turn', startedAt: 1_000, endedAt: 2_000, model: 'fable', attrs: { costUsd: 0.25, inputTokens: 5, outputTokens: 5 } })
+    spanTable.writeSpan({ ...shared, spanId: 'c-turn', traceId: 'c-turn', startedAt: 5_000, endedAt: 6_000, model: 'opus', status: 'error', attrs: {} })
 
     const summary = rollups.sessionSummary('session-2')
     expect(summary.turns.map((turnSummary) => [turnSummary.turnNumber, turnSummary.traceId])).toEqual([
@@ -132,9 +132,30 @@ describe.serial('session summary', () => {
     expect(summary.totalCostUsd).toBe(0.75)
     expect(summary.totalInputTokens).toBe(15)
     expect(summary.totalOutputTokens).toBe(25)
+    expect(summary.taskId).toBe('task-1')
+    expect(summary.taskTitle).toBe('Fix observability')
     expect(summary.turns[0].promptSource).toBeNull()
     expect(summary.turns[1].promptSource).toBe('typed')
     expect(summary.turns[2].costUsd).toBeNull()
+  })
+
+  test('a turn carries its own ask, as one capped line', () => {
+    // WHY: the session card names each turn by what it asked. Without this the
+    // rows all fall back to one session name; with the whole prompt, a long
+    // session ships unbounded text to say one truncated line.
+    const { turn } = registries.SPAN_KINDS
+    const shared = {
+      kind: turn, name: 'turn', service: registries.SPAN_SERVICES.sessions,
+      sessionId: 'session-prompt', status: 'ok' as const,
+    }
+    spanTable.writeSpan({ ...shared, spanId: 'p1', traceId: 'p1', startedAt: 1_000, endedAt: 2_000, attrs: { prompt: 'fix   the\nflaky test' } })
+    spanTable.writeSpan({ ...shared, spanId: 'p2', traceId: 'p2', startedAt: 2_000, endedAt: 3_000, attrs: { prompt: 'x'.repeat(500) } })
+    spanTable.writeSpan({ ...shared, spanId: 'p3', traceId: 'p3', startedAt: 3_000, endedAt: 4_000, attrs: {} })
+
+    const summary = rollups.sessionSummary('session-prompt')
+    expect(summary.turns[0].prompt).toBe('fix the flaky test')
+    expect(summary.turns[1].prompt).toBe(`${'x'.repeat(200)}…`)
+    expect(summary.turns[2].prompt).toBeNull()
   })
 
   test('an unknown session yields an empty summary', () => {
@@ -145,7 +166,7 @@ describe.serial('session summary', () => {
   })
 
   test('keeps an all-unknown session cost unknown instead of reporting zero spend', () => {
-    facade.writeSpan({
+    spanTable.writeSpan({
       kind: registries.SPAN_KINDS.turn,
       name: 'turn',
       service: registries.SPAN_SERVICES.sessions,

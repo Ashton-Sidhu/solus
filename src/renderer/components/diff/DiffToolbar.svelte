@@ -22,11 +22,12 @@
     ArrowClockwiseIcon,
     ArrowsInLineVerticalIcon,
     ArrowsOutLineVerticalIcon,
-    SquaresFourIcon,
   } from "phosphor-svelte";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { MONO_FONT } from "../../lib/diffTheme";
+  import type { Snippet } from "svelte";
   import type { TurnSnapshot } from "../../../shared/types";
+  import type { ReviewView } from "../../contexts/workspace/routing/route-registry";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { Button } from "../ui/button";
 
@@ -58,9 +59,13 @@
     onStepTurn: (dir: 1 | -1) => void;
     turnRunning?: boolean;
     mode?: "session" | "working-tree";
-    /** Whole-panel content view: the diff stream or the drillable heat map. */
-    panelView: "diff" | "map";
-    onSetPanelView: (view: "diff" | "map") => void;
+    /** Which face of the change is showing. Controls that only style the diff
+     *  stream hide on the other two. */
+    view: ReviewView;
+    /** The host's Map · Guide · Diff row. The toolbar reserves the lead
+     *  position for it because it decides which face of the change is showing,
+     *  ahead of every control that only styles the stream. */
+    viewTabs?: Snippet;
     /** The surface above already draws the chrome row and names the change (the
      *  PR review header states `#47 head → base`). The strip then reads as a
      *  second, quieter row: no branch identity, no chrome-row height, and no
@@ -100,8 +105,8 @@
     onStepTurn,
     turnRunning = false,
     mode = "session",
-    panelView,
-    onSetPanelView,
+    view,
+    viewTabs,
     hasHostHeaderRow = false,
     commitSha = null,
     onClearCommitScope,
@@ -406,51 +411,12 @@
          layout is legible without hovering for a tooltip. Below 768px the two
          labels don't fit beside the rest of the strip, so the icon toggle
          stands in. -->
-    <!-- The 10,000-foot switch leads: it decides whether the panel reads as a
-         heat map of where the change landed or the line-level stream, so it
-         sits ahead of the stream-only controls it hides. -->
-    <div class="view-toggle desktop-only" role="group" aria-label="Diff content view">
-      <button
-        type="button"
-        class="view-toggle-btn"
-        class:is-active={panelView === "map"}
-        onclick={() => onSetPanelView("map")}
-        aria-pressed={panelView === "map"}
-      >
-        Map
-      </button>
-      <button
-        type="button"
-        class="view-toggle-btn"
-        class:is-active={panelView === "diff"}
-        onclick={() => onSetPanelView("diff")}
-        aria-pressed={panelView === "diff"}
-      >
-        Diff
-      </button>
-    </div>
+    <!-- The view row leads: it decides whether the panel reads as a heat map
+         of where the change landed, the guided walkthrough, or the line-level
+         stream, so it sits ahead of the stream-only controls it hides. -->
+    {@render viewTabs?.()}
 
-    <span class="mobile-only">
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        type="button"
-        onclick={() => onSetPanelView(panelView === "map" ? "diff" : "map")}
-        aria-label={panelView === "map"
-          ? "Switch to diff view"
-          : "Switch to heat map view"}
-        class="rounded-lg [&_svg:not([class*='size-'])]:size-3.5 pointer-coarse:size-10 {panelView === 'map'
-          ? 'bg-(--solus-accent-light) text-(--solus-accent) hover:bg-(--solus-accent-light) dark:hover:bg-(--solus-accent-light) hover:text-(--solus-accent)'
-          : 'text-(--solus-text-tertiary)'}"
-      >
-        <SquaresFourIcon
-          size={14}
-          weight={panelView === "map" ? "fill" : "regular"}
-        />
-      </Button>
-    </span>
-
-    {#if panelView === "diff"}
+    {#if view === "diff"}
     <div class="view-toggle desktop-only" role="group" aria-label="Diff layout">
       <button
         type="button"
@@ -516,7 +482,7 @@
       <TooltipUI.Content value={"Refresh diff (⌥R)"} />
     </TooltipUI.Root>
 
-    {#if filesCount > 0 && panelView === "diff"}
+    {#if filesCount > 0 && view === "diff"}
       <TooltipUI.Root>
         <TooltipUI.Trigger>
           {#snippet child({ props: tooltipProps })}
@@ -544,7 +510,7 @@
       </TooltipUI.Root>
     {/if}
 
-    {#if filesCount > 0 && panelView === "diff"}
+    {#if filesCount > 0 && view === "diff"}
       <TooltipUI.Root>
         <TooltipUI.Trigger>
           {#snippet child({ props: tooltipProps })}

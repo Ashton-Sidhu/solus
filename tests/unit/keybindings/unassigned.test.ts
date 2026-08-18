@@ -8,6 +8,7 @@ import type { BindingId } from '../../../src/renderer/lib/keybindings/manifest'
 // they claim no key from anyone, but they must still be registrable — the whole
 // point is that a user can give one a key in Settings → Keybindings.
 const UNASSIGNED: BindingId[] = [
+  'global.design-mode',
   'global.switch-branch',
   'global.new-session-worktree',
   'global.new-session-in',

@@ -225,7 +225,7 @@ export const devFixtures: DemoFixtures = {
   },
   automations: { list: [], runs: {} },
   diffs: {
-    [COMPLETED_TAB_ID]: {
+    [COMPLETED_SESSION_ID]: {
       patch: [
         'diff --git a/src/api/account.ts b/src/api/account.ts',
         'index 1111111..2222222 100644',

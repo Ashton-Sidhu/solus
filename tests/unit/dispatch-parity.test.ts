@@ -512,6 +512,19 @@ describe('works from a dispatched session travel through the outbox', () => {
     outbox.ackOutboxOps(pending.map((op) => op.id))
   })
 
+  test('diagram creation returns a canonical embed token', async () => {
+    foreignTasks.setForeignTaskSnapshot(sessionId, shippedSnapshot('diagram-owner'))
+    const created = await workTools.createWorkAgentTool.execute(
+      { title: 'Auth Architecture', doc_type: 'diagram', content: '{"nodes":[{"id":"api","label":"API"}],"edges":[]}' },
+      toolContext(sessionId),
+    )
+
+    expect(created.ok).toBe(true)
+    const workId = created.text.match(/id: ([0-9a-f-]+)\)/)?.[1] ?? ''
+    expect(workId).not.toBe('')
+    expect(created.text).toContain(`[Auth Architecture](work://embed?workId=${workId}&type=diagram)`)
+  })
+
   test('an update op re-applies convergently on the owner host', async () => {
     const created = await works.createWork('Owner doc', 'doc', 'v1', '', undefined, 'claude-code', '/p')
     const op = outbox.recordOutboxOp({

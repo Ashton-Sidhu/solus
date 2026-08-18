@@ -115,7 +115,7 @@
           {#if option.historyOnly && onRemoveHistory}
             <button
               type="button"
-              class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground opacity-0 transition-opacity duration-150 hover:bg-[var(--wash-2)] hover:text-foreground group-hover/row:opacity-100"
+              class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground opacity-0 transition-opacity duration-150 hover:bg-[var(--wash-2)] hover:text-foreground group-hover/row:opacity-100 pointer-coarse:opacity-100"
               title="Remove from history"
               aria-label="Remove {option.label} from history"
               onclick={() => onRemoveHistory(option)}

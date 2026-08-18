@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
-import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, ReasoningEffort, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, Attachment, SessionMeta, SessionSearchResult, SessionGeneratedMetadata, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionLineageResolution, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, PrRepoCheckoutResult } from '../shared/types'
+import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, ReasoningEffort, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, Attachment, SessionMeta, SessionSearchResult, SessionGeneratedMetadata, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionLineageResolution, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, GoogleUploadDocRequest, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, PrRepoCheckoutResult } from '../shared/types'
 import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrEffortRequest, PrEffortResult, PrFilter, PrLifecycleAction, PrListPage, PrReviewer, PrReviewerCandidate, PrReviewTarget, PullRequestDetail, PullRequestOverview, PullRequestSummary, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview } from '../shared/providers'
 import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskCandidateOptions, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskListFilter, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarSnapshot, TaskSnapshot, TaskSnoozeInput, TaskUpdatePatch } from '../shared/task-types'
 import type { OutboxApplyResult, OutboxOp } from '../shared/outbox-types'
@@ -12,7 +12,12 @@ import type { AssetCreateUrlRequest, AssetCreateUrlResult, AttachmentUploadReque
 import type { MetricsNlCompileResult, MetricsQueryResult, MetricsQuerySpec, MetricsSchema, MetricsSessionSummary, MetricsSqlValidation, MetricsTurnTrace, MetricsValue, SavedMetricsQuery } from '../shared/observability-types'
 import type { ClientNotificationRequest } from '../shared/notification-types'
 
-import type { TextGenerationSettings, TextGenerationSettingsSnapshot } from '../shared/types'
+import type {
+  OtelSettings,
+  OtelSettingsSnapshot,
+  TextGenerationSettings,
+  TextGenerationSettingsSnapshot,
+} from '../shared/types'
 
 const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
 
@@ -112,7 +117,7 @@ export interface SolusAPI {
   openInEditor(ctx: IpcContext, request: OpenInEditorRequest): Promise<boolean>
   getTheme(): Promise<{ isDark: boolean }>
 
-  googleUploadDoc(args: { title: string; markdown: string; oauthCallbackBaseUrl?: string }): Promise<
+  googleUploadDoc(args: GoogleUploadDocRequest): Promise<
     | { docUrl: string }
     | { error: string }
     | { authUrl: string; expiresAt: number }
@@ -138,6 +143,8 @@ export interface SolusAPI {
   setAgentTaskLifecyclePolicy(policy: AgentTaskLifecyclePolicy): Promise<{ agentTaskLifecyclePolicy: AgentTaskLifecyclePolicy }>
   textGenerationSettingsGet(): Promise<TextGenerationSettingsSnapshot>
   textGenerationSettingsUpdate(patch: Partial<TextGenerationSettings>): Promise<TextGenerationSettingsSnapshot>
+  otelSettingsGet(): Promise<OtelSettingsSnapshot>
+  otelSettingsUpdate(patch: Partial<OtelSettings>): Promise<OtelSettingsSnapshot>
   discoverServers(): Promise<DiscoveredServer[]>
   getServerCapabilities(): Promise<ServerCapabilities>
   setServerName(name: string): Promise<{ name?: string }>

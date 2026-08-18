@@ -12,8 +12,6 @@
   import InputBarHeader from "@renderer/components/input/InputBarHeader.svelte";
   import GitDropdown from "@renderer/components/GitDropdown.svelte";
   import GoalSection from "@renderer/components/project-panel/GoalSection.svelte";
-  import SolusTips from "@renderer/components/layout/SolusTips.svelte";
-  import { isHomeVisible } from "@renderer/components/layout/lib/workspace-body";
   import {
     getWorkspaceContext,
     getPlanStore,
@@ -61,6 +59,12 @@
 
   const tab = $derived(session.tabs[session.activeTabId]);
   const sess = $derived(session.sessionFor(session.activeTabId));
+  const mobileDraft = $derived.by(() => {
+    const base = session.router.leadingPane.base;
+    return base?.name === "draft"
+      ? (session.sessionDrafts.get(base.params.draftId) ?? null)
+      : null;
+  });
   const mobileGoalSessionId = $derived(
     session.router.params("goal")?.sessionId ?? null,
   );
@@ -68,7 +72,11 @@
   // A tab that has not started has no prompt to name it after, so it says what
   // it will become instead.
   const title = $derived(
-    tab && sess && hasSessionStarted(sess)
+    mobileDraft
+      ? mobileDraft.task.kind === "existing"
+        ? "New session"
+        : "New task"
+      : tab && sess && hasSessionStarted(sess)
       ? sessionTitle(sess)
       : sess?.task.kind === "existing"
         ? "New session"
@@ -77,7 +85,8 @@
   const statusIcon = $derived(
     (tab && sess) ? getStatusIcon(sess.status) : null,
   );
-  const branch = $derived(sess?.run.gitContext?.branch);
+  const activeRun = $derived(mobileDraft?.run ?? sess?.run);
+  const branch = $derived(activeRun?.gitContext?.branch);
   const pendingDispatch = $derived(
     sess?.run.pendingHostDispatch?.intent === "dispatch"
       ? sess.run.pendingHostDispatch
@@ -90,12 +99,12 @@
   );
   // The destination strip (project · start-in · branch) is editable exactly
   // until the session starts — the same lifetime it has on desktop.
-  const sessionStarted = $derived(hasSessionStarted(sess));
+  const sessionStarted = $derived(!mobileDraft && hasSessionStarted(sess));
   // A started session that runs on another host names it in the navbar, since
   // the strip that would have said so is gone by then.
-  const hostGlyph = $derived(serversStore.affinityFor(sess?.run.serverId));
+  const hostGlyph = $derived(serversStore.affinityFor(activeRun?.serverId));
   const hostName = $derived.by(() => {
-    const host = serversStore.hostFor(sess?.run.serverId);
+    const host = serversStore.hostFor(activeRun?.serverId);
     return host && !host.local ? host.label : null;
   });
   let goalCollapsed = $state(false);
@@ -273,13 +282,6 @@
     {:else if !(diffPanelOpen && canShowDiffPanel)}
       <div class="mobile-chat relative">
         {@render chatContent()}
-        <!-- The composer is docked outside this column, so the column's bottom
-             is the page's — the same anchor the desktop tip uses. -->
-        {#if isHomeVisible(sess)}
-          <SolusTips
-            class="pointer-events-none absolute inset-x-0 bottom-6 mx-auto px-6"
-          />
-        {/if}
       </div>
     {/if}
     {#if diffPanelOpen && canShowDiffPanel}
@@ -292,6 +294,7 @@
   <div
     class="mobile-input-dock"
     class:mode-hidden={overlayOpen ||
+      !!mobileDraft ||
       !!mobileGoalSessionId ||
       session.router.at("settings") ||
       session.router.at("folio") ||

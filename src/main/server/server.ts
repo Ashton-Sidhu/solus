@@ -1,5 +1,6 @@
 import type { RpcMethod } from '../../shared/rpc'
 import type { SolusAPI } from '../../preload'
+import type { GoogleUploadDocRequest } from '../../shared/types'
 import { createLogger, isDebugEnabled } from '../logger'
 
 const log = createLogger('server', 'server.ts')
@@ -25,7 +26,25 @@ export class SolusServer {
 
   handle<M extends RpcMethod>(method: M, args: RpcArgs<M>, ctx?: HandlerCtx): Promise<RpcResult<M>>
   async handle(method: RpcMethod, args: RpcInvocationArgs, ctx?: HandlerCtx): Promise<RpcInvocationResult> {
-    if (isDebugEnabled) log.debug('rpc_method_invoked', { method, args })
+    if (isDebugEnabled) {
+      if (method === 'googleUploadDoc') {
+        // SAFETY: Runtime dispatch pairs this literal method with SolusAPI.googleUploadDoc's request tuple.
+        const request = args[0] as GoogleUploadDocRequest
+        log.debug('rpc_method_invoked', {
+          method,
+          title: request.title,
+          markdownLength: request.markdown.length,
+          diagramAssets: request.diagramAssets?.map((asset) => ({
+            workId: asset.workId,
+            title: asset.title,
+            mimeType: asset.mimeType,
+            base64Length: asset.base64.length,
+          })),
+        })
+      } else {
+        log.debug('rpc_method_invoked', { method, args })
+      }
+    }
     const handler = this.handlers.get(method)
     if (!handler) throw new Error(`SolusServer: no handler for "${method}"`)
     return await handler(args, ctx ?? {})

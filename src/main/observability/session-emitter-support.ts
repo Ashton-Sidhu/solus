@@ -1,11 +1,26 @@
 import type { NormalizedEvent, UsageData } from '../../shared/types'
-import type { SpanAttributes, SpanStatus } from './facade'
+import type { SpanAttributes, SpanStatus } from './registries'
 
 export type TurnOutcome = 'completed' | 'interrupted' | 'failed'
 
 export function capped(value: string, limit: number): { value: string; truncated: boolean } {
   if (value.length <= limit) return { value, truncated: false }
   return { value: value.slice(0, limit), truncated: true }
+}
+
+/** A dispatch step's own facts: paths, argv, branch names, ids. Each one is a
+ *  short label rather than a payload, so a single generous cap keeps a stray
+ *  long value — a deep path, a pasted prompt used as a branch slug — from
+ *  turning a duration measurement into a content store. */
+const DISPATCH_ATTR_LIMIT = 1024
+
+export function cappedAttrs(attrs: SpanAttributes | undefined): SpanAttributes {
+  if (!attrs) return {}
+  const result: SpanAttributes = {}
+  for (const [key, value] of Object.entries(attrs)) {
+    result[key] = typeof value === 'string' ? capped(value, DISPATCH_ATTR_LIMIT).value : value
+  }
+  return result
 }
 
 export function spanStatusForToolOutcome(

@@ -5,7 +5,6 @@
     ArrowsOutIcon,
     ArrowsInIcon,
     ArrowSquareOutIcon,
-    ArrowsOutSimpleIcon,
   } from "phosphor-svelte";
   import { PAGE_ICON_BTN } from "../../lib/page-chrome";
   import { comboHint, type BindingId } from "../../lib/keybindings/manifest";
@@ -79,18 +78,14 @@
             type="button"
             class={PAGE_ICON_BTN}
             onclick={onOpenInSplit}
-            data-testid="open-in-split"
-            aria-label={isLeading ? "Open in split" : "Move to main pane"}
+            data-testid={isLeading ? "open-in-split" : "open-as-page"}
+            aria-label={isLeading ? "Open in split" : "Open as page"}
           >
-            {#if isLeading}
-              <ArrowSquareOutIcon size={15} />
-            {:else}
-              <ArrowsOutSimpleIcon size={15} />
-            {/if}
+            <ArrowSquareOutIcon size={15} />
           </button>
         {/snippet}
       </TooltipUI.Trigger>
-      <TooltipUI.Content value={isLeading ? "Open in split" : "Move to main pane"} />
+      <TooltipUI.Content value={isLeading ? "Open in split" : "Open as page"} />
     </TooltipUI.Root>
   {/if}
 

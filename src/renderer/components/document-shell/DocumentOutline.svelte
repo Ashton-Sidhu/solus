@@ -107,7 +107,7 @@
           type="button"
           onclick={() => onScrollTo(h.pos)}
           style="--row:{i}"
-          class="doc-outline__item"
+          class="doc-outline__item text-workspace-chrome"
           class:doc-outline__item--sub={h.level > 2}
           class:doc-outline__item--active={activePos === h.pos}
           title={h.text}
@@ -294,7 +294,6 @@
     align-items: center;
     gap: 0.5625rem;
     text-align: left;
-    font-size: var(--text-sm);
     line-height: 1.45;
     padding: 0.3125rem 0.375rem 0.3125rem 0;
     color: var(--solus-text-tertiary);
@@ -338,7 +337,6 @@
     color: color-mix(in srgb, var(--solus-text-primary) 85%, var(--solus-art-2));
   }
   .doc-outline__item--sub {
-    font-size: var(--text-sm);
     padding-left: 0.8125rem;
     color: color-mix(in srgb, var(--solus-text-tertiary) 85%, transparent);
   }
@@ -386,6 +384,36 @@
   }
   .doc-outline__foot-key {
     color: var(--solus-accent);
+  }
+
+  /* The runtime classifies the physical display once for every client. Keep the
+     expanded outline compact on laptops without making a narrow pane depend on
+     viewport width; the shell's container query still owns when the rail hides. */
+  :global(html.is-laptop-display) .doc-outline__panel {
+    --outline-panel-w: 14.5rem;
+    padding: 0.75rem 0.75rem 0.75rem 0.875rem;
+  }
+  :global(html.is-laptop-display) .doc-outline__head,
+  :global(html.is-laptop-display) .doc-outline__item,
+  :global(html.is-laptop-display) .doc-outline__foot {
+    width: calc(var(--outline-panel-w) - 1.625rem);
+  }
+  :global(html.is-laptop-display) .doc-outline__head {
+    gap: 0.375rem;
+    margin-bottom: 0.5rem;
+    padding-left: 0.5625rem;
+  }
+  :global(html.is-laptop-display) .doc-outline__item {
+    gap: 0.4375rem;
+    padding-block: 0.25rem;
+  }
+  :global(html.is-laptop-display) .doc-outline__item--sub {
+    padding-left: 0.625rem;
+  }
+  :global(html.is-laptop-display) .doc-outline__foot {
+    gap: 0.375rem;
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
   }
 
   @media (prefers-reduced-motion: reduce) {

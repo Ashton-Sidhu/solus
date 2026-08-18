@@ -1,8 +1,6 @@
 <script lang="ts">
   import {
-    BookOpenTextIcon,
     CheckIcon,
-    CircleNotchIcon,
     GlobeIcon,
     LaptopIcon,
     MoonIcon,
@@ -13,6 +11,7 @@
   import { liveActivityClock } from "../../lib/shared-clock";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import SessionNameInput from "./SessionNameInput.svelte";
+  import ReviewGuideGlyph from "../review/ReviewGuideGlyph.svelte";
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
   import UnreadDot from "./UnreadDot.svelte";
   import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
@@ -223,30 +222,44 @@
       {#if showsMargin}
         <span class="flex shrink-0 items-center gap-[0.5625rem]">
           {#if session.reviewGuideStatus === "generating"}
+            <!-- Generating and ready are one object at two stages, so the mark
+                 keeps its silhouette and only gains ink: an outline guide that
+                 breathes while it is written, filled once it can be read. A
+                 spinner here would have said "work in flight", which the run
+                 mark one column over already says.
+
+                 Writing a guide *is* work in flight, so it takes the cool tone
+                 the row already spends on that. The running-icon token is the
+                 tertiary text colour, which left the mark quieter than the
+                 titles it sits beside. -->
             <span
-              class="flex shrink-0 items-center text-(--solus-status-running-icon)"
+              class="flex shrink-0 items-center text-chart-5"
               role="img"
               aria-label="Generating review guide"
               title="Generating review guide"
             >
-              <CircleNotchIcon
-                size={13}
-                class="animate-spin [animation-duration:0.9s] motion-reduce:animate-none"
+              <ReviewGuideGlyph
+                size={14}
+                class="animate-pulse [animation-duration:1.4s] motion-reduce:animate-none"
               />
             </span>
           {:else if session.reviewGuideStatus === "ready"}
             <span
-              class="flex shrink-0 items-center text-(--solus-art-positive)"
+              class="flex shrink-0 items-center text-(--solus-status-complete)"
               role="img"
               aria-label="Review guide ready"
               title="Review guide ready"
             >
-              <BookOpenTextIcon size={13} weight="fill" />
+              <ReviewGuideGlyph size={14} weight="fill" />
             </span>
           {/if}
 
           <!-- Match the task row's state column while preserving the child
-               row's slightly smaller glyph sizes. -->
+               row's slightly smaller glyph sizes. The column is dropped when it
+               holds nothing rather than reserved: an empty column still spends
+               its own width and the gap before it, which pushed the guide mark
+               a column left of the same mark on the task row above. -->
+          {#if hasGlyph(status) || elapsed || showsUnreadDot}
           <span
             class="flex min-w-[0.875rem] shrink-0 items-center justify-center"
           >
@@ -269,6 +282,7 @@
               <UnreadDot size={6} />
             {/if}
           </span>
+          {/if}
         </span>
       {/if}
 
@@ -276,7 +290,7 @@
            Closing is available only for a mounted session. -->
       {#if session.tabId || session.taskId}
         <span
-          class="-mr-1 hidden shrink-0 items-center gap-px group-hover/session:flex"
+          class="-mr-1 hidden shrink-0 items-center gap-px group-hover/session:flex pointer-coarse:flex"
         >
           <!-- Same three actions, same order, as the task row above it —
                including dropping snooze on a narrow column so the hover
@@ -334,7 +348,7 @@
          back; both marks stay in the row's tooltip, and a remote host keeps its
          globe at every width. -->
     <span
-      class="mt-1 flex max-w-full items-center gap-[0.375rem] text-xs text-[color-mix(in_oklch,var(--foreground)_64%,transparent)] @max-[15rem]:gap-1 @max-[15rem]:text-xs"
+      class="mt-1 flex max-w-full items-center gap-[0.375rem] text-xs text-[color-mix(in_oklch,var(--foreground)_64%,transparent)] @max-[15rem]:gap-1"
     >
       {#if session.branchName}
         <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
@@ -363,5 +377,6 @@
     branchName={session.branchName}
     serverId={session.serverId}
     attention={session.attention}
+    reviewGuideStatus={session.reviewGuideStatus}
   />
 </TooltipUI.Root>

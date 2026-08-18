@@ -533,7 +533,7 @@
           {#snippet place(label: string, target: string, icon: PlaceIcon)}
             <button
               type="button"
-              class="flex h-[1.875rem] w-full shrink-0 items-center gap-2.5 rounded-md px-2.5 text-left text-sm outline-none
+              class="flex h-[1.875rem] w-full shrink-0 items-center gap-2.5 rounded-md px-2.5 text-left text-[0.8125rem] outline-none
                 [transition:background-color_var(--duration-quick)_var(--ease-premium),color_var(--duration-quick)_var(--ease-premium)] motion-reduce:transition-none
                 focus-visible:ring-2 focus-visible:ring-(--solus-accent)
                 max-md:h-9 max-md:w-auto max-md:whitespace-nowrap max-md:rounded-full max-md:px-3.5 max-md:text-xs
@@ -587,8 +587,8 @@
                 <button
                   type="button"
                   tabindex={-1}
-                  class="min-h-5 shrink-0 whitespace-nowrap rounded-[0.3125rem] px-1 text-xs outline-none
-                    hover:bg-muted max-md:min-h-8 max-md:px-2 max-md:text-sm
+                  class="min-h-5 shrink-0 whitespace-nowrap rounded-[0.3125rem] px-1 font-mono text-xs outline-none
+                    hover:bg-muted max-md:min-h-8 max-md:px-2 max-md:text-[0.8125rem]
                     {i === crumbs.length - 1 ? 'font-medium' : 'text-muted-foreground'}"
                   onmousedown={(e) => e.preventDefault()}
                   onclick={() => navigateTo(crumb.path)}
@@ -611,7 +611,7 @@
                 bind:ref={pathInputEl}
                 value={leaf}
                 type="text"
-                class="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-sm text-foreground shadow-none focus-visible:ring-0 dark:bg-transparent"
+                class="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-[0.8125rem] text-foreground shadow-none focus-visible:ring-0 dark:bg-transparent"
                 placeholder="Filter folders"
                 spellcheck={false}
                 autocomplete="off"
@@ -728,7 +728,7 @@
         {:else}
           <!-- What Enter commits, spelled out — the typed path can be a prefix,
                a "~", or a folder about to be created. -->
-          <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground max-md:hidden" title={resolvedPath}>
+          <span class="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground max-md:hidden" title={resolvedPath}>
             {displayPath}
           </span>
           <div class="flex shrink-0 items-center gap-3 text-xs text-muted-foreground max-md:hidden">
@@ -744,7 +744,7 @@
         {#if canOpenFileManager}
           <Button
             variant="ghost"
-            class="shrink-0 text-sm text-muted-foreground"
+            class="shrink-0 text-[0.8125rem] text-muted-foreground"
             disabled={loading || !resolvedDirectory}
             onclick={() => void openInFileManager()}
           >
@@ -752,10 +752,10 @@
           </Button>
         {/if}
         {#if !runtime.isMobileViewport}
-          <Button variant="ghost" class="shrink-0 text-sm" onclick={onClose}>Cancel</Button>
+          <Button variant="ghost" class="shrink-0 text-[0.8125rem]" onclick={onClose}>Cancel</Button>
         {/if}
         <Button
-          class="shrink-0 px-3.5 text-sm max-md:h-11 max-md:flex-1"
+          class="shrink-0 px-3.5 text-[0.8125rem] max-md:h-11 max-md:flex-1"
           disabled={loading || creating || !resolvedPath}
           onclick={() => void submit()}
         >

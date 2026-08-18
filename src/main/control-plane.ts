@@ -83,7 +83,7 @@ import { indexLivePlan } from './plans/plan-index'
 import { activityLeases } from './server/activity-leases'
 import type { SessionLoadMessage, SessionPreviewResult } from '../shared/session-history'
 import { taskWorktreeKey } from '../shared/task-types'
-import { SessionEmitter } from './observability/session-emitter'
+import { SessionEmitter, annotateDispatch, dispatchStep, dispatchStepSync } from './observability/session-emitter'
 import { SPAN_SERVICES } from './observability/registries'
 
 const MAX_QUEUE_DEPTH = 32
@@ -2074,10 +2074,20 @@ export class ControlPlane extends EventEmitter {
       promptSource,
       startedAt: runStartedAt,
       dispatchedAt: request.servedEnqueuedAt ?? runStartedAt,
+      // The backend and project a dispatch step runs for are settled before the
+      // dispatch starts; the executed model is not, and arrives with the setup
+      // the provider answers into.
+      provider: request.input.provider,
+      projectRoot: request.input.projectPath || request.input.workingDirectory,
     })
     let startedRun: StartedRun
     try {
-      startedRun = await this._launchRun(request)
+      startedRun = await this.sessionEmitter.runDispatch(
+        request.sessionId,
+        'launch_run',
+        { promptSource },
+        () => this._launchRun(request),
+      )
     } catch (error) {
       const interrupted = error instanceof Error && error.message === 'Interrupted'
       this.sessionEmitter.finishTurn(request.sessionId, interrupted ? 'interrupted' : 'failed', Date.now(), turnTraceId)
@@ -2093,7 +2103,19 @@ export class ControlPlane extends EventEmitter {
       taskId: run.options.taskId,
       automationId: run.options.automationId,
       automationName: run.options.automationName,
-      taskTitle: await this._turnTaskTitle(run.options),
+      // Its own scope: this runs after `launch_run` resolved, so there is no
+      // ambient step left to nest under — but it is still inside the setup
+      // window, being awaited before setup is closed below.
+      taskTitle: await this.sessionEmitter.runDispatch(
+        request.sessionId,
+        'task_title',
+        { taskId: run.options.taskId ?? '' },
+        async (annotate) => {
+          const title = await this._turnTaskTitle(run.options)
+          annotate({ title: title ?? '' })
+          return title
+        },
+      ),
       branch: run.input.gitContext?.branch ?? undefined,
       isResume: !!run.input.agentSessionId,
     })
@@ -2428,8 +2450,25 @@ export class ControlPlane extends EventEmitter {
     const sessionGitContext = isForkingInput ? null : existingSession?.gitContext
     const resolvedProjectPath = projectScopeOf(input)
     let effectiveGitCtx = sessionGitContext ?? incoming ?? null
+    annotateDispatch({
+      provider,
+      projectRoot: resolvedProjectPath ?? '',
+      isContinuation,
+      isFork: isForkingInput,
+      isResume: !!resumeAgentSessionId,
+      hasPendingHandoff: !!pendingHandoff,
+    })
+
     if (!effectiveGitCtx?.worktreePath && resolvedProjectPath && resolvedProjectPath !== '~') {
-      const statusGitCtx = gitCheckoutFromState(await computeGitState(resolvedProjectPath).catch(() => null))
+      const statusGitCtx = await dispatchStep(
+        'git_state',
+        { projectPath: resolvedProjectPath },
+        async (annotate) => {
+          const checkout = gitCheckoutFromState(await computeGitState(resolvedProjectPath).catch(() => null))
+          annotate({ branch: checkout?.branch ?? '', worktreePath: checkout?.worktreePath ?? '' })
+          return checkout
+        },
+      )
       effectiveGitCtx = statusGitCtx
       if (existingSession) existingSession.gitContext = statusGitCtx ?? undefined
     }
@@ -2461,9 +2500,19 @@ export class ControlPlane extends EventEmitter {
       worktreeCardActive = true
       this._emit(sessionId, { type: 'status_card', card: buildWorktreeCard(0) })
       try {
-        const gitContext: GitCheckout = await createWorktree(resolvedProjectPath, options.prompt, worktreeBaseBranch, {
-          signal: setupController.signal,
-        })
+        const gitContext: GitCheckout = await dispatchStep(
+          'worktree_create',
+          { projectPath: resolvedProjectPath ?? '', baseBranch: worktreeBaseBranch ?? '' },
+          async (annotate) => {
+            // `createWorktree` records its own git commands under this step
+            // through the ambient context — it takes no telemetry argument.
+            const created = await createWorktree(resolvedProjectPath, options.prompt, worktreeBaseBranch, {
+              signal: setupController.signal,
+            })
+            annotate({ branch: created.branch, targetBranch: created.targetBranch, worktreePath: created.worktreePath })
+            return created
+          },
+        )
         if (existingSession) existingSession.gitContext = gitContext
         effectiveGitCtx = gitContext
         log.info('worktree_created', { sessionId, branch: gitContext.branch, worktreePath: gitContext.worktreePath })
@@ -2518,18 +2567,26 @@ export class ControlPlane extends EventEmitter {
     // this stays fast.
     let handoffPayload: SessionRunInput['handoff']
     if (pendingHandoff) {
-      const handoff = await this.handoffBuilder(pendingHandoff.fromSessionId, resolvedProjectPath, {
-        loadSession: (threadId, loadProjectPath) => this.loadSession(
-          pendingHandoff.fromProvider,
-          threadId,
-          loadProjectPath,
-        ),
-      })
-      handoffPayload = {
-        fromProvider: pendingHandoff.fromProvider,
-        fromSessionId: pendingHandoff.fromSessionId,
-        seedSystemAppend: composeHandoffSeed({ fromProvider: pendingHandoff.fromProvider, ...handoff }),
-      }
+      handoffPayload = await dispatchStep(
+        'handoff_build',
+        { fromProvider: pendingHandoff.fromProvider, fromSessionId: pendingHandoff.fromSessionId },
+        async (annotate) => {
+          const handoff = await this.handoffBuilder(pendingHandoff.fromSessionId, resolvedProjectPath, {
+            loadSession: (threadId, loadProjectPath) => this.loadSession(
+              pendingHandoff.fromProvider,
+              threadId,
+              loadProjectPath,
+            ),
+          })
+          const seedSystemAppend = composeHandoffSeed({ fromProvider: pendingHandoff.fromProvider, ...handoff })
+          annotate({ seedChars: seedSystemAppend.length })
+          return {
+            fromProvider: pendingHandoff.fromProvider,
+            fromSessionId: pendingHandoff.fromSessionId,
+            seedSystemAppend,
+          }
+        },
+      )
     }
 
     const agentSessionId = pendingHandoff
@@ -2581,27 +2638,40 @@ export class ControlPlane extends EventEmitter {
     // The store returns null for a resumed provider session, which structurally
     // enforces the clean-slate/no-backfill rule.
     if (!options.skipTaskCreation && pendingHandoff && !options.taskId) {
-      const existingTask = await tasksForSession(sessionId)
+      const existingTask = await dispatchStep('task_lookup', {}, async (annotate) => {
+        const found = await tasksForSession(sessionId)
+        annotate({ taskId: found?.task.id ?? '' })
+        return found
+      })
       if (existingTask) options.taskId = existingTask.task.id
     }
     const task = options.skipTaskCreation
       ? null
-      : await this.sessionTaskPreparer({
+      : await dispatchStep('task_prepare', {
+        projectKey: resolvedProjectPath ?? '',
+        worktreeKey: taskWorktreeKey(resolvedProjectPath, effectiveGitCtx) ?? '',
+        branch: effectiveGitCtx?.branch ?? '',
+        existingTaskId: options.taskId ?? '',
+      }, async (annotate) => {
+        const prepared = await this.sessionTaskPreparer({
         // A provider handoff is a new backend conversation, not a new Solus
         // session. Treat the prior provider id as the structural no-mint gate;
         // the existing task link (when present) is copied on session_init.
         // A fork carries its source's id purely to branch from, and the provider
         // mints a fresh conversation for it — so it is a first dispatch, not the
         // resume the no-backfill rule exists to exclude.
-        existingAgentSessionId: isForkingSession
-          ? null
-          : effectiveInput.agentSessionId ?? pendingHandoff?.fromSessionId ?? null,
-        existingTaskId: options.taskId,
-        parentTaskId: options.parentTaskId,
-        projectKey: resolvedProjectPath,
-        worktreeKey: taskWorktreeKey(resolvedProjectPath, effectiveGitCtx),
-        prompt: options.displayPrompt ?? options.prompt,
-        branch: effectiveGitCtx?.branch ?? null,
+          existingAgentSessionId: isForkingSession
+            ? null
+            : effectiveInput.agentSessionId ?? pendingHandoff?.fromSessionId ?? null,
+          existingTaskId: options.taskId,
+          parentTaskId: options.parentTaskId,
+          projectKey: resolvedProjectPath,
+          worktreeKey: taskWorktreeKey(resolvedProjectPath, effectiveGitCtx),
+          prompt: options.displayPrompt ?? options.prompt,
+          branch: effectiveGitCtx?.branch ?? null,
+        })
+        annotate({ taskId: prepared?.id ?? '', minted: !!prepared })
+        return prepared
       })
     if (task) options.taskId = task.id
     // The ticket is scaffolding the agent works from, not something the user
@@ -2612,7 +2682,11 @@ export class ControlPlane extends EventEmitter {
     // is rebuilt per run, so the agent sees the task's live status and comments
     // instead of a snapshot taken when the session opened.
     if (options.taskId) {
-      const context = await this._taskSystemContext(options.taskId, options.taskSnapshot ?? null, sessionId)
+      const context = await dispatchStep('task_context', { taskId: options.taskId }, async (annotate) => {
+        const composed = await this._taskSystemContext(options.taskId!, options.taskSnapshot ?? null, sessionId)
+        annotate({ contextChars: composed?.length ?? 0 })
+        return composed
+      })
       if (context) {
         options.systemPrompt = [options.systemPrompt, context].filter(Boolean).join('\n\n')
       }
@@ -2632,7 +2706,11 @@ export class ControlPlane extends EventEmitter {
     try {
       this.activeRunRequests.set(sessionId, activeRun)
       if (!dispatchAgentSessionId) {
-        await this._logNewSessionPrompt(effectiveInput, options, backend.id)
+        await dispatchStep(
+          'session_log',
+          { provider: backend.id, cwd: effectiveCwd ?? '' },
+          () => this._logNewSessionPrompt(effectiveInput, options, backend.id),
+        )
       }
       const baseSystemPrompt = buildSystemPrompt({
         agent: provider === 'codex' ? 'codex' : 'claude',
@@ -2647,7 +2725,26 @@ export class ControlPlane extends EventEmitter {
         options.systemPrompt,
         handoffPayload?.seedSystemAppend,
       ].filter(Boolean).join('\n\n')
-      const agentRun = this.runAgent({
+      this.sessionEmitter.recordSystemPrompt(request.sessionId, systemPrompt)
+      // Spawning the provider is where the run input, the tool list, and the
+      // transport are assembled — the last thing the turn does before it stops
+      // being Solus's time and starts being the agent's. Timed without an
+      // `await`: the call is synchronous, and suspending here would move
+      // handle registration into a later microtask, which the dispatch
+      // sequence around it depends on not happening.
+      const agentRun = dispatchStepSync('agent_launch', {
+        provider,
+        model: effectiveInput.model ?? '',
+        cwd: effectiveCwd ?? '',
+        reasoningEffort: effectiveInput.reasoningEffort ?? '',
+        permissionMode: effectiveInput.permissionMode ?? '',
+        additionalDirs: (effectiveAdditionalDirs ?? []).join(', '),
+        systemPromptChars: systemPrompt.length,
+        isResume: !!effectiveInput.agentSessionId,
+        isFork: !!effectiveInput.forked,
+        fastMode: !!effectiveInput.fastMode,
+        imageAttachmentCount: options.imageAttachments?.length ?? 0,
+      }, () => this.runAgent({
         provider,
         prompt: options.prompt,
         cwd: effectiveCwd,
@@ -2674,7 +2771,7 @@ export class ControlPlane extends EventEmitter {
         maxBudgetUsd: options.maxBudgetUsd,
       }, {
         changedFiles: effectiveInput.sessionChangedFiles,
-      })
+      }))
       handle = agentRun.handle
       handle.sessionId = sessionId
     } catch (err) {

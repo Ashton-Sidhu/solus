@@ -101,7 +101,7 @@
 {#if anchorRect && layer.el && rows.length > 0}
   <div
     use:portal={layer.el}
-    class="text-xs fixed z-30"
+    class="fixed z-30"
     style="pointer-events:auto;left:{left}px;width:{width}px;{placement === 'down'
       ? `top:${anchorRect.bottom + 4}px`
       : `bottom:${window.innerHeight - anchorRect.top + 4}px`}"
@@ -129,17 +129,17 @@
 
       <div class="mx-0.5 mt-[0.3125rem] h-px bg-(--wash-rule)"></div>
       <div
-        class="flex items-center justify-between px-2 pt-[0.4375rem] pb-[0.1875rem]  text-(--solus-text-tertiary) select-none"
+        class="flex items-center justify-between px-2 pt-[0.4375rem] pb-[0.1875rem] text-xs text-(--solus-text-tertiary) select-none"
       >
         <span class="flex items-center gap-[0.6875rem]">
-          <span><span class="text-(--solus-text-primary)">↑↓</span> move</span>
-          <span><span class="text-(--solus-text-primary)">⏎</span> {enterVerb}</span>
+          <span><span class="font-mono text-(--solus-text-primary)">↑↓</span> move</span>
+          <span><span class="font-mono text-(--solus-text-primary)">⏎</span> {enterVerb}</span>
           {#if showTabHint}
-            <span><span class="text-(--solus-text-primary)">⇥</span> {tabVerb}</span>
+            <span><span class="font-mono text-(--solus-text-primary)">⇥</span> {tabVerb}</span>
           {/if}
         </span>
         {#if footer}
-          <span class=" opacity-80">{footer}</span>
+          <span class="font-mono text-xs opacity-80">{footer}</span>
         {/if}
       </div>
     </div>
@@ -147,7 +147,7 @@
 {/if}
 
 {#snippet glyph(path: string)}
-  <svg class="text-xs"
+  <svg
     width="13"
     height="13"
     viewBox="0 0 14 14"
@@ -161,14 +161,14 @@
 {/snippet}
 
 {#snippet label(text: string, hint: string)}
-  <div class="text-xs flex items-center gap-2.5 px-[0.5625rem] pt-[0.5625rem] pb-[0.3125rem]">
+  <div class="flex items-center gap-2.5 px-[0.5625rem] pt-[0.5625rem] pb-[0.3125rem]">
     <span
-      class=" font-medium uppercase text-(--solus-text-tertiary)"
+      class="text-xs font-medium uppercase text-(--solus-text-tertiary)"
       >{text}</span
     >
     <span class="h-px flex-1 bg-(--wash-rule)"></span>
     {#if hint}
-      <span class=" text-(--solus-text-tertiary) opacity-70"
+      <span class="font-mono text-xs text-(--solus-text-tertiary) opacity-70"
         >{hint}</span
       >
     {/if}
@@ -180,16 +180,16 @@
        back, so the drill never loses its subject. -->
   <button
     type="button"
-    class="text-xs flex h-[1.875rem] w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-[0.5625rem] text-left hover:bg-(--wash-hover)"
+    class="flex h-[1.875rem] w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-[0.5625rem] text-left hover:bg-(--wash-hover)"
     onclick={onBack}
   >
     <span class="flex w-4 shrink-0 items-center justify-center"
       >{@render glyph(icon)}</span
     >
-    <span class="text-sm font-medium text-(--solus-text-primary)">{text}</span>
-    <span class=" text-(--solus-text-tertiary)">{meta}</span>
+    <span class="text-[0.8125rem] font-medium text-(--solus-text-primary)">{text}</span>
+    <span class="text-xs text-(--solus-text-tertiary)">{meta}</span>
     <span class="flex-1"></span>
-    <span class=" text-(--solus-text-tertiary) opacity-70"
+    <span class="font-mono text-xs text-(--solus-text-tertiary) opacity-70"
       >⌫ back</span
     >
   </button>
@@ -197,16 +197,15 @@
 
 {#snippet row(entry: SelectableRow, index: number)}
   {@const selected = index === selectedIndex}
-  {@const iconName =
-    entry.type === "item" && entry.item.token.kind === "file"
-      ? fileTypeIcon(entry.item.token.path)
-      : null}
+  {@const isFileEntry =
+    entry.type === "item" && entry.item.token.kind === "file"}
+  {@const iconName = isFileEntry ? fileTypeIcon(entry.item.token.path) : null}
   <button
     type="button"
     role="option"
     aria-selected={selected}
     data-row-index={index}
-    class="text-xs flex h-[1.875rem] w-full cursor-pointer items-center gap-[0.5625rem] rounded-lg border-0 px-[0.5625rem] text-left transition-[background-color] duration-120"
+    class="flex h-[1.875rem] w-full cursor-pointer items-center gap-[0.5625rem] rounded-lg border-0 px-[0.5625rem] text-left transition-[background-color] duration-120"
     style="background:{selected ? 'var(--wash-selected)' : 'transparent'}"
     onmousemove={(event) => onHover(index, event)}
     onclick={() => onActivate(entry)}
@@ -229,19 +228,21 @@
     {#if entry.type === "deadEnd"}
       <!-- A dead end always offers a next move instead of an empty box. -->
       <span
-        class="max-w-[20rem] shrink-0 overflow-hidden whitespace-nowrap text-sm font-medium text-(--solus-text-tertiary)"
+        class="max-w-[20rem] shrink-0 overflow-hidden whitespace-nowrap text-[0.8125rem] font-medium text-(--solus-text-tertiary)"
         >{entry.title}</span
       >
       <span
-        class="min-w-0 flex-1 truncate  text-(--solus-text-tertiary)"
+        class="min-w-0 flex-1 truncate text-xs text-(--solus-text-tertiary)"
         >{entry.meta}</span
       >
     {:else}
       {@const parts = entry.parts}
       {@const mono = entry.type === "item" && entry.item.mono}
       <span
-        class="block max-w-[20rem] shrink-0 truncate text-sm font-medium text-(--solus-text-primary) {mono
- ? ''
+        class="block max-w-[20rem] shrink-0 truncate text-[0.8125rem] text-(--solus-text-primary) {isFileEntry
+ ? 'font-[450]'
+ : 'font-medium'} {mono
+ ? 'font-mono'
  : ''}"
       >
         <!-- Matched characters light up in every row; a metadata-only match
@@ -254,14 +255,14 @@
 
       {#if entry.type === "item"}
         <span
-          class="min-w-0 flex-1 truncate  text-(--solus-text-tertiary) {entry
+          class="min-w-0 flex-1 truncate text-xs text-(--solus-text-tertiary) {entry
  .item.monoMeta
- ? ' '
+ ? 'font-mono text-xs'
  : ''}">{rowMeta(entry.item, entry.showKind)}</span
         >
         {#if entry.item.when}
           <span
-            class="shrink-0  text-(--solus-text-tertiary) opacity-75"
+            class="shrink-0 font-mono text-xs text-(--solus-text-tertiary) opacity-75"
             >{entry.item.when}</span
           >
         {/if}
@@ -269,7 +270,7 @@
         <span class="flex-1"></span>
         <!-- A category's trailing slot is its count, and nothing else. -->
         <span class="flex shrink-0 items-center gap-2 text-(--solus-text-tertiary)">
-          <span class=" tabular-nums opacity-55"
+          <span class="font-mono text-xs tabular-nums opacity-55"
             >{entry.count}</span
           >
           <span class="opacity-40">{@render glyph(GLYPH.chevron)}</span>

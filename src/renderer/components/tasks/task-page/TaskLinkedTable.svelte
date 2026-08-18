@@ -128,7 +128,7 @@
                 {row.ref}
               </span>
             {/if}
-            <span class="min-w-0 truncate text-sm ">{row.label}</span>
+            <span class="min-w-0 truncate text-workspace-chrome">{row.label}</span>
           </span>
           <span class="w-[92px] shrink-0 whitespace-nowrap text-muted-foreground opacity-70">
             {row.kindLabel}
@@ -139,7 +139,7 @@
             <span class="truncate">{row.meta}</span>
             <button
               type="button"
-              class="flex size-[18px] shrink-0 cursor-pointer items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--wash-2)] hover:text-foreground"
+              class="flex size-[18px] shrink-0 cursor-pointer items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 pointer-coarse:opacity-100 hover:bg-[var(--wash-2)] hover:text-foreground"
               onclick={(e) => {
                 e.stopPropagation();
                 onUnlink(row.link);

@@ -3,20 +3,35 @@
     type SanitizeUrlFn,
   } from "@humanspeak/svelte-markdown";
   import { SvelteSet } from "svelte/reactivity";
-  import { ArrowUpIcon, CheckIcon, CircleNotchIcon } from "phosphor-svelte";
-  import type { TaskComment, TaskEvent } from "../../../../shared/task-types";
+  import {
+    ArrowUpIcon,
+    CheckIcon,
+    CircleNotchIcon,
+    TerminalWindowIcon,
+  } from "phosphor-svelte";
+  import type {
+    TaskComment,
+    TaskEvent,
+    TaskSessionLink,
+  } from "../../../../shared/task-types";
   import { githubMarkdownExtensions } from "../../../lib/githubMarkdown";
   import { markdownSanitizeUrl } from "../../../lib/markdownSanitize";
   import MarkdownImage from "../../conversation/MarkdownImage.svelte";
   import { githubMarkdownRenderers } from "../../ui/markdown-renderers";
   import { authorInitials, relativeTime } from "../lib/tasks-api";
   import { isInlineTaskImageUrl } from "./lib/task-image";
-  import { activityFeed, eventLine } from "./lib/task-page";
+  import {
+    activityFeed,
+    commentSessionName,
+    eventLine,
+  } from "./lib/task-page";
   import { commentSyncState } from "./lib/task-upstream";
 
   interface Props {
     comments: TaskComment[];
     events: TaskEvent[];
+    sessions: TaskSessionLink[];
+    onOpenSession: (sessionId: string) => void;
     /** The system a comment can be published to, when this task has one. Null
      *  leaves every entry with no publish affordance at all. */
     provider: string | null;
@@ -25,7 +40,14 @@
     onPublish: (commentId: string) => Promise<void>;
   }
 
-  let { comments, events, provider, onPublish }: Props = $props();
+  let {
+    comments,
+    events,
+    sessions,
+    onOpenSession,
+    provider,
+    onPublish,
+  }: Props = $props();
 
   /** Comments the user has just pressed Publish on, so the row stops offering
    *  the action before the host's answer arrives. */
@@ -153,6 +175,8 @@
       {:else}
         {@const comment = entry.comment}
         {@const agent = isAgent(comment)}
+        {@const originSessionId = comment.originSessionId}
+        {@const originSessionName = commentSessionName(comment, sessions)}
         <div class="relative flex gap-3 py-3">
           <span
             class="flex size-[25px] shrink-0 items-center justify-center rounded-full font-medium shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
@@ -191,22 +215,14 @@
               <span class="text-sm font-medium ">
                 {authorName(comment)}
               </span>
-              {#if comment.originSessionId}
-                <span
-                  class="rounded-full px-1.5 py-px "
-                  style="background:color-mix(in oklch, var(--primary) 13%, transparent);color:color-mix(in oklch, var(--primary) 82%, var(--foreground))"
-                >
-                  {comment.originSessionId.slice(0, 8)}
-                </span>
-              {/if}
               <span
                 class="text-muted-foreground opacity-60"
               >
                 {relativeTime(comment.createdAt)}
               </span>
+              <span class="flex-1"></span>
               {#if provider}
                 {@const sync = commentSyncState(comment, true)}
-                <span class="flex-1"></span>
                 <!-- Publishing is per comment: a note meant for the team here is
                      not automatically a note for the ticket's audience. -->
                 {#if sync === "published"}
@@ -240,6 +256,19 @@
                     Publish
                   </button>
                 {/if}
+              {/if}
+              {#if originSessionId && originSessionName}
+                <button
+                  type="button"
+                  class="flex h-5 shrink-0 self-center cursor-pointer items-center gap-0.5 rounded-md px-1.5 text-[11px] leading-none font-medium transition-[background-color,transform] duration-150 hover:bg-[color-mix(in_oklch,var(--primary)_20%,transparent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.96]"
+                  style="background:color-mix(in oklch, var(--primary) 13%, transparent);color:color-mix(in oklch, var(--primary) 82%, var(--foreground))"
+                  title="Open session {originSessionId}"
+                  aria-label="Open source session {originSessionName}"
+                  onclick={() => onOpenSession(originSessionId)}
+                >
+                  <TerminalWindowIcon size={10} aria-hidden="true" />
+                  <span class="max-w-48 truncate">{originSessionName}</span>
+                </button>
               {/if}
             </span>
             <div class="github-markdown prose-cloud prose-pr w-full">

@@ -7,8 +7,21 @@ type CreateTabOptions = NonNullable<Parameters<WorkspaceContextInstance['createT
 const previousWindow = globalThis.window
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 const previousAudio = globalThis.Audio
+const previousLocalStorage = globalThis.localStorage
 
 function installRendererGlobals(): void {
+  const storage = new Map<string, string>()
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      get length() { return storage.size },
+      clear: () => storage.clear(),
+      getItem: (key: string) => storage.get(key) ?? null,
+      key: (index: number) => [...storage.keys()][index] ?? null,
+      removeItem: (key: string) => storage.delete(key),
+      setItem: (key: string, value: string) => storage.set(key, value),
+    } satisfies Storage,
+  })
   ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
     <T>(value: T) => value,
     { snapshot: <T>(value: T) => value },
@@ -45,6 +58,8 @@ afterEach(() => {
   else (globalThis as unknown as { $state: unknown }).$state = previousState
   if (previousAudio === undefined) delete (globalThis as unknown as { Audio?: typeof Audio }).Audio
   else globalThis.Audio = previousAudio
+  if (previousLocalStorage === undefined) delete (globalThis as unknown as { localStorage?: Storage }).localStorage
+  else Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: previousLocalStorage })
 })
 
 describe('WorkspaceContext tab clearing', () => {
@@ -494,22 +509,21 @@ describe('WorkspaceContext new-tab Git initialization', () => {
 })
 
 describe('WorkspaceContext task-bound tab creation', () => {
-  test('passes the subtask id into tab creation', async () => {
+  test('passes the subtask id into a session draft', async () => {
     installRendererGlobals()
 
     const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
     const workspace = Object.create(WorkspaceContext.prototype) as any
-    let createOptions: CreateTabOptions | undefined
-    workspace.createTab = async (cwd: string, options: CreateTabOptions) => {
+    let draftOptions: CreateTabOptions | undefined
+    workspace.openSessionDraft = (options: CreateTabOptions, cwd: string) => {
       expect(cwd).toBe('/repo')
-      createOptions = options
-      return 'subtask-tab'
+      draftOptions = options
     }
-    workspace.router = { closeGroup: () => {} }
+    workspace.router = { leadingPane: { id: 'pane_1' }, closeGroup: () => {} }
 
     await workspace.openTaskSession({ id: 'subtask-1', projectKey: '/repo' })
 
-    expect(createOptions).toEqual({ taskId: 'subtask-1' })
+    expect(draftOptions).toEqual({ taskId: 'subtask-1', target: 'pane_1' })
   })
 
   test('publishes the task relationship with the new tab', async () => {
@@ -782,7 +796,7 @@ describe('Session bootstrap Git ordering', () => {
     const resync = resyncRuntime(ctx)
     for (let i = 0; i < 5; i++) await Promise.resolve()
 
-    // The sidebar, home, and Git panel all read the environment. Queueing it
+    // The sidebar, composer, and Git panel all read the environment. Queueing it
     // behind a runtime round-trip leaves them blank for the whole bind, so Git
     // must already be in flight while the bind is still outstanding.
     expect(order).toEqual(['git:start', 'bind:start'])

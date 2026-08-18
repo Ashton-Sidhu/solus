@@ -25,7 +25,7 @@
   import SettingsPageSkeleton from "../settings/SettingsPageSkeleton.svelte";
   import PrsPageSkeleton from "../prs/PrsPageSkeleton.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { isHomeVisible, retainedConversationTabIds } from "./lib/workspace-body";
+  import { retainedConversationTabIds } from "./lib/workspace-body";
 
   interface Props {
     active?: boolean;
@@ -104,12 +104,7 @@
   // show, so a new tab leaves the pill as just the bar rather than opening onto
   // an empty body. Any surface that fills the body on its own still opens it.
   const pillSession = $derived(session.sessionFor(session.activeTabId));
-  const pillSnoozeReminder = $derived(
-    session.tasksStore.snoozeReminderForSession(pillSession?.agentSessionId),
-  );
-  const pillHomeVisible = $derived(
-    !!pillDraft || !pillSession || isHomeVisible(pillSession, !!pillSnoozeReminder),
-  );
+  const pillHomeVisible = $derived(!!pillDraft || !pillSession);
   const pillSurfaceOpen = $derived(
     router.at("settings") ||
       router.at("folio") ||
@@ -476,6 +471,12 @@
             tabId={pillDraft ? undefined : session.activeTabId}
             isPrimary
             run={pillDraft ? pillDraft.run : session.activeSession?.run}
+            boundWorkId={pillDraft?.boundWorkId}
+            onUnbindWork={pillDraft
+              ? () => {
+                  if (pillDraft) pillDraft.boundWorkId = null;
+                }
+              : undefined}
             onDispatch={pillDraft ? startPillDraft : undefined}
             bind:prompt
           >

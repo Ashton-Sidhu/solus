@@ -1,8 +1,9 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
+import { hostOperatingSystem } from '../../src/main/platform/host-operating-system'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -40,7 +41,9 @@ interface SpanRow {
   session_id: string | null
   kind: string
   name: string
+  provider: string | null
   model: string | null
+  origin: string | null
   started_at: number
   ended_at: number
   status: string
@@ -63,6 +66,8 @@ interface SpanAttrs {
   promptSource?: string
   providerDurationMs?: number
   reasoningEffort?: string
+  hostname?: string
+  hostOs?: string
   isResume?: boolean
   taskId?: string
   timeToFirstActivityMs?: number
@@ -71,6 +76,12 @@ interface SpanAttrs {
   timeToProviderCompleteMs?: number
   timeToFirstTextMs?: number
   toolCallCount?: number
+  systemPrompt?: string
+  systemPromptChars?: number
+  systemPromptTruncated?: boolean
+  response?: string
+  responseChars?: number
+  responseTruncated?: boolean
 }
 
 function rows(): SpanRow[] {
@@ -111,7 +122,7 @@ describe.serial('session emitter', () => {
       prompt: 'fix it', promptChars: 6, promptSource: 'typed', reasoningEffort: 'high', taskId: 'task-1',
       // Ids drill, names query: the display names ride the turn as snapshots.
       taskTitle: 'Fix the tests', automationId: 'auto-1', automationName: 'Nightly triage',
-      branch: 'main', projectName: 'repo',
+      branch: 'main', projectName: 'repo', hostname: hostname(), hostOs: hostOperatingSystem(),
       costUsd: 0.25, inputTokens: 100, outputTokens: 20, cacheReadTokens: 30,
       isResume: false, timeToFirstActivityMs: 20, timeToFirstTextMs: 20, toolCallCount: 1,
       timeToFirstProviderEventMs: 20, timeToLastProviderEventMs: 45,
@@ -122,6 +133,70 @@ describe.serial('session emitter', () => {
     expect(spans.find((span) => span.kind === 'turn_settlement')).toMatchObject({
       name: 'Solus settlement', started_at: 1_045, ended_at: 1_050, duration_ms: 5,
     })
+  })
+
+  test('records the instructions the turn ran under and the answer it returned', () => {
+    const emitter = new emitterModule.SessionEmitter()
+    emitter.beginTurn({ sessionId: 'texts', prompt: 'ship it', promptSource: 'typed', startedAt: 3_000 })
+    emitter.recordSystemPrompt('texts', 'You are Solus.\n\nTask: fix the tests.')
+    emitter.completeSetup('texts', {
+      provider: 'claude-code', model: 'claude', projectRoot: '/repo', origin: 'typed', isResume: false,
+    }, 3_005)
+    emitter.onEvent('texts', { type: 'assistant_message', text: 'partial' }, 3_010)
+    emitter.onEvent('texts', {
+      type: 'task_complete', result: 'Shipped it.', costUsd: 0.1, durationMs: 20, numTurns: 1,
+      usage: {}, sessionId: 'provider-texts',
+    }, 3_020)
+    emitter.recordTerminal('texts', 'ok', 3_030)
+    emitter.finishTurn('texts', 'completed', 3_030)
+
+    expect(attrs(rows().find((span) => span.kind === 'turn')!)).toMatchObject({
+      systemPrompt: 'You are Solus.\n\nTask: fix the tests.',
+      systemPromptChars: 36,
+      // The provider's own final result is the answer where the turn reached one.
+      response: 'Shipped it.',
+      responseChars: 11,
+    })
+  })
+
+  test('a stopped turn still records the answer it had streamed', () => {
+    const emitter = new emitterModule.SessionEmitter()
+    emitter.beginTurn({ sessionId: 'stopped', prompt: 'long job', promptSource: 'typed', startedAt: 3_100 })
+    emitter.completeSetup('stopped', {
+      provider: 'claude-code', model: 'claude', projectRoot: '/repo', origin: 'typed', isResume: false,
+    }, 3_105)
+    emitter.onEvent('stopped', { type: 'assistant_message', text: 'Reading the files' }, 3_110)
+    // A nested message belongs to a subagent, not to this turn's answer.
+    emitter.onEvent('stopped', { type: 'assistant_message', text: 'inner', parentToolUseId: 'tool-9' }, 3_115)
+    emitter.recordTerminal('stopped', 'interrupted', 3_120)
+    emitter.finishTurn('stopped', 'interrupted', 3_120)
+
+    expect(attrs(rows().find((span) => span.kind === 'turn')!)).toMatchObject({
+      response: 'Reading the files',
+    })
+  })
+
+  test('caps a system prompt and a response, and says it capped them', () => {
+    const emitter = new emitterModule.SessionEmitter()
+    emitter.beginTurn({ sessionId: 'capped', prompt: 'go', promptSource: 'typed', startedAt: 3_200 })
+    emitter.recordSystemPrompt('capped', 'S'.repeat(20_000))
+    emitter.completeSetup('capped', {
+      provider: 'claude-code', model: 'claude', projectRoot: '/repo', origin: 'typed', isResume: false,
+    }, 3_205)
+    emitter.onEvent('capped', {
+      type: 'task_complete', result: 'R'.repeat(9_000), costUsd: 0, durationMs: 1, numTurns: 1,
+      usage: {}, sessionId: 'provider-capped',
+    }, 3_210)
+    emitter.recordTerminal('capped', 'ok', 3_220)
+    emitter.finishTurn('capped', 'completed', 3_220)
+
+    const turn = attrs(rows().find((span) => span.kind === 'turn')!)
+    expect(turn.systemPrompt).toHaveLength(16 * 1024)
+    expect(turn.systemPromptChars).toBe(20_000)
+    expect(turn.systemPromptTruncated).toBe(true)
+    expect(turn.response).toHaveLength(8 * 1024)
+    expect(turn.responseChars).toBe(9_000)
+    expect(turn.responseTruncated).toBe(true)
   })
 
   test('records provider thinking and observed response-stream intervals', () => {
@@ -332,6 +407,92 @@ describe.serial('session emitter', () => {
     expect(spans.find((span) => span.kind === 'rate_limit_wait')).toMatchObject({ started_at: 8_010, ended_at: 8_020 })
     const background = spans.find((span) => span.kind === 'background_task')!
     expect(attrs(background)).toMatchObject({ blocking: false, outcomeStatus: 'completed' })
+  })
+
+  test('nests dispatch steps under the setup span they ran inside', async () => {
+    const emitter = new emitterModule.SessionEmitter()
+    emitter.beginTurn({
+      sessionId: 'dispatch', prompt: 'build it', promptSource: 'typed', startedAt: 11_000,
+      provider: 'claude-code', projectRoot: '/repo',
+    })
+
+    // The shape dispatch actually has, and the point of the ambient context:
+    // the inner steps name no parent. `git_worktree_add` stands in for the call
+    // `createWorktree` makes from another module, which takes no telemetry
+    // argument and still lands in the right place.
+    await emitter.runDispatch('dispatch', 'launch_run', { provider: 'claude-code' }, async () => {
+      await emitterModule.dispatchStep('worktree_create', { projectPath: '/repo' }, () =>
+        emitterModule.dispatchStep('git_worktree_add', { argv: 'git worktree add' }, async () => {}),
+      )
+    })
+
+    emitter.completeSetup('dispatch', {
+      provider: 'claude-code', model: 'claude', projectRoot: '/repo', origin: 'typed', isResume: false,
+    }, 11_050)
+    emitter.recordTerminal('dispatch', 'ok', 11_060)
+    emitter.finishTurn('dispatch', 'completed', 11_060)
+
+    const spans = rows()
+    const setup = spans.find((span) => span.kind === 'setup')!
+    const steps = spans.filter((span) => span.kind === 'internal.dispatch_step')
+    const byName = new Map(steps.map((step) => [step.name, step]))
+    expect([...byName.keys()].sort()).toEqual(['git_worktree_add', 'launch_run', 'worktree_create'])
+
+    // Parentage is the whole point: a flat list of steps cannot say which
+    // function's time contains which, so the waterfall could not indent them.
+    expect(byName.get('launch_run')!.parent_span_id).toBe(setup.span_id)
+    expect(byName.get('worktree_create')!.parent_span_id).toBe(byName.get('launch_run')!.span_id)
+    expect(byName.get('git_worktree_add')!.parent_span_id).toBe(byName.get('worktree_create')!.span_id)
+    expect(steps.every((step) => step.trace_id === setup.trace_id)).toBe(true)
+    expect(steps.every((step) => step.session_id === 'dispatch')).toBe(true)
+    expect(steps.every((step) => step.status === 'ok')).toBe(true)
+
+    // A step is recorded when it ends, so it carries what the turn knew then:
+    // the backend and project it was dispatched to, and no executed model —
+    // the provider has not answered yet, and a requested one is not what
+    // `model` means anywhere else in the table.
+    expect(steps.every((step) => step.provider === 'claude-code')).toBe(true)
+    expect(steps.every((step) => step.origin === 'typed')).toBe(true)
+    expect(steps.every((step) => step.model === null)).toBe(true)
+    expect(spans.find((span) => span.kind === 'turn')!.model).toBe('claude')
+
+    // The dot path is what makes the flat internal_events view groupable.
+    expect(attrs(byName.get('git_worktree_add')!)).toMatchObject({
+      step: 'launch_run.worktree_create.git_worktree_add',
+      argv: 'git worktree add',
+    })
+  })
+
+  test('a step outside any dispatch runs untraced rather than throwing', async () => {
+    // `createWorktree` calls dispatchStep unconditionally, and is also called
+    // from places with no turn to attribute the time to. Those calls must be
+    // ordinary function calls, not errors and not orphan spans.
+    const before = rows().length
+    expect(await emitterModule.dispatchStep('worktree_create', { projectPath: '/repo' }, async () => 'made it'))
+      .toBe('made it')
+    expect(emitterModule.dispatchStepSync('agent_launch', {}, () => 7)).toBe(7)
+    expect(rows().length).toBe(before)
+  })
+
+  test('records a dispatch step that threw, and lets the failure through', async () => {
+    const emitter = new emitterModule.SessionEmitter()
+    emitter.beginTurn({ sessionId: 'failing', prompt: 'build it', promptSource: 'typed', startedAt: 12_000 })
+
+    // A dispatch that fails is exactly when a reader opens the trace, so the
+    // step has to survive its own failure — and must not swallow it.
+    await expect(emitter.runDispatch(
+      'failing',
+      'worktree_create',
+      { projectPath: '/repo' },
+      async () => { throw new Error('branch already checked out') },
+    )).rejects.toThrow('branch already checked out')
+
+    emitter.recordTerminal('failing', 'error', 12_030)
+    emitter.finishTurn('failing', 'failed', 12_030)
+
+    const step = rows().find((span) => span.kind === 'internal.dispatch_step')!
+    expect(step.status).toBe('error')
+    expect(attrs(step)).toMatchObject({ error: 'branch already checked out' })
   })
 
   test('groups bounded turn traces by session and orders them by start time', () => {

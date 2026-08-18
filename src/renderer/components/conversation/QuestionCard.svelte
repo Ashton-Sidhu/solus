@@ -599,7 +599,7 @@
     border-radius: 0.25rem;
     background: color-mix(in oklch, var(--foreground) 7%, transparent);
     font-family: var(--solus-code-font-family);
-    font-size: var(--text-sm);
+    font-size: 1em;
   }
 
   /* Number keys select, so the number is part of the row — and it stays neutral

@@ -6,6 +6,7 @@ import { AGENT_BIN, DEFAULT_SOURCE_CONTROL_WRITING, MODEL_PROFILES } from '../..
 import type {
   AgentId,
   AgentTaskLifecyclePolicy,
+  OtelSettings,
   SourceControlWritingPreferences,
   TextGenerationModelSelection,
   TextGenerationSettings,
@@ -27,8 +28,17 @@ const sourceControlWritingSchema = z.object({
   customInstructions: z.string().optional(),
   followPullRequestTemplate: z.boolean().optional(),
 }).strict()
+const otelSettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  endpoint: z.string().optional(),
+  headers: z.string().optional(),
+  exportLogs: z.boolean().optional(),
+  exportMetrics: z.boolean().optional(),
+  exportTraces: z.boolean().optional(),
+}).strict()
 const persistedServerSettingsSchema = z.object({
   remoteAccess: z.boolean().optional(),
+  otel: otelSettingsSchema.optional(),
   metricsRetentionDays: z.number().optional(),
   trustLocalNetwork: z.boolean().optional(),
   agentTaskLifecyclePolicy: z.enum(['none', 'moderate', 'autonomous']).optional(),
@@ -43,6 +53,9 @@ const persistedServerSettingsSchema = z.object({
 
 export interface ServerSettings {
   remoteAccess: boolean
+  /** Where this host sends its own telemetry. Disabled with an empty endpoint
+   *  by default: nothing leaves the machine until an operator says where to. */
+  otel: OtelSettings
   metricsRetentionDays: number
   /** Requesters from private-range (RFC1918) addresses skip pairing. Off by
    *  default: a shared network is not an identity unless the owner says so. */
@@ -67,8 +80,18 @@ const DEFAULT_TEXT_GENERATION_MODELS = {
   'claude-code': 'claude-haiku-4-5-20251001',
 } satisfies Record<AgentId, string>
 
+const DEFAULT_OTEL_SETTINGS: OtelSettings = {
+  enabled: false,
+  endpoint: '',
+  headers: '',
+  exportLogs: true,
+  exportMetrics: true,
+  exportTraces: true,
+}
+
 const DEFAULT_SETTINGS: ServerSettings = {
   remoteAccess: true,
+  otel: DEFAULT_OTEL_SETTINGS,
   metricsRetentionDays: 30,
   trustLocalNetwork: false,
   agentTaskLifecyclePolicy: 'moderate',
@@ -92,6 +115,7 @@ export function getServerSettings(): ServerSettings {
       const parsed = persistedServerSettingsSchema.parse(JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8')))
       _settings = {
         remoteAccess: parsed?.remoteAccess === true,
+        otel: normalizeOtelSettings(parsed?.otel),
         metricsRetentionDays: normalizeMetricsRetentionDays(parsed?.metricsRetentionDays),
         trustLocalNetwork: parsed?.trustLocalNetwork === true,
         agentTaskLifecyclePolicy: normalizeAgentTaskLifecyclePolicy(parsed?.agentTaskLifecyclePolicy),
@@ -120,6 +144,40 @@ export function getServerSettings(): ServerSettings {
 export function setRemoteAccess(remoteAccess: boolean): ServerSettings {
   _settings = { ...getServerSettings(), remoteAccess }
   persistSettings(_settings)
+  return _settings
+}
+
+/** An endpoint is the one field that can break export by being wrong, so it is
+ *  normalized rather than trusted: trimmed, and stripped of the trailing slash
+ *  that would otherwise produce `https://host//v1/traces`. */
+function normalizeOtelSettings(otel: z.infer<typeof otelSettingsSchema> | undefined): OtelSettings {
+  if (!otel) return { ...DEFAULT_OTEL_SETTINGS }
+  const endpoint = (otel.endpoint ?? '').trim().replace(/\/+$/, '')
+  return {
+    // Enabling with no endpoint would be a switch that reports "on" while
+    // exporting nowhere, so the endpoint is part of being enabled.
+    enabled: otel.enabled === true && endpoint.length > 0,
+    endpoint,
+    headers: (otel.headers ?? '').trim(),
+    exportLogs: otel.exportLogs !== false,
+    exportMetrics: otel.exportMetrics !== false,
+    exportTraces: otel.exportTraces !== false,
+  }
+}
+
+export function setOtelSettings(patch: Partial<OtelSettings>): ServerSettings {
+  const current = getServerSettings()
+  _settings = { ...current, otel: normalizeOtelSettings({ ...current.otel, ...patch }) }
+  persistSettings(_settings)
+  // The endpoint and headers are the operator's secrets; only the shape of the
+  // decision is logged.
+  log.info('otel_settings_changed', {
+    enabled: _settings.otel.enabled,
+    hasEndpoint: _settings.otel.endpoint.length > 0,
+    exportLogs: _settings.otel.exportLogs,
+    exportMetrics: _settings.otel.exportMetrics,
+    exportTraces: _settings.otel.exportTraces,
+  })
   return _settings
 }
 

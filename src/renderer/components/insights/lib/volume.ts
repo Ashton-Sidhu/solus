@@ -1,3 +1,4 @@
+import { providerMark } from './provider'
 import type { TurnRow } from './turn-rows'
 
 // The volume histogram and the brush that narrows the list.
@@ -35,10 +36,12 @@ export function bucketCountForWidth(width: number): number {
   return Math.min(BUCKET_RANGE.max, Math.max(BUCKET_RANGE.min, slots))
 }
 
-/** One counted row: an instant, whether it failed, and the measures the stat
- *  line summarises. A shape that records neither leaves them null. */
+/** One counted row: an instant, its provider, whether it failed, and the
+ *  measures the stat line summarises. A shape that records none leaves them
+ *  null. */
 export interface VolumePoint {
   at: number
+  provider: string | null
   failed: boolean
   costUsd: number | null
   durationMs: number | null
@@ -49,7 +52,9 @@ export interface VolumeBucket {
   at: number
   endAt: number
   total: number
-  failed: number
+  claudeCode: number
+  codex: number
+  unknownProvider: number
 }
 
 export interface TimeSelection {
@@ -84,6 +89,7 @@ export function isFailedStatus(status: string | null): boolean {
 export function turnPoints(rows: TurnRow[]): VolumePoint[] {
   return rows.map((row) => ({
     at: row.startedAt,
+    provider: row.provider,
     failed: isFailedStatus(row.status),
     costUsd: row.costUsd,
     durationMs: row.durationMs,
@@ -145,13 +151,22 @@ export function bucketPoints(
     at: from + index * width,
     endAt: from + (index + 1) * width,
     total: 0,
-    failed: 0,
+    claudeCode: 0,
+    codex: 0,
+    unknownProvider: 0,
   }))
   for (const point of points) {
     const index = Math.floor((point.at - from) / width)
     if (index < 0 || index >= count) continue
     buckets[index].total += 1
-    if (point.failed) buckets[index].failed += 1
+    const mark = providerMark(point.provider)
+    if (mark === 'claude') {
+      buckets[index].claudeCode += 1
+    } else if (mark === 'codex') {
+      buckets[index].codex += 1
+    } else {
+      buckets[index].unknownProvider += 1
+    }
   }
   return buckets
 }

@@ -61,7 +61,7 @@ export function sessionTurnsSql(sessionId: string, range: TimeRange): string {
   ].join('\n')
 }
 
-/** The histogram's own query: turn volume and failures per bucket. Independent
+/** The histogram's own query: turn volume split by provider. Independent
  *  of whatever the user is asking, because it is the context the answer sits
  *  in — narrowing it with the question would flatten the shape being explained. */
 export function turnVolumeSpec(window: ResolvedRange): MetricsQuerySpec {

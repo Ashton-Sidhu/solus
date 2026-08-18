@@ -201,6 +201,15 @@
   --solus-text-secondary: #484538;
   --solus-text-tertiary: #7d7a6e;
   --solus-text-muted: #dddad2;
+  /* Brand ink for a provider's own logo and its bar on the volume histogram.
+     Claude's clay reads too light over a pale surface at glyph weight, so the
+     mark takes the darker terracotta the app has always drawn it in. Codex
+     takes the blue of its own app icon, pulled clear of the violet end of that
+     icon's gradient: a mark and a bar have to say "blue" at a glance and at a
+     few pixels, which a blue-violet does not. Both hold in either theme, so
+     neither is overridden in the dark block. */
+  --brand-claude: #c15f2c;
+  --brand-codex: #1a7de0;
   /* Accent */
   --solus-accent: #d97757;
   --solus-accent-light: rgba(217, 119, 87, 0.07);
@@ -962,10 +971,10 @@ html.solus-web #root {
 
    Every rung carries its own leading through the `--text-*--line-height`
    convention, so one class sets both and the two can never drift apart. */
-/* Chrome uses **stock Tailwind** — `text-xs` 12, `text-sm` 14, `text-base` 16.
-   There is no custom UI ladder because there is nothing to add: those three are
-   already the exact rungs chrome needs, and a private alias for a stock value
-   only buys a tailwind-merge hazard and a name nobody else knows.
+/* Chrome normally uses **stock Tailwind** — `text-xs` 12, `text-sm` 14,
+   `text-base` 16. Workspace chrome is the one responsive rung: navigation and
+   the two rails must agree with the client display rather than independently
+   changing when one container is resized.
 
    The split is legible from the class itself:
      stock class  -> chrome, fixed size, scaled by zoom alone
@@ -979,6 +988,8 @@ html.solus-web #root {
    Not `@theme inline`: these must stay `var()` references so a live change to
    --solus-font-scale reflows the type without a rebuild. */
 @theme {
+  --text-workspace-chrome: 0.75rem;
+  --text-workspace-chrome--line-height: 1.1875rem;
   --text-caption: calc(0.875rem * var(--solus-font-scale, 1));
   --text-caption--line-height: 1.5;
   --text-body: calc(1rem * var(--solus-font-scale, 1));
@@ -989,6 +1000,16 @@ html.solus-web #root {
   --text-h2--line-height: 1.3;
   --text-h1: calc(1.9375rem * var(--solus-font-scale, 1));
   --text-h1--line-height: 1.25;
+}
+
+/* Match the display tiers already used by Action Orb. A 1512px MacBook stays
+   on the compact 12px rung. Large desktop clients gain the 14px rung, while a
+   coarse-pointer mobile client keeps touch-readable labels. These are viewport
+   queries on purpose: pane and rail resizing must never change type size. */
+@media (min-width: 100rem), (max-width: 48rem) and (pointer: coarse) {
+  :root {
+    --text-workspace-chrome: 0.875rem;
+  }
 }
 
 /* ─── Touch scrolling — native-feel on mobile/touch devices ─── */
@@ -3222,6 +3243,7 @@ button.solus-token {
    title's left edge, and the editor's own letter-spacing/feature set differs
    from the `.prose-cloud` one every other body on this ruleset gets. */
 .task-description-prose .solus-doc-editor .ProseMirror {
+  --prose-pr-size: var(--text-workspace-chrome);
   padding-left: 0;
   padding-right: 0;
   font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'cv02' 1, 'cv03' 1, 'cv04' 1, 'cv11' 1;
@@ -3849,12 +3871,6 @@ html.is-mac-editor
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-
-/* ─── New tab home motion (consumed via [animation:…] utilities in NewTabHome.svelte) ─── */
-@keyframes home-fade-in {
-  from { opacity: 0; transform: translateY(0.375rem); }
-  to   { opacity: 1; transform: translateY(0); }
 }
 
 /* ─── First-run onboarding motion ──────────────────────────────────────────────

@@ -7,7 +7,7 @@ import type { MetricsQuerySpec } from '../../src/shared/observability-types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type FacadeModule = typeof import('../../src/main/observability/facade')
+type SpanTableModule = typeof import('../../src/main/observability/span-table')
 type MetricsDbModule = typeof import('../../src/main/observability/metrics-db')
 type CompilerModule = typeof import('../../src/main/observability/query-compiler')
 type SqlGuardModule = typeof import('../../src/main/observability/sql-guard')
@@ -15,7 +15,7 @@ type RegistriesModule = typeof import('../../src/main/observability/registries')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
-let facade: FacadeModule
+let spanTable: SpanTableModule
 let metricsDb: MetricsDbModule
 let compiler: CompilerModule
 let sqlGuard: SqlGuardModule
@@ -31,7 +31,7 @@ function run(spec: MetricsQuerySpec) {
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-metrics-compiler-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  facade = await import('../../src/main/observability/facade')
+  spanTable = await import('../../src/main/observability/span-table')
   metricsDb = await import('../../src/main/observability/metrics-db')
   compiler = await import('../../src/main/observability/query-compiler')
   sqlGuard = await import('../../src/main/observability/sql-guard')
@@ -42,22 +42,23 @@ beforeAll(async () => {
   const { turn, toolCall } = registries.SPAN_KINDS
   const sessions = registries.SPAN_SERVICES.sessions
   const base = { service: sessions, sessionId: 'session-1', provider: 'claude', projectRoot: '/p' }
-  facade.writeSpan({ ...base, spanId: 't1', kind: turn, name: 'turn', model: 'fable', startedAt: 0, endedAt: 1_000, status: 'ok', attrs: { costUsd: 0.5, inputTokens: 10 } })
-  facade.writeSpan({ ...base, spanId: 't2', kind: turn, name: 'turn', model: 'fable', startedAt: HOUR, endedAt: HOUR + 3_000, status: 'ok', attrs: { costUsd: 0.25 } })
-  facade.writeSpan({ ...base, spanId: 't3', kind: turn, name: 'turn', model: 'opus', startedAt: 2 * HOUR, endedAt: 2 * HOUR + 5_000, status: 'error', attrs: {} })
+  spanTable.writeSpan({ ...base, spanId: 't1', traceId: 't1', kind: turn, name: 'turn', model: 'fable', startedAt: 0, endedAt: 1_000, status: 'ok', attrs: { costUsd: 0.5, inputTokens: 10 } })
+  spanTable.writeSpan({ ...base, spanId: 't2', traceId: 't2', kind: turn, name: 'turn', model: 'fable', startedAt: HOUR, endedAt: HOUR + 3_000, status: 'ok', attrs: { costUsd: 0.25 } })
+  spanTable.writeSpan({ ...base, spanId: 't3', traceId: 't3', kind: turn, name: 'turn', model: 'opus', startedAt: 2 * HOUR, endedAt: 2 * HOUR + 5_000, status: 'error', attrs: {} })
   // Day 2: one more fable turn.
-  facade.writeSpan({ ...base, spanId: 't4', kind: turn, name: 'turn', model: 'fable', startedAt: 24 * HOUR, endedAt: 24 * HOUR + 7_000, status: 'ok', attrs: { costUsd: 0.75 } })
+  spanTable.writeSpan({ ...base, spanId: 't4', traceId: 't4', kind: turn, name: 'turn', model: 'fable', startedAt: 24 * HOUR, endedAt: 24 * HOUR + 7_000, status: 'ok', attrs: { costUsd: 0.75 } })
 
   // 100 Bash calls with durations 1..100 ms for the percentile pass.
   for (let index = 1; index <= 100; index++) {
-    facade.writeSpan({
-      ...base, spanId: `bash-${String(index).padStart(3, '0')}`, kind: toolCall, name: 'Bash',
-      startedAt: 10_000 + index, endedAt: 10_000 + index * 2, durationMs: index, status: 'ok',
+    spanTable.writeSpan({
+      ...base, spanId: `bash-${String(index).padStart(3, '0')}`,
+      traceId: `bash-${String(index).padStart(3, '0')}`, kind: toolCall, name: 'Bash',
+      startedAt: 10_000 + index, endedAt: 10_000 + index * 2, status: 'ok',
       attrs: { input: '{"command":"bun run build"}', isSubagent: false },
     })
   }
-  facade.writeSpan({
-    ...base, spanId: 'read-1', kind: toolCall, name: 'Read', startedAt: 10_000, endedAt: 10_500,
+  spanTable.writeSpan({
+    ...base, spanId: 'read-1', traceId: 'read-1', kind: toolCall, name: 'Read', startedAt: 10_000, endedAt: 10_500,
     status: 'ok', attrs: { input: '{"file_path":"/p/a.ts"', inputTruncated: true, isSubagent: true },
   })
 })

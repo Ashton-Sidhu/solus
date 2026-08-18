@@ -23,8 +23,9 @@
    * by alignment or a bubble, which is the renderer bug that caused most of the
    * confusion this component replaces.
    *
-   * Your prompts are muted at 14px; the agent's replies are foreground at
-   * 14.5px, because the remote voice is the one being read.
+   * Size comes from the stream around it — both voices read at the same rung,
+   * and only tone separates them: your prompts are muted, the agent's replies
+   * are foreground, because the remote voice is the one being read.
    */
   interface Props {
     message: AgentMessage;
@@ -98,13 +99,13 @@
         <AgentTypingDots variant="chip" />
       </span>
     {:else}
-      <p class="m-0 text-sm text-muted-foreground/70">
+      <p class="m-0 text-muted-foreground/70">
         no reply recorded — open the session to catch up
       </p>
     {/if}
   {:else if artefact}
     {#if artefact.framing}
-      <p class="m-0 mb-2.5 max-w-[600px] text-sm leading-[1.62] text-pretty {restTone}">
+      <p class="m-0 mb-2.5 max-w-[600px] leading-[1.62] text-pretty {restTone}">
         {artefact.framing}
       </p>
     {/if}
@@ -112,7 +113,7 @@
       class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
     >
       <FileTextIcon size={13} class="shrink-0 text-muted-foreground/60" />
-      <span class="text-sm font-medium">{artefact.label}</span>
+      <span class="font-medium">{artefact.label}</span>
       <span class="flex-1"></span>
       {#if onOpen}
         <button
@@ -128,7 +129,7 @@
       {#if message.from === "you"}
         <p
           bind:clientHeight={bodyHeight}
-          class="m-0 max-w-[580px] text-sm leading-[1.6] text-muted-foreground whitespace-pre-wrap text-pretty"
+          class="m-0 max-w-[580px] leading-[1.6] text-muted-foreground whitespace-pre-wrap text-pretty"
         >
           {message.text}
         </p>
@@ -157,7 +158,7 @@
     </div>
     {#if overflows}
       <button
-        class="flex items-center gap-[7px] mt-2.5 text-sm text-muted-foreground cursor-pointer hover:text-foreground"
+        class="flex items-center gap-[7px] mt-2.5 text-xs text-muted-foreground cursor-pointer hover:text-foreground"
         onclick={() => (expanded = !expanded)}
       >
         <svg

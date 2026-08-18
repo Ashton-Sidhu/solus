@@ -29,6 +29,7 @@
      *  the pull requests inbox uses this; Tasks always needs one project. */
     onSelectAll?: () => void;
     allLabel?: string;
+    compactText?: boolean;
   }
   let {
     projects,
@@ -38,6 +39,7 @@
     onRemoveHistory,
     onSelectAll,
     allLabel = "All projects",
+    compactText = false,
   }: Props = $props();
 
   let menuOpen = $state(false);
@@ -91,7 +93,7 @@
   }
 </script>
 
-<div class="text-sm relative shrink-0">
+<div class="relative shrink-0 {compactText ? 'text-xs' : 'text-sm'}">
   <!-- The scrim closes the menu on the next click anywhere, so the trigger has
        no dismissal logic of its own. -->
   {#if menuOpen}
@@ -219,7 +221,7 @@
           {#if project.historyOnly && onRemoveHistory}
             <button
               type="button"
-              class="flex size-[34px] shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-muted-foreground opacity-0 transition-opacity duration-150 hover:bg-[var(--wash-2)] hover:text-foreground group-hover/row:opacity-100"
+              class="flex size-[34px] shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-muted-foreground opacity-0 transition-opacity duration-150 hover:bg-[var(--wash-2)] hover:text-foreground group-hover/row:opacity-100 pointer-coarse:opacity-100"
               title="Remove from history"
               aria-label="Remove {project.label} from history"
               onclick={() => onRemoveHistory(project)}

@@ -6,6 +6,14 @@ export interface ConversationFindMatch {
   occurrence: number;
 }
 
+export const CONVERSATION_BREADCRUMB_OFFSET = 58;
+
+export function conversationFindTopInset(hasFloatingBreadcrumb: boolean): number {
+  // The primary transcript is paint-contained below its floating breadcrumb, so
+  // z-index cannot lift the find bar over that sibling stacking layer.
+  return 8 + (hasFloatingBreadcrumb ? CONVERSATION_BREADCRUMB_OFFSET : 0);
+}
+
 export function isSearchableConversationMessage(message: Message): boolean {
   // A notice renders as a transient pill rather than as body text, whichever
   // role it arrived on — a match inside one is a hit find could never reach.

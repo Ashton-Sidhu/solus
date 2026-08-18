@@ -34,6 +34,7 @@ export { TasksStore } from './tasks/tasks.store.svelte'
 export { projectsStore } from './projects/projects.store.svelte'
 export { getProjectConfigStore } from './projects/project-config.store.svelte'
 export { getTextGenerationSettingsStore } from './projects/text-generation-settings.store.svelte'
+export { getOtelSettingsStore } from './projects/otel-settings.store.svelte'
 
 /** Workspace-wide catalog of every project opened/cloned/adopted/run — the
  *  union source for page-scope project pickers (Tasks, PRs, Workspace, Automations). */

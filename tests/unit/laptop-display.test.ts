@@ -57,6 +57,33 @@ describe('one shared classification', () => {
     expect(source).not.toContain('@media (max-width: 1800px)')
   })
 
+  test('document outlines use a compact expanded layout on laptop displays', () => {
+    // WHY: the shared outline opens at the top of both plans and documents. Its
+    // desktop dimensions consume too much of the reading column on a laptop.
+    const source = readRendererSource('components/document-shell/DocumentOutline.svelte')
+    expect(source).toContain(':global(html.is-laptop-display) .doc-outline__panel')
+    expect(source).toContain('--outline-panel-w: 14.5rem')
+    expect(source).toContain(':global(html.is-laptop-display) .doc-outline__item')
+    expect(source).toContain('class="doc-outline__item text-workspace-chrome"')
+  })
+
+  test('list search typography uses the shared workspace chrome rung', () => {
+    // WHY: search fields must stay on the same laptop, desktop, and touch-client
+    // scale as the rest of the persistent workspace controls.
+    const source = readRendererSource('components/ui/list-page/ListFilterBar.svelte')
+    expect(source).toContain('text-workspace-chrome')
+    expect(source).not.toContain('md:text-sm')
+  })
+
+  test('session picker uses more laptop width without changing mobile or large desktop defaults', () => {
+    // WHY: the session preview needs more horizontal room on a laptop, but the
+    // picker must remain full-screen on narrow clients and 75% on large displays.
+    const source = readRendererSource('components/session/SessionPicker.svelte')
+    expect(source).toContain('w-3/4')
+    expect(source).toContain('md:pointer-fine:[.is-laptop-display_&]:w-[85%]')
+    expect(source).toContain('max-md:w-full')
+  })
+
   test('runtime publishes the classification to CSS on every client', () => {
     const source = readRendererSource('contexts/app/runtime.svelte.ts')
     expect(source).toContain("classList.toggle('is-laptop-display', next)")

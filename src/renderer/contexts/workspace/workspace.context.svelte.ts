@@ -26,7 +26,7 @@ import { writeSessionHandoff } from './active-session-pointer'
 import { toasts } from '../../lib/toasts'
 import { RouterStore } from './routing/router.store.svelte'
 import { visibleRef, type NavTarget, type PaneId } from './routing/location'
-import { CHAT_ROUTE, chatRoute, type RouteRef, type SettingsTab } from './routing/route-registry'
+import { CHAT_ROUTE, chatRoute, type RouteParams, type RouteRef, type SettingsTab } from './routing/route-registry'
 import { WorkStreamTracker } from './work-stream-tracker.svelte'
 import { WorkspaceUiStore } from './workspace-ui.store.svelte'
 import { IpcContextBuilder } from './ipc-context'
@@ -142,6 +142,7 @@ interface CreateTabOptions {
   freshTask?: boolean
   withoutTask?: boolean
   taskId?: string
+  workId?: string
   gitContext?: GitCheckout | null
   gitInitialization?: 'blocking' | 'background'
   worktreeRequested?: boolean
@@ -242,7 +243,7 @@ export class WorkspaceContext {
       registry: this.registry,
       statusBar: this.statusBar,
       setPluginCommands: (commands) => { this.pluginCommands = commands },
-      openSessionDraft: (cwd) => { this.openSessionDraft({}, cwd) },
+      openSessionDraft: (cwd, freshTask) => { this.openSessionDraft({ freshTask }, cwd) },
       draftFor: (sourceId) => this.sessionDrafts.get(sourceId),
       ctx: (tabId) => tabId ? this.ctxFor(tabId) : this.ctx,
       ctxForDirectory: (dir) => this.ctxForDirectory(dir),
@@ -1129,6 +1130,7 @@ export class WorkspaceContext {
       run: { ...spec.run, gitContext: spec.run.gitContext ? { ...spec.run.gitContext } : null },
       pluginCommands: this.pluginCommands,
       task: spec.task,
+      boundWorkId: spec.boundWorkId,
       // The draft's prompt becomes the session's, same object: what the composer
       // is about to clear is what the send just read.
       prompt: spec.prompt,
@@ -1235,6 +1237,7 @@ export class WorkspaceContext {
       this.settings.worktreeEnabled,
     )
     draft.task = requestedTaskTarget(options, this.rootTaskIdFor(anchorTabId))
+    draft.boundWorkId = options.workId ?? null
     // A pane already showing a draft lets go of it before the new one takes its
     // place. A written-in draft survives that — the sidebar lists it and can
     // bring it back — so several drafts can be open at once.
@@ -1310,6 +1313,7 @@ export class WorkspaceContext {
       draft.run = spec.run
       draft.task = spec.task
       draft.prompt = spec.prompt
+      draft.boundWorkId = spec.boundWorkId ?? null
       // Empty drafts are disposable UI state, not user work. Older snapshots
       // persisted the foreground empty composer and could therefore restore its
       // `draft/<id>` route over a real active session after reload.
@@ -2872,13 +2876,19 @@ export class WorkspaceContext {
     }
 
     if (!resumed) {
-      // New chat opens clean; the boundWorkId binding below attaches the work
-      // (shows the "Working on:" chip and injects its content on send).
-      targetTabId = await this.createTab(work.cwd)
+      // New work starts in the same pre-flight composer as every other fresh
+      // session. The work binding crosses into the session only when Send
+      // creates it, so an abandoned prompt leaves no empty tab behind.
+      this.openSessionDraft(
+        { freshTask: true, workId, target: this.router.leadingPane.id },
+        work.cwd,
+      )
+      requestInputFocus()
+      return
     }
 
-    // Bind the target session to this work. If its agent session already exists
-    // (resume), link the back-reference now; the 'new' path links in session_init.
+    // A resumed session already exists, so attach the work immediately and
+    // publish the back-reference now.
     if (targetTabId) {
       const s = this.sessionFor(targetTabId)
       if (s) {
@@ -2956,18 +2966,18 @@ export class WorkspaceContext {
     this.togglePage({ name: 'tasks', params: {} }, via, 'tasks')
   }
 
-  /** Start a fresh session bound to a task. Mirrors openWorkAndStartSession: open
-   *  a clean tab in the task's project, initialize `pendingTaskId` (shows the
-   *  chip and makes the first send carry `taskId`, which the main process
-   *  hydrates + injects), and focus the input for the user's first message. */
+  /** Compose a fresh session bound to a task. The task target belongs to the
+   *  draft until Send creates the session, so leaving the composer does not
+   *  leave an empty tab behind. */
   async openTaskSession(task: Task): Promise<void> {
     // The task's own project, not the one on screen: the sidebar spans projects,
     // so the row you clicked is often not in the one the status bar names.
     const cwd = task.projectKey ?? this.tasksProjectCwd ?? this.staticInfo?.workspacePath ?? '~'
-    await this.createTab(cwd, { taskId: task.id })
-    // Whichever page led here — the list or one task's page — steps aside for
-    // the conversation it just started.
     this.router.closeGroup('page')
+    this.openSessionDraft(
+      { taskId: task.id, target: this.router.leadingPane.id },
+      cwd,
+    )
     requestInputFocus()
   }
 
@@ -3689,12 +3699,13 @@ export class WorkspaceContext {
 
   // ─── Viewers ───
 
-  /** Show a session's changes. A generic toggle closes whatever diff is open;
-   *  `switchScope` is the explicit "view working tree diff" action, which
-   *  switches a mismatched-scope diff instead of closing it. */
+  /** Show a session's changes in the review pane. A generic toggle closes
+   *  whatever review is open; `switchScope` is the explicit "view working tree
+   *  diff" action, which switches a mismatched-scope review instead of closing
+   *  it. */
   toggleDiff(sourceTabId: string, scope: DiffScope = { kind: 'session' }, switchScope = false): void {
     const current = this.router.overlay
-    if (current?.name === 'diff' && (!switchScope || current.params.scope?.kind === scope.kind)) {
+    if (current?.name === 'review' && (!switchScope || current.params.scope?.kind === scope.kind)) {
       this.router.closeOverlay()
       return
     }
@@ -3702,8 +3713,16 @@ export class WorkspaceContext {
     this.showDiff(sourceTabId, scope)
   }
 
+  /** Open the review pane on the change itself. Diff is the primary reading
+   *  view; the map and guide stay one tab away. */
   showDiff(sourceTabId: string, scope: DiffScope = { kind: 'session' }, filePath?: string): void {
-    this.showViewer({ name: 'diff', params: { sourceTabId, scope, filePath } })
+    const params: RouteParams['review'] = {
+      sourceTabId,
+      view: 'diff',
+      scope,
+    }
+    if (filePath) params.filePath = filePath
+    this.showViewer({ name: 'review', params })
   }
 
   /** `sourceId` is a tab or a draft: the file tree follows its run, so browsing
@@ -3729,29 +3748,29 @@ export class WorkspaceContext {
     })
   }
 
-  /** Viewers cover a companion pane and size themselves; a diff opened over a
-   *  review guide splits evenly so both halves stay readable. */
+  /** Viewers cover a companion pane and size themselves. */
   private showViewer(ref: RouteRef): void {
     const pane = this.router.navigate(ref, { target: 'aside' })
-    pane.defaultSize =
-      ref.name === 'diff' && this.router.leadingPane.base?.name === 'review' ? 50 : 60
+    pane.defaultSize = 60
   }
 
   // ─── Reviews ───
 
-  /** Show a generated review walkthrough. It takes the leading pane so a
-   *  focus-hunk diff can open beside it. */
-  enterReview(key: string, scope: 'branch' | 'session' = 'branch', sourceTabId?: string): void {
-    if (scope === 'session' && sourceTabId) {
+  /** Open the review pane on its diff. `scope` is the guide scope: a session
+   *  walkthrough reads the session's own changes, a branch one reads the whole
+   *  branch — which the pane resolves live, so the route carries no base. */
+  enterReview(scope: 'branch' | 'session' = 'branch', sourceTabId?: string): void {
+    const reviewTabId = sourceTabId ?? this.activeTabId
+    if (!reviewTabId) return
+    if (scope === 'session') {
       reviewGuideStore.markOpened(
-        this.apiFor(sourceTabId),
-        sessionGuideIdentity(this.sessionFor(sourceTabId)),
+        this.apiFor(reviewTabId),
+        sessionGuideIdentity(this.sessionFor(reviewTabId)),
       )
     }
-    this.router.navigate(
-      { name: 'review', params: { key, scope, sourceTabId } },
-      { target: this.router.leadingPane.id },
-    )
+    const params: RouteParams['review'] = { sourceTabId: reviewTabId, view: 'diff' }
+    if (scope === 'session') params.scope = { kind: 'session' }
+    this.showViewer({ name: 'review', params })
   }
 
 }

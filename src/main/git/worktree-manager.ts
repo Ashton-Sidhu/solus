@@ -3,6 +3,7 @@ import { copyFile, mkdir, stat as fsStat } from 'fs/promises'
 import path from 'path'
 import { SOLUS_WORKTREE_DIR, isSolusWorktreePath, worktreeProjectRoot, type GitCheckout, type GitDiscardResult, type GitSyncResult, type WorktreeEntry } from '../../shared/types'
 import { createLogger } from '../logger'
+import { dispatchStep } from '../observability/session-emitter'
 import { git, runAsync } from './exec'
 
 const log = createLogger('WorktreeManager', 'worktree-manager.ts')
@@ -258,29 +259,55 @@ export async function createWorktree(
   baseBranch?: string,
   options: CreateWorktreeOptions = {},
 ): Promise<GitCheckout> {
+  // The same four intervals this function has always timed for `dev.log`. When
+  // it is called inside a turn's dispatch they are also spans, so a slow
+  // dispatch names the git command that cost the time instead of one opaque
+  // setup bar. Outside one, every call below is a pass-through.
   const startedAt = Date.now()
   throwIfAborted(options.signal)
   const targetBranchStartedAt = Date.now()
-  const targetBranch = baseBranch || await getDefaultBranch(projectPath)
+  const targetBranch = baseBranch || await dispatchStep<string>(
+    'default_branch',
+    { projectPath },
+    async (annotate) => {
+      const resolved = await getDefaultBranch(projectPath)
+      annotate({ defaultBranch: resolved })
+      return resolved
+    },
+  )
   const targetBranchMs = Date.now() - targetBranchStartedAt
   throwIfAborted(options.signal)
   const startPointStartedAt = Date.now()
-  const startPoint = await resolveWorktreeStartPoint(projectPath, targetBranch, options.signal)
+  const startPoint = await dispatchStep<string>(
+    'start_point',
+    { projectPath, targetBranch },
+    async (annotate) => {
+      const resolved = await resolveWorktreeStartPoint(projectPath, targetBranch, options.signal)
+      annotate({ startPoint: resolved })
+      return resolved
+    },
+  )
   const startPointMs = Date.now() - startPointStartedAt
   const branch = branchFromSlug(slugifyBranch(prompt))
   const worktreePath = path.join(projectPath, SOLUS_WORKTREE_DIR, branch.replace(/\//g, '-'))
 
   log.info('worktree_creating', { branch, worktreePath, startPoint })
   const checkoutStartedAt = Date.now()
-  await runAsync(
-    'git',
-    ['worktree', 'add', '-b', branch, worktreePath, startPoint],
-    projectPath,
-    { signal: options.signal },
+  const checkoutArgs = ['worktree', 'add', '-b', branch, worktreePath, startPoint]
+  await dispatchStep<string>(
+    'git_worktree_add',
+    { argv: `git ${checkoutArgs.join(' ')}`, cwd: projectPath, branch, worktreePath, startPoint },
+    () => runAsync('git', checkoutArgs, projectPath, { signal: options.signal }),
   )
   const checkoutMs = Date.now() - checkoutStartedAt
   const copyStartedAt = Date.now()
-  await copyIncludedWorktreeFiles(projectPath, worktreePath, options.signal)
+  await dispatchStep<void>(
+    'copy_included_files',
+    { projectPath, worktreePath },
+    async (annotate) => {
+      annotate({ copiedFileCount: await copyIncludedWorktreeFiles(projectPath, worktreePath, options.signal) })
+    },
+  )
   const copyMs = Date.now() - copyStartedAt
 
   log.info('worktree_create_completed', {
@@ -296,25 +323,28 @@ export async function createWorktree(
   return { branch, targetBranch, worktreePath, repoRoot: projectPath }
 }
 
+/** Returns how many files were copied — the one fact that explains why this
+ *  step took the time it did. */
 async function copyIncludedWorktreeFiles(
   projectPath: string,
   worktreePath: string,
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<number> {
   throwIfAborted(signal)
   const includePath = path.join(projectPath, '.worktreeinclude')
-  if (!existsSync(includePath)) return
+  if (!existsSync(includePath)) return 0
 
   const ignoredFiles = (await runAsync('git', ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'], projectPath, { signal }))
     .split('\0')
     .filter(Boolean)
-  if (ignoredFiles.length === 0) return
+  if (ignoredFiles.length === 0) return 0
 
   const ignoredFileSet = new Set(ignoredFiles)
   const matchedFiles = (await runAsync('git', ['ls-files', '--others', '--ignored', `--exclude-from=${includePath}`, '-z'], projectPath, { signal }))
     .split('\0')
     .filter((relativePath) => relativePath && ignoredFileSet.has(relativePath))
 
+  let copied = 0
   for (const relativePath of matchedFiles) {
     throwIfAborted(signal)
     const source = path.join(projectPath, relativePath)
@@ -323,7 +353,9 @@ async function copyIncludedWorktreeFiles(
 
     await mkdir(path.dirname(target), { recursive: true })
     await copyFile(source, target)
+    copied += 1
   }
+  return copied
 }
 
 /** A full unified diff can be enormous; cap the buffer and treat an oversized diff

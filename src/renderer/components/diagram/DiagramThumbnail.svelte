@@ -12,6 +12,7 @@
   type ThumbNode = {
     id: string
     label: string
+    subtitle?: string
     x: number
     y: number
     w: number
@@ -40,13 +41,31 @@
     h: number
   }
 
+  interface EdgeAnchors {
+    sx: number
+    sy: number
+    tx: number
+    ty: number
+    horizontal: boolean
+  }
+
+  // Card geometry in diagram units — the miniature mirrors the canvas card:
+  // an optional small-caps kind line, then the label, then fields or chips.
+  const PAD_X = 15
+  const TITLE_SIZE = 13
+  const SUBTITLE_SIZE = 9
+  const FIELD_SIZE = 10
+
   let { content }: Props = $props()
 
   const theme = getSettingsContext()
   const edgeAccent = $derived(diagramAccent(theme.isDark))
   const model = $derived(buildModel(content))
-  const markerId = $derived(`diagram-thumb-arrow-${hashString(content)}`)
+  const idSeed = $derived(hashString(content))
+  const markerId = $derived(`diagram-thumb-arrow-${idSeed}`)
+  const shadowId = $derived(`diagram-thumb-shadow-${idSeed}`)
   const markerUrl = $derived(`url(#${markerId})`)
+  const shadowUrl = $derived(`url(#${shadowId})`)
 
   function hashString(value: string): string {
     let hash = 0
@@ -61,7 +80,7 @@
     if (node.group) return { w: node.width ?? 320, h: node.height ?? 220 }
 
     const isEntity = !!node.fields?.length
-    const labelWidth = node.label.length * 7 + 64
+    const labelWidth = node.label.length * 7 + 44
     const fieldWidth = isEntity
       ? Math.max(...node.fields!.map((f) => f.name.length * 6 + (f.type?.length ?? 0) * 5 + 56), 0)
       : 0
@@ -110,6 +129,7 @@
       return {
         id: node.id,
         label: node.label,
+        subtitle: node.subtitle,
         x: position.x,
         y: position.y,
         w: size.w,
@@ -160,50 +180,93 @@
     return node.y + node.h / 2
   }
 
-  function edgePath(edge: ThumbEdge): string {
+  // Anchor each end on the card edge that faces the other card, so a line never
+  // disappears under a node the way a centre-to-centre path does.
+  function edgeAnchors(edge: ThumbEdge): EdgeAnchors {
     const source = edge.sourceNode!
     const target = edge.targetNode!
-    const sx = centerX(source)
-    const sy = centerY(source)
-    const tx = centerX(target)
-    const ty = centerY(target)
-    const dx = tx - sx
-    const midX = sx + dx / 2
-    return `M ${sx} ${sy} C ${midX} ${sy}, ${midX} ${ty}, ${tx} ${ty}`
+    const dx = centerX(target) - centerX(source)
+    const dy = centerY(target) - centerY(source)
+    const horizontal = Math.abs(dx) >= Math.abs(dy)
+
+    if (horizontal) {
+      const forward = dx >= 0
+      return {
+        sx: forward ? source.x + source.w : source.x,
+        sy: centerY(source),
+        tx: forward ? target.x : target.x + target.w,
+        ty: centerY(target),
+        horizontal,
+      }
+    }
+    const downward = dy >= 0
+    return {
+      sx: centerX(source),
+      sy: downward ? source.y + source.h : source.y,
+      tx: centerX(target),
+      ty: downward ? target.y : target.y + target.h,
+      horizontal,
+    }
   }
 
-  function truncate(text: string, max = 22): string {
+  function edgePath(edge: ThumbEdge): string {
+    const { sx, sy, tx, ty, horizontal } = edgeAnchors(edge)
+    const bend = Math.max(24, Math.min(120, Math.abs(horizontal ? tx - sx : ty - sy) * 0.42))
+    return horizontal
+      ? `M ${sx} ${sy} C ${sx + Math.sign(tx - sx || 1) * bend} ${sy}, ${tx - Math.sign(tx - sx || 1) * bend} ${ty}, ${tx} ${ty}`
+      : `M ${sx} ${sy} C ${sx} ${sy + Math.sign(ty - sy || 1) * bend}, ${tx} ${ty - Math.sign(ty - sy || 1) * bend}, ${tx} ${ty}`
+  }
+
+  // Truncate to what the card can actually hold rather than a fixed count, so a
+  // wide card is not clipped mid-word and a narrow one never overflows.
+  function fit(text: string, width: number, size: number): string {
     const clean = text.trim()
+    const max = Math.max(4, Math.floor((width - PAD_X * 2) / (size * 0.55)))
     return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean
   }
 
+  function hasBody(node: ThumbNode): boolean {
+    return !!node.fields?.length || !!node.badges?.length
+  }
+
+  // With no body the label sits optically centred; with one it holds the top of
+  // the card, matching the canvas card's stacked layout.
+  function titleBaseline(node: ThumbNode): number {
+    if (hasBody(node)) return node.y + (node.subtitle ? 42 : 31)
+    return node.y + node.h / 2 + (node.subtitle ? 11 : 4.5)
+  }
+
   function nodeAccent(node: ThumbNode): string {
-    if (node.color) return node.color
-    return edgeAccent
+    return node.color ?? edgeAccent
+  }
+
+  function badgeWidth(text: string): number {
+    return Math.min(104, text.trim().length * 5.4 + 20)
   }
 </script>
 
 <div class="diagram-thumbnail" aria-hidden="true">
   <svg class="diagram-thumbnail__map" viewBox={model.viewBox} preserveAspectRatio="xMidYMid meet">
     <defs>
-      <marker id={markerId} markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
-        <path d="M 0 0 L 10 5 L 0 10 z" fill={edgeAccent} opacity="0.65" />
+      <marker id={markerId} markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">
+        <path d="M 1 1 L 6 3.5 L 1 6" fill="none" stroke={edgeAccent} stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.75" />
       </marker>
+      <filter id={shadowId} x="-30%" y="-30%" width="160%" height="180%">
+        <feDropShadow dx="0" dy="1.5" stdDeviation="2.5" flood-color="rgb(60 40 25)" flood-opacity="0.10" />
+      </filter>
     </defs>
-
-    <rect class="diagram-thumbnail__backdrop" x="-10000" y="-10000" width="20000" height="20000" />
 
     {#if model.empty}
       <g class="diagram-thumbnail__empty">
-        <rect x="120" y="80" width="180" height="60" rx="14" />
-        <path d="M 300 110 C 336 110, 336 176, 372 176" />
-        <rect x="310" y="146" width="72" height="52" rx="12" />
+        <rect x="118" y="76" width="168" height="56" rx="12" filter={shadowUrl} />
+        <path d="M 286 104 C 318 104, 318 172, 350 172" />
+        <rect x="350" y="146" width="120" height="52" rx="12" filter={shadowUrl} />
       </g>
     {:else}
       {#each model.groups as node (node.id)}
         <g class="diagram-thumbnail__group">
-          <rect x={node.x} y={node.y} width={node.w} height={node.h} rx="20" />
-          <text x={node.x + 20} y={node.y + 30}>{truncate(node.label, 28)}</text>
+          <rect x={node.x} y={node.y} width={node.w} height={node.h} rx="18" />
+          <text x={node.x + 18} y={node.y + 26}>{fit(node.label, node.w, 11)}</text>
         </g>
       {/each}
 
@@ -221,18 +284,50 @@
       {/each}
 
       {#each model.nodes as node (node.id)}
-        <g class="diagram-thumbnail__node">
-          <rect x={node.x} y={node.y} width={node.w} height={node.h} rx="14" />
-          <rect class="diagram-thumbnail__node-accent" x={node.x} y={node.y} width="4" height={node.h} rx="2" style:fill={nodeAccent(node)} />
-          <circle cx={node.x + 24} cy={node.y + 27} r="9" style:fill={nodeAccent(node)} />
-          <text class="diagram-thumbnail__node-title" x={node.x + 42} y={node.y + 31}>{truncate(node.label)}</text>
+        {@const baseline = titleBaseline(node)}
+        <g class="diagram-thumbnail__node" class:diagram-thumbnail__node--tinted={!!node.color} style:--thumb-accent={nodeAccent(node)}>
+          <rect
+            class="diagram-thumbnail__card"
+            x={node.x}
+            y={node.y}
+            width={node.w}
+            height={node.h}
+            rx="11"
+            filter={shadowUrl}
+          />
+
+          {#if node.subtitle}
+            <text class="diagram-thumbnail__subtitle" x={node.x + PAD_X} y={baseline - 15} font-size={SUBTITLE_SIZE}>
+              {fit(node.subtitle.toUpperCase(), node.w, SUBTITLE_SIZE)}
+            </text>
+          {/if}
+
+          <text class="diagram-thumbnail__title" x={node.x + PAD_X} y={baseline} font-size={TITLE_SIZE}>
+            {fit(node.label, node.w, TITLE_SIZE)}
+          </text>
+
           {#if node.fields?.length}
-            <line class="diagram-thumbnail__node-rule" x1={node.x + 16} y1={node.y + 48} x2={node.x + node.w - 16} y2={node.y + 48} />
-            {#each node.fields.slice(0, 3) as field, i}
-              <text class="diagram-thumbnail__field" x={node.x + 18} y={node.y + 68 + i * 16}>{truncate(field.name, 18)}</text>
+            <line class="diagram-thumbnail__rule" x1={node.x} y1={baseline + 12} x2={node.x + node.w} y2={baseline + 12} />
+            {#each node.fields.slice(0, 4) as field, i}
+              <text class="diagram-thumbnail__field" x={node.x + PAD_X} y={baseline + 29 + i * 16} font-size={FIELD_SIZE}>
+                {fit(field.name, node.w * 0.62, FIELD_SIZE)}
+              </text>
+              {#if field.type}
+                <text class="diagram-thumbnail__field-type" x={node.x + node.w - PAD_X} y={baseline + 29 + i * 16} font-size={FIELD_SIZE} text-anchor="end">
+                  {fit(field.type, node.w * 0.38, FIELD_SIZE)}
+                </text>
+              {/if}
             {/each}
           {:else if node.badges?.length}
-            <rect class="diagram-thumbnail__badge" x={node.x + 16} y={node.y + 48} width={Math.min(96, node.badges[0].length * 6 + 24)} height="18" rx="9" />
+            {#each node.badges.slice(0, 2) as badge, i}
+              {@const offset = i === 0 ? 0 : badgeWidth(node.badges[0]) + 6}
+              <g class="diagram-thumbnail__badge">
+                <rect x={node.x + PAD_X + offset} y={baseline + 8} width={badgeWidth(badge)} height="16" rx="8" />
+                <text x={node.x + PAD_X + offset + badgeWidth(badge) / 2} y={baseline + 19} font-size="9" text-anchor="middle">
+                  {fit(badge, badgeWidth(badge) + PAD_X * 2 - 12, 9)}
+                </text>
+              </g>
+            {/each}
           {/if}
         </g>
       {/each}
@@ -241,15 +336,24 @@
 </div>
 
 <style>
+  /* The dot grid is painted in screen space, not the SVG's user space, so it
+     keeps a constant density however far the diagram is scaled down to fit —
+     and it reads as the same canvas the diagram opens onto. */
   .diagram-thumbnail {
+    --thumb-dot: rgba(42, 38, 24, 0.1);
     width: 100%;
     height: 100%;
     min-height: 12rem;
     pointer-events: none;
     overflow: hidden;
-    background:
-      radial-gradient(circle at 18% 12%, color-mix(in srgb, var(--solus-accent-light) 24%, transparent), transparent 28%),
-      color-mix(in srgb, var(--solus-surface-primary) 28%, var(--solus-container-bg));
+    background-color: var(--solus-container-bg);
+    background-image: radial-gradient(circle, var(--thumb-dot) 1px, transparent 1px);
+    background-size: 1.375rem 1.375rem;
+    background-position: center;
+  }
+
+  :global(.dark) .diagram-thumbnail {
+    --thumb-dot: rgba(255, 255, 255, 0.08);
   }
 
   .diagram-thumbnail__map {
@@ -258,87 +362,107 @@
     height: 100%;
   }
 
-  .diagram-thumbnail__backdrop {
-    fill: transparent;
-  }
-
   .diagram-thumbnail__group rect {
-    fill: color-mix(in srgb, var(--solus-surface-primary) 18%, transparent);
-    stroke: color-mix(in srgb, var(--solus-tool-border) 76%, transparent);
-    stroke-width: 2;
-    stroke-dasharray: 10 8;
+    fill: color-mix(in srgb, var(--solus-surface-primary) 22%, transparent);
+    stroke: color-mix(in srgb, var(--solus-tool-border) 70%, transparent);
+    stroke-width: 1.25;
+    stroke-dasharray: 6 6;
   }
 
   .diagram-thumbnail__group text {
     fill: var(--solus-text-tertiary);
-    font-size: var(--text-sm);
+    font-size: 11px;
     font-weight: 500;
+    letter-spacing: 0.02em;
   }
 
   .diagram-thumbnail__edge {
     fill: none;
-    stroke: color-mix(in srgb, var(--solus-accent) 72%, var(--solus-text-tertiary));
+    stroke: color-mix(in srgb, var(--solus-accent) 55%, var(--solus-text-tertiary));
     stroke-linecap: round;
-    stroke-width: 3;
-    opacity: 0.54;
+    stroke-width: 1.75;
+    opacity: 0.5;
   }
 
   .diagram-thumbnail__edge--async {
-    stroke-dasharray: 12 10;
+    stroke-dasharray: 7 6;
   }
 
   .diagram-thumbnail__edge--dotted {
-    stroke-dasharray: 0.1 8;
+    stroke-dasharray: 0.1 6;
   }
 
   .diagram-thumbnail__edge--data {
-    stroke: color-mix(in srgb, #14b8a6 76%, var(--solus-text-tertiary));
+    stroke: color-mix(in srgb, #14b8a6 70%, var(--solus-text-tertiary));
   }
 
-  .diagram-thumbnail__node rect:first-child {
-    fill: color-mix(in srgb, var(--solus-container-bg) 94%, var(--solus-surface-primary));
-    stroke: color-mix(in srgb, var(--solus-tool-border) 76%, transparent);
-    stroke-width: 1.5;
+  .diagram-thumbnail__card {
+    fill: var(--solus-container-bg);
+    stroke: var(--solus-tool-border);
+    stroke-width: 1;
   }
 
-  .diagram-thumbnail__node-accent {
-    opacity: 0.76;
+  /* A deliberately coloured node tints its edge and its kind line — the same
+     places the canvas card carries colour — instead of wearing a marker. */
+  .diagram-thumbnail__node--tinted .diagram-thumbnail__card {
+    stroke: color-mix(in srgb, var(--thumb-accent) 42%, var(--solus-tool-border));
   }
 
-  .diagram-thumbnail__node circle {
-    opacity: 0.22;
+  .diagram-thumbnail__node--tinted .diagram-thumbnail__subtitle {
+    fill: var(--thumb-accent);
+    opacity: 0.85;
   }
 
-  .diagram-thumbnail__node-title {
+  .diagram-thumbnail__title {
     fill: var(--solus-text-primary);
-    font-size: var(--text-sm);
     font-weight: 500;
+    letter-spacing: -0.005em;
   }
 
-  .diagram-thumbnail__node-rule {
-    stroke: color-mix(in srgb, var(--solus-tool-border) 70%, transparent);
+  .diagram-thumbnail__subtitle {
+    fill: var(--solus-text-tertiary);
+    font-weight: 600;
+    letter-spacing: 0.09em;
+  }
+
+  .diagram-thumbnail__rule {
+    stroke: color-mix(in srgb, var(--solus-tool-border) 80%, transparent);
     stroke-width: 1;
   }
 
   .diagram-thumbnail__field {
-    fill: var(--solus-text-tertiary);
-    font-size: var(--text-sm);
-    font-weight: 500;
+    fill: var(--solus-text-secondary);
+    font-weight: 450;
   }
 
-  .diagram-thumbnail__badge {
-    fill: color-mix(in srgb, var(--solus-accent-light) 46%, transparent);
+  .diagram-thumbnail__field-type {
+    fill: var(--solus-text-tertiary);
+    font-weight: 450;
+  }
+
+  .diagram-thumbnail__badge rect {
+    fill: color-mix(in srgb, var(--solus-surface-primary) 60%, transparent);
+    stroke: color-mix(in srgb, var(--solus-tool-border) 60%, transparent);
+    stroke-width: 1;
+  }
+
+  .diagram-thumbnail__badge text {
+    fill: var(--solus-text-tertiary);
+    font-weight: 500;
+    letter-spacing: 0.02em;
   }
 
   .diagram-thumbnail__empty rect {
-    fill: color-mix(in srgb, var(--solus-container-bg) 90%, var(--solus-surface-primary));
-    stroke: color-mix(in srgb, var(--solus-tool-border) 76%, transparent);
+    fill: var(--solus-container-bg);
+    stroke: var(--solus-tool-border);
+    stroke-width: 1;
   }
 
   .diagram-thumbnail__empty path {
     fill: none;
-    stroke: color-mix(in srgb, var(--solus-accent) 62%, var(--solus-text-tertiary));
+    stroke: color-mix(in srgb, var(--solus-accent) 45%, var(--solus-text-tertiary));
     stroke-linecap: round;
-    stroke-width: 3;
+    stroke-width: 1.75;
+    opacity: 0.5;
   }
 </style>

@@ -219,7 +219,7 @@
             variant="ghost"
             size="icon-sm"
             onclick={() => void connections.revokeDevice(serverId, session.deviceId!)}
-            class="text-(--solus-text-tertiary) opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-(--solus-status-error)/10 hover:text-(--solus-status-error)"
+            class="text-(--solus-text-tertiary) opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 hover:bg-(--solus-status-error)/10 hover:text-(--solus-status-error)"
             aria-label="Revoke device"
           >
             <TrashIcon size={13} />

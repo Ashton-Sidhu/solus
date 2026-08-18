@@ -261,6 +261,19 @@ export function activityFeed(comments: TaskComment[], events: TaskEvent[]): Acti
   return entries.sort((left, right) => left.at - right.at || left.key.localeCompare(right.key))
 }
 
+/** Name the session that authored an agent comment. The durable task-session
+ * link carries the indexed title; comments keep only the stable session id. */
+export function commentSessionName(
+  comment: Pick<TaskComment, 'originSessionId'>,
+  sessions: TaskSessionLink[],
+): string | null {
+  if (!comment.originSessionId) return null
+  const link = sessions.find((candidate) => candidate.sessionId === comment.originSessionId)
+  return link
+    ? sessionDisplayName({ link })
+    : comment.originSessionId.slice(0, 8)
+}
+
 const ACTOR_NAMES = new Map<TaskEvent['actor'], string>([
   ['user', 'You'],
   ['agent', 'An agent'],

@@ -15,6 +15,7 @@ import { registerTasksHandlers } from './handlers/tasks'
 import { registerAutomationsHandlers } from './handlers/automations'
 import { registerDiffHandlers } from './handlers/diff'
 import { registerFilesHandlers } from './handlers/files'
+import { registerInsightsHandlers } from './handlers/insights'
 import { registerAgentIntercept } from './handlers/agent-intercept'
 import { seedDemoStorage } from './seed'
 import { DemoBackend } from './server'
@@ -52,6 +53,7 @@ registerTasksHandlers(backend, store)
 registerAutomationsHandlers(backend, store)
 registerDiffHandlers(backend, store)
 registerFilesHandlers(backend, store)
+registerInsightsHandlers(backend)
 registerAgentIntercept(backend, store)
 const demoApi = createDemoSolusApi(backend)
 window.solus = demoApi as unknown as LocalApi

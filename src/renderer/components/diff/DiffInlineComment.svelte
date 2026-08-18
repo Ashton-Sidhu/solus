@@ -50,10 +50,10 @@
     {#if age}
       <span class="shrink-0 text-(--solus-text-tertiary)">{age}</span>
     {/if}
-    <!-- Revealed on focus-within too, so keyboard and touch users (no :hover)
-         can reach edit/delete. -->
+    <!-- Revealed on focus-within for the keyboard, and simply at rest for a
+         coarse pointer, which has no :hover and nothing to focus first. -->
     <div
-      class="ml-auto flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+      class="ml-auto flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100"
     >
       {#if onEdit}
         <button

@@ -4,6 +4,8 @@ import { Markdown } from "@tiptap/markdown";
 import StarterKit from "@tiptap/starter-kit";
 import { JSDOM } from "jsdom";
 import { createMarkdownParser } from "../../src/renderer/components/editor/markdownParser";
+import { DiagramEmbedMarkdownExtension } from "../../src/renderer/components/editor/diagramEmbedExtension";
+import { serializeDiagramEmbed } from "../../src/shared/diagram-embed";
 
 const dom = new JSDOM("<div id=\"editor\"></div>");
 
@@ -32,6 +34,7 @@ describe("document editor markdown", () => {
       "Sparrows stitch the dawn",
     ].join("\n");
 
+    // SAFETY: The fixture always creates this element before each test.
     editor = new Editor({
       element: document.querySelector("#editor") as HTMLElement,
       extensions: [
@@ -55,6 +58,27 @@ describe("document editor markdown", () => {
           ],
         },
       ],
+    });
+    expect(editor.getMarkdown()).toBe(markdown);
+  });
+
+  test("round-trips a diagram embed as a block node", () => {
+    const markdown = serializeDiagramEmbed({ workId: "diagram-1", title: "System Architecture" });
+    // SAFETY: The fixture always creates this element before each test.
+    editor = new Editor({
+      element: document.querySelector("#editor") as HTMLElement,
+      extensions: [
+        StarterKit.configure({ codeBlock: false }),
+        Markdown.configure({ marked: createMarkdownParser() }),
+        DiagramEmbedMarkdownExtension,
+      ],
+      content: markdown,
+      contentType: "markdown",
+    });
+
+    expect(editor.getJSON().content?.[0]).toMatchObject({
+      type: "diagramEmbed",
+      attrs: { workId: "diagram-1", title: "System Architecture" },
     });
     expect(editor.getMarkdown()).toBe(markdown);
   });

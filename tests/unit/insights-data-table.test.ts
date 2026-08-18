@@ -42,6 +42,44 @@ describe('Insights data-table foundation', () => {
     expect(source).toContain('groupBySession(filteredSortedRows)')
   })
 
+  // Why it matters: a session in the Sessions table is an entry in a list of
+  // sessions. Expanded without a bound, one long session pushes every other
+  // session off the screen, and the reader loses the listing they opened.
+  test('an expanded session is bounded and scrolls in place', () => {
+    const source = read('TurnList.svelte')
+    // Three 2.5rem rows on a laptop, five on a taller desktop display.
+    expect(source).toContain('max-h-30')
+    expect(source).toContain('[@media(min-height:1000px)]:max-h-50')
+    expect(source).toContain('scrollbar-on-hover')
+    expect(source).toContain('overscroll-contain')
+    // A table row cannot scroll, so the turns are their own table in one
+    // full-width cell. It keeps the columns aligned by reserving the thumb's
+    // gutter and drawing itself that much wider, instead of letting the
+    // scrollbar narrow the flexible prompt column out of line with the header.
+    expect(source).toContain('[scrollbar-gutter:stable]')
+    expect(source).toContain('w-[calc(100%+0.5rem)]')
+    // A bounded window can hide a turn opened by deep link or by the panel's
+    // stepper, so the list has to bring the open row back into view.
+    expect(source).toContain('data-trace-row={row.traceId}')
+    expect(source).toContain('scrollIntoView({ block: "nearest" })')
+  })
+
+  // Why it matters: the row washes carry status — failed, interrupted. Adding
+  // a third wash for "open in the panel" overloads the same channel, and bold
+  // asks a prompt to answer a question its neighbours cannot.
+  test('the turn open in the panel is outlined, not filled or bolded', () => {
+    const source = read('TurnList.svelte')
+    expect(source).toContain(
+      "'shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--solus-art-1)_55%,transparent)]'",
+    )
+    expect(source).not.toContain('class:font-medium={row.traceId === selectedTraceId}')
+    expect(source).not.toContain('var(--solus-art-1) 7%')
+    expect(source).toContain('aria-current={current ? "true" : undefined}')
+    // Status keeps its washes.
+    expect(source).toContain('var(--failure) 7%')
+    expect(source).toContain('var(--warning) 8%')
+  })
+
   test('keeps table questions above the rows and navigation below them', () => {
     const toolbar = read('data-table/DataTableToolbar.svelte')
     const pagination = read('data-table/DataTablePagination.svelte')
@@ -68,6 +106,17 @@ describe('Insights data-table foundation', () => {
     expect(emptyState).not.toContain('animate-')
   })
 
+  test('clickable rows use washes without side rails', () => {
+    // WHY: a rail adds a second selection language beside the row wash. Hover
+    // and selection should change the row surface without adding edge chrome.
+    for (const component of ['TurnList.svelte', 'EventList.svelte']) {
+      const source = read(component)
+      expect(source, component).toContain('hover:bg-')
+      expect(source, component).not.toContain('inset_2px_0_0')
+    }
+    expect(read('TurnList.svelte')).toContain('row.traceId === selectedTraceId')
+  })
+
   test('every table asks its question from one band, not a stack of chrome', () => {
     for (const component of ['TurnList.svelte', 'EventList.svelte', 'ResultTable.svelte']) {
       const source = read(component)
@@ -75,6 +124,20 @@ describe('Insights data-table foundation', () => {
       // WHY: title, filters, and search are one question about one answer. Split
       // across bands they read as three unrelated toolbars above the rows.
       expect(header, component).toContain('<DataTableToolbar')
+    }
+  })
+
+  test('table answers sit directly on the page instead of on a card', () => {
+    for (const component of ['TurnList.svelte', 'EventList.svelte', 'ResultTable.svelte']) {
+      const source = read(component)
+      const root = source.slice(source.indexOf('<section'), source.indexOf('>', source.indexOf('<section')))
+      // WHY: the table already has strong header and row structure. A rounded,
+      // raised container adds an unnecessary second surface around the answer.
+      expect(root, component).not.toContain('rounded-xl')
+      expect(root, component).not.toContain('bg-card')
+      expect(root, component).not.toContain('--insights-card-shadow')
+      expect(root, component).not.toContain('ring-1')
+      expect(source, component).toContain('sticky top-0 z-10 bg-background')
     }
   })
 

@@ -1,3 +1,4 @@
+import { ROOT_CONTEXT, type Span } from '@opentelemetry/api'
 import type { AgentBackend, RunHandle } from './agent-backend'
 import type { AgentTool } from './tools/agent-tool'
 import { assertUniqueAgentTools } from './tools/agent-tool'
@@ -8,8 +9,13 @@ import type {
   ReasoningEffort,
 } from '../../shared/types'
 import { createLogger } from '../logger'
-import { endSpan, startSpan } from '../observability/facade'
-import { SPAN_KINDS, type SpanService } from '../observability/registries'
+import {
+  SPAN_KINDS,
+  type SpanAttributes,
+  type SpanService,
+  type SpanStatus,
+} from '../observability/registries'
+import { endSolusSpan, startSolusSpan } from '../observability/tracer'
 
 const log = createLogger('AgentRunner', 'agent-runner.ts')
 
@@ -75,22 +81,27 @@ export class AgentRunner {
     const backend = this.backends.get(request.provider)
     if (!backend) throw new Error(`Unknown agent provider: ${request.provider}`)
 
-    let agentSpanId: string | undefined
-    let agentSpanEnded = false
+    // One coarse span per ephemeral run. It is a trace of its own: a text
+    // generation or review guide is Solus's own work, not a phase of whichever
+    // turn happened to ask for it.
+    let agentSpan: Span | undefined
     if (request.persistence === 'ephemeral') {
       try {
-        agentSpanId = startSpan({
+        agentSpan = startSolusSpan({
           kind: SPAN_KINDS.agentRun,
           name: 'agent_run',
           service: request.service,
-          provider: request.provider,
-          model: request.model ?? undefined,
-          projectRoot: request.cwd,
           startedAt: Date.now(),
+          dimensions: {
+            provider: request.provider,
+            model: request.model ?? undefined,
+            projectRoot: request.cwd,
+          },
           attrs: {
             promptChars: request.prompt.length,
             ...(request.reasoningEffort ? { reasoningEffort: request.reasoningEffort } : {}),
           },
+          parent: ROOT_CONTEXT,
         })
       } catch (error) {
         log.warn('span_write_failed', {
@@ -100,16 +111,16 @@ export class AgentRunner {
         })
       }
     }
-    const finishAgentSpan = (status: 'ok' | 'error' | 'interrupted', attrs: Record<string, string | number | boolean> = {}) => {
-      if (!agentSpanId || agentSpanEnded) return
-      agentSpanEnded = true
+    const finishAgentSpan = (status: SpanStatus, attrs: SpanAttributes = {}) => {
+      const span = agentSpan
+      if (!span) return
+      agentSpan = undefined
       try {
-        endSpan(agentSpanId, { status, attrs })
+        endSolusSpan(span, { endedAt: Date.now(), status, attrs })
       } catch (error) {
         log.warn('span_write_failed', {
           provider: request.provider,
           service: request.service,
-          spanId: agentSpanId,
           error: error instanceof Error ? error.message : String(error),
         })
       }

@@ -105,6 +105,10 @@
      *  draft supplies it; a chat leaves it unset and the message goes to the
      *  session as usual. Returns false to keep the prompt for another try. */
     onDispatch?: (text: string, delivery: PromptDelivery) => boolean;
+    /** Work attached before a draft becomes a session. Started sessions own
+     *  this on the session itself; drafts pass it directly. */
+    boundWorkId?: string | null;
+    onUnbindWork?: () => void;
     /** Receives the saved-prompts control, which the toolbar seats in the left
      *  cluster beside the pickers rather than out with the mic and send: saving
      *  a prompt is a composer decision, not a send action. It is handed over as
@@ -121,6 +125,8 @@
     pluginCommands: suppliedPluginCommands,
     prompt = $bindable(),
     onDispatch,
+    boundWorkId: draftBoundWorkId,
+    onUnbindWork,
     leadingActions,
   }: Props = $props();
 
@@ -351,11 +357,13 @@
   const sessionRefs = $derived(prompt.sessionRefs);
   // Work this session is actively collaborating on — its content is injected
   // into each prompt so the agent revises the live version.
-  const boundWork = $derived(
-    sess?.boundWorkId ? session.worksStore.get(sess.boundWorkId) : null,
-  );
+  const boundWork = $derived.by(() => {
+    const workId = sess?.boundWorkId ?? draftBoundWorkId;
+    return workId ? session.worksStore.get(workId) : null;
+  });
   function unbindWork() {
     if (sess) sess.boundWorkId = null;
+    else onUnbindWork?.();
     composerEl?.focus();
   }
   const isVoiceWaiting = $derived(

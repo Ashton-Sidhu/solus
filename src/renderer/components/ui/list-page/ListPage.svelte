@@ -2,6 +2,7 @@
   import type { Snippet } from "svelte";
   import {
     ArrowClockwiseIcon,
+    ArrowSquareOutIcon,
     ListIcon,
     PlusIcon,
     TrayIcon,
@@ -48,6 +49,7 @@
     /** Leads the switcher with an "All projects" row that clears the scope. */
     onSelectAllProjects?: () => void;
     allProjectsLabel?: string;
+    compactProjectPickerText?: boolean;
     title: string;
     /** The first stat is the lead and the only coloured text in the header. */
     summary: ListSummaryStat[];
@@ -56,12 +58,16 @@
     onViewChange?: (view: ListPageView) => void;
     globalLabel?: string;
     inboxLabel?: string;
+    compactViewSwitcherText?: boolean;
     /** Drives the inbox badge; brand-coloured only while the inbox is active. */
     unreadCount?: number;
     onRefresh?: () => void;
     refreshing?: boolean;
     /** The page's one creating action. */
     primaryAction?: { label: string; shortcut?: string; run: () => void };
+    compactPrimaryActionText?: boolean;
+    /** Promote a page shown in a companion pane into the leading pane. */
+    onOpenAsPage?: () => void;
     onClose?: () => void;
     /** Extra controls between the view switch and refresh (project switchers, bulk actions). */
     actions?: Snippet;
@@ -87,16 +93,20 @@
     onRemoveProjectHistory,
     onSelectAllProjects,
     allProjectsLabel,
+    compactProjectPickerText = false,
     title,
     summary,
     view = "global",
     onViewChange,
     globalLabel = "All",
     inboxLabel = "My inbox",
+    compactViewSwitcherText = false,
     unreadCount = 0,
     onRefresh,
     refreshing = false,
     primaryAction,
+    compactPrimaryActionText = false,
+    onOpenAsPage,
     onClose,
     actions,
     filters,
@@ -168,12 +178,15 @@
             onRemoveHistory={onRemoveProjectHistory}
             onSelectAll={onSelectAllProjects}
             allLabel={allProjectsLabel}
+            compactText={compactProjectPickerText}
           />
         {/if}
 
         {#if onViewChange}
           <div
-            class="flex items-center gap-0.5 rounded-full bg-[var(--wash-2)] p-0.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
+            class="flex items-center gap-0.5 rounded-full bg-[var(--wash-2)] p-0.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)] {compactViewSwitcherText
+              ? 'text-xs'
+              : 'text-sm'}"
             role="group"
             aria-label="View"
           >
@@ -230,7 +243,9 @@
         {#if primaryAction}
           <button
             type="button"
-            class="flex h-[30px] cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px]  font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]"
+            class="flex h-[30px] cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] {compactPrimaryActionText
+              ? 'text-xs'
+              : 'text-sm'}"
             onclick={primaryAction.run}
           >
             <PlusIcon size={12} weight="bold" class="shrink-0" />
@@ -240,6 +255,18 @@
                 >{primaryAction.shortcut}</span
               >
             {/if}
+          </button>
+        {/if}
+
+        {#if onOpenAsPage}
+          <button
+            type="button"
+            class={PAGE_ICON_BTN}
+            onclick={onOpenAsPage}
+            title="Open as page"
+            aria-label="Open as page"
+          >
+            <ArrowSquareOutIcon size={14} />
           </button>
         {/if}
 

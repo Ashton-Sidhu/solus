@@ -180,6 +180,8 @@ export const RPC_INVOKE_METHODS = [
   'setAgentTaskLifecyclePolicy',
   'textGenerationSettingsGet',
   'textGenerationSettingsUpdate',
+  'otelSettingsGet',
+  'otelSettingsUpdate',
   'discoverServers',
   'getServerCapabilities',
   'setServerName',

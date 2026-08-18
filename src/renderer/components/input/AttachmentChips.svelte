@@ -82,7 +82,7 @@
 
         <button
           onclick={() => onRemove(a.id)}
-          class="flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-(--solus-text-tertiary)"
+          class="flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity text-(--solus-text-tertiary)"
         >
           <XIcon size={10} />
         </button>

@@ -26,6 +26,8 @@
     selected?: boolean;
     /** What occupies the lead-avatar slot when this row has no person. */
     fallbackAvatar?: "solus";
+    /** Keep the title compact until the page has wide-display space. */
+    responsiveTitle?: boolean;
     onSelect?: () => void;
     onContextMenu?: (event: MouseEvent) => void;
     leading?: Snippet;
@@ -36,6 +38,7 @@
     identWidth = 62,
     selected = false,
     fallbackAvatar,
+    responsiveTitle = false,
     onSelect,
     onContextMenu,
     leading,
@@ -92,7 +95,9 @@
     <!-- Slot 3 — the only full-strength text in the row. `min-w-0` is what lets
          it lend width to the reveal instead of pushing the row wide. -->
     <span
-      class="max-w-[520px] min-w-0 truncate text-sm font-normal "
+      class="max-w-[520px] min-w-0 truncate font-normal {responsiveTitle
+        ? 'text-workspace-chrome'
+        : 'text-sm'}"
       title={row.title}
     >
       {row.title}

@@ -115,6 +115,16 @@ describe('sorting and grouping', () => {
     expect(groupBySession(sorted).map((group) => group.sessionId)).toEqual(['s_2', 's_1'])
   })
 
+  test("a session heading uses the session's first turn, independent of table sort", () => {
+    const group = groupBySession([
+      turnRow({ traceId: 'latest', sessionId: 's_1', startedAt: 300, prompt: 'Third turn' }),
+      turnRow({ traceId: 'first', sessionId: 's_1', startedAt: 100, prompt: 'First turn' }),
+      turnRow({ traceId: 'middle', sessionId: 's_1', startedAt: 200, prompt: 'Second turn' }),
+    ])[0]
+
+    expect(group.firstPrompt).toBe('First turn')
+  })
+
   test('a group sums only the durations it observed', () => {
     const group = groupBySession(rows).find((candidate) => candidate.sessionId === 's_1')
     expect(group?.totalDurationMs).toBe(100)
@@ -192,17 +202,22 @@ describe('histogram bucketing', () => {
     expect(buckets.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(0)
   })
 
-  test('errors and interruptions both count as failures in a bucket', () => {
+  test('each bucket splits its rows by provider and keeps unknown history visible', () => {
     const buckets = bucketPoints(
       turnPoints([
-        turnRow({ startedAt: 100, status: 'error' }),
-        turnRow({ startedAt: 200, status: 'interrupted' }),
-        turnRow({ startedAt: 300, status: 'ok' }),
+        turnRow({ startedAt: 100, provider: 'claude-code' }),
+        turnRow({ startedAt: 200, provider: 'codex' }),
+        turnRow({ startedAt: 300, provider: null }),
       ]),
       from,
       to,
     )
-    expect(buckets[0]).toMatchObject({ total: 3, failed: 2 })
+    expect(buckets[0]).toMatchObject({
+      total: 3,
+      claudeCode: 1,
+      codex: 1,
+      unknownProvider: 1,
+    })
   })
 
   test('a brush selection is half-open, so adjacent buckets never double-count', () => {

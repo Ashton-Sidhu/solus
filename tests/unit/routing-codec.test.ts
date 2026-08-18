@@ -38,19 +38,20 @@ const SAMPLES: RouteRef[] = [
   { name: 'automation', params: { automationId: null } },
   { name: 'automation', params: { automationId: null, serverId: 'remote-host' } },
   { name: 'goal', params: { sessionId: 'sess_abc' } },
-  { name: 'review', params: { key: 'solus__fix-review', scope: 'branch' } },
-  { name: 'review', params: { key: 'solus__fix', scope: 'session', sourceTabId: 'tab_a' } },
+  { name: 'review', params: { sourceTabId: 'tab_a', view: 'map' } },
+  { name: 'review', params: { sourceTabId: 'tab_a', view: 'guide' } },
+  { name: 'review', params: { sourceTabId: 'tab_a', view: 'guide', scope: { kind: 'session' } } },
   { name: 'prReview', params: { number: 4821 } },
   { name: 'prReview', params: { number: 4821, cwd: '/repo/app' } },
   { name: 'prReview', params: { number: 4821, cwd: '/repo/app', serverId: 'host_remote' } },
   { name: 'prDiff', params: { number: 4821 } },
   { name: 'prDiff', params: { number: 4821, cwd: '/repo/app' } },
   { name: 'draft', params: { draftId: 'draft_a' } },
-  { name: 'diff', params: { sourceTabId: 'tab_a', scope: { kind: 'session' } } },
-  { name: 'diff', params: { sourceTabId: 'tab_a', scope: { kind: 'working-tree' } } },
-  { name: 'diff', params: { sourceTabId: 'tab_a', scope: { kind: 'turn', index: 3 } } },
-  { name: 'diff', params: { sourceTabId: 'tab_a', scope: { kind: 'pr', baseSha: 'abc123' } } },
-  { name: 'diff', params: { sourceTabId: 'tab_a', scope: { kind: 'session' }, filePath: 'src/a/b.ts' } },
+  { name: 'review', params: { sourceTabId: 'tab_a', view: 'diff', scope: { kind: 'session' } } },
+  { name: 'review', params: { sourceTabId: 'tab_a', view: 'diff', scope: { kind: 'working-tree' } } },
+  { name: 'review', params: { sourceTabId: 'tab_a', view: 'diff', scope: { kind: 'turn', index: 3 } } },
+  { name: 'review', params: { sourceTabId: 'tab_a', view: 'map', scope: { kind: 'pr', baseSha: 'abc123' } } },
+  { name: 'review', params: { sourceTabId: 'tab_a', view: 'diff', scope: { kind: 'session' }, filePath: 'src/a/b.ts' } },
   { name: 'files', params: { sourceId: 'tab_a' } },
   { name: 'fileEditor', params: { sourceId: 'tab_a', path: 'src/a/b.ts' } },
   { name: 'fileEditor', params: { sourceId: 'tab_a', path: 'src/a/b.ts', line: 412 } },
@@ -82,6 +83,15 @@ describe('route codec', () => {
 })
 
 describe('the pane grammar', () => {
+  test('a review without an explicit view opens on the diff', () => {
+    expect(parseRoute('/review/tab_a')).toEqual({
+      name: 'review',
+      params: { sourceTabId: 'tab_a', view: 'diff' },
+    })
+    expect(serializeRoute({ name: 'review', params: { sourceTabId: 'tab_a' } }))
+      .toBe('/review/tab_a/diff/branch')
+  })
+
   test('one pane is just a path', () => {
     expect(serializeLocation(locationOf({ name: 'chat', params: { sessionId: 'sess_abc' } })))
       .toBe('/chat/sess_abc')
@@ -98,13 +108,16 @@ describe('the pane grammar', () => {
   test('an overlay attaches to its pane with `!`', () => {
     const location = locationOf({ name: 'chat', params: { sessionId: 'sess_abc' } })
     location.panes.push(
-      makePane({ name: 'prReview', params: { number: 4821 } }, { name: 'diff', params: { sourceTabId: 'tab_abc' } }),
+      makePane(
+        { name: 'prReview', params: { number: 4821 } },
+        { name: 'review', params: { sourceTabId: 'tab_abc', view: 'map' } },
+      ),
     )
     const text = serializeLocation(location)
-    expect(text).toContain('prReview%2F4821%21diff%2Ftab_abc%2Fsession')
+    expect(text).toContain('prReview%2F4821%21review%2Ftab_abc%2Fmap%2Fbranch')
     expect(parseLocation(text).panes[1]).toMatchObject({
       base: { name: 'prReview', params: { number: 4821 } },
-      overlay: { name: 'diff' },
+      overlay: { name: 'review' },
     })
   })
 
@@ -122,6 +135,41 @@ describe('the pane grammar', () => {
       expect(parsed.panes.map((pane) => pane.base)).toEqual(refs)
       expect(parsed.panes.findIndex((pane) => pane.id === parsed.focusedPaneId)).toBe(count - 1)
     }
+  })
+
+  test('a diff link written before the review pane existed opens the same change', () => {
+    // The diff and the review guide became one destination. A persisted
+    // location, an agent link, or a notification written against either old
+    // grammar has to land on the same change and the same view — the two old
+    // names put different things in the second segment, so reading one with the
+    // other's parser would silently mis-seat every field.
+    expect(parseRoute('/diff/tab_a/working-tree')).toEqual({
+      name: 'review',
+      params: { sourceTabId: 'tab_a', view: 'diff', scope: { kind: 'working-tree' } },
+    })
+    expect(parseRoute('/diff/tab_a/session/src/a/b.ts')).toEqual({
+      name: 'review',
+      params: {
+        sourceTabId: 'tab_a',
+        view: 'diff',
+        scope: { kind: 'session' },
+        filePath: 'src/a/b.ts',
+      },
+    })
+  })
+
+  test('a guide link written before the review pane existed opens the guide', () => {
+    // The cached-guide key the old route carried is derivable from the
+    // checkout, so it is dropped rather than kept as a thing to keep in sync.
+    expect(parseRoute('/review/solus__fix/branch/tab_a')).toEqual({
+      name: 'review',
+      params: { sourceTabId: 'tab_a', view: 'guide' },
+    })
+
+    expect(parseRoute('/review/solus__fix/session/tab_a')).toEqual({
+      name: 'review',
+      params: { sourceTabId: 'tab_a', view: 'guide', scope: { kind: 'session' } },
+    })
   })
 
   test('a file opened before the line slot existed still opens that file', () => {

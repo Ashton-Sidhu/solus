@@ -12,6 +12,7 @@
     query: string;
     placeholder: string;
     filters?: ListFilterSpec[];
+    compactText?: boolean;
     /** Menu chips that own their own popover — rendered after the toggles. */
     trailing?: Snippet;
     searchEl?: HTMLInputElement | null;
@@ -20,12 +21,17 @@
     query = $bindable(),
     placeholder,
     filters = [],
+    compactText = false,
     trailing,
     searchEl = $bindable(null),
   }: Props = $props();
 </script>
 
-<div class="flex shrink-0 items-center gap-2 pb-3.5">
+<div
+  class="flex shrink-0 items-center gap-2 pb-3.5 {compactText
+    ? 'text-xs'
+    : 'text-sm'}"
+>
   <div
     class="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-lg px-[9px] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
   >
@@ -35,7 +41,7 @@
       bind:value={query}
       type="text"
       {placeholder}
-      class="w-full border-0 bg-transparent text-sm caret-[var(--primary)] outline-none placeholder:text-muted-foreground"
+      class="w-full border-0 bg-transparent text-workspace-chrome caret-[var(--primary)] outline-none placeholder:text-muted-foreground"
       aria-label={placeholder}
     />
     <span
@@ -48,7 +54,7 @@
     {@const Icon = filter.icon}
     <button
       type="button"
-      class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 text-sm transition-colors duration-150 {filter.active
+      class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 transition-colors duration-150 {filter.active
  ? 'bg-[color-mix(in_oklch,var(--primary)_13%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
  : 'bg-transparent text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)]'}"
       onclick={filter.toggle}

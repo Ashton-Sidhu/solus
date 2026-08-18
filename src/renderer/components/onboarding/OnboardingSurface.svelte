@@ -18,6 +18,8 @@
   import OnboardingMark from "./OnboardingMark.svelte";
   import { onboardingStore as store } from "./onboarding.store.svelte";
   import OnboardingAgentsStage from "./OnboardingAgentsStage.svelte";
+  import OnboardingGesturesStage from "./OnboardingGesturesStage.svelte";
+  import OnboardingHostStage from "./OnboardingHostStage.svelte";
   import OnboardingProvidersStage from "./OnboardingProvidersStage.svelte";
   import OnboardingShortcutsStage from "./OnboardingShortcutsStage.svelte";
   import OnboardingStartStage from "./OnboardingStartStage.svelte";
@@ -75,14 +77,14 @@
       target?.tagName === "TEXTAREA" ||
       target?.isContentEditable === true;
     if (event.key !== "Enter" || inField) return;
-    // Only the two stages with nothing to satisfy answer to Enter. The agents
-    // and providers stages dim Continue until something is connected, and a
+    // Only the stages with nothing to satisfy answer to Enter. The agents and
+    // providers stages dim Continue until something is connected, and a
     // keystroke that walks past a gate the button honours is worse than no
     // shortcut at all.
     if (stage === "start") {
       event.preventDefault();
       finish("project");
-    } else if (stage === "shortcuts") {
+    } else if (stage === "shortcuts" || stage === "getting-around") {
       event.preventDefault();
       store.advance();
     }
@@ -159,6 +161,10 @@
       <OnboardingProvidersStage />
     {:else if stage === "shortcuts"}
       <OnboardingShortcutsStage />
+    {:else if stage === "getting-around"}
+      <OnboardingGesturesStage />
+    {:else if stage === "host"}
+      <OnboardingHostStage />
     {:else if stage === "start"}
       <OnboardingStartStage onchoose={finish} />
     {/if}

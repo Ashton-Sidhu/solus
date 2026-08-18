@@ -15,7 +15,43 @@ describe('session task shortcuts', () => {
     })
     expect(KEYBINDINGS['global.new-session-without-task']).toMatchObject({
       combo: { mod: true, shift: true, code: 'KeyN' },
+      web: { alt: true, shift: true, code: 'KeyU' },
       label: 'New session without task',
+    })
+  })
+
+  test('keeps browser-owned project and session shortcuts available on web', () => {
+    // WHY: Chrome and Safari claim the primary-modifier O/N/T/W family before
+    // a page can use it. Web defaults must stay in Solus's Alt+Shift layer.
+    expect(KEYBINDINGS['global.select-project'].web).toEqual({
+      alt: true,
+      shift: true,
+      code: 'KeyO',
+    })
+    expect(KEYBINDINGS['global.next-session'].web).toEqual({
+      alt: true,
+      shift: true,
+      code: 'ArrowDown',
+    })
+    expect(KEYBINDINGS['global.prev-session'].web).toEqual({
+      alt: true,
+      shift: true,
+      code: 'ArrowUp',
+    })
+    expect(KEYBINDINGS['global.toggle-sidebar'].web).toEqual({
+      alt: true,
+      shift: true,
+      code: 'BracketLeft',
+    })
+    expect(KEYBINDINGS['global.save-prompt'].web).toEqual({
+      alt: true,
+      shift: true,
+      code: 'KeyS',
+    })
+    expect(KEYBINDINGS['conversation.find'].web).toEqual({
+      alt: true,
+      shift: true,
+      code: 'KeyF',
     })
   })
 
@@ -37,5 +73,16 @@ describe('session task shortcuts', () => {
       scope: 'global',
       label: 'Focus sidebar task search',
     })
+  })
+
+  test('reserves option shift I for Insights', () => {
+    // WHY: global bindings dispatch in manifest order. If Design mode also
+    // claims this combo, it consumes the key before Insights can open.
+    expect(KEYBINDINGS['global.toggle-insights']).toMatchObject({
+      combo: { alt: true, shift: true, code: 'KeyI' },
+      scope: 'global',
+      label: 'Open insights',
+    })
+    expect(KEYBINDINGS['global.design-mode'].combo).toBeNull()
   })
 })

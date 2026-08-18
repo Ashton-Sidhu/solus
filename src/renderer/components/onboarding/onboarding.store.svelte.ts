@@ -1,11 +1,13 @@
-import { serversStore } from '../../contexts'
+import { runtime, serversStore } from '../../contexts'
 import { hostSetupStore, type HostSetupSession } from '../servers/host-setup.store.svelte'
 import {
-  ONBOARDING_STAGES,
   nextStage,
   previousStage,
+  stagesFor,
+  surfaceFor,
   type OnboardingMode,
   type OnboardingStage,
+  type OnboardingSurface,
 } from './lib/onboarding-model'
 
 /** The greeting is the mark arriving, then a line that types itself. */
@@ -30,6 +32,12 @@ const LEAVE_MS = 560
 class OnboardingStore {
   stage = $state<OnboardingStage>('intro')
   mode = $state<OnboardingMode>('project')
+  /**
+   * Fixed for the run rather than derived. A phone that gains a keyboard, or a
+   * browser window dragged onto a touch screen, would otherwise swap the stage
+   * list out from under the stage the user is standing on.
+   */
+  surface = $state<OnboardingSurface>('pointer')
 
   introPhase = $state<IntroPhase>('mark')
   introTyped = $state('')
@@ -51,6 +59,7 @@ class OnboardingStore {
   start(): void {
     this.stage = 'intro'
     this.mode = 'project'
+    this.surface = surfaceFor(runtime)
     this.runIntro()
     void this.setup.refreshReadiness()
   }
@@ -93,7 +102,7 @@ class OnboardingStore {
   endIntro(): void {
     if (this.stage !== 'intro' || this.introLeaving) return
     this.introLeaving = true
-    this.stage = ONBOARDING_STAGES[0]
+    this.stage = stagesFor(this.surface)[0]
     this.after(LEAVE_MS, () => {
       this.introLeaving = false
     })
@@ -109,14 +118,14 @@ class OnboardingStore {
 
   /** Moves on, or reports that the flow is over so the caller can finish it. */
   advance(): boolean {
-    const next = nextStage(this.stage)
+    const next = nextStage(this.stage, this.surface)
     if (!next) return false
     this.go(next)
     return true
   }
 
   back(): void {
-    const previous = previousStage(this.stage)
+    const previous = previousStage(this.stage, this.surface)
     if (previous) this.go(previous)
   }
 

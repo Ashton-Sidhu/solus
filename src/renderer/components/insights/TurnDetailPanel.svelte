@@ -9,20 +9,23 @@
   import { getWorkspaceContext } from "../../contexts";
   import type { MetricsSpan } from "../../../shared/observability-types";
   import CopyButton from "../ui/CopyButton.svelte";
-  import {
-    formatClock,
-    formatCost,
-    formatDuration,
-    formatPercent,
-    formatTokens,
-    shortId,
-    singleLine,
-  } from "./lib/format";
-  import { buildTraceView, firstObservedActivityMs } from "./lib/waterfall";
+  import { formatClock, formatDuration, shortId, singleLine } from "./lib/format";
+  import { providerMark, providerName } from "./lib/provider";
+  import { buildTraceView, hasInternalRows, SOLUS_INTERNAL_KINDS } from "./lib/waterfall";
+  import { Switch } from "../ui/switch";
+  import { promptsByTrace, sessionSummaryView } from "./lib/session-summary";
+  import { rangeHeading } from "./lib/time-range";
+  import { turnAttributes } from "./lib/turn-attributes";
+  import { turnTranscript } from "./lib/turn-transcript";
   import { insightsStore } from "./insights.store.svelte";
+  import ProviderMark from "./ProviderMark.svelte";
   import SessionContextChart from "./SessionContextChart.svelte";
-  import TraceSummary from "./TraceSummary.svelte";
+  import SessionSummary from "./SessionSummary.svelte";
+  import TraceCoverage from "./TraceCoverage.svelte";
   import TraceWaterfall from "./TraceWaterfall.svelte";
+  import TurnAttributes from "./TurnAttributes.svelte";
+  import TurnToolTotals from "./TurnToolTotals.svelte";
+  import TurnTranscript from "./TurnTranscript.svelte";
 
   /**
    * One turn's detail: the facts, where it sat in the session, its complete
@@ -74,7 +77,16 @@
     void insightsStore.loadTrace(id).then((trace) => {
       loading = false;
       const tracedSessionId = trace?.spans.find((span) => span.sessionId)?.sessionId;
-      if (tracedSessionId) void insightsStore.loadSessionSummary(tracedSessionId);
+      if (!tracedSessionId) return;
+      void insightsStore.loadSessionSummary(tracedSessionId);
+      void insightsStore.loadSessionName(tracedSessionId);
+      // Metrics attrs are a snapshot and older turns may predate task-name
+      // capture. Resolve the durable session binding too, so the session table
+      // can still open the task the session belongs to.
+      void workspace.tasksStore.ensureSessionBinding(
+        tracedSessionId,
+        insightsStore.serverId ?? undefined,
+      );
     });
   });
 
@@ -84,32 +96,32 @@
   const sessionId = $derived(root?.sessionId ?? null);
   const session = $derived(sessionId ? insightsStore.sessionSummary(sessionId) : null);
 
+  /** A deep link that points at a Solus row reveals it whatever the stored
+   *  preference says — a link that lands on a span the reader cannot see is a
+   *  broken link — without turning the preference on for every later turn. */
+  const deepLinkedSpanKind = $derived(
+    spanId ? (trace?.spans.find((span) => span.spanId === spanId)?.kind ?? null) : null,
+  );
+  const showInternals = $derived(
+    insightsStore.showSolusInternals ||
+      (deepLinkedSpanKind !== null && SOLUS_INTERNAL_KINDS.has(deepLinkedSpanKind)),
+  );
+  const offersInternals = $derived(view ? hasInternalRows(view) : false);
+
   function attr(span: MetricsSpan | null, key: string): string | number | boolean | null {
     const value = span?.attrs[key];
     return value === undefined ? null : value;
   }
 
-  function numberAttr(span: MetricsSpan | null, key: string): number | null {
-    const value = attr(span, key);
-    return typeof value === "number" && Number.isFinite(value) ? value : null;
-  }
-
   const prompt = $derived(String(attr(root, "prompt") ?? ""));
-  const costUsd = $derived(typeof attr(root, "costUsd") === "number" ? Number(attr(root, "costUsd")) : null);
-  const inputTokens = $derived(
-    typeof attr(root, "inputTokens") === "number" ? Number(attr(root, "inputTokens")) : null,
+  const transcript = $derived(turnTranscript(root));
+  const boundTask = $derived(workspace.tasksStore.taskForSession(sessionId));
+  const taskId = $derived(
+    String(attr(root, "taskId") ?? "") || session?.taskId || boundTask?.id || null,
   );
-  const outputTokens = $derived(
-    typeof attr(root, "outputTokens") === "number" ? Number(attr(root, "outputTokens")) : null,
+  const taskTitle = $derived(
+    String(attr(root, "taskTitle") ?? "") || session?.taskTitle || boundTask?.title || null,
   );
-  const firstActivityMs = $derived.by(() => {
-    const recorded = attr(root, "timeToFirstActivityMs");
-    return typeof recorded === "number" ? recorded : view ? firstObservedActivityMs(view) : null;
-  });
-  const firstTextMs = $derived.by(() => {
-    const recorded = attr(root, "timeToFirstTextMs");
-    return typeof recorded === "number" ? recorded : null;
-  });
 
   const statusTone = $derived(
     root?.status === "error"
@@ -119,81 +131,27 @@
         : "var(--muted-foreground)",
   );
 
-  const facts = $derived(
-    !root || !view
-      ? []
-      : [
-          {
-            label: "Duration",
-            value: formatDuration(root.durationMs),
-            note:
-              view.unattributedMs != null && view.traceCoverage != null
-                ? `${formatPercent(view.traceCoverage)} trace coverage · ${formatDuration(view.unattributedMs)} unattributed`
-                : "no trace-coverage estimate",
-            tone: root.status === "error" ? "var(--failure)" : "var(--foreground)",
-          },
-          {
-            label: "Cost",
-            value: formatCost(costUsd),
-            note: costUsd == null ? "provider reports none" : (root.model ?? "—"),
-            tone: "var(--foreground)",
-          },
-          {
-            label: "Tokens",
-            value: formatTokens(
-              inputTokens == null && outputTokens == null ? null : (inputTokens ?? 0) + (outputTokens ?? 0),
-            ),
-            note: `${formatTokens(inputTokens)} in · ${formatTokens(outputTokens)} out`,
-            tone: "var(--foreground)",
-          },
-          {
-            label: "Tool calls",
-            value: String(view.toolCallCount),
-            note:
-              view.deniedPermissions.length > 0
-                ? `${view.deniedPermissions.length} denied`
-                : "none denied",
-            tone: view.deniedPermissions.length > 0 ? "var(--warning)" : "var(--foreground)",
-          },
-        ],
-  );
+  // Duration, cost, tokens and tool calls are attributes of the turn like every
+  // other fact it recorded — one list a reader can read, select, and copy from,
+  // rather than a strip of stat cards holding values the list then repeats.
+  const attributeGroups = $derived(root && view ? turnAttributes(root, view) : []);
 
-  const attributes = $derived(
-    !root
-      ? []
-      : [
-          ["trace_id", root.traceId],
-          ["span_id", root.spanId],
-          ["session_id", root.sessionId ?? "—"],
-          ["service", root.service],
-          ["provider", root.provider ?? "—"],
-          ["model", root.model ?? "—"],
-          ["origin", root.origin ?? "—"],
-          ["prompt_source", String(attr(root, "promptSource") ?? "—")],
-          ["project_root", root.projectRoot ?? "—"],
-          ["task_id", String(attr(root, "taskId") ?? "—")],
-          ["automation_id", String(attr(root, "automationId") ?? "—")],
-          ["reasoning_effort", String(attr(root, "reasoningEffort") ?? "—")],
-          ["is_resume", String(attr(root, "isResume") ?? "—")],
-          ["time_to_first_provider_event", formatDuration(numberAttr(root, "timeToFirstProviderEventMs"))],
-          ["time_to_first_activity", formatDuration(firstActivityMs)],
-          ["time_to_first_visible_text", formatDuration(firstTextMs)],
-          ["time_to_last_provider_event", formatDuration(numberAttr(root, "timeToLastProviderEventMs"))],
-          ["time_to_provider_complete", formatDuration(numberAttr(root, "timeToProviderCompleteMs"))],
-          ["inter_turn_idle", formatDuration(numberAttr(root, "interTurnIdleMs"))],
-        ].map(([key, value]) => ({ key: String(key), value: String(value) })),
-  );
+  const sessionName = $derived(sessionId ? insightsStore.sessionName(sessionId) : null);
 
-  const sessionRows = $derived(
-    sessionId ? insightsStore.volumeRows.filter((row) => row.sessionId === sessionId) : [],
+  const sessionView = $derived(
+    session
+      ? sessionSummaryView(
+          session,
+          promptsByTrace(insightsStore.volumeRows),
+          traceId,
+          sessionName,
+        )
+      : null,
   );
-
-  const sessionTurns = $derived(session?.turns ?? []);
-  const sessionPosition = $derived(sessionTurns.findIndex((entry) => entry.traceId === traceId));
 
   const contextNote = $derived(
     session
-      ? `${session.turnCount} ${session.turnCount === 1 ? "turn" : "turns"} · ${formatCost(session.totalCostUsd)} · turn ${sessionPosition + 1} of ${session.turnCount}`
+      ? `${session.turnCount} ${session.turnCount === 1 ? "turn" : "turns"} in this session`
       : "",
   );
 
@@ -210,16 +168,24 @@
   const roundButton =
     "flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30";
 
-  // The rail's group and label shapes, named the way the task page names them,
-  // because both rails are the same surface.
-  // One card per question — the session, the identity, the time — at the rail's
-  // own scale: 11px labels and metadata, 12px values.
-  const RAIL_CARD =
-    "flex flex-col gap-1 rounded-xl bg-card px-3 pt-2.5 pb-3 shadow-[shadow:var(--insights-card-shadow)]";
-  const RAIL_LABEL = "m-0 text-[0.6875rem] font-normal text-muted-foreground uppercase";
-
   function openTurn(id: string): void {
     workspace.openInsightsTurn(id);
+  }
+
+  function openTask(taskId: string): void {
+    workspace.goToTask(taskId, "click", "secondary");
+  }
+
+  async function openSessionTask(): Promise<void> {
+    if (!sessionId) return;
+    const task =
+      boundTask ??
+      (await workspace.tasksStore.ensureSessionBinding(
+        sessionId,
+        insightsStore.serverId ?? undefined,
+      ));
+    const destinationTaskId = taskId ?? task?.id ?? null;
+    if (destinationTaskId) openTask(destinationTaskId);
   }
 
   function queryThisSession(): void {
@@ -312,7 +278,11 @@
   <!-- A container, not the viewport, decides the aside's position: beside the
        list this surface is a 660px panel on a wide screen, and the viewport
        breakpoints would read the screen. -->
-  <div class="@container min-h-0 flex-1 overflow-y-auto px-6" data-sb>
+  <!-- The app sets `user-select: none` at the root, which is right for a
+       keyboard-first workspace and wrong for a page whose whole purpose is
+       reading recorded values. The detail body opts back in; the controls
+       inside it opt out again so a drag over a row still activates it. -->
+  <div class="@container min-h-0 flex-1 overflow-y-auto px-6 select-text" data-sb>
     {#if loading && !view}
       <p class="py-16 text-center text-xs text-muted-foreground">Loading the turn’s spans…</p>
     {:else if !view || !root}
@@ -325,69 +295,101 @@
     {:else}
       <div class="mx-auto flex w-full max-w-[87.5rem] flex-col gap-4.5 py-6 pb-16">
         <div class="flex flex-wrap items-start justify-between gap-6">
-          <div class="flex min-w-0 flex-col gap-2">
-            <div class="flex flex-wrap items-center gap-2.5">
-              <span class="text-[0.6875rem] text-muted-foreground"
-                >{formatClock(root.startedAt)} · {root.model ?? "—"} · {root.provider ??
-                  "unknown provider"} · {root.origin ?? "typed"}</span
-              >
-            </div>
+          <div class="flex min-w-0 flex-col gap-1.5">
             <!-- The prompt is a message, not a title: one line names the turn,
-                 and the Prompt section below holds the whole text. -->
+                 and the Summary card below holds the whole text. -->
             <h1
-              class="m-0 max-w-[72ch] truncate text-base leading-[1.4] font-medium"
+              class="m-0 max-w-[72ch] truncate text-base leading-[1.4] font-medium select-text"
               title={singleLine(prompt)}
             >
               {singleLine(prompt) || "This turn recorded no prompt text"}
             </h1>
+            <!-- Under the name, not above it: the identity line answers "which
+                 turn is this" only once the reader has the turn. The backend
+                 that ran it carries its logo, so a reader comparing Claude Code
+                 against Codex recognises the turn before reading the line. -->
+            <span
+              class="flex flex-wrap items-center gap-1.5 text-[0.6875rem] text-muted-foreground select-text"
+            >
+              {formatClock(root.startedAt)} · {root.model ?? "—"} ·
+              <span class="inline-flex items-center gap-1">
+                <ProviderMark mark={providerMark(root.provider)} size={11} />
+                {providerName(root.provider) ?? "unknown provider"}
+              </span>
+              · {root.origin ?? "typed"} · {formatDuration(view.totalMs)}
+            </span>
           </div>
           <button
             type="button"
-            class="h-7.5 shrink-0 cursor-pointer rounded-lg bg-card px-3 text-xs font-medium shadow-[shadow:var(--elev-ring)] transition-colors hover:bg-muted disabled:cursor-default disabled:opacity-40"
+            class="h-7.5 shrink-0 cursor-pointer rounded-lg bg-card px-3 text-xs font-medium shadow-[shadow:var(--elev-ring)] transition-colors select-none hover:bg-muted active:scale-[0.98] disabled:cursor-default disabled:opacity-40"
             disabled={!sessionId}
             onclick={queryThisSession}>Query this session</button
           >
         </div>
 
-        <div
-          class="grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-[var(--hairline)] shadow-[shadow:var(--insights-card-shadow)] sm:grid-cols-4"
-        >
-          {#each facts as fact (fact.label)}
-            <div class="flex flex-col gap-1.5 bg-card px-3.5 py-3">
-              <span
-                class="text-[0.5938rem] font-medium text-muted-foreground tracking-[0.07em] uppercase"
-                >{fact.label}</span
-              >
-              <span
-                class="text-lg font-medium tabular-nums"
-                style="color:{fact.tone}">{fact.value}</span
-              >
-              <span class="text-[0.625rem] text-muted-foreground">{fact.note}</span>
-            </div>
-          {/each}
-        </div>
+        <!-- Where this turn sits in the window, then the session it sits in:
+             both are statements about the whole page, so both take the whole
+             width before the page splits into a column and a rail. -->
+        {#if sessionId}
+          <SessionContextChart
+            rows={insightsStore.volumeRows}
+            {sessionId}
+            currentTraceId={traceId}
+            currentStartedAt={root.startedAt}
+            from={insightsStore.windowFrom}
+            to={insightsStore.windowTo}
+            heading={rangeHeading(insightsStore.range, "This session")}
+            note={contextNote}
+          />
+        {/if}
+
+        {#if session && sessionView && view.toolTotals.length > 0}
+          <!-- Session context and the turn's longest calls are the two short
+               lists a reader compares before entering the detailed trace. Keep
+               them beside each other when the panel has room, and stack them
+               when either list would become hard to read. -->
+          <div
+            class="grid gap-4 @4xl:grid-cols-[minmax(0,1fr)_19.25rem] @4xl:items-stretch"
+          >
+            <SessionSummary
+              {session}
+              view={sessionView}
+              {sessionName}
+              {taskTitle}
+              currentTraceId={traceId}
+              onOpenTurn={openTurn}
+              onOpenTask={() => void openSessionTask()}
+            />
+            <TurnToolTotals totals={view.toolTotals} />
+          </div>
+        {:else if session && sessionView}
+          <SessionSummary
+            {session}
+            view={sessionView}
+            {sessionName}
+            {taskTitle}
+            currentTraceId={traceId}
+            onOpenTurn={openTurn}
+            onOpenTask={() => void openSessionTask()}
+          />
+        {:else}
+          <TurnToolTotals totals={view.toolTotals} />
+        {/if}
 
         <div class="flex flex-col gap-4 @4xl:flex-row @4xl:items-start">
           <div class="flex min-w-0 flex-1 flex-col gap-4">
-            {#if sessionId}
-              <SessionContextChart
-                allRows={insightsStore.volumeRows}
-                {sessionRows}
-                currentStartedAt={root.startedAt}
-                from={insightsStore.windowFrom}
-                to={insightsStore.windowTo}
-                note={contextNote}
-              />
-            {/if}
+            <!-- The turn's own words lead the column. Everything below is a
+                 measurement of the exchange this card holds. -->
+            <TurnTranscript panes={transcript} />
 
             <section
               class="overflow-hidden rounded-xl bg-card shadow-[shadow:var(--insights-card-shadow)]"
               aria-label="Trace"
             >
               <header
-                class="flex h-11.5 items-center gap-3 px-5 shadow-[inset_0_-0.5px_0_var(--hairline)]"
+                class="flex h-10 items-center gap-3 px-5 shadow-[inset_0_-0.5px_0_var(--hairline)]"
               >
-                <h2 class="text-lg font-medium">Trace</h2>
+                <h2 class="m-0 shrink-0 text-sm font-medium">Trace</h2>
                 {#if view.slowest[0]}
                   <span class="truncate text-[0.6875rem] text-muted-foreground"
                     >{view.slowest[0].label} is the largest span at {formatDuration(
@@ -396,148 +398,42 @@
                   >
                 {/if}
                 <span class="flex-1"></span>
+                {#if offersInternals}
+                  <!-- The switch reads as a statement of what is on screen, so
+                       the label is the thing shown rather than an instruction. -->
+                  <label class="flex shrink-0 cursor-pointer items-center gap-1.5 text-[0.6875rem] text-muted-foreground">
+                    <Switch
+                      checked={showInternals}
+                      onCheckedChange={(next) => insightsStore.setShowSolusInternals(next)}
+                      aria-label="Show Solus internals"
+                    />
+                    Solus internals
+                  </label>
+                {/if}
                 <span class="shrink-0 text-[0.6875rem] tabular-nums text-muted-foreground"
                   >{formatDuration(view.totalMs)} · {view.spanCount} spans · {view.toolCallCount} tool
                   calls</span
                 >
               </header>
-              <div
-                class="flex h-7.5 items-center gap-5 overflow-x-auto bg-[var(--wash-1)] px-5 shadow-[inset_0_-0.5px_0_var(--hairline)]"
-                data-sb
-              >
-                {#each view.legend as entry (entry.kind)}
-                  <span class="flex shrink-0 items-center gap-1.5">
-                    <span class="size-2 rounded-sm" style="background:{entry.color}"></span>
-                    <span class="text-[0.625rem] whitespace-nowrap text-muted-foreground"
-                      >{entry.label}</span
-                    >
-                    <span class="text-[0.625rem] tabular-nums"
-                      >{Math.round(entry.share * 100)}%</span
-                    >
-                  </span>
-                {/each}
+              <!-- Coverage sits on the plot's own edge, at the plot's own
+                   width: the share bar and the waterfall picture the same
+                   interval, and they only read as one statement when they
+                   share one. -->
+              <div class="px-5 pt-3.5 pb-3 shadow-[inset_0_-0.5px_0_var(--hairline)]">
+                <TraceCoverage trace={view} />
               </div>
-              <div class="px-5 pt-2.5 pb-4">
-                <TraceWaterfall trace={view} selectedSpanId={spanId} />
+              <div class="px-5 pt-3 pb-4">
+                <TraceWaterfall trace={view} selectedSpanId={spanId} {showInternals} />
               </div>
-            </section>
-
-            <section
-              class="overflow-hidden rounded-xl bg-card shadow-[shadow:var(--insights-card-shadow)]"
-              aria-label="Prompt"
-            >
-              <header
-                class="flex h-9.5 items-center gap-3 px-4 shadow-[inset_0_-0.5px_0_var(--hairline)]"
-              >
-                <h2 class="text-xs font-medium">Prompt</h2>
-                <span class="flex-1"></span>
-                <span class="text-[0.6875rem] tabular-nums text-muted-foreground"
-                  >{formatTokens(inputTokens)} in · {formatTokens(outputTokens)} out</span
-                >
-              </header>
-              <div
-                class="px-5 py-4 text-[0.8125rem] leading-[1.75] whitespace-pre-wrap"
-              >
-                {prompt || "This turn recorded no prompt text."}
-              </div>
-              {#if attr(root, "promptTruncated") === true}
-                <p class="px-5 pb-3 text-[0.625rem] text-muted-foreground">
-                  Capped at 4 KB — {String(attr(root, "promptChars") ?? "?")} characters were sent.
-                </p>
-              {/if}
             </section>
           </div>
 
-          <!-- Three cards, one per question the rail answers: where this turn
-               sat in its session, what it was, and where its time went. -->
+          <!-- Attributes are the long reference list the rail is for. The short
+               tool ranking sits beside the equally short session card above. -->
           <aside
             class="flex w-full shrink-0 flex-col gap-2.5 @4xl:sticky @4xl:top-3.5 @4xl:w-[19.25rem]"
           >
-            {#if session}
-              <section class={RAIL_CARD} aria-label="Session">
-                <div class="flex items-baseline gap-2 pl-0.5">
-                  <h2 class="{RAIL_LABEL} shrink-0">Session</h2>
-                  <span
-                    class="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-muted-foreground opacity-70"
-                    title={session.sessionId}>{session.sessionId}</span
-                  >
-                </div>
-                <div class="flex items-baseline gap-3.5 pb-0.5 pl-0.5">
-                  {#each [{ label: "Turns", value: String(session.turnCount) }, { label: "Duration", value: formatDuration(session.totalDurationMs) }, { label: "Spend", value: formatCost(session.totalCostUsd) }] as fact (fact.label)}
-                    <span class="flex items-baseline gap-1.5">
-                      <span class="text-[0.6875rem] text-muted-foreground">{fact.label}</span>
-                      <span class="text-xs tabular-nums">{fact.value}</span>
-                    </span>
-                  {/each}
-                </div>
-                <div class="-mx-1 flex max-h-72 flex-col gap-px overflow-y-auto" data-sb>
-                  {#each session.turns as summary (summary.traceId)}
-                    <button
-                      type="button"
-                      class="flex w-full cursor-pointer flex-col gap-0.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-[var(--wash-2)]"
-                      style="background:{summary.traceId === traceId
-                        ? 'var(--wash-2)'
-                        : 'transparent'}"
-                      onclick={() => openTurn(summary.traceId)}
-                    >
-                      <span class="flex w-full min-w-0 items-baseline gap-2">
-                        <span class="shrink-0 font-mono text-[0.6875rem] text-muted-foreground"
-                          >{formatClock(summary.startedAt)}</span
-                        >
-                        <span
-                          class="truncate text-xs"
-                          style="font-weight:{summary.traceId === traceId ? 500 : 400}"
-                          >#{summary.turnNumber} · {summary.model ?? "—"}</span
-                        >
-                      </span>
-                      <span class="flex items-baseline gap-2 text-[0.6875rem] tabular-nums">
-                        <span
-                          style="color:{summary.status === 'error'
-                            ? 'var(--failure)'
-                            : 'var(--muted-foreground)'}">{formatDuration(summary.durationMs)}</span
-                        >
-                        <span class="text-muted-foreground"
-                          >{formatCost(summary.costUsd)} · {formatTokens(
-                            summary.inputTokens == null && summary.outputTokens == null
-                              ? null
-                              : (summary.inputTokens ?? 0) + (summary.outputTokens ?? 0),
-                          )}</span
-                        >
-                        {#if summary.status !== "ok"}
-                          <span
-                            class="text-[0.6875rem] font-medium uppercase"
-                            style="color:{summary.status === 'error'
-                              ? 'var(--failure)'
-                              : 'var(--warning)'}">{summary.status}</span
-                          >
-                        {/if}
-                      </span>
-                    </button>
-                  {/each}
-                </div>
-              </section>
-            {/if}
-
-            <section class={RAIL_CARD} aria-label="Attributes">
-              <h2 class="{RAIL_LABEL} pb-0.5 pl-0.5">Attributes</h2>
-              {#each attributes as attribute (attribute.key)}
-                <div
-                  class="-mx-1 grid h-[22px] items-center gap-3 rounded-md px-2 hover:bg-[var(--wash-1)]"
-                  style="grid-template-columns:6rem minmax(0,1fr)"
-                >
-                  <span class="truncate text-[0.6875rem] text-muted-foreground"
-                    >{attribute.key}</span
-                  >
-                  <span class="truncate font-mono text-[0.6875rem]" title={attribute.value}
-                    >{attribute.value}</span
-                  >
-                </div>
-              {/each}
-            </section>
-
-            <section class="{RAIL_CARD} gap-2.5" aria-label="Where the time went">
-              <TraceSummary trace={view} dense />
-            </section>
+            <TurnAttributes groups={attributeGroups} onOpenTask={openTask} />
           </aside>
         </div>
       </div>

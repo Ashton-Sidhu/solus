@@ -848,7 +848,7 @@
             <span class="flex shrink-0 items-center"
               ><BooksIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-menu">Workspace</span>
+            <span class="flex-1 text-left text-workspace-chrome">Workspace</span>
             <span
               class="shrink-0 text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
               >{comboHint("global.toggle-workspace")}</span
@@ -869,7 +869,7 @@
             <span class="flex shrink-0 items-center"
               ><ArrowsClockwiseIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-menu">Automations</span>
+            <span class="flex-1 text-left text-workspace-chrome">Automations</span>
             <span
               class="shrink-0 text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
               >{comboHint("global.toggle-automations")}</span
@@ -890,7 +890,7 @@
             <span class="flex shrink-0 items-center"
               ><ChartBarIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-menu">Insights</span>
+            <span class="flex-1 text-left text-workspace-chrome">Insights</span>
             <span
               class="shrink-0 font-mono text-menu-meta opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
               >{comboHint("global.toggle-insights")}</span
@@ -911,7 +911,7 @@
             <span class="flex shrink-0 items-center"
               ><GitPullRequestIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-menu">Pull requests</span>
+            <span class="flex-1 text-left text-workspace-chrome">Pull requests</span>
             {#if needsReviewCount > 0}
               <span
                 class="shrink-0 text-xs text-muted-foreground opacity-60 tabular-nums"
@@ -936,7 +936,7 @@
             <span class="flex shrink-0 items-center"
               ><ListChecksIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-menu">Tasks</span>
+            <span class="flex-1 text-left text-workspace-chrome">Tasks</span>
             <span
               class="shrink-0 text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
               >{comboHint("global.toggle-tasks")}</span
@@ -955,7 +955,7 @@
             <span class="flex shrink-0 items-center"
               ><ClockIcon size={14} /></span
             >
-            <span class="flex-1 text-left text-menu">History</span>
+            <span class="flex-1 text-left text-workspace-chrome">History</span>
             <span
               class="shrink-0 text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
               >{comboHint("global.session-picker")}</span
@@ -974,14 +974,13 @@
   <!-- Drafts are their own section above the tasks, not rows inside that list:
        a prompt on its way to becoming a task is not one yet, and filing it under
        the Tasks heading would say it is. The section is absent until something
-       is written, and it caps its own height so a run of drafts scrolls within
-       itself rather than pushing the task column off the bottom of the panel. -->
+       is written. It has no separate vertical scroller; the task list below
+       keeps the remaining scroll area. -->
   {#if sidebarStore.draftRows.length > 0}
-    <div class="flex max-h-[10.5rem] flex-shrink-0 flex-col">
+    <div class="flex flex-shrink-0 flex-col">
       <TaskListHeader label="Drafts" count={sidebarStore.draftRows.length} />
       <div
-        class="min-h-0 overflow-y-auto px-3.5 pb-1 [scrollbar-gutter:stable] @max-[15rem]:px-2.5"
-        style="overscroll-behavior-y:contain"
+        class="overflow-x-hidden px-3.5 pb-1 @max-[15rem]:px-2.5"
       >
         <div
           class="flex flex-col gap-[0.1875rem]"
@@ -1007,7 +1006,7 @@
       >
         <MagnifyingGlassIcon
           size={14}
-          class="pointer-events-none absolute top-1/2 left-0.5 -translate-y-1/2 text-[color-mix(in_oklch,var(--foreground)_45%,transparent)] transition-colors duration-150 group-focus-within/search:text-[color-mix(in_oklch,var(--foreground)_70%,transparent)]"
+          class="pointer-events-none absolute top-1/2 left-0.5 -translate-y-1/2 text-[color-mix(in_oklch,var(--foreground)_45%,transparent)] transition-colors duration-150 group-focus-within/search:text-[color-mix(in_oklch,var(--foreground)_70%,transparent)] [.is-laptop-display_&]:size-[13px] pointer-coarse:size-3.5"
           aria-hidden="true"
         />
         <input
@@ -1017,7 +1016,7 @@
           placeholder="Search tasks"
           aria-label="Search sidebar tasks"
           title={`Search sidebar tasks (${comboHint("global.focus-sidebar-task-search")})`}
-          class="w-full h-7 rounded-lg border-0 bg-transparent pr-8 pl-[1.5625rem] text-sm tracking-[-0.006em] text-foreground outline-none placeholder:text-[color-mix(in_oklch,var(--foreground)_45%,transparent)] [&::-webkit-search-cancel-button]:hidden"
+          class="h-7 w-full rounded-lg border-0 bg-transparent pr-8 pl-[1.5625rem] text-workspace-chrome tracking-[-0.006em] text-foreground outline-none placeholder:text-[color-mix(in_oklch,var(--foreground)_45%,transparent)] [.is-laptop-display_&]:h-6 pointer-coarse:h-7 [&::-webkit-search-cancel-button]:hidden"
           onkeydown={(event) => {
             if (event.key !== "Escape") return;
             event.preventDefault();
@@ -1049,7 +1048,7 @@
     {#snippet taskPicker()}
       <button
         type="button"
-        class="relative flex size-7 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:size-10 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-['']"
+        class="relative flex size-7 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] [.is-laptop-display_&]:size-6 pointer-coarse:size-7 pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:size-10 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-['']"
         aria-label="Open task picker"
         title={`Open task picker (${comboHint("global.task-picker")})`}
         onclick={() => {
@@ -1057,7 +1056,10 @@
           session.taskPickerOpen = true;
         }}
       >
-        <PlusIcon size={15} />
+        <PlusIcon
+          size={15}
+          class="[.is-laptop-display_&]:size-[13px] pointer-coarse:size-[15px]"
+        />
       </button>
     {/snippet}
     <TaskListHeader
@@ -1225,7 +1227,7 @@
             <span class="flex shrink-0 items-center"
               ><PushPinIcon size={14} weight="fill" /></span
             >
-            <span class="flex-1 text-left text-menu">Saved sessions</span>
+            <span class="flex-1 text-left text-workspace-chrome">Saved sessions</span>
             <span
               class="shrink-0 text-xs text-muted-foreground opacity-60 tabular-nums"
               >{sidebarStore.pinnedSessions.length}</span
@@ -1267,13 +1269,13 @@
                   openSessionContextMenu(event, { kind: "pinned", pin })}
               >
                 <span
-                  class="min-w-0 flex-1 overflow-hidden text-xs text-ellipsis whitespace-nowrap {isActive
+                  class="min-w-0 flex-1 overflow-hidden text-workspace-chrome text-ellipsis whitespace-nowrap {isActive
                     ? 'font-medium text-foreground'
                     : 'text-[color-mix(in_oklch,var(--foreground)_88%,transparent)]'}"
                   >{pin.title}</span
                 >
                 <button
-                  class="hidden size-5 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] group-hover/pin:flex hover:bg-accent hover:text-foreground"
+                  class="hidden size-5 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] group-hover/pin:flex hover:bg-accent hover:text-foreground pointer-coarse:flex"
                   aria-label="Unpin session"
                   title="Unpin"
                   onclick={(event) => {
@@ -1306,7 +1308,7 @@
             class="flex shrink-0 items-center motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:rotate-90"
             ><BooksIcon size={14} /></span
           >
-          <span class="flex-1 text-left text-menu">Docs</span>
+          <span class="flex-1 text-left text-workspace-chrome">Docs</span>
         </Sidebar.MenuButton>
       </Sidebar.MenuItem>
       <Sidebar.MenuItem>
@@ -1323,7 +1325,7 @@
             class="flex shrink-0 items-center motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:rotate-90"
             ><GearIcon size={14} /></span
           >
-          <span class="flex-1 text-left text-menu">Settings</span>
+          <span class="flex-1 text-left text-workspace-chrome">Settings</span>
           <span
             class="shrink-0 text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
             >{comboHint("global.settings")}</span

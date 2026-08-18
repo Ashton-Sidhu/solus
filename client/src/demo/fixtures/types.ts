@@ -68,6 +68,8 @@ export interface DemoFixtures {
     list: Automation[]
     runs: Record<string, AutomationRun[]>
   }
+  /** Keyed by Solus session id (`IpcContext.session.sessionId`, the persisted
+   *  tab's `sessionId`) — not the tab id and not the agent session id. */
   diffs: Record<
     string,
     {

@@ -85,7 +85,7 @@
   );
 
   const canGit = $derived(!!env.branch);
-  const canViewDiff = $derived(!!status);
+  const hasGitStatus = $derived(!!status);
   const prUrl = $derived(actions.prUrl || status?.prUrl || null);
 
   // One reading of the project's Git state backs every row and both menus, so a
@@ -256,33 +256,12 @@
           ? reviewKey
             ? "Regenerating report…"
             : "Generating report…"
-          : reviewKey
-            ? "View report"
-            : "Review changes",
+          : "Review changes",
         icon: EyeglassesIcon,
         phase: reviewing ? "loading" : reviewKey ? "success" : "idle",
         disabled: !canGit || reviewing,
         run: () => {
           void handleReview();
-        },
-      },
-      {
-        key: "working-tree-diff",
-        label: "Working tree diff",
-        icon: GitCommitIcon,
-        phase: "idle",
-        disabled: !canViewDiff,
-        run: () => {
-          window.dispatchEvent(
-            new CustomEvent("solus:toggle-diff-panel", {
-              detail: {
-                tabId: sourceId,
-                scope: { kind: "working-tree" },
-                switchScope: true,
-              },
-            }),
-          );
-          requestInputFocus();
         },
       },
     ];
@@ -363,7 +342,7 @@
   // stomp the PRs pane's own filter state.
   let openPrs = $state<PullRequestSummary[]>([]);
   async function loadOpenPrs() {
-    if (!canViewDiff || !env.cwd) return;
+    if (!hasGitStatus || !env.cwd) return;
     const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
     try {
       openPrs = (
@@ -596,13 +575,11 @@
     );
   });
 
+  // Opening the review pane is navigation only. Guide generation stays an
+  // explicit choice inside the pane, so a user can inspect the diff first.
   function handleReview() {
-    if (reviewKey) {
-      session.enterReview(reviewKey, "branch", sourceId);
-      requestInputFocus();
-      return;
-    }
-    void generateReport();
+    session.enterReview("branch", sourceId);
+    requestInputFocus();
   }
 
   async function generateReport() {

@@ -191,6 +191,7 @@ describe('event points and the time brush', () => {
     startedAt: 1_000,
     durationMs: 100,
     status: 'ok',
+    provider: 'claude-code',
     traceId: null,
     spanId: null,
     cells: [],
@@ -207,8 +208,11 @@ describe('event points and the time brush', () => {
     expect(stats.totalCostUsd).toBeNull()
   })
 
-  test('a span is placed at its own start time', () => {
-    expect(eventPoints([row({ startedAt: 4_200 })])[0].at).toBe(4_200)
+  test('a span keeps its start time and provider for the shared histogram', () => {
+    expect(eventPoints([row({ startedAt: 4_200, provider: 'codex' })])[0]).toMatchObject({
+      at: 4_200,
+      provider: 'codex',
+    })
   })
 
   test('the brush is half-open, matching the turn list', () => {

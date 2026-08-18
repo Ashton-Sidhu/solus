@@ -144,14 +144,14 @@ describe('reading the location', () => {
     // What the diff panel watches to jump to a file: asking for the same file
     // twice has to move the panel again, so a changed param is not enough.
     const router = new RouterStore()
-    const diff: RouteRef = { name: 'diff', params: { sourceTabId: 'tab_a', filePath: 'a.ts' } }
+    const diff: RouteRef = { name: 'review', params: { sourceTabId: 'tab_a', view: 'diff', filePath: 'a.ts' } }
     router.navigate(diff, { target: 'aside' })
     const afterFirst = router.navigationEpoch
 
     router.navigate(diff, { target: 'aside' })
     expect(router.navigationEpoch).toBe(afterFirst + 1)
 
-    router.navigate({ name: 'diff', params: { sourceTabId: 'tab_a', filePath: 'b.ts' } }, { target: 'aside' })
+    router.navigate({ name: 'review', params: { sourceTabId: 'tab_a', view: 'diff', filePath: 'b.ts' } }, { target: 'aside' })
     expect(router.navigationEpoch).toBe(afterFirst + 2)
   })
 })

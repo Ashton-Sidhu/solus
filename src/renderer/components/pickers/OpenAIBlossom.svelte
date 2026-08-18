@@ -1,16 +1,21 @@
 <script lang="ts">
   interface Props {
     size?: number;
+    /** The mark is solid black by default, which is why every call site that
+     *  puts it on a dark surface gives it a white plate. Pass `currentColor` to
+     *  take the surrounding ink instead, where the plate would be heavier than
+     *  the glyph it protects. */
+    fill?: string;
   }
 
-  let { size = 24 }: Props = $props();
+  let { size = 24, fill = "black" }: Props = $props();
 </script>
 
 <svg
   width={size}
   height={size}
   viewBox="146.694 227.042 267.198 264.812"
-  fill="black"
+  {fill}
   xmlns="http://www.w3.org/2000/svg"
   aria-hidden="true"
 >

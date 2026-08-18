@@ -50,7 +50,7 @@
   }
 </script>
 
-<div class="text-sm flex items-center gap-[13px] pb-[11px]">
+<div class="flex items-center gap-[13px] pb-[11px] text-workspace-chrome">
   <span
     class="inline-flex items-center gap-1.5  font-normal "
     style="color:{statusTextColor(task.status)}"
@@ -106,7 +106,7 @@
   </h1>
 {/if}
 
-<div class="text-sm task-description-prose pt-[18px]">
+<div class="task-description-prose pt-[18px] text-workspace-chrome">
   <DocumentPromptEditor
     value={bodyDraft}
     onValueChange={(v) => (bodyDraft = v)}

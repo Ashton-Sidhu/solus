@@ -6,6 +6,7 @@ import { formatOpenThreads } from '../annotations/comment-tools'
 import { workPreview } from '../../shared/work-preview'
 import { parseDiagram, serializeDiagram } from '../../shared/diagram-types'
 import { reapplyLayout } from '../../shared/diagram-layout'
+import { serializeDiagramEmbed } from '../../shared/diagram-embed'
 import type { AgentId } from '../../shared/types'
 import { createLogger } from '../logger'
 import type { AgentTool } from '../agents/tools/agent-tool'
@@ -93,7 +94,7 @@ const createWorkFields = {
 
 const DIAGRAM_GUIDANCE = [
   'For doc/slides the `content` arg is markdown. For diagrams, `content` must be serialized JSON shaped like {"nodes":[{"id","label",...}],"edges":[{"id","source","target",...}]}. Omit "position" — Solus auto-layouts.',
-  'Before authoring or editing a diagram, load the `diagrams` skill — it owns the full node/edge contract, icons, data-model entities (typed fields + keys), relationship cardinality, groups, drill-down details, and worked examples. Create a diagram only when the user asks for a system/architecture/data diagram they can edit.',
+  'Before authoring or editing a diagram, load the `diagrams` skill — it owns the full node/edge contract, icons, data-model entities (typed fields + keys), relationship cardinality, groups, drill-down details, embedding workflow, and worked examples.',
 ].join('\n')
 
 const LIST_DESC =
@@ -237,7 +238,10 @@ export async function executeWorkTool(
         const op = recordOutboxOp({ domain: 'works', resourceId: workId, name: 'create', payload, sessionId: deps.ctx?.sessionId })
         applyWorkOpToForeignTask(deps.ctx?.solusSessionId, op)
         deps.onWorkCreated?.({ workId, title, docType, content })
-        return { ok: true, text: `Created "${title}" (id: ${workId}). It syncs to the task's host and links to task ${foreignTaskId}.` }
+        const embedGuidance = docType === 'diagram'
+          ? `\n\nTo embed this diagram in a Solus document or plan, place this token on its own line:\n\n${serializeDiagramEmbed({ workId, title })}`
+          : ''
+        return { ok: true, text: `Created "${title}" (id: ${workId}). It syncs to the task's host and links to task ${foreignTaskId}.${embedGuidance}` }
       }
 
       const preview = workPreview(docType, content)
@@ -271,7 +275,10 @@ export async function executeWorkTool(
         docType: created.type,
         content: created.content,
       })
-      return { ok: true, text: `Created "${created.title}" (id: ${created.id}).` }
+      const embedGuidance = created.type === 'diagram'
+        ? `\n\nTo embed this diagram in a Solus document or plan, place this token on its own line:\n\n${serializeDiagramEmbed({ workId: created.id, title: created.title })}`
+        : ''
+      return { ok: true, text: `Created "${created.title}" (id: ${created.id}).${embedGuidance}` }
     }
 
     if (name === 'update_work') {

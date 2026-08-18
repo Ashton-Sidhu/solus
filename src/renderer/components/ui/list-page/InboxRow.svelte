@@ -30,12 +30,22 @@
 
   const hasActions = $derived(!!row.primary);
   // At rest ⇢ chips + time. On hover/selection ⇢ verbs. Only one is in the DOM
-  // flow at a time, and both sit at the same right edge.
+  // flow at a time, and both sit at the same right edge. A touch pointer never
+  // hovers, so it takes the verbs at rest — the row's actions cannot be
+  // reachable on a desktop and absent on an iPad.
   const metaVisibility = $derived(
-    !hasActions ? "flex" : selected ? "hidden" : "flex group-hover:hidden",
+    !hasActions
+      ? "flex"
+      : selected
+        ? "hidden"
+        : "flex group-hover:hidden pointer-coarse:hidden",
   );
   const actionVisibility = $derived(
-    !hasActions ? "hidden" : selected ? "flex" : "hidden group-hover:flex",
+    !hasActions
+      ? "hidden"
+      : selected
+        ? "flex"
+        : "hidden group-hover:flex pointer-coarse:flex",
   );
 </script>
 

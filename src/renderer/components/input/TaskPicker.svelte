@@ -92,7 +92,7 @@
               {...mergeProps(tooltipProps, props)}
               bind:ref={triggerEl}
               variant="ghost"
-              class="group relative h-auto min-w-0 shrink gap-1.5 rounded-lg px-2 py-1 text-sm font-normal transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-0 after:absolute after:left-0 after:top-1/2 after:h-10 after:w-full after:-translate-y-1/2 after:content-[''] {open
+              class="group relative h-auto min-w-0 shrink gap-1.5 rounded-lg px-2 py-1 text-workspace-chrome font-normal transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-0 after:absolute after:left-0 after:top-1/2 after:h-10 after:w-full after:-translate-y-1/2 after:content-[''] {open
  ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
  : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
               style="max-width:12rem"
@@ -120,7 +120,7 @@
     sideOffset={6}
     collisionPadding={8}
     onCloseAutoFocus={handleCloseAutoFocus}
-    class="menu-surface z-[10002] w-[320px] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-menu shadow-[shadow:var(--solus-menu-shadow)] ring-0 lg:text-menu"
+    class="menu-surface z-[10002] w-[320px] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 lg:text-workspace-chrome [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome"
   >
     <Command.Root>
       <MenuSearch bind:value={query} placeholder="Search tasks" />

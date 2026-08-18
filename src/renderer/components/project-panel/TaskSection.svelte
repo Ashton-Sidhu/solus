@@ -214,7 +214,7 @@ Every row here is the rail's row, not the mock's: full width of the card's
 inner edge with 8px of its own padding, exactly like MenuRow in Environment
 and Git. That 8px is the card's text measure, so the group labels and every
 row label set on the same left edge. -->
-<div class="text-menu text-xs mb-2 flex flex-col {task.status === 'done' ? 'opacity-[.62]' : ''}">
+<div class="mb-2 flex flex-col text-xs {task.status === 'done' ? 'opacity-[.62]' : ''}">
   <div class="mt-0.5 flex flex-col gap-px">
     <!-- Six attempts stay visible at once. Older attempts scroll inside this
          group so a long history cannot take over the project rail; New session
@@ -226,7 +226,7 @@ row label set on the same left edge. -->
         and hands its slot to the actions on hover, so the row keeps one
         value column and never changes height. -->
         <div
-          class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem]  text-(--solus-text-secondary) transition-colors duration-150 @max-[17rem]:text-xs hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {row.current
+          class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-(--solus-text-secondary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {row.current
           ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
           : ''} {row.dimmed ? 'opacity-[.62] hover:opacity-100' : ''}"
           role="button"
@@ -259,9 +259,11 @@ row label set on the same left edge. -->
 
           <!-- One trailing reading in the rail's metric voice, then the secondary
           action, which trades places with it on hover so the row keeps a
-          single value column and never changes width. -->
+          single value column and never changes width. A coarse pointer has no
+          hover to trade on, so it takes the action side at rest — otherwise the
+          split has no way in at all on a tablet. -->
           <span
-            class="shrink-0 truncate text-(--solus-text-tertiary) group-hover:hidden {row.valueMono
+            class="shrink-0 truncate text-(--solus-text-tertiary) group-hover:hidden pointer-coarse:hidden {row.valueMono
             ? 'tabular-nums'
             : ''}"
           >
@@ -274,7 +276,7 @@ row label set on the same left edge. -->
                 <button
                   {...props}
                   type="button"
-                  class="hidden size-6 shrink-0 cursor-pointer items-center justify-center rounded-[0.375rem] text-(--solus-text-tertiary) transition-colors duration-150 group-hover:flex hover:bg-[color-mix(in_srgb,var(--solus-text-primary)_8%,transparent)] hover:text-(--solus-text-primary) focus-visible:flex focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
+                  class="hidden size-6 shrink-0 cursor-pointer items-center justify-center rounded-[0.375rem] text-(--solus-text-tertiary) transition-colors duration-150 group-hover:flex pointer-coarse:flex hover:bg-[color-mix(in_srgb,var(--solus-text-primary)_8%,transparent)] hover:text-(--solus-text-primary) focus-visible:flex focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
                   aria-label="Open in split"
                   onclick={(e) => {
                   e.stopPropagation();
@@ -293,7 +295,7 @@ row label set on the same left edge. -->
 
     <button
       type="button"
-      class="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem]  text-(--solus-text-secondary) transition-colors duration-150 @max-[17rem]:text-xs hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
+      class="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-(--solus-text-secondary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
       onclick={newSession}
     >
       <PlusIcon size={13} class="shrink-0" />
@@ -326,7 +328,7 @@ row label set on the same left edge. -->
           {@const KindIcon = row.icon}
           <button
             type="button"
-            class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem]  text-(--solus-text-secondary) transition-[background-color,color,opacity] duration-150 @max-[17rem]:text-xs hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {row.dimmed
+            class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-(--solus-text-secondary) transition-[background-color,color,opacity] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {row.dimmed
             ? 'opacity-[.62] hover:opacity-100'
             : ''}"
             title="{row.kindLabel} · {row.label}"

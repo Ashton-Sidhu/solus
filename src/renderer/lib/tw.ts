@@ -22,6 +22,7 @@ export const twMergeConfig = {
     classGroups: {
       'font-size': [
         'text-menu',
+        'text-workspace-chrome',
         // The content ladder (ADR-0013). Every rung lands here or it gets read
         // as a colour and dropped against the neighbouring text-(--…). Chrome
         // uses stock sizes, which tailwind-merge already knows.

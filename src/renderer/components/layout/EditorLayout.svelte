@@ -22,7 +22,7 @@
   $effect(() => {
     const current = session.activeTabId;
     if (prevActiveTabId !== undefined && prevActiveTabId !== current) {
-      if (router.overlay?.name === "diff") router.closeOverlay();
+      if (router.overlay?.name === "review") router.closeOverlay();
     }
     prevActiveTabId = current;
   });

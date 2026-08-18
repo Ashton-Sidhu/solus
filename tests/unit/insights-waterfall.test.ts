@@ -1,10 +1,13 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { MetricsGapSegment, MetricsSpan, MetricsTurnTrace } from '../../src/shared/observability-types'
 import {
   barExtent,
   buildTraceView,
   firstObservedActivityMs,
-  rowsByKind,
+  hasInternalRows,
+  visibleRows,
   spanAttributes,
   spanDetailLabel,
   spanPayload,
@@ -67,6 +70,49 @@ describe('unionLength', () => {
 
   test('a fully contained interval adds nothing', () => {
     expect(unionLength([{ from: 0, to: 100 }, { from: 20, to: 40 }])).toBe(100)
+  })
+})
+
+describe('Solus internals', () => {
+  // Dispatch nests: setup holds launch_run, which holds the git command that
+  // actually cost the time. Hiding setup has to take the whole branch with it.
+  const setup = span({ spanId: 'setup', parentSpanId: 'root', kind: 'setup', name: 'setup', startedAt: 1_010 })
+  const launch = span({
+    spanId: 'launch', parentSpanId: 'setup', kind: 'internal.dispatch_step', name: 'launch_run', startedAt: 1_020,
+  })
+  const worktree = span({
+    spanId: 'worktree', parentSpanId: 'launch', kind: 'internal.dispatch_step', name: 'worktree_create', startedAt: 1_030,
+  })
+  const tool = span({ spanId: 'tool', parentSpanId: 'root', startedAt: 1_200 })
+  const settlement = span({
+    spanId: 'settle', parentSpanId: 'root', kind: 'turn_settlement', name: 'Solus settlement', startedAt: 1_800,
+  })
+  const view = buildTraceView(trace([root, setup, launch, worktree, tool, settlement]))!
+
+  test('the toggle off leaves the agent\'s own work and nothing of Solus\'s', () => {
+    expect(visibleRows(view.rows, false).map((row) => row.spanId)).toEqual(['root', 'tool'])
+  })
+
+  test('a hidden step never survives its hidden parent', () => {
+    // A dispatch step re-attached to the turn root would read as a top-level
+    // phase of the turn, which is precisely what it is not.
+    const kept = visibleRows(view.rows, false)
+    expect(kept.some((row) => row.kind === 'internal.dispatch_step')).toBe(false)
+  })
+
+  test('the toggle on restores every row at its original depth', () => {
+    expect(visibleRows(view.rows, true).map((row) => [row.spanId, row.depth])).toEqual([
+      ['root', 0], ['setup', 1], ['launch', 2], ['worktree', 3], ['tool', 1], ['settle', 1],
+    ])
+  })
+
+  test('a dispatch step reads as a phrase rather than an identifier', () => {
+    expect(view.rows.find((row) => row.spanId === 'worktree')?.label).toBe('worktree create')
+  })
+
+  test('a trace with nothing to reveal does not offer the toggle', () => {
+    expect(hasInternalRows(view)).toBe(true)
+    expect(hasInternalRows(buildTraceView(trace([root, tool]))!)).toBe(false)
   })
 })
 
@@ -235,25 +281,6 @@ describe('chart accessors', () => {
     const [start, end] = barExtent(row, 1_000)
     expect(end).toBeGreaterThan(start)
   })
-
-  test('rows group by kind so each layer keeps its own fixed colour', () => {
-    const tool = span({ spanId: 't', parentSpanId: 'root', startedAt: 1_100 })
-    const wait = span({ spanId: 'w', parentSpanId: 'root', kind: 'permission_wait', startedAt: 1_200 })
-    const secondTool = span({ spanId: 't2', parentSpanId: 'root', startedAt: 1_300 })
-    const groups = rowsByKind(rowsOf([root, tool, wait, secondTool]))
-    expect(groups.map((group) => group.kind)).toEqual(['turn', 'tool_call', 'permission_wait'])
-    expect(groups.find((group) => group.kind === 'tool_call')?.rows).toHaveLength(2)
-  })
-
-  test('every row lands in exactly one layer, so none is dropped from the plot', () => {
-    const rows = rowsOf([
-      root,
-      span({ spanId: 'a', parentSpanId: 'root', startedAt: 1_100 }),
-      span({ spanId: 'b', parentSpanId: 'root', kind: 'setup', startedAt: 1_200 }),
-    ])
-    const plotted = rowsByKind(rows).flatMap((group) => group.rows)
-    expect(plotted).toHaveLength(rows.length)
-  })
 })
 
 describe('span detail rendering', () => {
@@ -305,5 +332,38 @@ describe('SQL value completion', () => {
 
   test('a cursor outside a string literal is not a value position', () => {
     expect(valueColumnAtCursor('select * from turns where duration_ms > 100')).toBeNull()
+  })
+})
+
+describe('Trace surface composition', () => {
+  const waterfall = readFileSync(
+    join(import.meta.dir, '../../src/renderer/components/insights/TraceWaterfall.svelte'),
+    'utf8',
+  )
+  const coverage = readFileSync(
+    join(import.meta.dir, '../../src/renderer/components/insights/TraceCoverage.svelte'),
+    'utf8',
+  )
+
+  // Why it matters: the bar on a line already wears its kind's hue. A dot beside
+  // the name repeats it and spends the left margin the name needs to stay whole.
+  test('a waterfall label carries no coloured dot', () => {
+    expect(waterfall).not.toMatch(/size-1\.5[^"]*rounded-full/)
+    expect(waterfall).not.toMatch(/rounded-full[^"]*size-1\.5/)
+  })
+
+  // Why it matters: coverage is the complement of the remainder the legend
+  // already prints, so a second number restates one fact as two.
+  test('the coverage strip states the remainder, not a second attributed figure', () => {
+    expect(coverage).not.toContain('} attributed')
+    expect(coverage).not.toContain('traceCoverage')
+  })
+
+  // Why it matters: every other legend entry is a measurement. This one is what
+  // is left over, and a reader cannot tell that from its name alone.
+  test('unattributed turn time explains itself on hover', () => {
+    expect(coverage).toContain('UNATTRIBUTED_EXPLANATION')
+    expect(coverage).toContain('UNATTRIBUTED_CAUSES')
+    expect(coverage).toContain('TooltipUI.Content')
   })
 })

@@ -27,6 +27,7 @@
     filterCommands,
     executeSlashCommand,
     askSolusCommand,
+    embedDiagramCommand,
     type EditorBlockCommand,
   } from "./slashCommands";
   import EditorSlashMenu from "./EditorSlashMenu.svelte";
@@ -41,6 +42,8 @@
   } from "./lib/deferred-table-resize";
   import { z } from "zod";
   import RawMarkdownEditor from "./RawMarkdownEditor.svelte";
+  import DiagramEmbedPicker from "./DiagramEmbedPicker.svelte";
+  import type { DiagramEmbedChoice } from "./diagramEmbedExtension";
 
   const linkAttributesSchema = z.object({ href: z.string().optional() });
 
@@ -67,6 +70,7 @@
     /** When set, the slash menu offers "Ask Solus to draft…". Surfaces without
      *  an agent behind them simply don't pass it. */
     onAskSolus?: () => void;
+    diagramChoices?: DiagramEmbedChoice[];
     class?: string;
     style?: string;
     /** Whether the hover-to-grab block drag handle is mounted. Off for surfaces
@@ -91,6 +95,7 @@
     onFocus,
     onBlur,
     onAskSolus,
+    diagramChoices,
     class: klass = "",
     style = "",
     dragHandle = true,
@@ -136,8 +141,12 @@
     to: number;
     initialHref: string;
   } | null>(null);
+  let diagramPickerOpen = $state(false);
 
-  const slashExtras = $derived(onAskSolus ? [askSolusCommand(onAskSolus)] : []);
+  const slashExtras = $derived([
+    ...(diagramChoices ? [embedDiagramCommand(() => (diagramPickerOpen = true))] : []),
+    ...(onAskSolus ? [askSolusCommand(onAskSolus)] : []),
+  ]);
   const slashFiltered = $derived(filterCommands(slashQuery, slashExtras));
 
   function getMd(editor: Editor): string {
@@ -642,6 +651,19 @@
     executeSlashCommand(editorInstance, cmd, slashFrom, slashTo);
   }
 
+  function insertDiagram(choice: DiagramEmbedChoice) {
+    if (!editorInstance) return;
+    diagramPickerOpen = false;
+    editorInstance
+      .chain()
+      .focus()
+      .insertContent([
+        { type: "diagramEmbed", attrs: { workId: choice.workId, title: choice.title } },
+        { type: "paragraph" },
+      ])
+      .run();
+  }
+
   function handleContextMenu(e: MouseEvent) {
     if (!editorInstance) return;
     if (e.target instanceof Element && e.target.closest("td, th")) {
@@ -677,6 +699,17 @@
         slashIndex = i;
       }}
       anchorCoords={slashCoords}
+    />
+  {/if}
+
+  {#if diagramPickerOpen}
+    <DiagramEmbedPicker
+      choices={diagramChoices ?? []}
+      onSelect={insertDiagram}
+      onClose={() => {
+        diagramPickerOpen = false;
+        editorInstance?.commands.focus();
+      }}
     />
   {/if}
 

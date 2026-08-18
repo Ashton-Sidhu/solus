@@ -76,6 +76,11 @@ both-providers exit-ordering hazard — folded throughout).
   their turn's waterfall), **trend** (a time column plus one numeric series,
   drawn as a line above the grid), and **rollup** (the plain grid). Do not coin
   "chart view", "detail table", or "drill-down mode" for these.
+- **Lane** — one row of the trace waterfall standing for a **run**: consecutive
+  sibling spans of one kind under one parent. A lane draws all its members and
+  opens to list them; it is never a summary that hides a span from the plot, and
+  it never pools two runs the turn ran at different times. Do not coin "bucket",
+  "band", or "collapsed group" for it.
 - **Internals toggle** — the Insights setting that reveals `internal.*` kinds and the
   Solus-health presets. Affects authoring surfaces only, never query execution.
 - **Rollover** — retention pruning of `metrics.db`, default 30 days
@@ -815,6 +820,12 @@ the natural cross-host aggregation point for dispatch.
   two tables stay two: merging them would make every naive aggregate
   (`count(*)`, `avg(duration_ms)`, `sum(cost_usd)`) silently mix a turn with
   its own children — the grain split is what keeps default aggregates honest.
+- **Execution host is a turn dimension.** Every new turn snapshots `hostname`
+  and `host_os` (`macos`, `windows`, or `linux`) from the machine that executes
+  it. `turns` exposes both directly and `events` inherits both from the trace
+  root, so host comparisons need no join. Existing turns are not backfilled:
+  the facts were not recorded, and guessing them from the database location
+  would be incorrect after metrics are exported or collected elsewhere.
 - **Insights separates its panels with lift, never with page colour.** Insights
   stacks three objects — console, chart, listing — and in light mode `--card`
   *is* `--background`, so a half-pixel ring was the only thing holding them
@@ -859,6 +870,47 @@ the natural cross-host aggregation point for dispatch.
   draws two left ticks, whose zero gridline doubles as the baseline the bars
   stand on, and the stat strip reads value-first — a strip of same-weight
   label/value pairs makes the eye read the words instead of the numbers.
+- **Identical cards make a reader do the classification.** A turn's prompt,
+  answer and instructions are three roles in one exchange, and printing each in
+  its own card with its own heading, its own copy control and its own "Show
+  more" said only that there were three of something. One card with named,
+  colour-marked panes says what the reader is actually looking at, and the
+  colours are not new — they are the ones the waterfall already assigns those
+  kinds, so the two surfaces describe the same turn in the same language.
+- **A dot is a key the reader has to learn before they can read the list.** The
+  session card marked every turn with a coloured dot — accent for here, red for
+  failed, grey otherwise — over a list whose rows already carried an ordinal, a
+  prompt and a duration. The dot added a legend, not a fact. State now lives in
+  the ink of the value it describes and in words on the hover card, and the only
+  colour keys left are the ones that key a picture: the coverage bar's slices,
+  cut to the shape of the bar itself rather than rounded into dots. The waterfall
+  label column follows the same rule: its rows dropped their dots, because the
+  bar drawn on that same line already wears the kind's hue, and the dot was
+  spending the left margin the span name needs to stay whole. The disclosure
+  caret moved into the gutter for the same reason — a row is pulled left by the
+  caret slot and its gap, so the root name starts on the column's own edge,
+  level with the expand control above it, instead of every name in the trace
+  being indented past a triangle most rows do not have.
+- **Coverage is the remainder, said once.** The strip printed both
+  "Unattributed turn time 49%" and "51% attributed" — one measurement stated
+  twice, in two directions, on one line. The attributed figure is gone. The
+  remainder stays, and because it is the only entry in the key that is a
+  left-over rather than a measurement, it is the only one that explains itself:
+  hovering it opens a card saying it names missing trace coverage, not model
+  thinking and not idle time, and listing what such an interval can hold.
+- **The width a surface gets should match the question it answers.** A section
+  about the whole session, in a 19rem rail, has to spend a thread and two lines
+  per row to say what one wide row says plainly — and a ranked list of short
+  tool names, stretched across the page, is padding. Full width for the session
+  and the window strip; the rail for the attributes list, which is long and
+  narrow by nature.
+- **Two pictures of one interval must share an edge.** The coverage bar and the
+  waterfall both draw the turn's whole duration. While the bar lived in the rail
+  and the plot in the main column, at different widths, nothing linked a slice
+  to the spans that made it; against the plot's own edge at the plot's own width
+  the bar becomes the plot's summary line. The corollary is what did *not* move:
+  the ranked tool list is a column of short labels, and a rail is the one place
+  a ranked list does not have to be stretched to fill its width.
 
 ## Work packages
 
@@ -1270,13 +1322,391 @@ Each WP lands green (`bun run build`, focused unit tests) before the next starts
   columns appear once and name both tables in their detail. Qualified
   `table.column` and `alias.column` completion remains owned by CodeMirror's
   SQL parser so aliases keep parser-accurate behavior.
-- **WP5 — OTel + app emitters.** Settings-driven exporter (traces/metrics/logs,
-  per-service resources, privacy gates) — note `otel.ts` today exports only
-  logs/metrics over HTTP, so WP5 adds the trace SDK and gRPC exporter packages
-  (`package.json:51-57`); settings UI; span context via `AsyncLocalStorage` with
-  logger enrichment before the `dev.log` entry is built (`logger.ts:249-252`);
-  `internal.rpc` wrapper in `SolusServer.handle`, indexer/git/automation emitters,
-  `log.metric()` migration.
+- **WP4.18 — The turn detail is attributes and texts (landed).** Three faults,
+  one shape. **A strip of four stat cards held values that were also facts of
+  the turn**, so a reader looking for the duration found it in one place and
+  every other fact in another; duration, cost, tokens, tool calls and denials
+  are now rows in Attributes like everything else, and the strip is gone rather
+  than restated — one value has one home, and a glance line under the title
+  would have been a second one.
+  **Nothing could be selected or copied** — the same root `user-select: none`
+  the tables opted out of in WP4.16 — so the detail body is `select-text`, its
+  controls are `select-none` so a drag over a row still activates it, values
+  wrap instead of truncating (a value clipped by CSS cannot be dragged over),
+  every row carries its own copy control, and the header copies the whole list
+  as tab-separated text. **A row copies the stored value, not the printed
+  one**: `2000`, not `2.0s` — a rounded duration pasted into a query is
+  useless. Around forty rows do not fit a rail, so the list shows Outcome and
+  Identity and puts Context and Timing behind one control, into a bounded
+  scroller rather than a rail that grows past the trace it explains. A missing
+  measure keeps its row and states why (Codex reports no per-turn cost);
+  dropping it would read as a bug and printing `$0` would be a lie.
+  **And the turn now records what it said and what it was told.** The emitter
+  captures the composed system prompt at dispatch (`systemPrompt`, capped at
+  16 KB) and the answer (`response`, capped at 8 KB — the provider's own
+  `task_complete.result`, falling back to the last top-level assistant message
+  so a stopped turn still shows what it had streamed). Both are registered
+  `turns` columns, so the schema panel, editor completion and NL→SQL get them
+  for free. Per turn, not per session: the system prompt is rebuilt on every
+  dispatch and the task context inside it moves as the task does. Prompt,
+  Response and System prompt render as three collapsible sections, each bounded
+  with a fade naming the cut, each copyable; the system prompt starts closed,
+  being the largest text a turn carries and the one a reader opens
+  deliberately. No backfill — turns captured before this have neither, and the
+  empty state says so rather than showing a blank card.
+- **WP4.19 — The session card is a lineage (landed).** The card led with the
+  session id and gave every row four measures on two lines, which made the one
+  question it exists to answer — where am I in this session — the hardest thing
+  on it to find. It now leads with place (`Turn 4 of 12`) over one muted line of
+  session totals, then the turns as a thread: a hairline running dot to dot,
+  starting and ending at a dot rather than off both edges of the scroller. A row
+  is two things, what was asked and how long it took, and nothing else; prompts
+  come from the window's own rows (`promptsByTrace`), and a turn the answer never
+  listed keeps its model. The measures a row dropped — model, status, tokens —
+  moved to its title attribute rather than being deleted. The reader's own turn
+  is the only strong mark on the card: an accent dot with a soft halo, a faint
+  accent wash, and the only row in full-strength ink. The card scrolls that row
+  into view on arrival, so a deep link and the header stepper land the same.
+  `lib/session-rail.ts` owns the row model.
+  **The strip stays a picture.** Making its bars open turns was tried and
+  removed: a bar names a half hour, not a turn, so opening one opens whichever
+  turn happened to fall in it, and the strip acquired hover readouts, a roving
+  tab stop and arrow-key traversal to place a click the reader could not aim.
+  The card names its turns and owns the navigation; the strip answers where the
+  session sits in the window and nothing else. `lib/session-context.ts` owns the
+  one bucketing its three bar layers read.
+- **WP4.20 — The turn summary is one card, and coverage sits on the plot
+  (landed).** The three texts WP4.18 shipped were three identical cards at the
+  bottom of the column, below the waterfall, so the exchange a turn recorded was
+  the last thing on the page and read as three unrelated blobs. They are now one
+  **Summary** card of three named panes — Prompt, Response, System prompt — at
+  the head of the column, each wearing its role's colour from the ramp the
+  waterfall already spends (the ask in the brand accent, the answer in the hue
+  `response_stream` has there, the instructions muted), each with its own copy
+  control beside a card-level control that copies the whole exchange with the
+  roles named. Order is not chronological on purpose: the ask and the answer are
+  the pair a reader compares, so they stay adjacent, and the instructions sit
+  last and closed. Body text moved from a chrome size to `text-caption` — this is
+  reading matter and it follows the reader's text-size preference — with an
+  80-character measure cap so a full-width panel does not set 200-character
+  lines. `lib/turn-transcript.ts` owns the pane model.
+  **The cut is measured, not assumed.** The bounded height painted its fade and
+  offered "Show more" on every pane, including a two-line prompt that was
+  entirely on screen — a stated cut that never happened. A `ResizeObserver` on
+  the scroller and its content decides; an expanded pane is not re-measured,
+  since the tall bound would clear the flag and take "Show less" away from the
+  reader using it.
+  **Coverage is full width, against the plot's own edge.** The share bar was in
+  the 19rem rail while the waterfall it explains was in the main column, so the
+  two pictures of one interval never shared an edge. `TraceCoverage` now sits
+  inside the Trace card between its header and the plot: the bar, a wrapping
+  legend of kind/share/duration, and the unattributed gaps behind a disclosure
+  rather than always printed. The ranked lists that were beside it — longest
+  tool calls, denied permissions — stay in the rail as `TraceHotspots`, which
+  the panel renders only when there is something ranked to show. The session
+  strip moved below the trace: it is context, not the answer.
+- **WP4.21 — The session summary is a full-width section, and no mark is a dot
+  (landed).** WP4.19's session card was a 19rem rail item, which is why it had
+  to spend a thread of dots and two-line rows to say what a wide row says in
+  one. It is now a full-width `SessionSummary` section, second on the page after
+  the window strip, which also went full width directly under the title — both
+  are statements about the whole page, so both take the whole width before the
+  page splits into a column and a rail.
+  - **Titled by name, not by id.** The header leads with the session's own name,
+    read from the host through `insightsStore.loadSessionName` and cached beside
+    the rollup: `metrics.db` records ids because a name is editable and a
+    recorded span is not. The short id stays beside it with its copy control.
+    The same name replaces the model as a row's title fallback — a column of
+    repeated model ids names nothing a reader was looking for, and the model is
+    a fact about a turn rather than its identity.
+  - **No dots anywhere.** The thread of status dots is gone, and so are the
+    transcript's role dots. A row is marked by its ordinal and, when it is the
+    reader's own, by an accent ordinal over a faint accent wash. A turn that
+    ended badly says so in the ink of its duration and in words on the hover
+    card. The coverage legend's swatches became short rules cut to the shape of
+    the bar they key, which is the one place a colour key is load-bearing.
+  - **A row answers its second question on hover.** `SessionTurnTooltip` is the
+    move the session sidebar already makes on a session row: the row prints the
+    three things that identify a turn, and everything else the rollup recorded —
+    clock, origin, model, tokens, cost, tool calls, status — is one hover away,
+    asked one row at a time instead of crowded onto all of them.
+  - **The longest tool calls are baked in.** They were a rail card, which put
+    the session's longest turn and this turn's longest tool call at opposite
+    corners of the page; they are the same question at two depths, so they share
+    the section, labelled "in this turn" so the scope cannot be misread. Denied
+    permissions moved into the coverage band, being time the turn spent waiting
+    on a person. The rail is now the attributes list alone, which is what a rail
+    is for.
+- **WP4.22 — A turn row is named by its own ask, and the exchange reads as
+  prose (landed).** Three defects with one cause: the surfaces printed what was
+  cheap to reach rather than what the reader was looking for.
+  - **A row is named by what it asked.** The rollup carried no prompt, so every
+    row outside the current answer fell back to the session's name — one name
+    repeated down a column, usually the task the session was opened from, which
+    identifies none of its rows. `MetricsTurnSummary.prompt` now carries the
+    turn's own ask, single-lined and capped at 200 characters on the wire: a row
+    shows one truncated line, and a 200-turn session must not ship 200 whole
+    prompts to say so. Precedence is the answer's own full text, then the
+    rollup's capped line, then the session name, and only then a stated absence.
+  - **The bounded lists take the app's standard treatment.** The turn list and
+    the tool ranking are context beside the turn being read, not the listing:
+    five rows where the panel has room and three where it does not (a container
+    query — the panel is 380px beside a rail and full width in full screen),
+    scrolling under `scrollbar-on-hover` with `overscroll-contain`, the same
+    pattern the task page's session list and the project panel's task list use.
+  - **The answer is markdown, so it is rendered as markdown.** Response and
+    system prompt were printed as one pre-wrapped string at the chrome's size,
+    so headings, fences, tables and list markers arrived as literal characters —
+    the hardest-to-read form of the text a turn exists to show. Both now render
+    through the conversation's own prose stack
+    (`prose-cloud prose-reading prose-transcript`) with the shared `CodeBlock`
+    for fences, so a recorded answer reads the way the reply did. The ask stays
+    plain pre-wrapped text at the reading size: it is what a person typed, and
+    rendering their `#` as a heading would edit it. Each pane's text hangs off a
+    hairline rail in its role's hue, which is where the role colour lives now —
+    these surfaces carry no dots (WP4.21), and the rail labels nothing on its
+    own. The clipped state is a mask rather than a painted gradient, because the
+    panes sit on the card, the rail and the reader's theme, and a gradient would
+    have to guess which.
+- **WP4.23 — Execution host dimensions (landed).** New turn roots capture the
+  execution machine's hostname and normalized operating system once per Solus
+  process. The generated `turns` view promotes them as `hostname` and
+  `host_os`; `events` reads the same facts from its turn root. The schema panel,
+  SQL completion, hover documentation, and NL-to-SQL prompt receive the fields
+  from the registry automatically. No historical backfill is attempted.
+- **WP4.24 — Main volume is split by provider (landed).** The main histogram no
+  longer overlays failed rows against completed volume. Its bars stack Claude
+  Code, Codex, and an explicit unknown segment for older or partial results.
+  Provider is the comparison the page exists to make across agent backends;
+  completion status remains available in the listing and its filters. The
+  legend and band tooltip use the same fixed colours as the bars, and the shared
+  renderer applies the split to desktop, web, and mobile. (WP4.26 later moved
+  those colours from the art ramp onto the backends' own brands.)
+- **WP4.25 — The Summary card reads as the conversation it records (landed).**
+  WP4.20's three named panes were drawn as interchangeable disclosure rows —
+  same height, same ink, same caret, two of them open onto long text — so a
+  reader met a stack of prose with nothing marking where the ask ended and the
+  answer began. Nothing was missing; the shape carried no meaning. The card now
+  replays the exchange in the transcript's own grammar: the ask is a bubble on
+  the same 2% foreground fill a user message uses, held right and to a message's
+  width; the answer is prose on the card's ground, left, at the reply's reading
+  size. Those two shapes already mean "a person said this" and "an agent said
+  this" everywhere else in Solus, so the roles need no rail and no status mark —
+  this card holds to WP4.21's rule that these surfaces do not ask a reader to
+  learn a colour key — and the speakers are named above each side as muted
+  captions rather than headings: **User**, then the backend that answered —
+  **Claude Code** or **Codex**, beside its own logo in its own brand ink
+  (WP4.26). A turn whose provider was never captured is answered by
+  **Agent** with no logo, because a missing field must not be drawn as
+  somebody's brand. Naming the backend here is the same comparison WP4.24 made
+  the main histogram carry. Neither side is behind a control, because the
+  exchange is why the card is open. The instructions move under the card's own
+  hairline as a footer disclosure, closed until asked for: they are the largest
+  text a turn carries and the one a reader opens deliberately, and they get no
+  speaker because a document is not a party to the conversation. The two token
+  counts move to the card header as the exchange's size, so neither caption
+  carries chrome; the attribute names survive where an analyst wants them, on
+  each copy control. Bounded height, measured cut, fade, and the capture-cap
+  note are unchanged from WP4.20.
+- **WP4.26 — Backends are named and marked the same way page-wide (landed).**
+  Three surfaces showed a provider and each spelled the mapping out again: the
+  histogram legend and its band tooltip, the turn's identity line, and WP4.25's
+  Summary captions. `lib/provider.ts` now owns it — `claude` and `claude-code`
+  are one backend, `codex` is its own, and anything else has no name and no
+  mark. `ProviderMark.svelte` draws the same two marks the input bar's model
+  picker draws — `ClaudeIcon` and `OpenAIBlossom` — so a backend looks the same
+  wherever Solus names it, each in its own brand ink, the way the
+  session picker and the onboarding cards already do: Claude in the terracotta
+  now held once as `--brand-claude`, and Codex in the surrounding text's colour,
+  because OpenAI's mark is monochrome by design and pinning it to a hue would
+  break it in one of the two themes. The names beside the marks stay muted, so
+  the logo is what carries the colour. The histogram takes the colours but not
+  the logos: its Codex bar leaves WP4.24's dusty blue for the same text ink the
+  Codex mark uses, and its legend and band tooltip carry the swatch alone —
+  once a swatch is the backend's own colour, a logo beside it says the same
+  thing twice. The identity line
+  reads "Claude Code" rather than the raw `claude`, and the legend keeps its
+  colour swatch — the swatch is the key to the bar and the logo names what the
+  swatch stands for, so neither replaces the other. Each surface still words the
+  unrecognised case for itself: "Unknown" on the chart, "unknown provider" on
+  the identity line, "Agent" in the Summary card. The attributes rail and the
+  SQL result grid are deliberately unmarked: both print stored values, and a
+  logo beside `provider = claude` would dress up the record.
+- **WP4.20 — Dispatch has an interior (landed).** The `setup` bar covered
+  everything Solus does before a turn reaches the provider — git context,
+  worktree creation, task preparation, instruction composition, agent launch —
+  and named none of it. On a cold dispatch it was the largest thing in the turn
+  and the only one a reader could not question. Dispatch now records
+  `internal.dispatch_step` spans **inside the turn's own trace, parented to the
+  setup span**, so they are on the same axis as thinking, tools and waits
+  instead of forming an orphan trace with no turn to belong to.
+  **Steps nest through an ambient async context**, not a passed parent.
+  `SessionEmitter.runDispatch` opens the scope (an `AsyncLocalStorage` holding
+  the running step) and the free `dispatchStep(name, attrs, run)` finds its
+  parent there, at any depth and across any module boundary. So
+  `createWorktree` — which already hand-timed four git commands for `dev.log` —
+  records them under the caller's span while taking **no telemetry parameter at
+  all**, which is the point: the signature of a function being measured should
+  not change because it is measured. That is what makes the waterfall indent
+  `launch_run → worktree_create → git_worktree_add` instead of listing nine
+  peers. Outside a dispatch, `dispatchStep` is a straight pass-through, so a
+  worktree created from a surface with no turn behind it is an ordinary call. A
+  context that outlives its scope — a callback registered during dispatch and
+  invoked after it — finds its parent already closed and goes untraced rather
+  than dating a step against a finished span. This is also the context manager
+  WP5 specifies for span context, so it lands here rather than being retrofitted
+  later. The steps: `launch_run`, `git_state`, `worktree_create` (with
+  `default_branch`, `start_point`, `git_worktree_add`, `copy_included_files`),
+  `handoff_build`, `task_lookup`, `task_prepare`, `task_context`, `session_log`,
+  `agent_launch`, `task_title`. Each carries its arguments — paths, argv, branch,
+  base branch, task id, model, cwd, permission mode, character counts — capped
+  at 1 KB per value, because a step that took four seconds is only actionable
+  once you can see what it was called with. A step that does not run on a given
+  dispatch emits nothing; a step that throws is still recorded, with its error,
+  and rethrows untouched. `agent_launch` is timed **without an `await`**: the
+  call is synchronous and suspending there would move handle registration into a
+  later microtask, which the dispatch sequence depends on not happening.
+  Kind-wise these are `internal.*`, so they land in `internal_events` and leave
+  every existing `events` question about agent work alone.
+  **One "Solus internals" switch** in the Trace card header governs the whole
+  group — `setup` and its steps, `queue_wait`, `turn_settlement` — across both
+  the split panel and the full page, which are one component. Off by default
+  (the ordinary question a turn is opened with is what the agent did),
+  persisted like the time range, and hidden entirely on a trace with nothing to
+  reveal. Hiding a row hides its subtree, so a dispatch step is never reparented
+  onto the turn root where it would read as a phase of the turn. `TraceCoverage`
+  and the legend stay computed over the **full** span set: coverage is a
+  server-derived attribution fact, and re-deriving it from the visible subset
+  would make the bar lie whenever the switch is off. A deep link to an internal
+  span reveals it regardless of the stored preference, without changing it.
+- **WP4.21 — Telemetry leaves the machine (landed).** `metrics.db` was not one
+  sink among several; it was the only one. `writeSpan` had a single `INSERT` and
+  no fan-out, so no span had ever reached OTel — `otel.ts` wired up a
+  `LoggerProvider` and a `MeterProvider` and nothing else, and the only things
+  exported were `logger.ts`'s log records and `log.metric()` durations. There
+  was also no settings UI at all: configuration was `OTEL_EXPORTER_OTLP_*`
+  environment variables or nothing.
+  **Traces now export.** `@opentelemetry/sdk-trace-node` and
+  `exporter-trace-otlp-http` are added, and `writeSpan` fans out to
+  `exportOtelSpan` after the insert — best-effort, never able to fail the write,
+  because a span that could not be shipped is still a span Insights can read.
+  Solus records complete spans and only then hands them over, so there is no
+  live tracer: a finished record is adapted to the exporter's own
+  `ReadableSpan` and handed to a `BatchSpanProcessor`, which keeps the batching,
+  retry and shutdown-flush the SDK already implements. **Ids carry across rather
+  than being regenerated** — a Solus trace id is a UUID, which is exactly the 16
+  bytes OTLP wants, and a span id is the first 8 of its own — so one turn is the
+  same trace in Insights and in the operator's backend, and the id printed on
+  the turn detail is the id to paste into the collector.
+  **Settings are host-scoped**, in `ServerSettings` beside `metricsRetentionDays`
+  and reached over RPC (`otelSettingsGet` / `otelSettingsUpdate`), because the
+  exporter runs beside the server: a phone on this page is configuring the
+  machine it is connected to, not itself. The Telemetry tab is therefore
+  web-visible rather than desktop-only, and the store is keyed by server, since
+  two hosts a user is connected to can ship to different collectors or to none.
+  Saving reconfigures the running process, so turning export on does not need a
+  restart. **Environment variables still win**: a deployment that sets them
+  keeps behaving exactly as before, and the form goes read-only and says why —
+  a switch that lies about what it does is worse than one that is honestly
+  unavailable. Enabling requires an endpoint (otherwise the switch would report
+  "on" while exporting nowhere), a pasted trailing slash is stripped before
+  signal paths are appended, and the default is off with an empty endpoint:
+  nothing leaves the machine until an operator names a destination. The endpoint
+  and headers are the operator's secrets and are never logged; only the shape of
+  the decision is.
+- **WP4.27 — The tracer is the span model, and SQLite is an exporter
+  (landed).** WP4.21 left Solus holding two tracers. The bespoke one —
+  `SessionEmitter` over `facade.ts`, with its own `AsyncLocalStorage`, its own
+  span buffer and its own id space — was the real one, and OTel was reached
+  through an adapter that turned a finished database record back into a
+  `ReadableSpan`. That is the standard arriving as an afterthought: we wrote a
+  tracer and then wrote a translator to the one every collector already speaks.
+  It is now the other way round.
+
+  **One `Tracer`, two sinks.** `observability/tracer.ts` builds a
+  `BasicTracerProvider` whose processors are a `SimpleSpanProcessor` into the
+  new `SqliteSpanExporter` and, when the host's settings ask for it, a
+  `BatchSpanProcessor` into `OTLPTraceExporter`. The difference between them is
+  the point: **the record must never drop and the copy may.** A batch processor
+  discards on queue overflow, which is an acceptable loss for spans an operator
+  asked to be shipped elsewhere and a correctness bug for the table Insights
+  answers from, so the SQLite sink is synchronous — a span is queryable the
+  moment it ends, with nothing in flight to flush. Sampling is pinned on for the
+  same reason: a sampler read from the environment would silently delete rows
+  somebody is querying. The OTLP processor is attached and detached on the same
+  settings toggle WP4.21 built, through a small holder rather than the
+  provider's fixed processor list, and detaching flushes what it replaces.
+
+  **The exporter owns the projection, which is why nothing above it moved.**
+  Insights is a SQL surface, not a trace viewer: `field-registry.ts` promotes
+  `session_id`, `provider`, `model`, `project_root` and `origin` to columns,
+  `kind` selects a view, and every registered field resolves to a column or a
+  path inside `attrs`. A tracer knows one flat attribute bag. A span therefore
+  states its Solus vocabulary in `solus.*` attributes — kind, service, status
+  and the five dimensions — and the exporter reads them back out into columns,
+  leaving `attrs` holding exactly the registry's own camelCase names. Status is
+  carried explicitly because OTel has UNSET/OK/ERROR and Solus also records
+  `interrupted`: a turn the user stopped must not read as one that failed.
+  `field-registry.ts`, `rollups.ts`, the Insights renderer and the Telemetry
+  settings tab are unchanged, which is the test of whether the projection is in
+  the right place.
+
+  **Ids are OTLP's, and a trace root is still named by its trace.** Solus ids
+  were UUIDs derived down to OTLP widths on the way out, so a span id printed in
+  Insights was not the span id in the collector. Both are now the same string,
+  at OTLP's own widths, with one restatement: `spans` has always identified a
+  turn by `span_id = trace_id` — the join `events` reads a turn's automation,
+  task and branch through — and OTLP has no such thing. `SolusIdGenerator` gives
+  a root span the first half of its own trace id, so the exporter recognises a
+  root, and a root's children recognise their parent, as a pure function of the
+  span rather than as bookkeeping. Rows written before this keep their UUIDs and
+  keep answering; ids are opaque strings to every query.
+
+  **`SessionEmitter` is now policy over a real tracer, and the old pathways are
+  gone rather than kept beside it.** The hand-rolled `DispatchContext` and its
+  `AsyncLocalStorage` are replaced by OTel's context: `runDispatch` opens a scope on the setup span and
+  `dispatchStep` finds its parent in `context.active()`, so `createWorktree`
+  still records four git commands under its caller while taking no telemetry
+  argument. The `BufferedSpan` machinery is deleted outright: a span is a span,
+  and it ends when the work ends rather than being held in a list until the turn
+  settles. The `ReadableSpan` adapter in `otel.ts` is deleted, and that module
+  now only owns the settings-driven OTLP configuration for all three signals.
+  What survives is the policy OTel does not have: turn settlement semantics,
+  start-time clamping so a provider timestamp cannot draw work as overlapping a
+  dispatch that had not launched it, the `capped`/`cappedAttrs` limits, and
+  closing every span a crashed or interrupted dispatch left open.
+
+  **`facade.ts` is gone with the API it was a facade for.** `startSpan` and
+  `endSpan` wrote an open row and updated it later, which only made sense while
+  the database was the tracer; nothing writes an open row now, because a span
+  reaches the table once, when it ends. What is left is `span-table.ts`: the row
+  shape, the insert and the retention delete, with every id and timestamp
+  required — the tracer mints ids and Solus decides times, and the table invents
+  neither. The span vocabulary those files shared (`SpanStatus`,
+  `SpanAttributes`, `SpanDimensions`) moved to `registries.ts` beside the kinds,
+  services and attribute keys it belongs with, and the unused `observability/`
+  barrel is deleted. Registered-vocabulary validation lives at the one boundary
+  where an untyped span could arrive — the exporter — and a span that fails it
+  is logged and dropped rather than thrown, because an exporter that throws
+  takes the ending span's caller with it.
+
+  **Two consequences, both deliberate.** A span now carries the dimensions the
+  turn knew when it *ended*, not the ones it had settled on by the time it was
+  written — so the turn root and everything after `completeSetup` are unchanged,
+  while a dispatch step, which runs before the provider has answered, records
+  the backend and project it was dispatched to (passed to `beginTurn`, since the
+  control plane knows both) and no executed model, because there is not one yet.
+  And a tool span that a provider revises after it has already closed keeps its
+  first outcome: an ended span is ended, which is the model's rule and not a
+  workaround.
+- **WP5 — OTel + app emitters.** The exporter, its settings UI and the span
+  context all landed early, at WP4.20, WP4.21 and WP4.27: traces, metrics and
+  logs ship over OTLP under one resource, and `context.active()` carries the
+  running span. What is left is the emitters and the enrichment — a gRPC
+  exporter option, logger enrichment from the active span before the `dev.log`
+  entry is built (`logger.ts:249-252`), an `internal.rpc` wrapper in
+  `SolusServer.handle`, indexer/git/automation emitters, and the `log.metric()`
+  migration.
 
 ## Open questions
 

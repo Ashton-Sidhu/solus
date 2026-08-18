@@ -19,7 +19,7 @@ export const _sessionListCache = new MemoryCache<string, SessionListCacheEntry>(
 
 /**
  * In-flight cold scans keyed by session-list cache key. At launch the pill and
- * editor windows both mount NewTabHome and each fires a full `listSessions`;
+ * editor windows can both request history and each fire a full `listSessions`;
  * without deduping they run two ~N-file scans concurrently, doubling disk/CPU
  * contention. Sharing one scan lets the second caller await the same promise.
  * Entries are removed as soon as the scan settles.

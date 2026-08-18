@@ -6,6 +6,7 @@
   // Eager, unlike the lazy surfaces below: it is what covers an async boundary,
   // so it cannot sit behind one itself.
   import DocumentModalSkeleton from "@renderer/components/document-modal/DocumentModalSkeleton.svelte";
+  import DiffLoadingSkeleton from "@renderer/components/diff/DiffLoadingSkeleton.svelte";
   import { getPlanStore, getWorkspaceContext, runtime } from "@renderer/contexts";
   import WebMobileLayout from "./WebMobileLayout.svelte";
   import WebDesktopLayout from "./WebDesktopLayout.svelte";
@@ -16,6 +17,7 @@
     type FilePreviewRequest,
   } from "@renderer/lib/filePreview";
   import type { DiffScope } from "@shared/types";
+  import type { ReviewView } from "@renderer/contexts/workspace/routing/route-registry";
 
   interface Props {
     onAttachFile: (tabId?: string) => void | Promise<void>;
@@ -46,6 +48,11 @@
     const workId = router.params("work")?.workId;
     return workId ? session.worksStore.get(workId) ?? null : null;
   });
+  const leadingDraftParams = $derived(
+    router.leadingPane.base?.name === "draft"
+      ? router.leadingPane.base.params
+      : null,
+  );
 
   const isMobile = $derived(runtime.isMobileViewport);
 
@@ -54,13 +61,16 @@
   // per-host status chip, never to a client-global toast — and "Retry now"
   // dials that host's supervisor instead of reloading the whole window.
 
-  // ── Mobile-only diff state ──
-  // The desktop layout reads the shared location for its diff / plan / work
+  // ── Mobile-only review state ──
+  // The desktop layout reads the shared location for its review / plan / work
   // panes. Mobile keeps its own lightweight state because it renders a single
-  // full-screen diff via the snippets below, not the split-pane system.
+  // full-screen review via the snippets below, not the split-pane system.
   let diffPanelOpen = $state(false);
   let diffPanelMaximized = $state(false);
   let diffScope = $state<DiffScope>({ kind: "session" });
+  // Which of Map · Guide · Diff the mobile review is on. The desktop route
+  // carries this; mobile has no location to put it in.
+  let reviewView = $state<ReviewView>("map");
   let editorFile = $state<FilePreviewRequest | null>(null);
   const canShowSidePanel = $derived(canShowDiffPanel || !!editorFile);
   // Mobile always shows the diff full-screen.
@@ -102,7 +112,7 @@
         diffPanelOpen = false;
         diffPanelMaximized = false;
         editorFile = null;
-      } else if (router.overlay?.name === "diff") {
+      } else if (router.overlay?.name === "review") {
         router.closeOverlay();
       }
     }
@@ -266,31 +276,43 @@
           </div>
         {/await}
       {:else}
-        <!-- The band belongs to the pane, not to the transcript: the desktop
-             body draws it over its leading column, and this is that column. -->
-        <div class="relative flex min-h-0 flex-1 flex-col">
-          {#if session.activeTabId}
-            <SessionBreadcrumb tabId={session.activeTabId} />
-          {/if}
-          {#each session.tabOrder as tId (tId)}
-            <div
-              class="tab-slot flex h-full min-h-0 flex-col [contain-intrinsic-size:auto_62.5rem] [content-visibility:auto]"
-              class:tab-hidden={tId !== session.activeTabId}
-            >
-              <ConversationView
-                tabId={tId}
-                onDiffToggle={() => {
-                  sidePanelSourceTabId = tId;
-                  if (!session.sessionFor(tId)?.run.workingDirectory) return;
-                  editorFile = null;
-                  diffScope = { kind: "session" };
-                  diffPanelOpen = !diffPanelOpen;
-                  if (!diffPanelOpen) diffPanelMaximized = false;
-                }}
-              />
-            </div>
-          {/each}
-        </div>
+        {#if leadingDraftParams}
+          {#await import("@renderer/components/session-draft/SessionDraftPane.svelte")}
+            {@render loadingSurface("Loading composer…")}
+          {:then draftModule}
+            {@const SessionDraftPane = draftModule.default}
+            <SessionDraftPane
+              params={leadingDraftParams}
+              paneId={router.leadingPane.id}
+            />
+          {/await}
+        {:else}
+          <!-- The band belongs to the pane, not to the transcript: the desktop
+               body draws it over its leading column, and this is that column. -->
+          <div class="relative flex min-h-0 flex-1 flex-col">
+            {#if session.activeTabId}
+              <SessionBreadcrumb tabId={session.activeTabId} />
+            {/if}
+            {#each session.tabOrder as tId (tId)}
+              <div
+                class="tab-slot flex h-full min-h-0 flex-col [contain-intrinsic-size:auto_62.5rem] [content-visibility:auto]"
+                class:tab-hidden={tId !== session.activeTabId}
+              >
+                <ConversationView
+                  tabId={tId}
+                  onDiffToggle={() => {
+                    sidePanelSourceTabId = tId;
+                    if (!session.sessionFor(tId)?.run.workingDirectory) return;
+                    editorFile = null;
+                    diffScope = { kind: "session" };
+                    diffPanelOpen = !diffPanelOpen;
+                    if (!diffPanelOpen) diffPanelMaximized = false;
+                  }}
+                />
+              </div>
+            {/each}
+          </div>
+        {/if}
       {/if}
     {/if}
   {/if}
@@ -313,26 +335,29 @@
       />
     {/await}
   {:else if diffPanelOpen && sidePanelTab && sidePanelSession && canShowDiffPanel}
-    {#await import("@renderer/components/diff/DiffPanel.svelte")}
-      {@render loadingSurface("Loading changes…")}
-    {:then diffModule}
-      {@const DiffPanel = diffModule.default}
-      <DiffPanel
-        tabId={sidePanelTab.id}
-        projectPath={sidePanelSession.run.workingDirectory}
-        worktreePath={sidePanelSession.run.gitContext?.worktreePath}
-        worktreeBranch={sidePanelSession.run.gitContext?.branch ?? ""}
-        targetBranch={sidePanelSession.run.gitContext?.targetBranch ?? "HEAD"}
-        {isWorktree}
+    {#await import("@renderer/components/review/ReviewSurface.svelte")}
+      <!-- The review surface opens onto the same skeleton it then shows while it
+           resolves the change, so fetching the chunk and loading the diff read as
+           one wait rather than a label that swaps into a different placeholder. -->
+      <div class="flex h-full min-h-0 flex-col" role="status" aria-label="Loading changes">
+        <div class="workspace-titlebar h-(--solus-chrome-row-h,2.5rem) shrink-0" aria-hidden="true"></div>
+        <!-- Matched to the view being opened, and skipped for the guide, which
+             reads none of what this chunk is fetching the panel for. -->
+        {#if reviewView !== "guide"}
+          <DiffLoadingSkeleton variant={reviewView === "map" ? "map" : "diff"} />
+        {/if}
+      </div>
+    {:then reviewModule}
+      {@const ReviewSurface = reviewModule.default}
+      <ReviewSurface
+        sourceTabId={sidePanelTab.id}
+        view={reviewView}
+        onSelectView={(next) => (reviewView = next)}
+        scope={diffScope}
         onClose={() => {
           diffPanelOpen = false;
           diffPanelMaximized = false;
         }}
-        maximized={effectiveDiffMaximized}
-        onToggleMaximize={() => {
-          diffPanelMaximized = !diffPanelMaximized;
-        }}
-        initialScope={diffScope}
       />
     {/await}
   {/if}

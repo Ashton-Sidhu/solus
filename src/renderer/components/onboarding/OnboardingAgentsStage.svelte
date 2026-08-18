@@ -6,11 +6,9 @@
    */
   import { onMount } from "svelte";
   import { onboardingStore as store } from "./onboarding.store.svelte";
-  import { AGENT_PRESENTATION } from "./lib/onboarding-model";
   import { codingProviderRows } from "../servers/lib/host-onboarding";
-  import OnboardingRow from "./OnboardingRow.svelte";
+  import OnboardingAgentRow from "./OnboardingAgentRow.svelte";
   import OnboardingStageActions from "./OnboardingStageActions.svelte";
-  import DevicePrompt from "../servers/DevicePrompt.svelte";
   import type { SetupAgent } from "../../../shared/types";
 
   const setup = $derived(store.setup);
@@ -34,12 +32,6 @@
           ? "One agent is ready"
           : "Two agents, one step each",
   );
-
-  /** A CLI either shows a code to enter on its sign-in page, or wants one pasted back. */
-  const why = (label: string, requiresCodeInput: boolean | undefined) =>
-    requiresCodeInput
-      ? `${label} opened your browser. Finish signing in, then paste the returned code here.`
-      : `Enter this code on the ${label} sign-in page in your browser.`;
 
   onMount(() => {
     setup.retain();
@@ -71,46 +63,11 @@
       {/each}
     {:else}
       {#each rows as row, index (row.id)}
-        {@const agent = row.id as SetupAgent}
-        {@const verification = setup.verifications[agent]}
-        {@const failure =
-          setup.stepError?.provider === agent ? setup.stepError.message : null}
-        <OnboardingRow
-          name={row.label}
-          detail={row.detail}
+        <OnboardingAgentRow
+          agent={row.id as SetupAgent}
+          {row}
           delay={index * 0.07}
-          tint={AGENT_PRESENTATION[agent].tint}
-          abbr={AGENT_PRESENTATION[agent].abbr}
-          state={row.state}
-          statusText={row.state === "busy" ? row.detail : undefined}
-          actionLabel={row.actionLabel}
-          onaction={row.run}
-          expanded={!!verification || !!failure}
-        >
-          {#snippet expansion()}
-            {#if verification}
-              <!-- The same prompt Settings shows: the one-time code some CLIs
-                   want entered on the page, or the field for a code the page
-                   hands back. -->
-              <DevicePrompt
-                url={verification.url}
-                code={verification.code}
-                label={row.label}
-                requiresCodeInput={verification.requiresCodeInput}
-                why={why(row.label, verification.requiresCodeInput)}
-                onsubmit={(code) => setup.submitAgentSignInCode(agent, code)}
-                oncancel={() => void setup.cancelAgentSignIn(agent)}
-              />
-            {:else if failure}
-              <p
-                class="cursor-text select-text text-pretty text-xs leading-relaxed text-(--solus-status-error)"
-                role="alert"
-              >
-                {failure}
-              </p>
-            {/if}
-          {/snippet}
-        </OnboardingRow>
+        />
       {/each}
     {/if}
   </div>

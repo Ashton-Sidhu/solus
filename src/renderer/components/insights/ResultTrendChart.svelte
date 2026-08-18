@@ -12,6 +12,7 @@
     type TextProps,
   } from "layerchart";
   import type { TrendLine, TrendPoint } from "./lib/chart-shape";
+  import { TIME_AXIS_INSET_PX, TIME_AXIS_LABEL_GAP_PX } from "./lib/chart-axis";
   import { axisInstantFormat, formatClock, formatDayClock, formatMeasure } from "./lib/format";
   import { colorForSeries } from "./lib/span-palette";
 
@@ -124,7 +125,11 @@
   </ul>
 {/if}
 
-<div class="h-44 w-full {onSelect ? 'cursor-pointer' : 'cursor-crosshair'}">
+<div
+  class="h-56 w-full sm:h-48 sm:[@media(min-height:1000px)]:h-64 {onSelect
+    ? 'cursor-pointer'
+    : 'cursor-crosshair'}"
+>
   {#key points}
     <Chart
       data={points}
@@ -132,7 +137,7 @@
       xDomain={[from, to]}
       y={(point: TrendPoint) => point.value}
       yDomain={[0, null]}
-      padding={{ left: 46, top: 8, bottom: 20, right: 24 }}
+      padding={{ left: 46, top: 8, bottom: TIME_AXIS_INSET_PX, right: 24 }}
       tooltipContext={{
         mode: "quadtree",
         onclick: (_event: MouseEvent, detail: { data: TrendPoint | null }) => {
@@ -154,6 +159,7 @@
           ticks={timeTicks}
           tickMarks={false}
           tickLength={0}
+          tickLabelProps={{ dy: TIME_AXIS_LABEL_GAP_PX }}
           format={(value: unknown) => formatTick(Number(value))}
           classes={{ tickLabel: "text-[0.6875rem] tabular-nums fill-[var(--muted-foreground)]" }}
         >

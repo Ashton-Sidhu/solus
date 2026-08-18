@@ -6,14 +6,14 @@ import { Database } from 'bun:sqlite'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type FacadeModule = typeof import('../../src/main/observability/facade')
+type SpanTableModule = typeof import('../../src/main/observability/span-table')
 type MetricsDbModule = typeof import('../../src/main/observability/metrics-db')
 type SqlGuardModule = typeof import('../../src/main/observability/sql-guard')
 type RegistriesModule = typeof import('../../src/main/observability/registries')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
-let facade: FacadeModule
+let spanTable: SpanTableModule
 let metricsDb: MetricsDbModule
 let sqlGuard: SqlGuardModule
 let registries: RegistriesModule
@@ -21,15 +21,15 @@ let registries: RegistriesModule
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-metrics-guard-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  facade = await import('../../src/main/observability/facade')
+  spanTable = await import('../../src/main/observability/span-table')
   metricsDb = await import('../../src/main/observability/metrics-db')
   sqlGuard = await import('../../src/main/observability/sql-guard')
   registries = await import('../../src/main/observability/registries')
   metricsDb.closeMetricsDb()
 
   for (let index = 0; index < 10; index++) {
-    facade.writeSpan({
-      spanId: `span-${index}`, kind: registries.SPAN_KINDS.turn, name: 'turn',
+    spanTable.writeSpan({
+      spanId: `span-${index}`, traceId: `span-${index}`, kind: registries.SPAN_KINDS.turn, name: 'turn',
       service: registries.SPAN_SERVICES.sessions, startedAt: index, endedAt: index + 1, status: 'ok',
     })
   }

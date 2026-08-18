@@ -4,26 +4,28 @@ import { defaultCombo, formatCombo } from './match'
 export const KEYBINDINGS = {
   // ── Global ─────────────────────────────────────────────────────────────────
   'global.open-host-project': { combo: { mod: true, code: 'KeyO' }, web: { alt: true, code: 'KeyO' }, scope: 'global', label: 'Open project on current host', group: 'General' },
-  'global.select-project':    { combo: { mod: true, shift: true, code: 'KeyO' },        scope: 'global',             label: 'Open project',             group: 'General' },
+  'global.select-project':    { combo: { mod: true, shift: true, code: 'KeyO' }, web: { alt: true, shift: true, code: 'KeyO' }, scope: 'global', label: 'Open project',             group: 'General' },
   'global.new-task':          { combo: { mod: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyN' }, scope: 'global', label: 'New task',                 group: 'Tasks' },
-  'global.new-session-without-task': { combo: { mod: true, shift: true, code: 'KeyN' }, scope: 'global', label: 'New session without task', group: 'Tasks' },
+  'global.new-session-without-task': { combo: { mod: true, shift: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyU' }, scope: 'global', label: 'New session without task', group: 'Tasks' },
   'global.new-session':       { combo: { mod: true, code: 'KeyT' }, web: { alt: true, shift: true, code: 'KeyT' }, scope: 'global', label: 'New session in task',       group: 'Tasks' },
   'global.new-split-chat':    { combo: { alt: true, shift: true, code: 'Slash' },          scope: 'global',             label: 'Toggle split chat',        group: 'Tabs' },
   'global.fork-tab':          { combo: { alt: true, code: 'KeyF' },                       scope: 'global',             label: 'Fork session',             group: 'Tabs' },
   'global.next-tab':          { combo: { ctrl: true, code: 'Tab' }, web: { alt: true, shift: true, code: 'ArrowRight' }, scope: 'global', label: 'Next branch / tab',     group: 'Tabs' },
   'global.prev-tab':          { combo: { ctrl: true, shift: true, code: 'Tab' }, web: { alt: true, shift: true, code: 'ArrowLeft' }, scope: 'global', label: 'Previous branch / tab', group: 'Tabs' },
-  'global.next-session':      { combo: { alt: true, shift: true, code: 'KeyN' },          scope: 'global',             label: 'Next session in branch',   group: 'Tabs' },
-  'global.prev-session':      { combo: { alt: true, shift: true, code: 'KeyP' },          scope: 'global',             label: 'Previous session in branch', group: 'Tabs' },
+  'global.next-session':      { combo: { alt: true, shift: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'ArrowDown' }, scope: 'global', label: 'Next session in branch',   group: 'Tabs' },
+  'global.prev-session':      { combo: { alt: true, shift: true, code: 'KeyP' }, web: { alt: true, shift: true, code: 'ArrowUp' }, scope: 'global', label: 'Previous session in branch', group: 'Tabs' },
   'global.close-tab':         { combo: { mod: true, shift: true, code: 'KeyW' }, web: { alt: true, shift: true, code: 'KeyW' }, scope: 'global', label: 'Close tab',          group: 'Tabs' },
   'global.group-tabs':         { combo: { alt: true, shift: true, code: 'KeyU' },          scope: 'global',             label: 'Group tabs by status',     group: 'Tabs' },
   'global.screenshot':        { combo: { alt: true, shift: true, code: 'KeyS' },          scope: 'global',             label: 'Take screenshot',          group: 'Compose' },
   'global.attach-file':       { combo: { alt: true, shift: true, code: 'KeyA' },          scope: 'global',             label: 'Attach file',              group: 'Compose' },
-  'global.design-mode':       { combo: { alt: true, shift: true, code: 'KeyI' },          scope: 'global',             label: 'Design mode',              group: 'Compose' },
-  'global.save-prompt':       { combo: { mod: true, shift: true, code: 'KeyS' },          scope: 'global',             label: 'Save prompt',              group: 'Compose' },
+  // Insights owns ⌥⇧I. Design mode remains available from the action menu and
+  // Settings → Keybindings, but ships unassigned rather than shadowing Insights.
+  'global.design-mode':       { combo: null,                                                scope: 'global',             label: 'Design mode',              group: 'Compose' },
+  'global.save-prompt':       { combo: { mod: true, shift: true, code: 'KeyS' }, web: { alt: true, shift: true, code: 'KeyS' }, scope: 'global', label: 'Save prompt',              group: 'Compose' },
   'global.saved-prompts':     { combo: { alt: true, shift: true, code: 'KeyK' },          scope: 'global',             label: 'Saved prompts',            group: 'Compose' },
   'global.continue-in-mode':  { combo: { alt: true, shift: true, code: 'KeyE' },          scope: 'global',             label: 'Continue in editor / pill', group: 'View' },
   'global.toggle-diff-panel':    { combo: { alt: true, shift: true, code: 'KeyD' },        scope: 'global',             label: 'Toggle diff panel',        group: 'View' },
-  'global.toggle-files':         { combo: { alt: true, shift: true, code: 'KeyO' },        scope: 'global',             label: 'Open files',               group: 'View' },
+  'global.toggle-files':         { combo: { alt: true, shift: true, code: 'KeyO' }, web: { alt: true, shift: true, code: 'KeyY' }, scope: 'global', label: 'Open files',               group: 'View' },
   'global.open-in-split': { combo: { alt: true, shift: true, code: 'Backslash' }, scope: 'global',             label: 'Open artifact in split',   group: 'View' },
   // ⌥M is the pane's key wherever a pane is: `reserved` carries it through an
   // exclusive scope (a plan or document shell inline in a pane), and no other
@@ -37,7 +39,7 @@ export const KEYBINDINGS = {
   'global.toggle-automations': { combo: { alt: true, shift: true, code: 'KeyV' },          scope: 'global',             label: 'Open automations',         group: 'View' },
   'global.toggle-tasks':       { combo: { alt: true, shift: true, code: 'KeyT' },          scope: 'global',             label: 'Open tasks',               group: 'View' },
   'global.toggle-insights':    { combo: { alt: true, shift: true, code: 'KeyI' },          scope: 'global',             label: 'Open insights',            group: 'View' },
-  'global.toggle-sidebar':     { combo: { mod: true, code: 'KeyB' },                       scope: 'global',             label: 'Toggle sidebar',           group: 'View' },
+  'global.toggle-sidebar':     { combo: { mod: true, code: 'KeyB' }, web: { alt: true, shift: true, code: 'BracketLeft' }, scope: 'global', label: 'Toggle sidebar',           group: 'View' },
   'global.toggle-expanded':   { combo: { alt: true, shift: true, code: 'Equal' },         scope: 'global',             label: 'Expand / collapse input',  group: 'View' },
   // Desktop-only: on web these combos stay with the browser's own zoom (the
   // handlers register disabled there, so the dispatcher lets them fall through).
@@ -80,12 +82,14 @@ export const KEYBINDINGS = {
   // ── Conversation (global, gated by active tab) ─────────────────────────────
   'conversation.scroll-top':      { combo: { alt: true, code: 'KeyH' },                   scope: 'global',             label: 'Scroll to first message',  group: 'Conversation' },
   'conversation.scroll-bottom':   { combo: { alt: true, code: 'KeyE' },                   scope: 'global',             label: 'Scroll to bottom',         group: 'Conversation' },
-  'conversation.find':            { combo: { mod: true, code: 'KeyF' },                   scope: 'global',             label: 'Find in conversation',     group: 'Conversation' },
+  'conversation.find':            { combo: { mod: true, code: 'KeyF' }, web: { alt: true, shift: true, code: 'KeyF' }, scope: 'global', label: 'Find in conversation',     group: 'Conversation' },
   'conversation.close-find':      { combo: { code: 'Escape' },                            scope: 'global',             label: 'Close conversation find',  group: 'Conversation' },
-  'conversation.open-files':      { combo: { alt: true, shift: true, code: 'KeyF' },      scope: 'global',             label: 'Open changed files',       group: 'Conversation' },
+  'conversation.open-files':      { combo: { alt: true, shift: true, code: 'KeyF' }, web: { alt: true, shift: true, code: 'KeyY' }, scope: 'global', label: 'Open changed files',       group: 'Conversation' },
   'conversation.interrupt':       { combo: { ctrl: true, code: 'KeyC' },                  scope: 'global',             label: 'Stop agent',               group: 'Conversation' },
 
   // ── Diff panel ─────────────────────────────────────────────────────────────
+  'review-pane.next-view':        { combo: { alt: true, code: 'BracketRight', shift: true }, scope: 'diff-panel', label: 'Next review view',      group: 'Panel' },
+  'review-pane.prev-view':        { combo: { alt: true, code: 'BracketLeft', shift: true },  scope: 'diff-panel', label: 'Previous review view',  group: 'Panel' },
   'diff-panel.close':             { combo: { code: 'Escape' },                             scope: 'diff-panel',         label: 'Close panel',              group: 'Panel' },
   'diff-panel.refresh':           { combo: { alt: true, code: 'KeyR' },                    scope: 'diff-panel',         label: 'Refresh diff',             group: 'Panel' },
   'diff-panel.next-file':         { combo: { alt: true, code: 'KeyN' },                    scope: 'diff-panel',         label: 'Next file',                group: 'Navigate' },

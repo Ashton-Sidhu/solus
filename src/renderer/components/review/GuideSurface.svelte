@@ -1,7 +1,6 @@
 <script lang="ts">
   import {
     ArrowsClockwiseIcon,
-    BookOpenTextIcon,
     ClockIcon,
     SparkleIcon,
   } from "phosphor-svelte";
@@ -10,6 +9,7 @@
   import type { GuideDiffCommentSave } from "../pr-review/guide/lib/guide-data";
   import GuideView from "../pr-review/guide/GuideView.svelte";
   import ReviewProgress from "./ReviewProgress.svelte";
+  import ReviewGuideGlyph from "./ReviewGuideGlyph.svelte";
   import { Button } from "../ui/button";
   import type { GuideLoader } from "./lib/guide-loader.svelte";
 
@@ -90,7 +90,7 @@
           class="flex size-[44px] shrink-0 items-center justify-center rounded-2xl bg-[color:color-mix(in_oklab,var(--muted)_70%,transparent)] text-muted-foreground"
           aria-hidden="true"
         >
-          <BookOpenTextIcon size={20} />
+          <ReviewGuideGlyph size={20} />
         </span>
 
         <h2 class="mt-4  font-medium ">

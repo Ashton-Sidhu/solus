@@ -40,6 +40,7 @@
   import TaskHeader from "./TaskHeader.svelte";
   import TaskLinkPicker from "./TaskLinkPicker.svelte";
   import TaskLinkedTable from "./TaskLinkedTable.svelte";
+  import TaskPageSkeleton from "./TaskPageSkeleton.svelte";
   import TaskSessionsList from "./TaskSessionsList.svelte";
   import TaskSidebar from "./TaskSidebar.svelte";
 
@@ -160,7 +161,8 @@
   // The route param is the request: whenever it names a task we haven't read the
   // detail of, fetch it. A $derived can't express "go do IO", so this is one of
   // the cases $effect is actually for.
-  let loadedId: string | null = null;
+  let loadedId = $state<string | null>(null);
+  let loadingTaskId = $state<string | null>(null);
   $effect(() => {
     const id = taskId;
     if (!id || !surfaceVisible) {
@@ -170,10 +172,14 @@
     const stopWatching = store.watchDetails(id);
     if (id !== loadedId) {
       loadedId = id;
+      loadingTaskId = id;
       void store.ensureLoaded().catch(() => {});
       void store
         .loadDetails(id, projectCwd)
-        .catch((err) => toastError("open task", err));
+        .catch((err) => toastError("open task", err))
+        .finally(() => {
+          if (loadingTaskId === id) loadingTaskId = null;
+        });
     }
     return stopWatching;
   });
@@ -403,6 +409,7 @@
       onOpenSource={task.url
         ? () => void localApi.openExternal(task.url!)
         : null}
+      onOpenAsPage={!pane.isLeading ? pane.moveAcross : undefined}
       onOpenList={() => session.openTasks("click")}
       onClose={() => pane.close()}
     />
@@ -438,7 +445,7 @@
         </div>
       {/if}
       <div
-        class="mx-auto flex w-full max-w-[1420px] items-start gap-[34px] px-[52px] pt-6"
+        class="mx-auto flex w-full max-w-[1420px] items-start gap-[34px] px-[52px] pt-6 @max-[60rem]:flex-col @max-[60rem]:gap-6 @max-[60rem]:px-6 @max-[42rem]:px-4"
       >
         <div class="flex min-w-0 flex-1 flex-col">
           <TaskHeader
@@ -480,6 +487,8 @@
           <TaskActivityFeed
             comments={details?.comments ?? []}
             events={details?.events ?? []}
+            {sessions}
+            onOpenSession={(sessionId) => void openSession(sessionId)}
             provider={upstream?.canSync ? upstream.provider : null}
             onPublish={(commentId) => publishComments([commentId])}
           />
@@ -512,6 +521,8 @@
         />
       </div>
     </div>
+  {:else if taskId !== loadedId || loadingTaskId === taskId || !store.loaded}
+    <TaskPageSkeleton />
   {:else}
     <div
       class="flex flex-1 items-center justify-center text-sm text-muted-foreground"

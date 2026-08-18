@@ -264,19 +264,14 @@
     border-radius: 0.4375rem;
     background: transparent;
     color: var(--solus-text-secondary);
-    /* Same token as MenuRow: the branch row anchors the same menu language. */
-    font-size: var(--text-menu);
+    /* Match MenuRow by inheriting the project rail's device-based type rung. */
+    font-size: inherit;
     font-weight: 400;
     text-align: left;
     cursor: pointer;
     transition:
       background-color 0.15s ease,
       color 0.15s ease;
-  }
-  @container (max-width: 17rem) {
-    .branch-row {
-      font-size: var(--text-xs);
-    }
   }
   .branch-row:hover {
     background: var(--solus-surface-hover);

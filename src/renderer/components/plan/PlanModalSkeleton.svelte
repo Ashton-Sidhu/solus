@@ -4,7 +4,7 @@
 
   // Stands in for PlanModal from the moment the plan surface opens until the
   // plan's content has been read off disk and the modal's own chunk has loaded.
-  // It mirrors DocumentShell's geometry — the 46px header, the outline rail,
+  // It mirrors DocumentShell's geometry — the chrome-row header, the outline rail,
   // and the reading measure with the comment margin reserved — off the same
   // variables the real column uses, so the prose lands in the same place when
   // the shell swaps in.
@@ -36,7 +36,11 @@
   >
     <!-- The title is known before the content is, so it stays real type; only
          the verbs on the right are ghosts. -->
-    <header class="workspace-titlebar flex h-[2.875rem] shrink-0 items-center pl-[1.375rem]">
+    <header
+      class="workspace-titlebar flex shrink-0 items-center {inline
+ ? 'h-(--solus-chrome-row-h,2.5rem) pl-[max(1.375rem,var(--solus-chrome-lead-inset,0px))]'
+ : 'h-(--solus-chrome-row-h,2.5rem) pl-[1.375rem]'}"
+    >
       <span class="text-sm font-medium text-(--solus-text-primary)">
         Review Plan
       </span>
@@ -45,8 +49,10 @@
         class="flex shrink-0 items-center gap-0.75 pr-[max(0.875rem,var(--solus-pane-chrome-inset,3.25rem))]"
         aria-hidden="true"
       >
-        <Skeleton class="h-7 w-[4.75rem] rounded-lg" />
-        <Skeleton class="h-7 w-[6rem] rounded-lg" />
+        <!-- The Markdown verb, the Comments pill, Bookmark and the ⋯ menu, at
+             their real widths and radius. -->
+        <Skeleton class="h-7 w-[5.375rem] rounded-[0.4375rem]" />
+        <Skeleton class="h-7 w-[7rem] rounded-lg" />
         <Skeleton class="size-7 rounded-lg" />
         <Skeleton class="size-7 rounded-lg" />
       </div>

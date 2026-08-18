@@ -12,6 +12,7 @@
     CloudIcon,
     NotePencilIcon,
     FolderIcon,
+    BroadcastIcon,
     FlaskIcon,
     CaretDownIcon,
     GitPullRequestIcon,
@@ -36,6 +37,7 @@
   import SettingsTabSkills from "./SettingsTabSkills.svelte";
   import SettingsTabVoice from "./SettingsTabVoice.svelte";
   import SettingsTabExperimental from "./SettingsTabExperimental.svelte";
+  import SettingsTabTelemetry from "./SettingsTabTelemetry.svelte";
   import SettingsTabProjects from "./SettingsTabProjects.svelte";
   import SettingsTabSourceControl from "./SettingsTabSourceControl.svelte";
   import SettingsTabKeybindings from "./SettingsTabKeybindings.svelte";
@@ -141,6 +143,15 @@
       description: "The on-device speech model used for dictation.",
       icon: MicrophoneIcon,
       group: "Input",
+    },
+    // Host-scoped, so it stays visible on web and mobile: the exporter runs
+    // beside the server, and a phone here configures the host it is on.
+    {
+      id: "telemetry",
+      label: "Telemetry",
+      description: "Send this host's traces, logs, and metrics to an OpenTelemetry collector.",
+      icon: BroadcastIcon,
+      group: "Advanced",
     },
     {
       id: "experimental",
@@ -296,6 +307,12 @@
       serverId={selectedSettingsHost.serverId}
       api={selectedSettingsApi}
       hostLabel={selectedSettingsHost.label}
+    />
+  {:else if session.settingsTab === "telemetry" && selectedSettingsHost && selectedSettingsApi}
+    <SettingsTabTelemetry
+      {searchQuery}
+      serverId={selectedSettingsHost.serverId}
+      api={selectedSettingsApi}
     />
   {:else if session.settingsTab === "experimental"}
     <SettingsTabExperimental {searchQuery} />

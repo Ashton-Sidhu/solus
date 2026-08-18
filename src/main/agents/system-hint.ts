@@ -5,6 +5,10 @@ const WORK_GUIDANCE = [
   '',
   'Create works only for durable artifacts worth keeping — not for routine answers, reviews, analyses,',
   'comparisons, or plans, which belong inline in chat. When in doubt, answer inline.',
+  'When a durable document or plan needs an architecture, system, data-flow, or ER view, create the',
+  'diagram work first and embed the token returned by create_work on its own line. Do this only when',
+  'relationships are central to understanding the content; prose is enough for routine plans.',
+  'A standalone work://embed link is a live diagram embed. Preserve it unless the user asks to remove or replace it.',
   'To revise a work the user already has open, list/read it first and update it; never create a duplicate.',
   'Use the work tool descriptions for document, slide, and diagram payload details.',
 ].join('\n')

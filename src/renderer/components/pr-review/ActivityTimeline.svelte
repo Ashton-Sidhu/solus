@@ -108,7 +108,7 @@
     size="icon-xs"
     aria-expanded={!collapsed}
     aria-label="{collapsed ? 'Expand' : 'Collapse'} comment from {author}"
-    class="text-sm shrink-0 cursor-pointer text-muted-foreground opacity-0 transition-[opacity,color] hover:text-foreground focus-visible:opacity-100 group-hover/comment:opacity-100 {collapsed
+    class="text-sm shrink-0 cursor-pointer text-muted-foreground opacity-0 transition-[opacity,color] hover:text-foreground focus-visible:opacity-100 group-hover/comment:opacity-100 pointer-coarse:opacity-100 {collapsed
       ? 'opacity-100'
       : ''}"
     onclick={() => toggleComment(key)}

@@ -83,8 +83,13 @@
   import TaskBoard from "./TaskBoard.svelte";
   import TaskBoardSkeleton from "./TaskBoardSkeleton.svelte";
   import TaskContextMenu from "../session/TaskContextMenu.svelte";
+  import { paneActions } from "../ui/lib/pane-actions.svelte";
+  import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
+
+  let { paneId }: RouteSurfaceProps<"tasks"> = $props();
 
   const session = getWorkspaceContext();
+  const pane = paneActions(paneId);
   const store = session.tasksStore;
   const projectConfig = getProjectConfigStore();
   const sessionSidebar = getSessionSidebarStore();
@@ -775,6 +780,7 @@
   <ListFilterBar
     bind:query
     bind:searchEl
+    compactText
     placeholder={view === "global"
       ? "Search tasks, labels, assignees…"
       : "Search your inbox…"}
@@ -789,6 +795,7 @@
           selected={statusKeys}
           onChange={(next) => (statusKeys = next)}
           ariaLabel="Filter tasks by status"
+          compactText
         />
       {/if}
       {#if view === "global"}
@@ -796,7 +803,7 @@
           bind:value={sort}
           options={SORT_OPTIONS}
           ariaLabel="Sort tasks"
-          class="h-7 gap-1.5 rounded-lg px-2.5 text-sm font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
+          class="h-7 gap-1.5 rounded-lg px-2.5 text-xs font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
         />
       {/if}
     {/snippet}
@@ -812,7 +819,7 @@
         taskId,
       )
         ? 'bg-primary text-primary-foreground opacity-100'
-        : 'bg-[var(--wash-3)] text-transparent opacity-0 group-hover:opacity-100'}"
+        : 'bg-[var(--wash-3)] text-transparent opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100'}"
       onclick={(e) => selection.toggle(task, e)}
       aria-pressed={selection.has(taskId)}
       aria-label={selection.has(taskId) ? "Deselect task" : "Select task"}
@@ -835,6 +842,7 @@
       emptyProjectLabel="No project"
       onSelectProject={selectProject}
       onRemoveProjectHistory={removeProjectHistory}
+      compactProjectPickerText
       title="Tasks"
       {summary}
       {view}
@@ -844,12 +852,15 @@
       }}
       globalLabel="All tasks"
       inboxLabel="My inbox"
+      compactViewSwitcherText
       {unreadCount}
       onRefresh={refresh}
       {refreshing}
       primaryAction={canCreate
         ? { label: "New task", shortcut: "⌘N", run: () => beginComposing() }
         : undefined}
+      compactPrimaryActionText
+      onOpenAsPage={!pane.isLeading ? pane.moveAcross : undefined}
       onClose={close}
       actions={headerActions}
       filters={filterBar}
@@ -1027,6 +1038,7 @@
                     row={item.row}
                     identWidth={62}
                     fallbackAvatar="solus"
+                    responsiveTitle
                     selected={selectedKey === item.row.key ||
                       selection.has(item.row.key)}
                     onSelect={() => {

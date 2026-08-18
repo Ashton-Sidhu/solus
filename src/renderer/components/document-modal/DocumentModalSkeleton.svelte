@@ -6,7 +6,7 @@
 
   // Stands in for DocumentModal from the moment a document work opens until the
   // modal's own chunk (Tiptap and all) has loaded. Same contract as
-  // PlanModalSkeleton: it mirrors DocumentShell's geometry — the 46px header,
+  // PlanModalSkeleton: it mirrors DocumentShell's geometry — the chrome-row header,
   // the outline rail, the reading measure with the comment margin reserved —
   // off the same variables the real column uses, so the prose lands in the same
   // place when the shell swaps in.
@@ -44,8 +44,14 @@
     role="status"
     aria-label="Loading document"
   >
-    <!-- Where you are stays real type; only the verbs on the right are ghosts. -->
-    <header class="workspace-titlebar flex h-[2.875rem] shrink-0 items-center gap-2.5 pl-[1.375rem]">
+    <!-- Where you are stays real type; only the verbs on the right are ghosts.
+         Height and lead inset come off the same variables the real header uses,
+         so nothing below it shifts when the shell swaps in. -->
+    <header
+      class="workspace-titlebar flex shrink-0 items-center gap-2.5 {inline
+ ? 'h-(--solus-chrome-row-h,2.5rem) pl-[max(1.375rem,var(--solus-chrome-lead-inset,0px))]'
+ : 'h-(--solus-chrome-row-h,2.5rem) pl-[1.375rem]'}"
+    >
       {#if breadcrumb}
         <span class="doc-skeleton-breadcrumb">{breadcrumb} /</span>
       {/if}
@@ -59,14 +65,17 @@
         <Skeleton class="h-3 w-40 rounded-sm" />
       {/if}
       <div class="min-w-4 flex-auto"></div>
+      <!-- One ghost per real control, at its real width and radius: the
+           Markdown verb, Copy, the ⋯ menu, and the Ask Solus pill (the only
+           rounded-full thing in the row, offset the same 0.3125rem). -->
       <div
         class="flex shrink-0 items-center gap-0.75 pr-[max(0.875rem,var(--solus-pane-chrome-inset,3.25rem))]"
         aria-hidden="true"
       >
-        <Skeleton class="h-7 w-[5.25rem] rounded-lg" />
-        <Skeleton class="size-7 rounded-lg" />
-        <Skeleton class="size-7 rounded-lg" />
-        <Skeleton class="size-7 rounded-lg" />
+        <Skeleton class="h-7 w-[5.375rem] rounded-[0.4375rem]" />
+        <Skeleton class="h-7 w-[3.375rem] rounded-[0.4375rem]" />
+        <Skeleton class="size-7 rounded-[0.4375rem]" />
+        <Skeleton class="ml-[0.3125rem] h-7 w-[7rem] rounded-full" />
       </div>
     </header>
 

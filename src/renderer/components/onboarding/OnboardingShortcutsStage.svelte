@@ -12,17 +12,20 @@
     defaultCombo,
     eventMatches,
     formatCombo,
+    IS_WEB,
   } from "../../lib/keybindings/match";
   import { onboardingStore as store } from "./onboarding.store.svelte";
-  import { ONBOARDING_KEYS } from "./lib/onboarding-model";
+  import { onboardingKeysFor } from "./lib/onboarding-model";
   import OnboardingStageActions from "./OnboardingStageActions.svelte";
 
   const keybindings = getKeybindingsContext();
 
   let pressed = $state<Partial<Record<BindingId, boolean>>>({});
 
+  // The browser has no Pill mode and no desktop command palette, so it is taught
+  // a different seven rather than cards for two commands it cannot run.
   const keys = $derived(
-    ONBOARDING_KEYS.map((key) => ({
+    onboardingKeysFor(IS_WEB).map((key) => ({
       ...key,
       combo: keybindings.overrides[key.id] ?? defaultCombo(KEYBINDINGS[key.id]),
     })),

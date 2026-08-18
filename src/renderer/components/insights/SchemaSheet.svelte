@@ -145,7 +145,7 @@
   <button
     type="button"
     aria-current={isSelected}
-    class="flex h-8 w-full shrink-0 cursor-pointer items-baseline gap-2 rounded-lg px-2 text-left text-[length:calc(.8125rem*var(--solus-font-scale,1))] transition-colors {isSelected
+    class="flex h-8 w-full shrink-0 cursor-pointer items-center gap-2 rounded-lg px-2 text-left text-[length:calc(.8125rem*var(--solus-font-scale,1))] transition-colors {isSelected
       ? 'bg-[var(--wash-2)] font-medium text-foreground'
       : 'text-muted-foreground hover:bg-[var(--wash-1)] hover:text-foreground'}"
     onclick={onSelect}
@@ -166,7 +166,7 @@
     aria-selected={readOnly ? undefined : index === activeIndex}
     type={readOnly ? undefined : "button"}
     data-active={index === activeIndex}
-    class="grid w-full grid-cols-[minmax(0,11rem)_3.5rem_minmax(0,1fr)] items-baseline gap-x-4 rounded-lg px-3 py-1.5 text-left transition-colors {readOnly
+    class="grid w-full grid-cols-[minmax(0,11rem)_3.5rem_minmax(0,1fr)] items-baseline gap-x-4 rounded-lg px-3 py-1.5 text-left transition-colors @3xl:grid-cols-[minmax(0,14rem)_4.5rem_minmax(0,1fr)] @3xl:gap-x-6 {readOnly
       ? ''
       : 'cursor-pointer hover:bg-[var(--wash-1)]'} {index === activeIndex && !readOnly
       ? 'bg-[var(--wash-2)]'
@@ -193,20 +193,24 @@
       >{column.type}</span
     >
     <!-- An enumerating description reads as its values, not as a paragraph of
-         them: the lead clause, then one chip per value carrying the registry's
-         gloss on hover. -->
+         them: the lead clause, then the values themselves. A value the registry
+         glosses states its gloss beside it — the meaning is the reason the
+         value is listed, so it is read, not hovered for. Values with no gloss
+         are one quiet run, because a list of bare names needs no rows. -->
     <span
       class="flex min-w-0 flex-col gap-1 text-[length:calc(.75rem*var(--solus-font-scale,1))] leading-relaxed text-muted-foreground"
     >
       <span>{enumerated ? enumerated.lead : column.description}</span>
-      {#if enumerated}
-        <span class="flex flex-wrap gap-1">
+      {#if enumerated && enumerated.values.some((entry) => entry.gloss)}
+        <span class="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-0.5 leading-snug">
           {#each enumerated.values as entry (entry.value)}
-            <span
-              class="rounded-md bg-[var(--wash-2)] px-1.5 py-px text-foreground shadow-[inset_0_0_0_0.5px_var(--hairline)]"
-              title={entry.gloss}>{entry.value}</span
-            >
+            <span class="text-foreground">{entry.value}</span>
+            <span class="min-w-0 opacity-80">{entry.gloss}</span>
           {/each}
+        </span>
+      {:else if enumerated}
+        <span class="min-w-0 text-foreground">
+          {enumerated.values.map((entry) => entry.value).join(" · ")}
         </span>
       {/if}
     </span>
@@ -216,14 +220,14 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="fixed inset-0 z-[10020] flex items-start justify-center bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] px-4 pt-[8vh] motion-safe:animate-[backdrop-fade_140ms_ease-out]"
+  class="fixed inset-0 z-[10020] flex items-start justify-center bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] px-4 pt-[7vh] sm:pt-[6vh] motion-safe:animate-[backdrop-fade_140ms_ease-out]"
   onclick={(event) => {
     if (event.target === event.currentTarget) onClose();
   }}
   onkeydown={onKey}
 >
   <div
-    class="schema-sheet-enter flex h-[min(76vh,40rem)] w-[clamp(20rem,92vw,54rem)] origin-top flex-col overflow-hidden rounded-2xl bg-card shadow-[0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.24),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.34)] outline-none"
+    class="schema-sheet-enter flex h-[min(82vh,52rem)] w-[clamp(20rem,94vw,72rem)] origin-top flex-col overflow-hidden rounded-2xl bg-card shadow-[0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.24),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.34)] outline-none"
     role="dialog"
     aria-modal="true"
     aria-label="Schema"
@@ -275,7 +279,7 @@
         <!-- Navigation. The two query tables lead; the sources a reader is not
              choosing between sit under their own heading. -->
         <nav
-          class="flex shrink-0 gap-1 overflow-x-auto px-2 py-2 shadow-[inset_0_-0.5px_0_var(--hairline)] md:w-52 md:flex-col md:overflow-x-visible md:overflow-y-auto md:px-2 md:py-2.5 md:shadow-[inset_-0.5px_0_0_var(--hairline)]"
+          class="flex shrink-0 gap-1 overflow-x-auto px-2 py-2 shadow-[inset_0_-0.5px_0_var(--hairline)] md:w-52 md:flex-col md:overflow-x-visible lg:w-60 md:overflow-y-auto md:px-2 md:py-2.5 md:shadow-[inset_-0.5px_0_0_var(--hairline)]"
           style="background:var(--wash-1)"
           data-sb
           aria-label="Tables"

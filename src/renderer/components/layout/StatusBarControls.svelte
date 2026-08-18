@@ -215,7 +215,7 @@
   a full-width status bar. Editor mode keeps context usage here; Pill mode puts
   it in the tab-strip action cluster.
 -->
-<div class="relative flex min-w-0 items-center gap-2 text-sm">
+<div class="relative flex min-w-0 items-center gap-2 text-workspace-chrome">
   <!-- Project info (dir + branch). Editor mode says this in the input bar's
        header strip instead, where it can also be changed. -->
   {#if mode === "pill"}

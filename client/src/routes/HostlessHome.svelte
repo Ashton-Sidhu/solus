@@ -193,7 +193,7 @@
               </button>
               <button
                 type="button"
-                class="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-(--solus-text-quaternary) opacity-0 transition-[opacity,color] hover:text-(--solus-text-primary) focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
+                class="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-(--solus-text-quaternary) opacity-0 transition-[opacity,color] hover:text-(--solus-text-primary) focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100 pointer-coarse:opacity-100"
                 aria-label={`Forget ${server.label}`}
                 onclick={() => forgetServer(server.id)}
               >

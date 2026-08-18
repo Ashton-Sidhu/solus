@@ -22,6 +22,7 @@ const { isDispatch, startsWorktree, withPendingHost } = await import('../../src/
 function workspaceWith(run: Partial<Session['run']>) {
   const built = {
     run: { serverId: 'local', taskServerId: 'local', worktree: null, workingDirectory: '/home/dev/solus', ...run },
+    task: { kind: 'existing', taskId: 'old-project-task' },
   } as Session
   return {
     workspace: {
@@ -126,11 +127,15 @@ describe('choosing which host a tab will run on', () => {
 
     expect(dispatched.session.run.serverId).toBe('studio')
     expect(dispatched.session.run.taskServerId).toBe('local')
+    expect(dispatched.session.task).toEqual({ kind: 'existing', taskId: 'old-project-task' })
     expect(isDispatch(dispatched.session.run)).toBe(true)
     expect(startsWorktree(dispatched.session.run)).toBe(true)
 
     expect(openedThere.session.run.serverId).toBe('studio')
     expect(openedThere.session.run.taskServerId).toBe('studio')
+    // WHY: tasks are project-scoped. A tab moved to another project must not
+    // send its first prompt into the task selected in the project it left.
+    expect(openedThere.session.task).toEqual({ kind: 'new' })
     expect(isDispatch(openedThere.session.run)).toBe(false)
     // WHY: a project that merely lives elsewhere is no different from a local
     // one, so worktree mode stays the user's choice rather than being forced.

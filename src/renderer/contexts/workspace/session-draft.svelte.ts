@@ -20,6 +20,7 @@ export class SessionDraft {
   prompt = $state<Prompt>(makePrompt())
   run: RunConfig
   task = $state<TaskTarget>({ kind: 'new' })
+  boundWorkId = $state<string | null>(null)
 
   /**
    * @param defaults where a session starts when there is nothing to carry over.
@@ -36,7 +37,12 @@ export class SessionDraft {
 
   /** The plain, serializable shape — what persists and what dispatch consumes. */
   get spec(): SessionSpec {
-    return { prompt: this.prompt, run: this.run, task: this.task }
+    return {
+      prompt: this.prompt,
+      run: this.run,
+      task: this.task,
+      boundWorkId: this.boundWorkId,
+    }
   }
 
   /**

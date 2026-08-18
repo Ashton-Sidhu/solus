@@ -1,48 +1,57 @@
 <script lang="ts">
-  import { getSessionEnvironmentStore, getWorkspaceContext } from "../../contexts";
+  import { getWorkspaceContext } from "../../contexts";
+  import type {
+    ReviewView,
+    RouteParams,
+  } from "../../contexts/workspace/routing/route-registry";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
-  import ReviewGuidePane from "./ReviewGuidePane.svelte";
-  import { untrack } from "svelte";
+  import PaneChrome from "../ui/PaneChrome.svelte";
+  import ReviewSurface from "./ReviewSurface.svelte";
 
+  // The review pane as a route: the location owns which change is being read
+  // and which view is showing, so a review is linkable and comes back on the
+  // view its reader left it on. Everything else is the surface's.
   let { params, paneId }: RouteSurfaceProps<"review"> = $props();
 
-  const environmentStore = getSessionEnvironmentStore();
   const session = getWorkspaceContext();
   const pane = paneActions(paneId);
-  const reviewSourceTabId = untrack(() => params.sourceTabId ?? session.activeTabId);
 
-  // Legacy/deep-linked routes may not name their source. Capture the tab that
-  // owns the restored review once and persist it, so later tab changes cannot
-  // move the guide's RPCs to another host.
-  $effect(() => {
-    if (params.sourceTabId || !reviewSourceTabId) return;
+  const view = $derived<ReviewView>(params.view ?? "diff");
+
+  function selectView(next: ReviewView) {
+    const nextParams: RouteParams["review"] = { ...params, view: next };
     session.router.navigate(
-      {
-        name: "review",
-        params: { ...params, sourceTabId: reviewSourceTabId },
-      },
+      { name: "review", params: nextParams },
       { target: paneId, replace: true },
     );
-  });
+  }
 
-  // The origin checkout is derived rather than carried in the route: the guide
-  // regenerates against whatever the source session is on *now*, and keeping a
-  // GitCheckout out of the params is what lets a review be linked to.
-  const environment = $derived(
-    environmentStore.environmentFor(
-      reviewSourceTabId ? session.sessionFor(reviewSourceTabId)?.run : undefined,
-    ),
+  // Jumping to a file is a request, not a state: asking for the same file twice
+  // has to move the panel again. The router's navigation epoch is that request.
+  const navigationRequestId = $derived(
+    params.filePath ? session.router.navigationEpoch : undefined,
   );
 </script>
 
-<ReviewGuidePane
-  guideKey={params.key}
+<ReviewSurface
+  sourceTabId={params.sourceTabId}
+  {view}
+  onSelectView={selectView}
   scope={params.scope}
-  sourceTabId={reviewSourceTabId}
-  workingDirectory={environment.cwd}
-  gitContext={environment.checkout}
+  filePath={params.filePath}
+  {navigationRequestId}
+  initialSkeletonVisible
+  onClose={pane.closeOverlay}
+/>
+
+<!-- After the content: the toolbar above is a window drag region, and a drag
+     rect later in the DOM would re-cover this cluster's no-drag holes. -->
+<PaneChrome
+  onClose={pane.closeOverlay}
+  onOpenInSplit={!pane.isLeading ? pane.moveAcross : undefined}
+  onToggleMaximize={pane.toggleMaximize}
+  maximized={pane.maximized}
   isLeading={pane.isLeading}
-  onOpenInSplit={pane.moveAcross}
-  onClose={pane.close}
+  closeLabel="Close review"
 />

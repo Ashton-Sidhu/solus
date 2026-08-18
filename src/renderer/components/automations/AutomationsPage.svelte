@@ -492,29 +492,7 @@
         <div onkeydown={onListKeydown} role="presentation">
           {#if isInitialLoading}
             <ListSkeleton plan={[[52, 38, 44, 30]]} identWidth={110} />
-          {:else if showEmpty}
-            <!-- No CTA of its own — the launchpad directly below is the call to
-                 action, so a button here would only compete with it. -->
-            <div
-              class="mt-3.5 flex max-w-[600px] flex-col gap-2.5 rounded-2xl bg-[var(--wash-1)] px-6 py-[26px]"
-            >
-              <span
-                class="text-xs font-normal text-muted-foreground uppercase"
-                >Nothing running yet</span
-              >
-              <h2
-                class="text-2xl leading-[1.35] font-medium text-pretty"
-              >
-                What would you rather not do again next week?
-              </h2>
-              <p
-                class="max-w-[56ch] text-sm leading-[1.65] text-pretty text-muted-foreground"
-              >
-                Say it once. An agent runs it against your repo on the cadence
-                you pick, and leaves a run you can review.
-              </p>
-            </div>
-          {:else if automations.length === 0}
+          {:else if !showEmpty && automations.length === 0}
             <ListEmpty title="No automations match.">
               Try a different search or filter.
               {#snippet actions()}

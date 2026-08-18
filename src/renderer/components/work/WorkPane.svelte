@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { serverConnections } from "@client-core/server-connections";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import PaneChrome from "../ui/PaneChrome.svelte";
@@ -8,6 +9,8 @@
   // boundary, so they cannot sit behind one themselves.
   import DocumentModalSkeleton from "../document-modal/DocumentModalSkeleton.svelte";
   import DiagramShellSkeleton from "../diagram/DiagramShellSkeleton.svelte";
+  import SaveToProjectPicker from "../pickers/SaveToProjectPicker.svelte";
+  import { projectSourceFileName } from "../pickers/lib/project-source-file";
 
   let { params, paneId }: RouteSurfaceProps<"work"> = $props();
 
@@ -52,7 +55,7 @@
   // signal (edge-glow + ephemeral pill). Cleared on a timer so the animation
   // runs once per agent update.
   let justUpdated = $state(false);
-  let promotingWorkId = $state<string | null>(null);
+  let saveToProjectDraft = $state<{ fileName: string; content: string } | null>(null);
   let justUpdatedTimer: ReturnType<typeof setTimeout> | null = null;
   let trackedWorkId: string | null = null;
   let trackedAgentRev = 0;
@@ -135,15 +138,12 @@
     requestInputFocus();
   }
 
-  async function handlePromoteToProject() {
-    if (!promoteTargetRoot) return;
-    promotingWorkId = params.workId;
-    try {
-      await session.worksStore.promoteToProject(params.workId, promoteTargetRoot);
-      requestInputFocus();
-    } finally {
-      if (promotingWorkId === params.workId) promotingWorkId = null;
-    }
+  function handleSaveToProject(content: string) {
+    if (!work || !promoteTargetRoot) return;
+    saveToProjectDraft = {
+      fileName: projectSourceFileName(work.title, work.type),
+      content,
+    };
   }
 </script>
 
@@ -203,8 +203,7 @@
               onDelete={handleDelete}
               onDuplicate={handleDuplicate}
               workStorage={work.storage}
-              onPromoteToProject={handlePromoteToProject}
-              promoting={promotingWorkId === work.id}
+              onSaveToProject={promoteTargetRoot ? handleSaveToProject : undefined}
             />
           {/await}
         {:else}
@@ -238,8 +237,7 @@
               onDelete={handleDelete}
               onDuplicate={handleDuplicate}
               workStorage={work.storage}
-              onPromoteToProject={handlePromoteToProject}
-              promoting={promotingWorkId === work.id}
+              onSaveToProject={promoteTargetRoot ? handleSaveToProject : undefined}
             />
           {/await}
         {/if}
@@ -258,6 +256,22 @@
       closeTestId={work.type === "diagram" ? undefined : "document-modal-close"}
     />
   </div>
+{/if}
+
+{#if saveToProjectDraft && promoteTargetRoot && sess}
+  <SaveToProjectPicker
+    open
+    onClose={() => {
+      saveToProjectDraft = null;
+      requestInputFocus();
+    }}
+    api={serverConnections.apiFor(sess.run.serverId)}
+    serverId={sess.run.serverId}
+    ctx={session.ctxForDirectory(promoteTargetRoot)}
+    projectRoot={promoteTargetRoot}
+    fileName={saveToProjectDraft.fileName}
+    content={saveToProjectDraft.content}
+  />
 {/if}
 
 <style>

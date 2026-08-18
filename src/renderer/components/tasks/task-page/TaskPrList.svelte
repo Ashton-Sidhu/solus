@@ -70,7 +70,7 @@
         <span class="flex h-5 shrink-0 items-center tabular-nums text-muted-foreground opacity-65">
           {row.ref}
         </span>
-        <span class="flex h-5 min-w-0 flex-1 items-center truncate text-sm font-normal">
+        <span class="flex h-5 min-w-0 flex-1 items-center truncate text-workspace-chrome font-normal">
           {row.title}
         </span>
 
@@ -107,7 +107,7 @@
         {/if}
         <button
           type="button"
-          class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--wash-2)] hover:text-foreground"
+          class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 pointer-coarse:opacity-100 hover:bg-[var(--wash-2)] hover:text-foreground"
           onclick={(e) => {
             e.stopPropagation();
             onUnlink(row.link);

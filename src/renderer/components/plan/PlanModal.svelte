@@ -12,7 +12,9 @@
     ArrowUpRightIcon,
     ArrowSquareOutIcon,
     DotsThreeIcon,
+    FolderIcon,
   } from "phosphor-svelte";
+  import { serverConnections } from "@client-core/server-connections";
   import { runtime, getWorkspaceContext, getPlanStore } from "../../contexts";
   import PlanActionBar from "./PlanActionBar.svelte";
   import DocumentShell from "../document-shell/DocumentShell.svelte";
@@ -22,6 +24,8 @@
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import Kbd from "../ui/Kbd.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
+  import SaveToProjectPicker from "../pickers/SaveToProjectPicker.svelte";
+  import { projectSourceFileName } from "../pickers/lib/project-source-file";
 
   const commentExtensions = [CommentMark];
 
@@ -43,6 +47,8 @@
   const sourceSessionAvailable = $derived(
     planStore.previewDescriptor?.sessionAvailable !== false,
   );
+  const planServerId = $derived(planStore.hostFor(plan.id));
+  const planProjectRoot = $derived(plan.cwd || plan.projectPath);
 
   const planRevisions = $derived(planStore.plansForSession(plan.sessionId));
   const revisionCount = $derived(planRevisions.length);
@@ -53,6 +59,7 @@
 
   // Overflow (⋯) menu holding the secondary header actions (Copy, Bookmark).
   let overflowOpen = $state(false);
+  let saveToProjectContent = $state<string | null>(null);
 
   // Editor handles owned by the shell, surfaced here to drive comment features.
   let shell: DocumentShell | null = $state(null);
@@ -113,6 +120,10 @@
   function handleSave(md: string) {
     planStore.updateContent(plan.id, md);
     return planStore.flushContentSave(plan.id);
+  }
+
+  function openSaveToProject() {
+    saveToProjectContent = shell?.getCurrentMarkdown() ?? plan.content;
   }
 
   // Comment persistence. Everything else about the margin — the selection
@@ -264,6 +275,12 @@
         {#if googleUpload}
           <DropdownMenu.Separator />
         {/if}
+        {#if planServerId && planProjectRoot}
+          <DropdownMenu.Item data-testid="save-plan-to-project" onSelect={openSaveToProject}>
+            <FolderIcon size={14} />
+            <span class="flex-1 text-left">Save to project…</span>
+          </DropdownMenu.Item>
+        {/if}
         <DropdownMenu.Item onSelect={copy}>
           {#if copied}<CheckIcon size={14} /><span class="flex-1 text-left">Copied!</span>{:else}<CopyIcon size={14} /><span class="flex-1 text-left">Copy plan</span>{/if}
           {#if !isMobile}<span class="ml-auto"><Kbd variant="inline">⌥C</Kbd></span>{/if}
@@ -316,3 +333,16 @@
   {/snippet}
 
 </DocumentShell>
+
+{#if saveToProjectContent !== null && planServerId && planProjectRoot}
+  <SaveToProjectPicker
+    open
+    onClose={() => (saveToProjectContent = null)}
+    api={serverConnections.apiFor(planServerId)}
+    serverId={planServerId}
+    ctx={session.ctxForDirectory(planProjectRoot)}
+    projectRoot={planProjectRoot}
+    fileName={projectSourceFileName(plan.title, "plan")}
+    content={saveToProjectContent}
+  />
+{/if}

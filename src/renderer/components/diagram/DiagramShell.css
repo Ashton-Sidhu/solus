@@ -24,12 +24,17 @@
   .diagram-shell__toolbar {
     display: flex;
     align-items: center;
-    gap: 0.375rem;
-    padding: 0.5rem 1rem 0;
+    /* Same rhythm as the document header's action cluster — the two shells
+       render the same WorkHeaderActions row, so they may not space it apart. */
+    gap: 0.1875rem;
+    /* Centred in the chrome row rather than padded down into it: the floating
+       chrome cluster centres in the same height, and a top padding here put
+       this row's controls 4px below the icons beside them. */
+    height: var(--solus-chrome-row-h, 2.5rem);
+    padding-left: max(1rem, var(--solus-chrome-lead-inset, 0px));
     /* Clear the pane's floating chrome cluster on the right. */
     padding-right: max(1rem, var(--solus-pane-chrome-inset, 0px));
     flex-shrink: 0;
-    min-height: var(--solus-chrome-row-h, 2.5rem);
   }
 
   .diagram-shell__toolbar-spacer {

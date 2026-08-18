@@ -9,6 +9,7 @@ import {
   TextGenerationSettingsStore,
   setTextGenerationSettingsStore,
 } from '../projects/text-generation-settings.store.svelte'
+import { OtelSettingsStore, setOtelSettingsStore } from '../projects/otel-settings.store.svelte'
 import { AgentContext, setAgentContext } from './agent.context.svelte'
 import { SessionSidebarStore, setSessionSidebarStore } from '../workspace/session-sidebar.store.svelte'
 import { VoiceModelStore, setVoiceModelStore } from './voice-model.store.svelte'
@@ -51,6 +52,7 @@ export function createAppCore(): AppCore {
   const sessionEnvironmentStore = new SessionEnvironmentStore()
   const projectConfigStore = new ProjectConfigStore()
   const textGenerationSettingsStore = new TextGenerationSettingsStore()
+  const otelSettingsStore = new OtelSettingsStore()
   const agent = new AgentContext(settings)
   const session = new WorkspaceContext(settings, windowCtx, statusBar, planStore, sessionEnvironmentStore, agent)
   const sessionSidebarStore = new SessionSidebarStore(settings, session, planStore)
@@ -76,7 +78,7 @@ export function createAppCore(): AppCore {
           if (!session.tabs[tabId]) return
           if (session.activeTabId !== tabId) session.selectTab(tabId)
           session.isExpanded = true
-          session.enterReview(event.key, 'session', tabId)
+          session.enterReview('session', tabId)
         },
       },
     })
@@ -93,6 +95,7 @@ export function createAppCore(): AppCore {
   setSessionEnvironmentStore(sessionEnvironmentStore)
   setProjectConfigStore(projectConfigStore)
   setTextGenerationSettingsStore(textGenerationSettingsStore)
+  setOtelSettingsStore(otelSettingsStore)
   setSessionSidebarStore(sessionSidebarStore)
   setVoiceModelStore(voiceModelStore)
   setAgentContext(agent)

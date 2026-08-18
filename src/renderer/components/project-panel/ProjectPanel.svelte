@@ -570,6 +570,8 @@
     overflow-y: auto;
     overscroll-behavior-y: contain;
     scrollbar-gutter: stable;
+    font-size: var(--text-workspace-chrome);
+    line-height: var(--text-workspace-chrome--line-height);
   }
 
   /* At the rail's narrow laptop measure the fixed gutter is a large share of

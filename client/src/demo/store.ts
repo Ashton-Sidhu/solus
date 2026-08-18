@@ -19,7 +19,7 @@ import type {
   WriteFileResult,
 } from '../../../src/shared/types'
 import type { DraftReview, ReviewComment, ReviewThread } from '../../../src/shared/providers'
-import type { ReviewContext, ReviewState } from '../../../src/shared/review'
+import { reviewGuideKeyFor, type ReviewContext, type ReviewGuideStatusEvent, type ReviewState } from '../../../src/shared/review'
 import type { Task, TaskCommentData, TaskLink, TaskLinkInput, TaskSessionLink } from '../../../src/shared/task-types'
 import type { ChangedFileStat, DiffRequest, TurnSnapshot } from '../../../src/shared/git-types'
 import { DEMO_PROJECT, type DemoFixtures } from './fixtures/types'
@@ -364,6 +364,25 @@ export class DemoStore {
       headSha: pr?.headSha ?? detail.headSha,
       repoRoot: DEMO_PROJECT,
       prUrl: `https://github.com/${pr?.owner ?? 'acme'}/${pr?.repo ?? 'acme'}/pull/${pr?.number ?? detail.number}`,
+    }
+  }
+
+  /** The demo ships its review already written. Generating one needs an agent,
+   *  and a visitor who clicks "Review changes" has no way to wait for one — so
+   *  the report is reported ready and the button reads "View report" from the
+   *  first frame. */
+  reviewGuideStatus(ctx: IpcContext, scope: 'branch' | 'session'): ReviewGuideStatusEvent {
+    // The key must be the one the renderer derives, and the renderer derives it
+    // from the checkout `gitRefreshState` reports — one state for the whole demo
+    // project, whatever branch an individual tab remembers starting on.
+    const branch = this.fixtures.gitStatus.branch ?? 'main'
+    return {
+      repoRoot: this.fixtures.gitStatus.repoRoot,
+      key: reviewGuideKeyFor(branch, scope, ctx.session.agentSessionId),
+      scope,
+      status: 'ready',
+      headSha: this.fixtures.gitStatus.headSha,
+      updatedAt: FIXTURE_EPOCH,
     }
   }
 
