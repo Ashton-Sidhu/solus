@@ -63,18 +63,41 @@ export interface MetricsQueryResult {
 
 export type MetricsFieldType = 'string' | 'number' | 'boolean' | 'duration'
 
+/** The role a column plays in a query — what the schema panel groups by so a
+ *  table reads as a data model rather than a flat column dump. */
+export type MetricsFieldGroup =
+  | 'identity'
+  | 'dimension'
+  | 'timing'
+  | 'measure'
+  | 'child_time'
+  | 'tool'
+  | 'detail'
+
 export interface MetricsFieldDescriptor {
-  /** The SQL column name in the per-kind view. */
+  /** The SQL column name in the view. */
   name: string
   type: MetricsFieldType
   description: string
+  /** Absent on results from hosts that predate field groups. */
+  group?: MetricsFieldGroup
 }
 
 export interface MetricsViewDescriptor {
   view: string
-  kind: string
-  /** True for `internal.*` kinds — hidden unless the internals toggle is on. */
+  /** The span kinds the view slices out of `spans` — one for `turns`, many for
+   *  `events` and `internal_events`. */
+  kinds: string[]
+  /** True for the separate `internal.*` Solus-health slice. */
   internal: boolean
+  description: string
+  columns: MetricsFieldDescriptor[]
+}
+
+/** The `spans` fact table every generated view reads from. Served alongside the
+ *  views because a cross-kind question is written against it directly. */
+export interface MetricsBaseTable {
+  table: string
   description: string
   columns: MetricsFieldDescriptor[]
 }
@@ -82,6 +105,10 @@ export interface MetricsViewDescriptor {
 /** The field registry as served to clients: views, columns, types, docs. */
 export interface MetricsSchema {
   views: MetricsViewDescriptor[]
+  base: MetricsBaseTable
+  /** How the views and the fact table relate — one statement per fact. Every
+   *  surface that documents the schema states the same model from this list. */
+  relationships: string[]
 }
 
 export type MetricsSqlValidation =
@@ -129,13 +156,35 @@ export interface MetricsSpan {
   attrs: Record<string, MetricsAttrValue>
 }
 
+export type MetricsGapCategory =
+  | 'provider_startup'
+  | 'before_first_activity'
+  | 'between_activities'
+  | 'provider_completion'
+  | 'turn_settlement'
+  | 'after_last_provider_event'
+  | 'unattributed'
+
+/** One uncovered interval inside a turn. The category describes where the gap
+ *  sits between observed lifecycle boundaries; it does not claim what the
+ *  provider or model did during that interval. */
+export interface MetricsGapSegment {
+  category: MetricsGapCategory
+  startedAt: number
+  endedAt: number
+  durationMs: number
+}
+
 /** One turn's full span tree for the waterfall. */
 export interface MetricsTurnTrace {
   traceId: string
   spans: MetricsSpan[]
   /** Root turn time not covered by the union of observed blocking child
    *  intervals. Null when the trace has no root turn span. */
-  uninstrumentedMs: number | null
+  unattributedMs: number | null
+  /** The uncovered intervals split at observed provider and settlement
+   *  boundaries. Their durations sum to `unattributedMs`. */
+  gapSegments: MetricsGapSegment[]
 }
 
 export interface MetricsTurnSummary {
@@ -160,7 +209,8 @@ export interface MetricsSessionSummary {
   sessionId: string
   turnCount: number
   totalDurationMs: number
-  totalCostUsd: number
+  /** Sum of turns with known cost. Null when no turn has a known cost. */
+  totalCostUsd: number | null
   totalInputTokens: number
   totalOutputTokens: number
   turns: MetricsTurnSummary[]

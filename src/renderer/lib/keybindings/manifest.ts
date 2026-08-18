@@ -172,6 +172,7 @@ export const KEYBINDINGS = {
   'insights.natural-language':    { combo: { alt: true, code: 'Digit1' },                  scope: 'insights',           label: 'Ask in natural language',  group: 'Insights' },
   'insights.sql':                 { combo: { alt: true, code: 'Digit2' },                  scope: 'insights',           label: 'Write SQL',                group: 'Insights' },
   'insights.refresh':             { combo: { alt: true, code: 'KeyR' },                    scope: 'insights',           label: 'Refresh the window',       group: 'Insights' },
+  'insights.schema':              { combo: { alt: true, code: 'KeyS' },                    scope: 'insights',           label: 'What you can query',       group: 'Insights' },
 
   // ── Tasks ───────────────────────────────────────────────────────────────────
   'tasks.close':                  { combo: { code: 'Escape' },                             scope: 'tasks',              label: 'Close',                    group: 'Tasks' },

@@ -1374,6 +1374,9 @@ export type NormalizedEvent =
   | { type: 'thinking'; state: 'start' | 'stop'; parentToolUseId?: string }
   | { type: 'tool_call'; toolName: string; toolId: string; index: number; toolInput?: string; content?: string; parentToolUseId?: string; isSubagent?: boolean; subagentType?: string; startedAtMs?: number }
   | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; content?: string; parentToolUseId?: string }
+  /** With an outcome or completedAtMs, the tool execution completed. Without
+   *  either field, Claude only finished streaming the tool input; tool_result
+   *  is the later execution boundary. */
   | { type: 'tool_call_complete'; index: number; toolId?: string; toolInput?: string; parentToolUseId?: string; completedAtMs?: number; outcome?: { status?: string; exitCode?: number; error?: string; declined?: boolean; durationMs?: number } }
   | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string; isAsyncLaunch?: boolean; isSubagentReport?: boolean }
   | { type: 'subagent_report'; toolUseId: string; text: string; isError?: boolean }

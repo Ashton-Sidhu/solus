@@ -42,6 +42,53 @@ export function formatDayClock(epochMs: number | null | undefined): string {
   return `${at.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${formatClock(epochMs)}`
 }
 
+/** `Aug 12` — a day with no time of day. */
+export function formatDay(epochMs: number | null | undefined): string {
+  if (epochMs == null || !Number.isFinite(epochMs)) return '—'
+  return new Date(epochMs).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * How a time axis names an instant, chosen by the span it covers.
+ *
+ * Under a day a bare clock is unambiguous. Up to three days the day has to come
+ * with it. Past that the clock is noise on every tick *and* doubles the label's
+ * width — `Aug 11 00:19` is twice `Aug 11` — which is what pushes the end
+ * labels off the plot and under the card's edge. Tooltips and the zoom pill
+ * keep the full instant; they have the room and they name one bar.
+ */
+export function axisInstantFormat(spanMs: number): (epochMs: number) => string {
+  if (spanMs > 3 * DAY_MS) return formatDay
+  if (spanMs > DAY_MS) return formatDayClock
+  return formatClock
+}
+
+/** Whether a listing straddles more than a day, in which case a bare `HH:MM`
+ *  names two different instants in the same column and the rows print the day
+ *  as well. */
+export function spansMultipleDays(instants: number[]): boolean {
+  if (instants.length < 2) return false
+  let earliest = Infinity
+  let latest = -Infinity
+  for (const at of instants) {
+    if (at == null || !Number.isFinite(at)) continue
+    if (at < earliest) earliest = at
+    if (at > latest) latest = at
+  }
+  return latest - earliest > 24 * 60 * 60 * 1000
+}
+
+/** A charted measure as its axis, bars, and tooltips print it. Durations read
+ *  as durations; a large count abbreviates rather than spending six characters
+ *  on an axis tick; a fraction keeps enough digits to be a number. */
+export function formatMeasure(value: number, format: 'duration' | 'number'): string {
+  if (format === 'duration') return formatDuration(value)
+  if (Math.abs(value) >= 1000) return formatTokens(value)
+  return Number.isInteger(value) ? String(value) : value.toFixed(2)
+}
+
 export function formatPercent(fraction: number): string {
   if (!Number.isFinite(fraction) || fraction <= 0) return '0%'
   return fraction < 0.01 ? '<1%' : `${Math.round(fraction * 100)}%`
@@ -56,18 +103,19 @@ export function formatAge(epochMs: number, now: number): string {
   return `${Math.round(seconds / 86_400)}d`
 }
 
-/** Model ids are long and share a vendor prefix that carries no information in
- *  a column already scoped to one provider. */
-export function shortModel(model: string | null | undefined): string {
-  if (!model) return '—'
-  return model.replace(/^(claude|anthropic|openai|gpt)[-/]/, '')
-}
-
 /** A prompt on one line: the surface truncates with CSS, but newlines would
  *  otherwise collapse into a run of blanks mid-row. */
 export function singleLine(text: string | null | undefined): string {
   if (!text) return ''
   return text.replace(/\s+/g, ' ').trim()
+}
+
+/** A trace id in a breadcrumb: the leading group is enough to recognise a turn,
+ *  and the full value stays on the element's title and the copy control. */
+export function shortId(id: string | null | undefined): string {
+  if (!id) return '—'
+  const head = id.split('-')[0] ?? id
+  return head.length > 8 ? head.slice(0, 8) : head
 }
 
 export function formatRowCount(count: number): string {

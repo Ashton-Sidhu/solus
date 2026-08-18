@@ -13,10 +13,19 @@ import type {
   SavedMetricsQuery,
 } from '../../../shared/observability-types'
 import {
-  DEFAULT_WINDOW_MS,
   defaultExploreSql,
+  generatedSql,
   turnVolumeSpec,
+  type GeneratedQuery,
 } from './lib/insights-queries'
+import {
+  DEFAULT_TIME_RANGE,
+  parseStoredRange,
+  rangeInstruction,
+  resolveRange,
+  sameRange,
+  type TimeRange,
+} from './lib/time-range'
 import { toTurnRows, type TurnRow } from './lib/turn-rows'
 
 /**
@@ -34,7 +43,7 @@ import { toTurnRows, type TurnRow } from './lib/turn-rows'
 
 const HISTORY_LIMIT = 24
 const VALUES_TTL_MS = 60_000
-const INTERNALS_KEY = 'solus.insights.showInternals'
+const RANGE_KEY = 'solus.insights.timeRange'
 
 export type QueryForm = 'nl' | 'sql'
 
@@ -60,11 +69,14 @@ type LastRun =
   | { form: 'sql'; sql: string }
   | { form: 'spec'; spec: MetricsQuerySpec }
 
-function readInternalsPreference(): boolean {
+/** The range outlives the page: a user investigating one afternoon should not
+ *  re-pick it on every entry. An unreadable or malformed value falls back to
+ *  the default rather than throwing the surface away. */
+function readRangePreference(): TimeRange {
   try {
-    return globalThis.localStorage?.getItem(INTERNALS_KEY) === 'true'
+    return parseStoredRange(globalThis.localStorage?.getItem(RANGE_KEY) ?? null) ?? DEFAULT_TIME_RANGE
   } catch {
-    return false
+    return DEFAULT_TIME_RANGE
   }
 }
 
@@ -72,16 +84,29 @@ export class InsightsStore {
   /** Which host's `metrics.db` is being read. */
   serverId = $state<string | null>(null)
 
+  /** The window every answer on this page is asked in. */
+  range = $state.raw<TimeRange>(readRangePreference())
+
   form = $state<QueryForm>('nl')
   question = $state('')
-  sqlText = $state(defaultExploreSql())
+  sqlText = $state(defaultExploreSql(this.range))
+  /** Which of Solus's own statements the editor currently holds, or null once
+   *  the text is the user's — theirs is never rewritten by a range change. */
+  generated = $state.raw<GeneratedQuery | null>({ kind: 'explore' })
+  /** True when the range moved under an answer Solus could not rewrite — the
+   *  result on screen describes an older window than the histogram. */
+  answerWindowStale = $state(false)
 
   running = $state(false)
+  /** True while the NL question is with the agent — the slow half of `running`,
+   *  named so the console can say "compiling" instead of a generic "running". */
+  compiling = $state(false)
   error = $state<string | null>(null)
   result = $state.raw<MetricsQueryResult | null>(null)
   lastRunMs = $state(0)
-  /** SQL the NL compile produced for the current question, shown above the
-   *  results and openable in the editor — never hidden behind a curtain. */
+  /** SQL the NL compile produced for the current question. It is written into
+   *  the editor too, so the SQL tab is where it is read; this is what a save
+   *  from the question tab stores. */
   compiledSql = $state('')
   compileAttempts = $state(0)
 
@@ -92,12 +117,10 @@ export class InsightsStore {
   /** The histogram's own rows: turn volume over the window, independent of the
    *  question being asked. */
   volumeRows = $state.raw<TurnRow[]>([])
-  windowMs = $state(DEFAULT_WINDOW_MS)
-  /** Window end, refreshed on each load so bucket edges do not drift while the
-   *  page sits open. */
+  /** The selected range resolved to instants, refreshed on each load so a
+   *  relative window's bucket edges do not drift while the page sits open. */
+  windowFrom = $state(resolveRange(this.range, Date.now()).from)
   windowTo = $state(Date.now())
-
-  showInternals = $state(readInternalsPreference())
 
   private valuesByColumn = new SvelteMap<string, CachedValues>()
   private valuesInFlight = new Set<string>()
@@ -120,6 +143,7 @@ export class InsightsStore {
     this.result = null
     this.error = null
     this.compiledSql = ''
+    this.answerWindowStale = false
     this.lastRun = null
     this.volumeRows = []
     this.schema = null
@@ -130,13 +154,47 @@ export class InsightsStore {
     this.sessionSummaries.clear()
   }
 
-  setShowInternals(next: boolean): void {
-    this.showInternals = next
+  /**
+   * Moves the window. Solus's own statements are rewritten at the new range and
+   * re-run; SQL the user wrote or saved is left exactly as typed and re-run
+   * unchanged, because a filter that edits someone's query is not a filter.
+   */
+  async setRange(next: TimeRange): Promise<void> {
+    if (sameRange(this.range, next)) return
+    this.range = next
     try {
-      globalThis.localStorage?.setItem(INTERNALS_KEY, String(next))
+      globalThis.localStorage?.setItem(RANGE_KEY, JSON.stringify(next))
     } catch {
-      // A client that refuses storage still gets the toggle for this session.
+      // A client that refuses storage still gets the range for this session.
     }
+    const regenerated = this.generated ? generatedSql(this.generated, next) : null
+    if (regenerated) {
+      this.sqlText = regenerated
+      this.lastRun = { form: 'sql', sql: regenerated }
+    }
+    await this.refresh()
+    // The histogram now describes the new window. An answer that Solus could
+    // not rewrite still describes the old one, and must say so rather than sit
+    // under a chart that contradicts it.
+    this.answerWindowStale = !regenerated && this.result != null
+  }
+
+  /** Runs one of Solus's own statements, remembering which one so a later range
+   *  change can re-emit it. */
+  async runGenerated(query: GeneratedQuery): Promise<void> {
+    const sql = generatedSql(query, this.range)
+    if (!sql) return
+    this.generated = query
+    this.form = 'sql'
+    this.sqlText = sql
+    await this.runSql(sql)
+  }
+
+  /** The editor's text became the user's. From here the range governs the
+   *  histogram only, until a generated query is run again. */
+  setUserSql(sql: string): void {
+    this.sqlText = sql
+    this.generated = null
   }
 
   /** Everything the page needs before it can answer anything: the registry, the
@@ -161,21 +219,27 @@ export class InsightsStore {
    */
   async refresh(): Promise<void> {
     const token = this.loadToken
+    // Re-running a statement does not re-author it: text that already described
+    // an older window still does after a refresh.
+    const wasStale = this.answerWindowStale
     await this.refreshVolume()
     if (token !== this.loadToken) return
     const last = this.lastRun
     if (!last) await this.runSql(this.sqlText)
     else if (last.form === 'sql') await this.runSql(last.sql)
     else await this.runSpec(last.spec)
+    this.answerWindowStale = wasStale
   }
 
   /** The histogram's query. Kept separate from the user's question so the shape
    *  the answer sits in does not collapse when the question narrows. */
   private async refreshVolume(): Promise<void> {
     const token = this.loadToken
-    this.windowTo = Date.now()
+    const window = resolveRange(this.range, Date.now())
+    this.windowFrom = window.from
+    this.windowTo = window.to
     try {
-      const result = await this.api.metricsQuery(turnVolumeSpec(this.windowMs))
+      const result = await this.api.metricsQuery(turnVolumeSpec(window))
       if (token !== this.loadToken) return
       this.volumeRows = toTurnRows(result)
     } catch {
@@ -204,6 +268,7 @@ export class InsightsStore {
     try {
       const result = await this.api.metricsRunSql(text)
       this.result = result
+      this.answerWindowStale = false
       this.lastRun = { form: 'sql', sql: text }
       this.lastRunMs = Math.round(performance.now() - startedAt)
       this.record('sql', text, result.rows.length, this.lastRunMs)
@@ -221,6 +286,7 @@ export class InsightsStore {
     const startedAt = performance.now()
     try {
       this.result = await this.api.metricsQuery(spec)
+      this.answerWindowStale = false
       this.lastRun = { form: 'spec', spec }
       this.lastRunMs = Math.round(performance.now() - startedAt)
     } catch (cause) {
@@ -235,17 +301,30 @@ export class InsightsStore {
    * Compiles the question to SQL and runs it. The generated statement lands in
    * the editor either way: a question that compiled to the wrong query is only
    * fixable if the user can see it.
+   *
+   * The selected window rides along with the question, so an answer and the
+   * histogram above it describe the same turns. It is an instruction, not a
+   * rewrite: a question that names its own period still wins, and the resulting
+   * `where` clause is visible in the compiled SQL.
    */
   async compileAndRun(ctx: IpcContext, question: string): Promise<void> {
     const text = question.trim()
     if (!text) return
     this.running = true
+    this.compiling = true
     this.error = null
     const startedAt = performance.now()
     try {
-      const compiled = await this.api.metricsCompileNl(ctx, text)
+      const compiled = await this.api.metricsCompileNl(
+        ctx,
+        `${text}\n\n${rangeInstruction(this.range)}`,
+      )
+      this.compiling = false
       this.compiledSql = compiled.sql
       this.sqlText = compiled.sql
+      // The compiled statement is text like any other the user could edit, so a
+      // later range change re-runs it rather than rewriting it — and says so.
+      this.generated = null
       this.compileAttempts = compiled.attempts
       if (!compiled.ok) {
         this.result = null
@@ -262,6 +341,7 @@ export class InsightsStore {
       this.error = cause instanceof Error ? cause.message : String(cause)
     } finally {
       this.running = false
+      this.compiling = false
     }
   }
 

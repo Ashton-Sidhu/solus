@@ -812,6 +812,14 @@
     0 0 0 0.5px var(--hairline-strong), 0 0.0625rem 0.125rem -0.0625rem rgba(0, 0, 0, 0.05),
     0 0.75rem 1.75rem -0.75rem rgba(0, 0, 0, 0.2);
 
+  /* Insights is a dashboard, not a list page: its console, chart, and listing
+     are three stacked objects that must read as three. In light mode --card
+     *is* --background, so a half-pixel ring is the only thing holding those
+     panels apart and nobody can see it. The page keeps its own colour — the
+     card does the separating, with a real lift instead of a ring. */
+  --insights-card-shadow:
+    0 0 0 0.5px var(--hairline-strong), 0 0.0625rem 0.125rem -0.0625rem rgba(60, 45, 30, 0.06),
+    0 0.5rem 1.125rem -0.875rem rgba(60, 45, 30, 0.22);
 }
 
 /* LayerChart reads four variables off its own root container for axis text,
@@ -845,6 +853,10 @@
   --solus-tx-card-lift-hover:
     0 0.125rem 0.1875rem rgba(0, 0, 0, 0.28),
     0 0.625rem 1.25rem -0.5rem rgba(0, 0, 0, 0.4);
+  /* Real black on a dark page: there is nothing there for a shadow to shade. */
+  --insights-card-shadow:
+    0 0 0 0.5px var(--hairline-strong), 0 0.0625rem 0.125rem -0.0625rem rgba(0, 0, 0, 0.4),
+    0 0.625rem 1.375rem -1rem rgba(0, 0, 0, 0.6);
 }
 
 @theme inline {
@@ -980,7 +992,18 @@ html.solus-web #root {
   background: var(--solus-scroll-thumb);
   background-clip: padding-box;
 }
+/* Small bounded lists can opt in to revealing their standard thumb when the
+   pointer enters the list. Full-pane scrollers must keep the movement-only
+   behavior above because they remain hovered while the user reads the pane. */
+.scrollbar-on-hover:hover::-webkit-scrollbar-thumb {
+  background: var(--solus-scroll-thumb);
+  background-clip: padding-box;
+}
 ::-webkit-scrollbar-thumb:hover {
+  background: var(--solus-scroll-thumb-hover);
+  background-clip: padding-box;
+}
+.scrollbar-on-hover:hover::-webkit-scrollbar-thumb:hover {
   background: var(--solus-scroll-thumb-hover);
   background-clip: padding-box;
 }

@@ -101,7 +101,7 @@ describe.serial('guarded SQL executor', () => {
 describe.serial('declared grain (sourceView)', () => {
   test('a statement over one registered view declares that grain on the result', () => {
     expect(sqlGuard.runGuardedSql('SELECT trace_id, started_at FROM turns').sourceView).toBe('turns')
-    expect(sqlGuard.declaredSourceView('select started_at, duration_ms from tool_calls')).toBe('tool_calls')
+    expect(sqlGuard.declaredSourceView('select started_at, duration_ms from events')).toBe('events')
   })
 
   test('an aliased or self-joined view is still one view', () => {
@@ -111,7 +111,7 @@ describe.serial('declared grain (sourceView)', () => {
 
   test('raw spans, two views, and a CTE source all declare nothing', () => {
     expect(sqlGuard.runGuardedSql('SELECT COUNT(*) AS n FROM spans').sourceView).toBeUndefined()
-    expect(sqlGuard.declaredSourceView('SELECT * FROM turns JOIN tool_calls ON 1 = 1')).toBeUndefined()
+    expect(sqlGuard.declaredSourceView('SELECT * FROM turns JOIN events ON 1 = 1')).toBeUndefined()
     // Conservative: the CTE name is a second "table", so nothing is declared.
     expect(sqlGuard.declaredSourceView('WITH recent AS (SELECT * FROM turns) SELECT * FROM recent')).toBeUndefined()
   })

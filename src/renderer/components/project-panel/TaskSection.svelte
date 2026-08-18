@@ -219,7 +219,7 @@
     <!-- Six attempts stay visible at once. Older attempts scroll inside this
          group so a long history cannot take over the project rail; New session
          stays pinned below the history. -->
-    <div class="max-h-48 overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:w-0">
+    <div class="scrollbar-on-hover max-h-48 overflow-y-auto overscroll-contain">
       {#each sessionRows as row (row.sessionId)}
         {@const StatusIcon = row.icon}
       <!-- State is the leading glyph and nothing else; elapsed reads at rest

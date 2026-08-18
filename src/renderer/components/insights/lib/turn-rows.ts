@@ -93,6 +93,21 @@ export interface TurnStatusCounts {
   interrupted: number
 }
 
+/**
+ * The rows a status filter leaves.
+ *
+ * Shared with the histogram rather than kept inside the listing: the chart sits
+ * directly above the filter chips and counts the same answer, so a filter the
+ * reader can see and a set of bars that ignores it is a lie about what is
+ * being counted. The brush is deliberately *not* applied here — the bars are
+ * the control the brush acts on, and folding a selection back into them would
+ * collapse the plot into whatever the reader just dragged.
+ */
+export function withStatus(rows: TurnRow[], status: TurnStatusFilter | null): TurnRow[] {
+  if (!status) return rows
+  return rows.filter((row) => row.status === status)
+}
+
 export function countByStatus(rows: TurnRow[]): TurnStatusCounts {
   const counts: TurnStatusCounts = { ok: 0, error: 0, interrupted: 0 }
   for (const row of rows) {

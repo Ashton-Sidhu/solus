@@ -1,10 +1,13 @@
 export const SPAN_KINDS = {
   turn: 'turn',
   setup: 'setup',
+  thinking: 'thinking',
+  responseStream: 'response_stream',
   toolCall: 'tool_call',
   permissionWait: 'permission_wait',
   queueWait: 'queue_wait',
   rateLimitWait: 'rate_limit_wait',
+  turnSettlement: 'turn_settlement',
   backgroundTask: 'background_task',
   agentRun: 'agent_run',
   internalRpc: 'internal.rpc',

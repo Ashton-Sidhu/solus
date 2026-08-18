@@ -3,7 +3,7 @@ import { schemaForPrompt } from './field-registry'
 
 // ─── NL → SQL compile ───
 //
-// Compiles a user question to SQLite SQL over the per-kind views — an existing,
+// Compiles a user question to SQLite SQL over the generated views — an existing,
 // deeply-trained language, never a bespoke grammar. Generation runs as an
 // ephemeral agent (service solus.insights) supplied by the caller; this module
 // owns the prompt, the fence stripping, and the execute-and-retry loop. The
@@ -16,7 +16,9 @@ export const NL_COMPILE_SYSTEM_PROMPT = `You translate one question about Solus 
 Rules:
 - Return ONLY the SQL text. No prose, no explanation, no markdown fences.
 - One statement, starting with SELECT or WITH. Never write, ATTACH, or PRAGMA.
-- Query the views below, not the raw spans table, whenever a view has the field.
+- Query turns or events, not the raw spans table, whenever they have the field.
+  turns already sums each child kind's time per turn (tool_time_ms,
+  thinking_time_ms, …) — prefer those columns over joining events onto turns.
 - started_at and ended_at are epoch milliseconds; duration columns are milliseconds.
 - SQLite has no native percentile: for p95 use ROW_NUMBER() and COUNT() window
   functions ordered by the value, keeping the row where
@@ -39,7 +41,7 @@ WITH ranked AS (
   SELECT date(started_at / 1000, 'unixepoch') AS day, duration_ms,
          ROW_NUMBER() OVER (PARTITION BY date(started_at / 1000, 'unixepoch') ORDER BY duration_ms) AS rn,
          COUNT(*) OVER (PARTITION BY date(started_at / 1000, 'unixepoch')) AS cnt
-  FROM tool_calls
+  FROM events
   WHERE tool = 'Bash' AND command = 'bun run build' AND duration_ms IS NOT NULL
 )
 SELECT day, duration_ms AS p95_duration_ms

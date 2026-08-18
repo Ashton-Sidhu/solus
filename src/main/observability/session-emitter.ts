@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
+import { basename } from 'node:path'
 import type { NormalizedEvent, PromptSource, UsageData } from '../../shared/types'
 import { createLogger } from '../logger'
 import { writeSpan, type SpanAttributes, type SpanStatus } from './facade'
+import { codexTokenCostUsd } from './model-pricing'
 import { SPAN_KINDS, SPAN_SERVICES, type SpanKind } from './registries'
 import {
   applyTaskCompleteAttrs,
@@ -28,6 +30,12 @@ export interface TurnDimensions {
   reasoningEffort?: string
   taskId?: string
   automationId?: string
+  /** Display names snapshotted at dispatch — what a user recognizes the ids by
+   *  in queries. Point-in-time by design: telemetry records what a thing was
+   *  called when the turn ran, and stays queryable if it is later renamed. */
+  automationName?: string
+  taskTitle?: string
+  branch?: string
   isResume: boolean
 }
 
@@ -61,6 +69,9 @@ interface TurnState {
   latestCodexUsage?: UsageData
   codexUsageBaseline?: UsageData
   taskComplete?: Extract<NormalizedEvent, { type: 'task_complete' }>
+  firstProviderEventAt?: number
+  lastProviderEventAt?: number
+  providerCompletedAt?: number
 }
 
 /** Records one bounded trace per turn. `sessionId` groups a session's turn traces. */
@@ -117,8 +128,16 @@ export class SessionEmitter {
       state.dimensions = { ...dimensions, model: state.observedModel ?? dimensions.model }
       state.setupEndedAt = Math.max(state.startedAt, endedAt)
       state.rootAttrs.reasoningEffort = dimensions.reasoningEffort ?? ''
+      state.rootAttrs.isResume = dimensions.isResume
       if (dimensions.taskId) state.rootAttrs.taskId = dimensions.taskId
       if (dimensions.automationId) state.rootAttrs.automationId = dimensions.automationId
+      if (dimensions.automationName) state.rootAttrs.automationName = dimensions.automationName
+      if (dimensions.taskTitle) state.rootAttrs.taskTitle = dimensions.taskTitle
+      if (dimensions.branch) state.rootAttrs.branch = dimensions.branch
+      // The project's display name is its folder name, matching the projects
+      // manifest's own `folder_name` convention.
+      const projectName = basename(dimensions.projectRoot)
+      if (projectName) state.rootAttrs.projectName = projectName
       if (dimensions.provider === 'codex') {
         state.codexUsageBaseline = this.codexUsageBaselines.get(sessionId)
           ?? (dimensions.isResume ? undefined : {})
@@ -156,6 +175,10 @@ export class SessionEmitter {
     this.safe(sessionId, () => {
       const state = this.turns.get(sessionId)
       if (!state) return
+      state.firstProviderEventAt ??= arrivedAt
+      state.lastProviderEventAt = Math.max(state.lastProviderEventAt ?? arrivedAt, arrivedAt)
+      if (event.type === 'task_complete') state.providerCompletedAt = arrivedAt
+      this.observeFirstActivity(state, event, arrivedAt)
       if (event.type === 'session_init') {
         state.observedModel = event.model
         if (state.dimensions) state.dimensions.model = event.model
@@ -166,16 +189,25 @@ export class SessionEmitter {
         if (state.dimensions) state.dimensions.model = event.toModel
         return
       }
-      if (event.type === 'text_chunk' && !event.parentToolUseId) {
-        state.rootAttrs.timeToFirstTokenMs ??= Math.max(0, arrivedAt - state.startedAt)
+      if (event.type === 'text_chunk') {
+        if (!event.parentToolUseId) {
+          const timeToFirstTextMs = Math.max(0, arrivedAt - state.startedAt)
+          state.rootAttrs.timeToFirstTextMs ??= timeToFirstTextMs
+        }
+        this.observeResponseChunk(state, event.parentToolUseId, arrivedAt)
         return
       }
-      if (event.type === 'thinking' && !event.parentToolUseId) {
-        if (event.state === 'start') state.rootAttrs.hasThinking = true
+      if (event.type === 'thinking') {
+        if (!event.parentToolUseId && event.state === 'start') state.rootAttrs.hasThinking = true
+        if (event.state === 'start') this.startThinking(state, event.parentToolUseId, arrivedAt)
+        else this.finishThinking(state, event.parentToolUseId, arrivedAt, 'ok')
         return
       }
       if (event.type === 'tool_call') {
-        this.startTool(state, event, event.startedAtMs ?? arrivedAt)
+        const startedAt = event.startedAtMs ?? arrivedAt
+        this.finishResponseStream(state, event.parentToolUseId, 'ok')
+        this.finishThinking(state, event.parentToolUseId, startedAt, 'ok')
+        this.startTool(state, event, startedAt)
         return
       }
       if (event.type === 'tool_call_update') {
@@ -196,16 +228,27 @@ export class SessionEmitter {
           if (event.outcome.declined !== undefined) span.attrs.declined = event.outcome.declined
           if (event.outcome.durationMs !== undefined) span.attrs.providerDurationMs = event.outcome.durationMs
         }
-        span.endedAt = Math.max(span.startedAt, event.completedAtMs ?? arrivedAt)
-        span.status = spanStatusForToolOutcome(event.outcome)
-        state.openSpans.delete(key)
+        // Codex item/completed is the execution boundary and carries an outcome
+        // or provider timestamp. Claude content_block_stop only means that the
+        // tool input finished streaming; its later tool_result closes the actual
+        // execution interval.
+        if (event.completedAtMs !== undefined || event.outcome !== undefined) {
+          span.endedAt = Math.max(span.startedAt, event.completedAtMs ?? arrivedAt)
+          span.status = spanStatusForToolOutcome(event.outcome)
+          state.openSpans.delete(key)
+        }
         return
       }
       if (event.type === 'tool_result') {
-        const span = state.toolSpans.get(this.toolKey(event.toolUseId))
-        if (span && event.isError) {
-          span.status = 'error'
-          span.attrs.outcomeStatus = 'error'
+        const key = this.toolKey(event.toolUseId)
+        const span = state.toolSpans.get(key)
+        if (span) {
+          span.status = event.isError ? 'error' : 'ok'
+          span.attrs.outcomeStatus = event.isError ? 'error' : 'completed'
+          if (state.openSpans.has(key)) {
+            span.endedAt = Math.max(span.startedAt, arrivedAt)
+            state.openSpans.delete(key)
+          }
         }
         return
       }
@@ -236,6 +279,7 @@ export class SessionEmitter {
         return
       }
       if (event.type === 'task_complete') {
+        this.finishResponseStream(state, undefined, 'ok')
         state.taskComplete = event
         if (state.dimensions) applyTaskCompleteAttrs(state.rootAttrs, state.dimensions.provider, event)
       }
@@ -322,6 +366,8 @@ export class SessionEmitter {
       if (span.kind === SPAN_KINDS.toolCall) {
         span.endedAt = Math.max(span.startedAt, endedAt)
         span.status = status
+      } else if (span.kind === SPAN_KINDS.responseStream) {
+        this.completeChild(state, span, span.endedAt ?? endedAt, status)
       } else {
         this.completeChild(state, span, endedAt, status)
       }
@@ -330,10 +376,30 @@ export class SessionEmitter {
 
     state.rootAttrs.toolCallCount = state.toolSpans.size
     if (state.rootAttrs.permissionDenialCount === undefined) state.rootAttrs.permissionDenialCount = 0
+    if (state.firstProviderEventAt !== undefined) {
+      state.rootAttrs.timeToFirstProviderEventMs = Math.max(0, state.firstProviderEventAt - state.startedAt)
+    }
+    if (state.lastProviderEventAt !== undefined) {
+      state.rootAttrs.timeToLastProviderEventMs = Math.max(0, state.lastProviderEventAt - state.startedAt)
+    }
+    if (state.providerCompletedAt !== undefined) {
+      state.rootAttrs.timeToProviderCompleteMs = Math.max(0, state.providerCompletedAt - state.startedAt)
+      this.completeChild(state, {
+        spanId: randomUUID(),
+        parentSpanId: state.traceId,
+        kind: SPAN_KINDS.turnSettlement,
+        name: 'Solus settlement',
+        startedAt: Math.min(state.providerCompletedAt, endedAt),
+        attrs: {},
+      }, endedAt, status)
+    }
 
     if (state.dimensions?.provider === 'codex' && state.latestCodexUsage) {
       if (state.codexUsageBaseline) {
-        setUsageAttrs(state.rootAttrs, usageDelta(state.latestCodexUsage, state.codexUsageBaseline))
+        const usage = usageDelta(state.latestCodexUsage, state.codexUsageBaseline)
+        setUsageAttrs(state.rootAttrs, usage)
+        const costUsd = codexTokenCostUsd(state.dimensions.model, usage)
+        if (costUsd !== undefined) state.rootAttrs.costUsd = costUsd
       }
       this.codexUsageBaselines.set(state.sessionId, copyUsage(state.latestCodexUsage))
     }
@@ -385,6 +451,89 @@ export class SessionEmitter {
     state.toolKeyByIndex.set(event.index, key)
     state.toolSpans.set(key, span)
     state.openSpans.set(key, span)
+  }
+
+  private startThinking(state: TurnState, parentToolUseId: string | undefined, startedAt: number): void {
+    const key = this.thinkingKey(parentToolUseId)
+    if (state.openSpans.has(key)) return
+    this.finishResponseStream(state, parentToolUseId, 'ok')
+    state.openSpans.set(key, this.newChild(
+      state,
+      SPAN_KINDS.thinking,
+      'thinking',
+      startedAt,
+      {},
+      this.activityParentSpanId(state, parentToolUseId),
+    ))
+  }
+
+  private observeFirstActivity(state: TurnState, event: NormalizedEvent, arrivedAt: number): void {
+    if (state.rootAttrs.timeToFirstActivityMs !== undefined) return
+    let activityAt: number | null = null
+    if (event.type === 'thinking' && event.state === 'start' && !event.parentToolUseId) {
+      activityAt = arrivedAt
+    } else if (event.type === 'text_chunk' && !event.parentToolUseId) {
+      activityAt = arrivedAt
+    } else if (event.type === 'tool_call' && !event.parentToolUseId) {
+      activityAt = event.startedAtMs ?? arrivedAt
+    } else if (event.type === 'assistant_message' && !event.parentToolUseId) {
+      activityAt = arrivedAt
+    }
+    if (activityAt !== null) {
+      state.rootAttrs.timeToFirstActivityMs = Math.max(0, activityAt - state.startedAt)
+    }
+  }
+
+  private finishThinking(
+    state: TurnState,
+    parentToolUseId: string | undefined,
+    endedAt: number,
+    status: SpanStatus,
+  ): void {
+    const key = this.thinkingKey(parentToolUseId)
+    const span = state.openSpans.get(key)
+    if (!span) return
+    state.openSpans.delete(key)
+    this.completeChild(state, span, endedAt, status)
+  }
+
+  private observeResponseChunk(
+    state: TurnState,
+    parentToolUseId: string | undefined,
+    arrivedAt: number,
+  ): void {
+    this.finishThinking(state, parentToolUseId, arrivedAt, 'ok')
+    const key = this.responseStreamKey(parentToolUseId)
+    let span = state.openSpans.get(key)
+    if (!span) {
+      span = this.newChild(
+        state,
+        SPAN_KINDS.responseStream,
+        'response_stream',
+        arrivedAt,
+        {},
+        this.activityParentSpanId(state, parentToolUseId),
+      )
+      state.openSpans.set(key, span)
+    }
+    span.endedAt = Math.max(span.startedAt, arrivedAt)
+  }
+
+  private finishResponseStream(
+    state: TurnState,
+    parentToolUseId: string | undefined,
+    status: SpanStatus,
+  ): void {
+    const key = this.responseStreamKey(parentToolUseId)
+    const span = state.openSpans.get(key)
+    if (!span) return
+    state.openSpans.delete(key)
+    this.completeChild(state, span, span.endedAt ?? span.startedAt, status)
+  }
+
+  private activityParentSpanId(state: TurnState, parentToolUseId: string | undefined): string {
+    if (!parentToolUseId) return state.traceId
+    return state.toolSpans.get(this.toolKey(parentToolUseId))?.spanId ?? state.traceId
   }
 
   private startPermission(
@@ -474,6 +623,14 @@ export class SessionEmitter {
 
   private toolKey(toolId: string): string {
     return `tool:${toolId}`
+  }
+
+  private thinkingKey(parentToolUseId: string | undefined): string {
+    return `thinking:${parentToolUseId ?? 'root'}`
+  }
+
+  private responseStreamKey(parentToolUseId: string | undefined): string {
+    return `response:${parentToolUseId ?? 'root'}`
   }
 
   private permissionKey(questionId: string): string {

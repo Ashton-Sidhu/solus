@@ -1,38 +1,55 @@
 <script lang="ts">
-  import { CaretRightIcon } from "phosphor-svelte";
-  import { formatClock, formatCost, formatDuration, formatTokens, shortModel, singleLine } from "./lib/format";
+  import {
+    createColumnHelper,
+    createTable,
+    functionalUpdate,
+    type SortingState,
+  } from '@tanstack/svelte-table'
+  import { CaretRightIcon, StackSimpleIcon } from 'phosphor-svelte'
+  import * as Table from '../ui/table'
+  import DataTableEmptyState from './data-table/DataTableEmptyState.svelte'
+  import DataTableColumnsMenu from './data-table/DataTableColumnsMenu.svelte'
+  import DataTableContextMenu from './data-table/DataTableContextMenu.svelte'
+  import DataTablePagination from './data-table/DataTablePagination.svelte'
+  import DataTableResizeHandle from './data-table/DataTableResizeHandle.svelte'
+  import DataTableSortIcon from './data-table/DataTableSortIcon.svelte'
+  import DataTableToolbar from './data-table/DataTableToolbar.svelte'
+  import { isColumnResized, nudgeColumnSize, resetColumnSize, seedColumnSize } from './data-table/column-sizing'
+  import { cellContextFrom, hasTextSelection, type CellContext } from './data-table/table-pointer'
+  import { insightsTableFeatures, type InsightsTableFeatures } from './data-table/data-table-features'
+  import {
+    formatClock,
+    formatCost,
+    formatDayClock,
+    formatDuration,
+    formatTokens,
+    singleLine,
+    spansMultipleDays,
+  } from './lib/format'
+  import { MIN_TRACK_PX } from './lib/table-grid'
   import {
     countByStatus,
     groupBySession,
     p95Duration,
-    sortTurns,
+    withStatus,
     type TurnRow,
     type TurnSort,
     type TurnSortKey,
     type TurnStatusFilter,
-  } from "./lib/turn-rows";
+  } from './lib/turn-rows'
 
-  /**
-   * The turn listing: one row per turn, grouped by session on request.
-   *
-   * A latency above the visible rows' p95 is the one coloured number in the
-   * table — everything else stays neutral so the outlier is the thing the eye
-   * lands on. Clicking a row opens its waterfall; clicking the session id opens
-   * the session instead, because those are different questions.
-   */
   interface Props {
-    rows: TurnRow[];
-    sort: TurnSort;
-    onSortChange: (sort: TurnSort) => void;
-    statusFilter: TurnStatusFilter | null;
-    onStatusFilterChange: (status: TurnStatusFilter | null) => void;
-    grouped: boolean;
-    onGroupedChange: (grouped: boolean) => void;
-    selectedTraceId: string | null;
-    onOpenTurn: (row: TurnRow) => void;
-    onOpenSession: (sessionId: string) => void;
-    /** Shown under the empty state — why nothing matched, in the user's terms. */
-    emptyHint: string;
+    rows: TurnRow[]
+    sort: TurnSort
+    onSortChange: (sort: TurnSort) => void
+    statusFilter: TurnStatusFilter | null
+    onStatusFilterChange: (status: TurnStatusFilter | null) => void
+    grouped: boolean
+    onGroupedChange: (grouped: boolean) => void
+    selectedTraceId: string | null
+    onOpenTurn: (row: TurnRow) => void
+    onOpenSession: (sessionId: string) => void
+    emptyHint: string
   }
 
   let {
@@ -47,240 +64,408 @@
     onOpenTurn,
     onOpenSession,
     emptyHint,
-  }: Props = $props();
+  }: Props = $props()
 
-  let collapsed = $state<Record<string, boolean>>({});
+  let collapsed = $state<Record<string, boolean>>({})
+  let rowMenu = $state<{ x: number; y: number; cell: CellContext; row: TurnRow } | null>(null)
+  const counts = $derived(countByStatus(rows))
+  const statusRows = $derived(withStatus(rows, statusFilter))
+  const p95 = $derived(p95Duration(rows))
 
-  const counts = $derived(countByStatus(rows));
-  const filtered = $derived(
-    statusFilter ? rows.filter((row) => row.status === statusFilter) : rows,
-  );
-  const sorted = $derived(sortTurns(filtered, sort));
-  const groups = $derived(grouped ? groupBySession(sorted) : []);
-  const p95 = $derived(p95Duration(rows));
+  // The clock column names two different instants once a listing straddles a
+  // day, so the rows say which day they are on.
+  const spansDays = $derived(spansMultipleDays(rows.map((row) => row.startedAt)))
 
   const STATUS_FILTERS: { id: TurnStatusFilter; label: string }[] = [
-    { id: "ok", label: "Succeeded" },
-    { id: "error", label: "Failed" },
-    { id: "interrupted", label: "Interrupted" },
-  ];
+    { id: 'ok', label: 'Succeeded' },
+    { id: 'error', label: 'Failed' },
+    { id: 'interrupted', label: 'Interrupted' },
+  ]
+  const HEADS: { key: TurnSortKey; label: string; align: 'start' | 'end' }[] = [
+    { key: 'startedAt', label: 'Time', align: 'start' },
+    { key: 'prompt', label: 'Prompt', align: 'start' },
+    { key: 'sessionId', label: 'Session', align: 'start' },
+    { key: 'model', label: 'Model', align: 'start' },
+    { key: 'durationMs', label: 'Duration', align: 'end' },
+    { key: 'costUsd', label: 'Cost', align: 'end' },
+    { key: 'tokens', label: 'Tokens', align: 'end' },
+  ]
+  // Default widths, in pixels and including the cell's own padding, sized from
+  // what each column holds: a wall-clock instant with its day, a session uuid,
+  // a model name, and measures no wider than their widest value. They are only
+  // defaults — every column is resizable.
+  const WIDTHS = {
+    startedAt: 124,
+    prompt: 360,
+    sessionId: 216,
+    model: 152,
+    durationMs: 104,
+    costUsd: 92,
+    tokens: 96,
+  } satisfies Record<TurnSortKey, number>
 
-  const HEADS: { key: TurnSortKey; label: string; align: "start" | "end" }[] = [
-    { key: "startedAt", label: "Time", align: "start" },
-    { key: "prompt", label: "Prompt", align: "start" },
-    { key: "sessionId", label: "Session", align: "start" },
-    { key: "model", label: "Model", align: "start" },
-    { key: "durationMs", label: "Duration", align: "end" },
-    { key: "costUsd", label: "Cost", align: "end" },
-    { key: "tokens", label: "Tokens", align: "end" },
-  ];
+  /** The leftover width goes to the prompt, which is the column worth reading
+   *  in place. Left to the browser it pools between the ids and the measures,
+   *  which is how a truncated prompt ends up beside four columns of blank.
+   *
+   *  `width:100%` claims the slack and `max-width:0` stops the prompt's own
+   *  length from sizing the table instead — the two together are what make a
+   *  cell truncate rather than scroll. Drag the prompt and it stops absorbing
+   *  the slack: a width the reader set is theirs. */
+  function trackStyle(key: TurnSortKey, sizePx: number): string {
+    return key === 'prompt' && !isColumnResized(dataTable, 'prompt')
+      ? `min-width:${sizePx}px;width:100%;max-width:0`
+      : `width:${sizePx}px;min-width:${sizePx}px;max-width:${sizePx}px`
+  }
 
-  const columns = $derived(
-    grouped
-      ? "6.5rem minmax(0,1fr) 6rem 6.5rem 5.125rem 4.375rem 4.125rem"
-      : "3.875rem minmax(0,1fr) 6rem 6.5rem 5.125rem 4.375rem 4.125rem",
-  );
+  const columnHelper = createColumnHelper<InsightsTableFeatures, TurnRow>()
+  const columns = columnHelper.columns([
+    columnHelper.accessor('startedAt', { id: 'startedAt', header: 'Time', sortDescFirst: true, size: WIDTHS.startedAt, minSize: MIN_TRACK_PX }),
+    columnHelper.accessor('prompt', { id: 'prompt', header: 'Prompt', sortDescFirst: true, size: WIDTHS.prompt, minSize: 200 }),
+    columnHelper.accessor((row) => row.sessionId ?? undefined, { id: 'sessionId', header: 'Session', sortDescFirst: true, sortUndefined: 'last', size: WIDTHS.sessionId, minSize: MIN_TRACK_PX }),
+    columnHelper.accessor((row) => row.model ?? undefined, { id: 'model', header: 'Model', sortDescFirst: true, sortUndefined: 'last', size: WIDTHS.model, minSize: MIN_TRACK_PX }),
+    columnHelper.accessor((row) => row.durationMs ?? undefined, { id: 'durationMs', header: 'Duration', sortDescFirst: true, sortUndefined: 'last', size: WIDTHS.durationMs, minSize: MIN_TRACK_PX }),
+    columnHelper.accessor((row) => row.costUsd ?? undefined, { id: 'costUsd', header: 'Cost', sortDescFirst: true, sortUndefined: 'last', size: WIDTHS.costUsd, minSize: MIN_TRACK_PX }),
+    columnHelper.accessor(
+      (row) => row.inputTokens == null && row.outputTokens == null ? undefined : (row.inputTokens ?? 0) + (row.outputTokens ?? 0),
+      { id: 'tokens', header: 'Tokens', sortDescFirst: true, sortUndefined: 'last', size: WIDTHS.tokens, minSize: MIN_TRACK_PX },
+    ),
+  ])
 
-  function toggleSort(key: TurnSortKey): void {
-    onSortChange({
-      key,
-      dir: sort.key === key && sort.dir === "desc" ? "asc" : "desc",
-    });
+  const dataTable = createTable({
+    features: insightsTableFeatures,
+    get data() {
+      return statusRows
+    },
+    columns,
+    state: {
+      get sorting(): SortingState {
+        return [{ id: sort.key, desc: sort.dir === 'desc' }]
+      },
+    },
+    // The listing is always sorted by something: the parent holds one sort key
+    // and one direction, and there is no "unsorted" turn order to return to.
+    // With removal enabled, the third state is an empty sorting array this
+    // component cannot express, so a header stopped toggling after one click.
+    enableSortingRemoval: false,
+    onSortingChange: (updater) => {
+      const next = functionalUpdate(updater, [{ id: sort.key, desc: sort.dir === 'desc' }])
+      const first = next[0]
+      const matchingHead = first ? HEADS.find((head) => head.key === first.id) : undefined
+      if (first && matchingHead) {
+        onSortChange({ key: matchingHead.key, dir: first.desc ? 'desc' : 'asc' })
+      }
+    },
+    columnResizeMode: 'onChange',
+    initialState: { pagination: { pageIndex: 0, pageSize: 25 } },
+  })
+
+  const filteredSortedRows = $derived(dataTable.getSortedRowModel().rows.map((row) => row.original))
+  const pageRows = $derived(dataTable.getRowModel().rows.map((row) => row.original))
+  const groups = $derived(grouped ? groupBySession(filteredSortedRows) : [])
+
+  function head(columnId: string): (typeof HEADS)[number] {
+    return HEADS.find((candidate) => candidate.key === columnId) ?? HEADS[0]
+  }
+
+  /** A click that ends a drag-select is the reader finishing a selection, not
+   *  asking for the turn. */
+  function activate(row: TurnRow): void {
+    if (hasTextSelection()) return
+    onOpenTurn(row)
+  }
+
+  function openRowMenu(event: MouseEvent, row: TurnRow): void {
+    event.preventDefault()
+    event.stopPropagation()
+    rowMenu = { x: event.clientX, y: event.clientY, cell: cellContextFrom(event), row }
+  }
+
+  function rowMenuActions(row: TurnRow): { label: string; run: () => void }[] {
+    const actions = [{ label: 'Open turn', run: () => onOpenTurn(row) }]
+    const sessionId = row.sessionId
+    if (sessionId) actions.push({ label: 'Open session', run: () => onOpenSession(sessionId) })
+    return actions
+  }
+
+  function hideMenuColumn(columnId: string | null): (() => void) | undefined {
+    if (!columnId) return undefined
+    const column = dataTable.getColumn(columnId)
+    if (!column?.getCanHide()) return undefined
+    return () => column.toggleVisibility(false)
   }
 
   function rowBackground(row: TurnRow): string {
-    if (row.traceId === selectedTraceId) return "var(--wash-3)";
-    if (row.status === "error") return "color-mix(in oklch, var(--failure) 7%, transparent)";
-    if (row.status === "interrupted") return "color-mix(in oklch, var(--warning) 8%, transparent)";
-    return "transparent";
+    if (row.traceId === selectedTraceId) {
+      return 'color-mix(in oklch, var(--solus-art-1) 7%, var(--card))'
+    }
+    if (row.status === 'error') return 'color-mix(in oklch, var(--failure) 7%, transparent)'
+    if (row.status === 'interrupted') return 'color-mix(in oklch, var(--warning) 8%, transparent)'
+    return 'transparent'
   }
 
   function durationColor(row: TurnRow): string {
-    if (row.status === "error") return "var(--failure)";
-    if (p95 != null && row.durationMs != null && row.durationMs >= p95) return "var(--warning)";
-    return "var(--foreground)";
+    if (row.status === 'error') return 'var(--failure)'
+    if (p95 != null && row.durationMs != null && row.durationMs >= p95) return 'var(--warning)'
+    return 'var(--foreground)'
   }
 
-  const statusLabels: Record<string, string> = {
-    error: "failed",
-    interrupted: "stopped",
-    unknown: "open",
-  };
+  /** A status a turn row can carry. The column is free-form SQL text, so a
+   *  value Solus does not name is printed as it was stored. */
+  function statusLabel(status: string): string {
+    if (status === 'error') return 'failed'
+    if (status === 'interrupted') return 'stopped'
+    if (status === 'unknown') return 'open'
+    return status
+  }
 </script>
 
-{#snippet turnRow(row: TurnRow, indent: number)}
+{#snippet statusFilters()}
   <div
-    class="grid cursor-pointer items-center gap-4 px-4 transition-colors hover:bg-muted"
-    style="grid-template-columns:{columns};height:2.375rem;background:{rowBackground(
-      row,
-    )};box-shadow:inset 0 -0.5px 0 var(--hairline)"
-    role="button"
-    tabindex="0"
-    onclick={() => onOpenTurn(row)}
-    onkeydown={(event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        onOpenTurn(row);
-      }
-    }}
+    class="flex shrink-0 items-center gap-0.5 rounded-full bg-[var(--wash-1)] p-0.5 shadow-[inset_0_0_0_0.5px_var(--hairline)]"
+    role="group"
+    aria-label="Filter by status"
   >
-    <span class="text-xs tabular-nums" style="padding-left:{indent}px"
-      >{formatClock(row.startedAt)}</span
-    >
-    <span class="flex min-w-0 items-center gap-2.5">
-      <span
-        class="truncate text-[0.8125rem]"
-        style="font-weight:{row.traceId === selectedTraceId ? 500 : 400}"
-        title={row.prompt}>{singleLine(row.prompt) || "—"}</span
+    {#each STATUS_FILTERS as filter (filter.id)}
+      {@const active = statusFilter === filter.id}
+      <button
+        type="button"
+        class="flex h-7 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-xs outline-none transition-[background-color,color,box-shadow,scale] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] pointer-coarse:h-9"
+        style="background:{active ? 'var(--card)' : 'transparent'};box-shadow:{active
+          ? 'var(--elev-ring), 0 1px 2px -1px rgba(0,0,0,0.08)'
+          : 'none'};color:{active ? 'var(--foreground)' : 'var(--muted-foreground)'}"
+        aria-pressed={active}
+        onclick={() => onStatusFilterChange(active ? null : filter.id)}
       >
-      {#if row.status !== "ok"}
-        <span
-          class="shrink-0 text-[0.625rem] font-medium uppercase"
-          style="color:{row.status === 'error' ? 'var(--failure)' : 'var(--warning)'}"
-          >{statusLabels[row.status] ?? row.status}</span
-        >
+        {filter.label}
+        <span class="tabular-nums opacity-60">{counts[filter.id]}</span>
+      </button>
+    {/each}
+  </div>
+{/snippet}
+
+{#snippet groupToggle()}
+  <button
+    type="button"
+    class="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-xs outline-none transition-[background-color,color,box-shadow,scale] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] pointer-coarse:h-10"
+    style="box-shadow:inset 0 0 0 0.5px var(--hairline);background:{grouped
+      ? 'var(--wash-3)'
+      : 'transparent'};color:{grouped ? 'var(--foreground)' : 'var(--muted-foreground)'}"
+    aria-pressed={grouped}
+    onclick={() => onGroupedChange(!grouped)}
+  >
+    <StackSimpleIcon class="size-3.5" aria-hidden="true" />
+    <span class="hidden sm:inline">Group by session</span>
+  </button>
+{/snippet}
+
+{#snippet turnCell(row: TurnRow, columnId: string, indent: number)}
+  {#if columnId === 'startedAt'}
+    <span class="block truncate text-xs tabular-nums text-muted-foreground" style="padding-left:{indent}px">
+      {spansDays ? formatDayClock(row.startedAt) : formatClock(row.startedAt)}
+    </span>
+  {:else if columnId === 'prompt'}
+    <span class="flex min-w-0 items-center gap-2">
+      <span class="truncate text-[0.8125rem]" class:font-medium={row.traceId === selectedTraceId} title={row.prompt}>{singleLine(row.prompt) || '—'}</span>
+      {#if row.status !== 'ok'}
+        {@const tone = row.status === 'error' ? 'var(--failure)' : 'var(--warning)'}
+        <span class="flex shrink-0 items-center gap-1 text-xs" style="color:{tone}">
+          <span class="size-1.5 rounded-full" style="background:{tone}"></span>
+          {statusLabel(row.status)}
+        </span>
       {/if}
     </span>
+  {:else if columnId === 'sessionId'}
     {#if grouped}
       <span></span>
     {:else}
       <button
         type="button"
-        class="cursor-pointer truncate text-left text-xs text-(--primary) transition-colors hover:underline"
+        class="cursor-pointer truncate text-left text-xs text-muted-foreground transition-colors hover:text-(--primary) hover:underline"
         onclick={(event) => {
-          event.stopPropagation();
-          if (row.sessionId) onOpenSession(row.sessionId);
+          event.stopPropagation()
+          if (row.sessionId) onOpenSession(row.sessionId)
         }}
-        disabled={!row.sessionId}>{row.sessionId ?? "—"}</button
-      >
+        disabled={!row.sessionId}
+      >{row.sessionId ?? '—'}</button>
     {/if}
-    <span class="truncate text-xs">{shortModel(row.model)}</span>
-    <span class="text-right text-xs tabular-nums" style="color:{durationColor(row)}"
-      >{formatDuration(row.durationMs)}</span
-    >
-    <span class="text-right text-xs tabular-nums">{formatCost(row.costUsd)}</span>
-    <span class="text-right text-xs tabular-nums"
-      >{formatTokens(
-        row.inputTokens == null && row.outputTokens == null
-          ? null
-          : (row.inputTokens ?? 0) + (row.outputTokens ?? 0),
-      )}</span
-    >
-  </div>
+  {:else if columnId === 'model'}
+    <span class="block truncate text-xs text-muted-foreground">{row.model ?? '—'}</span>
+  {:else if columnId === 'durationMs'}
+    <span class="block text-right text-xs tabular-nums" style="color:{durationColor(row)}">{formatDuration(row.durationMs)}</span>
+  {:else if columnId === 'costUsd'}
+    <span class="block text-right text-xs tabular-nums">{formatCost(row.costUsd)}</span>
+  {:else if columnId === 'tokens'}
+    <span class="block text-right text-xs tabular-nums">{formatTokens(row.inputTokens == null && row.outputTokens == null ? null : (row.inputTokens ?? 0) + (row.outputTokens ?? 0))}</span>
+  {/if}
 {/snippet}
 
 <section
-  class="flex min-h-35 flex-1 flex-col overflow-hidden rounded-xl bg-card shadow-[shadow:var(--elev-ring)]"
-  aria-label={grouped ? "Sessions" : "Turns"}
+  class="flex min-h-35 flex-1 flex-col overflow-hidden rounded-xl bg-card shadow-[shadow:var(--insights-card-shadow)] ring-1 ring-[color-mix(in_oklch,var(--foreground)_5%,transparent)]"
+  aria-label={grouped ? 'Sessions' : 'Turns'}
 >
   <header
-    class="flex h-10 shrink-0 items-center gap-3 px-4 shadow-[inset_0_-0.5px_0_var(--hairline)]"
+    class="flex min-h-13 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 shadow-[inset_0_-0.5px_0_var(--hairline-strong)]"
   >
-    <h2 class="text-xs font-medium">{grouped ? "Sessions" : "Turns"}</h2>
-    <span class="text-[0.6875rem] tabular-nums text-muted-foreground">
-      {#if grouped}
-        {groups.length} sessions · {sorted.length} turns
-      {:else}
-        {sorted.length} of {rows.length}
-      {/if}
-    </span>
-    <span class="flex-1"></span>
-    {#each STATUS_FILTERS as filter (filter.id)}
-      {@const active = statusFilter === filter.id}
-      <button
-        type="button"
-        class="flex h-5.75 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-[0.6875rem] transition-colors hover:bg-muted"
-        style="box-shadow:{active ? 'none' : 'var(--elev-ring)'};background:{active
-          ? 'var(--wash-3)'
-          : 'transparent'};color:{active ? 'var(--foreground)' : 'var(--muted-foreground)'}"
-        aria-pressed={active}
-        onclick={() => onStatusFilterChange(active ? null : filter.id)}
-        >{filter.label}
-        <span class="text-[0.625rem] tabular-nums opacity-70">{counts[filter.id]}</span></button
-      >
-    {/each}
-    <span class="h-4 w-px bg-[var(--hairline-strong)]"></span>
-    <button
-      type="button"
-      class="h-5.75 cursor-pointer rounded-full px-2.5 text-[0.6875rem] transition-colors hover:bg-muted"
-      style="box-shadow:{grouped ? 'none' : 'var(--elev-ring)'};background:{grouped
-        ? 'var(--wash-3)'
-        : 'transparent'};color:{grouped ? 'var(--foreground)' : 'var(--muted-foreground)'}"
-      aria-pressed={grouped}
-      onclick={() => onGroupedChange(!grouped)}>Group by session</button
-    >
-  </header>
-
-  <div class="min-h-0 flex-1 overflow-y-auto" data-sb>
-    <div
-      class="sticky top-0 z-10 grid h-7.5 items-center gap-4 bg-card px-4 text-[0.5938rem] font-medium uppercase shadow-[inset_0_-0.5px_0_var(--hairline-strong)]"
-      style="grid-template-columns:{columns}"
-    >
-      {#each HEADS as head (head.key)}
-        <button
-          type="button"
-          class="flex cursor-pointer items-center gap-1 transition-colors hover:text-foreground"
-          style="justify-content:{head.align === 'end'
-            ? 'flex-end'
-            : 'flex-start'};color:{sort.key === head.key
-            ? 'var(--foreground)'
-            : 'var(--muted-foreground)'}"
-          onclick={() => toggleSort(head.key)}
-        >
-          {grouped && head.key === "sessionId" ? "" : head.label}
-          <span class="text-[0.5rem] opacity-90"
-            >{sort.key === head.key ? (sort.dir === "asc" ? "▲" : "▼") : ""}</span
-          >
-        </button>
-      {/each}
+    <div class="flex min-w-0 shrink-0 items-baseline gap-2">
+      <h2 class="text-[0.8125rem] font-medium text-foreground">{grouped ? 'Sessions' : 'Turns'}</h2>
+      <p class="truncate text-xs tabular-nums text-muted-foreground">
+        {#if grouped}{groups.length} sessions · {filteredSortedRows.length} turns{:else}{filteredSortedRows.length} of {rows.length}{/if}
+      </p>
     </div>
 
-    {#if sorted.length === 0}
-      <div class="flex flex-col items-center gap-2 py-16 text-muted-foreground">
-        <span class="text-xs">No turns match this query</span>
-        <span class="text-[0.625rem]">{emptyHint}</span>
-      </div>
-    {:else if grouped}
-      {#each groups as group (group.sessionId)}
-        {@const open = collapsed[group.sessionId] !== true}
-        <button
-          type="button"
-          class="grid h-8.5 w-full cursor-pointer items-center gap-4 bg-[var(--wash-1)] px-4 text-left transition-colors hover:bg-muted"
-          style="grid-template-columns:{columns};box-shadow:inset 0 -0.5px 0 var(--hairline),inset 0 0.5px 0 var(--hairline)"
-          aria-expanded={open}
-          onclick={() =>
-            (collapsed = { ...collapsed, [group.sessionId]: open })}
-        >
-          <span class="flex items-center gap-1.5 text-xs tabular-nums">
-            <CaretRightIcon
-              size={9}
-              weight="bold"
-              class="opacity-70 transition-transform duration-150 motion-reduce:transition-none"
-              style="transform:rotate({open ? 90 : 0}deg)"
-            />
-            {group.turns.length}
-            {group.turns.length === 1 ? "turn" : "turns"}
-          </span>
-          <span class="truncate text-[0.8125rem] font-medium">{singleLine(group.latestPrompt)}</span>
-          <span class="truncate text-xs">{group.sessionId}</span>
-          <span></span>
-          <span class="text-right text-xs tabular-nums"
-            >{formatDuration(group.totalDurationMs)}</span
-          >
-          <span class="text-right text-xs tabular-nums">{formatCost(group.totalCostUsd)}</span>
-          <span></span>
-        </button>
-        {#if open}
-          {#each group.turns as row (row.traceId)}
-            {@render turnRow(row, 14)}
+    <DataTableToolbar table={dataTable} filterPlaceholder="Filter turns…" />
+    {@render groupToggle()}
+    <span class="flex-1"></span>
+    {@render statusFilters()}
+    <DataTableColumnsMenu table={dataTable} />
+  </header>
+
+  <div class="min-h-0 flex-1 overflow-auto" data-sb>
+    <Table.Root containerClass="overflow-visible" class="min-w-full border-separate border-spacing-0">
+      <Table.Header class="sticky top-0 z-10 bg-card shadow-[0_1px_0_var(--hairline-strong),0_3px_8px_-6px_rgba(0,0,0,0.28)]">
+        {#each dataTable.getHeaderGroups() as headerGroup (headerGroup.id)}
+          <Table.Row class="border-0 bg-[color-mix(in_oklch,var(--wash-1)_82%,var(--card))] hover:bg-[color-mix(in_oklch,var(--wash-1)_82%,var(--card))]">
+            {#each headerGroup.headers as header (header.id)}
+              {@const definition = head(header.column.id)}
+              {@const sorted = header.column.getIsSorted()}
+              <Table.Head
+                colspan={header.colSpan}
+                class="group/head relative h-9 px-3 text-xs font-normal text-muted-foreground"
+                style="{trackStyle(definition.key, header.getSize())};text-align:{definition.align === 'end' ? 'right' : 'left'}"
+                aria-sort={sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none'}
+              >
+                <button
+                  type="button"
+                  class="group/sort flex h-9 w-full cursor-pointer items-center gap-1 outline-none transition-colors hover:text-foreground focus-visible:text-foreground {sorted ? 'text-foreground' : ''}"
+                  class:flex-row-reverse={definition.align === 'end'}
+                  onclick={header.column.getToggleSortingHandler()}
+                >
+                  <span class="truncate">{grouped && definition.key === 'sessionId' ? '' : definition.label}</span>
+                  <DataTableSortIcon direction={sorted} />
+                </button>
+                <DataTableResizeHandle
+                  columnLabel={definition.label}
+                  active={header.column.getIsResizing()}
+                  onStart={(event, renderedWidthPx) => {
+                    seedColumnSize(dataTable, definition.key, renderedWidthPx)
+                    header.getResizeHandler()(event)
+                  }}
+                  onNudge={(delta) => nudgeColumnSize(dataTable, definition.key, delta)}
+                  onReset={() => resetColumnSize(dataTable, definition.key)}
+                />
+              </Table.Head>
+            {/each}
+          </Table.Row>
+        {/each}
+      </Table.Header>
+      <!-- The app disables selection at the root, so the rows opt back in: a
+           reader must be able to drag a prompt or an id out of the table. -->
+      <Table.Body class="select-text">
+        {#if grouped}
+          {#each groups as group (group.sessionId)}
+            {@const open = collapsed[group.sessionId] !== true}
+            <Table.Row
+              class="h-10 cursor-pointer bg-[color-mix(in_oklch,var(--wash-1)_74%,var(--card))] outline-none shadow-[inset_0_-0.5px_0_var(--hairline),inset_0_0.5px_0_var(--hairline)] transition-[background-color,box-shadow] hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--primary)"
+              tabindex={0}
+              aria-expanded={open}
+              onclick={() => (collapsed[group.sessionId] = open)}
+            >
+              {#each dataTable.getVisibleLeafColumns() as column (column.id)}
+                <Table.Cell class="overflow-hidden px-3 py-0 text-xs" style={trackStyle(head(column.id).key, column.getSize())} data-column-id={column.id} data-column-label={head(column.id).label}>
+                  {#if column.id === 'startedAt'}
+                    <span class="flex items-center gap-1.5 tabular-nums">
+                      <CaretRightIcon class="size-2.5 opacity-70 transition-transform duration-150 motion-reduce:transition-none" weight="bold" style="transform:rotate({open ? 90 : 0}deg)" />
+                      {group.turns.length} {group.turns.length === 1 ? 'turn' : 'turns'}
+                    </span>
+                  {:else if column.id === 'prompt'}
+                    <span class="block truncate text-[0.8125rem] font-medium">{singleLine(group.latestPrompt)}</span>
+                  {:else if column.id === 'sessionId'}
+                    <span class="block truncate">{group.sessionId}</span>
+                  {:else if column.id === 'durationMs'}
+                    <span class="block text-right tabular-nums">{formatDuration(group.totalDurationMs)}</span>
+                  {:else if column.id === 'costUsd'}
+                    <span class="block text-right tabular-nums">{formatCost(group.totalCostUsd)}</span>
+                  {/if}
+                </Table.Cell>
+              {/each}
+            </Table.Row>
+            {#if open}
+              {#each group.turns as row (row.traceId)}
+                <Table.Row
+                  class="h-10 cursor-pointer border-0 outline-none shadow-[inset_0_-0.5px_0_var(--hairline)] transition-[background-color,box-shadow] hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:shadow-[inset_2px_0_0_color-mix(in_oklch,var(--solus-art-1)_55%,transparent),inset_0_-0.5px_0_var(--hairline)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--primary) data-[state=selected]:shadow-[inset_2px_0_0_var(--solus-art-1),inset_0_-0.5px_0_var(--hairline)]"
+                  style="background:{rowBackground(row)}"
+                  data-state={row.traceId === selectedTraceId ? 'selected' : undefined}
+                  tabindex={0}
+                  onclick={() => activate(row)}
+                  oncontextmenu={(event) => openRowMenu(event, row)}
+                  onkeydown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      onOpenTurn(row)
+                    }
+                  }}
+                >
+                  {#each dataTable.getVisibleLeafColumns() as column (column.id)}
+                    <Table.Cell class="overflow-hidden px-3 py-0" style={trackStyle(head(column.id).key, column.getSize())} data-column-id={column.id} data-column-label={head(column.id).label}>{@render turnCell(row, column.id, 14)}</Table.Cell>
+                  {/each}
+                </Table.Row>
+              {/each}
+            {/if}
+          {/each}
+        {:else}
+          {#each pageRows as row (row.traceId)}
+            <Table.Row
+              class="h-10 cursor-pointer border-0 outline-none shadow-[inset_0_-0.5px_0_var(--hairline)] transition-[background-color,box-shadow] hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:shadow-[inset_2px_0_0_color-mix(in_oklch,var(--solus-art-1)_55%,transparent),inset_0_-0.5px_0_var(--hairline)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--primary) data-[state=selected]:shadow-[inset_2px_0_0_var(--solus-art-1),inset_0_-0.5px_0_var(--hairline)]"
+              style="background:{rowBackground(row)}"
+              data-state={row.traceId === selectedTraceId ? 'selected' : undefined}
+              tabindex={0}
+              onclick={() => activate(row)}
+              oncontextmenu={(event) => openRowMenu(event, row)}
+              onkeydown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  onOpenTurn(row)
+                }
+              }}
+            >
+              {#each dataTable.getVisibleLeafColumns() as column (column.id)}
+                <Table.Cell class="overflow-hidden px-3 py-0" style={trackStyle(head(column.id).key, column.getSize())} data-column-id={column.id} data-column-label={head(column.id).label}>{@render turnCell(row, column.id, 0)}</Table.Cell>
+              {/each}
+            </Table.Row>
           {/each}
         {/if}
-      {/each}
-    {:else}
-      {#each sorted as row (row.traceId)}
-        {@render turnRow(row, 0)}
-      {/each}
-    {/if}
-    <div class="h-3"></div>
+
+        {#if filteredSortedRows.length === 0}
+          <Table.Row class="border-0 hover:bg-transparent">
+            <Table.Cell colspan={Math.max(1, dataTable.getVisibleLeafColumns().length)} class="p-0">
+              <DataTableEmptyState
+                filtered={statusRows.length > 0}
+                title={statusRows.length === 0 ? 'No turns in this result' : 'No matching turns'}
+                description={statusRows.length === 0
+                  ? emptyHint
+                  : 'Change or clear the table filter to see more turns.'}
+              />
+            </Table.Cell>
+          </Table.Row>
+        {/if}
+      </Table.Body>
+    </Table.Root>
   </div>
+  {#if !grouped}
+    <DataTablePagination table={dataTable} />
+  {/if}
+
+  {#if rowMenu}
+    {@const menu = rowMenu}
+    <DataTableContextMenu
+      x={menu.x}
+      y={menu.y}
+      cell={menu.cell}
+      actions={rowMenuActions(menu.row)}
+      onHideColumn={hideMenuColumn(menu.cell.columnId)}
+      onResetWidths={() => dataTable.resetColumnSizing()}
+      onClose={() => (rowMenu = null)}
+    />
+  {/if}
 </section>

@@ -1,17 +1,17 @@
 import { describe, expect, test } from 'bun:test'
 import type { MetricsQueryResult, MetricsSchema } from '../../src/shared/observability-types'
 import {
-  eventStats,
+  eventPoints,
   eventsWithinSelection,
   resultShape,
   toEventTable,
-  trendSeries,
   type EventRow,
 } from '../../src/renderer/components/insights/lib/result-shape'
 import { isTurnResult } from '../../src/renderer/components/insights/lib/turn-rows'
+import { volumeStats } from '../../src/renderer/components/insights/lib/volume'
 
 // The result-shape model (docs/plans/observability.md): the server declares the
-// grain, the client maps it to one of four renderings. These tests encode the
+// grain, the client maps it to one of five renderings. These tests encode the
 // rules that decide the mapping — most importantly that a declared grain is
 // authoritative, so a span listing can never masquerade as a turn listing
 // however turn-shaped its columns look.
@@ -28,7 +28,7 @@ const SCHEMA: MetricsSchema = {
   views: [
     {
       view: 'turns',
-      kind: 'turn',
+      kinds: ['turn'],
       internal: false,
       description: '',
       columns: [
@@ -37,11 +37,12 @@ const SCHEMA: MetricsSchema = {
       ],
     },
     {
-      view: 'tool_calls',
-      kind: 'tool_call',
+      view: 'events',
+      kinds: ['tool_call', 'thinking'],
       internal: false,
       description: '',
       columns: [
+        { name: 'kind', type: 'string', description: '' },
         { name: 'started_at', type: 'number', description: '' },
         { name: 'duration_ms', type: 'duration', description: '' },
         { name: 'provider_duration_ms', type: 'duration', description: '' },
@@ -49,7 +50,19 @@ const SCHEMA: MetricsSchema = {
         { name: 'status', type: 'string', description: '' },
       ],
     },
+    {
+      view: 'internal_events',
+      kinds: ['internal.rpc'],
+      internal: true,
+      description: '',
+      columns: [
+        { name: 'started_at', type: 'number', description: '' },
+        { name: 'duration_ms', type: 'duration', description: '' },
+      ],
+    },
   ],
+  base: { table: 'spans', description: '', columns: [] },
+  relationships: [],
 }
 
 describe('declared grain vs the legacy column sniff', () => {
@@ -59,14 +72,14 @@ describe('declared grain vs the legacy column sniff', () => {
     expect(resultShape(shaped, SCHEMA)).toEqual({ shape: 'turns' })
   })
 
-  test('a tool-call listing that selects trace_id is NOT read as turns — the misdetection the declared grain exists to fix', () => {
+  test('an event listing that selects trace_id is NOT read as turns — the misdetection the declared grain exists to fix', () => {
     const shaped = result(
-      ['trace_id', 'span_id', 'started_at', 'command', 'duration_ms'],
-      [['tr_1', 'sp_1', 1_000, 'bun run test', 420]],
-      'tool_calls',
+      ['trace_id', 'span_id', 'kind', 'started_at', 'command', 'duration_ms'],
+      [['tr_1', 'sp_1', 'tool_call', 1_000, 'bun run test', 420]],
+      'events',
     )
     expect(isTurnResult(shaped)).toBe(false)
-    expect(resultShape(shaped, SCHEMA)).toEqual({ shape: 'events', view: 'tool_calls', kind: 'tool_call' })
+    expect(resultShape(shaped, SCHEMA)).toEqual({ shape: 'events', view: 'events', kind: 'tool_call' })
   })
 
   test('without a declared grain (an older host), the turn-column sniff still applies', () => {
@@ -76,73 +89,44 @@ describe('declared grain vs the legacy column sniff', () => {
   })
 
   test('a declared non-turn grain without started_at falls through to the grid', () => {
-    const rollup = result(['tool', 'calls', 'total_ms'], [['Bash', 4, 900]], 'tool_calls')
+    const rollup = result(['tool', 'calls', 'total_ms'], [['Bash', 4, 900]], 'events')
     expect(resultShape(rollup, SCHEMA).shape).toBe('table')
   })
 
   test('an events grain survives a missing schema — only the kind colour is lost', () => {
-    const shaped = result(['started_at', 'duration_ms'], [[1_000, 5]], 'tool_calls')
-    expect(resultShape(shaped, null)).toEqual({ shape: 'events', view: 'tool_calls', kind: '' })
+    const shaped = result(['started_at', 'duration_ms'], [[1_000, 5]], 'events')
+    expect(resultShape(shaped, null)).toEqual({ shape: 'events', view: 'events', kind: '' })
   })
 })
 
-describe('trend detection', () => {
-  test('a bucketed aggregate becomes a line over parsed bucket labels', () => {
+describe('the event kind the multi-kind view derives', () => {
+  // `events` holds every child kind, so the answer itself names the listing:
+  // one distinct kind value titles and colours it, a mix stays generic.
+  test('a mixed-kind listing stays generic rather than wearing one kind\'s colour', () => {
     const shaped = result(
-      ['day', 'p95_duration_ms'],
-      [['2026-08-14', 900], ['2026-08-12', 700], ['2026-08-13', 800]],
+      ['kind', 'started_at'],
+      [['tool_call', 1_000], ['thinking', 2_000]],
+      'events',
     )
-    const shape = resultShape(shaped, SCHEMA)
-    expect(shape.shape).toBe('trend')
-    if (shape.shape !== 'trend') return
-    expect(shape.series.mark).toBe('line')
-    expect(shape.series.valueFormat).toBe('duration')
-    // Sorted by time regardless of the query's own order.
-    expect(shape.series.points.map((point) => point.value)).toEqual([700, 800, 900])
+    expect(resultShape(shaped, SCHEMA)).toEqual({ shape: 'events', view: 'events', kind: '' })
   })
 
-  test('an undeclared span listing over raw spans becomes a scatter, not a grid', () => {
-    const shaped = result(
-      ['started_at', 'duration_ms', 'status'],
-      [[2_000, 50, 'ok'], [1_000, 90, 'error']],
-    )
-    const shape = resultShape(shaped, SCHEMA)
-    expect(shape.shape).toBe('trend')
-    if (shape.shape !== 'trend') return
-    expect(shape.series.mark).toBe('points')
-    expect(shape.series.points).toEqual([
-      { at: 1_000, value: 90, failed: true },
-      { at: 2_000, value: 50, failed: false },
-    ])
+  test('without a kind column, a single-kind view still names its kind', () => {
+    const shaped = result(['started_at', 'duration_ms'], [[1_000, 5]], 'internal_events')
+    expect(resultShape(shaped, SCHEMA)).toEqual({
+      shape: 'events',
+      view: 'internal_events',
+      kind: 'internal.rpc',
+    })
   })
 
-  test('a single point is not a trend', () => {
-    const shaped = result(['day', 'avg_ms'], [['2026-08-14', 900]])
-    expect(resultShape(shaped, SCHEMA).shape).toBe('table')
-  })
-
-  test('the series prefers a duration column over an earlier count', () => {
-    const series = trendSeries(result(
-      ['day', 'calls', 'avg_ms'],
-      [['2026-08-12', 4, 700], ['2026-08-13', 6, 800]],
-    ))
-    expect(series?.valueColumn).toBe('avg_ms')
-    expect(series?.valueFormat).toBe('duration')
-  })
-
-  test('id columns and rows without a parseable time or value are never charted', () => {
-    const series = trendSeries(result(
-      ['started_at', 'session_id', 'duration_ms'],
-      [[1_000, 's_1', 40], [2_000, 's_2', null], [null, 's_3', 60]],
-    ))
-    expect(series?.valueColumn).toBe('duration_ms')
-    expect(series?.points).toEqual([{ at: 1_000, value: 40, failed: false }])
-  })
-
-  test('a result with no numeric measure is a grid', () => {
-    expect(trendSeries(result(['started_at', 'command'], [[1_000, 'bun run test']]))).toBeNull()
+  test('without a kind column, the multi-kind view declares no kind', () => {
+    const shaped = result(['started_at', 'duration_ms'], [[1_000, 5]], 'events')
+    expect(resultShape(shaped, SCHEMA)).toEqual({ shape: 'events', view: 'events', kind: '' })
   })
 })
+
+
 
 describe('the event table', () => {
   const shaped = result(
@@ -153,9 +137,9 @@ describe('the event table', () => {
       ['sp_3', null, 3_000, 'bun run build', null, 'unknown'],
       ['sp_4', 'tr_4', null, 'dropped: no start time', 5, 'ok'],
     ],
-    'tool_calls',
+    'events',
   )
-  const table = toEventTable(shaped, SCHEMA, 'tool_calls')
+  const table = toEventTable(shaped, SCHEMA, 'events')
 
   test('identity columns are link data, not cells', () => {
     expect(table.columns.map((column) => column.name)).toEqual([
@@ -177,17 +161,32 @@ describe('the event table', () => {
     expect(table.linkable).toBe(true)
   })
 
+  test('a single-kind kind column is the title, not a cell; a mixed one stays visible', () => {
+    const single = toEventTable(
+      result(['kind', 'started_at'], [['tool_call', 1_000], ['tool_call', 2_000]], 'events'),
+      SCHEMA,
+      'events',
+    )
+    expect(single.columns.map((column) => column.name)).toEqual(['started_at'])
+    const mixed = toEventTable(
+      result(['kind', 'started_at'], [['tool_call', 1_000], ['thinking', 2_000]], 'events'),
+      SCHEMA,
+      'events',
+    )
+    expect(mixed.columns.map((column) => column.name)).toEqual(['kind', 'started_at'])
+  })
+
   test('a result with no trace ids is not linkable', () => {
     const unlinked = toEventTable(
-      result(['started_at', 'duration_ms'], [[1_000, 5]], 'tool_calls'),
+      result(['started_at', 'duration_ms'], [[1_000, 5]], 'events'),
       SCHEMA,
-      'tool_calls',
+      'events',
     )
     expect(unlinked.linkable).toBe(false)
   })
 })
 
-describe('event stats and the time brush', () => {
+describe('event points and the time brush', () => {
   const row = (overrides: Partial<EventRow>): EventRow => ({
     startedAt: 1_000,
     durationMs: 100,
@@ -198,15 +197,18 @@ describe('event stats and the time brush', () => {
     ...overrides,
   })
 
-  test('failure rate counts errors and interruptions; p95 needs enough durations to mean anything', () => {
-    const few = eventStats([row({ status: 'error' }), row({})])
-    expect(few.failed).toBe(1)
-    expect(few.failureRate).toBe(0.5)
-    expect(few.p50DurationMs).toBe(100)
-    expect(few.p95DurationMs).toBeNull()
+  // Spans are counted by the same histogram that counts turns, so they are
+  // mapped into the same currency rather than summarised a second way.
+  test('a span counts as a failure on error or interruption, and carries no cost', () => {
+    const stats = volumeStats(eventPoints([row({ status: 'error' }), row({})]))
+    expect(stats.failed).toBe(1)
+    expect(stats.failureRate).toBe(0.5)
+    expect(stats.p50DurationMs).toBe(100)
+    expect(stats.totalCostUsd).toBeNull()
+  })
 
-    const many = eventStats([10, 20, 30, 40, 1000].map((durationMs) => row({ durationMs })))
-    expect(many.p95DurationMs).toBe(1000)
+  test('a span is placed at its own start time', () => {
+    expect(eventPoints([row({ startedAt: 4_200 })])[0].at).toBe(4_200)
   })
 
   test('the brush is half-open, matching the turn list', () => {

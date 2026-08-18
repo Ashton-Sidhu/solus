@@ -3,24 +3,41 @@ import type {
   MetricsSchema,
   MetricsValue,
 } from '../../../../shared/observability-types'
+import {
+  isReadableTrend,
+  rankingChart,
+  trendChart,
+  type Ranking,
+  type Trend,
+} from './chart-shape'
+import {
+  asFiniteNumber,
+  asStringOrNull,
+  numericColumns,
+} from './result-columns'
 import { isTurnResult } from './turn-rows'
-import type { TimeSelection } from './volume'
+import { isFailedStatus, type TimeSelection, type VolumePoint } from './volume'
 
 // Result shape → which rendering answers the query (docs/plans/observability.md).
 //
 // The server declares the grain (`sourceView`); this module maps it to one of
-// the four locked shapes: a turn listing, an event listing (span-grained rows
-// that link into their turn's waterfall), a trend (a time column plus one
-// numeric series), or the plain rollup grid. Detection starts from the declared
-// grain and only falls back to column heuristics where no grain was declared —
-// a span listing must never masquerade as turns again.
+// the five locked shapes: a turn listing, an event listing (span-grained rows
+// that link into their turn's waterfall), a trend (a measure over time), a
+// ranking (a measure across a categorical dimension), or the plain grid.
+// Detection starts from the declared grain and only falls back to column
+// heuristics where no grain was declared — a span listing must never
+// masquerade as turns again.
+//
+// The chart forms themselves live in `chart-shape.ts`; this file decides which
+// one the answer is, not how it is drawn.
 //
 // Pure and non-reactive: the page reads these from `$derived`.
 
 export type ResultShape =
   | { shape: 'turns' }
   | { shape: 'events'; view: string; kind: string }
-  | { shape: 'trend'; series: TrendSeries }
+  | { shape: 'trend'; trend: Trend }
+  | { shape: 'ranking'; ranking: Ranking }
   | { shape: 'table' }
 
 /** How one event-table cell renders. */
@@ -52,113 +69,53 @@ export interface EventTable {
   linkable: boolean
 }
 
-export interface TrendPoint {
-  /** Epoch ms — parsed from the bucket label when the query grouped time. */
-  at: number
-  value: number
-  failed: boolean
-}
-
-export interface TrendSeries {
-  timeColumn: string
-  valueColumn: string
-  valueFormat: 'duration' | 'number'
-  /** Raw instants draw as a scatter; bucketed aggregates connect as a line. */
-  mark: 'points' | 'line'
-  points: TrendPoint[]
-}
-
 /** Identity and payload columns a query carries for linking, not for reading.
  *  They stay in the result; the event table just does not render them. */
 const EVENT_HIDDEN_COLUMNS = new Set(['span_id', 'trace_id', 'parent_span_id', 'attrs'])
 
-/** Aliases the QuerySpec compiler and the NL examples give bucketed time. */
-const TIME_BUCKET_COLUMNS = new Set(['bucket', 'day', 'date', 'hour', 'minute', 'week', 'month'])
+/** The measure a chart draws, where the reader picked one. A result that does
+ *  not carry that column ignores it and falls back to its own preference. */
+export type ChartMeasure = string | undefined
 
 export function resultShape(
   result: MetricsQueryResult | null,
   schema: MetricsSchema | null,
+  measure?: ChartMeasure,
 ): ResultShape {
   if (!result) return { shape: 'table' }
   if (isTurnResult(result)) return { shape: 'turns' }
   const view = result.sourceView
   if (view !== undefined && view !== 'turns' && result.columns.includes('started_at')) {
-    const descriptor = schema?.views.find((candidate) => candidate.view === view)
-    return { shape: 'events', view, kind: descriptor?.kind ?? '' }
+    return { shape: 'events', view, kind: eventKind(result, schema, view) }
   }
-  const series = trendSeries(result)
-  if (series && series.points.length >= 2) return { shape: 'trend', series }
+  const trend = trendChart(result, measure)
+  if (trend && isReadableTrend(trend)) return { shape: 'trend', trend }
+  const ranking = rankingChart(result, measure)
+  if (ranking) return { shape: 'ranking', ranking }
   return { shape: 'table' }
 }
 
-function asFiniteNumber(value: MetricsValue | undefined): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-function asStringOrNull(value: MetricsValue | undefined): string | null {
-  return typeof value === 'string' && value ? value : null
-}
-
-/** Bucket labels are ISO-ish strings (`2026-08-16`, `2026-08-16T14:00`,
- *  `2026-08`); anything Date can't parse drops the row from the series. */
-function parseBucketLabel(value: MetricsValue | undefined): number | null {
-  if (typeof value !== 'string' || !value) return null
-  const at = Date.parse(value)
-  return Number.isFinite(at) ? at : null
-}
-
-function numericColumns(result: MetricsQueryResult): boolean[] {
-  return result.columns.map((_, index) =>
-    result.rows.some((row) => row[index] != null) &&
-    result.rows.every((row) => row[index] == null || typeof row[index] === 'number'))
-}
-
-/** A column the trend may chart: a measure, never an id or a second time. */
-function isTrendValueColumn(name: string): boolean {
-  return !name.endsWith('_id')
-    && name !== 'started_at'
-    && name !== 'ended_at'
-    && !TIME_BUCKET_COLUMNS.has(name)
-}
-
-/**
- * The single series a result can be read as: one time column (raw `started_at`
- * instants, or a bucket label) against the first duration-like — else first
- * numeric — measure. One series, one axis; further measures stay in the table.
- */
-export function trendSeries(result: MetricsQueryResult | null): TrendSeries | null {
-  if (!result || result.rows.length === 0) return null
-  const epochIndex = result.columns.indexOf('started_at')
-  const bucketIndex = result.columns.findIndex((name) => TIME_BUCKET_COLUMNS.has(name))
-  const timeIndex = epochIndex !== -1 ? epochIndex : bucketIndex
-  if (timeIndex === -1) return null
-  const timeKind: 'epoch' | 'bucket' = epochIndex !== -1 ? 'epoch' : 'bucket'
-
-  const numeric = numericColumns(result)
-  const candidates = result.columns
-    .map((name, index) => ({ name, index }))
-    .filter(({ name, index }) => index !== timeIndex && numeric[index] && isTrendValueColumn(name))
-  if (candidates.length === 0) return null
-  const value = candidates.find(({ name }) => name.endsWith('_ms')) ?? candidates[0]
-
-  const statusIndex = result.columns.indexOf('status')
-  const points: TrendPoint[] = []
-  for (const row of result.rows) {
-    const at = timeKind === 'epoch' ? asFiniteNumber(row[timeIndex]) : parseBucketLabel(row[timeIndex])
-    const measured = asFiniteNumber(row[value.index])
-    if (at == null || measured == null) continue
-    const status = statusIndex === -1 ? undefined : row[statusIndex]
-    points.push({ at, value: measured, failed: status === 'error' || status === 'interrupted' })
+/** What kind of event the listing shows, for its title and hue. The `events`
+ *  view holds many kinds, so the answer itself decides: a selected `kind`
+ *  column with one distinct value names it; failing that, a single-kind view
+ *  does; a mixed or unknowable listing stays generic. */
+function eventKind(
+  result: MetricsQueryResult,
+  schema: MetricsSchema | null,
+  view: string,
+): string {
+  const kindIndex = result.columns.indexOf('kind')
+  if (kindIndex !== -1) {
+    const distinct = new Set(
+      result.rows
+        .map((row) => row[kindIndex])
+        .filter((value): value is string => typeof value === 'string' && value !== ''),
+    )
+    if (distinct.size === 1) return [...distinct][0]
+    if (distinct.size > 1) return ''
   }
-  if (points.length === 0) return null
-  points.sort((a, b) => a.at - b.at)
-  return {
-    timeColumn: result.columns[timeIndex],
-    valueColumn: value.name,
-    valueFormat: value.name.endsWith('_ms') ? 'duration' : 'number',
-    mark: timeKind === 'epoch' ? 'points' : 'line',
-    points,
-  }
+  const kinds = schema?.views.find((candidate) => candidate.view === view)?.kinds
+  return kinds?.length === 1 ? kinds[0] : ''
 }
 
 function columnFormat(
@@ -189,7 +146,13 @@ export function toEventTable(
     return at === undefined ? undefined : row[at]
   }
 
-  const displayNames = result.columns.filter((name) => !EVENT_HIDDEN_COLUMNS.has(name))
+  // A `kind` column with one distinct value is the listing's title, not a cell
+  // worth a column of identical strings; a mixed listing keeps it visible.
+  const kindIndex = result.columns.indexOf('kind')
+  const kindValues = new Set(kindIndex === -1 ? [] : result.rows.map((row) => row[kindIndex]))
+  const displayNames = result.columns.filter(
+    (name) => !EVENT_HIDDEN_COLUMNS.has(name) && (name !== 'kind' || kindValues.size > 1),
+  )
   const numeric = numericColumns(result)
   const columns: EventColumn[] = displayNames.map((name) => ({
     name,
@@ -217,32 +180,16 @@ export function toEventTable(
   }
 }
 
-export interface EventStats {
-  events: number
-  failed: number
-  failureRate: number
-  p50DurationMs: number | null
-  p95DurationMs: number | null
-}
-
-function percentile(sorted: number[], fraction: number): number {
-  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))]
-}
-
-export function eventStats(rows: EventRow[]): EventStats {
-  const failed = rows.filter((row) => row.status === 'error' || row.status === 'interrupted').length
-  const durations = rows
-    .map((row) => row.durationMs)
-    .filter((value): value is number => value != null)
-    .sort((a, b) => a - b)
-  return {
-    events: rows.length,
-    failed,
-    failureRate: rows.length ? failed / rows.length : 0,
-    p50DurationMs: durations.length ? percentile(durations, 0.5) : null,
-    // Matches the turn list's rule: too few durations make a p95 meaningless.
-    p95DurationMs: durations.length >= 4 ? percentile(durations, 0.95) : null,
-  }
+/** Event rows as the histogram counts them — one bar per span, failures drawn
+ *  from the same baseline, exactly as turns are counted. */
+export function eventPoints(rows: EventRow[]): VolumePoint[] {
+  return rows.map((row) => ({
+    at: row.startedAt,
+    failed: isFailedStatus(row.status),
+    // A span records no cost; only its enclosing turn does.
+    costUsd: null,
+    durationMs: row.durationMs,
+  }))
 }
 
 /** The histogram's brush narrows event rows the same way it narrows turns. */

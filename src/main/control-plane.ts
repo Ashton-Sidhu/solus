@@ -2090,6 +2090,9 @@ export class ControlPlane extends EventEmitter {
       reasoningEffort: run.input.reasoningEffort,
       taskId: run.options.taskId,
       automationId: run.options.automationId,
+      automationName: run.options.automationName,
+      taskTitle: await this._turnTaskTitle(run.options),
+      branch: run.input.gitContext?.branch ?? undefined,
       isResume: !!run.input.agentSessionId,
     })
     if (request.servedEnqueuedAt !== undefined) {
@@ -2680,6 +2683,18 @@ export class ControlPlane extends EventEmitter {
     }
 
     return { handle, run: activeRun }
+  }
+
+  /** The turn's task title for telemetry: the dispatch snapshot when one rode
+   *  along, else one local read. A missing task never blocks the turn. */
+  private async _turnTaskTitle(options: SessionRunRequest['options']): Promise<string | undefined> {
+    if (options.taskSnapshot) return options.taskSnapshot.details.task.title
+    if (!options.taskId) return undefined
+    try {
+      return (await Task.byId(options.taskId)).title
+    } catch {
+      return undefined
+    }
   }
 
   private async _linkPreparedTask(run: SessionRunRequest, sessionId: string): Promise<void> {

@@ -56,7 +56,10 @@ describe('compileNlToSql', () => {
   test('the system prompt carries the generated view schema', () => {
     const prompt = nlCompileSystemPrompt()
     expect(prompt).toContain('CREATE VIEW turns')
-    expect(prompt).toContain('CREATE VIEW tool_calls')
+    expect(prompt).toContain('CREATE VIEW events')
     expect(prompt).toContain('cost_usd')
+    // The pre-summed child time is the reason most questions need no join —
+    // the agent must be told it exists.
+    expect(prompt).toContain('tool_time_ms')
   })
 })

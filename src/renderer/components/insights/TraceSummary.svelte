@@ -7,9 +7,8 @@
    *
    * The share bar and its legend are one reading of the same union — a kind's
    * slice is the time covered by its spans, counted once even when two of them
-   * overlapped. Uninstrumented time leads the bar because on most turns it is
-   * the model thinking, and a person looking for a bottleneck should see that
-   * before they start reading tool names.
+   * overlapped. Unattributed time is a coverage remainder. Its gap list says
+   * where each interval sits without claiming what the provider did there.
    */
   interface Props {
     trace: TraceView;
@@ -24,18 +23,23 @@
 </script>
 
 <div class="flex flex-col gap-2.5">
-  <div class="flex items-baseline gap-2">
-    <span
-      class="text-[0.5938rem] font-medium text-muted-foreground uppercase"
-      >Where the time went</span
+  <div class="flex items-baseline gap-2 pl-0.5">
+    <span class="text-[0.6875rem] font-normal text-muted-foreground uppercase"
+      >Trace coverage</span
     >
     <span class="flex-1"></span>
-    <span class="text-[0.625rem] text-muted-foreground"
-      >{trace.spanCount} {trace.spanCount === 1 ? "span" : "spans"}</span
-    >
+    {#if trace.traceCoverage != null}
+      <span class="text-[0.6875rem] tabular-nums text-muted-foreground"
+        >{formatPercent(trace.traceCoverage)} attributed</span
+      >
+    {:else}
+      <span class="text-[0.6875rem] text-muted-foreground"
+        >{trace.spanCount} {trace.spanCount === 1 ? "span" : "spans"}</span
+      >
+    {/if}
   </div>
 
-  <div class="flex h-2.5 gap-px overflow-hidden rounded-full" role="img" aria-label="Duration share by span kind">
+  <div class="flex h-2 gap-px overflow-hidden rounded-full" role="img" aria-label="Duration share by span kind">
     {#each trace.legend as entry (entry.kind)}
       <span
         style="width:{Math.max(1, entry.share * 100)}%;background:{entry.color}"
@@ -44,46 +48,91 @@
     {/each}
   </div>
 
-  <div class="flex flex-wrap gap-x-5 gap-y-1.5">
+  <div class="flex flex-col gap-0.5 pl-0.5">
     {#each trace.legend as entry (entry.kind)}
-      <span class="flex items-baseline gap-1.5">
-        <span class="size-1.75 rounded-sm" style="background:{entry.color}"></span>
-        <span class="text-[0.625rem] text-muted-foreground">{entry.label}</span>
-        <span class="text-[0.6875rem] font-medium tabular-nums">{formatPercent(entry.share)}</span>
-        <span class="text-[0.625rem] tabular-nums text-muted-foreground"
+      <span class="flex items-baseline gap-2">
+        <span class="size-1.5 shrink-0 self-center rounded-xs" style="background:{entry.color}"
+        ></span>
+        <span
+          class="min-w-0 flex-1 truncate text-[0.6875rem] text-muted-foreground"
+          title={entry.label}>{entry.label}</span
+        >
+        <span class="shrink-0 text-[0.6875rem] tabular-nums">{formatPercent(entry.share)}</span>
+        <span class="w-10 shrink-0 text-right text-[0.6875rem] tabular-nums text-muted-foreground"
           >{formatDuration(entry.ms)}</span
         >
       </span>
     {/each}
   </div>
+
+  {#if trace.gapSummaries.length > 0}
+    <div
+      class="mt-1 flex flex-col gap-2 rounded-lg bg-[var(--wash-1)] px-2.5 py-2.5 shadow-[inset_0_0_0_0.5px_var(--hairline)]"
+    >
+      <div class="flex items-baseline gap-2">
+        <span class="text-[0.6875rem] font-normal text-muted-foreground uppercase"
+          >Unattributed gaps</span
+        >
+        <span class="flex-1"></span>
+        <span class="text-[0.625rem] text-muted-foreground"
+          >{trace.gapSummaries.reduce((total, gap) => total + gap.segments, 0)} segments</span
+        >
+      </div>
+      <p class="m-0 text-[0.625rem] leading-relaxed text-muted-foreground text-pretty">
+        These rows locate missing trace coverage. They do not identify model work or idle time.
+      </p>
+      <div class="flex flex-col gap-0.5">
+        {#each trace.gapSummaries as gap (gap.category)}
+          <div
+            class="flex min-h-6 items-center gap-2 rounded-md px-1.5"
+            title={gap.description}
+          >
+            <span class="min-w-0 flex-1 truncate text-[0.6875rem]">{gap.label}</span>
+            <span class="shrink-0 text-[0.625rem] tabular-nums text-muted-foreground"
+              >×{gap.segments}</span
+            >
+            <span class="w-8 shrink-0 text-right text-[0.625rem] tabular-nums text-muted-foreground"
+              >{formatPercent(gap.share)}</span
+            >
+            <span class="w-11 shrink-0 text-right text-[0.6875rem] tabular-nums"
+              >{formatDuration(gap.ms)}</span
+            >
+          </div>
+        {/each}
+      </div>
+    </div>
+  {/if}
 </div>
 
 {#if visibleTools.length > 0}
-  <div class="flex flex-col gap-2">
-    <span
-      class="text-[0.5938rem] font-medium text-muted-foreground uppercase"
+  <div class="flex flex-col gap-1">
+    <span class="pl-0.5 text-[0.6875rem] font-normal text-muted-foreground uppercase"
       >Longest tool calls</span
     >
-    <div class="overflow-hidden rounded-lg shadow-[shadow:var(--elev-flat)]">
-      {#each visibleTools as total, index (total.tool)}
+    <!-- The bar is the row's own background rather than a column of its own: in
+         a 308px rail a separate track leaves the tool name too narrow to read,
+         which is the one thing the list exists to say. -->
+    <div class="-mx-1 flex flex-col gap-px">
+      {#each visibleTools as total (total.tool)}
         <div
-          class="grid h-7.5 items-center gap-3 px-2.5"
-          style="grid-template-columns:minmax(0,1fr) 1.875rem 4.25rem 3.25rem 2.5rem;box-shadow:{index
-            ? 'inset 0 0.5px 0 var(--hairline)'
-            : 'none'}"
+          class="relative flex h-[22px] items-center gap-2 overflow-hidden rounded-md px-2"
+          title="{total.tool} · ×{total.calls} · {formatDuration(total.ms)}"
         >
-          <span class="truncate text-[0.6875rem]" title={total.tool}>{total.tool}</span>
-          <span class="text-right text-[0.625rem] tabular-nums text-muted-foreground"
+          <span
+            class="absolute inset-y-0 left-0 rounded-md"
+            style="width:{(total.ms / maxToolMs) *
+              100}%;background:color-mix(in oklch, var(--solus-art-4) 22%, transparent)"
+            aria-hidden="true"
+          ></span>
+          <span class="relative min-w-0 flex-1 truncate text-[0.6875rem]">{total.tool}</span>
+          <span class="relative shrink-0 text-[0.6875rem] tabular-nums text-muted-foreground"
             >×{total.calls}</span
           >
-          <span class="relative block h-1.5">
-            <span
-              class="absolute top-0 left-0 h-1.5 rounded-full bg-[var(--solus-art-4)]"
-              style="width:{(total.ms / maxToolMs) * 100}%"
-            ></span>
-          </span>
-          <span class="text-right text-[0.6875rem] tabular-nums">{formatDuration(total.ms)}</span>
-          <span class="text-right text-[0.625rem] tabular-nums text-muted-foreground"
+          <span class="relative w-10 shrink-0 text-right text-[0.6875rem] tabular-nums"
+            >{formatDuration(total.ms)}</span
+          >
+          <span
+            class="relative w-7 shrink-0 text-right text-[0.6875rem] tabular-nums text-muted-foreground"
             >{formatPercent(total.share)}</span
           >
         </div>
@@ -94,11 +143,11 @@
 
 {#if trace.deniedPermissions.length > 0}
   <div
-    class="flex flex-col gap-1 rounded-lg px-3 py-2.5"
+    class="flex flex-col gap-1 rounded-lg px-2.5 py-2"
     style="background:color-mix(in oklch, var(--warning) 8%, transparent);box-shadow:inset 0 0 0 .5px color-mix(in oklch,var(--warning) 34%,transparent)"
   >
     <span
-      class="text-[0.5938rem] font-medium uppercase"
+      class="text-[0.6875rem] font-normal uppercase"
       style="color:var(--warning)"
       >{trace.deniedPermissions.length === 1
         ? "Permission denied"

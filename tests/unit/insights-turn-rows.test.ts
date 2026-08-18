@@ -7,11 +7,16 @@ import {
   p95Duration,
   sortTurns,
   toTurnRows,
+  withStatus,
   type TurnRow,
 } from '../../src/renderer/components/insights/lib/turn-rows'
 import {
-  bucketTurns,
+  bucketPoints,
+  pointExtent,
+  turnPoints,
   volumeStats,
+  volumeViewport,
+  volumeWindow,
   withinSelection,
   VOLUME_BUCKETS,
 } from '../../src/renderer/components/insights/lib/volume'
@@ -143,20 +148,44 @@ describe('status counts and p95', () => {
   })
 })
 
+describe('the status filter the listing and the histogram share', () => {
+  const rows = [
+    turnRow({ traceId: 'a', status: 'ok' }),
+    turnRow({ traceId: 'b', status: 'error' }),
+    turnRow({ traceId: 'c', status: 'interrupted' }),
+  ]
+
+  test('no filter is every row, not an empty set', () => {
+    expect(withStatus(rows, null)).toEqual(rows)
+  })
+
+  // The chips sit under the bars that count the same answer. A filter the
+  // reader can see and a chart that ignores it misstates what is being counted.
+  test('the histogram counts exactly what the filtered listing shows', () => {
+    const filtered = withStatus(rows, 'error')
+    expect(filtered.map((row) => row.traceId)).toEqual(['b'])
+    expect(turnPoints(filtered)).toHaveLength(1)
+  })
+
+  test('interrupted is its own filter, never folded into failures', () => {
+    expect(withStatus(rows, 'interrupted').map((row) => row.traceId)).toEqual(['c'])
+  })
+})
+
 describe('histogram bucketing', () => {
   const from = 0
   const to = 48_000
 
   test('turns land in the bucket covering their start time', () => {
-    const buckets = bucketTurns([turnRow({ startedAt: 1_500 })], from, to)
+    const buckets = bucketPoints(turnPoints([turnRow({ startedAt: 1_500 })]), from, to)
     expect(buckets).toHaveLength(VOLUME_BUCKETS)
     expect(buckets[1].total).toBe(1)
     expect(buckets[0].total).toBe(0)
   })
 
   test('turns outside the window are not folded into the edge buckets', () => {
-    const buckets = bucketTurns(
-      [turnRow({ startedAt: -5_000 }), turnRow({ startedAt: 60_000 })],
+    const buckets = bucketPoints(
+      turnPoints([turnRow({ startedAt: -5_000 }), turnRow({ startedAt: 60_000 })]),
       from,
       to,
     )
@@ -164,12 +193,12 @@ describe('histogram bucketing', () => {
   })
 
   test('errors and interruptions both count as failures in a bucket', () => {
-    const buckets = bucketTurns(
-      [
+    const buckets = bucketPoints(
+      turnPoints([
         turnRow({ startedAt: 100, status: 'error' }),
         turnRow({ startedAt: 200, status: 'interrupted' }),
         turnRow({ startedAt: 300, status: 'ok' }),
-      ],
+      ]),
       from,
       to,
     )
@@ -182,23 +211,74 @@ describe('histogram bucketing', () => {
   })
 })
 
+describe('histogram zoom', () => {
+  test('the selected time slice becomes the visible chart window', () => {
+    expect(volumeViewport(0, 48_000, { from: 12_000, to: 18_000 })).toEqual({
+      from: 12_000,
+      to: 18_000,
+    })
+  })
+
+  test('clearing the selection restores the full chart window', () => {
+    expect(volumeViewport(0, 48_000, null)).toEqual({ from: 0, to: 48_000 })
+  })
+
+  test('a stale selection cannot hide the chart', () => {
+    expect(volumeViewport(0, 48_000, { from: 60_000, to: 70_000 })).toEqual({
+      from: 0,
+      to: 48_000,
+    })
+  })
+})
+
 describe('volumeStats', () => {
   test('spend is null when no turn reported a cost, never zero', () => {
-    expect(volumeStats([turnRow({ costUsd: null })]).totalCostUsd).toBeNull()
+    expect(volumeStats(turnPoints([turnRow({ costUsd: null })])).totalCostUsd).toBeNull()
   })
 
   test('spend sums only the turns that reported one', () => {
-    const stats = volumeStats([turnRow({ costUsd: 0.25 }), turnRow({ costUsd: null })])
+    const stats = volumeStats(turnPoints([turnRow({ costUsd: 0.25 }), turnRow({ costUsd: null })]))
     expect(stats.totalCostUsd).toBeCloseTo(0.25)
   })
 
   test('failure rate covers errors and interruptions', () => {
-    const stats = volumeStats([
-      turnRow({ status: 'ok' }),
-      turnRow({ status: 'error' }),
-      turnRow({ status: 'interrupted' }),
-      turnRow({ status: 'ok' }),
-    ])
+    const stats = volumeStats(
+      turnPoints([
+        turnRow({ status: 'ok' }),
+        turnRow({ status: 'error' }),
+        turnRow({ status: 'interrupted' }),
+        turnRow({ status: 'ok' }),
+      ]),
+    )
     expect(stats.failureRate).toBeCloseTo(0.5)
+  })
+})
+
+// The histogram counts whatever the answer lists, so it must be able to draw a
+// window the selected range does not describe — without dropping the newest row
+// off the edge of its own extent.
+describe('the window the bars are drawn across', () => {
+  test('the range is kept while it contains every counted row', () => {
+    const points = turnPoints([turnRow({ startedAt: 1_500 }), turnRow({ startedAt: 3_000 })])
+    expect(volumeWindow(points, 0, 10_000)).toEqual({ from: 0, to: 10_000, coversRange: true })
+  })
+
+  test('a result reaching outside the range is drawn across its own extent', () => {
+    const points = turnPoints([turnRow({ startedAt: -5_000 }), turnRow({ startedAt: 1_000 })])
+    const window = volumeWindow(points, 0, 10_000)
+    expect(window.coversRange).toBe(false)
+    expect(window.from).toBe(-5_000)
+  })
+
+  test('the newest row is inside its own extent, not past the last bucket', () => {
+    const points = turnPoints([turnRow({ startedAt: 0 }), turnRow({ startedAt: 47_000 })])
+    const extent = pointExtent(points)!
+    const buckets = bucketPoints(points, extent.from, extent.to)
+    expect(buckets.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(2)
+  })
+
+  test('rows sharing one instant still get a window with width', () => {
+    const extent = pointExtent(turnPoints([turnRow({ startedAt: 5_000 })]))!
+    expect(extent.to).toBeGreaterThan(extent.from)
   })
 })

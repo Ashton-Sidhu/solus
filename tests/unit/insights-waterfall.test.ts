@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import type { MetricsSpan, MetricsTurnTrace } from '../../src/shared/observability-types'
+import type { MetricsGapSegment, MetricsSpan, MetricsTurnTrace } from '../../src/shared/observability-types'
 import {
   barExtent,
   buildTraceView,
+  firstObservedActivityMs,
   rowsByKind,
   spanAttributes,
   spanDetailLabel,
@@ -47,8 +48,12 @@ const root = span({
   attrs: { prompt: 'run the build', costUsd: 0.4 },
 })
 
-function trace(spans: MetricsSpan[], uninstrumentedMs: number | null = null): MetricsTurnTrace {
-  return { traceId: 'tr_1', spans, uninstrumentedMs }
+function trace(
+  spans: MetricsSpan[],
+  unattributedMs: number | null = null,
+  gapSegments: MetricsGapSegment[] = [],
+): MetricsTurnTrace {
+  return { traceId: 'tr_1', spans, unattributedMs, gapSegments }
 }
 
 describe('unionLength', () => {
@@ -105,6 +110,32 @@ describe('buildTraceView', () => {
     expect(row?.share).toBeCloseTo(0.25)
   })
 
+  test('Solus lifecycle work is named directly in the trace', () => {
+    const setup = span({
+      spanId: 'setup', parentSpanId: 'root', kind: 'setup', name: 'setup',
+      startedAt: 1_000, endedAt: 1_010, durationMs: 10,
+    })
+    const settlement = span({
+      spanId: 'settlement', parentSpanId: 'root', kind: 'turn_settlement', name: 'Solus settlement',
+      startedAt: 1_950, endedAt: 2_000, durationMs: 50,
+    })
+    const view = buildTraceView(trace([root, setup, settlement]))
+    expect(view?.rows.find((row) => row.spanId === 'setup')?.label).toBe('Solus setup')
+    expect(view?.rows.find((row) => row.spanId === 'settlement')).toMatchObject({
+      label: 'Solus settlement', durationMs: 50,
+    })
+  })
+
+  test('first observed activity ignores setup and finds the earliest agent-output span', () => {
+    const setup = span({ spanId: 'setup', parentSpanId: 'root', kind: 'setup', startedAt: 1_000, endedAt: 1_010 })
+    const tool = span({ spanId: 'tool', parentSpanId: 'root', startedAt: 1_080, endedAt: 1_100 })
+    const response = span({
+      spanId: 'response', parentSpanId: 'root', kind: 'response_stream', startedAt: 1_050, endedAt: 1_070,
+    })
+    const view = buildTraceView(trace([root, setup, tool, response]))
+    expect(view && firstObservedActivityMs(view)).toBe(50)
+  })
+
   test('two overlapping tool calls contribute their union to the kind legend', () => {
     const first = span({ spanId: 'a', parentSpanId: 'root', startedAt: 1_000, endedAt: 1_400, durationMs: 400 })
     const second = span({ spanId: 'b', parentSpanId: 'root', startedAt: 1_200, endedAt: 1_600, durationMs: 400 })
@@ -114,10 +145,32 @@ describe('buildTraceView', () => {
     expect(tools?.share).toBeCloseTo(0.6)
   })
 
-  test('uninstrumented time leads the legend when the server derived it', () => {
+  test('unattributed turn time leads the legend when the server derived it', () => {
     const child = span({ spanId: 'c1', parentSpanId: 'root', startedAt: 1_000, endedAt: 1_400, durationMs: 400 })
     const view = buildTraceView(trace([root, child], 600))
-    expect(view?.legend[0]).toMatchObject({ kind: 'uninstrumented', ms: 600 })
+    expect(view?.legend[0]).toMatchObject({
+      kind: 'unattributed',
+      label: 'Unattributed turn time',
+      ms: 600,
+    })
+    expect(view?.traceCoverage).toBeCloseTo(0.4)
+  })
+
+  test('gap summaries group lifecycle locations without presenting them as causes', () => {
+    const gaps: MetricsGapSegment[] = [
+      { category: 'provider_startup', startedAt: 1_000, endedAt: 1_100, durationMs: 100 },
+      { category: 'between_activities', startedAt: 1_200, endedAt: 1_300, durationMs: 100 },
+      { category: 'between_activities', startedAt: 1_400, endedAt: 1_600, durationMs: 200 },
+    ]
+    const view = buildTraceView(trace([root], 400, gaps))
+    expect(view?.gapSummaries).toEqual([
+      expect.objectContaining({
+        category: 'between_activities', label: 'Between activities', segments: 2, ms: 300, share: 0.3,
+      }),
+      expect.objectContaining({
+        category: 'provider_startup', label: 'Before first provider event', segments: 1, ms: 100, share: 0.1,
+      }),
+    ])
   })
 
   test('tool totals group repeat calls of the same tool', () => {

@@ -228,7 +228,7 @@ describe.serial('declared grain (sourceView)', () => {
     expect(compiler.compileQuerySpec({
       filters: [{ field: 'kind', op: 'eq', value: 'tool_call' }],
       aggregates: [{ fn: 'p95', field: 'duration_ms' }],
-    }).sourceView).toBe('tool_calls')
+    }).sourceView).toBe('events')
     expect(compiler.compileQuerySpec({}).sourceView).toBeUndefined()
   })
 })

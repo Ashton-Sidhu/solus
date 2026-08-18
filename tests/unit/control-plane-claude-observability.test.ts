@@ -187,7 +187,9 @@ describe.serial('Claude turn capture end to end', () => {
     const children = rows.filter((row) => row.kind !== 'turn')
     expect(children.every((row) => row.trace_id === turn.trace_id)).toBe(true)
     expect(children.every((row) => row.ended_at >= row.started_at)).toBe(true)
-    expect(rows.map((row) => row.kind).sort()).toEqual(['setup', 'tool_call', 'turn'])
+    expect(rows.map((row) => row.kind).sort()).toEqual([
+      'response_stream', 'setup', 'thinking', 'tool_call', 'turn',
+    ])
 
     const tool = rows.find((row) => row.kind === 'tool_call')!
     expect(tool.name).toBe('Bash')

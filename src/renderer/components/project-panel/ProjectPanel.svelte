@@ -360,7 +360,7 @@
       title={panelTask ? taskRefTooltip(panelTask) : "Open task page"}
       onclick={(e) => {
         e.stopPropagation();
-        if (panelTask) session.goToTask(panelTask.id, "click");
+        if (panelTask) session.goToTask(panelTask.id, "click", "secondary");
       }}
     >
       {panelTask ? taskRef(panelTask) : ""}

@@ -864,11 +864,10 @@
             size="sm"
             class="group flex h-7 w-full cursor-pointer items-center gap-[0.5625rem] rounded-lg bg-transparent pr-2 pl-[0.125rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
               'insights',
-            ) || session.router.at('insightsTurn')
+            )
               ? 'text-foreground'
               : ''}"
-            isActive={session.router.at("insights") ||
-              session.router.at("insightsTurn")}
+            isActive={session.router.at("insights")}
             onclick={() => session.toggleInsights()}
           >
             <span class="flex shrink-0 items-center"

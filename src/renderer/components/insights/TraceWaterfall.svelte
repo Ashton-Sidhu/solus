@@ -120,7 +120,7 @@
             ticks={4}
             tickMarks={false}
             format={(value: unknown) => formatDuration(Number(value))}
-            classes={{ tickLabel: "text-[0.625rem] fill-[var(--muted-foreground)]" }}
+            classes={{ tickLabel: "text-[0.6875rem] tabular-nums fill-[var(--muted-foreground)]" }}
           />
           <!-- Row wash first, so the selected and hovered rows sit behind the
                bars rather than tinting them. -->
@@ -133,7 +133,7 @@
           {#each kindGroups as group (group.kind)}
             <Bars
               data={group.rows}
-              insets={{ y: (ROW_HEIGHT - 10) / 2 }}
+              insets={{ y: (ROW_HEIGHT - 12) / 2 }}
               rounded="all"
               radius={5}
               fill={group.color}
@@ -201,7 +201,7 @@
       <div class="grid grid-cols-2 gap-x-5 gap-y-3.5 sm:grid-cols-4">
         {#each attributes as attribute (attribute.key)}
           <div class="flex min-w-0 flex-col gap-1">
-            <span class="text-[0.5938rem] font-medium text-muted-foreground uppercase"
+            <span class="text-[0.6875rem] text-muted-foreground"
               >{attribute.key}</span
             >
             <span class="truncate text-xs tabular-nums" title={attribute.value}
@@ -213,7 +213,7 @@
     {/if}
     {#if payload}
       <div class="flex flex-col gap-1.5">
-        <span class="text-[0.5938rem] font-medium text-muted-foreground uppercase"
+        <span class="text-[0.6875rem] text-muted-foreground"
           >{payload.label}</span
         >
         <pre

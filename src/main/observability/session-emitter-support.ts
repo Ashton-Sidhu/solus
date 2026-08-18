@@ -63,6 +63,7 @@ export function setUsageAttrs(attrs: SpanAttributes, usage: UsageData): void {
   if (usage.inputTokens !== undefined) attrs.inputTokens = usage.inputTokens
   if (usage.outputTokens !== undefined) attrs.outputTokens = usage.outputTokens
   if (usage.cacheReadTokens !== undefined) attrs.cacheReadTokens = usage.cacheReadTokens
+  if (usage.cacheCreationTokens !== undefined) attrs.cacheCreationTokens = usage.cacheCreationTokens
 }
 
 export function applyTaskCompleteAttrs(

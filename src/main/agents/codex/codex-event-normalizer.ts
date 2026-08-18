@@ -44,6 +44,8 @@ const tokenBreakdownSchema = z.object({
   input_tokens: finiteNumberSchema.optional(),
   cachedInputTokens: finiteNumberSchema.optional(),
   cached_input_tokens: finiteNumberSchema.optional(),
+  cacheWriteInputTokens: finiteNumberSchema.optional(),
+  cache_write_input_tokens: finiteNumberSchema.optional(),
   outputTokens: finiteNumberSchema.optional(),
   output_tokens: finiteNumberSchema.optional(),
   reasoningOutputTokens: finiteNumberSchema.optional(),
@@ -424,6 +426,7 @@ interface CodexTokenBreakdown {
   totalTokens: number
   inputTokens: number
   cachedInputTokens: number
+  cacheWriteInputTokens: number
   outputTokens: number
   reasoningTokens: number
 }
@@ -444,12 +447,16 @@ function codexTokenBreakdown<Raw>(raw: Raw): CodexTokenBreakdown | null {
   const tokenUsage = parsed.data
   const inputTokens = finiteTokenCount(tokenUsage.inputTokens ?? tokenUsage.input_tokens)
   const cachedInputTokens = finiteTokenCount(tokenUsage.cachedInputTokens ?? tokenUsage.cached_input_tokens)
+  const cacheWriteInputTokens = finiteTokenCount(
+    tokenUsage.cacheWriteInputTokens ?? tokenUsage.cache_write_input_tokens,
+  )
   const outputTokens = finiteTokenCount(tokenUsage.outputTokens ?? tokenUsage.output_tokens)
-  if (!inputTokens && !cachedInputTokens && !outputTokens) return null
+  if (!inputTokens && !cachedInputTokens && !cacheWriteInputTokens && !outputTokens) return null
   return {
     totalTokens: finiteTokenCount(tokenUsage.totalTokens ?? tokenUsage.total_tokens) || inputTokens + outputTokens,
     inputTokens,
     cachedInputTokens,
+    cacheWriteInputTokens,
     outputTokens,
     reasoningTokens: finiteTokenCount(tokenUsage.reasoningOutputTokens ?? tokenUsage.reasoning_output_tokens),
   }
@@ -460,8 +467,11 @@ function codexContextUsage<Raw>(raw: Raw, windowTokens?: number): ContextUsage |
   if (!breakdown) return null
   // Codex/OpenAI counts cached input inside inputTokens. Split it out so the
   // meter's composition rows sum to the total instead of counting cache twice.
-  const inputTokens = Math.max(0, breakdown.inputTokens - breakdown.cachedInputTokens)
-  return {
+  const inputTokens = Math.max(
+    0,
+    breakdown.inputTokens - breakdown.cachedInputTokens - breakdown.cacheWriteInputTokens,
+  )
+  const usage: ContextUsage = {
     // Codex's own context indicator uses `last.totalTokens`: after a response,
     // the assistant output is retained in history too. Counting input alone
     // makes the meter lag increasingly far behind on output-heavy turns.
@@ -471,17 +481,24 @@ function codexContextUsage<Raw>(raw: Raw, windowTokens?: number): ContextUsage |
     cacheReadTokens: breakdown.cachedInputTokens,
     outputTokens: breakdown.outputTokens,
   }
+  if (breakdown.cacheWriteInputTokens) usage.cacheCreationTokens = breakdown.cacheWriteInputTokens
+  return usage
 }
 
 function codexRunUsage<Raw>(raw: Raw): UsageData | null {
   const breakdown = codexTokenBreakdown(raw)
   if (!breakdown) return null
-  return {
-    inputTokens: Math.max(0, breakdown.inputTokens - breakdown.cachedInputTokens),
+  const usage: UsageData = {
+    inputTokens: Math.max(
+      0,
+      breakdown.inputTokens - breakdown.cachedInputTokens - breakdown.cacheWriteInputTokens,
+    ),
     outputTokens: breakdown.outputTokens,
     cacheReadTokens: breakdown.cachedInputTokens,
     reasoningTokens: breakdown.reasoningTokens || undefined,
   }
+  if (breakdown.cacheWriteInputTokens) usage.cacheCreationTokens = breakdown.cacheWriteInputTokens
+  return usage
 }
 
 function finiteTokenCount<Value>(value: Value): number {

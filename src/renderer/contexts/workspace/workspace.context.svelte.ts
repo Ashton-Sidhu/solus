@@ -2899,11 +2899,17 @@ export class WorkspaceContext {
   // pick. `showPage` adds the one thing the router does not own: the pill's
   // expansion, which is shell state rather than a location.
 
-  private showPage(ref: RouteRef, via: Via, surface: SolusEventMap['surface_viewed']['surface']): void {
-    // A page that is already open is replaced where it lives (exclusivity);
-    // a page opening for the first time covers the conversation rather than
-    // taking over whichever companion pane happens to hold focus.
-    this.router.navigate(ref, { via, target: this.router.leadingPane.id })
+  private showPage(
+    ref: RouteRef,
+    via: Via,
+    surface: SolusEventMap['surface_viewed']['surface'],
+    target: NavTarget = this.router.leadingPane.id,
+  ): void {
+    // A page that is already open is replaced where it lives (exclusivity).
+    // The default target covers the conversation rather than taking over
+    // whichever companion pane happens to hold focus; contextual links can
+    // explicitly request a companion.
+    this.router.navigate(ref, { via, target })
     this.isExpanded = true
     track('surface_viewed', { surface, via })
   }
@@ -2998,12 +3004,17 @@ export class WorkspaceContext {
   }
 
   /** Open one task's page. Its own route, so it deep-links, joins history and
-   *  can be opened in a split. */
-  goToTask(taskId: string, via: Via = 'palette'): void {
+   *  can be opened beside the conversation from contextual entry points. */
+  goToTask(
+    taskId: string,
+    via: Via = 'palette',
+    target: 'leading' | 'secondary' = 'leading',
+  ): void {
     this.showPage(
       { name: 'task', params: { taskId, serverId: this.tasksStore.hostFor(taskId) ?? undefined } },
       via,
       'tasks',
+      target === 'secondary' ? 'new' : this.router.leadingPane.id,
     )
   }
 
@@ -3075,10 +3086,11 @@ export class WorkspaceContext {
     this.showPage({ name: 'insights', params: {} }, via, 'insights')
   }
 
-  /** One turn's waterfall, by the trace that identifies it. Naming a span opens
+  /** One turn's waterfall, by the trace that identifies it: the Insights page
+   *  with that turn's detail panel open beside the list. Naming a span opens
    *  the waterfall with that span's detail already expanded. */
   openInsightsTurn(traceId: string, spanId?: string, via: Via = 'click'): void {
-    this.showPage({ name: 'insightsTurn', params: spanId ? { traceId, spanId } : { traceId } }, via, 'insights')
+    this.showPage({ name: 'insights', params: spanId ? { traceId, spanId } : { traceId } }, via, 'insights')
   }
 
   // ─── Automations page ───

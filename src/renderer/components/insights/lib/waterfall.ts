@@ -1,12 +1,16 @@
-import type { MetricsSpan, MetricsTurnTrace } from '../../../../shared/observability-types'
-import { UNINSTRUMENTED_KIND, colorForKind, labelForKind } from './span-palette'
+import type {
+  MetricsGapCategory,
+  MetricsSpan,
+  MetricsTurnTrace,
+} from '../../../../shared/observability-types'
+import { UNATTRIBUTED_KIND, colorForKind, labelForKind } from './span-palette'
 
 // One turn's span tree, laid out as a waterfall.
 //
 // Children record only observed intervals and may overlap (parallel or nested
 // tools), so every rollup here unions intervals rather than summing durations —
 // summing would report more time inside a turn than the turn itself took.
-// Uninstrumented time comes from the server, which derives it from the root
+// Unattributed time comes from the server, which derives it from the root
 // interval minus the union of blocking children; it is never a stored span.
 //
 // Pure and non-reactive.
@@ -70,7 +74,9 @@ export interface TraceView {
   spanCount: number
   toolCallCount: number
   deniedPermissions: MetricsSpan[]
-  uninstrumentedMs: number | null
+  unattributedMs: number | null
+  traceCoverage: number | null
+  gapSummaries: GapSummary[]
 }
 
 export interface KindShare {
@@ -86,6 +92,74 @@ export interface ToolTotal {
   calls: number
   ms: number
   share: number
+}
+
+export interface GapSummary {
+  category: MetricsGapCategory
+  label: string
+  description: string
+  segments: number
+  ms: number
+  share: number
+}
+
+const GAP_DETAILS = {
+  provider_startup: {
+    label: 'Before first provider event',
+    description: 'After setup, before Solus received the first provider event.',
+  },
+  before_first_activity: {
+    label: 'Before first activity',
+    description: 'After the first provider event, before recorded thinking, text, or a tool call.',
+  },
+  between_activities: {
+    label: 'Between activities',
+    description: 'Between recorded thinking, response, and tool intervals.',
+  },
+  provider_completion: {
+    label: 'Provider completion',
+    description: 'After the last recorded activity, before the provider reported completion.',
+  },
+  turn_settlement: {
+    label: 'Turn settlement',
+    description: 'After provider completion, before Solus settled the turn.',
+  },
+  after_last_provider_event: {
+    label: 'After last provider event',
+    description: 'After the final provider event on a trace without a completion boundary.',
+  },
+  unattributed: {
+    label: 'Unclassified gap',
+    description: 'The trace does not contain enough lifecycle boundaries to place this interval.',
+  },
+} satisfies Record<MetricsGapCategory, { label: string; description: string }>
+
+function summarizeGaps(trace: MetricsTurnTrace, totalMs: number): GapSummary[] {
+  const totals = new Map<MetricsGapCategory, { segments: number; ms: number }>()
+  for (const segment of trace.gapSegments) {
+    const total = totals.get(segment.category) ?? { segments: 0, ms: 0 }
+    total.segments += 1
+    total.ms += segment.durationMs
+    totals.set(segment.category, total)
+  }
+  return [...totals.entries()]
+    .map(([category, total]) => ({
+      category,
+      ...GAP_DETAILS[category],
+      ...total,
+      share: total.ms / totalMs,
+    }))
+    .sort((a, b) => b.ms - a.ms)
+}
+
+/** Earliest persisted agent-output span relative to the turn root. This
+ * backstops traces recorded before timeToFirstActivityMs was added. Setup and
+ * waits are turn work, but they are not output from the agent. */
+export function firstObservedActivityMs(trace: TraceView): number | null {
+  const offsets = trace.rows
+    .filter((row) => row.kind === 'thinking' || row.kind === 'response_stream' || row.kind === 'tool_call')
+    .map((row) => row.startOffsetMs)
+  return offsets.length ? Math.min(...offsets) : null
 }
 
 /** A tool call's most identifying detail: the command it ran or the file it
@@ -117,6 +191,7 @@ function rowLabel(span: MetricsSpan): string {
     const detail = spanDetailLabel(span)
     return detail ? `${span.name} · ${detail}` : span.name
   }
+  if (span.kind === 'setup') return 'Solus setup'
   return span.name
 }
 
@@ -199,13 +274,13 @@ export function buildTraceView(trace: MetricsTurnTrace | null): TraceView | null
     })
     .filter((entry) => entry.share > 0.002)
     .sort((a, b) => b.ms - a.ms)
-  if (trace.uninstrumentedMs != null && trace.uninstrumentedMs > 0) {
+  if (trace.unattributedMs != null && trace.unattributedMs > 0) {
     legend.unshift({
-      kind: UNINSTRUMENTED_KIND,
-      label: labelForKind(UNINSTRUMENTED_KIND),
-      color: colorForKind(UNINSTRUMENTED_KIND),
-      ms: trace.uninstrumentedMs,
-      share: trace.uninstrumentedMs / totalMs,
+      kind: UNATTRIBUTED_KIND,
+      label: labelForKind(UNATTRIBUTED_KIND),
+      color: colorForKind(UNATTRIBUTED_KIND),
+      ms: trace.unattributedMs,
+      share: trace.unattributedMs / totalMs,
     })
   }
 
@@ -242,7 +317,11 @@ export function buildTraceView(trace: MetricsTurnTrace | null): TraceView | null
     deniedPermissions: trace.spans.filter(
       (span) => span.kind === 'permission_wait' && span.attrs.decision === 'denied',
     ),
-    uninstrumentedMs: trace.uninstrumentedMs,
+    unattributedMs: trace.unattributedMs,
+    traceCoverage: trace.unattributedMs == null
+      ? null
+      : Math.max(0, Math.min(1, 1 - trace.unattributedMs / totalMs)),
+    gapSummaries: summarizeGaps(trace, totalMs),
   }
 }
 

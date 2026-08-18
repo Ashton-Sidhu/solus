@@ -46,7 +46,7 @@ describe.serial('interval unions', () => {
 })
 
 describe.serial('turn trace', () => {
-  test('returns the span tree with uninstrumented time derived from the blocking-child union', () => {
+  test('returns the span tree with unattributed time derived from the blocking-child union', () => {
     const { turn, toolCall, permissionWait, backgroundTask } = registries.SPAN_KINDS
     const service = registries.SPAN_SERVICES.sessions
     const shared = { traceId: 'trace-1', sessionId: 'session-1', service, status: 'ok' as const }
@@ -63,15 +63,51 @@ describe.serial('turn trace', () => {
     const trace = rollups.turnTrace('trace-1')
     expect(trace.spans.map((span) => span.spanId)).toEqual(['bg-a', 'trace-1', 'tool-a', 'tool-b', 'perm-a'])
     expect(trace.spans[1].attrs).toEqual({})
-    expect(trace.uninstrumentedMs).toBe(100 - 55)
+    expect(trace.unattributedMs).toBe(100 - 55)
+    expect(trace.gapSegments.reduce((total, gap) => total + gap.durationMs, 0)).toBe(100 - 55)
   })
 
-  test('a trace with no root turn reports null uninstrumented time', () => {
+  test('splits unattributed intervals at observed lifecycle boundaries without claiming their cause', () => {
+    const { turn, setup, thinking, toolCall, responseStream } = registries.SPAN_KINDS
+    const service = registries.SPAN_SERVICES.sessions
+    const shared = { traceId: 'trace-gaps', sessionId: 'session-gaps', service, status: 'ok' as const }
+    facade.writeSpan({
+      ...shared,
+      spanId: 'trace-gaps',
+      kind: turn,
+      name: 'turn',
+      startedAt: 0,
+      endedAt: 100,
+      attrs: {
+        timeToFirstProviderEventMs: 10,
+        timeToFirstActivityMs: 20,
+        timeToLastProviderEventMs: 85,
+        timeToProviderCompleteMs: 85,
+      },
+    })
+    facade.writeSpan({ ...shared, spanId: 'setup', parentSpanId: 'trace-gaps', kind: setup, name: 'setup', startedAt: 0, endedAt: 5 })
+    facade.writeSpan({ ...shared, spanId: 'thinking', parentSpanId: 'trace-gaps', kind: thinking, name: 'thinking', startedAt: 20, endedAt: 30 })
+    facade.writeSpan({ ...shared, spanId: 'tool', parentSpanId: 'trace-gaps', kind: toolCall, name: 'Read', startedAt: 40, endedAt: 60 })
+    facade.writeSpan({ ...shared, spanId: 'response', parentSpanId: 'trace-gaps', kind: responseStream, name: 'response_stream', startedAt: 70, endedAt: 75 })
+
+    const trace = rollups.turnTrace('trace-gaps')
+    expect(trace.unattributedMs).toBe(60)
+    expect(trace.gapSegments.map((gap) => [gap.category, gap.startedAt, gap.endedAt])).toEqual([
+      ['provider_startup', 5, 10],
+      ['before_first_activity', 10, 20],
+      ['between_activities', 30, 40],
+      ['between_activities', 60, 70],
+      ['provider_completion', 75, 85],
+      ['turn_settlement', 85, 100],
+    ])
+  })
+
+  test('a trace with no root turn reports null unattributed time', () => {
     facade.writeSpan({
       spanId: 'orphan', traceId: 'trace-2', kind: registries.SPAN_KINDS.toolCall, name: 'Bash',
       service: registries.SPAN_SERVICES.sessions, startedAt: 0, endedAt: 10, status: 'ok',
     })
-    expect(rollups.turnTrace('trace-2').uninstrumentedMs).toBeNull()
+    expect(rollups.turnTrace('trace-2')).toMatchObject({ unattributedMs: null, gapSegments: [] })
   })
 })
 
@@ -104,6 +140,25 @@ describe.serial('session summary', () => {
   test('an unknown session yields an empty summary', () => {
     const summary = rollups.sessionSummary('missing')
     expect(summary.turnCount).toBe(0)
+    expect(summary.totalCostUsd).toBeNull()
     expect(summary.turns).toEqual([])
+  })
+
+  test('keeps an all-unknown session cost unknown instead of reporting zero spend', () => {
+    facade.writeSpan({
+      kind: registries.SPAN_KINDS.turn,
+      name: 'turn',
+      service: registries.SPAN_SERVICES.sessions,
+      sessionId: 'unknown-cost',
+      spanId: 'unknown-cost-turn',
+      traceId: 'unknown-cost-turn',
+      startedAt: 1_000,
+      endedAt: 2_000,
+      status: 'ok',
+      model: 'unpriced-model',
+      attrs: { inputTokens: 10, outputTokens: 5 },
+    })
+
+    expect(rollups.sessionSummary('unknown-cost').totalCostUsd).toBeNull()
   })
 })
