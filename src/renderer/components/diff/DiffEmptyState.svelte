@@ -32,7 +32,7 @@
     >
       <FileDashedIcon size={20} weight="duotone" />
     </span>
-    <span class="text-[0.8125rem] font-medium text-(--solus-text-primary)">
+    <span class="text-sm font-medium text-(--solus-text-primary)">
       {title ?? (selectedTurnIndex !== null
         ? "No files touched in this turn"
         : isWorkingTreeScope

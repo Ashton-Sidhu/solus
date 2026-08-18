@@ -43,7 +43,7 @@
 
 <div
   transition:fly={{ y: 8, duration: 200 }}
-  class="mx-auto my-2 w-full max-w-[47.5rem] overflow-hidden rounded-2xl border border-border bg-card text-[0.8125rem] shadow-[shadow:var(--solus-tx-raised-shadow)]"
+  class="mx-auto my-2 w-full max-w-[47.5rem] overflow-hidden rounded-2xl border border-border bg-card text-sm shadow-[shadow:var(--solus-tx-raised-shadow)]"
   data-testid={testId}
 >
   <div class="interrupt-head flex items-start gap-3 px-[1.125rem] pt-[0.875rem] pb-[0.8125rem]">
@@ -86,7 +86,7 @@
   }
 
   .interrupt-eyebrow {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
 
     text-transform: uppercase;
@@ -96,14 +96,14 @@
   /* The meta line sets the size and colour its spans inherit; a card emphasises
      one segment by moving it to foreground/500, never by enlarging it. */
   .interrupt-meta {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--muted-foreground);
   }
 
   .interrupt-danger {
     background: color-mix(in oklch, var(--destructive) 10%, transparent);
     color: color-mix(in oklch, var(--destructive) 72%, var(--foreground));
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
   }
 
   .interrupt-footer {
@@ -126,7 +126,7 @@
     background: transparent;
     padding: 0 0.5rem;
     color: var(--muted-foreground);
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 400;
     cursor: pointer;
     transition:
@@ -170,11 +170,11 @@
   /* A key hint lives inside the button it fires, never in a separate legend. */
   :global(.interrupt-key) {
     font-family: var(--solus-code-font-family);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     opacity: 0.75;
   }
   :global(.interrupt-btn--primary .interrupt-key) {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     opacity: 0.8;
   }
 
@@ -200,7 +200,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: var(--solus-code-font-family);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
 
     text-transform: uppercase;
@@ -212,7 +212,7 @@
     margin: 0;
     padding: 0.6875rem 0.8125rem 0.75rem;
     font-family: var(--solus-code-font-family);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     line-height: 1.75;
     color: var(--foreground);
     white-space: pre;
@@ -228,7 +228,7 @@
     background: transparent;
     padding: 0.25rem 0;
     color: var(--muted-foreground);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     cursor: pointer;
     transition: color var(--duration-quick) var(--ease-premium);
   }
@@ -253,7 +253,7 @@
     padding: 0.625rem 0.75rem;
     background: color-mix(in oklch, var(--muted) 24%, var(--card));
     font-family: var(--solus-code-font-family);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     overflow-wrap: anywhere;
   }
 </style>

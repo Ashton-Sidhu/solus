@@ -66,7 +66,7 @@
   {:else}
     <SquaresFourIcon size={14} class="shrink-0 text-muted-foreground" />
   {/if}
-  <span class="min-w-0 flex-1 truncate text-[0.8125rem] font-normal ">
+  <span class="min-w-0 flex-1 truncate text-sm font-normal ">
     {active ? active.label : "All projects"}
   </span>
   <CaretDownIcon
@@ -108,7 +108,7 @@
           >
             <ProjectFavicon projectRoot={option.projectKey} class="size-3.5" />
             <span class="min-w-0 flex-1 truncate">{option.label}</span>
-            <span class="font-mono text-xs tabular-nums text-muted-foreground opacity-60">
+            <span class="text-xs tabular-nums text-muted-foreground opacity-60">
               {option.count}
             </span>
           </DropdownMenu.RadioItem>
@@ -130,7 +130,7 @@
         <DropdownMenu.RadioItem value="all">
           <SquaresFourIcon size={14} class="shrink-0" />
           <span class="min-w-0 flex-1 truncate">All projects</span>
-          <span class="font-mono text-xs tabular-nums text-muted-foreground opacity-60">
+          <span class="text-xs tabular-nums text-muted-foreground opacity-60">
             {allCount}
           </span>
         </DropdownMenu.RadioItem>

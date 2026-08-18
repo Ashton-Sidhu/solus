@@ -7,6 +7,8 @@ describe('project favicon fallback', () => {
     // a different colour when its own favicon cannot identify it.
     const first = projectFallbackColor('/workspace/solus')
     expect(projectFallbackColor('/workspace/solus')).toBe(first)
-    expect(first).toMatch(/^--chart-[1-5]$/)
+    // A paintable CSS value, not the property name: callers set it directly on
+    // `background`/`color`, where a bare `--chart-3` is silently dropped.
+    expect(first).toMatch(/^var\(--chart-[1-5]\)$/)
   })
 })

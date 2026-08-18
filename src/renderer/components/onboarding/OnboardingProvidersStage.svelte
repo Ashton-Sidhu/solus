@@ -73,10 +73,10 @@
 </script>
 
 <div
-  class="flex min-h-full flex-col items-center justify-center px-6 py-10 sm:px-10 sm:py-12"
+  class="text-xs flex min-h-full flex-col items-center justify-center px-6 py-10 sm:px-10 sm:py-12"
 >
   <h1
-    class="onboarding-title m-0 shrink-0 text-center text-[1.5rem] font-medium leading-[1.12] sm:text-[1.5rem]"
+    class="onboarding-title m-0 shrink-0 text-center text-2xl font-medium leading-[1.12] sm:text-2xl"
   >
     Connect where your work lives
   </h1>
@@ -103,12 +103,12 @@
         {#if connectionsStore.providerPrompt}
           {@const prompt = connectionsStore.providerPrompt}
           <div class="flex flex-col gap-2.5">
-            <p class="text-xs leading-relaxed text-muted-foreground">
+            <p class="leading-relaxed text-muted-foreground">
               Enter this code at github.com/login/device.
             </p>
             <div class="flex flex-wrap items-center gap-2">
               <code
-                class="font-mono text-sm font-medium tabular-nums"
+                class="text-sm font-medium tabular-nums"
                 >{prompt.userCode}</code
               >
               <Button
@@ -178,7 +178,7 @@
         {/if}
         <button
           type="button"
-          class="mt-2 h-7 rounded-md text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground"
+          class="mt-2 h-7 rounded-md  text-muted-foreground transition-colors duration-150 hover:text-foreground"
           onclick={() => {
             cloudflareStore.clearFailure();
             cloudflareFormOpen = false;

@@ -25,6 +25,15 @@ describe('Codex model profiles', () => {
     expect(MODEL_PROFILES.codex?.['gpt-5.5']?.defaultReasoningEffort).toBe('medium')
   })
 
+  test('names the 1M window only on the Claude models that have a [1m] variant', () => {
+    // WHY: `claudeModelId` reads this list to decide whether to ask the SDK for
+    // `<model>[1m]`. Listing 1M on a model without that variant makes every turn
+    // on it fail with "the long context beta is not yet available"; dropping it
+    // from a model that has one silently halves the context the user chose.
+    expect(MODEL_PROFILES['claude-code']?.['claude-haiku-4-5-20251001']?.contextWindows).toEqual([200_000])
+    expect(MODEL_PROFILES['claude-code']?.['claude-opus-5']?.contextWindows).toEqual([1_000_000])
+  })
+
   test('does not offer the unsupported none effort for current Codex models', () => {
     // WHY: app-server advertises Low as the minimum for these models; passing
     // None from a static profile would fail only after the user starts a turn.

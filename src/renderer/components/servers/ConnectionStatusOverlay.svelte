@@ -97,12 +97,12 @@
     have while the socket comes back.
   -->
   <div
-    class="pointer-events-none fixed inset-0 z-[10016] bg-(--solus-edge-bg) opacity-35 transition-opacity duration-500"
+    class="text-xs pointer-events-none fixed inset-0 z-[10016] bg-(--solus-edge-bg) opacity-35 transition-opacity duration-500"
     aria-hidden="true"
   ></div>
   {#if mode !== "blocked" && mode !== "identity-mismatch"}
     <div
-      class="connection-hairline pointer-events-none fixed inset-x-0 top-0 z-[10017] h-0.5 overflow-hidden"
+      class="text-xs connection-hairline pointer-events-none fixed inset-x-0 top-0 z-[10017] h-0.5 overflow-hidden"
       aria-hidden="true"
     ></div>
   {/if}
@@ -110,7 +110,7 @@
 
 {#if mode === "reconnecting"}
   <div
-    class="pointer-events-auto fixed left-1/2 top-3 z-[10018] flex -translate-x-1/2 items-center gap-2 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) py-1.5 pl-3 pr-2 text-xs font-secondary text-(--solus-text-secondary) shadow-(--solus-popover-shadow) backdrop-blur-xl"
+    class="text-xs pointer-events-auto fixed left-1/2 top-3 z-[10018] flex -translate-x-1/2 items-center gap-2 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) py-1.5 pl-3 pr-2 text-xs font-secondary text-(--solus-text-secondary) shadow-(--solus-popover-shadow) backdrop-blur-xl"
     role="status"
     transition:fly={{ y: -8, duration: reduceMotion ? 0 : 260 }}
   >
@@ -123,7 +123,7 @@
     <span class="h-3 w-px bg-(--solus-menu-hairline)"></span>
     <button
       type="button"
-      class="flex items-center gap-1 rounded-full bg-(--solus-accent-soft) px-2 py-0.5 text-xs text-(--solus-accent) transition-colors hover:bg-(--solus-accent-light) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
+      class="flex items-center gap-1 rounded-full bg-(--solus-accent-soft) px-2 py-0.5  text-(--solus-accent) transition-colors hover:bg-(--solus-accent-light) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
       onclick={() => serversStore.retryActive()}
     >
       <ArrowClockwiseIcon size={11} />
@@ -132,25 +132,25 @@
   </div>
 {:else if mode === "escalated" || mode === "blocked" || mode === "identity-mismatch"}
   <div
-    class="pointer-events-auto fixed left-1/2 top-3 z-[10018] w-[19rem] -translate-x-1/2 rounded-2xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-3.5 font-secondary shadow-(--solus-popover-shadow) backdrop-blur-xl"
+    class="text-xs pointer-events-auto fixed left-1/2 top-3 z-[10018] w-[19rem] -translate-x-1/2 rounded-2xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-3.5 font-secondary shadow-(--solus-popover-shadow) backdrop-blur-xl"
     role="alert"
     transition:fly={{ y: -8, duration: reduceMotion ? 0 : 300 }}
   >
-    <div class="text-[0.8125rem] text-(--solus-text-primary)">{cardCopy.title}</div>
-    <p class="mt-1 text-xs leading-relaxed text-(--solus-text-tertiary)">
+    <div class="text-sm text-(--solus-text-primary)">{cardCopy.title}</div>
+    <p class="mt-1  leading-relaxed text-(--solus-text-tertiary)">
       {cardCopy.body}
     </p>
     <div class="mt-3 flex gap-2">
       <button
         type="button"
-        class="rounded-md bg-(--solus-accent) px-2.5 py-1 text-xs text-white transition-[filter] hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
+        class="rounded-md bg-(--solus-accent) px-2.5 py-1  text-white transition-[filter] hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
         onclick={runPrimary}
       >
         {cardCopy.primary}
       </button>
       <button
         type="button"
-        class="rounded-md border border-(--solus-input-border) px-2.5 py-1 text-xs text-(--solus-text-secondary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
+        class="rounded-md border border-(--solus-input-border) px-2.5 py-1  text-(--solus-text-secondary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
         onclick={() => serversStore.useLocalHost()}
       >
         Use this Mac
@@ -159,7 +159,7 @@
   </div>
 {:else if confirmingReconnect}
   <div
-    class="pointer-events-none fixed left-1/2 top-3 z-[10018] flex -translate-x-1/2 items-center gap-2 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) px-3 py-1.5 text-xs font-secondary text-(--solus-text-secondary) shadow-(--solus-popover-shadow) backdrop-blur-xl"
+    class="text-xs pointer-events-none fixed left-1/2 top-3 z-[10018] flex -translate-x-1/2 items-center gap-2 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) px-3 py-1.5 text-xs font-secondary text-(--solus-text-secondary) shadow-(--solus-popover-shadow) backdrop-blur-xl"
     role="status"
     transition:fly={{ y: -8, duration: reduceMotion ? 0 : 260 }}
   >

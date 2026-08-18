@@ -289,7 +289,7 @@
     border: 0.0625rem solid var(--solus-tool-border);
     background: var(--solus-surface-primary);
     color: var(--solus-text-primary);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-family: inherit;
     outline: none;
     transition: border-color var(--duration-base) var(--ease-premium), box-shadow var(--duration-base) var(--ease-premium);
@@ -333,7 +333,7 @@
   .icon-picker__status {
     padding: 0.75rem 0.25rem;
     text-align: center;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-text-tertiary);
   }
 

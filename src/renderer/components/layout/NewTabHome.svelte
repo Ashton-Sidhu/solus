@@ -83,7 +83,7 @@
   class="flex h-full w-full flex-col items-center justify-center gap-5 px-6 py-3 [animation:home-fade-in_0.24s_ease-out_both]"
 >
   <h1
-    class="max-w-[40rem] text-center text-pretty text-[1.5rem] font-medium leading-[1.25] text-(--solus-text-primary)"
+    class="max-w-[40rem] text-center text-pretty text-2xl font-medium leading-[1.25] text-(--solus-text-primary)"
   >
     {#if hasProject}
       What should we build in

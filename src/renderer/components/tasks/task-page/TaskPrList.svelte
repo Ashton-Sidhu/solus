@@ -18,18 +18,18 @@
 <!-- Pull requests are the one linked kind with a lifecycle of their own, so
      they get a card of their own rather than a row in the Linked table: state
      is the column that table has nowhere to put. -->
-<div class="flex flex-col gap-[7px] pt-[26px]">
+<div class="text-xs flex flex-col gap-[7px] pt-[26px]">
   <div class="flex items-center gap-2.5">
     <span class="text-xs font-normal text-muted-foreground uppercase">
       Pull requests
     </span>
-    <span class="font-mono text-xs tabular-nums text-muted-foreground opacity-70">
+    <span class="tabular-nums text-muted-foreground opacity-70">
       {rows.length}
     </span>
     <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
     <button
       type="button"
-      class="flex h-[22px] cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
+      class="flex h-[22px] cursor-pointer items-center gap-1.5 rounded-md px-2 font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
       onclick={onAdd}
     >
       <PlusIcon size={11} weight="bold" aria-hidden="true" />
@@ -67,10 +67,10 @@
             <StateIcon size={13} />
           {/if}
         </span>
-        <span class="flex h-5 shrink-0 items-center font-mono text-xs tabular-nums text-muted-foreground opacity-65">
+        <span class="flex h-5 shrink-0 items-center tabular-nums text-muted-foreground opacity-65">
           {row.ref}
         </span>
-        <span class="flex h-5 min-w-0 flex-1 items-center truncate text-[0.8125rem] font-normal">
+        <span class="flex h-5 min-w-0 flex-1 items-center truncate text-sm font-normal">
           {row.title}
         </span>
 
@@ -78,7 +78,7 @@
              rather than render a state we would be inventing. -->
         {#if badge}
           <span
-            class="flex h-5 shrink-0 items-center gap-1.5 rounded-full pr-2.5 pl-2 text-xs font-medium whitespace-nowrap"
+            class="flex h-5 shrink-0 items-center gap-1.5 rounded-full pr-2.5 pl-2 font-medium whitespace-nowrap"
             style="color:{badge.tone};background:color-mix(in oklch, {badge.tone} 12%, transparent);box-shadow:0 0 0 .5px color-mix(in oklch, {badge.tone} 30%, transparent)"
           >
             <span

@@ -7,7 +7,6 @@
     MicrophoneIcon,
     TextAaIcon,
     CodeIcon,
-    TerminalWindowIcon,
     CaretDownIcon,
     CheckIcon,
     ClockCountdownIcon,
@@ -33,10 +32,12 @@
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { cn } from "@renderer/lib/utils.js";
   import { menuRowVariants } from "./ui/menu";
+  import AppLogo from "./settings/AppLogo.svelte";
   import { requestInputFocus } from "../lib/inputFocus";
   import { Button } from "./ui/button";
   import { Switch } from "./ui/switch";
   import { Input } from "./ui/input";
+  import type { TerminalAppId } from "../../shared/types";
 
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
@@ -58,6 +59,15 @@
   let agentOpen = $state(false);
   let editorOpen = $state(false);
   let terminalOpen = $state(false);
+  const selectedTerminal = $derived<TerminalAppId>(
+    theme.fallbackTerminal ?? "default-terminal",
+  );
+  const selectedEditorApp = $derived(
+    tools.detectedEditors.find((e) => e.id === theme.defaultEditor),
+  );
+  const selectedTerminalApp = $derived(
+    tools.detectedTerminals.find((t) => t.id === selectedTerminal),
+  );
   let rateLimitOpen = $state(false);
 
   let triggerEl: HTMLButtonElement | null = $state(null);
@@ -176,8 +186,8 @@
     requestInputFocus();
   }
 
-  function selectTerminal(terminalId: string) {
-    theme.update({ defaultTerminal: terminalId });
+  function selectTerminal(terminalId: TerminalAppId) {
+    theme.update({ fallbackTerminal: terminalId });
     terminalOpen = false;
     requestInputFocus();
   }
@@ -215,7 +225,7 @@
     bind:this={popoverEl}
     use:portal={layer.el}
     transition:fly={{ y: 4, duration: 120 }}
-    class="rounded-2xl bg-(--solus-popover-bg) border border-(--solus-popover-border)"
+    class="text-xs rounded-2xl bg-(--solus-popover-bg) border border-(--solus-popover-border)"
     style="
         position:fixed;
         bottom:{pos.bottom}px;
@@ -230,7 +240,7 @@
       <div class="flex items-center justify-between gap-3">
         <div class="flex items-center gap-2 min-w-0">
           <BellIcon size={14} class="text-(--solus-text-tertiary)" />
-          <div class="text-xs font-medium text-(--solus-text-primary)">
+          <div class="font-medium text-(--solus-text-primary)">
             Notifications
           </div>
         </div>
@@ -247,7 +257,7 @@
       <div class="flex items-center justify-between gap-3">
         <div class="flex items-center gap-2 min-w-0">
           <MoonIcon size={14} class="text-(--solus-text-tertiary)" />
-          <div class="text-xs font-medium text-(--solus-text-primary)">
+          <div class="font-medium text-(--solus-text-primary)">
             Dark theme
           </div>
         </div>
@@ -266,7 +276,7 @@
         <div class="flex items-center gap-2 min-w-0">
           <RobotIcon size={14} class="text-(--solus-text-tertiary)" />
           <div>
-            <div class="text-xs font-medium text-(--solus-text-primary)">
+            <div class="font-medium text-(--solus-text-primary)">
               Default agent
             </div>
           </div>
@@ -280,7 +290,7 @@
               terminalOpen = false;
               rateLimitOpen = false;
             }}
-            class="flex items-center gap-1 text-xs rounded-full px-2 py-0.5 transition-colors font-secondary text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
+            class="flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors font-secondary text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
           >
             <span class="max-w-20 truncate">{activeAgentLabel}</span>
             <CaretDownIcon size={14} style="opacity:0.6" />
@@ -312,7 +322,7 @@
                   >
                     <span class="min-w-0 flex-1 truncate text-left">{agent.label}</span>
                     {#if !agent.enabled}
-                      <span class="shrink-0 text-xs text-(--solus-text-tertiary)">Not installed</span>
+                      <span class="shrink-0 text-(--solus-text-tertiary)">Not installed</span>
                     {/if}
                     {#if agent.id === theme.activeAgent}<CheckIcon
                         size={14}
@@ -331,7 +341,7 @@
       <div class="flex items-center justify-between gap-3">
         <div class="flex items-center gap-2 min-w-0">
           <TextAaIcon size={14} class="text-(--solus-text-tertiary)" />
-          <div class="text-xs font-medium text-(--solus-text-primary)">
+          <div class="font-medium text-(--solus-text-primary)">
             App font
           </div>
         </div>
@@ -344,7 +354,7 @@
               theme.update({ fontFamily: e.currentTarget.value as typeof theme.fontFamily });
               requestInputFocus();
             }}
-            class="appearance-none min-w-20 rounded-full border border-(--solus-container-border) bg-(--solus-surface-secondary) py-0.5 pl-2 pr-6 text-xs font-secondary text-(--solus-text-secondary) outline-none focus:border-(--solus-accent)/50"
+            class="appearance-none min-w-20 rounded-full border border-(--solus-container-border) bg-(--solus-surface-secondary) py-0.5 pl-2 pr-6 font-secondary text-(--solus-text-secondary) outline-none focus:border-(--solus-accent)/50"
           >
             {#each APP_FONT_FAMILIES as font (font.id)}
               <option value={font.id}>{font.label}</option>
@@ -362,7 +372,7 @@
       <div class="flex items-center justify-between gap-3">
         <div class="flex items-center gap-2 min-w-0">
           <TextAaIcon size={14} class="text-(--solus-text-tertiary)" />
-          <div class="text-xs font-medium text-(--solus-text-primary)">
+          <div class="font-medium text-(--solus-text-primary)">
             Font size
           </div>
         </div>
@@ -372,7 +382,7 @@
           <button
             onclick={() =>
               theme.update({ fontSize: Math.max(8, theme.fontSize - 1) })}
-            class="px-2 py-0.5 text-xs font-secondary text-(--solus-text-secondary) hover:text-(--solus-text-primary) transition-colors"
+            class="px-2 py-0.5 font-secondary text-(--solus-text-secondary) hover:text-(--solus-text-primary) transition-colors"
             >&minus;</button
           >
           <Input
@@ -385,14 +395,14 @@
               theme.update({ fontSize: v });
               e.currentTarget.value = String(v);
             }}
-            class="w-10 text-xs text-center bg-transparent text-(--solus-text-primary) outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            class="w-10 text-center bg-transparent text-(--solus-text-primary) outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
           />
-          <span class="text-xs text-(--solus-text-tertiary) -ml-1 mr-1"
+          <span class="text-(--solus-text-tertiary) -ml-1 mr-1"
             >px</span
           >
           <button
             onclick={() => theme.update({ fontSize: theme.fontSize + 1 })}
-            class="px-2 py-0.5 text-xs font-secondary text-(--solus-text-secondary) hover:text-(--solus-text-primary) transition-colors"
+            class="px-2 py-0.5 font-secondary text-(--solus-text-secondary) hover:text-(--solus-text-primary) transition-colors"
             >+</button
           >
         </div>
@@ -403,7 +413,7 @@
       <div class="flex items-center justify-between gap-3">
         <div class="flex items-center gap-2 min-w-0">
           <CodeIcon size={14} class="text-(--solus-text-tertiary)" />
-          <div class="text-xs font-medium text-(--solus-text-primary)">
+          <div class="font-medium text-(--solus-text-primary)">
             Code font
           </div>
         </div>
@@ -416,7 +426,7 @@
               theme.update({ codeFontFamily: e.currentTarget.value as typeof theme.codeFontFamily });
               requestInputFocus();
             }}
-            class="appearance-none min-w-20 rounded-full border border-(--solus-container-border) bg-(--solus-surface-secondary) py-0.5 pl-2 pr-6 text-xs font-secondary text-(--solus-text-secondary) outline-none focus:border-(--solus-accent)/50"
+            class="appearance-none min-w-20 rounded-full border border-(--solus-container-border) bg-(--solus-surface-secondary) py-0.5 pl-2 pr-6 font-secondary text-(--solus-text-secondary) outline-none focus:border-(--solus-accent)/50"
           >
             {#each APP_CODE_FONT_FAMILIES as font (font.id)}
               <option value={font.id}>{font.label}</option>
@@ -434,7 +444,7 @@
       <div class="flex items-center justify-between gap-3">
         <div class="flex items-center gap-2 min-w-0">
           <CodeIcon size={14} class="text-(--solus-text-tertiary)" />
-          <div class="text-xs font-medium text-(--solus-text-primary)">
+          <div class="font-medium text-(--solus-text-primary)">
             Code font size
           </div>
         </div>
@@ -444,7 +454,7 @@
           <button
             onclick={() =>
               theme.update({ codeFontSize: Math.max(8, theme.codeFontSize - 1) })}
-            class="px-2 py-0.5 text-xs font-secondary text-(--solus-text-secondary) hover:text-(--solus-text-primary) transition-colors"
+            class="px-2 py-0.5 font-secondary text-(--solus-text-secondary) hover:text-(--solus-text-primary) transition-colors"
             >&minus;</button
           >
           <Input
@@ -457,14 +467,14 @@
               theme.update({ codeFontSize: v });
               e.currentTarget.value = String(v);
             }}
-            class="w-10 text-xs text-center bg-transparent text-(--solus-text-primary) outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            class="w-10 text-center bg-transparent text-(--solus-text-primary) outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
           />
-          <span class="text-xs text-(--solus-text-tertiary) -ml-1 mr-1"
+          <span class="text-(--solus-text-tertiary) -ml-1 mr-1"
             >px</span
           >
           <button
             onclick={() => theme.update({ codeFontSize: theme.codeFontSize + 1 })}
-            class="px-2 py-0.5 text-xs font-secondary text-(--solus-text-secondary) hover:text-(--solus-text-primary) transition-colors"
+            class="px-2 py-0.5 font-secondary text-(--solus-text-secondary) hover:text-(--solus-text-primary) transition-colors"
             >+</button
           >
         </div>
@@ -476,10 +486,10 @@
         <div class="flex items-center gap-2 min-w-0">
           <MicrophoneIcon size={14} class="text-(--solus-text-tertiary)" />
           <div>
-            <div class="text-xs font-medium text-(--solus-text-primary)">
+            <div class="font-medium text-(--solus-text-primary)">
               Voice mode
             </div>
-            <div class="text-xs text-(--solus-text-tertiary)">
+            <div class="text-(--solus-text-tertiary)">
               ⌥⇧V to toggle
             </div>
           </div>
@@ -497,8 +507,8 @@
 
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-2 min-w-0">
-            <CodeIcon size={14} class="text-(--solus-text-tertiary)" />
-            <div class="text-xs font-medium text-(--solus-text-primary)">
+            <AppLogo id={theme.defaultEditor} kind="editor" size={14} />
+            <div class="font-medium text-(--solus-text-primary)">
               Editor
             </div>
           </div>
@@ -510,7 +520,7 @@
                 terminalOpen = false;
                 rateLimitOpen = false;
               }}
-              class="flex items-center gap-1 text-xs rounded-full px-2 py-0.5 transition-colors font-secondary text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
+              class="flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors font-secondary text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
             >
               {tools.detectedEditors.find((e) => e.id === theme.defaultEditor)
                 ?.name ?? "None"}
@@ -538,6 +548,7 @@
                       data-menu-current={selected === editor.id ? "" : undefined}
                       class={cn(menuRowVariants({ indicator: "trailing" }), "w-full")}
                     >
+                      <AppLogo id={editor.id} kind="editor" size={13} />
                       <span class="min-w-0 flex-1 truncate text-left">{editor.name}</span>
                       {#if selected === editor.id}<CheckIcon
                           size={14}
@@ -557,12 +568,14 @@
 
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-2 min-w-0">
-            <TerminalWindowIcon
-              size={14}
-              class="text-(--solus-text-tertiary)"
-            />
-            <div class="text-xs font-medium text-(--solus-text-primary)">
-              Terminal
+            <AppLogo id={selectedTerminal} kind="terminal" size={14} />
+            <div class="min-w-0">
+              <div class="font-medium text-(--solus-text-primary)">
+                Fallback terminal
+              </div>
+              <div class="text-(--solus-text-tertiary)">
+                Used only when no terminal holds the solus tmux session
+              </div>
             </div>
           </div>
           <div class="relative">
@@ -573,15 +586,15 @@
                 editorOpen = false;
                 rateLimitOpen = false;
               }}
-              class="flex items-center gap-1 text-xs rounded-full px-2 py-0.5 transition-colors font-secondary text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
+              class="flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors font-secondary text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
             >
               {tools.detectedTerminals.find(
-                (t) => t.id === (theme.defaultTerminal ?? "default-terminal"),
+                (t) => t.id === (theme.fallbackTerminal ?? "default-terminal"),
               )?.name ?? "Default"}
               <CaretDownIcon size={14} style="opacity:0.6" />
             </button>
             {#if terminalOpen}
-              {@const selected = theme.defaultTerminal ?? "default-terminal"}
+              {@const selected = theme.fallbackTerminal ?? "default-terminal"}
               <div
                 class="rounded-2xl bg-(--solus-popover-bg) border border-(--solus-popover-border)"
                 style="
@@ -602,6 +615,7 @@
                       data-menu-current={selected === terminal.id ? "" : undefined}
                       class={cn(menuRowVariants({ indicator: "trailing" }), "w-full")}
                     >
+                      <AppLogo id={terminal.id} kind="terminal" size={13} />
                       <span class="min-w-0 flex-1 truncate text-left">{terminal.name}</span>
                       {#if selected === terminal.id}<CheckIcon
                           size={14}
@@ -622,10 +636,10 @@
         <div class="flex items-center gap-2 min-w-0">
           <ClockCountdownIcon size={14} class="text-(--solus-text-tertiary)" />
           <div class="min-w-0">
-            <div class="text-xs font-medium text-(--solus-text-primary)">
+            <div class="font-medium text-(--solus-text-primary)">
               Rate limit
             </div>
-            <div class="text-xs text-(--solus-text-tertiary)">
+            <div class="text-(--solus-text-tertiary)">
               When limit is hit
             </div>
           </div>
@@ -638,7 +652,7 @@
               editorOpen = false;
               terminalOpen = false;
             }}
-            class="flex items-center gap-1 text-xs rounded-full px-2 py-0.5 transition-colors font-secondary text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
+            class="flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors font-secondary text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
           >
             {theme.rateLimitBehavior.at(0)?.toUpperCase() +
               theme.rateLimitBehavior.slice(1)}
@@ -687,7 +701,7 @@
         <div class="flex items-center gap-2 min-w-0">
           <GitBranchIcon size={14} class="text-(--solus-text-tertiary)" />
           <div>
-            <div class="text-xs font-medium text-(--solus-text-primary)">
+            <div class="font-medium text-(--solus-text-primary)">
               Git Worktrees for Sessions
             </div>
           </div>
@@ -715,7 +729,7 @@
       >
         <div class="flex items-center gap-2 min-w-0">
           <LinkIcon size={14} class="text-(--solus-text-tertiary)" />
-          <div class="text-xs font-medium text-(--solus-text-primary)">
+          <div class="font-medium text-(--solus-text-primary)">
             Remote Access
           </div>
         </div>
@@ -729,7 +743,7 @@
 
     {#if session.staticInfo?.version}
       <div
-        class="px-3 py-1.5 text-center text-xs text-(--solus-text-tertiary) border-t border-(--solus-popover-border)"
+        class="px-3 py-1.5 text-center text-(--solus-text-tertiary) border-t border-(--solus-popover-border)"
         style="opacity:0.6"
       >
         Solus v{session.staticInfo.version}

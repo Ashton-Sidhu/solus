@@ -56,7 +56,7 @@
     aria-modal="true"
   >
     <div class="flex flex-col gap-1">
-      <span class="text-[0.8125rem] font-medium">Rename session</span>
+      <span class="text-sm font-medium">Rename session</span>
       <span class="text-xs text-(--solus-text-tertiary)">
         Leave empty to fall back to the first prompt.
       </span>

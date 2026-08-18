@@ -1,4 +1,4 @@
-import type { EditorId, HostCapabilities } from '../shared/types'
+import { EDITOR_IDS, type EditorId, type HostCapabilities } from '../shared/types'
 import { z } from 'zod'
 import { forwardCompatibleArray } from './forward-compat'
 
@@ -15,7 +15,7 @@ export const HOST_BOOLEAN_CAPABILITY_KEYS = [
 export type HostBooleanCapability = (typeof HOST_BOOLEAN_CAPABILITY_KEYS)[number]
 export type HostSettingsSurface = 'skills' | 'tools' | 'voice'
 
-const editorIdSchema = z.enum(['vscode', 'vim', 'nvim', 'helix'])
+const editorIdSchema = z.enum(EDITOR_IDS)
 // Every field degrades alone: an advertisement from a newer host (an unknown
 // editor id, a reshaped value) must never blank the entire capability record —
 // that reads as "everything unsupported" across the whole app.

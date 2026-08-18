@@ -30,6 +30,25 @@ export function breadcrumbTaskGroups<T extends { status: TaskStatus }>(tasks: re
   return { open, completed }
 }
 
+/** A click on the completed section, remembered against the query it was made
+ * at. Only the current query's decision counts, so folding a search's matches
+ * away does not survive the next keystroke. */
+export interface CompletedSectionOverride {
+  query: string
+  expanded: boolean
+}
+
+/** Completed work is history: the section stays folded until the user opens it,
+ * or until the query they typed only has matches inside it. */
+export function completedSectionExpanded(
+  override: CompletedSectionOverride | null,
+  query: string,
+  completedMatchCount: number,
+): boolean {
+  if (override?.query === query) return override.expanded
+  return query.trim().length > 0 && completedMatchCount > 0
+}
+
 /** Match what the picker shows. Keeping this explicit lets the command list
  * omit whole rows, including each row's separate close action. */
 export function breadcrumbTaskMatches(label: string, query: string): boolean {

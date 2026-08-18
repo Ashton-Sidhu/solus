@@ -12,4 +12,10 @@ export function registerFilesHandlers(backend: DemoServer, store: DemoStore): vo
     const request = args[1] as WriteFileRequest
     return store.writeFile(request.path, request.contents)
   })
+  // The demo has no filesystem behind its fixture tree, so the files pane's
+  // create/rename/delete says so rather than appearing to work.
+  backend.register('mutateProjectFile', () => ({
+    ok: false as const,
+    error: 'Changing files is not available in the demo.',
+  }))
 }

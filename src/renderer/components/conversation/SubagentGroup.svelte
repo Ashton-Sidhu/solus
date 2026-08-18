@@ -118,7 +118,7 @@
       >
       <span class="flex-1"></span>
       {#if summary.failed > 0}
-        <span class="subagent-fold__rail subagent-fold__rail--failed font-mono"
+        <span class="subagent-fold__rail subagent-fold__rail--failed"
           >{summary.failed} failed</span
         >
       {/if}
@@ -152,7 +152,7 @@
             <span>{item}</span>
             <span class="subagent-group__sep" aria-hidden="true">·</span>
           {/each}
-          <span class="font-mono">{elapsed}</span>
+          <span class="">{elapsed}</span>
         </div>
       </header>
 
@@ -186,7 +186,7 @@
 
   .subagent-group__kicker {
     margin-bottom: 0.3125rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
 
     text-transform: uppercase;
@@ -199,7 +199,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     font-weight: 500;
     color: var(--solus-text-primary);
   }
@@ -211,7 +211,7 @@
     gap: 0.375rem;
     border-radius: 9999px;
     padding: 0.125rem 0.5rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     color: var(--muted-foreground);
     background: color-mix(in oklch, var(--foreground) 6%, transparent);
@@ -237,7 +237,7 @@
     align-items: center;
     gap: 0.5rem;
     margin-top: 0.125rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--muted-foreground);
   }
 
@@ -258,7 +258,7 @@
     background: transparent;
     padding: 0.375rem;
     text-align: left;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--muted-foreground);
     cursor: pointer;
     transition: background var(--duration-quick) var(--ease-premium);
@@ -299,7 +299,7 @@
   }
 
   .subagent-fold__label {
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     color: var(--muted-foreground);
   }
 
@@ -309,7 +309,7 @@
 
   .subagent-fold__rail {
     flex-shrink: 0;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--muted-foreground);
     opacity: 0.55;
     font-variant-numeric: tabular-nums;

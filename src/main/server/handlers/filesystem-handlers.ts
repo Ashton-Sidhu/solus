@@ -1,13 +1,15 @@
 import { dirname, join } from 'path'
 import { mkdir, readdir, readFile, realpath, stat } from 'fs/promises'
 import { z } from 'zod'
-import type { CreateDirectoryResult, DirectoryEntry, DirectoryListResult, ProjectFilesResult } from '../../../shared/types'
+import type { CreateDirectoryResult, DirectoryEntry, DirectoryListResult, ProjectFileMutationResult, ProjectFilesResult } from '../../../shared/types'
 import { listProjects } from '../../project-config/projects-manifest'
 import { createLogger } from '../../logger'
 import { getFinder } from '../file-finder'
 import type { SolusServer } from '../server'
 import { expandHome } from './lib/host-path'
 import { projectRootForRequest } from './lib/file-preview'
+import { directoriesHoldingFiles } from './lib/project-listing'
+import { applyProjectFileMutation } from './lib/project-mutations'
 
 const log = createLogger('main', 'filesystem-handlers')
 
@@ -60,7 +62,14 @@ function normalizeFinderRelativePath(input: string): string {
   return input.replaceAll('\\', '/').replace(/\/+$/, '')
 }
 
-async function listIndexedProjectFiles(root: string): Promise<ProjectFilesResult> {
+function compareProjectPaths(left: string, right: string): number {
+  return left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' })
+}
+
+async function listIndexedProjectFiles(
+  root: string,
+  includeEmptyDirectories: boolean,
+): Promise<ProjectFilesResult> {
   const finder = await getFinder(root)
   if (!finder) {
     return { ok: false, root, error: 'Unable to index project files.' }
@@ -73,26 +82,37 @@ async function listIndexedProjectFiles(root: string): Promise<ProjectFilesResult
   }
 
   const files: string[] = []
+  const directories: string[] = []
   for (const entry of result.value.items) {
-    if (entry.type !== 'file') continue
     const relativePath = normalizeFinderRelativePath(entry.item.relativePath)
-    if (relativePath) {
-      files.push(relativePath)
+    if (!relativePath) continue
+    if (entry.type !== 'file') {
+      if (includeEmptyDirectories) directories.push(relativePath)
+      continue
     }
+    files.push(relativePath)
     if (files.length >= PROJECT_FILES_MAX_ENTRIES) {
       break
     }
   }
 
-  files.sort((left, right) => left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' }))
+  files.sort(compareProjectPaths)
 
-  return {
+  const listing: ProjectFilesResult = {
     ok: true,
     root,
     files,
     truncated: result.value.totalMatched > PROJECT_FILES_MAX_ENTRIES,
     source: 'index',
   }
+  if (includeEmptyDirectories) {
+    const holders = directoriesHoldingFiles(files)
+    listing.emptyDirectories = directories
+      .filter(directory => !holders.has(directory))
+      .map(directory => `${directory}/`)
+      .sort(compareProjectPaths)
+  }
+  return listing
 }
 
 const filesystemErrorSchema = z.object({ code: z.string().optional() })
@@ -185,6 +205,20 @@ export function registerFilesystemHandlers(server: SolusServer): void {
       } satisfies ProjectFilesResult
     }
 
-    return await listIndexedProjectFiles(root)
+    return await listIndexedProjectFiles(root, request?.includeEmptyDirectories === true)
+  })
+
+  server.register('mutateProjectFile', async (args) => {
+    const [ctx, request] = args
+    const rawRoot = projectRootForRequest(ctx, request?.cwd)
+    if (!rawRoot) return { ok: false, error: 'No project directory is available.' } satisfies ProjectFileMutationResult
+
+    let root: string
+    try {
+      root = await realpath(rawRoot)
+    } catch {
+      return { ok: false, error: 'The project directory is no longer reachable.' } satisfies ProjectFileMutationResult
+    }
+    return await applyProjectFileMutation(root, request.mutation)
   })
 }

@@ -379,7 +379,7 @@
 </script>
 
 <div
-  class="@container relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background text-[0.8125rem]"
+  class="@container relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background text-sm"
   role="dialog"
   aria-label="Task"
   tabindex="-1"
@@ -514,7 +514,7 @@
     </div>
   {:else}
     <div
-      class="flex flex-1 items-center justify-center text-[0.8125rem] text-muted-foreground"
+      class="flex flex-1 items-center justify-center text-sm text-muted-foreground"
     >
       {store.loaded ? "That task no longer exists." : "Loading…"}
     </div>

@@ -88,14 +88,14 @@
     flex: none;
     width: 2.375rem;
     font-family: var(--solus-code-font-family);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-text-tertiary);
   }
 
   .endpoint__node {
     flex: 1;
     min-width: 0;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     color: var(--solus-text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -104,7 +104,7 @@
 
   .endpoint__go {
     flex: none;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-accent);
   }
 
@@ -114,7 +114,7 @@
     border-radius: 0.5rem;
     background: transparent;
     color: var(--solus-text-tertiary);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     text-align: center;
     cursor: pointer;
     transition:

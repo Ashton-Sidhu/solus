@@ -69,7 +69,6 @@
     targetBranch,
     isWorktree = false,
     onClose,
-    onToggleMaximize,
     initialScope = { kind: "session" },
     initialFilePath,
     navigationRequestId,
@@ -97,7 +96,6 @@
     targetBranch: string;
     isWorktree?: boolean;
     onClose: () => void;
-    onToggleMaximize?: () => void;
     initialScope?: DiffScope;
     initialFilePath?: string;
     navigationRequestId?: number;
@@ -513,7 +511,7 @@
       serverId: serverConnections.serverIdForApi(api),
       filePaths: [path],
       editorId: theme.defaultEditor,
-      terminalId: theme.defaultTerminal,
+      fallbackTerminalId: theme.fallbackTerminal,
       cwd: fileRoot,
     });
   }
@@ -779,13 +777,6 @@
   useKeybinding("diff-panel.toggle-token-hl", () => toggleTokenHighlight());
   useKeybinding("diff-panel.toggle-tree", () => toggleTreeCollapsed());
   useKeybinding("diff-panel.refresh", () => void handleManualRefresh());
-  useKeybinding(
-    "diff-panel.maximize",
-    () => {
-      if (onToggleMaximize) onToggleMaximize();
-    },
-    { enabled: () => !!onToggleMaximize },
-  );
   useKeybinding("diff-panel.submit", () => submitFromShortcut());
   useKeybinding("diff-panel.find", () => openFind());
 

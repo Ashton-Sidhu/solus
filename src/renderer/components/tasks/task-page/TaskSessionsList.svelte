@@ -66,18 +66,18 @@
     "flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground";
 </script>
 
-<div class="flex flex-col gap-[7px] pt-[26px]">
+<div class="text-xs text-xs flex flex-col gap-[7px] pt-[26px]">
   <div class="flex items-center gap-2.5">
-    <span class="text-xs font-normal text-muted-foreground uppercase">
+    <span class="font-normal text-muted-foreground uppercase">
       Sessions
     </span>
-    <span class="font-mono text-xs tabular-nums text-muted-foreground opacity-70">
+    <span class="tabular-nums text-muted-foreground opacity-70">
       {sessions.length}
     </span>
     <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
     <button
       type="button"
-      class="flex h-6 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
+      class="flex h-6 cursor-pointer items-center gap-1.5 rounded-md px-2.5 font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
       onclick={onNewSession}
     >
       <PlusIcon size={11} weight="bold" aria-hidden="true" />
@@ -90,7 +90,7 @@
        of the same task apart — agent, machine, when — sit under it. The card is
        bounded so a long history does not push the rest of the task off the page. -->
   <div
-    class="max-h-[min(22rem,42vh)] overflow-y-auto overscroll-contain rounded-xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:w-0"
+    class="scrollbar-on-hover max-h-[min(22rem,42vh)] overflow-y-auto overscroll-contain rounded-xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
   >
     {#each rows as row, index (row.sessionId)}
       <div
@@ -124,26 +124,26 @@
         </span>
 
         <span class="flex min-w-0 flex-1 flex-col gap-[3px]">
-          <span class="truncate text-[0.8125rem] font-medium">{row.title}</span>
+          <span class="truncate text-sm font-medium">{row.title}</span>
           <span class="flex min-w-0 items-center gap-[7px]">
             {#if row.running}
-              <span class="shrink-0 text-xs text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]">
+              <span class="shrink-0 text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]">
                 Running
               </span>
-              <span class="text-xs text-muted-foreground opacity-35" aria-hidden="true">·</span>
+              <span class="text-muted-foreground opacity-35" aria-hidden="true">·</span>
             {/if}
             {#if row.agent}
-              <span class="shrink-0 truncate text-xs text-muted-foreground opacity-70">
+              <span class="shrink-0 truncate text-muted-foreground opacity-70">
                 {row.agent}
               </span>
-              <span class="text-xs text-muted-foreground opacity-35" aria-hidden="true">·</span>
+              <span class="text-muted-foreground opacity-35" aria-hidden="true">·</span>
             {/if}
             <!-- The same laptop/globe pair the sidebar uses, so one machine reads
                  the same way wherever it is named. A host that cannot be named is
                  left out rather than defaulting to this machine. -->
             {#if row.host}
               <span
-                class="flex min-w-0 shrink items-center gap-1 text-xs text-muted-foreground opacity-70"
+                class="flex min-w-0 shrink items-center gap-1 text-muted-foreground opacity-70"
               >
                 {#if row.host.isRemote}
                   <GlobeIcon size={11} class="shrink-0" aria-hidden="true" />
@@ -152,9 +152,9 @@
                 {/if}
                 <span class="truncate">{row.host.label}</span>
               </span>
-              <span class="text-xs text-muted-foreground opacity-35" aria-hidden="true">·</span>
+              <span class="text-muted-foreground opacity-35" aria-hidden="true">·</span>
             {/if}
-            <span class="shrink-0 font-mono text-xs tabular-nums text-muted-foreground opacity-65">
+            <span class="shrink-0 tabular-nums text-muted-foreground opacity-65">
               {row.date}
             </span>
           </span>
@@ -170,7 +170,7 @@
           {#if row.running}
             <button
               type="button"
-              class="flex h-[26px] cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-[color-mix(in_oklch,var(--failure)_72%,var(--foreground))] hover:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--failure)_45%,transparent)]"
+              class="flex h-[26px] cursor-pointer items-center gap-1.5 rounded-md px-2.5 font-medium text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-[color-mix(in_oklch,var(--failure)_72%,var(--foreground))] hover:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--failure)_45%,transparent)]"
               onclick={(e) => {
                 e.stopPropagation();
                 onStop(row.sessionId);

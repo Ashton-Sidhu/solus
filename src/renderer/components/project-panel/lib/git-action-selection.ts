@@ -1,4 +1,4 @@
-import type { GitAction, GitRepositoryStatus, GitState } from '../../../../shared/types'
+import type { GitAction, GitActionPhase, GitRepositoryStatus, GitState } from '../../../../shared/types'
 
 /**
  * How far the project has come towards publishable work. The Git rows keep
@@ -23,7 +23,7 @@ export type GitPrimaryAction =
  * with its reason, so the menu reports the project's state rather than hiding it.
  */
 export interface GitMenuStep {
-  key: 'commit_with_options' | 'commit_only' | 'push' | 'create_pull_request'
+  key: 'commit_with_options' | 'push' | 'create_pull_request'
   label: string
   action: GitAction
   disabled: boolean
@@ -47,6 +47,22 @@ export interface GitRepositorySetup {
 }
 
 const NO_REMOTE_REASON = 'This project has no remote. Publish it from Pull requests.'
+
+/**
+ * Whether the running action is doing the pull-request row's work right now.
+ * The combined action commits and pushes before it reaches the pull request, so
+ * the row waits for its own phases instead of spinning through the commit —
+ * the rows then light up in the order the run actually works through them.
+ */
+export function isPullRequestRunning(
+  action: GitAction | null,
+  phase: GitActionPhase | null,
+): boolean {
+  // Opening a pull request is the whole of this action, push included.
+  if (action === 'create_pull_request') return true
+  if (action !== 'commit_push_pull_request') return false
+  return phase === 'author_pull_request' || phase === 'create_pull_request'
+}
 
 export function gitReadiness(repository: GitRepositoryStatus | null | undefined): GitReadiness {
   // An unanswered probe keeps the published ladder, so the rows do not flash
@@ -127,14 +143,9 @@ export function gitPublishModel(
     commit: {
       primary: { kind: 'run', label: 'Commit and push', action: 'commit_push' },
       steps: [
+        // "Commit only" lives inside the composer, so the menu offers the
+        // composer once and the dialog decides how far the commit travels.
         commitWithOptionsStep('commit_push', !!changesReason, changesReason),
-        {
-          key: 'commit_only',
-          label: 'Commit only',
-          action: 'commit',
-          disabled: !!changesReason,
-          reason: changesReason,
-        },
         pushStepFor(status),
       ],
     },

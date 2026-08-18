@@ -125,7 +125,7 @@ import { ghostCompletion, showGhost } from "./lib/ghost-completion";
       backgroundColor: "transparent",
       fontFamily: "inherit",
       fontSize:
-        "calc(var(--plain-editor-font-size, 0.8125rem) * var(--solus-font-scale, 1))",
+        "var(--plain-editor-font-size, var(--text-body))",
       fontWeight: "var(--solus-font-weight-body, 400)",
     },
     "&.cm-focused": { outline: "none" },

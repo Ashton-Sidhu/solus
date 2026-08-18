@@ -19,6 +19,33 @@ function statusBar(model: string, reasoningEffort: StatusBarCtx['reasoningEffort
 }
 
 describe('IPC context', () => {
+  test('marks a cross-host run as dispatched in SessionCtx', () => {
+    const run = {
+      workingDirectory: '/remote/repo',
+      gitContext: null,
+      worktree: { baseBranch: 'main' },
+      modelConfig: { modelId: 'model', reasoningEffort: 'high', contextWindow: null, fastMode: false },
+      permissionMode: 'ask',
+      provider: 'codex',
+      serverId: 'execution-host',
+      taskServerId: 'project-host',
+    }
+    const deps = {
+      sessionFor: () => undefined,
+      runFor: () => run,
+      globalDefaults: {
+        permissionMode: 'ask', workingDirectory: '/repo', gitContext: null, worktreeBaseBranch: null,
+        modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
+      },
+      staticInfo: () => null,
+      window: { viewMode: 'editor' },
+      settings: { ctx: { activeAgent: 'codex' } },
+      statusBar: { ctx: statusBar('model', 'high'), ctxFor: () => statusBar('model', 'high') },
+    } as unknown as IpcContextBuilderDeps
+
+    expect(new IpcContextBuilder(deps).sessionCtx('draft').origin).toBe('dispatch')
+  })
+
   test("a split tab runs with its own status bar's model and reasoning", () => {
     const primaryStatus = statusBar('primary-model', 'high')
     const splitStatus = statusBar('split-model', 'low')

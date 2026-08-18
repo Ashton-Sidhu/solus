@@ -121,7 +121,7 @@
               {urlHost(discoveredServerUrl(host.server))}
             </span>
           </span>
-          <span class="shrink-0 text-[0.8125rem] font-medium text-(--solus-accent)">Connect</span>
+          <span class="shrink-0 text-sm font-medium text-(--solus-accent)">Connect</span>
         </button>
       {/each}
     </div>

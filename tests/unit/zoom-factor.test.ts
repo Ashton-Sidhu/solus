@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import {
   clampZoomFactor,
+  defaultZoomFactorForScreen,
+  LAPTOP_SCREEN_MAX_WIDTH,
   stepZoomFactor,
   ZOOM_FACTOR_DEFAULT,
   ZOOM_FACTOR_MAX,
@@ -21,6 +23,33 @@ describe('clampZoomFactor', () => {
   test('a corrupt persisted value falls back to 100%, not an unreadable scale', () => {
     expect(clampZoomFactor(Number.NaN)).toBe(ZOOM_FACTOR_DEFAULT)
     expect(clampZoomFactor(Number.POSITIVE_INFINITY)).toBe(ZOOM_FACTOR_DEFAULT)
+  })
+})
+
+describe('defaultZoomFactorForScreen', () => {
+  // The fixed 16px root renders ~7% larger on a laptop than the fluid root it
+  // replaced (ADR-0010). A laptop should not have to zoom out by hand on every
+  // fresh install, so the first-run default carries that one step.
+  test('a laptop-class screen opens one step out', () => {
+    expect(defaultZoomFactorForScreen(1512)).toBe(0.9) // 14" MacBook Pro
+    expect(defaultZoomFactorForScreen(1440)).toBe(0.9)
+    expect(defaultZoomFactorForScreen(LAPTOP_SCREEN_MAX_WIDTH)).toBe(0.9)
+  })
+
+  test('a desktop monitor keeps 100% — the OS already chose that density', () => {
+    expect(defaultZoomFactorForScreen(LAPTOP_SCREEN_MAX_WIDTH + 1)).toBe(ZOOM_FACTOR_DEFAULT)
+    expect(defaultZoomFactorForScreen(1920)).toBe(ZOOM_FACTOR_DEFAULT)
+    expect(defaultZoomFactorForScreen(3440)).toBe(ZOOM_FACTOR_DEFAULT)
+  })
+
+  test('an unreadable screen width never seeds a surprise scale', () => {
+    expect(defaultZoomFactorForScreen(undefined)).toBe(ZOOM_FACTOR_DEFAULT)
+    expect(defaultZoomFactorForScreen(Number.NaN)).toBe(ZOOM_FACTOR_DEFAULT)
+    expect(defaultZoomFactorForScreen(0)).toBe(ZOOM_FACTOR_DEFAULT)
+  })
+
+  test('the seed is a real zoom step, so mod+plus lands back on 100%', () => {
+    expect(stepZoomFactor(defaultZoomFactorForScreen(1512), 1)).toBe(ZOOM_FACTOR_DEFAULT)
   })
 })
 

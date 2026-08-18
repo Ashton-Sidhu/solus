@@ -14,7 +14,7 @@ export function openInConfiguredEditor(
     filePaths: readonly string[];
     cwd?: string | null;
     editorId: EditorId | null;
-    terminalId?: TerminalAppId | null;
+    fallbackTerminalId?: TerminalAppId | null;
   },
 ): boolean {
   if (!hostPolicy.isClientMachine(opts.serverId)) return false;
@@ -25,7 +25,7 @@ export function openInConfiguredEditor(
   void opts.api.openInEditor(ctx, {
     filePaths: toAbsoluteFilePaths(opts.filePaths, cwd),
     editorId: opts.editorId,
-    terminalId: opts.terminalId ?? undefined,
+    fallbackTerminalId: opts.fallbackTerminalId ?? undefined,
     cwd,
   });
   return true;

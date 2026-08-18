@@ -54,7 +54,7 @@
       <span class="min-w-0 flex-1 truncate text-sm font-medium text-(--solus-text-primary)">
         Notifications
       </span>
-      <span class="shrink-0 text-[0.8125rem] text-(--solus-text-tertiary)">
+      <span class="shrink-0 text-sm text-(--solus-text-tertiary)">
         {webPushState.subscribed ? "On" : "Off"}
       </span>
     </button>

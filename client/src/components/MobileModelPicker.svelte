@@ -116,13 +116,13 @@
 {#if models.length > 0}
   <button
     type="button"
-    class="inline-flex items-center gap-1.5 max-w-[11rem] shrink-0 px-2.5 py-1 rounded-full border-0 cursor-pointer bg-(--solus-surface-hover) transition-[background-color,transform] duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.96] active:bg-(--solus-accent-light) [-webkit-tap-highlight-color:transparent]"
+    class="text-sm inline-flex items-center gap-1.5 max-w-[11rem] shrink-0 px-2.5 py-1 rounded-full border-0 cursor-pointer bg-(--solus-surface-hover) transition-[background-color,transform] duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.96] active:bg-(--solus-accent-light) [-webkit-tap-highlight-color:transparent]"
     onclick={toggle}
     aria-haspopup="dialog"
     aria-expanded={open}
   >
-    <span class="truncate text-[0.8125rem] font-[550] text-(--solus-text-primary)">{activeLabel}</span>
-    <span class="shrink-0 text-[0.8125rem] text-(--solus-text-tertiary)">{REASONING_EFFORT_LABELS[currentReasoning]}</span>
+    <span class="truncate  font-[550] text-(--solus-text-primary)">{activeLabel}</span>
+    <span class="shrink-0  text-(--solus-text-tertiary)">{REASONING_EFFORT_LABELS[currentReasoning]}</span>
   </button>
 {/if}
 
@@ -163,7 +163,7 @@
       >
         <XIcon size={14} weight="bold" />
       </button>
-      <h2 class="text-sm font-semibold text-(--solus-text-primary)">Select model</h2>
+      <h2 class=" font-semibold text-(--solus-text-primary)">Select model</h2>
     </div>
 
     <!-- Model list -->
@@ -177,7 +177,7 @@
           disabled={isBusy && !isSelected}
           onclick={() => selectModel(m.id)}
         >
-          <span class="flex-1 min-w-0 truncate text-sm font-medium text-(--solus-text-primary)">{m.label}</span>
+          <span class="flex-1 min-w-0 truncate  font-medium text-(--solus-text-primary)">{m.label}</span>
           {#if isSelected}
             <CheckIcon size={14} weight="bold" class="shrink-0 text-(--solus-accent)" />
           {/if}
@@ -198,8 +198,8 @@
           aria-expanded={effortExpanded}
           onclick={() => (effortExpanded = !effortExpanded)}
         >
-          <span class="flex-1 min-w-0 text-sm font-medium text-(--solus-text-primary)">Effort</span>
-          <span class="shrink-0 text-[0.8125rem] text-(--solus-text-tertiary)">{REASONING_EFFORT_LABELS[currentReasoning]}</span>
+          <span class="flex-1 min-w-0  font-medium text-(--solus-text-primary)">Effort</span>
+          <span class="shrink-0  text-(--solus-text-tertiary)">{REASONING_EFFORT_LABELS[currentReasoning]}</span>
           <span class="shrink-0 text-(--solus-text-tertiary) transition-transform duration-200" class:rotate-90={effortExpanded}>
             <CaretRightIcon size={14} />
           </span>
@@ -213,7 +213,7 @@
               class="flex items-center gap-3 w-full px-3.5 py-2.5 border-0 bg-transparent text-left cursor-pointer transition-colors duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:bg-(--solus-accent-light) [-webkit-tap-highlight-color:transparent]"
               onclick={() => selectReasoning(level)}
             >
-              <span class="flex-1 min-w-0 text-sm font-secondary text-(--solus-text-secondary)">{REASONING_EFFORT_LABELS[level]}</span>
+              <span class="flex-1 min-w-0  font-secondary text-(--solus-text-secondary)">{REASONING_EFFORT_LABELS[level]}</span>
               {#if currentReasoning === level}
                 <CheckIcon size={14} weight="bold" class="shrink-0 text-(--solus-accent)" />
               {/if}

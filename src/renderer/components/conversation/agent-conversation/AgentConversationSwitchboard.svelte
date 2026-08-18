@@ -202,7 +202,7 @@
     <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[252px]">
       {#if provenanceFor(ref)}
         <div
-          class="text-menu-meta px-2.5 pt-1 pb-2 font-mono break-words text-(--solus-text-tertiary)"
+          class="text-xs px-2.5 pt-1 pb-2 break-words text-(--solus-text-tertiary)"
         >
           {provenanceFor(ref)}
         </div>
@@ -234,11 +234,11 @@
         weight="bold"
         class="shrink-0 w-3 text-[color-mix(in_oklch,var(--chart-3)_64%,var(--foreground))]"
       />
-      <span class="text-[0.8125rem] font-medium">
+      <span class="text-sm font-medium">
         Round complete · {refs.length} agents replied
       </span>
       <span class="flex-1"></span>
-      <span class="font-mono text-xs text-muted-foreground/55 tabular-nums">
+      <span class="text-xs text-muted-foreground/55 tabular-nums">
         {totalMessages}
         {totalMessages === 1 ? "message" : "messages"} · {totalElapsed}
       </span>
@@ -274,12 +274,12 @@
                row's subject and never truncates; the worktree beside it is the
                disambiguator and gives way, in mono because it is a path. -->
           <span class="flex items-baseline gap-1.5 shrink-0 w-[120px]">
-            <span class="shrink-0 text-[0.8125rem] font-medium">{nameOf(ref)}</span>
+            <span class="shrink-0 text-sm font-medium">{nameOf(ref)}</span>
             <span class="min-w-0 truncate text-xs text-muted-foreground">
               {worktreeLabel(ref, meta)}
             </span>
           </span>
-          <span class="flex-1 min-w-0 truncate text-[0.8125rem] text-muted-foreground">
+          <span class="flex-1 min-w-0 truncate text-sm text-muted-foreground">
             {agentLatestLine(ref, states[index])}
           </span>
         </button>
@@ -329,7 +329,7 @@
             </span>
           {:else}
             <span
-              class="text-[0.8125rem] font-medium {isLive
+              class="text-sm font-medium {isLive
                 ? 'text-[color-mix(in_oklch,var(--agent-accent)_76%,var(--foreground))]'
                 : 'text-muted-foreground'}"
             >
@@ -360,7 +360,7 @@
       {/each}
       <span class="flex-1"></span>
       {#if selectedLive}
-        <span class="shrink-0 font-mono text-xs text-muted-foreground/55 tabular-nums">
+        <span class="shrink-0 text-xs text-muted-foreground/55 tabular-nums">
           {formatAgentConversationDuration(agentConversationElapsedMs(selected, now))}
         </span>
       {:else if !isPendingAgent(selected)}

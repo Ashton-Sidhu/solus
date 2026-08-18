@@ -29,6 +29,7 @@ const sourceControlWritingSchema = z.object({
 }).strict()
 const persistedServerSettingsSchema = z.object({
   remoteAccess: z.boolean().optional(),
+  metricsRetentionDays: z.number().optional(),
   trustLocalNetwork: z.boolean().optional(),
   agentTaskLifecyclePolicy: z.enum(['none', 'moderate', 'autonomous']).optional(),
   analytics: z.boolean().optional(),
@@ -42,6 +43,7 @@ const persistedServerSettingsSchema = z.object({
 
 export interface ServerSettings {
   remoteAccess: boolean
+  metricsRetentionDays: number
   /** Requesters from private-range (RFC1918) addresses skip pairing. Off by
    *  default: a shared network is not an identity unless the owner says so. */
   trustLocalNetwork: boolean
@@ -67,6 +69,7 @@ const DEFAULT_TEXT_GENERATION_MODELS = {
 
 const DEFAULT_SETTINGS: ServerSettings = {
   remoteAccess: true,
+  metricsRetentionDays: 30,
   trustLocalNetwork: false,
   agentTaskLifecyclePolicy: 'moderate',
   textGenerationModel: { provider: 'codex', model: DEFAULT_TEXT_GENERATION_MODELS.codex },
@@ -89,6 +92,7 @@ export function getServerSettings(): ServerSettings {
       const parsed = persistedServerSettingsSchema.parse(JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8')))
       _settings = {
         remoteAccess: parsed?.remoteAccess === true,
+        metricsRetentionDays: normalizeMetricsRetentionDays(parsed?.metricsRetentionDays),
         trustLocalNetwork: parsed?.trustLocalNetwork === true,
         agentTaskLifecyclePolicy: normalizeAgentTaskLifecyclePolicy(parsed?.agentTaskLifecyclePolicy),
         analytics: parsed.analytics,
@@ -115,6 +119,12 @@ export function getServerSettings(): ServerSettings {
 
 export function setRemoteAccess(remoteAccess: boolean): ServerSettings {
   _settings = { ...getServerSettings(), remoteAccess }
+  persistSettings(_settings)
+  return _settings
+}
+
+export function setMetricsRetentionDays(metricsRetentionDays: number): ServerSettings {
+  _settings = { ...getServerSettings(), metricsRetentionDays: normalizeMetricsRetentionDays(metricsRetentionDays) }
   persistSettings(_settings)
   return _settings
 }
@@ -215,6 +225,11 @@ function normalizeProjectsBaseDirectory(value: string | undefined): string | und
   if (value === undefined) return undefined
   const trimmed = value.trim()
   return trimmed ? trimmed.slice(0, 1024) : undefined
+}
+
+function normalizeMetricsRetentionDays(value: number | undefined): number {
+  if (value === undefined || !Number.isInteger(value) || value < 1) return DEFAULT_SETTINGS.metricsRetentionDays
+  return value
 }
 
 function normalizeAgentTaskLifecyclePolicy(value: AgentTaskLifecyclePolicy | undefined): AgentTaskLifecyclePolicy {

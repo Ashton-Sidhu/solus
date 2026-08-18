@@ -28,7 +28,7 @@
       <ProviderLogo provider={row.id} />
       <span class="flex min-w-0 flex-1 flex-col">
         <span
-          class="truncate text-[0.8125rem] font-medium leading-[1.3] text-(--solus-text-primary)"
+          class="truncate text-sm font-medium leading-[1.3] text-(--solus-text-primary)"
         >
           {row.label}
         </span>

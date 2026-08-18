@@ -101,7 +101,6 @@
         isWorktree={!!checkout}
         onClose={close}
         embedded
-        onToggleMaximize={pane.toggleMaximize}
         initialScope={review.diffScope}
         commentingDisabled={!!review.commitScope}
         commitSha={review.commitScope?.sha ?? null}

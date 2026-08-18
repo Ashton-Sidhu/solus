@@ -77,12 +77,12 @@
             projectKey={choice.projectKey}
             initial={choice.initial}
             active={false}
-            class="size-[0.6875rem]"
-            letterClass="text-[0.5rem]"
+            class="size-[0.875rem]"
+            letterClass="text-xs"
           />
           <span class="min-w-0 flex-1 truncate text-left">{choice.label}</span>
           <span
-            class="shrink-0 font-mono text-[0.65625rem] tabular-nums opacity-50"
+            class="shrink-0 text-xs tabular-nums opacity-50"
             >{choice.count}</span
           >
           {#if projectFilter === choice.projectKey}

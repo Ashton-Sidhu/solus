@@ -7,7 +7,6 @@ if (!process.env.NODE_EXTRA_CA_CERTS) {
 import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell, systemPreferences, powerSaveBlocker, protocol, clipboard } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs'
-import { syncBundledPlugins } from './agents/plugins'
 import { warmCliPath } from './cli-env'
 import { createLogger, flushLogs } from './logger'
 import type { AppGlobalShortcuts, AppShortcutCombo } from '../shared/types'
@@ -1051,9 +1050,6 @@ if (isPairUrl) {
 } else {
   app.whenReady().then(async () => {
     protocol.handle('solus-artifact', handleArtifactRequest)
-
-    // Link app-bundled plugins into ~/.solus/plugins before any agent can run.
-    await syncBundledPlugins()
 
     // Resolve the login-shell PATH off the main thread now, so agent-binary
     // lookup is warm. The Codex app-server itself remains lazy: starting it here

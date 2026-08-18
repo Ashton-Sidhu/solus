@@ -47,7 +47,7 @@
   bind:value={draft}
   aria-label={placeholder}
   {placeholder}
-  class="flex-1 min-w-0 text-[0.8125rem] outline-none placeholder:text-muted-foreground {emphasis
+  class="flex-1 min-w-0 text-sm outline-none placeholder:text-muted-foreground {emphasis
     ? 'bg-(--solus-tx-card-bg) rounded-md px-2.5 py-1.5 shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)]'
     : 'bg-transparent'}"
   onkeydown={(e) => {
@@ -59,7 +59,7 @@
 />
 
 {#if notice}
-  <span class="shrink-0 font-mono text-xs text-muted-foreground/60">{notice}</span>
+  <span class="shrink-0 text-xs text-muted-foreground/60">{notice}</span>
 {/if}
 
 {#if broadcastLabel}

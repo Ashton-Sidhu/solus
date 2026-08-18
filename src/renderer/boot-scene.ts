@@ -96,8 +96,8 @@ function ensureBootStyles(): void {
     }
     .solus-boot-detail[data-shown='true'] { opacity: 1; }
 
-    .solus-boot-host { font-size: 0.875rem; font-weight: 500; line-height: 1.2; }
-    .solus-boot-url { margin-top: 0.3125rem; font-size: 0.8125rem; color: var(--solus-boot-tertiary); }
+    .solus-boot-host { font-size: var(--text-sm); font-weight: 500; line-height: 1.2; }
+    .solus-boot-url { margin-top: 0.3125rem; font-size: var(--text-sm); color: var(--solus-boot-tertiary); }
 
     .solus-boot-stages { margin-top: 1.5rem; width: 100%; max-width: 20rem; }
     .solus-boot-step { display: flex; align-items: center; gap: 0.625rem; padding: 0.375rem 0; }
@@ -120,7 +120,7 @@ function ensureBootStyles(): void {
       border: 0.09375rem solid var(--solus-boot-accent);
       animation: solus-boot-ping 1.5s ease-out infinite;
     }
-    .solus-boot-step-label { font-size: 0.875rem; color: var(--solus-boot-tertiary); transition: color 0.3s ease; }
+    .solus-boot-step-label { font-size: var(--text-sm); color: var(--solus-boot-tertiary); transition: color 0.3s ease; }
     .solus-boot-step[data-state='active'] .solus-boot-step-label { color: inherit; }
     .solus-boot-step[data-state='done'] .solus-boot-step-label { color: var(--solus-boot-secondary); }
 
@@ -129,20 +129,20 @@ function ensureBootStyles(): void {
       display: flex;
       align-items: center;
       gap: 0.5625rem;
-      font-size: 0.8125rem;
+      font-size: var(--text-sm);
       color: var(--solus-boot-tertiary);
       animation: solus-boot-fade 0.45s ease-out both;
     }
 
-    .solus-boot-title { margin-top: 1.0625rem; font-size: 0.875rem; font-weight: 500; line-height: 1.3; text-align: center; max-width: 22rem; }
-    .solus-boot-message { margin-top: 0.4375rem; font-size: 0.875rem; line-height: 1.5; color: var(--solus-boot-tertiary); text-align: center; max-width: 22rem; }
+    .solus-boot-title { margin-top: 1.0625rem; font-size: var(--text-sm); font-weight: 500; line-height: 1.3; text-align: center; max-width: 22rem; }
+    .solus-boot-message { margin-top: 0.4375rem; font-size: var(--text-sm); line-height: 1.5; color: var(--solus-boot-tertiary); text-align: center; max-width: 22rem; }
 
     .solus-boot-actions { margin-top: 1.0625rem; display: flex; gap: 0.5rem; }
     .solus-boot-button {
       appearance: none;
       cursor: pointer;
       font: inherit;
-      font-size: 0.8125rem;
+      font-size: var(--text-sm);
       padding: 0.375rem 0.8125rem;
       border-radius: 0.5rem;
       border: 0.0625rem solid transparent;
@@ -158,7 +158,7 @@ function ensureBootStyles(): void {
       border: 0;
       padding: 0;
       font: inherit;
-      font-size: 0.8125rem;
+      font-size: var(--text-sm);
       color: var(--solus-boot-accent);
       cursor: pointer;
       text-decoration: underline;
@@ -182,7 +182,7 @@ function ensureBootStyles(): void {
       justify-content: space-between;
       gap: 0.75rem;
       padding: 0.5rem 0.5rem 0.5rem 0.75rem;
-      font-size: 0.8125rem;
+      font-size: var(--text-sm);
       color: var(--solus-boot-secondary);
     }
     .solus-boot-details summary::-webkit-details-marker { display: none; }
@@ -191,7 +191,7 @@ function ensureBootStyles(): void {
       appearance: none;
       cursor: pointer;
       font: inherit;
-      font-size: 0.75rem;
+      font-size: var(--text-xs);
       padding: 0.1875rem 0.5rem;
       border-radius: 0.3125rem;
       border: 0.0625rem solid var(--solus-boot-hairline);
@@ -206,7 +206,7 @@ function ensureBootStyles(): void {
       padding: 0.625rem 0.75rem;
       max-height: 18rem;
       overflow: auto;
-      font-size: 0.75rem;
+      font-size: var(--text-xs);
       line-height: 1.65;
       font-family: 'Geist Mono', ui-monospace, SFMono-Regular, monospace;
       color: var(--solus-boot-secondary);

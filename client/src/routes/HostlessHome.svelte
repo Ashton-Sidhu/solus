@@ -100,16 +100,16 @@
 <!-- Same posture as the workspace's new-tab home: one headline, then the one
      thing this screen exists for. -->
 <div
-  class="flex min-h-dvh w-full flex-col items-center justify-center gap-8 overflow-y-auto bg-(--solus-bg) px-5 py-10"
+  class="text-sm text-xs flex min-h-dvh w-full flex-col items-center justify-center gap-8 overflow-y-auto bg-(--solus-bg) px-5 py-10"
   data-solus-ui
 >
   <header class="flex max-w-[26rem] flex-col items-center gap-2 text-center">
     <h1
-      class="text-pretty text-[1.5rem] font-medium leading-[1.25] text-(--solus-text-primary)"
+      class="text-pretty text-2xl font-medium leading-[1.25] text-(--solus-text-primary)"
     >
       Connect a host to get started
     </h1>
-    <p class="text-[0.8125rem] leading-relaxed text-(--solus-text-tertiary)">
+    <p class="leading-relaxed text-(--solus-text-tertiary)">
       Sessions run on a host — your computer or a machine you pair once. After
       that, Solus reconnects on its own.
     </p>
@@ -119,7 +119,7 @@
     {#if servingHost && !selectedHost}
       <section>
         <span
-          class="mb-1 block px-1 text-xs font-semibold uppercase tracking-[0.03em] text-(--solus-text-tertiary)"
+          class="mb-1 block px-1 font-semibold uppercase tracking-[0.03em] text-(--solus-text-tertiary)"
           >On this address</span
         >
         <div
@@ -136,14 +136,14 @@
             />
             <span class="flex min-w-0 flex-1 flex-col">
               <span
-                class="truncate text-[0.8125rem] font-medium text-(--solus-text-primary)"
+                class="truncate  font-medium text-(--solus-text-primary)"
                 >{servingHost.name}</span
               >
-              <span class="truncate font-mono text-xs text-(--solus-text-tertiary)"
+              <span class="truncate font-mono text-(--solus-text-tertiary)"
                 >{urlHost(servingHost.url)}</span
               >
             </span>
-            <span class="shrink-0 text-xs font-medium text-(--solus-accent)"
+            <span class="shrink-0 font-medium text-(--solus-accent)"
               >Connect</span
             >
           </button>
@@ -154,7 +154,7 @@
     {#if savedServers.length > 0}
       <section>
         <span
-          class="mb-1 block px-1 text-xs font-semibold uppercase tracking-[0.03em] text-(--solus-text-tertiary)"
+          class="mb-1 block px-1 font-semibold uppercase tracking-[0.03em] text-(--solus-text-tertiary)"
           >Your hosts</span
         >
         <div
@@ -178,11 +178,11 @@
                 ></span>
                 <span class="flex min-w-0 flex-1 flex-col">
                   <span
-                    class="truncate text-[0.8125rem] font-medium text-(--solus-text-primary)"
+                    class="truncate  font-medium text-(--solus-text-primary)"
                     >{server.label}</span
                   >
                   <span
-                    class="truncate font-mono text-xs text-(--solus-text-tertiary)"
+                    class="truncate font-mono text-(--solus-text-tertiary)"
                     >{urlHost(server.url)}</span
                   >
                 </span>
@@ -207,7 +207,7 @@
 
     <section>
       <span
-        class="mb-1 block px-1 text-xs font-semibold uppercase tracking-[0.03em] text-(--solus-text-tertiary)"
+        class="mb-1 block px-1 font-semibold uppercase tracking-[0.03em] text-(--solus-text-tertiary)"
         >{savedServers.length > 0 || servingHost
           ? "Add a host"
           : "Connect"}</span
@@ -218,7 +218,7 @@
       >
         {#if selectedHost}
           <p
-            class="rounded-lg bg-(--solus-surface-hover) px-3 py-2 text-xs leading-relaxed text-(--solus-text-tertiary)"
+            class="rounded-lg bg-(--solus-surface-hover) px-3 py-2 leading-relaxed text-(--solus-text-tertiary)"
           >
             On {selectedHost.name}, open Solus and go to <strong
               class="font-medium text-(--solus-text-secondary)"
@@ -231,16 +231,16 @@
             <HardDrivesIcon size={14} class="shrink-0 text-(--solus-accent)" />
             <span class="flex min-w-0 flex-1 flex-col">
               <span
-                class="truncate text-[0.8125rem] font-medium text-(--solus-text-primary)"
+                class="truncate  font-medium text-(--solus-text-primary)"
                 >{selectedHost.name}</span
               >
-              <span class="truncate font-mono text-xs text-(--solus-text-tertiary)"
+              <span class="truncate font-mono text-(--solus-text-tertiary)"
                 >{urlHost(selectedHost.url)}</span
               >
             </span>
             <button
               type="button"
-              class="shrink-0 rounded-md px-1.5 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
+              class="shrink-0 rounded-md px-1.5 py-1 font-medium text-(--solus-text-tertiary) transition-colors hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
               onclick={clearSelectedHost}
             >
               Change
@@ -248,7 +248,7 @@
           </div>
         {:else}
           <p
-            class="rounded-lg bg-(--solus-surface-hover) px-3 py-2 text-xs leading-relaxed text-(--solus-text-tertiary)"
+            class="rounded-lg bg-(--solus-surface-hover) px-3 py-2 leading-relaxed text-(--solus-text-tertiary)"
           >
             On your computer, open Solus and go to <strong
               class="font-medium text-(--solus-text-secondary)"
@@ -263,7 +263,7 @@
               bind:this={smartInputEl}
               bind:value={smartInput}
               type="text"
-              class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 text-[0.8125rem] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"
+              class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2  text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"
               placeholder="192.168.1.42:51234 or pairing link"
               autocomplete="off"
               autocapitalize="off"
@@ -281,7 +281,7 @@
               bind:this={codeInputEl}
               bind:value={codeInput}
               type="text"
-              class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 font-mono text-[0.8125rem] tracking-[0.16em] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"
+              class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2  tracking-[0.16em] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"
               placeholder="000000"
               inputmode="numeric"
               maxlength="6"
@@ -298,7 +298,7 @@
           <input
             bind:value={labelInput}
             type="text"
-            class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 text-[0.8125rem] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"
+            class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2  text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"
             placeholder={defaultDeviceLabel()}
             autocomplete="off"
           />
@@ -307,7 +307,7 @@
         <button
           type="submit"
           disabled={busy}
-          class="inline-flex items-center justify-center gap-2 rounded-lg bg-(--solus-accent) px-3 py-2 text-[0.8125rem] font-medium text-(--solus-text-on-accent) transition-[opacity,transform] active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
+          class="inline-flex items-center justify-center gap-2 rounded-lg bg-(--solus-accent) px-3 py-2  font-medium text-(--solus-text-on-accent) transition-[opacity,transform] active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
         >
           <LinkSimpleIcon size={14} />
           {busy ? "Connecting…" : "Connect"}

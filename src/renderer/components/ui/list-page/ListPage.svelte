@@ -119,7 +119,7 @@
 </script>
 
 <div
-  class="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-[0.8125rem] text-foreground"
+  class="text-sm relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-sm text-foreground"
 >
   <div
     class="mx-auto flex min-h-0 w-full flex-1 flex-col {split
@@ -135,7 +135,7 @@
     >
       {#if !split}
         <div class="flex min-w-0 flex-col gap-[9px]">
-          <h1 class="text-[1.5rem] font-medium whitespace-nowrap">
+          <h1 class="text-2xl font-medium whitespace-nowrap">
             {title}
           </h1>
 
@@ -179,7 +179,7 @@
           >
             <button
               type="button"
-              class="flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full border-0 px-[13px] text-[0.8125rem] transition-colors duration-150 {segment(
+              class="flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full border-0 px-[13px]  transition-colors duration-150 {segment(
  !isInbox,
  )}"
               onclick={() => onViewChange?.("global")}
@@ -190,7 +190,7 @@
             </button>
             <button
               type="button"
-              class="flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full border-0 px-[13px] text-[0.8125rem] transition-colors duration-150 {segment(
+              class="flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full border-0 px-[13px]  transition-colors duration-150 {segment(
  isInbox,
  )}"
               onclick={() => onViewChange?.("inbox")}
@@ -199,7 +199,7 @@
               <TrayIcon size={12} class="shrink-0" />
               {inboxLabel}
               <span
-                class="rounded-full px-[5px] py-px font-mono text-xs tabular-nums {isInbox
+                class="rounded-full px-[5px] py-px text-xs tabular-nums {isInbox
  ? 'bg-[color-mix(in_oklch,var(--primary)_15%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
  : 'bg-[var(--wash-3)] text-muted-foreground'}"
               >
@@ -230,13 +230,13 @@
         {#if primaryAction}
           <button
             type="button"
-            class="flex h-[30px] cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] text-[0.8125rem] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]"
+            class="flex h-[30px] cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px]  font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]"
             onclick={primaryAction.run}
           >
             <PlusIcon size={12} weight="bold" class="shrink-0" />
             {primaryAction.label}
             {#if primaryAction.shortcut}
-              <span class="font-mono text-xs opacity-80"
+              <span class="text-xs opacity-80"
                 >{primaryAction.shortcut}</span
               >
             {/if}

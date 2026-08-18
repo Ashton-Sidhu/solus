@@ -61,7 +61,7 @@
     >
       {label}
     </span>
-    <span class="font-mono text-xs tabular-nums text-muted-foreground opacity-70">
+    <span class="text-xs tabular-nums text-muted-foreground opacity-70">
       {count}
     </span>
     <span class="h-px flex-1 bg-[var(--hairline)]"></span>

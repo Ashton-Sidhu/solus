@@ -24,6 +24,21 @@ export function logsDir(): string {
   return join(dataDir(), 'logs')
 }
 
+/**
+ * Root of the app-bundled `resources/` tree, anchored to the app root rather
+ * than a module's `__dirname`. The main bundle is code-split, so a module that
+ * walks up from its own directory resolves against whichever chunk directory
+ * Rollup emitted it into. Electron reports the app root directly (the repo in
+ * development, `app.asar` when packaged); the standalone server launchers
+ * export SOLUS_INSTALL_DIR. Anything else is an unpackaged run from the repo.
+ */
+export function bundledResourcesDir(): string {
+  const app = electronApp()
+  if (app) return join(app.getAppPath(), 'resources')
+  if (process.env.SOLUS_INSTALL_DIR) return join(process.env.SOLUS_INSTALL_DIR, 'resources')
+  return join(process.cwd(), 'resources')
+}
+
 export function appVersion(): string {
   return electronApp()?.getVersion?.() ?? packageJson.version
 }

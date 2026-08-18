@@ -206,94 +206,94 @@
 </script>
 
 <!-- Two lists and nothing else: one line per session, one line per linked
-     object. The task's identity — its ref, opened date and actions — is all in
-     the section header, and there is no footer, so the body never reports
-     anything the header already says.
+object. The task's identity — its ref, opened date and actions — is all in
+the section header, and there is no footer, so the body never reports
+anything the header already says.
 
-     Every row here is the rail's row, not the mock's: full width of the card's
-     inner edge with 8px of its own padding, exactly like MenuRow in Environment
-     and Git. That 8px is the card's text measure, so the group labels and every
-     row label set on the same left edge. -->
-<div class="mb-2 flex flex-col {task.status === 'done' ? 'opacity-[.62]' : ''}">
+Every row here is the rail's row, not the mock's: full width of the card's
+inner edge with 8px of its own padding, exactly like MenuRow in Environment
+and Git. That 8px is the card's text measure, so the group labels and every
+row label set on the same left edge. -->
+<div class="text-menu text-xs mb-2 flex flex-col {task.status === 'done' ? 'opacity-[.62]' : ''}">
   <div class="mt-0.5 flex flex-col gap-px">
     <!-- Six attempts stay visible at once. Older attempts scroll inside this
          group so a long history cannot take over the project rail; New session
          stays pinned below the history. -->
-    <div class="max-h-48 overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:w-0">
+    <div class="scrollbar-on-hover max-h-48 overflow-y-auto overscroll-contain">
       {#each sessionRows as row (row.sessionId)}
         {@const StatusIcon = row.icon}
-      <!-- State is the leading glyph and nothing else; elapsed reads at rest
-           and hands its slot to the actions on hover, so the row keeps one
-           value column and never changes height. -->
-      <div
-        class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-menu text-(--solus-text-secondary) transition-colors duration-150 @max-[15rem]:text-xs hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {row.current
- ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
- : ''} {row.dimmed ? 'opacity-[.62] hover:opacity-100' : ''}"
-        role="button"
-        tabindex="0"
-        title="{row.stateLabel} · {row.startedAt}"
-        onclick={() => void openSession(row.sessionId)}
-        onkeydown={(e) => {
+        <!-- State is the leading glyph and nothing else; elapsed reads at rest
+        and hands its slot to the actions on hover, so the row keeps one
+        value column and never changes height. -->
+        <div
+          class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem]  text-(--solus-text-secondary) transition-colors duration-150 @max-[17rem]:text-xs hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {row.current
+          ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
+          : ''} {row.dimmed ? 'opacity-[.62] hover:opacity-100' : ''}"
+          role="button"
+          tabindex="0"
+          title="{row.stateLabel} · {row.startedAt}"
+          onclick={() => void openSession(row.sessionId)}
+          onkeydown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            void openSession(row.sessionId);
+          e.preventDefault();
+          void openSession(row.sessionId);
           }
-        }}
-      >
-        <!-- A state tone is a fact, so it survives hover; an untinted glyph
-             tracks the label like every other row in the rail. No column width:
-             the 13px glyph sets its own, so a task row's label lands on the same
-             left edge as a Git or Environment row. -->
-        <span
-          class="inline-flex shrink-0 transition-colors duration-150 {row.iconColor
- ? ''
- : 'text-(--solus-text-secondary) group-hover:text-(--solus-text-primary)'}"
-          style={row.iconColor ? `color:${row.iconColor}` : undefined}
-          role="img"
-          aria-label={row.stateLabel}
+          }}
         >
-          <StatusIcon size={13} class={row.spin ? "animate-spin" : undefined} />
-        </span>
+          <!-- A state tone is a fact, so it survives hover; an untinted glyph
+          tracks the label like every other row in the rail. No column width:
+          the 13px glyph sets its own, so a task row's label lands on the same
+          left edge as a Git or Environment row. -->
+          <span
+            class="inline-flex shrink-0 transition-colors duration-150 {row.iconColor
+            ? ''
+            : 'text-(--solus-text-secondary) group-hover:text-(--solus-text-primary)'}"
+            style={row.iconColor ? `color:${row.iconColor}` : undefined}
+            role="img"
+            aria-label={row.stateLabel}
+          >
+            <StatusIcon size={13} class={row.spin ? "animate-spin" : undefined} />
+          </span>
 
-        <span class="min-w-0 flex-1 truncate">{row.title}</span>
+          <span class="min-w-0 flex-1 truncate">{row.title}</span>
 
-        <!-- One trailing reading in the rail's metric voice, then the secondary
-             action, which trades places with it on hover so the row keeps a
-             single value column and never changes width. -->
-        <span
-          class="shrink-0 truncate text-menu-meta text-(--solus-text-tertiary) group-hover:hidden {row.valueMono
- ? 'tabular-nums'
- : ''}"
-        >
-          {row.value}
-        </span>
+          <!-- One trailing reading in the rail's metric voice, then the secondary
+          action, which trades places with it on hover so the row keeps a
+          single value column and never changes width. -->
+          <span
+            class="shrink-0 truncate text-(--solus-text-tertiary) group-hover:hidden {row.valueMono
+            ? 'tabular-nums'
+            : ''}"
+          >
+            {row.value}
+          </span>
 
-        <TooltipUI.Root>
-          <TooltipUI.Trigger>
-            {#snippet child({ props })}
-              <button
-                {...props}
-                type="button"
-                class="hidden size-6 shrink-0 cursor-pointer items-center justify-center rounded-[0.375rem] text-(--solus-text-tertiary) transition-colors duration-150 group-hover:flex hover:bg-[color-mix(in_srgb,var(--solus-text-primary)_8%,transparent)] hover:text-(--solus-text-primary) focus-visible:flex focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
-                aria-label="Open in split"
-                onclick={(e) => {
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  class="hidden size-6 shrink-0 cursor-pointer items-center justify-center rounded-[0.375rem] text-(--solus-text-tertiary) transition-colors duration-150 group-hover:flex hover:bg-[color-mix(in_srgb,var(--solus-text-primary)_8%,transparent)] hover:text-(--solus-text-primary) focus-visible:flex focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
+                  aria-label="Open in split"
+                  onclick={(e) => {
                   e.stopPropagation();
                   void openSessionSplit(row.sessionId);
-                }}
-              >
-                <ColumnsIcon size={12} />
-              </button>
-            {/snippet}
-          </TooltipUI.Trigger>
-          <TooltipUI.Content value="Open in split" />
-        </TooltipUI.Root>
+                  }}
+                >
+                  <ColumnsIcon size={12} />
+                </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value="Open in split" />
+          </TooltipUI.Root>
         </div>
       {/each}
     </div>
 
     <button
       type="button"
-      class="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-menu text-(--solus-text-secondary) transition-colors duration-150 @max-[15rem]:text-xs hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
+      class="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem]  text-(--solus-text-secondary) transition-colors duration-150 @max-[17rem]:text-xs hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
       onclick={newSession}
     >
       <PlusIcon size={13} class="shrink-0" />
@@ -302,75 +302,75 @@
   </div>
 
   <!-- An empty group is dropped rather than shown at zero, so Linked only
-       exists once something is attached. -->
+  exists once something is attached. -->
   {#if linkList.total}
     <!-- Same hairline the Environment card draws under its branch block, so the
-         two groups separate in one language across the rail. -->
+    two groups separate in one language across the rail. -->
     <div
       class="mx-2 mt-2 mb-1.5 h-px bg-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
       aria-hidden="true"
-    ></div>
-    <div class="flex items-center gap-2 px-2">
-      <span
-        class="text-menu-meta font-medium text-(--solus-text-tertiary) uppercase"
-      >
-        Linked
-      </span>
-      <span class="text-menu-meta tabular-nums text-(--solus-text-tertiary) opacity-70">
-        {linkList.total}
-      </span>
-    </div>
-
-    <div class="mt-0.5 flex flex-col gap-px">
-      {#each linkList.rows as row (row.key)}
-        {@const KindIcon = row.icon}
-        <button
-          type="button"
-          class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem] text-menu text-(--solus-text-secondary) transition-[background-color,color,opacity] duration-150 @max-[15rem]:text-xs hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {row.dimmed
- ? 'opacity-[.62] hover:opacity-100'
- : ''}"
-          title="{row.kindLabel} · {row.label}"
-          onclick={() => openLink(row.link)}
+      ></div>
+      <div class="flex items-center gap-2 px-2">
+        <span
+          class="font-medium text-(--solus-text-tertiary) uppercase"
         >
-          <!-- Type is carried by the glyph, not by a heading, so the list stays
-               flat and sorts by recency. In Linked the glyph stays muted: the
-               same column carries state only in Sessions. -->
-          <span
-            class="inline-flex shrink-0 text-(--solus-text-secondary) transition-colors duration-150 group-hover:text-(--solus-text-primary)"
-            aria-hidden="true"
+          Linked
+        </span>
+        <span class="tabular-nums text-(--solus-text-tertiary) opacity-70">
+          {linkList.total}
+        </span>
+      </div>
+
+      <div class="mt-0.5 flex flex-col gap-px">
+        {#each linkList.rows as row (row.key)}
+          {@const KindIcon = row.icon}
+          <button
+            type="button"
+            class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] px-2 py-[0.3125rem]  text-(--solus-text-secondary) transition-[background-color,color,opacity] duration-150 @max-[17rem]:text-xs hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {row.dimmed
+            ? 'opacity-[.62] hover:opacity-100'
+            : ''}"
+            title="{row.kindLabel} · {row.label}"
+            onclick={() => openLink(row.link)}
           >
-            <KindIcon size={13} />
-          </span>
-          {#if row.ref}
+            <!-- Type is carried by the glyph, not by a heading, so the list stays
+            flat and sorts by recency. In Linked the glyph stays muted: the
+            same column carries state only in Sessions. -->
             <span
-              class="shrink-0 font-mono text-menu-meta text-(--solus-text-tertiary)"
+              class="inline-flex shrink-0 text-(--solus-text-secondary) transition-colors duration-150 group-hover:text-(--solus-text-primary)"
+              aria-hidden="true"
             >
-              {row.ref}
+              <KindIcon size={13} />
             </span>
-          {/if}
-          <span class="min-w-0 flex-1 truncate text-left">{row.label}</span>
-          {#if row.value}
-            <span
-              class="shrink-0 text-menu-meta text-(--solus-text-tertiary) {row.valueMono
- ? 'tabular-nums'
- : ''}"
-            >
-              {row.value}
-            </span>
-          {/if}
-        </button>
-      {/each}
+            {#if row.ref}
+              <span
+                class="shrink-0 text-(--solus-text-tertiary)"
+              >
+                {row.ref}
+              </span>
+            {/if}
+            <span class="min-w-0 flex-1 truncate text-left">{row.label}</span>
+            {#if row.value}
+              <span
+                class="shrink-0 text-(--solus-text-tertiary) {row.valueMono
+                ? 'tabular-nums'
+                : ''}"
+              >
+                {row.value}
+              </span>
+            {/if}
+          </button>
+        {/each}
 
-      {#if linkList.moreLabel}
-        <button
-          type="button"
-          class="flex w-full cursor-pointer items-center gap-1 rounded-[0.4375rem] px-2 py-1.5 text-menu-meta text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
-          onclick={() => (expanded = true)}
-        >
-          <span class="flex-1 text-left">{linkList.moreLabel}</span>
-          <CaretDownIcon size={11} class="shrink-0 opacity-60" />
-        </button>
-      {/if}
-    </div>
-  {/if}
-</div>
+        {#if linkList.moreLabel}
+          <button
+            type="button"
+            class="flex w-full cursor-pointer items-center gap-1 rounded-[0.4375rem] px-2 py-1.5 text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
+            onclick={() => (expanded = true)}
+          >
+            <span class="flex-1 text-left">{linkList.moreLabel}</span>
+            <CaretDownIcon size={11} class="shrink-0 opacity-60" />
+          </button>
+        {/if}
+      </div>
+    {/if}
+  </div>
