@@ -98,7 +98,7 @@
         <AgentTypingDots variant="chip" />
       </span>
     {:else}
-      <p class="m-0 text-[0.8125rem] text-muted-foreground/70">
+      <p class="m-0 text-sm text-muted-foreground/70">
         no reply recorded — open the session to catch up
       </p>
     {/if}
@@ -112,7 +112,7 @@
       class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
     >
       <FileTextIcon size={13} class="shrink-0 text-muted-foreground/60" />
-      <span class="text-[0.8125rem] font-medium">{artefact.label}</span>
+      <span class="text-sm font-medium">{artefact.label}</span>
       <span class="flex-1"></span>
       {#if onOpen}
         <button
@@ -157,7 +157,7 @@
     </div>
     {#if overflows}
       <button
-        class="flex items-center gap-[7px] mt-2.5 text-[0.8125rem] text-muted-foreground cursor-pointer hover:text-foreground"
+        class="flex items-center gap-[7px] mt-2.5 text-sm text-muted-foreground cursor-pointer hover:text-foreground"
         onclick={() => (expanded = !expanded)}
       >
         <svg

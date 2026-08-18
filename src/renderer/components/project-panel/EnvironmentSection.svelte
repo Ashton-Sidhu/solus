@@ -234,7 +234,7 @@
     margin: 0;
     padding: 0.125rem 0;
     color: var(--solus-text-tertiary);
-    font-size: var(--text-menu-meta);
+    font-size: var(--text-xs);
   }
 
   .env {
@@ -247,7 +247,7 @@
   .menu-trail {
     flex-shrink: 0;
     color: var(--solus-text-tertiary);
-    font-size: var(--text-menu-meta);
+    font-size: var(--text-xs);
     font-weight: 400;
     font-variant-numeric: tabular-nums;
   }
@@ -272,9 +272,9 @@
       background-color 0.15s ease,
       color 0.15s ease;
   }
-  @container (max-width: 15rem) {
+  @container (max-width: 17rem) {
     .branch-row {
-      font-size: 0.75rem;
+      font-size: var(--text-xs);
     }
   }
   .branch-row:hover {
@@ -331,7 +331,7 @@
   }
   .stat-add,
   .stat-del {
-    font-size: var(--text-menu-meta);
+    font-size: var(--text-xs);
     font-weight: 400;
   }
   .stat-add {

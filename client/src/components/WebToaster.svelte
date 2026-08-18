@@ -27,5 +27,6 @@
   offset={{ top: "1rem", right: "1rem" }}
   visibleToasts={1}
   duration={6000}
+  closeButton
   hotkey={TOAST_HOTKEY}
 />

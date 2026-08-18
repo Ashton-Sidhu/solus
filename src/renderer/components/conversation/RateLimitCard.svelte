@@ -110,14 +110,14 @@
 
     {#snippet meta()}
       <span class="shrink-0">Resets at</span>
-      <span class="font-mono text-xs font-medium text-(--foreground)"
+      <span class="text-xs font-medium text-(--foreground)"
         >{releaseClock}</span
       >
     {/snippet}
 
     {#snippet headerAside()}
       <div class="flex shrink-0 flex-col items-end">
-        <span class="limit-clock font-mono">{clockFace}</span>
+        <span class="limit-clock">{clockFace}</span>
         <span class="limit-clock-caption">Until reset</span>
       </div>
     {/snippet}
@@ -160,13 +160,13 @@
 <style>
   /* Set in type, not drawn. */
   .limit-clock {
-    font-size: 1.5rem;
+    font-size: var(--text-2xl);
     line-height: 1.05;
     font-variant-numeric: tabular-nums;
   }
   .limit-clock-caption {
     margin-top: 0.1875rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
 
     text-transform: uppercase;

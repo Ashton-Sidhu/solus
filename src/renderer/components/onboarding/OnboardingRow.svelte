@@ -55,13 +55,13 @@
   this={onpick ? "button" : "div"}
   type={onpick ? "button" : undefined}
   onclick={onpick}
-  class="onboarding-enter relative flex w-full flex-col overflow-hidden rounded-2xl bg-[var(--wash-1)] text-left transition-colors duration-150 hover:bg-[var(--wash-2)]"
+  class="text-xs onboarding-enter relative flex w-full flex-col overflow-hidden rounded-2xl bg-[var(--wash-1)] text-left transition-colors duration-150 hover:bg-[var(--wash-2)]"
   class:cursor-pointer={!!onpick}
   style="animation-delay: {delay}s"
 >
   <div class="flex min-h-[4.5rem] items-center gap-3 py-3 pl-4 pr-4 sm:gap-4 sm:pr-5">
     <span
-      class="flex size-10 shrink-0 items-center justify-center rounded-full font-mono text-xs font-medium transition-colors duration-150"
+      class="flex size-10 shrink-0 items-center justify-center rounded-full  font-medium transition-colors duration-150"
       style="background: color-mix(in oklch, {tint} 16%, transparent); color: color-mix(in oklch, {tint} 72%, var(--foreground))"
     >
       {#if mark}{@render mark()}{:else}{abbr}{/if}
@@ -70,7 +70,7 @@
     <span class="flex min-w-0 flex-col gap-1">
       <span class="text-sm font-medium ">{name}</span>
       <span
-        class="truncate text-[0.8125rem] text-muted-foreground"
+        class="truncate text-sm text-muted-foreground"
         >{detail}</span
       >
     </span>
@@ -84,13 +84,13 @@
           <CheckIcon size={13} weight="bold" />
         </span>
       {:else if state === "busy"}
-        <span class="text-xs text-muted-foreground">
+        <span class="text-muted-foreground">
           {statusText}
         </span>
       {:else if actionLabel}
         <button
           type="button"
-          class="h-7 shrink-0 rounded-full bg-primary px-3.5 text-[0.8125rem] font-medium text-primary-foreground transition-[filter,transform] duration-150 hover:brightness-[1.06] active:scale-[0.96]"
+          class="h-7 shrink-0 rounded-full bg-primary px-3.5 text-sm font-medium text-primary-foreground transition-[filter,transform] duration-150 hover:brightness-[1.06] active:scale-[0.96]"
           onclick={(event) => {
             event.stopPropagation();
             onaction?.();
@@ -99,7 +99,7 @@
           {actionLabel}
         </button>
       {:else if statusText}
-        <span class="text-xs text-muted-foreground">
+        <span class="text-muted-foreground">
           {statusText}
         </span>
       {/if}

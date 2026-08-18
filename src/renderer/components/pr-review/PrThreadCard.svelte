@@ -110,7 +110,7 @@
   }
 </script>
 
-<div class="overflow-hidden rounded-2xl border border-border bg-card">
+<div class="text-xs overflow-hidden rounded-2xl border border-border bg-card">
   <div class="flex items-center gap-2 border-b border-border px-3 py-2">
     {#if diffHunk && !collapsed}
       <Button
@@ -134,19 +134,19 @@
     <Button
       type="button"
       variant="ghost"
-      class="min-h-10 min-w-0 flex-1 justify-start cursor-pointer truncate rounded-md text-left font-mono text-xs text-foreground hover:text-primary"
+      class="min-h-10 min-w-0 flex-1 justify-start cursor-pointer truncate rounded-md text-left  text-foreground hover:text-primary"
       onclick={() => onJump?.(thread.filePath, thread.line)}
     >
       <span class="text-muted-foreground">{dirName(thread.filePath)}</span>{fileName(thread.filePath)}{thread.line !== null ? `:${thread.line}` : ""}
     </Button>
     {#if thread.isOutdated}
-      <span class="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground"
+      <span class="shrink-0 rounded-full bg-muted px-1.5 py-0.5  font-medium text-muted-foreground"
         >Outdated</span
       >
     {/if}
     {#if thread.isResolved}
       <span
-        class="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color:color-mix(in_srgb,var(--solus-art-positive)_12%,transparent)] py-0.5 pr-1.5 pl-1 text-xs font-medium text-(--solus-art-positive)"
+        class="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color:color-mix(in_srgb,var(--solus-art-positive)_12%,transparent)] py-0.5 pr-1.5 pl-1  font-medium text-(--solus-art-positive)"
       >
         <CheckCircleIcon size={14} weight="fill" class="shrink-0" /> Resolved
       </span>
@@ -162,10 +162,10 @@
       aria-expanded="false"
     >
       <CheckCircleIcon size={20} weight="fill" class="shrink-0 text-(--solus-art-positive)" />
-      <span class="text-[0.8125rem] font-medium text-foreground">
+      <span class="text-sm font-medium text-foreground">
         Marked as resolved
       </span>
-      <span class="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground">
+      <span class="ml-auto inline-flex items-center gap-1  text-muted-foreground">
         Show thread
         <CaretDownIcon size={14} weight="bold" />
       </span>
@@ -190,14 +190,14 @@
             <PrAvatar
               name={comment.author}
               url={comment.authorAvatarUrl}
-              size="size-6 text-xs"
+              size="size-6 "
             />
             {#if ci < thread.comments.length - 1}
               <span class="mt-1 w-px flex-1 bg-border"></span>
             {/if}
           </div>
           <div class="min-w-0 flex-1 pb-3">
-            <div class="mb-0.5 flex items-baseline gap-1.5 text-xs">
+            <div class="mb-0.5 flex items-baseline gap-1.5 ">
               <span class="font-medium text-foreground">{comment.author}</span>
               <span class="text-muted-foreground"
                 >{formatTimeAgoFromTimestamp(new Date(comment.createdAt).getTime())}</span
@@ -231,7 +231,7 @@
             <Button
               type="button"
               variant="ghost"
-              class="min-h-10 cursor-pointer rounded-lg px-3 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+              class="min-h-10 cursor-pointer rounded-lg px-3  font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
               onclick={cancelReply}
             >
               Cancel
@@ -239,7 +239,7 @@
             <Button
               type="button"
               disabled={busy || !replyText.trim()}
-              class="h-[30px] cursor-pointer rounded-lg border-0 bg-primary px-3.5 text-[0.8125rem] font-medium text-primary-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              class="h-[30px] cursor-pointer rounded-lg border-0 bg-primary px-3.5 text-sm font-medium text-primary-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-50"
               onclick={submitReply}
             >
               {busy ? "Replying…" : "Reply"}
@@ -251,7 +251,7 @@
           <Button
             type="button"
             variant="ghost"
-            class="inline-flex min-h-10 cursor-pointer items-center gap-1 rounded-lg py-1 pr-3 pl-2.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+            class="inline-flex min-h-10 cursor-pointer items-center gap-1 rounded-lg py-1 pr-3 pl-2.5  font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
             onclick={() => (replying = true)}
           >
             <ArrowBendUpLeftIcon size={14} class="shrink-0" /> Reply
@@ -260,7 +260,7 @@
             type="button"
             variant="ghost"
             disabled={busy}
-            class="inline-flex min-h-10 cursor-pointer items-center gap-1 rounded-lg px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            class="inline-flex min-h-10 cursor-pointer items-center gap-1 rounded-lg px-3 py-1  font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
             onclick={toggleResolved}
           >
             {thread.isResolved ? "Unresolve" : "Resolve"}
@@ -269,7 +269,7 @@
             <Button
               type="button"
               variant="ghost"
-              class="ml-auto inline-flex min-h-10 cursor-pointer items-center gap-1 rounded-lg px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+              class="ml-auto inline-flex min-h-10 cursor-pointer items-center gap-1 rounded-lg px-3 py-1  font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
               onclick={() => (showResolved = false)}
             >
               Hide

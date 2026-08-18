@@ -328,7 +328,7 @@
           type="button"
           onclick={() => theme.update({ fontSize: Math.max(8, theme.fontSize - 1) })}
           aria-label="Decrease interface size"
-          class="h-full px-2.5 text-[0.8125rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          class="h-full px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >&minus;</button>
         <Input
           type="number"
@@ -348,7 +348,7 @@
           type="button"
           onclick={() => theme.update({ fontSize: theme.fontSize + 1 })}
           aria-label="Increase interface size"
-          class="h-full px-2.5 text-[0.8125rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          class="h-full px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >+</button>
       </div>
     {/snippet}
@@ -393,7 +393,7 @@
           type="button"
           onclick={() => theme.update({ codeFontSize: Math.max(8, theme.codeFontSize - 1) })}
           aria-label="Decrease code font size"
-          class="h-full px-2.5 text-[0.8125rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          class="h-full px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >&minus;</button>
         <Input
           type="number"
@@ -413,7 +413,7 @@
           type="button"
           onclick={() => theme.update({ codeFontSize: theme.codeFontSize + 1 })}
           aria-label="Increase code font size"
-          class="h-full px-2.5 text-[0.8125rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          class="h-full px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >+</button>
       </div>
     {/snippet}
@@ -675,7 +675,7 @@
           variant="outline"
           size="sm"
           aria-label="Projects start in"
-          class="w-56 justify-between font-mono text-xs shadow-xs {projectsBaseDirectory ? '' : 'text-muted-foreground'}"
+          class="w-56 justify-between text-xs shadow-xs {projectsBaseDirectory ? '' : 'text-muted-foreground'}"
           onclick={() => (projectsBasePickerOpen = true)}
         >
           <FolderIcon size={13} weight="fill" class="shrink-0 text-muted-foreground" />
@@ -752,7 +752,7 @@
 </SettingsSection>
 
 {#if !anyVisible}
-  <div class="py-8 text-center text-[0.8125rem] text-(--solus-text-tertiary)">
+  <div class="py-8 text-center text-sm text-(--solus-text-tertiary)">
     No settings match your search
   </div>
 {/if}

@@ -27,7 +27,7 @@
   role="alert"
 >
   <span
-    class="min-w-0 flex-1 text-[0.8125rem] text-muted-foreground {layout ===
+    class="min-w-0 flex-1 text-sm text-muted-foreground {layout ===
     'stacked'
       ? 'text-center text-pretty'
       : ''}"

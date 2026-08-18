@@ -66,7 +66,7 @@
 </SettingsSection>
 
 {#if !anyVisible}
-  <div class="py-8 text-center text-[0.8125rem] text-(--solus-text-tertiary)">
+  <div class="py-8 text-center text-sm text-(--solus-text-tertiary)">
     No settings match your search
   </div>
 {/if}

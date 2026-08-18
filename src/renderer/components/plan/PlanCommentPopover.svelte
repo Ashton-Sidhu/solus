@@ -114,11 +114,11 @@
     border-radius: 9999px;
     background: var(--solus-accent);
     color: var(--solus-text-on-accent);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
   }
   .plan-comment-popover__body {
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     line-height: 1.6;
     color: color-mix(in srgb, var(--solus-text-primary) 90%, var(--solus-text-tertiary));
   }
@@ -127,7 +127,7 @@
   .plan-comment-popover__anchor {
     padding-top: 0.4375rem;
     border-top: 0.0625rem solid color-mix(in srgb, var(--solus-art-border) 55%, transparent);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     line-height: 1.5;
     color: var(--solus-text-tertiary);
     word-break: break-word;

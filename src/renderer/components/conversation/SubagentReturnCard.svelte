@@ -43,7 +43,7 @@
 </script>
 
 <section
-  class="return-card mx-auto w-[88%] overflow-hidden rounded-2xl bg-(--solus-tx-card-bg)"
+  class="text-sm text-xs return-card mx-auto w-[88%] overflow-hidden rounded-2xl bg-(--solus-tx-card-bg)"
   class:is-open={isOpen}
   aria-label="Sub-agent"
   data-testid="subagent-group"
@@ -60,7 +60,7 @@
           aria-hidden="true"
         ></span>
         <span
-          class="flex items-center gap-1.5 text-xs font-medium text-(--muted-foreground) uppercase opacity-60"
+          class="flex items-center gap-1.5 font-medium text-(--muted-foreground) uppercase opacity-60"
         >
           <svg
             width="8"
@@ -76,13 +76,13 @@
           Returned
         </span>
       </div>
-      <h3 class="m-0 text-sm leading-[1.3] font-medium ">
+      <h3 class="m-0  leading-[1.3] font-medium ">
         {row.name}
       </h3>
     </div>
     <button
       type="button"
-      class="-mt-0.5 shrink-0 cursor-pointer rounded-md border-none bg-transparent px-[0.6875rem] py-[0.3125rem] text-xs font-medium shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_15%,transparent)] hover:bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)]"
+      class="-mt-0.5 shrink-0 cursor-pointer rounded-md border-none bg-transparent px-[0.6875rem] py-[0.3125rem] font-medium shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_15%,transparent)] hover:bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)]"
       onclick={() => session.openSubagent(tabId, row.id)}>Open report</button
     >
   </div>
@@ -95,7 +95,7 @@
         aria-hidden="true"
       ></span>
       <p
-        class="m-0 text-sm leading-[1.62] text-pretty"
+        class="m-0  leading-[1.62] text-pretty"
         data-testid="subagent-verdict"
       >
         {verdict}
@@ -116,7 +116,7 @@
           </div>
           {#if highlight.finding}
             <p
-              class="mt-1 mb-0 line-clamp-2 text-[0.8125rem] leading-[1.5] text-(--foreground) text-pretty"
+              class="mt-1 mb-0 line-clamp-2  leading-[1.5] text-(--foreground) text-pretty"
             >
               {highlight.finding}
             </p>
@@ -125,7 +125,7 @@
       {/each}
       {#if reportPreview.more > 0}
         <div
-          class="border-t border-[color-mix(in_oklch,var(--foreground)_7%,transparent)] py-2 text-xs text-(--muted-foreground)"
+          class="border-t border-[color-mix(in_oklch,var(--foreground)_7%,transparent)] py-2 text-(--muted-foreground)"
         >
           +{reportPreview.more} more in report
         </div>
@@ -141,8 +141,8 @@
         <div
           class="flex items-baseline gap-3.5 border-t border-[color-mix(in_oklch,var(--foreground)_7%,transparent)] py-2"
         >
-          <span class="w-11 shrink-0 text-right font-mono text-xs tabular-nums">{item.figure}</span>
-          <span class="flex-1 text-[0.8125rem] leading-[1.5] text-(--muted-foreground) text-pretty"
+          <span class="w-11 shrink-0 text-right tabular-nums">{item.figure}</span>
+          <span class="flex-1  leading-[1.5] text-(--muted-foreground) text-pretty"
             >{item.label}{#if item.names.length > 0}
               — {#each item.names as name, i (name)}{#if i > 0}, {/if}<span
                   class="text-(--foreground)">{name}</span
@@ -160,7 +160,7 @@
     class="mt-3.5 flex items-center gap-2.5 border-t border-[color-mix(in_oklch,var(--foreground)_7%,transparent)] px-[1.0625rem] pt-2.5 pb-3"
   >
     <span
-      class="flex items-baseline gap-2.5 font-mono text-xs text-(--muted-foreground) opacity-60"
+      class="flex items-baseline gap-2.5 text-(--muted-foreground) opacity-60"
     >
       {#if steps.total}
         <span class="tabular-nums">{steps.done}{steps.total}</span>
@@ -180,13 +180,13 @@
     </span>
     <span class="flex-1"></span>
     {#if transcript > 0}
-      <span class="font-mono text-xs text-(--muted-foreground) tabular-nums opacity-55"
+      <span class="text-(--muted-foreground) tabular-nums opacity-55"
         >transcript {transcript}</span
       >
     {/if}
     {#if worktree}
       <span
-        class="rounded bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)] px-[0.4375rem] py-0.5 font-mono text-xs text-(--muted-foreground) shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_8%,transparent)]"
+        class="rounded bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)] px-[0.4375rem] py-0.5 font-mono text-(--muted-foreground) shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_8%,transparent)]"
         >{worktree}</span
       >
     {/if}

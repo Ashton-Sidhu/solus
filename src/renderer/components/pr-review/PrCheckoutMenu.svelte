@@ -115,7 +115,7 @@
       aria-modal="true"
     >
       <div class="flex flex-col gap-1">
-        <span class="text-[0.8125rem] font-medium">
+        <span class="text-sm font-medium">
           Check out PR #{pr?.number} here?
         </span>
         <span class="text-xs text-(--solus-text-tertiary)">

@@ -323,7 +323,7 @@
   const menuRow =
     "flex h-[2.125rem] w-full cursor-pointer items-center gap-[0.5625rem] rounded-md px-[0.5625rem] text-left transition-[background] duration-150 hover:bg-accent";
   const menuLabel =
-    "min-w-0 flex-1 overflow-hidden text-[0.8125rem] text-ellipsis whitespace-nowrap";
+    "min-w-0 flex-1 overflow-hidden text-sm text-ellipsis whitespace-nowrap";
   const menuHeading =
     "px-[0.5625rem] pt-1.5 pb-1.5 text-xs font-medium  text-muted-foreground uppercase";
   // Rows you can close reserve the slot the X lands in, so nothing reflows the
@@ -407,7 +407,7 @@
        a centreline. The crumb has no container of its own — it is plain text on
        the band, and the only affordance is the hover wash under each part. -->
   <div
-    class="workspace-titlebar crumb-band @container z-[3] flex items-center gap-px text-sm @max-[52rem]:text-[0.8125rem] {variant ===
+    class="workspace-titlebar crumb-band @container z-[3] flex items-center gap-px text-sm @max-[52rem]:text-xs {variant ===
  'inline'
  ? 'crumb-band--inline relative h-full min-w-0 flex-1 px-1'
  : 'absolute inset-x-0 top-1 h-[2.875rem] pr-3.5'}"
@@ -422,7 +422,7 @@
       <!-- The band, not the list, owns the type scale and the neutral colour:
            each crumb states its own, and the leaf stays full-contrast. -->
       <Breadcrumb.List
-        class="min-w-0 flex-nowrap gap-px text-sm text-foreground @max-[52rem]:text-[0.8125rem]"
+        class="min-w-0 flex-nowrap gap-px text-sm text-foreground @max-[52rem]:text-xs"
       >
         <Breadcrumb.Item
           class="relative shrink-0"
@@ -486,7 +486,7 @@
                       >
                     {/if}
                     <span
-                      class="shrink-0 font-mono text-xs text-muted-foreground opacity-50 tabular-nums"
+                      class="shrink-0 text-xs text-muted-foreground opacity-50 tabular-nums"
                       >{project.count}</span
                     >
                   </button>
@@ -509,7 +509,7 @@
                   }}
                 >
                   <FolderOpenIcon size={14} class="shrink-0" />
-                  <span class="flex-1 text-[0.8125rem]">Open project…</span>
+                  <span class="flex-1 text-sm">Open project…</span>
                 </button>
               </div>
             </div>
@@ -590,14 +590,14 @@
                                while they share one type and one label column.
                                The empty leading box is the caret's column. -->
                           <div
-                            class="flex h-[1.625rem] items-center gap-1.5 px-[0.5625rem] text-[0.6875rem] font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
+                            class="flex h-[1.625rem] items-center gap-1.5 px-[0.5625rem] text-xs font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
                           >
                             <span
                               class="size-[0.6875rem] shrink-0"
                               aria-hidden="true"
                             ></span>
                             <span>Open</span>
-                            <span class="font-mono tabular-nums opacity-50"
+                            <span class="tabular-nums opacity-50"
                               >{taskGroups.open.length}</span
                             >
                           </div>
@@ -615,7 +615,7 @@
                                onto it and open the section with Enter. -->
                           <Command.Item
                             value="completed tasks section"
-                            class="h-[1.625rem] gap-1.5 rounded-md px-[0.5625rem] text-[0.6875rem] font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
+                            class="h-[1.625rem] gap-1.5 rounded-md px-[0.5625rem] text-xs font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
                             aria-expanded={completedVisible}
                             onSelect={() =>
                               (completedOverride = {
@@ -631,7 +631,7 @@
  : '-rotate-90'}"
                             />
                             <span>Completed</span>
-                            <span class="font-mono tabular-nums opacity-50"
+                            <span class="tabular-nums opacity-50"
                               >{taskGroups.completed.length}</span
                             >
                           </Command.Item>
@@ -652,8 +652,8 @@
                         onSelect={newTask}
                       >
                         <PlusIcon size={14} class="shrink-0" />
-                        <span class="flex-1 text-[0.8125rem]">New task</span>
-                        <span class="font-mono text-xs opacity-60"
+                        <span class="flex-1 text-sm">New task</span>
+                        <span class="text-xs opacity-60"
                           >{comboHint("global.new-task")}</span
                         >
                       </Command.Item>
@@ -689,7 +689,7 @@
               <SessionNameInput
                 value={current?.label ?? leafLabels.session}
                 variant="band"
-                class="text-sm font-medium @max-[52rem]:text-[0.8125rem]"
+                class="text-sm font-medium @max-[52rem]:text-xs"
                 onCommit={(next) => {
                   void session.renameTab(tabId, next);
                   renamingTabId = null;
@@ -796,10 +796,10 @@
                   onclick={newSession}
                 >
                   <PlusIcon size={14} class="shrink-0" />
-                  <span class="flex-1 text-[0.8125rem]"
+                  <span class="flex-1 text-sm"
                     >New session in this task</span
                   >
-                  <span class="font-mono text-xs opacity-60"
+                  <span class="text-xs opacity-60"
                     >{comboHint("global.new-session")}</span
                   >
                 </button>
@@ -831,7 +831,7 @@
           <CheckIcon size={14} weight="bold" class="shrink-0 text-chart-3" />
         {/if}
         <span
-          class="font-mono text-xs whitespace-nowrap {taskDone
+          class="text-xs whitespace-nowrap {taskDone
  ? 'text-chart-3'
  : 'opacity-75'}">{taskRef(record)}</span
         >
@@ -887,7 +887,7 @@
       >
         <PlusIcon size={14} class="text-muted-foreground" />
         <span
-          class="text-[0.8125rem] font-medium whitespace-nowrap @max-[36rem]:hidden"
+          class="text-sm font-medium whitespace-nowrap @max-[36rem]:hidden"
           >New Task</span
         >
       </button>

@@ -120,9 +120,9 @@
       background-color 0.15s ease,
       color 0.15s ease;
   }
-  @container (max-width: 15rem) {
+  @container (max-width: 17rem) {
     .menu-row {
-      font-size: 0.75rem;
+      font-size: var(--text-xs);
     }
   }
   .menu-row.split-primary {
@@ -193,7 +193,7 @@
   .menu-trail {
     flex-shrink: 0;
     color: var(--solus-text-tertiary);
-    font-size: var(--text-menu-meta);
+    font-size: var(--text-xs);
     font-weight: 400;
     font-variant-numeric: tabular-nums;
   }
@@ -225,7 +225,7 @@
     flex-shrink: 0;
     color: var(--solus-text-tertiary);
     font-family: var(--solus-code-font-family);
-    font-size: var(--text-menu-meta);
+    font-size: var(--text-xs);
     opacity: 0.7;
   }
 

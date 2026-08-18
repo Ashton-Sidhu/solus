@@ -70,7 +70,7 @@
     /* Same size as the reply text below it and the author name above it — the
        body is the card's baseline register, never a step up from its own
        chrome. */
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     line-height: 1.6;
     color: color-mix(in srgb, var(--solus-text-primary) 90%, var(--solus-text-tertiary));
     word-break: break-word;
@@ -93,14 +93,14 @@
   /* The same warm wash as the document's inline code, one step smaller. */
   .cb__code {
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     background: var(--solus-art-raised);
     padding: 0.1em 0.32em;
     border-radius: 0.25rem;
   }
   .cb__quote {
     font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     line-height: 1.7;
     color: color-mix(in srgb, var(--solus-text-primary) 84%, var(--solus-text-tertiary));
     border-left: 0.0625rem solid color-mix(in srgb, var(--solus-art-border) 90%, transparent);
@@ -127,7 +127,7 @@
     border: none;
     background: transparent;
     font-family: inherit;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-text-tertiary);
     cursor: pointer;
   }
@@ -138,7 +138,7 @@
   /* Touch clients get one step up for legibility — the same step, not a jump. */
   @media (max-width: 767px) {
     .cb__text {
-      font-size: 0.8125rem;
+      font-size: var(--text-sm);
     }
   }
 </style>

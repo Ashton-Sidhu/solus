@@ -84,7 +84,7 @@
 
     <div class="flex flex-col gap-3 px-[1.125rem] py-[0.875rem]">
       {#if connected}
-        <div class="flex items-center gap-2 text-[0.8125rem]">
+        <div class="flex items-center gap-2 text-sm">
           <CheckCircleIcon
             size={15}
             weight="fill"
@@ -98,7 +98,7 @@
         </div>
       {:else}
         <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <p class="text-[0.8125rem] text-muted-foreground">
+          <p class="text-sm text-muted-foreground">
             Needed to put this online. Free — no credit card.
           </p>
           <button

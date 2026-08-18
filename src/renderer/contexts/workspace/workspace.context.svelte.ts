@@ -3264,6 +3264,7 @@ export class WorkspaceContext {
       serverId?: string
       target?: NavTarget
       expectedRepo?: RouteRef<'prReview'>['params']['expectedRepo']
+      externalFallbackUrl?: string
     } = {},
   ): Promise<PrReviewTarget | null> {
     // The row's verb picks the tab: an inbox row that says Review lands on the
@@ -3272,6 +3273,25 @@ export class WorkspaceContext {
     const api = opts.serverId ? serverConnections.apiFor(opts.serverId) : this.apiForContext(ctx)
     const serverId = opts.serverId ?? serverConnections.serverIdForApi(api)
     const ref = this.prReviewRef(number, title, ctx, serverId, opts.expectedRepo)
+    const resolve = () => this.router.resolve(ref, {
+      api,
+      ipc: (cwd) => (cwd ? this.ctxForDirectory(cwd) : ctx),
+    })
+
+    // A transcript can name a PR outside the repositories this client can
+    // read. Probe the exact review target before changing panes. The router
+    // keeps a successful result, so opening the pane does not repeat the host
+    // request; a failure stays invisible and opens the original URL instead.
+    let preflightedPr: PrReviewTarget | null = null
+    if (opts.externalFallbackUrl) {
+      try {
+        preflightedPr = await resolve()
+      } catch {
+        void localApi.openExternal(opts.externalFallbackUrl)
+        return null
+      }
+      if (this.window.viewMode !== 'editor') await this.window.setViewMode('editor')
+    }
     const pane = this.router.navigate(ref, {
       target: opts.target ?? this.router.leadingPane.id,
       via: opts.via,
@@ -3280,10 +3300,7 @@ export class WorkspaceContext {
     track('surface_viewed', { surface: 'pr_review', via: opts.via })
     this.prsStore.prefetchReview(api, serverId, ctx, number)
     try {
-      const pr = await this.router.resolve(ref, {
-        api,
-        ipc: (cwd) => (cwd ? this.ctxForDirectory(cwd) : ctx),
-      })
+      const pr = preflightedPr ?? await resolve()
       markPrReviewProfile('review-worktree-ready')
       return pr
     } catch (err) {
@@ -3313,17 +3330,23 @@ export class WorkspaceContext {
       serverId?: string
       target?: NavTarget
       expectedRepo?: RouteRef<'prReview'>['params']['expectedRepo']
+      externalFallbackUrl?: string
     } = {},
   ): Promise<void> {
     beginPrReviewProfile(number)
     // Switch to the editor layout up front so the click registers immediately.
-    if (this.window.viewMode !== 'editor') await this.window.setViewMode('editor')
+    // Transcript web links preflight first so an inaccessible PR never causes
+    // a visible mode or pane transition before it falls back to the browser.
+    if (!opts.externalFallbackUrl && this.window.viewMode !== 'editor') {
+      await this.window.setViewMode('editor')
+    }
     const ctx = opts.ctx ?? this.ctx
     const pr = await this.openPrReviewRoute(number, title, ctx, {
       via: opts.via,
       serverId: opts.serverId,
       target: opts.target,
       expectedRepo: opts.expectedRepo,
+      externalFallbackUrl: opts.externalFallbackUrl,
     })
     if (pr && opts.openChat) {
       const api = opts.serverId ? serverConnections.apiFor(opts.serverId) : this.apiForContext(ctx)
@@ -3572,7 +3595,10 @@ export class WorkspaceContext {
    * bare navigation cannot know about — a plan's body off disk, a PR's provider
    * detail, or a session that must be resumed.
    */
-  openRoute(ref: RouteRef, opts: { via?: Via; target?: NavTarget } = {}): void {
+  openRoute(
+    ref: RouteRef,
+    opts: { via?: Via; target?: NavTarget; externalFallbackUrl?: string } = {},
+  ): void {
     switch (ref.name) {
       case 'plan':
         if (ref.params.planId) void this.openPlanModal(ref.params.planId)
@@ -3585,6 +3611,7 @@ export class WorkspaceContext {
           via: opts.via,
           target: opts.target,
           expectedRepo: ref.params.expectedRepo,
+          externalFallbackUrl: opts.externalFallbackUrl,
           serverId: ref.params.serverId,
           ctx: ref.params.cwd ? this.ctxForDirectory(ref.params.cwd) : this.ctx,
         })

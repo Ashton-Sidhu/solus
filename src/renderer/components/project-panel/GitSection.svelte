@@ -694,7 +694,7 @@
     <span class="min-w-0 flex-1 truncate">{label}</span>
     {#if opts.trail}
       <span
-        class="shrink-0 text-menu-meta tabular-nums text-(--solus-text-tertiary)"
+        class="shrink-0 text-xs tabular-nums text-(--solus-text-tertiary)"
         >{opts.trail}</span
       >
     {/if}

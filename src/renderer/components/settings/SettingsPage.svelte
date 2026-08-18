@@ -224,7 +224,7 @@
   const navRowActive = "text-foreground";
   const navIcon = "flex shrink-0 items-center";
   const navLabel =
-    "flex-1 min-w-0 overflow-hidden text-left text-[0.8125rem]  text-ellipsis whitespace-nowrap";
+    "flex-1 min-w-0 overflow-hidden text-left text-sm  text-ellipsis whitespace-nowrap";
 
   function close() {
     session.closeSettings();
@@ -389,7 +389,7 @@
           type="button"
           onclick={() => selectTab(tab.id)}
           aria-current={session.settingsTab === tab.id ? "page" : undefined}
-          class="shrink-0 inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[0.8125rem] font-medium [-webkit-tap-highlight-color:transparent] {session.settingsTab ===
+          class="shrink-0 inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-sm font-medium [-webkit-tap-highlight-color:transparent] {session.settingsTab ===
  tab.id
  ? 'bg-(--solus-accent-light) text-(--solus-accent)'
  : 'bg-(--solus-surface-hover) font-secondary text-(--solus-text-secondary) active:bg-(--solus-surface-tertiary)'}"
@@ -505,7 +505,7 @@
       >
         {#if openHostLabel}
           <Breadcrumb.Root class="min-w-0">
-            <Breadcrumb.List class="gap-2 min-w-0 flex-nowrap text-[0.8125rem]">
+            <Breadcrumb.List class="gap-2 min-w-0 flex-nowrap text-sm">
               <Breadcrumb.Item class="min-w-0">
                 <Breadcrumb.Link class="truncate">
                   {#snippet child({ props })}
@@ -530,7 +530,7 @@
         {:else}
           <div class="flex min-w-0 items-baseline gap-2.5">
             <h1
-              class="shrink-0 text-[0.8125rem] font-medium text-foreground"
+              class="shrink-0 text-sm font-medium text-foreground"
             >
               {activeTabMeta.label}
             </h1>

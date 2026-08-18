@@ -343,6 +343,9 @@ export interface HeadlessSessionRequest {
   reasoningEffort: ReasoningEffort
   contextWindow: number | null
   cwd: string
+  /** Background work that is not a piece of the user's own work — automation
+   *  drafting — sets this so no task is minted for the session. */
+  skipTaskCreation?: boolean
 }
 
 // ─── Model Profiles ───
@@ -1771,6 +1774,8 @@ export interface AgentUsageLimits {
   fiveHour: UsageWindow | null
   weekly: UsageWindow | null
   planType: string | null
+  /** API-key sessions use metered API billing, not subscription quota windows. */
+  usageMode?: 'subscription' | 'api'
   fetchedAt: number
   /** Last refresh failed — these numbers are old, not live. */
   stale: boolean

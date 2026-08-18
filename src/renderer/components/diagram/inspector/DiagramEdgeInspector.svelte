@@ -239,7 +239,7 @@
   }
 
   .edge-title__end {
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     font-weight: 500;
     line-height: 1.3;
     color: var(--solus-text-primary);
@@ -250,7 +250,7 @@
 
   .edge-title__arrow {
     flex: none;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     color: var(--solus-accent);
   }
 </style>

@@ -36,6 +36,7 @@
   import {
     initialMarkdownFileViewMode,
     isMarkdownFile,
+    MARKDOWN_FILE_VIEW_OPTIONS,
     persistMarkdownFileViewMode,
     type MarkdownFileViewMode,
   } from "./lib/markdown-file";
@@ -126,6 +127,7 @@
   let fileLoading = $state(false);
   let fileError = $state<string | null>(null);
   let saveState = $state<FileSaveState>("idle");
+  let markdownSurfaceRef: MarkdownFileSurface | null = $state(null);
   let markdownViewMode = $state<MarkdownFileViewMode>("rendered");
   let treeHost: HTMLDivElement | undefined = $state();
   let treeInstance: FileTree | null = $state(null);
@@ -142,13 +144,6 @@
   const isSelectedMarkdown = $derived(
     selectedPath ? isMarkdownFile(selectedPath) : false,
   );
-  const markdownViewOptions: {
-    value: MarkdownFileViewMode;
-    label: string;
-  }[] = [
-    { value: "rendered", label: "Rendered" },
-    { value: "source", label: "Source" },
-  ];
 
   const statusLabel = $derived.by(() => {
     if (selectedTruncated) return "Truncated — read only";
@@ -185,14 +180,15 @@
     requestInputFocus();
   }
 
-  function selectMarkdownView(mode: MarkdownFileViewMode) {
+  async function selectMarkdownView(mode: MarkdownFileViewMode) {
+    await markdownSurfaceRef?.prepareModeChange(mode);
     markdownViewMode = mode;
     persistMarkdownFileViewMode(mode);
   }
 
   function toggleMarkdownView() {
     if (!isSelectedMarkdown) return;
-    selectMarkdownView(markdownViewMode === "rendered" ? "source" : "rendered");
+    void selectMarkdownView(markdownViewMode === "rendered" ? "source" : "rendered");
   }
 
   // Clamp the tree width to its bounds, but never so wide that the editor falls
@@ -601,24 +597,24 @@
         <Icon {icon} width="14" height="14" class="shrink-0" />
       {:else}
         <span
-          class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 font-mono text-xs font-medium text-(--solus-text-tertiary)"
+          class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 text-xs font-medium text-(--solus-text-tertiary)"
         >
           {ext(selectedPath)}
         </span>
       {/if}
-      <div class="min-w-0 flex-1 truncate font-mono text-[0.8125rem]">
+      <div class="min-w-0 flex-1 truncate text-sm">
         <span class="text-(--solus-text-tertiary)">{parentDirectoryOf(selectedPath)}</span>
         <span class="text-(--solus-text-primary)">{entryDisplayName(selectedPath)}</span>
       </div>
     {:else}
       <FolderIcon size={13} weight="duotone" class="shrink-0 text-(--solus-text-tertiary)" />
-      <div class="min-w-0 flex-1 truncate font-mono text-[0.8125rem] text-(--solus-text-primary)">
+      <div class="min-w-0 flex-1 truncate text-sm text-(--solus-text-primary)">
         Files
       </div>
     {/if}
     {#if isSelectedMarkdown}
       <SegmentedControl
-        options={markdownViewOptions}
+        options={MARKDOWN_FILE_VIEW_OPTIONS}
         isActive={(mode) => markdownViewMode === mode}
         onSelect={selectMarkdownView}
         ariaLabel="Markdown file view"
@@ -723,6 +719,7 @@
         {:else if selectedPath && selectedContents !== null}
           {#if isSelectedMarkdown}
             <MarkdownFileSurface
+              bind:this={markdownSurfaceRef}
               api={workspace.apiForSession(ctx.session.sessionId)}
               {ctx}
               cwd={root || cwd}

@@ -83,7 +83,6 @@
   const isPillMode = $derived(
     windowCtx.viewMode === "pill" && !windowCtx.isWeb,
   );
-  const isUltrawide = $derived(windowCtx.workAreaWidth >= 2560);
   const tab = $derived(session.tabs[tabId]);
   const sess = $derived(session.sessionFor(tabId));
 
@@ -390,11 +389,6 @@
     if (panelEl) ro.observe(panelEl);
     updateDensity();
     return () => ro.disconnect();
-  });
-
-  $effect(() => {
-    if (!rootEl) return;
-    rootEl.style.setProperty("--orb-window-scale", isUltrawide ? "1" : "1");
   });
 
   $effect(() => {

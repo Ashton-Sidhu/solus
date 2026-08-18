@@ -96,18 +96,18 @@
      already spelled out as text in the meta line). -->
 {#snippet stateIcon()}
   {#if pr.state === "merged"}
-    <GitMergeIcon size={12} class="shrink-0 text-(--review)" />
+    <GitMergeIcon size={12} class="text-xs shrink-0 text-(--review)" />
   {:else if pr.state === "closed"}
     <GitPullRequestIcon
       size={12}
-      class="shrink-0 text-(--failure)"
+      class="text-xs shrink-0 text-(--failure)"
     />
   {/if}
 {/snippet}
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
-  class="group relative mb-0.5 flex w-full cursor-pointer items-start text-left transition-colors {compact
+  class="text-xs group relative mb-0.5 flex w-full cursor-pointer items-start text-left transition-colors {compact
     ? 'gap-2.5 rounded-lg px-2.5 py-2.5'
     : 'gap-3.5 rounded-lg px-4 py-3.5'} {selected
     ? 'bg-muted'
@@ -144,8 +144,8 @@
     {:else}
       <span
         class="grid place-items-center rounded-full bg-secondary font-medium text-secondary-foreground uppercase transition-opacity duration-100 {compact
-          ? 'size-5 text-xs'
-          : 'size-7 text-xs'} {reviewSelected || selectionActive
+          ? 'size-5 '
+          : 'size-7 '} {reviewSelected || selectionActive
           ? 'opacity-0'
           : 'group-hover:opacity-0 group-focus-within/lead:opacity-0'}"
         aria-hidden="true"
@@ -188,13 +188,13 @@
          than colour at this size. -->
     <span class="flex min-w-0 flex-1 flex-col gap-1">
       <span
-        class="truncate text-[0.8125rem] {selected ? 'font-medium' : 'font-normal'}"
+        class="truncate text-sm {selected ? 'font-medium' : 'font-normal'}"
         >{pr.title}</span
       >
       <span
-        class="flex min-w-0 items-center gap-1.5 text-xs whitespace-nowrap text-muted-foreground"
+        class="flex min-w-0 items-center gap-1.5  whitespace-nowrap text-muted-foreground"
       >
-        <span class="shrink-0 font-mono tabular-nums">#{pr.number}</span>
+        <span class="shrink-0 tabular-nums">#{pr.number}</span>
         <span class="shrink-0 opacity-45" aria-hidden="true">·</span>
         <span class="truncate">{relativeTime(pr.updatedAt)}</span>
         {#if generatingGuide}
@@ -245,7 +245,7 @@
               {#snippet child({ props: tooltipProps })}
                 <span
                   {...tooltipProps}
-                  class="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-xs font-normal text-secondary-foreground"
+                  class="shrink-0 rounded-full bg-secondary px-2 py-0.5  font-normal text-secondary-foreground"
                 >
                   {attentionLabel}
                 </span>
@@ -261,9 +261,9 @@
            then the optional facts. Only the author and time flex, so the line
            stays a single row instead of reflowing into a stack of chips. -->
       <span
-        class="flex min-w-0 items-center gap-2 text-xs whitespace-nowrap text-muted-foreground"
+        class="flex min-w-0 items-center gap-2  whitespace-nowrap text-muted-foreground"
       >
-        <span class="shrink-0 font-mono tabular-nums">#{pr.number}</span>
+        <span class="shrink-0 tabular-nums">#{pr.number}</span>
         {#if pr.author}
           <span class="shrink-0 opacity-45" aria-hidden="true">·</span>
           <span class="min-w-0 truncate">{pr.author}</span>
@@ -276,7 +276,7 @@
             {#snippet child({ props: tooltipProps })}
               <span
                 {...tooltipProps}
-                class="flex shrink-0 items-center gap-1 font-mono text-xs tabular-nums"
+                class="flex shrink-0 items-center gap-1  tabular-nums"
               >
                 <span class="text-(--solus-art-positive)">+{pr.additions}</span>
                 <span class="text-(--solus-art-negative)">−{pr.deletions}</span>
@@ -288,7 +288,7 @@
         {#if pr.headRef}
           <span class="shrink-0 opacity-45" aria-hidden="true">·</span>
           <span
-            class="min-w-0 truncate font-mono text-xs"
+            class="min-w-0 truncate "
             title={pr.headRef}
           >
             {pr.headRef}

@@ -81,7 +81,7 @@
 
     <span class="flex min-w-0 flex-1 flex-col gap-[3px]">
       <span
-        class="truncate text-[0.8125rem] leading-[17px] font-medium "
+        class="truncate text-sm leading-[17px] font-medium "
         title={row.title}
       >
         {row.title}
@@ -89,12 +89,12 @@
       <span
         class="flex min-w-0 items-center gap-[7px] text-xs leading-[15px]"
       >
-        <span class="shrink-0 font-mono tabular-nums text-muted-foreground opacity-80">
+        <span class="shrink-0 tabular-nums text-muted-foreground opacity-80">
           {row.ident}
         </span>
         {#if meta}
           <span
-            class="shrink-0 font-mono tabular-nums text-muted-foreground opacity-70"
+            class="shrink-0 tabular-nums text-muted-foreground opacity-70"
           >
             {meta}
           </span>
@@ -108,7 +108,7 @@
     <!-- Aligned to the title's line, not to the row's middle: the time belongs
          to the thing it is naming. -->
     <span
-      class="mt-px shrink-0 self-start font-mono text-xs tabular-nums text-muted-foreground opacity-75"
+      class="mt-px shrink-0 self-start text-xs tabular-nums text-muted-foreground opacity-75"
       title={row.timeTitle}
     >
       {row.time}

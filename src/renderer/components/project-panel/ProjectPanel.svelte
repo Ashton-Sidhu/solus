@@ -101,6 +101,59 @@
       ? settings.splitProjectPanelCollapsed
       : settings.projectPanelCollapsed,
   );
+  const preferredWidth = $derived(
+    isSplit ? settings.splitProjectPanelWidth : settings.projectPanelWidth,
+  );
+  let dragWidth = $state<number | null>(null);
+  const panelWidth = $derived(
+    projectRailWidth(
+      workspaceWidth,
+      containerWidth,
+      dragWidth ?? preferredWidth,
+    ),
+  );
+  let resizeCleanup: (() => void) | null = null;
+
+  function startResize(event: PointerEvent) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    resizeCleanup?.();
+
+    const startX = event.clientX;
+    const startWidth = panelWidth;
+    dragWidth = startWidth;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const onMove = (moveEvent: PointerEvent) => {
+      dragWidth = startWidth - (moveEvent.clientX - startX);
+    };
+    const finish = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      document.body.style.removeProperty("cursor");
+      document.body.style.removeProperty("user-select");
+
+      const width = dragWidth;
+      dragWidth = null;
+      resizeCleanup = null;
+      if (width === null) return;
+      settings.update(
+        isSplit
+          ? { splitProjectPanelWidth: projectRailWidth(workspaceWidth, containerWidth, width) }
+          : { projectPanelWidth: projectRailWidth(workspaceWidth, containerWidth, width) },
+      );
+    };
+
+    resizeCleanup = finish;
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+  }
+
+  $effect(() => () => resizeCleanup?.());
 
   // The role owns the preference; this owns whether the current layout can
   // honour it. Temporary minimization leaves that preference intact, so the
@@ -288,11 +341,11 @@
     <!-- Read-only: the host is chosen before the session starts and locked
          after, so the chip states a fact rather than offering a picker. -->
     <span
-      class="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--solus-text-primary)_6%,transparent)] px-1.5 py-0.5 text-menu-meta font-medium tracking-normal text-(--solus-text-secondary) normal-case dark:bg-[color-mix(in_srgb,var(--solus-text-primary)_10%,transparent)]"
+      class="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--solus-text-primary)_6%,transparent)] px-1.5 py-0.5 text-xs font-medium tracking-normal text-(--solus-text-secondary) normal-case dark:bg-[color-mix(in_srgb,var(--solus-text-primary)_10%,transparent)]"
       title={remoteHostAffinity.tooltip}
     >
       <HostIcon size={11} class={remoteHostAffinity.className} />
-      <span class="max-w-24 truncate @max-[15rem]:max-w-16"
+      <span class="max-w-24 truncate @max-[17rem]:max-w-16"
         >{remoteHost.label}</span
       >
     </span>
@@ -355,7 +408,7 @@
        Snooze follow it as glyphs, then the section's own disclosure caret. -->
   <span class="header-extra">
     <button
-      class="cursor-pointer font-mono text-menu-meta underline decoration-[color-mix(in_oklch,var(--foreground)_22%,transparent)] underline-offset-[3px] opacity-85 transition-colors hover:text-(--solus-text-primary) hover:opacity-100"
+      class="cursor-pointer text-xs underline decoration-[color-mix(in_oklch,var(--foreground)_22%,transparent)] underline-offset-[3px] opacity-85 transition-colors hover:text-(--solus-text-primary) hover:opacity-100"
       type="button"
       title={panelTask ? taskRefTooltip(panelTask) : "Open task page"}
       onclick={(e) => {
@@ -404,9 +457,10 @@
   side="right"
   {open}
   flush
-  width={projectRailWidth(workspaceWidth, containerWidth)}
+  width={panelWidth}
   minWidth={SIDEBAR_MIN_WIDTH}
   maxWidth={SIDEBAR_MAX_WIDTH}
+  isResizing={dragWidth !== null}
   background="var(--solus-container-bg)"
 >
   <div
@@ -421,6 +475,7 @@
       onToggle={() => toggleSection("environment")}
       headerBadge={environmentHeaderBadge}
       headerExtra={environmentHeaderExtra}
+      onResizePointerDown={startResize}
     >
       <EnvironmentSection
         {sourceId}
@@ -433,6 +488,7 @@
         title="Git"
         collapsed={collapsedSections.git}
         onToggle={() => toggleSection("git")}
+        onResizePointerDown={startResize}
       >
         <GitSection {sourceId} />
         <GitSetupSection {sourceId} />
@@ -444,6 +500,7 @@
         title="Git"
         collapsed={collapsedSections.git}
         onToggle={() => toggleSection("git")}
+        onResizePointerDown={startResize}
       >
         <GitSetupSection {sourceId} />
       </PanelSection>
@@ -457,6 +514,7 @@
         sessionId={panelSession.id}
         collapsed={collapsedSections.goal}
         onToggle={() => toggleSection("goal")}
+        onResizePointerDown={startResize}
       />
     {/if}
     {#if panelTask}
@@ -467,6 +525,7 @@
         collapsed={collapsedSections.task}
         onToggle={() => toggleSection("task")}
         headerExtra={taskHeaderExtra}
+        onResizePointerDown={startResize}
       >
         <TaskSection
           task={panelTask}
@@ -483,6 +542,7 @@
         collapsed={collapsedSections.automations}
         onToggle={() => toggleSection("automations")}
         headerExtra={automationsHeaderExtra}
+        onResizePointerDown={startResize}
       >
         <AutomationsSection board={automationBoard} />
       </PanelSection>
@@ -501,8 +561,10 @@
     /* The rail is the same surface as the conversation view beside it — no tray,
        no recess — so the section cards separate themselves with a hairline. The
        even gutter still makes a collapsed section read as a gap, not a shorter
-       list. */
-    background: var(--solus-container-bg);
+       list. The surface itself is painted once, by the SidePanel root below:
+       --solus-container-bg carries alpha in dark mode over a transparent
+       window, so a second coat here would read lighter than the conversation
+       card. */
     gap: 0.5rem;
     padding: 0.5rem;
     overflow-y: auto;
@@ -512,7 +574,7 @@
 
   /* At the rail's narrow laptop measure the fixed gutter is a large share of
      the column, so the cards give chrome back to their content. */
-  @container (max-width: 15rem) {
+  @container (max-width: 17rem) {
     .project-sections {
       gap: 0.375rem;
       padding: 0.375rem;
