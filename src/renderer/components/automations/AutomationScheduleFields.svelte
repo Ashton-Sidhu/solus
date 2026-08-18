@@ -2,6 +2,7 @@
   import { Input } from "../ui/input";
   import { Switch } from "../ui/switch";
   import DateTimePicker from "../ui/DateTimePicker.svelte";
+  import { TimeField } from "../ui/time-field";
   import { WEEKDAYS, type BuilderTriggerKind } from "./lib/automation-format";
   import type { ScheduleDraft } from "./lib/schedule-draft.svelte";
   import AutomationRailSelect from "./AutomationRailSelect.svelte";
@@ -161,17 +162,14 @@
   {#if hasTimeOfDay}
     <div class={ROW}>
       <span class="text-muted-foreground">At</span>
-      <Input
-        type="time"
+      <TimeField
         value={schedule.time}
-        onchange={(event) => {
-          const value = event.currentTarget.value;
-          if (!value) return;
-          schedule.time = value;
+        onChange={(next) => {
+          schedule.time = next;
           onCommit();
         }}
-        class="{RAIL_FIELD} w-24"
-        aria-label="Time"
+        label="Time"
+        class="-mr-1.5 h-7 rounded-md border-0 px-1.5 font-mono text-[0.8125rem] transition-colors duration-120 hover:bg-muted focus-within:border-transparent focus-within:ring-0 pointer-coarse:h-10"
       />
     </div>
   {/if}

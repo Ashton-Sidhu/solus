@@ -9,6 +9,7 @@ import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewGuide
 import type { StackGraph } from '../shared/stack-types'
 import type { PrChecksSnapshot } from '../shared/checks-rpc-types'
 import type { AssetCreateUrlRequest, AssetCreateUrlResult, AttachmentUploadRequest, SearchSessionsRequest } from '../shared/rpc'
+import type { MetricsNlCompileResult, MetricsQueryResult, MetricsQuerySpec, MetricsSchema, MetricsSessionSummary, MetricsSqlValidation, MetricsTurnTrace, MetricsValue, SavedMetricsQuery } from '../shared/observability-types'
 import type { ClientNotificationRequest } from '../shared/notification-types'
 
 import type { TextGenerationSettings, TextGenerationSettingsSnapshot } from '../shared/types'
@@ -235,6 +236,27 @@ export interface SolusAPI {
   /** Cached subscription quota per provider. Asking also keeps the backend's
    *  poll alive — it suspends itself once nobody is watching. */
   usageLimits(): Promise<AgentUsageLimits[]>
+
+  // Observability / Insights (metrics.db query engine)
+  /** Grouped rows from a builder/preset QuerySpec, compiled server-side. */
+  metricsQuery(spec: MetricsQuerySpec): Promise<MetricsQueryResult>
+  /** Rows from guarded read-only SQL (editor and NL paths). */
+  metricsRunSql(sql: string): Promise<MetricsQueryResult>
+  /** prepare()-only validation: guard violations, SQLite errors, result columns. */
+  metricsValidateSql(sql: string): Promise<MetricsSqlValidation>
+  /** Compile a natural-language question to SQL via an ephemeral agent. */
+  metricsCompileNl(ctx: IpcContext, question: string): Promise<MetricsNlCompileResult>
+  /** The field registry: views, columns, types, descriptions. */
+  metricsSchema(): Promise<MetricsSchema>
+  /** Distinct values for a registered low-cardinality column. */
+  metricsDistinctValues(column: string): Promise<MetricsValue[]>
+  metricsListSavedQueries(): Promise<SavedMetricsQuery[]>
+  metricsSaveQuery(query: SavedMetricsQuery): Promise<SavedMetricsQuery[]>
+  metricsDeleteQuery(id: string): Promise<SavedMetricsQuery[]>
+  /** Root-turn rollup for session surfaces. */
+  metricsSessionSummary(sessionId: string): Promise<MetricsSessionSummary>
+  /** One turn's full span tree for the waterfall. */
+  metricsTurnTrace(traceId: string): Promise<MetricsTurnTrace>
 
   readLedger(ctx: IpcContext): Promise<ReviewLedger | null>
   writeLedger(ctx: IpcContext, ledger: ReviewLedger): Promise<boolean>

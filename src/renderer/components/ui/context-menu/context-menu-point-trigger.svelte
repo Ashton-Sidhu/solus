@@ -25,7 +25,10 @@
 	});
 </script>
 
-<Trigger>
+<!-- `contents`: the trigger wrapper must generate no box of its own. Its only
+     child is fixed, so in a flex or grid parent this component adds neither an
+     item nor a gap, and summoning the menu cannot move the caller's layout. -->
+<Trigger class="contents">
 	<div
 		bind:this={triggerEl}
 		class="pointer-events-none fixed size-px"

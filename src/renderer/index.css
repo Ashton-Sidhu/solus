@@ -783,6 +783,9 @@
   --wash-1: color-mix(in oklch, var(--foreground) 3%, transparent);
   --wash-2: color-mix(in oklch, var(--foreground) 4%, transparent);
   --wash-3: color-mix(in oklch, var(--foreground) 7%, transparent);
+  /* wash-4 is the deepest inert fill — an empty histogram bar, a scrollbar
+     thumb: present, but never mistakable for data. */
+  --wash-4: color-mix(in oklch, var(--foreground) 11%, transparent);
   /* Rules. The group-header rule is the quiet one; -strong is for section
      dividers that have to survive against a wash, and -strongest is the ring a
      board card takes while it is the selected one. */
@@ -799,6 +802,37 @@
   /* Not-started-yet. The one status that is an absence, so it borrows the
      neutral grey rather than a palette hue. */
   --idle: var(--solus-status-idle);
+
+  /* Elevation — rings, not borders. A ring costs no layout, never doubles
+     between adjacent surfaces, and renders true sub-pixel. Both halves are
+     foreground percentages, so nothing is restated under `.dark`. */
+  --elev-flat: inset 0 0 0 0.5px var(--hairline);
+  --elev-ring: 0 0 0 0.5px var(--hairline-strong);
+  --elev-lift:
+    0 0 0 0.5px var(--hairline-strong), 0 0.0625rem 0.125rem -0.0625rem rgba(0, 0, 0, 0.05),
+    0 0.75rem 1.75rem -0.75rem rgba(0, 0, 0, 0.2);
+
+  /* Insights is a dashboard, not a list page: its console, chart, and listing
+     are three stacked objects that must read as three. In light mode --card
+     *is* --background, so a half-pixel ring is the only thing holding those
+     panels apart and nobody can see it. The page keeps its own colour — the
+     card does the separating, with a real lift instead of a ring. */
+  --insights-card-shadow:
+    0 0 0 0.5px var(--hairline-strong), 0 0.0625rem 0.125rem -0.0625rem rgba(60, 45, 30, 0.06),
+    0 0.5rem 1.125rem -0.875rem rgba(60, 45, 30, 0.22);
+}
+
+/* LayerChart reads four variables off its own root container for axis text,
+   grid lines, and default marks. Bridged to Solus tokens here so a chart picks
+   up the theme — including dark mode — without every call site restating it.
+   Portaled tooltips render outside the container, so they are bridged too. */
+.lc-root-container,
+.lc-tooltip-root {
+  --color-primary: var(--solus-accent);
+  --color-surface-100: var(--card);
+  --color-surface-200: var(--wash-1);
+  --color-surface-300: var(--hairline);
+  --color-surface-content: var(--foreground);
 }
 
 /* Dark mode inverts which half of the card shell does the work: the fill lifts
@@ -819,6 +853,10 @@
   --solus-tx-card-lift-hover:
     0 0.125rem 0.1875rem rgba(0, 0, 0, 0.28),
     0 0.625rem 1.25rem -0.5rem rgba(0, 0, 0, 0.4);
+  /* Real black on a dark page: there is nothing there for a shadow to shade. */
+  --insights-card-shadow:
+    0 0 0 0.5px var(--hairline-strong), 0 0.0625rem 0.125rem -0.0625rem rgba(0, 0, 0, 0.4),
+    0 0.625rem 1.375rem -1rem rgba(0, 0, 0, 0.6);
 }
 
 @theme inline {
@@ -995,7 +1033,18 @@ html.solus-web #root {
   background: var(--solus-scroll-thumb);
   background-clip: padding-box;
 }
+/* Small bounded lists can opt in to revealing their standard thumb when the
+   pointer enters the list. Full-pane scrollers must keep the movement-only
+   behavior above because they remain hovered while the user reads the pane. */
+.scrollbar-on-hover:hover::-webkit-scrollbar-thumb {
+  background: var(--solus-scroll-thumb);
+  background-clip: padding-box;
+}
 ::-webkit-scrollbar-thumb:hover {
+  background: var(--solus-scroll-thumb-hover);
+  background-clip: padding-box;
+}
+.scrollbar-on-hover:hover::-webkit-scrollbar-thumb:hover {
   background: var(--solus-scroll-thumb-hover);
   background-clip: padding-box;
 }

@@ -1007,6 +1007,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           { id: 'accept', label: 'Allow', kind: 'allow' },
           { id: 'decline', label: 'Deny', kind: 'deny' },
         ],
+        ...(typeof params?.startedAtMs === 'number' ? { startedAtMs: params.startedAtMs } : {}),
       })
       return
     }
@@ -1049,6 +1050,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       toolDescription: permissionDescription(msg.method, params),
       toolInput: this.permissionToolInput(msg.method, params),
       options: permissionOptions(msg.method, params),
+      ...(typeof params?.startedAtMs === 'number' ? { startedAtMs: params.startedAtMs } : {}),
     })
   }
 

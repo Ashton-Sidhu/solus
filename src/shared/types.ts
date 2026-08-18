@@ -1375,9 +1375,12 @@ export type NormalizedEvent =
   /** Extended-thinking span boundaries. The transcript never renders the thought
    *  itself — only how long it took, folded into the following activity block. */
   | { type: 'thinking'; state: 'start' | 'stop'; parentToolUseId?: string }
-  | { type: 'tool_call'; toolName: string; toolId: string; index: number; toolInput?: string; content?: string; parentToolUseId?: string; isSubagent?: boolean; subagentType?: string }
+  | { type: 'tool_call'; toolName: string; toolId: string; index: number; toolInput?: string; content?: string; parentToolUseId?: string; isSubagent?: boolean; subagentType?: string; startedAtMs?: number }
   | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; content?: string; parentToolUseId?: string }
-  | { type: 'tool_call_complete'; index: number; toolId?: string; toolInput?: string; parentToolUseId?: string }
+  /** With an outcome or completedAtMs, the tool execution completed. Without
+   *  either field, Claude only finished streaming the tool input; tool_result
+   *  is the later execution boundary. */
+  | { type: 'tool_call_complete'; index: number; toolId?: string; toolInput?: string; parentToolUseId?: string; completedAtMs?: number; outcome?: { status?: string; exitCode?: number; error?: string; declined?: boolean; durationMs?: number } }
   | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string; isAsyncLaunch?: boolean; isSubagentReport?: boolean }
   | { type: 'subagent_report'; toolUseId: string; text: string; isError?: boolean }
   | { type: 'assistant_message'; text: string; parentToolUseId?: string; isFinal?: boolean }
@@ -1392,8 +1395,9 @@ export type NormalizedEvent =
   | { type: 'session_dead'; exitCode: number | null; signal: string | null; stderrTail: string[] }
   | { type: 'rate_limit'; status: string; resetsAt: number; rateLimitType: string; isUsingOverage?: boolean; usedPercent?: number; windowDurationMins?: number; info?: RateLimitInfo; message?: string; deferCurrentRun?: boolean }
   | { type: 'usage'; context?: ContextUsage; run?: UsageData }
+  | { type: 'model_rerouted'; fromModel: string; toModel: string; reason?: string }
   | { type: 'session_changed_files_updated'; paths: string[] }
-  | { type: 'permission_request'; questionId: string; toolName: string; toolDescription?: string; toolInput?: PermissionToolInput; options: PermissionOption[] }
+  | { type: 'permission_request'; questionId: string; toolName: string; toolDescription?: string; toolInput?: PermissionToolInput; options: PermissionOption[]; startedAtMs?: number }
   | { type: 'permission_resolved'; questionId: string }
   /** `kind` rides along from Codex's MCP elicitation normalizer — an elicitation
    *  form is answered with an extra `__action` entry, so anything answering this
@@ -1438,6 +1442,8 @@ export type WireNormalizedEvent =
 
 export type PromptDelivery = 'steer' | 'queue'
 
+export type PromptSource = 'typed' | 'queued' | 'automation' | 'agent' | 'dispatch'
+
 /** Non-human origin of an injected prompt. 'session-report' marks another agent's
  *  session's report — turn input for the model, never rendered as a bubble. */
 export type PromptVia = 'automation' | 'session-report'
@@ -1451,6 +1457,9 @@ export interface PromptDispatchResult {
 
 export interface PromptOptions {
   prompt: string
+  /** Explicit source of this turn for observability. Queue drain replaces it
+   *  with `queued`; a remote execution host receives `dispatch`. */
+  promptSource?: PromptSource
   /** Stable renderer-generated identity for correlating optimistic delivery state. */
   clientPromptId?: string
   /** How to deliver input when the target already has an active turn.
@@ -1505,6 +1514,8 @@ export interface SessionCtx {
    *  the host knows. Empty string when the source is a draft that has not
    *  started a session yet. */
   sessionId: string
+  /** Present when this context executes a run dispatched from another host. */
+  origin?: 'dispatch'
   provider: AgentId | null
   agentSessionId: string | null
   handoffFrom?: SessionHandoffLineage

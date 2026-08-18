@@ -863,7 +863,7 @@
         class="{bandAction} @max-[36rem]:hidden"
         title="Open task page"
         aria-label="Open task page"
-        onclick={() => session.goToTask(record.id)}
+        onclick={() => session.goToTask(record.id, "click", "secondary")}
       >
         <ArrowSquareOutIcon size={14} />
       </button>
@@ -969,7 +969,7 @@
               }
             }
           : undefined}
-        onOpenTask={() => session.goToTask(menuTask.id)}
+        onOpenTask={() => session.goToTask(menuTask.id, "click", "secondary")}
         onOpenSource={menuTask.url
           ? () => void localApi.openExternal(menuTask.url!)
           : undefined}

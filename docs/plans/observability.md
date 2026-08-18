@@ -6,7 +6,11 @@ optionally export the same data live to a user-owned OpenTelemetry collector. Us
 data-driven workflow decisions from their real session history; maintainers investigate
 Solus's own internals through the same pipe.
 
-**Status: planned.** Nothing is implemented. GPT Sol (Codex, `gpt-5.6-sol`) audited
+**Status: WP1-WP4 implemented; WP5 planned.** The foundation
+(`src/main/observability/`), the session emitter, the query engine (field
+registry, per-kind views, QuerySpec compiler, guarded SQL executor, NL→SQL
+compile, saved queries, `metrics*` RPC methods), and the Insights UI
+(`src/renderer/components/insights/`) are landed; the OTel exporter is not. GPT Sol (Codex, `gpt-5.6-sol`) audited
 this plan read-only twice on 2026-08-09: first the Codex-provider assumptions (eight
 corrections, folded into WP2 as **[codex-audit]**), then the full document including
 the call stack flow (31 findings — corrected anchors, the `setup` child span, the
@@ -19,19 +23,19 @@ both-providers exit-ordering hazard — folded throughout).
   `name`, `service`, `startedAt`, `endedAt`, `durationMs`, `status`
   (`ok | error | interrupted | unknown`), `attrs` (flat JSON of strings, numbers,
   booleans). The only fact the module stores. Matches the OTel span deliberately.
-- **Kind** — the span's type: `turn`, `setup`, `tool_call`, `model_work`,
+- **Kind** — the span's type: `turn`, `setup`, `tool_call`,
   `permission_wait`, `queue_wait`, `rate_limit_wait`, `background_task`, `agent_run`, and the
   `internal.*` namespace (`internal.rpc`, `internal.indexer_sweep`,
   `internal.worktree_op`, …). Registered constants, never free strings.
 - **Service** — which subsystem owns the span: `solus.sessions`,
   `solus.text-generation`, `solus.review-guide`, `solus.subagents`,
-  `solus.automations`, `solus.indexer`, `solus.rpc`, `solus.git`. Registered
-  constants. Every span has exactly one.
+  `solus.automations`, `solus.indexer`, `solus.rpc`, `solus.git`,
+  `solus.insights` (the NL→SQL compile agent). Registered constants. Every span has
+  exactly one.
 - **Trace** — one turn (or one internal operation) and all its child spans, sharing a
-  `traceId`. A turn's children **tile** its duration: tiling means the *interval
-  union* of blocking children covers the turn with no unexplained gap. Children may
-  overlap (parallel and nested tools), so summed child durations can exceed the turn
-  — share/rollup presets must use exclusive-time accounting, never naive sums.
+  `traceId`. Each turn is bounded and carries `sessionId`; session views group root
+  turns by `sessionId` and order them by `(startedAt, spanId)`. Child spans record
+  only observed intervals. Children may overlap, so rollups use interval unions.
 - **Facade** — the single write API (`src/main/observability/`). Everything records
   through it; it dual-writes to the metrics store and, when configured, OTLP. Nothing
   outside the facade knows about tables or exporters.
@@ -40,11 +44,38 @@ both-providers exit-ordering hazard — folded throughout).
 - **QuerySpec** — the serializable query contract: table-less (always `spans`),
   `timeRange`, `filters` (columns or `attrs` JSON paths), `groupBy` (columns or time
   buckets), `aggregates` (`count | avg | min | max | sum | p50 | p95`), `orderBy`,
-  `limit`. What the builder edits, saved queries store, and the engine compiles to SQL.
+  `limit`. What the builder edits and the engine compiles to SQL.
+- **Field registry** — the registered catalog of queryable fields per kind: name, type
+  (`string | number | boolean | duration`), a one-line description, and the storage
+  mapping (promoted column or `attrs` JSON path). Single source of truth for the
+  per-kind views, the NL agent's schema prompt, and editor completion and hover docs.
+- **View** — a read-only SQL view over `spans`, generated from the field registry.
+  Exactly three exist — the **two-table query model** plus the internal slice:
+  `turns` (one row per turn, carrying its per-kind child-time sums), `events` (one
+  row per non-internal, non-turn span; `kind` says what it was), and
+  `internal_events` (`internal.*` kinds). Views lift
+  registry attrs into typed columns via `json_extract`, so SQL authors and the NL
+  agent never write JSON paths for cataloged fields. The stable SQL contract: an attr
+  can be promoted to a real column later without breaking a saved query. Do not
+  reintroduce per-kind views (`tool_calls`, `thinking_spans`, …); a kind is a filter,
+  not a table.
 - **Preset** — a QuerySpec shipped in code, shown as a one-click card. Not a DB row.
-- **Saved query** — a user-authored QuerySpec persisted in `solus.db`.
+- **Saved query** — a user-authored query persisted in `solus.db`, storing either a
+  QuerySpec (builder-editable) or SQL text (editor-editable). Each row records which
+  form owns it; SQL does not round-trip into the builder.
 - **Insights** — the renderer surface (`src/renderer/components/insights/`). Peer of
   Git/Run/Tasks/Works/Automations in the project panel.
+- **Declared grain** — the registry view one query read, stated by the server on the
+  result (`MetricsQueryResult.sourceView`) when exactly one view is identifiable.
+  An ambiguous query (a join of two views, or raw `spans`) declares none. The
+  client picks a result shape from the declared grain; it never overrides it.
+- **Result shape** — how the console renders one result. Exactly four:
+  **turn listing** (turn-grained rows: histogram brush, rich list, detail
+  panel, waterfall), **event listing** (span-grained rows from one non-turn view: a
+  time/duration scatter, a stat strip, a formatted table whose rows link into
+  their turn's waterfall), **trend** (a time column plus one numeric series,
+  drawn as a line above the grid), and **rollup** (the plain grid). Do not coin
+  "chart view", "detail table", or "drill-down mode" for these.
 - **Internals toggle** — the Insights setting that reveals `internal.*` kinds and the
   Solus-health presets. Affects authoring surfaces only, never query execution.
 - **Rollover** — retention pruning of `metrics.db`, default 30 days
@@ -66,8 +97,9 @@ spans. Do not call the Insights surface "analytics", "dashboard", or "stats".
 3. Saved queries and shipped common queries.
 4. Works for dispatched sessions.
 5. Cost and token capture.
-6. Full-span turns: not just tool calls — model work, permission waits, queue waits,
-   rate-limit waits, background tasks. Children tile the turn.
+6. Full-span turns: not just tool calls — setup, permission waits, queue waits,
+   rate-limit waits, and background tasks. Uninstrumented time is derived from the
+   root turn minus the union of its observed child intervals.
 7. The prompt between turns, plus inter-turn idle time.
 8. Solus's own metrics and logs through the same pipeline, with named services for
    internal agent-powered subsystems (text generation, review guides, subagents).
@@ -83,8 +115,10 @@ emitters (session, rpc, indexer, git, automations, ephemeral agent runs)
   → facade (src/main/observability/) — spans + active-span context for log correlation
       ├─→ metrics store  (metrics.db, spans table, rollover)      — always
       └─→ OTel exporter  (OTLP traces/metrics/logs, per-service resources) — when configured
-query: QuerySpec → compiler → parameterized SQL over spans
-  → RPC handlers (observability-handlers.ts) → Insights UI (desktop/web; mobile read-only)
+query: builder/presets → QuerySpec → compiler → parameterized SQL ┐
+       SQL editor / NL agent → guarded SQL text                   ┴→ read-only executor
+  → spans + per-kind views → RPC handlers (observability-handlers.ts)
+  → Insights UI (desktop/web; mobile read-only)
 ```
 
 ### Call stack flow
@@ -259,22 +293,35 @@ is the user's collector's job.
 turn (trace root; service solus.sessions)
 ├─ queue_wait          prompt_queued.enqueuedAt → runStartedAt (see threading note below)
 ├─ setup               inside _launchRun: git state, worktree create, task prep
-├─ model_work          derived: the turn is running and nothing else owns the clock
-│                      attrs: hasThinking; timeToFirstTokenMs on the first segment
+├─ thinking            provider-reported extended-thinking boundary
+├─ response_stream     first visible text chunk → last visible text chunk
 ├─ tool_call           name: tool name; children nested via parentToolUseId
 ├─ permission_wait     name: tool name; attrs.decision: granted | denied
 ├─ rate_limit_wait
+├─ turn_settlement     provider completion → authoritative Solus settlement
 └─ background_task     attrs.blocking: false — excluded from critical-path rollups
 ```
 
 Turn attrs: `prompt` (capped ~4 KB, `promptTruncated` flag), `promptChars`,
 `promptSource` (`typed | queued | automation | agent | dispatch`), `interTurnIdleMs`
-(previous settlement → this dispatch, same session), `reasoningEffort`, `taskId`,
+ (previous settlement → this dispatch, same session), `reasoningEffort`, `isResume`, `taskId`,
 `automationId`, `costUsd`, `inputTokens`, `outputTokens`, `cacheReadTokens`,
-`toolCallCount`, `permissionDenialCount`.
+`toolCallCount`, `permissionDenialCount`, `hasThinking`,
+`timeToFirstActivityMs`, `timeToFirstTextMs`, `timeToFirstProviderEventMs`,
+`timeToLastProviderEventMs`, and `timeToProviderCompleteMs`.
+
+Unattributed turn time is not stored as a synthetic span. Query and waterfall surfaces
+derive it from the turn interval minus the union of observed blocking child intervals.
+The trace splits that complement at the first provider event, first activity, last
+activity, provider completion, last provider event, and Solus settlement boundaries.
+These segments locate missing trace coverage; they do not claim model work, idle time,
+or any other cause. This keeps capture factual and avoids manufacturing a gapless
+timeline from provider events.
 
 Tool-call attrs: size-capped input fields (~8 KB, truncation-flagged),
 `parentToolUseId`, `isSubagent`, provider outcome (exit code / error) where available.
+For Claude, `content_block_stop` only completes the tool input; the later `tool_result`
+closes the execution span. For Codex, item completion carries the execution boundary.
 
 ### Capture points (established by exploration)
 
@@ -366,19 +413,96 @@ Tool-call attrs: size-capped input fields (~8 KB, truncation-flagged),
 
 ### Query engine and RPC
 
-QuerySpec compiles server-side to parameterized SQL. Attribute filters/groups use
+One executor, two front doors. The builder and presets produce a QuerySpec, which
+compiles server-side to parameterized SQL. The SQL editor and the NL agent produce
+SQL text directly. Both paths run through the same guarded read-only executor over
+`spans` and the per-kind views. Attribute filters/groups on uncataloged fields use
 `json_extract(attrs, ?)`; percentiles use an ordered-window pass (SQLite has no
-native percentile). Raw SQL is deliberately **not** exposed over RPC — there is no
-read-only SQLite handle, and saved queries need a serializable definition anyway.
+native percentile).
+
+**Generated views — the two-table query model.** The registry generates `turns`,
+`events`, and `internal_events` in `metrics.db` at boot (DROP + CREATE after
+migrations, so a registry change regenerates them; legacy per-kind view names are
+dropped). `turns` answers whole-turn questions without joins because each per-kind
+child-time sum is already a column, computed as a correlated sum over the trace:
+
+```sql
+CREATE VIEW turns AS
+SELECT span_id, trace_id, session_id, …,
+       (SELECT SUM(child.duration_ms) FROM spans AS child
+        WHERE child.trace_id = spans.trace_id AND child.kind = 'tool_call') AS tool_time_ms,
+       … -- thinking_time_ms, streaming_time_ms, setup_time_ms,
+         -- permission_wait_ms, queue_wait_ms, rate_limit_wait_ms
+FROM spans WHERE kind = 'turn';
+
+CREATE VIEW events AS
+SELECT kind, name,
+       CASE WHEN kind IN ('tool_call', 'permission_wait') THEN name END AS tool,
+       span_id, trace_id, …, command, file_path, exit_code, …, attrs
+FROM spans WHERE kind IN ('setup', 'thinking', 'response_stream', 'tool_call', …);
+```
+
+**Guarded SQL executor.** User- and agent-authored SQL runs on a dedicated
+`DatabaseSync` opened read-only on `metrics.db` with `PRAGMA query_only` set. The
+handler additionally enforces: exactly one statement; it must begin with `SELECT` or
+`WITH`; `ATTACH` and `PRAGMA` are rejected; a hard row `LIMIT` cap is injected; a
+busy timeout bounds lock waits. Because `metrics.db` is a separate file from
+`solus.db` by design, the blast radius of arbitrary read-only SQL is telemetry data
+only — that separation is what makes this exposure safe.
+
+**NL → SQL.** The natural-language option compiles a user question to SQLite SQL —
+an existing, deeply-trained language — never to a bespoke grammar. An ephemeral
+agent run (`AgentRunner` seam, service `solus.insights`) receives the view DDL and
+field-registry descriptions plus a few example queries, and returns SQL only. The
+handler runs an execute-and-retry loop: generate → run against the guarded executor
+→ on SQLite error, retry with the error text (bounded retries). The result lands in
+the SQL editor visible, editable, runnable, and savable — not behind a curtain.
 
 Methods (add to `RPC_INVOKE_METHODS` in `src/shared/rpc.ts`; handler module
 `src/main/server/handlers/observability-handlers.ts`, wired in `server/index.ts`;
 clients bind automatically via `ws-transport.ts` / the preload):
 
-- `metricsQuery(spec)` — grouped rows.
+- `metricsQuery(spec)` — grouped rows from a QuerySpec.
+- `metricsRunSql(sql)` — rows from guarded SQL (editor and NL paths).
+- `metricsValidateSql(sql)` — `prepare()`-only on the read-only connection; returns
+  the SQLite error (with `sqlite3_error_offset` position when the binding exposes
+  it), guard violations, and on success the result column names. Never executes.
+- `metricsCompileNl(question)` — the NL→SQL agent flow; returns the generated SQL.
+- `metricsSchema()` — the field registry: views, columns, types, descriptions.
+- `metricsDistinctValues(column)` — distinct values for a registered
+  low-cardinality column (tool, model, provider, status, service).
 - `metricsListSavedQueries()` / `metricsSaveQuery(q)` / `metricsDeleteQuery(id)`.
 - `metricsSessionSummary(sessionId)` — rollup for session surfaces.
 - `metricsTurnTrace(traceId)` — one turn's full span tree (waterfall).
+
+Session summaries order root turns by `(started_at, span_id)`. A displayed turn number
+is a query-time `ROW_NUMBER()` over that order; it is not persisted because retention,
+restarts, and concurrent dispatches make a stored ordinal unreliable.
+
+**Agent activity timing.** Turn traces persist provider-reported extended-thinking
+boundaries as `thinking` spans. They also persist `response_stream` spans from the
+first to the last top-level text chunk in each response segment. A tool transition
+ends the current response segment; a new text chunk after the tool starts another.
+These are observed client-side boundaries, not provider claims about internal model
+compute. Time inside the root turn that no blocking child span covers remains derived
+as **unattributed turn time**. Insights presents its complement as trace coverage and
+groups the uncovered segments by their position between lifecycle boundaries. It can
+include inference without an explicit thinking event, provider queueing, transport
+delay, and settlement overhead, so neither the total nor a segment is presented as a
+cause. Existing traces are not backfilled because they did not persist the event
+boundaries.
+
+**First-response timing.** An agentic turn can think or call tools before it emits
+visible prose. Therefore, visible text is not a valid proxy for the provider's first
+generated token. `time_to_first_activity_ms` measures from the turn start to the first
+observed top-level thinking-start, text-chunk, tool-call, or assembled assistant-message
+event. It is the responsiveness metric used by Insights. `time_to_first_text_ms`
+separately measures the first visible top-level text chunk and may legitimately be near
+the end of a tool-first turn. Solus does not claim provider model-TTFT because it does
+not observe the provider's actual first generated token. For traces recorded before the
+activity field existed, the turn detail
+derives a best available first-activity value from the earliest persisted thinking,
+response-stream, or tool-call span.
 
 ### Insights UI
 
@@ -394,10 +518,49 @@ Components never call `window.solus.*` directly.
 - **Query builder:** kind picker, filter chips (columns + `attrs` paths), group-by /
   time-bucket, aggregates; chart + table; save. Row drill-through opens the session;
   turn rows open the waterfall (`metricsTurnTrace`).
-- **Internals toggle** ("Show Solus internals", persisted per user): adds
-  `internal.*` kinds to the builder and reveals the Solus-health preset pack (RPC p95
-  by method, indexer sweeps, worktree ops). Saved queries against internal kinds
-  still execute when the toggle is off.
+- **SQL editor** (desktop + web): CodeMirror 6 with `@codemirror/lang-sql` (SQLite
+  dialect — the only new package; `@codemirror/view/state/language/commands` are
+  already dependencies). No language server process; the LSP-like experience is
+  assembled from extensions:
+  - *Schema completion* — the dialect's `schema` config fed from `metricsSchema()`,
+    cached in the insights store. Views after `FROM`, columns after `view.` and in
+    `WHERE`. Completion reads the cache synchronously — never an RPC per keystroke.
+  - *Value completion* — a custom source: when the cursor is in a string literal
+    compared against a registered low-cardinality column, suggest
+    `metricsDistinctValues(column)` results (debounced, TTL-cached in the store).
+    The same mechanism suggests observed `attrs` JSON paths per kind for the
+    long tail.
+  - *Diagnostics* — debounced `metricsValidateSql` mapped onto `@codemirror/lint`:
+    SQLite-authoritative errors (anchored by error offset when available, else the
+    statement), guard violations shown before the run button is pressed, and a
+    result-column preview from the successful prepare.
+  - *Hover docs* — a `hoverTooltip` extension resolving identifiers against the
+    field registry (description, type, units), reusing the same one-liners the NL
+    agent's prompt uses. Snippet completions cover `strftime` time buckets and the
+    p95 window pattern.
+  - Extension setup is pure logic in `src/renderer/components/insights/lib/`;
+    schema and value caches live in `insights.store.svelte.ts`.
+- **NL option:** a prompt input beside the editor; `metricsCompileNl` fills the SQL
+  editor with the generated query for inspection, tweaks, execution, and saving.
+- **Result shapes: the rendered grain matches the question's grain, and every
+  rendered row carries a drill path back to its context.** The server declares
+  the grain (`sourceView` on the result — from the single view a guarded SQL
+  statement reads, or from the pinned `kind` of a compiled QuerySpec); the
+  client maps it to one of the four result shapes. A turn-grained result gets
+  the turn listing; a span-grained result gets the event listing whose rows
+  deep-link to the turn detail panel with that span pre-selected; a time-bucketed
+  aggregate gets a trend line; everything else stays the honest plain grid.
+  When no grain is declared (older host, ambiguous SQL), the client falls back
+  to the turn-column sniff only — a span listing without a declared grain
+  renders as a grid rather than masquerading as turns. "What do these rows
+  have in common" is deliberately **not** a view: the histogram's stat line
+  (count, p50/p95, failure rate) covers the cheap 80% for whichever grain is on
+  screen, and the NL tab answers the rest with a computed rollup. A comparison
+  canvas is out of scope.
+- **Solus timings require no visibility mode.** The schema and Solus-health presets
+  are always available. Turn-bound Solus work appears directly in the trace:
+  setup, queue and permission waits, rate-limit waits, and the measured
+  `turn_settlement` interval after provider completion.
 - **Surfaces:** desktop and web share the full builder. **Mobile is read-only
   presets + saved-query results in v1** — an approved platform exception; composing
   queries on a phone is not a workflow worth its cost.
@@ -442,16 +605,260 @@ the natural cross-host aggregation point for dispatch.
 - Turn duration includes setup: the turn span starts at `runStartedAt`
   (`control-plane.ts:1692`) and a `setup` child owns worktree/git/task-prep time
   inside `_launchRun` — user-visible latency is never excluded from the turn.
-- Tiling is interval-union coverage of blocking children; overlap is legal
-  (parallel/nested tools); rollup presets use exclusive-time accounting.
+- Child intervals may overlap (parallel or nested tools). Rollups use interval unions,
+  and derive unattributed turn time from the root rather than synthetic child spans.
 - Ephemeral services get one coarse `agent_run` span, not a child tree.
 - Automation runs sit in the **user** namespace (users care how long their nightly
   automation takes); only scheduler plumbing is `internal.*`.
 - No transcript backfill in v1; metrics start at ship time. (Phase-2 option: indexer
   extension approximating historical durations from Claude transcript timestamps.)
-- No raw-SQL RPC escape hatch.
+- **Amended 2026-08-13 — guarded read-only SQL replaces "no raw-SQL RPC escape
+  hatch".** Both original premises are resolved: the executor opens a dedicated
+  read-only connection (`query_only`, single `SELECT`/`WITH` statement, no
+  `ATTACH`/`PRAGMA`, injected row cap, busy timeout), and SQL text is serializable
+  for saved queries. Exposure is scoped to `metrics.db` only. Motivation: NL→query
+  must target an existing language the model compiles reliably — SQLite SQL over
+  per-kind views — not a bespoke grammar with zero training data.
+- SQL does not round-trip into the chip builder; a saved query is owned by either
+  the builder (QuerySpec) or the editor (SQL) and the UI shows which. Decompiling
+  arbitrary SQL to QuerySpec is not worth building.
+- No LSP server for the SQL editor. Completion, diagnostics, and hover are
+  CodeMirror extensions over the field registry, and SQLite `prepare()` is the
+  validator. Rename/go-to-definition-class features are meaningless for
+  single-statement queries over half a dozen views.
 - `metricsRetentionDays` default 30; prune at boot + daily.
 - Mobile v1 read-only (approved exception, documented here).
+- **Amended 2026-08-15 — the Insights design's tables are the field registry's,
+  not its own.** The "Observability v5" design composition names `latency_ms`,
+  `user_id`, a `sessions` table, and a `messages` table. Solus has none of
+  those: duration is `duration_ms`, there are no users, a session rollup is
+  `metricsSessionSummary` rather than a view, and metrics never store assistant
+  replies. The surface was built against the real registry — session grouping is
+  a client-side grouping of turn rows, and the design's "Messages" panel is a
+  **Prompt** panel over the turn's `prompt` attr with a link into the
+  conversation. Showing a fabricated reply beside measured spans would make the
+  whole surface untrustworthy.
+- **A result that is not a turn listing renders as a plain table.** The console
+  runs arbitrary SQL, so most answers are rollups. The page reads a result as
+  turns only when it carries `trace_id` and `started_at`; anything else gets a
+  generic grid rather than being forced into a shape with no waterfall behind
+  it. **Amended 2026-08-16 — superseded by the result-shape model.** Column
+  sniffing alone misread a tool-call listing that happened to select `trace_id`
+  as a turn listing, and it rendered span-grained questions ("how long has
+  `bun run test` taken over time") as an unformatted grid of epoch numbers. The
+  grain is now **declared by the server** (`sourceView`), and the client maps it
+  to one of four locked result shapes (see Vocabulary and the Insights UI
+  section). The old column sniff survives only as the compatibility fallback for
+  results from hosts that predate `sourceView` — where a declared grain is
+  present it is authoritative, including declaring that a result is *not* turns.
+- **Event rows link to the span, not just the turn.** The `insights` route's
+  params carry an optional `traceId`/`spanId` pair; the waterfall opens with
+  that span's detail expanded. The
+  drill target for "characteristics of one tool call" is the existing waterfall
+  detail — input, exit code, siblings, permission wait beside it — not a new
+  inspector surface. Identity columns (`span_id`, `trace_id`, `parent_span_id`)
+  are link data in the event listing, carried by the query but not rendered as
+  cells.
+- **No comparison canvas.** Cross-turn/cross-session commonality is a computed
+  claim, not a picture: the event listing's stat strip covers the cheap case,
+  and the NL tab compiles the diagnostic GROUP BY for the rest. Side-by-side
+  waterfall diffing is explicitly not planned.
+- **The histogram is not the question.** Turn volume runs its own QuerySpec over
+  the window and stays fixed while the query changes; brushing it narrows the
+  list client-side. A histogram that re-ran with every question would flatten
+  the shape the answer is meant to be read against. It is fixed against the
+  *question*, not against *time*: a refresh — entering the page, or `opt+R` —
+  re-reads the histogram and re-asks the question on screen together, because a
+  chart that advanced alone shows a failed turn as a bar with no row under it.
+- **One time range, two forms, and it owns only the statements Solus wrote.**
+  The range (`lib/time-range.ts`) is either **relative** (`last 24 hours` — it
+  keeps describing now while the page sits open) or **absolute** (two pinned
+  instants — an investigation's window must not slide away from the incident).
+  It resolves to one pair of epoch milliseconds that the histogram, every
+  generated statement, and the NL compile instruction all read, and it persists
+  in client storage.
+  A relative range compiles to SQLite's own clock (`strftime('%s','now') * 1000
+  - ms`) so re-running the statement later still answers "the last 24 hours"; an
+  absolute range compiles to its two literals.
+  Moving the range **rewrites Solus's own statements** — the explore query, the
+  "query this session" query, and the preset chips, which no longer carry baked
+  24-hour and 7-day windows — because a preset that kept its own window would
+  answer a different question from the histogram directly above it. Those
+  statements are therefore remembered by description (`GeneratedQuery`), not by
+  text. It **never rewrites SQL the user typed, saved, or compiled from a
+  question**: that text is theirs, and a filter that edits someone's query
+  behind their back is worse than one that admits it cannot. When the range
+  moves under such an answer the console says so (`answerWindowStale` — "asked
+  over the previous range — run again") rather than leaving a result under a
+  chart that contradicts it. An NL question is not silently re-compiled on a
+  range change, because that would charge the user for an agent call they did
+  not ask for.
+- **The turn panel's rail is three cards — session, attributes, time — on the
+  app's card surface, at the rail's own type scale.** The card, its ring, the
+  uppercase group label, and the hover wash come from the task page rather than
+  from a second set of sizes invented here; the scale inside them is one step
+  down from a full-width page (11px labels and metadata, 12px values), because
+  a 308px rail carrying page-width type reads as three oversized widgets. The
+  "longest tool calls" bar is the row's own background instead of a column of
+  its own: at that width a separate track leaves the tool name too narrow to
+  read, and the name is the one thing the list exists to say.
+- **A turn's prompt titles the page on one line, truncated.** The prompt is a
+  message, not a title; the full text is the Prompt section below it. A hero
+  that grows to three wrapped lines pushes the facts and the waterfall — the
+  measured content — under the fold.
+- **Solus timing is part of the trace, not a visibility preference.** The
+  schema and health presets are always visible. Turn-bound Solus intervals use
+  the same trace and waterfall axis as provider and tool spans; no checkbox can
+  hide latency that contributed to the turn.
+- **The relationship model is served from the registry, not written per
+  surface.** A list of view names and columns cannot express the facts a
+  cross-grain question needs: the views are slices of a single `spans` table,
+  joined on `trace_id`. So `metricsSchema()` carries the `spans` fact table
+  (`base`) and `SCHEMA_RELATIONSHIPS` alongside the views, and the console's
+  schema panel, the editor's completion and hover docs, and the NL agent's
+  prompt all state the same model from that one source. Documenting `spans`
+  deliberately did **not** add it to `registeredViewNames()`: a raw-`spans` or
+  joined query must keep declaring no grain, so the fail-safe to a plain grid
+  is unchanged.
+- **The schema is a sheet, not a drawer, and it writes the query it
+  documents.** As a 19rem drawer under the console, a 42-column table was a
+  thing to memorise rather than read, and the reader had to know which table
+  held a fact before the layout could help them. The reference is now a modal
+  **schema sheet** (`SchemaSheet.svelte`, `⌥S` or the console's Schema button,
+  Esc to leave — `insights.close` closes it before it closes anything else).
+  Two consequences follow from "reading the model and writing the query are
+  one act": search spans both tables at once and each hit names its own table
+  (`searchColumns`, name-before-description ranking), and a column is a control
+  that writes itself into the SQL editor at the cursor
+  (`SqlEditor.insertAtCursor`, switching to the SQL tab on the way). Mobile
+  keeps the sheet as reference and drops the insert affordance rather than
+  showing it inert: it composes nothing.
+- **The sheet opens on the choice, not on a diagram or a column list.** Four
+  relationship sentences over a flat 42-column list did not read as a data
+  model; neither did a rail of prose cards, nor a crow's-foot ER diagram drawn
+  at type sizes below the app's scale. The reader arrives with one question —
+  *which table answers this* — so the sheet opens on that: the two query tables
+  (`queryTables`) as cards carrying their served description and column count,
+  with the `trace_id` one-to-many relationship stated once beneath them.
+  Picking a table lists its columns under a sticky header repeating what the
+  table is, so "should I be querying this one at all" stays answerable from
+  inside the list. Columns group by the query role the registry declares per
+  field (`MetricsFieldDescriptor.group`: dimensions → measures → child time →
+  tool facts → timing → ids → details), so a table reads in query-building
+  order; a host that serves no groups degrades to one plain list.
+- **The sheet states each fact once, in the app's own type.** The served
+  `relationships` prose is *not* rendered here: it repeats the two card
+  descriptions, the join line, and `FACT_TABLE_NOTE`, and four paragraphs of it
+  turned the opening screen into a wall. It stays served for the NL prompt,
+  editor hover docs, and older clients. Everything the sheet draws uses the
+  app's UI face and font scale
+  (`text-[length:calc(.8125rem*var(--solus-font-scale,1))]` and the 12px step,
+  `font-medium` at most, no local tracking, no monospace, no accent side
+  rails): selection is a wash, and a column name earns its emphasis from weight
+  rather than from a second typeface. The previous drawing bought its density
+  from sizes down to 9.5px, which is what made it a diagram nobody read.
+- **A view description is one clause, not a paragraph.** `turns` and `events`
+  each carried a second sentence (the per-kind child-time sums; "filter by kind
+  instead of looking for another table") that the sheet then printed twice —
+  on the overview card and again above the column list — for a label whose job
+  is to say what a row *is*. Both facts were already stated verbatim in
+  `SCHEMA_RELATIONSHIPS`, which the NL prompt and every client also receive, so
+  the descriptions keep the clause that identifies the grain and drop the rest.
+  Where each consequence matters, the sheet already says it in place: the
+  child-time group hint reads "summed per turn — no join needed", and `kind`
+  lists its filter values as chips.
+- **A column that enumerates its values is drawn as those values.** `kind`
+  documents ten span kinds with a gloss each, which as one paragraph was the
+  tallest cell in the sheet and the one nobody read — while the values are the
+  whole point of the column, since a kind is a `WHERE` filter rather than a
+  table. `enumeratedValues` splits a description into its lead clause and its
+  values; the sheet renders the values as chips carrying the registry's gloss
+  on hover. Only the registry's colon form splits (`"What happened:"`,
+  `"Prompt source:"`); an `e.g.` list stays prose, because chips read as *these
+  are the values* and the registry only claimed examples. `turns.cost_usd`
+  ("Turn cost in USD: provider-reported for Claude, …") is the case the guard
+  exists for: a colon not introducing a quoted list.
+- **The advanced sources are browsable and searchable, but not part of the
+  choice.** `internal_events` and `spans` sit under their own heading in the
+  sheet's nav (`advancedSources`) rather than in the choice of two, and `spans`
+  states its cost (`FACT_TABLE_NOTE`) in its own header. Search spans **every**
+  listed source, not only the two: a search that omits half the queryable model
+  sends the reader who typed the right word away with nothing.
+- **Two tables, not thirteen: the user never picks a table per kind, and the
+  common correlations are pre-joined.** The per-kind views (`tool_calls`,
+  `thinking_spans`, `permission_waits`, …) made every question start with a
+  schema lookup and every cross-kind question a hand-written join — a table
+  catalog as UX. Collapsed to `turns` and `events` (plus `internal_events`
+  and `spans` as the advanced fact table): a kind is a
+  `WHERE kind = …` filter on `events`, not a table to discover, and `turns`
+  carries its per-kind child-time sums (`tool_time_ms`, `thinking_time_ms`,
+  `streaming_time_ms`, `setup_time_ms`, `permission_wait_ms`, `queue_wait_ms`,
+  `rate_limit_wait_ms`, `settlement_time_ms`) as correlated-sum columns, so "tool time by model" is a
+  plain `GROUP BY` on one table. The former join preset is rewritten to exactly
+  that; no shipped preset joins anymore, and the NL tab remains the path for
+  the rare genuinely cross-grain question. The sums are duration totals —
+  overlapping children (parallel tools) sum past wall-clock by design; the
+  waterfall's interval-union coverage remains the wall-clock truth. The
+  deferred question "should a two-view join declare the left grain" dissolves:
+  the join it existed for no longer needs writing.
+- **Ids drill, names query.** A user thinks in "Nightly triage", not
+  `01AUTO…`, so every id a turn carries gets its display name as a sibling
+  dimension: `automation` (automation name), `task` (task title), `project`
+  (folder name, matching the projects manifest's own convention), and `branch`
+  (the checkout's branch). Names are **snapshotted at dispatch** — telemetry
+  records what a thing was called when the turn ran, and metrics.db cannot join
+  solus.db at query time anyway (separate file, ATTACH forbidden). Events
+  inherit the same names from their trace root via correlated lookup, so
+  slicing events by automation, task, or branch needs no join either. Ids stay
+  in Links & ids as the drill path; the automation-health preset groups by
+  `coalesce(automation, automation_id)` so pre-name rows still aggregate. The
+  two tables stay two: merging them would make every naive aggregate
+  (`count(*)`, `avg(duration_ms)`, `sum(cost_usd)`) silently mix a turn with
+  its own children — the grain split is what keeps default aggregates honest.
+- **Insights separates its panels with lift, never with page colour.** Insights
+  stacks three objects — console, chart, listing — and in light mode `--card`
+  *is* `--background`, so a half-pixel ring was the only thing holding them
+  apart and it could not be seen. The separation comes from the card side
+  alone: `--insights-card-shadow` is a ring plus a short lift, mode-specific
+  because a dark page has nothing for a shadow to darken. **The page keeps
+  `--background`** — recessing it to a canvas tone was tried and rejected; the
+  Insights page is not allowed its own paper colour. The turn detail panel
+  shares the card token, so one system covers the whole feature.
+- **A dense grid earns hierarchy from its columns, not from rules.** Fifty rows
+  each carrying a 7%-alpha underline is noise that does not help a reader track
+  across a wide row; fifty rows in one weight and one colour is a wall of
+  characters. Row rules are gone from both result grids in favour of hover, and
+  emphasis comes from what a column is *for* (`columnEmphasis` in
+  `lib/table-grid.ts`, sharing the existing `WIDE_COLUMNS` set): the prose or
+  path a row is about reads at full weight, measures stay in the text colour,
+  and the instants and ids by which a row is found again recede to muted. The
+  same rule drives `ResultTable` and `EventList`, so one answer cannot be
+  ranked differently from another.
+- **Natural column widths are half a layout; the leftover is the other half.**
+  Every result track is sized from what its column holds, which is what keeps
+  header and rows aligned — but five columns whose natural sum is 54rem, in a
+  120rem card, clump against the left edge and leave half the surface blank.
+  `columnGrows` names which columns may take the slack: the prose and path
+  columns that were truncating where the answer has any, otherwise its ids;
+  never a count, an instant, a duration, or a status, which are as wide as
+  their widest value and would only gain padding. Each table gives the width
+  away in its own markup — a grower carries `width:100%;max-width:0`, which
+  claims the remainder and stops that column's own longest value from sizing
+  the table instead, and every other column is pinned to its track. Left to the
+  browser the slack pools between the ids and the measures, which is how a
+  truncated prompt ends up beside four columns of blank.
+- **Every mark answers a question or it is decoration.** The event scatter was
+  a dot cloud with no hit detection at all: the eye could find the outlier and
+  then had nowhere to go with it. Hit detection is `quadtree` — nearest point
+  to the cursor, not nearest x — because two observations can share a minute,
+  and a point that stands for one span carries that span's drill path, so a
+  click opens the same waterfall its table row does. A bucketed aggregate
+  stands for many rows, so it gets the tooltip and no click.
+- **A bar with no scale beside it is a shape, not a quantity.** The volume
+  histogram carried no y axis at all, so a tall bar said only "taller". It now
+  draws two left ticks, whose zero gridline doubles as the baseline the bars
+  stand on, and the stat strip reads value-first — a strip of same-weight
+  label/value pairs makes the eye read the words instead of the numbers.
 
 ## Work packages
 
@@ -461,9 +868,9 @@ Each WP lands green (`bun run build`, focused unit tests) before the next starts
   `metrics.db` connection + migration ladder + `spans` schema, rollover job,
   `metricsRetentionDays` setting. Tests: span write/finalize, rollover boundary,
   registry rejection of unregistered kinds/services.
-- **WP2 — Session emitter + provider passthrough.** ControlPlane hooks; the turn
-  state machine (interval-union tiling incl. the `setup` child; finalize on every
-  terminal path); dimension snapshot from `_launchRun`'s returned run; terminal
+- **WP2 — Session emitter + provider passthrough.** ControlPlane hooks; one bounded
+  trace per turn grouped by `sessionId`; natural-duration children finalized on every
+  terminal path; dimension snapshot from `_launchRun`'s returned run; terminal
   status recorded in the exit/error listeners (the settlement continuation cannot
   see exit codes); `enqueuedAt` threaded through queue drain for `queue_wait`;
   permission close hook in `ControlPlane.respondToPermission` + terminal cleanup;
@@ -473,17 +880,396 @@ Each WP lands green (`bun run build`, focused unit tests) before the next starts
   ephemeral `agent_run` spans closing on throw/reject/timeout too; the optional
   outcome field on `tool_call_complete` (optional because Claude lacks a provider
   outcome at `content_block_stop`); all eight [codex-audit] corrections. Tests:
-  synthetic event streams for both providers asserting complete, gapless trees —
+  synthetic event streams for both providers asserting complete span trees —
   including interrupt, failure, parallel tools, queue drain, and Codex
   usage-delta cases.
 - **WP3 — Query engine + RPC + saved queries.** QuerySpec compiler (with percentile
-  pass and exclusive-time rollups), `observability-handlers.ts`, RPC registration
-  **plus the hand-maintained typed `SolusAPI` surface in `src/preload/index.ts`**,
-  `saved_queries` in `solus.db`. Tests: compiler golden cases incl. attrs paths and
-  time buckets.
-- **WP4 — Insights UI.** Store, presets, builder, waterfall, internals toggle;
-  desktop + web; mobile read-only presets. One integrated pass after developer
-  agreement, per house rules.
+  pass, interval-union rollups, and derived unattributed time); the field
+  registry and generated per-kind views; the guarded read-only SQL executor;
+  the NL→SQL compile flow (`metricsCompileNl` → ephemeral agent, service
+  `solus.insights`, execute-and-retry); `observability-handlers.ts`, RPC
+  registration **plus the hand-maintained typed `SolusAPI` surface in
+  `src/preload/index.ts`**, `saved_queries` in `solus.db` (QuerySpec or SQL, with
+  owner form). Tests: compiler golden cases incl. attrs paths and time buckets;
+  guard rejection cases (multi-statement, write attempts, `ATTACH`/`PRAGMA`, row-cap
+  injection); view columns match the field registry; `metricsValidateSql` error and
+  result-column cases.
+- **WP4 — Insights UI (landed).** `src/renderer/components/insights/`:
+  `insights.store.svelte.ts` (registry, distinct-value and trace caches, run
+  history, saved queries, host scoping), the query console with both front
+  doors, the SQL editor (CodeMirror extensions: schema/value completion, lint
+  diagnostics, hover docs, snippets — adds `@codemirror/lang-sql`), the NL
+  prompt input with the compiled SQL always visible and openable, the turn
+  volume histogram with a time brush, the turn list with session grouping, and
+  the turn detail panel with the waterfall. One route, `insights`, whose
+  optional `traceId`/`spanId` params name the open turn; entry points are the
+  session sidebar row and `opt+shift+I`. Every graph is LayerChart — the histogram is `Bars` +
+  `BrushContext` over a band scale, and the waterfall is a ranged-bar chart
+  (band scale over span rows, one linear time scale across the trace,
+  `Axis placement="top"` for the ruler and its gridlines). Colour comes from the
+  brand art ramp, one bar layer per span kind. Tests:
+  `tests/unit/insights-turn-rows.test.ts` (result-shape detection, row mapping,
+  sorting/grouping, bucketing, half-open brush selection) and
+  `tests/unit/insights-waterfall.test.ts` (interval unions, tree assembly,
+  orphan re-parenting, bar placement, denied permissions, value completion).
+- **WP4.1 — Result shapes (landed).** The declared-grain contract and the two
+  missing renderings. Server: `scanSql` additionally collects the table names
+  referenced after `FROM`/`JOIN`; `runGuardedSql` declares `sourceView` when
+  exactly one registered view is read, and `compileQuerySpec` declares it from
+  the pinned `kind`. Client: `lib/result-shape.ts` (shape detection from the
+  declared grain, event-row mapping, trend-series extraction, event stats),
+  `EventList.svelte` (stat strip + scatter + formatted table, rows deep-linking
+  to the waterfall), `ResultTrendChart.svelte` (LayerChart `Points`/`Spline`
+  over one linear time scale, kind-coloured, failures in the status colour),
+  the `insights` route's optional `spanId`, and the waterfall's
+  pre-selected span. The NL prompt now tells the agent to include `span_id`,
+  `trace_id`, and `started_at` on span listings so rows stay linkable. Tests:
+  `tests/unit/insights-result-shape.test.ts` plus sql-guard and compiler cases
+  for the declared grain.
+- **WP4.2 — Time range (landed).** `lib/time-range.ts` (the range value, its
+  resolution, labels, the `where` fragment, the NL instruction, and persistence
+  parsing) and `TimeRangePicker.svelte` in the Insights header: the relative
+  choices as a list, the custom range as two `ui/DateTimePicker` edges applied
+  together, with an inverted pair refused rather than answered with an empty
+  result. `insights-queries.ts` presets and generated statements became
+  functions of the range; the store owns it (`range`, `windowFrom`/`windowTo`,
+  `setRange`, `runGenerated`, `setUserSql`, `answerWindowStale`). The histogram
+  heading names the window and its axis switches to day+clock past 24 hours.
+  Mobile gets the picker too — filtering is not composing. Tests:
+  `tests/unit/insights-time-range.test.ts` and the range cases in
+  `tests/unit/insights-store-refresh.test.ts`.
+- **WP4.3 — Turn detail panel (landed).** A turn now opens the way a pull
+  request does: `TurnDetailPanel.svelte` comes out beside the list while the
+  listing compresses to a 380px rail (`InsightsRail.svelte`, rows shaped by
+  `lib/rail.ts`), and below 1040px — including mobile — the panel covers the
+  list instead. This **replaced two surfaces with one**: the intermediate
+  `TurnDrawer` overlay and the separate `insightsTurn` full-page route are
+  deleted, and the `insights` route's optional `traceId`/`spanId` params name
+  the open turn, so row clicks, span drills, and deep links all land in the
+  same place. The rail matches the answer's grain — turn rows, or span rows
+  whose items keep their `spanId` so the header's `n of N` stepper moves span
+  by span. The console and histogram hide (mounted, `display:none` — the
+  CodeMirror draft survives) while the panel is open; the panel header carries
+  the stepper, a full-screen toggle, copy-id, and close, and Esc walks full
+  screen → split → list → closed, the PRs Esc chain. Tests:
+  `tests/unit/insights-rail.test.ts` and the `insights` param round-trips in
+  `tests/unit/routing-codec.test.ts`.
+- **WP4.3a — Breadcrumb chrome (landed).** Both Insights chrome rows now read as
+  the task page's breadcrumb (`TaskChromeBar` grammar: `workspace-titlebar` so
+  the band drags on mac, `h-7` crumbs at `0.8125rem`, `/` separators at
+  opacity-30). The path is `Insights / <list> / <trace head>`: the page header
+  owns the first two crumbs, and the turn panel continues it — repeating
+  `Insights` only when full screen, where it covers the page's own band. Every
+  crumb returns to the listing, so full screen has a way back that is not an
+  icon. `<list>` is the answer's own word (**Turns**, **Events**, or
+  **Results**), the same string the rail heads its rows with. The raw trace id
+  no longer fills the band: the header prints its leading group (`shortId`) with
+  the full value on the title attribute and the copy control, and status moved
+  to the right of the band and shows only when it is not `ok`.
+- **WP4.4 — The histogram counts the answer (landed).** The bars were turn
+  volume over the range, fixed, whatever the question asked; a tool-call
+  listing sat under a chart counting something else. They now count **whatever
+  the answer lists** — turns for a turn listing, spans for an event listing —
+  and the heading names it (`Tool calls over the last 24 hours`). Both shapes
+  reduce to one `VolumePoint` (an instant, a failure flag, and the measures the
+  stat line summarises), so the chart, the brush, and the stat line never learn
+  which shape produced them; `TurnVolumeChart` became `VolumeChart`. The window
+  stays the selected range while it contains every counted row, and falls back
+  to the answer's own extent when the answer's SQL reached outside it, saying
+  `in this result` rather than naming a range it does not describe. An answer
+  that places nothing in time — a rollup, a failure, no rows — leaves the chart
+  on turn volume as the context that answer is missing from. Consequences: the
+  event listing's stat strip is **deleted**, because the histogram above now
+  measures the same rows; and `Spend` is shown only when something counted
+  carries a cost, since a span records none. Tests: the window and extent rules
+  in `tests/unit/insights-turn-rows.test.ts`, the span mapping in
+  `insights-result-shape.test.ts`.
+- **WP4.5 — Column widths (landed).** A `1fr` track gives every column an equal
+  share of a width nobody chose, so `select *` rendered twenty identical
+  columns — a status squatting in empty space beside a truncated shell command.
+  `lib/table-grid.ts` sizes a track from what the column holds (time, duration,
+  status, numeric, identifier, prose, plain), fixed, shared by the event listing
+  and the plain grid. Both empty states moved **outside** the horizontal
+  scroller, which would otherwise centre the message on the scroll width of a
+  wide result instead of on the room the reader can see. Tests:
+  `tests/unit/insights-table-grid.test.ts`.
+- **WP4.6 — Trace coverage (landed).** The residual formerly labelled
+  "unobserved agent time" is now **unattributed turn time** and the turn fact
+  reports trace coverage. `metricsTurnTrace` returns the uncovered intervals split
+  into lifecycle locations: before the first provider event, before first activity,
+  between activities, provider completion, turn settlement, after the last provider
+  event, or unclassified on an old trace. The turn emitter stores first/last provider
+  event, provider completion, and Solus settlement durations in the `turns` view.
+  Claude tool spans now close on `tool_result`, not `content_block_stop`, so actual
+  tool execution is no longer misreported as missing coverage. Insights groups gap
+  locations with counts and durations and explicitly says that locations are not
+  causes. No prescriptive recommendation system is part of this work. Tests:
+  `tests/unit/metrics-rollups.test.ts`, `tests/unit/session-emitter.test.ts`,
+  `tests/unit/metrics-views.test.ts`, and `tests/unit/insights-waterfall.test.ts`.
+- **WP4.7 — The two-table query model (landed).** The registry stops generating
+  one view per kind and generates three: `turns` (per-kind child-time sum
+  columns added), `events` (all non-internal child kinds, with `kind`, `tool`,
+  the promoted tool facts nullable across kinds, and `attrs`), and
+  `internal_events`. `viewNameForKind` maps kinds onto those views, so the
+  declared grain and the QuerySpec compiler follow without changes to the guard;
+  `MetricsViewDescriptor.kind` became `kinds`. The event listing derives its
+  kind label from the result itself (sole distinct `kind` value) before falling
+  back to the view. Presets lost their joins; the NL prompt and editor
+  completion shrank to the model a person can hold. Boot drops the legacy
+  per-kind view names. Tests: `tests/unit/metrics-views.test.ts` (rollup-column
+  sums, events slicing), schema-docs, sql-guard, compiler, and result-shape
+  updates.
+- **WP4.8 — Solus latency in the trace (landed).** Removed the inert internals
+  visibility checkbox. Internal schema sources and health presets are always
+  available. Provider completion to authoritative turn settlement is now a
+  real `turn_settlement` child span, so it is positioned on the same waterfall
+  axis as setup, agent activity, tools, and waits; it also surfaces as the
+  pre-summed `turns.settlement_time_ms` field. The previous root attr was removed
+  rather than keeping two representations of the same interval. Older traces
+  retain their gap classification and cannot be backfilled.
+- **WP4.9 — The trend reads the group-by (landed).** Two defects of the same
+  root: the chart did not read the question. (1) A grouped result
+  (`select day, model, sum(cost_usd) … group by day, model`) drew **one** line
+  through interleaved rows, so one model's Monday joined another model's
+  Tuesday — a change nobody measured. `trendChart` (was `trendSeries`) now finds
+  the categorical columns the `GROUP BY` left beside the time bucket and draws
+  one line per value, all breakdown columns composing one series key (splitting
+  by one of two dimensions would draw through the other). `status` is never a
+  dimension: failures already wear the reserved colour. One distinct value is no
+  breakdown, and a legend of one entry is furniture. Series past the ramp's six
+  hues are the smallest by total and are **counted on the chart**, never dropped
+  in silence; the categorical order is the arrangement of the brand art ramp
+  whose every adjacent pair clears the CVD and normal-vision separation floors in
+  both themes (dataviz `validate_palette.js`), not a hand-picked one. A line
+  needs two points in one series, so isolated dots stay a grid. (2) The
+  histogram is now **absent** under a rollup or a trend rather than restating
+  turn volume beside a question that never asked about turns — its brush would
+  narrow nothing, and a selection made before the answer changed is cleared with
+  it. An answer that lists rows but has none still keeps turn volume as the
+  context it is missing from. Two edge cases found while auditing the same
+  code: a bucket label is **wall-clock text, not an instant**, and `Date.parse`
+  reads a date-only string as UTC and a date-time string as local — so `day`
+  buckets sat under the previous evening's tick while `hour` buckets sat where
+  their label said; both now read as local, and a `%Y-%W` week number
+  (`2026-33`) is rejected rather than rolled forward two years by `new Date`.
+  And the hue cap applies to a **line** only: a scatter connects nothing, so it
+  keeps every observation unsplit rather than losing its tail. Tests:
+  `tests/unit/insights-result-shape.test.ts`, which passes in five time zones.
+
+- **WP4.10 — The reader picks the measure (landed).** A result carries several
+  measures and a chart draws one; the rule was "first duration-like, else first
+  numeric", which silently outranked the `count(*)` a question was often about.
+  `trendChart`/`rankingChart` take an optional measure column and report every
+  candidate as `measures`; the section heading **is** the control that changes
+  it (a `DropdownMenu` on the `h2`), so the answer names its own choice instead
+  of hiding it in a toolbar. The pick is by column name and lives on the page,
+  not in a store: re-running the same question keeps it, and a different answer
+  falls back to its own preference rather than charting a column it lacks.
+- **WP4.11 — A line breaks where a bucket is missing (landed).** A `GROUP BY`
+  returns no row for a bucket nothing happened in, and the stroke across the
+  hole stated a continuity nobody measured. `TrendLine.segments` splits a line
+  into runs of consecutive buckets and the chart draws one stroke per run, with
+  every point still dotted so an isolated bucket shows. The step comes from the
+  column name where the compiler wrote it (`day`, `hour`, …) and is applied by
+  the **calendar**, not by arithmetic — a month is 28 to 31 days and a DST day
+  is 23 or 25 hours, all of which a fixed constant would break the line on. A
+  query that aliased its bucket leaves only the data, so the step is the modal
+  gap between consecutive points, compared with slack because that is a
+  measurement rather than a promise. Zero-filling was rejected: it is right for
+  a `count` and wrong for an average or a percentile, and the client cannot
+  tell which it is holding.
+- **WP4.12 — A rollup with no time column is a ranking (landed).** Six of the
+  eight shipped presets return one categorical dimension, several measures, and
+  an `ORDER BY` — and the surface rendered a grid of numbers, making the reader
+  do the comparing a bar length does for free. A fifth result shape, detected
+  after the trend so anything with a time column stays one. **The measure is
+  inferred from the order the rows arrived in**: the result carries no
+  `ORDER BY`, but `order by total_ms desc` hands back rows monotonic in
+  `total_ms`, which beats "first numeric column"; where several columns are
+  monotonic the last wins, because a query lists the measure it ranks by last.
+  Bars are horizontal (the labels are tool names and project roots, which are
+  text to read), one hue rather than the categorical ramp (magnitude is not
+  identity), and each carries its value as a direct label. The query's own
+  order is kept — re-sorting would answer a question nobody asked. Both charts
+  moved to `lib/chart-shape.ts` with the column primitives they share in
+  `lib/result-columns.ts`, leaving `result-shape.ts` to decide *which* form an
+  answer is rather than how it is drawn. Tests:
+  `tests/unit/insights-chart-shape.test.ts`.
+
+  Known and not addressed: a raw scatter may hold up to `MAX_QUERY_LIMIT` (10k)
+  SVG circles; `yDomain [0, null]` would clip a negative measure, which no
+  schema column is today.
+- **WP4.10 — Codex token cost (landed).** Codex app-server reports cumulative
+  token usage but no turn-level USD total. `model-pricing.ts` therefore owns one
+  static price catalog for every Codex model in `model-profiles.json`, checked
+  against OpenAI's published prices on 2026-08-17. The calculation separates
+  uncached input, cached input, cache writes, and output; applies the published
+  long-context threshold and rates; and returns no value for an unknown model
+  rather than a false zero. The Codex normalizer now preserves
+  `cacheWriteInputTokens` as `cacheCreationTokens`, and the turn emitter prices
+  the per-turn delta after model rerouting. Existing turns are not backfilled;
+  static pricing applies only when a new turn is captured. Claude remains
+  provider-priced. Tests: `tests/unit/model-pricing.test.ts`,
+  `tests/unit/context-usage.test.ts`, and `tests/unit/session-emitter.test.ts`.
+- **WP4.13 — Insights tables use the shadcn data-table model (landed).** The
+  shadcn-svelte Data Table is a guide for composing TanStack Table with its
+  `Table` primitive, not a one-size-fits-all component. Insights now follows
+  that model for all three result grains: turns, events, and arbitrary SQL
+  results share one feature registration and toolbar for text search, sortable
+  columns, column visibility, page size, and client-side pagination. Each grain
+  still owns its honest cells and drill path: turn rows open the turn, event
+  rows open the selected span, and a plain result has no invented link. Event
+  search also narrows its scatter, so the plot and the table never show
+  different answers. Session grouping stays above pagination and disables page
+  controls while grouped; splitting one session across pages would make the
+  group label false. Row selection is not registered because Insights has no
+  bulk action for selected telemetry, and a checkbox with no consequence is
+  not functionality. The shared semantic `ui/table` primitive is the current
+  shadcn-svelte registry source. Tests:
+  `tests/unit/insights-data-table.test.ts` and
+  `tests/unit/insights-table-grid.test.ts`.
+- **WP4.14 — Insights tables use one premium interaction hierarchy (landed).**
+  The table header now names the result and its size, the toolbar holds only
+  controls that change the question (search and visible columns), and the
+  footer holds controls that move through the answer (page size and page
+  navigation). Sticky column headers use a quiet depth shadow instead of a
+  heavy border. Sort affordances stay in place and use a short opacity, scale,
+  and blur transition, so sorting does not shift a label. Rows use hairline
+  separation, tabular numbers, a restrained hover wash, and a thin brand rail
+  only when the row drills into a turn or span. Empty and filtered-empty states
+  explain what happened inside the table card. Every new control has a 40px
+  pointer target, keyboard focus remains visible, and no continuous animation
+  or expensive backdrop blur was added. The same shared renderer components
+  serve desktop, web, and the mobile read-only Insights surface.
+- **WP4.15 — One band asks the question; the type scale is the app's (landed).**
+  A table was reading as three unrelated toolbars stacked above the rows: a
+  title band, a search band with its own gradient, and the column header. They
+  are one band now — the result's name and size on the left, the controls that
+  change the question on the right, and only the column header between it and
+  the first row. The status filters became a segmented control whose dot is the
+  same colour as the row tint and the duration warning, so the reader learns
+  that mapping once; the page-size control became the shared `Select` primitive
+  rather than a browser-drawn `<select>`; and the clock column names its day
+  once a listing straddles one, since a bare `HH:MM` there names two instants.
+  Sort carets sit inside the label on a right-aligned column, so a measure's
+  header stays flush with its numbers. Search leads the band beside the
+  result's name, because it is the control a reader reaches for first; the
+  grain's own filters and the shared column menu close the band at its trailing
+  edge. Widths are pixel defaults that include the cell's own padding — the
+  earlier rem tracks were a content width the padding then ate, which is what
+  cut a session id and a model name short — and **every column is resizable**:
+  drag its trailing edge, nudge it with the arrow keys, or double-click to hand
+  it back. A prompt the reader has dragged stops absorbing the row's leftover
+  width, because a width they set is theirs. The tables also moved onto the app's
+  type scale and weights — no more 9.5px labels, no per-file tracking, medium
+  as the heaviest weight — which is what made the chrome louder than the data
+  it framed.
+- **WP4.16 — the charts read as one system.** Every plot now names its own x
+  positions with a real axis instead of a row of HTML labels spread across the
+  card. That row was the source of the misalignment: five instants spaced by
+  width sit under whatever bar happens to be beneath them, and on a band scale
+  they can never sit under the right one, because a band scale places only the
+  categories in its own domain. `bucketAxisTicks` therefore returns **bucket
+  starts**, spaced by index, both ends included — the axis draws them exactly
+  where the bars are. The linear trend axis keeps explicit instants for the
+  opposite reason: d3 rounds a linear domain to neat numbers, and a neat number
+  of epoch milliseconds is an arbitrary time of day.
+  Both time axes anchor their **end labels inward** (`textAnchor` start/end via
+  the `tickLabel` snippet), because a label centred on the first or last bar
+  hangs half a timestamp off the plot and the card crops it.
+  **A time label is sized by the span it names**, not by "is this more than a
+  day": under a day the clock alone, up to three days the day beside it, past
+  that the day alone. `Aug 11 00:19` is twice the width of `Aug 11`, and on a
+  week-long window that extra width on every tick is both noise and the thing
+  that pushes the end labels under the card's edge.
+  **Bucket count follows the plot's measured width**, at roughly one 21px slot
+  per bar, clamped to 16–112. A fixed 48 made bar width a function of the
+  window: the same 48 bars are hairlines in a drawer and 33px slabs across a
+  wide desktop, which is what made the histogram read as a bar chart of nothing.
+  Deriving the count pins the bar to one size everywhere, and the extra buckets
+  a wide plot earns are extra resolution rather than extra ink. The floor keeps
+  a bar hoverable and brushable; the ceiling stops the histogram out-resolving
+  the cursor, where one tooltip would answer for several bars.
+  **The histogram counts what the listing shows.** `withStatus` is shared by
+  both, so the status chips directly under the bars narrow them too — a filter
+  the reader can see and a chart that ignores it misstates what is counted. The
+  brush is deliberately *not* folded back in: the bars are the control it acts
+  on, and applying the selection to them would collapse the plot into whatever
+  was just dragged.
+  Sizes: the volume histogram went 70px → 208px of plot, the trend 144px → 176px,
+  the session strip 52px → 80px. A 70px histogram is a sparkline wearing a stat
+  strip — it had no room to show a shape, which is the only reason it exists.
+  **Colour: chart marks wear the art ramp, softened against the surface.** Fills
+  are mixed toward `--card` (70% for the volume hue, 78% for the negative) —
+  the ramp at full strength is a print colour, and the surface is what pulls it
+  into the app's own register; mixing against `--card` rather than white keeps
+  that true in dark mode. Failed marks use `--solus-art-negative`, not
+  `--failure`: the latter is a cold `#ef4444` that belongs to buttons and status
+  pills, and set on a parchment card beside a dusty blue it is the loudest thing
+  in the panel and reads as an alert rather than a measurement. Ink is *not*
+  softened — a pastel is unreadable as text, so the stat strip and tooltips take
+  the ramp hue at full strength.
+  **No gradients.** Both the bar fall-off and the area fade were tried and
+  removed: a fade to nothing reads as a rendering effect rather than a quantity,
+  and it is the first thing that makes a chart look generic. The area under a
+  single line is a flat 10% wash instead.
+  The rest follows the dataviz specs: 3px rounded caps, a 2px surface ring on
+  every trend dot so it survives crossing its own line, the wash left off once
+  the answer splits (overlapping washes read as a stacked quantity nobody
+  computed), and a full-length track behind each ranking bar so bars are read
+  against one scale instead of against their neighbours. Stat-strip labels moved
+  onto the app's type scale — the 9.5px uppercase tracking was the last of that
+  family in Insights.
+- **WP4.16 — A table you can read from, not only click through (landed).**
+  Three things a reader expects of a table were missing. Selecting text was
+  impossible: the mouse-up that ends a drag-select is also a click, so the row
+  opened and took the selection with it — activation now defers to a selection
+  the reader is holding (`hasTextSelection`). Right-click did nothing: every
+  row now opens a menu that copies the cell or the whole row as tab-separated
+  text, hides the column under the pointer, resets column widths, and offers
+  the row's own destinations (a turn, its session, a span's waterfall). The
+  menu reads its subject from the rendered row rather than from the model,
+  because a duration must copy as `26m54`, not as the epoch difference behind
+  it — which also lets one menu serve all three grains. And a column header
+  sorted once and then stopped: the turn listing's sort lives in the parent as
+  one key and one direction, so TanStack's third "unsorted" state was an empty
+  array this component dropped on the floor. `enableSortingRemoval: false`
+  makes the header toggle ascending and descending forever. One more thing the
+  root stylesheet owns: `user-select: none` on `#root` gives the app its native
+  feel and made every table cell unselectable, so the rows opt back in. And a
+  drag now starts from the width the column has *on screen* rather than the
+  width the table holds for it — the two differ for the column absorbing the
+  leftover space, which is why grabbing that edge snapped it to its default
+  before it began following the pointer.
+- **WP4.16 — A table you can read out of (landed).** Solus disables text
+  selection at the root (`html, body, #root { user-select: none }`), which every
+  table row inherited, so a reader could not drag a session id or a prompt out
+  of the answer they had just queried for. The rows opt back in with
+  `select-text`, and — because the mouse-up that ends a drag-select is also a
+  click — a row that would open a turn or a span now defers to a selection the
+  reader is holding. Right-clicking any row opens one shared menu: where the
+  row leads (its turn, its session, its span), copy this cell, copy the row as
+  tab-separated text, hide the column the pointer was over, reset column
+  widths. What it copies is what the row *shows* — `26m54`, not the epoch
+  difference behind it — which is also what lets one menu serve all three
+  grains: it reads the rendered row rather than the model.
+- **WP4.17 — SQL completion follows the two-table model (landed).** The editor
+  now treats `turns` and `events` as the primary authoring surface rather than
+  giving every schema source equal weight. They lead table completion after
+  `FROM` and `JOIN` under a **Tables** heading and carry the app's Phosphor table
+  icon; raw `spans` and `internal_events` remain available but are ranked as
+  advanced sources. One explicit completion pipeline ranks Columns, Tables,
+  Patterns, and SQL in that order, so CodeMirror's ungrouped keywords cannot
+  push a relevant table to the bottom. Columns use a column icon, primary row
+  keys use a key, and cross-table trace/parent ids use a link. Table positions
+  use CodeMirror's schema source alone, so a table is never duplicated by the
+  contextual source. Before a table is named,
+  unqualified completion
+  offers the deduplicated union of `turns` and `events` columns. After a table
+  is named, it narrows to the columns of the tables in that statement. Shared
+  columns appear once and name both tables in their detail. Qualified
+  `table.column` and `alias.column` completion remains owned by CodeMirror's
+  SQL parser so aliases keep parser-accurate behavior.
 - **WP5 — OTel + app emitters.** Settings-driven exporter (traces/metrics/logs,
   per-service resources, privacy gates) — note `otel.ts` today exports only
   logs/metrics over HTTP, so WP5 adds the trace SDK and gRPC exporter packages
@@ -500,7 +1286,17 @@ Each WP lands green (`bun run build`, focused unit tests) before the next starts
   second platform exception (the first is Insights query composing).
 - Exact attrs shape of the `tool_call_complete` outcome field — resolve at WP2 start
   against both providers' available outcome data.
-- Whether `model_work` should be split further (thinking vs generation) or stay one
-  kind with `hasThinking` — decide from real waterfalls during WP2.
-- Chart rendering in Insights: existing in-repo primitives vs a small chart lib —
-  decide at WP4 with the dataviz guidance.
+- ~~Chart rendering in Insights~~ — **resolved at WP4: LayerChart, for the
+  waterfall as well as the histogram.** Composed from its primitives (`Chart`,
+  `Svg`, `Bars`, `Axis`, `BrushContext`) rather than its simplified chart
+  components: the histogram needs a brush over the same band scale two bar
+  layers share, and the waterfall needs ranged bars (`x` returning
+  `[start, end]`) on a band scale of span rows. Its four container variables are
+  bridged to Solus tokens in `index.css`, so charts follow the theme.
+  **Two consequences of putting the waterfall on one shared scale**, both
+  deliberate: span labels and durations are HTML columns pinned to the band's
+  row height rather than SVG axis ticks, because they carry indentation,
+  truncation, and hit targets that ticks cannot; and a selected span's detail
+  opens *below* the plot rather than inline under its row, because pushing rows
+  apart mid-trace would break the alignment the shared axis exists to provide.
+  The design composition shows inline expansion; the shared axis is worth more.
