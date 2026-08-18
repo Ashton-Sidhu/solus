@@ -30,6 +30,20 @@ export function dispatchCheckoutPath(projectsRoot: string, deviceId: string, rep
   return join(projectsRoot, SOLUS_REMOTE_DISPATCH_DIR, deviceId, ...normalizeDispatchRepoKey(repoKey).split('/'))
 }
 
+/**
+ * The inverse: the paired device a path belongs to, or null for an ordinary
+ * project. Lives beside `dispatchCheckoutPath` so the two change together —
+ * this is the layout read back, not a guess about it. Linked worktrees under
+ * the checkout keep the segment, so they resolve to the same device.
+ */
+export function dispatchCheckoutDeviceId(cwd: string): string | null {
+  const marker = `/${SOLUS_REMOTE_DISPATCH_DIR}/`
+  const markerIndex = cwd.indexOf(marker)
+  if (markerIndex === -1) return null
+  const deviceId = cwd.slice(markerIndex + marker.length).split('/')[0]
+  return deviceId && SAFE_PATH_SEGMENT.test(deviceId) ? deviceId : null
+}
+
 /** Validate an exact existing worktree against the device-scoped dispatch
  * checkout. The base checkout is excluded: dispatched agents stay isolated. */
 export function resolveDispatchWorktree(

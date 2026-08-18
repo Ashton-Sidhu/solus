@@ -26,6 +26,7 @@
     filterSidebarTasks,
     groupTasks,
   } from "@renderer/components/session/lib/task-list";
+  import ProjectMark from "@renderer/components/session/ProjectMark.svelte";
   import { toasts } from "@renderer/lib/toasts";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
   import { getAttentionIcon, attentionLabel, type AttentionState } from "@renderer/lib/sessionUtils";
@@ -277,13 +278,13 @@
 
 {#snippet attentionMark(att: AttentionState)}
   {#if att === "unread"}
-    <span class="shrink-0 w-2 h-2 rounded-full bg-(--solus-accent)" aria-label="unread"></span>
+    <span class="text-sm shrink-0 w-2 h-2 rounded-full bg-(--solus-accent)" aria-label="unread"></span>
   {:else}
     {@const icon = getAttentionIcon(att)}
     {#if icon}
       {@const Icon = icon.component}
       <span
-        class="shrink-0 flex items-center {icon.spin ? 'animate-spin' : ''}"
+        class="text-sm shrink-0 flex items-center {icon.spin ? 'animate-spin' : ''}"
         style="color:{icon.color}"
         aria-label={attentionLabel(att) || undefined}
       >
@@ -295,7 +296,7 @@
 
 {#snippet reviewMark(status: "generating" | "ready")}
   <span
-    class="shrink-0 flex items-center {status === 'ready'
+    class="text-sm shrink-0 flex items-center {status === 'ready'
       ? 'text-(--solus-art-positive)'
       : 'text-(--solus-status-running-icon)'}"
     title={status === "ready" ? "Review guide ready" : "Generating review guide"}
@@ -313,15 +314,15 @@
 {/snippet}
 
 {#snippet activeBar()}
-  <span class="absolute left-1 top-1/2 -translate-y-1/2 h-5 w-[0.1875rem] rounded-full bg-(--solus-accent)"></span>
+  <span class="text-sm absolute left-1 top-1/2 -translate-y-1/2 h-5 w-[0.1875rem] rounded-full bg-(--solus-accent)"></span>
 {/snippet}
 
-<div class="flex flex-col h-full min-h-0">
+<div class="text-sm flex flex-col h-full min-h-0">
   <header
     class="shrink-0 flex flex-col px-4 pb-2 pt-[max(0.875rem,env(safe-area-inset-top,0px))]"
   >
     <div class="flex items-center justify-between">
-      <span class="text-sm font-medium tracking-[-0.01em] text-(--solus-text-primary)">Sessions</span>
+      <span class="font-medium tracking-[-0.01em] text-(--solus-text-primary)">Sessions</span>
       <span class="flex items-center gap-1.5">
         <button
           class="flex h-9 items-center gap-1.5 rounded-full border-0 bg-(--solus-surface-hover) px-3 text-xs font-medium text-(--solus-text-secondary) cursor-pointer transition-[background-color,transform] duration-[120ms] active:scale-[0.96] [-webkit-tap-highlight-color:transparent]"
@@ -336,7 +337,7 @@
           <span>Open task</span>
         </button>
         <button
-          class="flex items-center gap-1 rounded-full border-0 bg-(--solus-accent-light) py-1.5 pl-2.5 pr-3 text-[0.8125rem] font-medium text-(--solus-accent) cursor-pointer transition-[background-color,transform] duration-[120ms] active:scale-[0.96] active:bg-(--solus-accent-border-medium) [-webkit-tap-highlight-color:transparent]"
+          class="flex items-center gap-1 rounded-full border-0 bg-(--solus-accent-light) py-1.5 pl-2.5 pr-3  font-medium text-(--solus-accent) cursor-pointer transition-[background-color,transform] duration-[120ms] active:scale-[0.96] active:bg-(--solus-accent-border-medium) [-webkit-tap-highlight-color:transparent]"
           onclick={newSession}
           aria-label="New session"
         >
@@ -374,7 +375,7 @@
         type="search"
         placeholder="Search tasks"
         aria-label="Search tasks"
-        class="h-9 w-full rounded-xl border-0 bg-transparent pr-10 pl-[1.875rem] text-[0.8125rem] tracking-[-0.006em] text-(--solus-text-primary) outline-none placeholder:text-(--solus-text-tertiary) [&::-webkit-search-cancel-button]:hidden"
+        class="h-9 w-full rounded-xl border-0 bg-transparent pr-10 pl-[1.875rem]  tracking-[-0.006em] text-(--solus-text-primary) outline-none placeholder:text-(--solus-text-tertiary) [&::-webkit-search-cancel-button]:hidden"
       />
       {#if taskQuery}
         <button
@@ -414,7 +415,7 @@
         >
           <span class="shrink-0 flex items-center text-(--solus-text-tertiary)"><NotePencilIcon size={14} /></span>
           <span class="flex-1 min-w-0 flex flex-col gap-px">
-            <span class="truncate text-[0.8125rem] leading-tight font-normal text-(--solus-text-primary)">{row.title}</span>
+            <span class="truncate  leading-tight font-normal text-(--solus-text-primary)">{row.title}</span>
             <span class="truncate text-xs leading-tight text-(--solus-text-tertiary)">{row.projectLabel}</span>
           </span>
           {#if row.hasAttachments}
@@ -443,7 +444,7 @@
         >
           {#if isActive}{@render activeBar()}{/if}
           <span class="shrink-0 flex items-center {isActive ? 'text-(--solus-accent)' : 'text-(--solus-text-tertiary)'}"><PushPinIcon size={14} weight="fill" /></span>
-          <span class="flex-1 min-w-0 truncate text-[0.8125rem] font-normal {isActive ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{pin.title}</span>
+          <span class="flex-1 min-w-0 truncate  font-normal {isActive ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{pin.title}</span>
           {#if reviewStatus}
             {@render reviewMark(reviewStatus)}
           {/if}
@@ -489,8 +490,19 @@
             toggleProject(group.projectKey);
           }}
         >
+          <!-- The same mark the desktop rail and the breadcrumb carry: a phone
+               scrolls through more project headings than either, so the colour
+               is what tells one section from the next before its name is
+               read. -->
+          <ProjectMark
+            projectKey={group.projectKey}
+            initial={group.initial}
+            active={false}
+            class="size-4"
+            letterClass="text-xs"
+          />
           <span class="min-w-0 flex-1 truncate">{group.projectLabel}</span>
-          <span class="font-mono text-xs opacity-60 tabular-nums">{group.tasks.length}</span>
+          <span class="text-xs opacity-60 tabular-nums">{group.tasks.length}</span>
           <button
             class="shrink-0 w-9 h-9 flex items-center justify-center rounded-full border-0 bg-transparent text-(--solus-text-muted) cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-tertiary) active:text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
             aria-label="Close {group.projectLabel} and remove its tasks from the sidebar"
@@ -538,7 +550,7 @@
           >
             {#if isActive}{@render activeBar()}{/if}
             <span class="flex-1 min-w-0 flex flex-col gap-px">
-              <span class="truncate text-[0.8125rem] leading-tight font-normal {isActive ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{task.title}</span>
+              <span class="truncate  leading-tight font-normal {isActive ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{task.title}</span>
               {#if taskSessions.length > 0}
                 <span class="truncate text-xs leading-tight text-(--solus-text-tertiary)">{taskSessions.length} session{taskSessions.length === 1 ? '' : 's'}</span>
               {/if}
@@ -584,7 +596,7 @@
             >
               {#if childActive}{@render activeBar()}{/if}
               <span class="flex-1 min-w-0 flex flex-col gap-px">
-                <span class="truncate text-[0.8125rem] leading-tight font-normal {childActive ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{child.label}</span>
+                <span class="truncate  leading-tight font-normal {childActive ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{child.label}</span>
                 <span class="truncate text-xs leading-tight text-(--solus-text-tertiary)">{task.title}</span>
               </span>
               {#if child.attention}
@@ -632,7 +644,7 @@
             }}
           >
             <span class="flex-1 min-w-0 flex flex-col gap-px">
-              <span class="truncate text-[0.8125rem] leading-tight font-normal text-(--solus-text-primary)">{task.title}</span>
+              <span class="truncate  leading-tight font-normal text-(--solus-text-primary)">{task.title}</span>
               <span class="truncate text-xs leading-tight text-(--solus-text-tertiary)">Snoozed</span>
             </span>
             <button
@@ -647,10 +659,10 @@
         {/each}
       {/if}
     {:else}
-      <div class="flex flex-col items-center gap-3 px-4 py-12 text-[0.8125rem] text-(--solus-text-tertiary)">
+      <div class="flex flex-col items-center gap-3 px-4 py-12  text-(--solus-text-tertiary)">
         <span>{taskQuery.trim() ? "No matching tasks" : "No open sessions"}</span>
         <button
-          class="flex items-center gap-1.5 rounded-full border-0 bg-(--solus-accent-light) px-4 py-2 text-[0.8125rem] font-medium text-(--solus-accent) cursor-pointer transition-[background-color,transform] duration-[120ms] active:scale-[0.96] active:bg-(--solus-accent-border-medium) [-webkit-tap-highlight-color:transparent]"
+          class="flex items-center gap-1.5 rounded-full border-0 bg-(--solus-accent-light) px-4 py-2  font-medium text-(--solus-accent) cursor-pointer transition-[background-color,transform] duration-[120ms] active:scale-[0.96] active:bg-(--solus-accent-border-medium) [-webkit-tap-highlight-color:transparent]"
           onclick={newSession}
         >
           <PlusIcon size={14} weight="bold" /> New session

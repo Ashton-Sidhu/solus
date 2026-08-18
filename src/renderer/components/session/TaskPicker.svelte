@@ -217,7 +217,7 @@
 {#snippet sectionHeading(label: string, count: number)}
   <div class="flex h-8 items-center gap-1.5 px-3 text-(--solus-text-tertiary)">
     <span class="text-xs font-normal uppercase">{label}</span>
-    <span class="font-mono text-xs tabular-nums opacity-70">{count}</span>
+    <span class="text-xs tabular-nums opacity-70">{count}</span>
   </div>
 {/snippet}
 
@@ -232,7 +232,7 @@
   >
     <ListChecksIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
     <span class="min-w-0 flex-1">
-      <span class="block truncate text-[0.8125rem] font-medium">{task.title}</span>
+      <span class="block truncate text-sm font-medium">{task.title}</span>
       <span class="block truncate text-xs text-(--solus-text-tertiary)">{projectLabel(task)}</span>
     </span>
   </button>
@@ -291,7 +291,7 @@
               class="shrink-0 transition-transform duration-150 {completedVisible ? 'rotate-90' : ''}"
             />
             <span class="text-xs font-normal uppercase">Completed</span>
-            <span class="font-mono text-xs tabular-nums opacity-70">{completedTasks.length}</span>
+            <span class="text-xs tabular-nums opacity-70">{completedTasks.length}</span>
           </button>
         {/if}
         {#if completedVisible}
@@ -309,7 +309,7 @@
         <div class="mx-auto flex max-w-xl flex-col">
           <div class="flex flex-wrap items-center gap-x-[13px] gap-y-1.5 pb-[11px]">
             <span
-              class="inline-flex items-center gap-1.5 text-[0.8125rem]"
+              class="inline-flex items-center gap-1.5 text-sm"
               style="color:{statusTextColor(selectedTask.status)}"
             >
               <svg
@@ -326,7 +326,7 @@
               {status.label}
             </span>
             <span class="h-[11px] w-px bg-[var(--hairline-strong)]" aria-hidden="true"></span>
-            <span class="inline-flex items-center gap-1.5 text-[0.8125rem] text-(--solus-text-tertiary)">
+            <span class="inline-flex items-center gap-1.5 text-sm text-(--solus-text-tertiary)">
               <span class="flex h-[9px] shrink-0 items-end gap-[1.5px]" aria-hidden="true">
                 {#each bars as bar (bar.height)}
                   <span
@@ -338,23 +338,23 @@
               {priorityLabel(selectedTask.priority)}
             </span>
             <span class="h-[11px] w-px bg-[var(--hairline-strong)]" aria-hidden="true"></span>
-            <span class="text-[0.8125rem] text-(--solus-text-tertiary)">{projectLabel(selectedTask)}</span>
+            <span class="text-sm text-(--solus-text-tertiary)">{projectLabel(selectedTask)}</span>
             {#if openedAt}
               <span class="h-[11px] w-px bg-[var(--hairline-strong)]" aria-hidden="true"></span>
-              <span class="font-mono text-xs text-(--solus-text-tertiary) opacity-75">opened {openedAt}</span>
+              <span class="text-xs text-(--solus-text-tertiary) opacity-75">opened {openedAt}</span>
             {/if}
           </div>
-          <h2 class="m-0 text-[1.5rem] font-medium leading-[1.25] text-pretty text-(--solus-text-primary)">{selectedTask.title}</h2>
+          <h2 class="m-0 text-2xl font-medium leading-[1.25] text-pretty text-(--solus-text-primary)">{selectedTask.title}</h2>
           {#if selectedTask.body}
-            <p class="whitespace-pre-wrap text-pretty pt-[18px] text-[0.8125rem] leading-6 text-(--solus-text-secondary)">{selectedTask.body}</p>
+            <p class="whitespace-pre-wrap text-pretty pt-[18px] text-sm leading-6 text-(--solus-text-secondary)">{selectedTask.body}</p>
           {:else}
-            <p class="pt-[18px] text-[0.8125rem] text-(--solus-text-tertiary)">No task description.</p>
+            <p class="pt-[18px] text-sm text-(--solus-text-tertiary)">No task description.</p>
           {/if}
           {#if prRows.length}
             <div class="flex flex-col gap-[7px] pt-[26px]">
               <div class="flex items-center gap-2.5">
                 <span class="text-xs font-normal uppercase text-(--solus-text-tertiary)">Pull requests</span>
-                <span class="font-mono text-xs tabular-nums text-(--solus-text-tertiary) opacity-70">{prRows.length}</span>
+                <span class="text-xs tabular-nums text-(--solus-text-tertiary) opacity-70">{prRows.length}</span>
                 <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
               </div>
               <div class="overflow-hidden rounded-xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]">
@@ -370,8 +370,8 @@
                     >
                       <PrIcon size={13} />
                     </span>
-                    <span class="flex h-5 shrink-0 items-center font-mono text-xs tabular-nums text-(--solus-text-tertiary) opacity-65">{row.ref}</span>
-                    <span class="flex h-5 min-w-0 flex-1 items-center truncate text-[0.8125rem]">
+                    <span class="flex h-5 shrink-0 items-center text-xs tabular-nums text-(--solus-text-tertiary) opacity-65">{row.ref}</span>
+                    <span class="flex h-5 min-w-0 flex-1 items-center truncate text-sm">
                       {#if row.title}
                         {row.title}
                       {:else}
@@ -399,7 +399,7 @@
             <div class="flex flex-col gap-[7px] pt-[26px]">
               <div class="flex items-center gap-2">
                 <span class="text-xs font-normal uppercase text-(--solus-text-tertiary)">Linked</span>
-                <span class="font-mono text-xs tabular-nums text-(--solus-text-tertiary) opacity-70">{linkedRows.length}</span>
+                <span class="text-xs tabular-nums text-(--solus-text-tertiary) opacity-70">{linkedRows.length}</span>
                 <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
               </div>
               <div class="flex flex-col">
@@ -418,7 +418,7 @@
                         aria-hidden="true"><path d={row.icon} /></svg
                       >
                     </span>
-                    <span class="min-w-0 flex-1 truncate text-[0.8125rem]">{row.label}</span>
+                    <span class="min-w-0 flex-1 truncate text-sm">{row.label}</span>
                     <span class="w-[92px] shrink-0 text-xs whitespace-nowrap text-(--solus-text-tertiary) opacity-70">{row.kindLabel}</span>
                     <span class="w-[88px] shrink-0 truncate text-right text-xs whitespace-nowrap text-(--solus-text-tertiary) opacity-75">{row.meta}</span>
                   </div>

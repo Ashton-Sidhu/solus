@@ -4,7 +4,8 @@ import type {
   ModelConfig,
 } from '../../../shared/types'
 
-/** Automation authoring is lightweight background work, independent of tabs. */
+/** Automation authoring is lightweight background work, independent of tabs.
+ *  The automation it saves is the artifact, so the session mints no task. */
 export function automationDraftSessionRequest(
   prompt: string,
   cwd: string,
@@ -18,5 +19,6 @@ export function automationDraftSessionRequest(
     reasoningEffort: 'low',
     contextWindow: modelConfig.contextWindow,
     cwd,
+    skipTaskCreation: true,
   }
 }

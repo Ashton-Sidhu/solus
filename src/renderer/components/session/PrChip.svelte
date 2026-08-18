@@ -65,7 +65,7 @@
       class="shrink-0 {chip.state === 'draft' ? 'opacity-70' : ''}"
     />
   {/if}
-  <span class="font-mono text-xs tabular-nums"
+  <span class="text-xs tabular-nums"
     >#{chip.number}</span
   >
 </button>

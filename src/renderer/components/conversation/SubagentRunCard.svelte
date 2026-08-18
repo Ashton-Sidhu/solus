@@ -40,7 +40,7 @@
 </script>
 
 <section
-  class="run-card mx-auto w-[88%] overflow-hidden rounded-2xl bg-(--solus-tx-card-bg)"
+  class="text-xs run-card mx-auto w-[88%] overflow-hidden rounded-2xl bg-(--solus-tx-card-bg)"
   class:is-failed={failed}
   class:is-open={isOpen}
   aria-label="Sub-agent"
@@ -82,18 +82,18 @@
            stopped when it failed. -->
       {#if failed}
         <span
-          class="mt-[0.1875rem] block truncate font-mono text-xs leading-[1.4] text-(--muted-foreground) opacity-80"
+          class="mt-[0.1875rem] block truncate leading-[1.4] text-(--muted-foreground) opacity-80"
           >{row.activity}</span
         >
       {:else}
         <span class="mt-[0.1875rem] flex items-baseline gap-[0.4375rem]">
           <span
-            class="run-card__shim shrink-0 text-xs font-medium "
+            class="run-card__shim shrink-0 font-medium "
             >{row.activity}</span
           >
           {#if path.file}
             <span
-              class="truncate font-mono text-xs text-(--muted-foreground) opacity-80"
+              class="truncate font-mono text-(--muted-foreground) opacity-80"
               >{#if path.dir}<span class="opacity-55">{path.dir}</span
                 >{/if}{path.file}</span
             >
@@ -107,7 +107,7 @@
     <span class="flex shrink-0 items-baseline gap-[0.6875rem]">
       {#if hasSteps}
         <span
-          class="font-mono text-xs tabular-nums"
+          class="tabular-nums"
           ><span class="opacity-95">{steps.done}</span><span
             class="text-(--muted-foreground) opacity-50">{steps.total}</span
           ></span
@@ -119,7 +119,7 @@
       {/if}
       <!-- Locked to its own box so ticking digits never nudge the rail. -->
       <span
-        class="w-[3.25rem] text-right font-mono text-xs text-(--muted-foreground) tabular-nums opacity-[0.72]"
+        class="w-[3.25rem] text-right text-(--muted-foreground) tabular-nums opacity-[0.72]"
         >{elapsed}</span
       >
       {#if row.meta}
@@ -128,7 +128,7 @@
           aria-hidden="true"
         ></span>
         <span
-          class="font-mono text-xs text-(--muted-foreground) opacity-45"
+          class="text-(--muted-foreground) opacity-45"
           >{row.meta}</span
         >
       {/if}

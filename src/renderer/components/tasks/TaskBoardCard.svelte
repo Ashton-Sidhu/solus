@@ -78,7 +78,7 @@
   role="button"
   tabindex={floating ? -1 : 0}
   data-task-card={card.key}
-  class="group relative flex w-full shrink-0 flex-col items-stretch gap-[7px] overflow-hidden rounded-2xl bg-card px-2.5 py-[9px] text-left select-none {floating
+  class="text-xs group relative flex w-full shrink-0 flex-col items-stretch gap-[7px] overflow-hidden rounded-2xl bg-card px-2.5 py-[9px] text-left select-none {floating
  ? 'cursor-grabbing shadow-[0_0_0_1px_color-mix(in_oklch,var(--foreground)_18%,transparent),0_4px_12px_-6px_rgba(24,20,16,.22)]'
  : 'cursor-pointer transition-[box-shadow,transform] duration-150 ease-out hover:-translate-y-px hover:shadow-[0_0_0_.5px_var(--hairline-strong),0_1px_2px_-1px_rgba(24,20,16,.10),0_12px_26px_-12px_rgba(24,20,16,.26)] focus-visible:-translate-y-px focus-visible:shadow-[0_0_0_.5px_var(--hairline-strongest),0_1px_2px_-1px_rgba(24,20,16,.10),0_12px_26px_-12px_rgba(24,20,16,.26)] focus-visible:outline-none'} {flashing
  ? 'shadow-[0_0_0_1px_color-mix(in_oklch,var(--primary)_55%,transparent),0_0_0_4px_color-mix(in_oklch,var(--primary)_12%,transparent)]'
@@ -123,13 +123,13 @@
       <SourceLogo source={card.source.id} title={card.source.title} />
     {/if}
     <span
-      class="shrink-0 font-mono text-xs tabular-nums text-muted-foreground opacity-60"
+      class="shrink-0 tabular-nums text-muted-foreground opacity-60"
     >
       {card.ident}
     </span>
     <span class="flex-1"></span>
     <span
-      class="shrink-0 font-mono text-xs tabular-nums text-muted-foreground opacity-[.55]"
+      class="shrink-0 tabular-nums text-muted-foreground opacity-[.55]"
       title={card.timeTitle}
     >
       {card.time}
@@ -139,7 +139,7 @@
   <!-- The only full-strength text on the card. It wraps rather than truncates —
        a column is tall, and a half-read title is worth less than a second line. -->
   <span
-    class="text-[0.8125rem] leading-[1.42] font-normal text-pretty {card.dimmed
+    class="text-sm leading-[1.42] font-normal text-pretty {card.dimmed
  ? 'text-[color-mix(in_oklch,var(--foreground)_62%,transparent)]'
  : 'text-foreground'}"
   >
@@ -148,7 +148,7 @@
 
   {#if card.status}
     <span
-      class="flex min-w-0 items-center gap-[5px] text-xs {card.live
+      class="flex min-w-0 items-center gap-[5px] {card.live
  ? 'text-[color-mix(in_oklch,var(--running)_66%,var(--foreground))]'
  : card.attention
  ? 'text-[color-mix(in_oklch,var(--primary)_76%,var(--foreground))]'
@@ -167,7 +167,7 @@
     <span class="mt-px flex min-w-0 items-center gap-[5px]">
       {#each chips as chip (chip.label)}
         <span
-          class="inline-flex h-[18px] shrink-0 items-center gap-[5px] rounded-full py-0 pr-[7px] pl-1.5 text-xs font-normal shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)]"
+          class="inline-flex h-[18px] shrink-0 items-center gap-[5px] rounded-full py-0 pr-[7px] pl-1.5 font-normal shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)]"
           style:color={chip.color}
         >
           <span class="size-[5px] shrink-0 rounded-full" style:background={chip.dot}></span>

@@ -136,7 +136,7 @@
     <span class="shrink-0">{permission.toolTitle}</span>
     {#if cwdParts}
       <span class="shrink-0 opacity-60">·</span>
-      <span class="min-w-0 truncate font-mono text-xs"
+      <span class="min-w-0 truncate text-xs"
         >{cwdParts.head}<span class="font-medium text-(--foreground)">{cwdParts.tail}</span></span
       >
     {/if}
@@ -271,7 +271,7 @@
       {#if responded}
         Answered
       {:else}
-        Holding · <span class="font-mono text-xs">{waiting}</span>
+        Holding · <span class="text-xs">{waiting}</span>
       {/if}
     </span>
     {#if actions.affirmative}

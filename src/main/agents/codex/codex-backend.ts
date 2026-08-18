@@ -765,6 +765,19 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   async readUsageLimits(): Promise<AgentUsageLimits> {
+    const account = await this.client.request('account/read', { refreshToken: false })
+    if (account.account?.type === 'apiKey') {
+      return {
+        provider: this.id,
+        fiveHour: null,
+        weekly: null,
+        planType: null,
+        usageMode: 'api',
+        fetchedAt: Date.now(),
+        stale: false,
+      }
+    }
+
     const response = await this.client.request('account/rateLimits/read', {})
     const snapshot = response.rateLimits
     // `primary`/`secondary` carry no fixed meaning — the window duration is the
@@ -784,6 +797,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       fiveHour: windowOf(300),
       weekly: windowOf(10080),
       planType: snapshot?.planType ?? null,
+      usageMode: 'subscription',
       fetchedAt: Date.now(),
       stale: false,
     }
@@ -993,6 +1007,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           { id: 'accept', label: 'Allow', kind: 'allow' },
           { id: 'decline', label: 'Deny', kind: 'deny' },
         ],
+        ...(typeof params?.startedAtMs === 'number' ? { startedAtMs: params.startedAtMs } : {}),
       })
       return
     }
@@ -1035,6 +1050,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       toolDescription: permissionDescription(msg.method, params),
       toolInput: this.permissionToolInput(msg.method, params),
       options: permissionOptions(msg.method, params),
+      ...(typeof params?.startedAtMs === 'number' ? { startedAtMs: params.startedAtMs } : {}),
     })
   }
 

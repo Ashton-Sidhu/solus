@@ -92,7 +92,7 @@
 
 {#if store.isOpen && (store.host || store.pairingTarget)}
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4 backdrop-blur-[2px] sm:p-6"
+    class="text-xs fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4 backdrop-blur-[2px] sm:p-6"
     role="presentation"
     onkeydown={(event) => {
       if (event.key === "Escape") close();
@@ -108,19 +108,19 @@
         class="flex w-[18rem] shrink-0 flex-col bg-[color-mix(in_srgb,var(--solus-accent)_4%,var(--solus-popover-bg))] px-[1.875rem] pb-6 pt-[1.875rem]"
       >
         <p
-          class="text-xs font-medium uppercase text-(--solus-text-tertiary)"
+          class="font-medium uppercase text-(--solus-text-tertiary)"
         >
           Set up a server
         </p>
         <h2
           id="host-onboarding-title"
-          class="mt-[1.125rem] text-pretty text-[1.5rem] font-medium leading-[1.12] text-(--solus-text-primary)"
+          class="mt-[1.125rem] text-pretty text-2xl font-medium leading-[1.12] text-(--solus-text-primary)"
         >
           {hostName}
           {isPairing || current ? "is joining" : "is ready"}
         </h2>
         <p
-          class="mt-3 text-pretty text-[0.8125rem] leading-[1.6] text-(--solus-text-tertiary)"
+          class="mt-3 text-pretty text-sm leading-[1.6] text-(--solus-text-tertiary)"
         >
           {#if isPairing}
             Solus copies this Mac's setup across so {hostName} behaves exactly the
@@ -146,7 +146,7 @@
               style="width: {isPairing ? 50 : percentDone}%"
             ></span>
           </span>
-          <span class="text-xs tabular-nums text-(--solus-text-tertiary)">
+          <span class="tabular-nums text-(--solus-text-tertiary)">
             {#if isPairing}
               Step 1 of 2
             {:else if setup?.readinessLoading && !setup.readiness}
@@ -163,7 +163,7 @@
           {#if isPairing && store.pairingView === "fallback"}
             <button
               type="button"
-              class="-ml-1.5 flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
+              class="-ml-1.5 flex items-center gap-1.5 rounded-md px-1.5 py-1  text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
               onclick={() => void store.startSshBootstrap()}
             >
               <CaretLeftIcon size={11} />
@@ -190,13 +190,13 @@
           {:else}
             <div class="flex items-baseline gap-2.5">
               <p
-                class="shrink-0 text-[1.5rem] font-medium text-(--solus-text-primary)"
+                class="shrink-0 text-2xl font-medium text-(--solus-text-primary)"
               >
                 {hostName}
               </p>
               {#if hostMeta}
                 <p
-                  class="min-w-0 flex-1 truncate text-xs text-(--solus-text-tertiary)"
+                  class="min-w-0 flex-1 truncate  text-(--solus-text-tertiary)"
                   style="font-family: 'Geist Mono', ui-monospace, monospace"
                 >
                   {hostMeta}
@@ -209,17 +209,17 @@
             {#if current}
               <div class="mt-[1.625rem] max-w-[30rem]">
                 <p
-                  class="text-xs font-medium uppercase text-(--solus-accent)"
+                  class="font-medium uppercase text-(--solus-accent)"
                 >
                   Step {currentNumber} of {decisions.length}
                 </p>
                 <h3
-                  class="mt-2.5 text-[1.5rem] font-medium text-(--solus-text-primary)"
+                  class="mt-2.5 text-2xl font-medium text-(--solus-text-primary)"
                 >
                   {current.label}
                 </h3>
                 <p
-                  class="mt-2 text-pretty text-[0.8125rem] leading-[1.55] text-(--solus-text-tertiary)"
+                  class="mt-2 text-pretty text-sm leading-[1.55] text-(--solus-text-tertiary)"
                 >
                   {current.why}
                 </p>
@@ -233,17 +233,17 @@
             {:else}
               <div class="mt-[1.625rem] max-w-[30rem]">
                 <p
-                  class="text-xs font-medium uppercase text-(--solus-text-tertiary)"
+                  class="font-medium uppercase text-(--solus-text-tertiary)"
                 >
                   All clear
                 </p>
                 <h3
-                  class="mt-2.5 text-[1.5rem] font-medium text-(--solus-text-primary)"
+                  class="mt-2.5 text-2xl font-medium text-(--solus-text-primary)"
                 >
                   {hostName} is fully set up
                 </h3>
                 <p
-                  class="mt-2 text-pretty text-[0.8125rem] leading-[1.55] text-(--solus-text-tertiary)"
+                  class="mt-2 text-pretty text-sm leading-[1.55] text-(--solus-text-tertiary)"
                 >
                   Nothing else needs you. Start a session whenever you like.
                 </p>
@@ -258,7 +258,7 @@
             >
               {#if upcoming.length > 0}
                 <p
-                  class="text-xs font-medium uppercase text-(--solus-text-tertiary)"
+                  class="font-medium uppercase text-(--solus-text-tertiary)"
                 >
                   After this
                 </p>
@@ -266,11 +266,11 @@
                   {#each upcoming as step (step.id)}
                     <div class="flex items-baseline gap-2.5 py-[0.1875rem]">
                       <span
-                        class="shrink-0 text-xs tabular-nums text-(--solus-text-tertiary)"
+                        class="shrink-0  tabular-nums text-(--solus-text-tertiary)"
                       >
                         {decisions.indexOf(step) + 1}
                       </span>
-                      <span class="text-[0.8125rem] text-(--solus-text-tertiary)">
+                      <span class="text-sm text-(--solus-text-tertiary)">
                         {step.label}
                       </span>
                     </div>
@@ -287,7 +287,7 @@
                         weight="bold"
                         class="shrink-0 translate-y-px text-(--solus-text-tertiary)"
                       />
-                      <span class="text-[0.8125rem] text-(--solus-text-tertiary)">
+                      <span class="text-sm text-(--solus-text-tertiary)">
                         {step.label} · {step.detail}
                       </span>
                     </div>
@@ -296,7 +296,7 @@
               {/if}
 
               <div class="mt-2.5 flex items-baseline gap-1.5">
-                <span class="text-xs text-(--solus-text-tertiary)">
+                <span class="text-(--solus-text-tertiary)">
                   {carriedDone} of {carriedTotal} carried over from this Mac · nothing
                   for you to do here
                 </span>
@@ -325,7 +325,7 @@
                     {#if setup?.stepError?.step === step.id}
                       <div class="flex items-center gap-2 pb-1 pl-[1.125rem]">
                         <p
-                          class="min-w-0 flex-1 text-pretty text-xs leading-relaxed text-(--solus-status-error)"
+                          class="min-w-0 flex-1 text-pretty  leading-relaxed text-(--solus-status-error)"
                         >
                           {setup.stepError.message}
                         </p>
@@ -351,7 +351,7 @@
           class="flex h-16 shrink-0 items-center gap-2 border-t border-(--solus-popover-border) px-[1.375rem]"
         >
           {#if isPairing}
-            <p class="max-w-[13rem] text-pretty text-xs leading-[1.45] text-(--solus-text-tertiary)">
+            <p class="max-w-[13rem] text-pretty  leading-[1.45] text-(--solus-text-tertiary)">
               Nothing is installed on {hostName} until it has joined.
             </p>
             <span class="flex-1"></span>
@@ -395,7 +395,7 @@
 {/if}
 
 {#snippet carriedRow(title: string, detail: string, state: "done" | "busy" | "wait")}
-  <div class="flex items-baseline gap-2 py-[0.125rem]">
+  <div class="text-xs flex items-baseline gap-2 py-[0.125rem]">
     {#if state === "busy"}
       <CircleNotchIcon
         size={10}
@@ -412,7 +412,7 @@
         class="size-[0.5625rem] shrink-0 translate-y-px rounded-full border border-[color-mix(in_srgb,var(--solus-text-primary)_16%,transparent)]"
       ></span>
     {/if}
-    <span class="min-w-0 flex-1 text-xs text-(--solus-text-tertiary)">
+    <span class="min-w-0 flex-1  text-(--solus-text-tertiary)">
       {title} · {detail}
     </span>
   </div>

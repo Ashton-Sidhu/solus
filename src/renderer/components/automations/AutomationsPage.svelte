@@ -456,7 +456,7 @@
         bind:value={sortMode}
         options={SORT_OPTIONS}
         ariaLabel="Sort automations"
-        class="h-7 gap-1.5 rounded-lg px-2.5 text-[0.8125rem] font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
+        class="h-7 gap-1.5 rounded-lg px-2.5 text-sm font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
       />
       <AutomationProjectFilter
         {projects}
@@ -503,12 +503,12 @@
                 >Nothing running yet</span
               >
               <h2
-                class="text-[1.5rem] leading-[1.35] font-medium text-pretty"
+                class="text-2xl leading-[1.35] font-medium text-pretty"
               >
                 What would you rather not do again next week?
               </h2>
               <p
-                class="max-w-[56ch] text-[0.8125rem] leading-[1.65] text-pretty text-muted-foreground"
+                class="max-w-[56ch] text-sm leading-[1.65] text-pretty text-muted-foreground"
               >
                 Say it once. An agent runs it against your repo on the cadence
                 you pick, and leaves a run you can review.
@@ -520,7 +520,7 @@
               {#snippet actions()}
                 <Button
                   type="button"
-                  class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-[0.8125rem] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
                   onclick={clearFilters}
                 >
                   Clear filters

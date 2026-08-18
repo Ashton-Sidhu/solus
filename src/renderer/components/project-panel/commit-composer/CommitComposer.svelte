@@ -87,12 +87,21 @@
     action === "commit_push" ? "Commit and push" : "Commit",
   );
 
-  async function submit() {
+  // The dialog owns how far the commit travels: the primary button commits as
+  // far as the row does, while "Commit only" stops at the local commit.
+  const canCommitOnly = $derived(action === "commit_push");
+  // Which button the user pressed, so the spinner sits on that button rather
+  // than on whichever one happens to be primary.
+  let submittingAction = $state<GitAction | null>(null);
+
+  async function submit(runAction: GitAction = action) {
     if (!composer.canSubmit || actions.running) return;
-    await actions.run(action, {
+    submittingAction = runAction;
+    await actions.run(runAction, {
       filePaths: composer.selectedPaths,
       commitMessage: composer.message.trim() || undefined,
     });
+    submittingAction = null;
     if (!actions.actionError) onClose();
   }
 
@@ -123,7 +132,7 @@
   onkeydown={onPanelKeydown}
 >
   <div
-    class="flex max-h-[min(38rem,80vh)] w-[clamp(20rem,44vw,30rem)] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] [.dark_&]:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] outline-none [animation:commit-composer-enter_200ms_cubic-bezier(0.22,1,0.36,1)_backwards]"
+    class="flex max-h-[min(38rem,80svh)] w-[clamp(20rem,44vw,30rem)] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl max-md:max-h-[88svh] max-md:w-[calc(100vw-1.5rem)] max-md:max-w-none border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] [.dark_&]:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] outline-none [animation:commit-composer-enter_200ms_cubic-bezier(0.22,1,0.36,1)_backwards]"
     role="dialog"
     aria-label={heading}
     aria-modal="true"
@@ -140,11 +149,11 @@
       </span>
       <div class="flex min-w-0 flex-col">
         <span
-          class="truncate text-[0.8125rem] font-medium leading-tight text-(--solus-text-primary)"
+          class="truncate text-sm font-medium leading-tight text-(--solus-text-primary)"
           >{heading}</span
         >
         <span
-          class="truncate text-menu-meta leading-tight text-(--solus-text-tertiary)"
+          class="truncate text-xs leading-tight text-(--solus-text-tertiary)"
         >
           {#if composer.loading}
             Reading the working tree…
@@ -161,7 +170,7 @@
       </div>
       <button
         type="button"
-        class="relative ml-auto inline-flex size-7 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg border-none bg-transparent text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] disabled:opacity-50 after:absolute after:-inset-1.5 after:content-['']"
+        class="relative ml-auto inline-flex size-7 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg border-none bg-transparent text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] disabled:opacity-50 after:absolute after:-inset-1.5 after:content-[''] max-md:after:-inset-2.5"
         onclick={onClose}
         disabled={actions.running}
         aria-label="Close"
@@ -176,20 +185,22 @@
       <div class="relative flex-shrink-0 px-[1.125rem] pt-3">
         <MagnifyingGlassIcon
           size={13}
-          class="pointer-events-none absolute left-[1.75rem] top-1/2 mt-[0.375rem] -translate-y-1/2 text-(--solus-text-tertiary)"
+          class="pointer-events-none absolute left-[1.75rem] top-1/2 mt-[0.375rem] -translate-y-1/2 text-(--solus-text-tertiary) max-md:left-[1.875rem] max-md:size-4"
         />
+        <!-- `max-md:text-base` is load-bearing, not taste: iOS zooms the page on
+             focus for any field under 16px. -->
         <Input
           bind:value={composer.query}
           placeholder="Filter files…"
           spellcheck={false}
           autocomplete="off"
           aria-label="Filter changed files"
-          class="h-8 rounded-lg border-transparent bg-(--solus-input-bg-soft) pl-7 pr-7 text-xs shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-container-border)_70%,transparent)] focus-visible:border-transparent focus-visible:ring-[0.125rem] focus-visible:ring-[color-mix(in_srgb,var(--solus-accent)_30%,transparent)]"
+          class="h-8 rounded-lg border-transparent bg-(--solus-input-bg-soft) pl-7 pr-7 text-xs shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-container-border)_70%,transparent)] focus-visible:border-transparent focus-visible:ring-[0.125rem] focus-visible:ring-[color-mix(in_srgb,var(--solus-accent)_30%,transparent)] max-md:h-11 max-md:pl-9 max-md:pr-11 max-md:text-base"
         />
         {#if composer.query}
           <button
             type="button"
-            class="absolute right-[1.5rem] top-1/2 mt-[0.375rem] inline-flex size-5 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md border-none bg-transparent text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96]"
+            class="absolute right-[1.5rem] top-1/2 mt-[0.375rem] inline-flex size-5 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md border-none bg-transparent text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] after:absolute after:content-[''] max-md:size-7 max-md:after:-inset-2.5"
             onclick={() => (composer.query = "")}
             aria-label="Clear the filter"
           >
@@ -201,7 +212,7 @@
       <div
         class="flex flex-shrink-0 items-center justify-between gap-2 px-[1.125rem] pb-1 pt-2.5"
       >
-        <span class="min-w-0 truncate text-menu-meta text-(--solus-text-tertiary)">
+        <span class="min-w-0 truncate text-xs text-(--solus-text-tertiary)">
           <span class="tabular-nums">{composer.selected.size}</span> of
           <span class="tabular-nums">{composer.files.length}</span> selected
           {#if composer.selected.size > 0}
@@ -216,7 +227,7 @@
         <div class="flex flex-shrink-0 items-center gap-0.5">
           <button
             type="button"
-            class="cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 text-menu-meta text-(--solus-text-secondary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] disabled:pointer-events-none disabled:opacity-40"
+            class="cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 text-xs text-(--solus-text-secondary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] disabled:pointer-events-none disabled:opacity-40 max-md:h-11 max-md:px-3 max-md:text-sm"
             onclick={() => composer.selectAll()}
             disabled={composer.loading || composer.visibleFiles.length === 0}
           >
@@ -224,7 +235,7 @@
           </button>
           <button
             type="button"
-            class="cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 text-menu-meta text-(--solus-text-secondary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] disabled:pointer-events-none disabled:opacity-40"
+            class="cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 text-xs text-(--solus-text-secondary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] disabled:pointer-events-none disabled:opacity-40 max-md:h-11 max-md:px-3 max-md:text-sm"
             onclick={() => composer.selectNone()}
             disabled={composer.loading || composer.visibleSelectedCount === 0}
           >
@@ -267,31 +278,33 @@
               <li>
                 <button
                   type="button"
-                  class="flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-left transition-colors duration-100 hover:bg-(--solus-surface-hover) {isSelected
+                  class="flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-left transition-colors duration-100 hover:bg-(--solus-surface-hover) max-md:h-12 max-md:gap-3 max-md:px-2.5 {isSelected
                     ? ''
                     : 'opacity-70'}"
                   onclick={() => composer.toggle(file.path)}
                   aria-pressed={isSelected}
                 >
                   <span
-                    class="grid size-[0.9375rem] flex-shrink-0 place-items-center rounded-[0.3125rem] transition-[background-color,box-shadow] duration-100 {isSelected
+                    class="grid size-[0.9375rem] flex-shrink-0 place-items-center rounded-[0.3125rem] transition-[background-color,box-shadow] duration-100 max-md:size-5 max-md:rounded-md {isSelected
                       ? 'bg-(--solus-accent) text-white shadow-[inset_0_0_0_0.0625rem_var(--solus-accent)]'
                       : 'shadow-[inset_0_0_0_0.0625rem_var(--solus-container-border)]'}"
                   >
                     <CheckIcon
                       size={10}
                       weight="bold"
-                      class="transition-[opacity,scale,filter] duration-150 {isSelected
+                      class="max-md:size-3.5 transition-[opacity,scale,filter] duration-150 {isSelected
                         ? 'scale-100 opacity-100 blur-none'
                         : 'scale-[0.25] opacity-0 blur-[0.25rem]'}"
                     />
                   </span>
                   <span
-                    class="w-3 flex-shrink-0 text-center text-menu-meta font-semibold {STATUS_TONE_CLASS[
+                    class="w-3 flex-shrink-0 text-center text-xs font-semibold {STATUS_TONE_CLASS[
                       file.status
                     ]}">{file.status}</span
                   >
-                  <span class="flex min-w-0 flex-1 items-baseline font-mono text-xs">
+                  <span
+                    class="flex min-w-0 flex-1 items-baseline text-xs max-md:text-sm"
+                  >
                     {#if parts.folders}
                       <span
                         class="min-w-0 flex-shrink truncate text-(--solus-text-tertiary)"
@@ -303,11 +316,11 @@
                     >
                   </span>
                   <span
-                    class="flex-shrink-0 text-menu-meta tabular-nums text-(--solus-status-complete)"
+                    class="flex-shrink-0 text-xs tabular-nums text-(--solus-status-complete)"
                     >+{file.additions}</span
                   >
                   <span
-                    class="w-8 flex-shrink-0 text-menu-meta tabular-nums text-(--solus-status-error)"
+                    class="w-8 flex-shrink-0 text-xs tabular-nums text-(--solus-status-error)"
                     >−{file.deletions}</span
                   >
                 </button>
@@ -327,7 +340,7 @@
         placeholder="Commit message (optional — leave blank to generate one)"
         rows={2}
         disabled={actions.running}
-        class="w-full resize-none rounded-lg border-transparent bg-(--solus-input-bg-soft) px-2.5 py-2 text-xs text-(--solus-text-primary) shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-container-border)_70%,transparent)] outline-none focus:border-transparent focus-visible:ring-[0.125rem] focus-visible:ring-[color-mix(in_srgb,var(--solus-accent)_30%,transparent)]"
+        class="w-full resize-none rounded-lg border-transparent bg-(--solus-input-bg-soft) px-2.5 py-2 text-xs text-(--solus-text-primary) shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-container-border)_70%,transparent)] outline-none focus:border-transparent focus-visible:ring-[0.125rem] focus-visible:ring-[color-mix(in_srgb,var(--solus-accent)_30%,transparent)] max-md:px-3 max-md:py-2.5 max-md:text-base"
         onSubmit={() => void submit()}
         submitOn="mod-enter"
       />
@@ -342,27 +355,46 @@
     {/if}
 
     <div
-      class="relative flex h-[3.25rem] flex-shrink-0 items-center gap-1.5 px-[1.125rem] before:absolute before:left-[1.125rem] before:right-[1.125rem] before:top-0 before:h-[0.0625rem] before:bg-(--solus-popover-border) before:opacity-[0.35] before:content-[''] [animation:commit-composer-section-in_260ms_cubic-bezier(0.22,1,0.36,1)_180ms_backwards]"
+      class="relative flex h-[3.25rem] flex-shrink-0 items-center gap-1.5 px-[1.125rem] before:absolute before:left-[1.125rem] before:right-[1.125rem] before:top-0 before:h-[0.0625rem] before:bg-(--solus-popover-border) before:opacity-[0.35] before:content-[''] [animation:commit-composer-section-in_260ms_cubic-bezier(0.22,1,0.36,1)_180ms_backwards] max-md:h-auto max-md:flex-col-reverse max-md:items-stretch max-md:gap-2 max-md:py-3"
     >
+      <!-- Three buttons and a hint cannot share one row on a phone. The column
+           reverses so the primary action stays on top, and the shortcut hint
+           goes away where there is no keyboard to press it. -->
       <span
-        class="min-w-0 flex-1 truncate text-menu-meta text-(--solus-text-tertiary)"
+        class="min-w-0 flex-1 truncate text-xs text-(--solus-text-tertiary) max-md:hidden"
         >⌘↵ to {submitLabel.toLowerCase()}</span
       >
       <button
         type="button"
-        class="cursor-pointer rounded-lg border-0 bg-transparent px-2.5 py-[0.375rem] text-xs font-medium text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) active:scale-[0.96] disabled:pointer-events-none disabled:opacity-50"
+        class="cursor-pointer rounded-lg border-0 bg-transparent px-2.5 py-[0.375rem] text-xs font-medium text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) active:scale-[0.96] disabled:pointer-events-none disabled:opacity-50 max-md:h-11 max-md:text-sm"
         onclick={onClose}
         disabled={actions.running}
       >
         Cancel
       </button>
+      {#if canCommitOnly}
+        <button
+          type="button"
+          class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-(--solus-surface-hover) px-2.5 py-[0.375rem] text-xs font-medium text-(--solus-text-secondary) shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-container-border)_70%,transparent)] transition-[background-color,color,scale] duration-100 hover:text-(--solus-text-primary) active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 max-md:h-11 max-md:justify-center max-md:text-sm"
+          disabled={!composer.canSubmit || actions.running}
+          onclick={() => void submit("commit")}
+        >
+          {#if actions.running && submittingAction === "commit"}
+            <CircleNotchIcon
+              size={14}
+              class="animate-spin [animation-duration:0.7s]"
+            />
+          {/if}
+          Commit only
+        </button>
+      {/if}
       <button
         type="button"
-        class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-(--solus-accent) px-3 py-[0.375rem] text-xs font-medium text-white shadow-[0_0.0625rem_0.125rem_rgba(0,0,0,0.12),inset_0_0.0625rem_0_rgba(255,255,255,0.18)] transition-[opacity,scale] duration-100 hover:opacity-90 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100"
+        class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-(--solus-accent) px-3 py-[0.375rem] text-xs font-medium text-white shadow-[0_0.0625rem_0.125rem_rgba(0,0,0,0.12),inset_0_0.0625rem_0_rgba(255,255,255,0.18)] transition-[opacity,scale] duration-100 hover:opacity-90 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 max-md:h-11 max-md:justify-center max-md:text-sm"
         disabled={!composer.canSubmit || actions.running}
         onclick={() => void submit()}
       >
-        {#if actions.running}
+        {#if actions.running && submittingAction !== "commit"}
           <CircleNotchIcon
             size={14}
             class="animate-spin [animation-duration:0.7s]"

@@ -220,7 +220,7 @@
         <h2 class="text-sm font-medium ">
           Submit review
         </h2>
-        <span class="font-mono text-xs text-muted-foreground">#{pr.number}</span>
+        <span class="text-xs text-muted-foreground">#{pr.number}</span>
       </div>
       <Button
         type="button"
@@ -259,7 +259,7 @@
               <Icon size={17} weight={selected ? "fill" : "regular"} />
             </span>
             <span class="flex min-w-0 flex-col">
-              <span class="text-[0.8125rem] font-medium text-foreground">{e.label}</span>
+              <span class="text-sm font-medium text-foreground">{e.label}</span>
               <span class="text-xs text-muted-foreground">{e.hint}</span>
             </span>
             <span
@@ -296,7 +296,7 @@
           </span>
         </div>
         {#if drafts.length === 0}
-          <p class="rounded-2xl border border-dashed border-border px-3 py-3 text-[0.8125rem] text-muted-foreground">
+          <p class="rounded-2xl border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
             No inline comments — {event === "APPROVE" ? "this submits the summary only." : "a summary is required to submit."}
           </p>
         {:else}
@@ -309,7 +309,7 @@
                     {d.side === "old" ? "LEFT" : "RIGHT"}
                   </span>
                 </div>
-                <p class="mt-1 text-[0.8125rem] leading-relaxed whitespace-pre-wrap text-foreground">{d.body}</p>
+                <p class="mt-1 text-sm leading-relaxed whitespace-pre-wrap text-foreground">{d.body}</p>
               </li>
             {/each}
           </ul>

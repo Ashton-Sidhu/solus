@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { localApi } from '../../src/client-core/local-api'
 import { mergeNativeOnlySolusApi } from '../../src/client-core/native-api-overlay'
 import { createNoHostSolusApi } from '../../src/client-core/no-host-api'
-import { claimServer, normalizeServerUrl, pairServer, parsePairLink, saveBootstrappedServer } from '../../src/client-core/pairing'
+import { claimServer, defaultDeviceLabel, normalizeServerUrl, pairServer, parsePairLink, saveBootstrappedServer } from '../../src/client-core/pairing'
 import { base64UrlToUint8Array } from '../../src/client-core/push'
 import { encodeQrByteMode } from '../../src/client-core/qr'
 import {
@@ -15,6 +15,12 @@ describe('client core transport helpers', () => {
   test('loads before the client bridge and follows the bridge installed later', () => {
     const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
     try {
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        value: {},
+      })
+      expect(localApi.showNotification).toBeUndefined()
+
       Object.defineProperty(globalThis, 'window', {
         configurable: true,
         value: { solus: { getPlatform: () => 'web' } },
@@ -44,6 +50,23 @@ describe('client core transport helpers', () => {
     void api.start().finally(() => { settled = true })
     await Promise.resolve()
     expect(settled).toBe(false)
+  })
+
+  test('names the device before any host is connected', () => {
+    // Reaching the web client over a LAN address leaves the serving origin
+    // untrusted, so boot stops at the hostless home and pairing runs with no
+    // host API from a transport. The no-host API has to answer instead.
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+    try {
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        value: { solus: createNoHostSolusApi() },
+      })
+      expect(defaultDeviceLabel()).toContain(' on ')
+    } finally {
+      if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+      else Reflect.deleteProperty(globalThis, 'window')
+    }
   })
 
   test('exposes host events separately from the RPC API', () => {

@@ -52,7 +52,7 @@
 </script>
 
 <div
-  class="group flex h-11 w-full items-center rounded-lg pr-3 pl-2.5 transition-shadow duration-150 {selected
+  class="text-xs group flex h-11 w-full items-center rounded-lg pr-3 pl-2.5 transition-shadow duration-150 {selected
     ? 'bg-[var(--wash-2)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)]'
     : 'hover:bg-[var(--wash-1)]'}"
   data-selected={selected}
@@ -83,7 +83,7 @@
 
     <!-- Slot 2 -->
     <span
-      class="shrink-0 font-mono text-xs tabular-nums text-muted-foreground opacity-80"
+      class="shrink-0 tabular-nums text-muted-foreground opacity-80"
       style="width: {identWidth}px"
     >
       {row.ident}
@@ -92,7 +92,7 @@
     <!-- Slot 3 — the only full-strength text in the row. `min-w-0` is what lets
          it lend width to the reveal instead of pushing the row wide. -->
     <span
-      class="max-w-[520px] min-w-0 truncate text-[0.8125rem] font-normal "
+      class="max-w-[520px] min-w-0 truncate text-sm font-normal "
       title={row.title}
     >
       {row.title}
@@ -113,7 +113,7 @@
          has no hover to give, so it is simply always open and shorter. -->
     {#if row.reveal}
       <span
-        class="flex shrink-0 items-center gap-1.5 overflow-hidden font-mono text-xs whitespace-nowrap text-muted-foreground transition-[max-width,opacity] duration-150 ease-out group-hover:max-w-[340px] group-hover:opacity-60 group-focus-within:max-w-[340px] group-focus-within:opacity-60 max-[720px]:hidden motion-reduce:transition-none pointer-coarse:max-w-[150px] pointer-coarse:opacity-60 {selected
+        class="flex shrink-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-muted-foreground transition-[max-width,opacity] duration-150 ease-out group-hover:max-w-[340px] group-hover:opacity-60 group-focus-within:max-w-[340px] group-focus-within:opacity-60 max-[720px]:hidden motion-reduce:transition-none pointer-coarse:max-w-[150px] pointer-coarse:opacity-60 {selected
           ? 'max-w-[340px] opacity-60'
           : 'max-w-0 opacity-0'}"
         title={row.reveal.title ?? row.reveal.label}
@@ -152,7 +152,7 @@
     <!-- Slot 6 -->
     {#if row.churn}
       <span
-        class="flex w-[66px] shrink-0 justify-end gap-[5px] font-mono text-xs tabular-nums"
+        class="flex w-[66px] shrink-0 justify-end gap-[5px] tabular-nums"
       >
         <span
           class="text-[color:color-mix(in_oklch,var(--success)_64%,var(--foreground))]"
@@ -165,7 +165,7 @@
       </span>
     {:else if row.meta}
       <span
-        class="shrink-0 font-mono text-xs whitespace-nowrap text-muted-foreground opacity-80"
+        class="shrink-0 whitespace-nowrap text-muted-foreground opacity-80"
       >
         {row.meta}
       </span>
@@ -177,7 +177,7 @@
     {/each}
     {#if participants.overflow > 0}
       <span
-        class="flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--wash-3)] font-mono text-xs font-normal text-muted-foreground"
+        class="flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--wash-3)] font-normal text-muted-foreground"
         title="{participants.overflow} more"
       >
         +{participants.overflow}
@@ -186,7 +186,7 @@
 
     <!-- Slot 8 — relative always; the timestamp lives in the tooltip. -->
     <span
-      class="w-8 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground opacity-75"
+      class="w-8 shrink-0 text-right tabular-nums text-muted-foreground opacity-75"
       title={row.timeTitle}
     >
       {row.time}

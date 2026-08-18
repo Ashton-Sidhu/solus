@@ -262,14 +262,14 @@
 
   {#snippet meta()}
     {#if sessionId}
-      <span class="shrink-0">{assistantName} <span class="font-mono text-xs">{sessionId}</span></span>
+      <span class="shrink-0">{assistantName} <span class="text-xs">{sessionId}</span></span>
       <span class="shrink-0 opacity-60">·</span>
     {/if}
     {#if total > 1}
       <span class="shrink-0 text-(--solus-text-primary)">{ordinal(currentIndex + 1)} of {total}</span>
       <span class="shrink-0 opacity-60">·</span>
     {/if}
-    <span class="shrink-0 font-mono text-xs">waiting {waiting}</span>
+    <span class="shrink-0 text-xs">waiting {waiting}</span>
   {/snippet}
 
   {#snippet headerAside()}
@@ -284,7 +284,7 @@
         >
           <CaretLeftIcon size={14} weight="bold" />
         </button>
-        <span class="interrupt-pager-count font-mono">{currentIndex + 1} of {total}</span>
+        <span class="interrupt-pager-count">{currentIndex + 1} of {total}</span>
         <button
           type="button"
           class="interrupt-pager"
@@ -312,7 +312,7 @@
                 disabled={responded}
                 onclick={() => goTo(entry.index)}
               >
-                <span class="trail-index font-mono">{entry.index + 1}</span>
+                <span class="trail-index">{entry.index + 1}</span>
                 <CheckIcon size={14} weight="bold" class="trail-check" />
                 <span class="min-w-0 flex-1 truncate text-xs text-(--muted-foreground)">
                   {entry.question.question}
@@ -366,9 +366,9 @@
                 disabled={responded}
                 onclick={() => toggleOption(currentQuestion, opt.label)}
               >
-                <span class="option-index font-mono">{i + 1}</span>
+                <span class="option-index">{i + 1}</span>
                 <span class="flex min-w-0 flex-1 flex-col gap-px">
-                  <span class="text-[0.8125rem] font-medium">
+                  <span class="text-sm font-medium">
                     {#each inlineCodeParts(label.text) as part, p (p)}
                       {#if part.code}<code class="option-code">{part.text}</code
                         >{:else}{part.text}{/if}
@@ -413,12 +413,12 @@
                 <CaretRightIcon size={14} weight="bold" />
               </span>
               Preview “{activeOption.label}”
-              <span class="key-chip font-mono">P</span>
+              <span class="key-chip">P</span>
             </button>
             {#if previewOpen}
               <div
                 in:fly={{ y: -2, duration: 140 }}
-                class="interrupt-payload px-[0.8125rem] py-[0.6875rem] font-mono text-xs leading-[1.75] whitespace-pre-wrap text-(--muted-foreground) [&_code]:!bg-transparent [&_p:last-child]:mb-0 [&_p]:mb-1 [&_p]:whitespace-pre-wrap [&_pre]:!bg-transparent [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_strong]:font-medium [&_strong]:text-(--solus-text-primary)"
+                class="interrupt-payload px-[0.8125rem] py-[0.6875rem] text-xs leading-[1.75] whitespace-pre-wrap text-(--muted-foreground) [&_code]:!bg-transparent [&_p:last-child]:mb-0 [&_p]:mb-1 [&_p]:whitespace-pre-wrap [&_pre]:!bg-transparent [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_strong]:font-medium [&_strong]:text-(--solus-text-primary)"
               >
                 <SvelteMarkdown
                   source={activeOption.preview ?? ""}
@@ -441,12 +441,12 @@
               placeholder={hasOptions ? "Or answer in your own words…" : "Type your answer…"}
               disabled={responded}
               rows={1}
-              class="min-h-0 rounded-none border-0 bg-transparent p-0 text-[0.8125rem] font-normal shadow-none focus-visible:ring-0 dark:bg-transparent"
+              class="min-h-0 rounded-none border-0 bg-transparent p-0 text-sm font-normal shadow-none focus-visible:ring-0 dark:bg-transparent"
               oninput={(e) => {
                 ensureState(currentQuestion).comment = (e.target as HTMLTextAreaElement).value;
               }}
             />
-            <span class="key-chip shrink-0 font-mono">⏎</span>
+            <span class="key-chip shrink-0">⏎</span>
           </div>
         </div>
       </div>
@@ -474,7 +474,7 @@
       {#if responded}
         Answered
       {:else}
-        Holding · <span class="font-mono text-xs">{waiting}</span>
+        Holding · <span class="text-xs">{waiting}</span>
       {/if}
     </span>
     <button
@@ -514,7 +514,7 @@
   }
   .interrupt-pager-count {
     padding: 0 0.1875rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-variant-numeric: tabular-nums;
     color: var(--muted-foreground);
   }
@@ -537,7 +537,7 @@
   .trail-index {
     width: 0.875rem;
     flex-shrink: 0;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--muted-foreground);
     opacity: 0.5;
   }
@@ -551,7 +551,7 @@
     flex-shrink: 0;
     border-radius: 0.375rem;
     padding: 0.125rem 0.4375rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     color: var(--muted-foreground);
     transition: background var(--duration-quick) var(--ease-premium);
@@ -563,7 +563,7 @@
   /* "recommended" is a note about the option, never part of its name. */
   .option-note {
     margin-left: 0.25rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 400;
     color: var(--muted-foreground);
   }
@@ -599,7 +599,7 @@
     border-radius: 0.25rem;
     background: color-mix(in oklch, var(--foreground) 7%, transparent);
     font-family: var(--solus-code-font-family);
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
   }
 
   /* Number keys select, so the number is part of the row — and it stays neutral
@@ -615,7 +615,7 @@
     border: 0.0625rem solid var(--border);
     border-radius: 0.25rem;
     color: var(--muted-foreground);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
   }
 
   .option-mark {
@@ -661,7 +661,7 @@
     border-radius: 0.25rem;
     padding: 0 0.25rem;
     color: var(--muted-foreground);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     line-height: 1.5;
   }
 </style>

@@ -112,7 +112,7 @@
     <input
       bind:this={inputEl}
       bind:value={query}
-      class="h-11 shrink-0 border-b border-[var(--hairline)] bg-transparent px-3.5 text-[0.8125rem] outline-none placeholder:text-muted-foreground"
+      class="h-11 shrink-0 border-b border-[var(--hairline)] bg-transparent px-3.5 text-sm outline-none placeholder:text-muted-foreground"
       placeholder="Link a doc, plan, automation or PR…"
     />
     <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
@@ -125,7 +125,7 @@
         {#each group.items as item (item.id)}
           <button
             type="button"
-            class="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-md px-2 text-[0.8125rem] hover:bg-[var(--wash-2)]"
+            class="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-md px-2 text-sm hover:bg-[var(--wash-2)]"
             onclick={() => pick(item)}
           >
             <svg
@@ -155,7 +155,7 @@
     >
       {Object.values(KIND_LABEL).join(" · ")}
       <span class="flex-1"></span>
-      <span class="font-mono">Esc</span>
+      <span class="">Esc</span>
     </div>
   </div>
 </div>

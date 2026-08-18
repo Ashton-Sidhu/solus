@@ -64,7 +64,7 @@
     {/if}
     {#if children}
       <EmptyDescription
-        class="max-w-[25rem] text-[0.8125rem] leading-[1.55] text-(--solus-text-tertiary)"
+        class="max-w-[25rem] text-sm leading-[1.55] text-(--solus-text-tertiary)"
       >
         {@render children()}
       </EmptyDescription>

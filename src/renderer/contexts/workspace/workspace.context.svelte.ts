@@ -25,7 +25,6 @@ import { type Task, type TaskSnapshot } from '../../../shared/task-types'
 import { writeSessionHandoff } from './active-session-pointer'
 import { toasts } from '../../lib/toasts'
 import { RouterStore } from './routing/router.store.svelte'
-import { PaneGeometryStore } from './routing/pane-geometry.store.svelte'
 import { visibleRef, type NavTarget, type PaneId } from './routing/location'
 import { CHAT_ROUTE, chatRoute, type RouteRef, type SettingsTab } from './routing/route-registry'
 import { WorkStreamTracker } from './work-stream-tracker.svelte'
@@ -187,8 +186,10 @@ export class WorkspaceContext {
   /** Where the workspace is: which routes are in which panes, plus history.
    *  Global — not per-tab. */
   router = new RouterStore()
-  /** How wide those panes are, and whether one is maximized. */
-  geometry = new PaneGeometryStore()
+  /** The one pane, if any, drawn over the whole window. Geometry rather than
+   *  location: it survives navigation inside the pane and clears when the pane
+   *  closes. Pane widths are PaneForge's own business — see WorkspaceBody. */
+  maximizedPaneId = $state<PaneId | null>(null)
   ui: WorkspaceUiStore
   config: SessionConfigController
   onTurnSettled?: (sessionId: string, cwd: string | null) => void
@@ -911,11 +912,11 @@ export class WorkspaceContext {
     const sessionId = this.tabs[tabId]?.sessionId
     if (this.window.viewMode !== 'editor') {
       if (!sessionId) return
-      this.router.navigate(
+      const pane = this.router.navigate(
         { name: 'goal', params: { sessionId, serverId: this.sessions[sessionId]?.run.serverId } },
         { target: 'aside' },
       )
-      this.geometry.open(this.router.focusedPaneId, 0.34)
+      pane.defaultSize = 34
       return
     }
     const isSplit = tabId === this.splitChatTabId
@@ -1625,11 +1626,10 @@ export class WorkspaceContext {
   openSplitChat(sessionId: string): void {
     // The route is persisted and restored: it must name the session's host or
     // a restore resolves the bare id against whichever host answers first.
-    const pane = this.router.navigate(
+    this.router.navigate(
       chatRoute(sessionId, this.sessions[sessionId]?.run.serverId),
       { target: 'aside' },
     )
-    this.geometry.open(pane.id)
     if (this.settings.splitProjectPanelOpen) this.settings.update({ splitProjectPanelOpen: false })
   }
 
@@ -2795,8 +2795,7 @@ export class WorkspaceContext {
   /** Open a work as the single artifact. `aside` puts it beside the
    *  conversation; otherwise it takes the focused pane. */
   openWork(workId: string, target: 'focused' | 'aside' = 'focused'): void {
-    const pane = this.router.navigate({ name: 'work', params: { workId } }, { target: this.artifactTarget(target) })
-    if (target === 'aside') this.geometry.open(pane.id)
+    this.router.navigate({ name: 'work', params: { workId } }, { target: this.artifactTarget(target) })
   }
 
   closeWorkModal(): void {
@@ -2900,11 +2899,17 @@ export class WorkspaceContext {
   // pick. `showPage` adds the one thing the router does not own: the pill's
   // expansion, which is shell state rather than a location.
 
-  private showPage(ref: RouteRef, via: Via, surface: SolusEventMap['surface_viewed']['surface']): void {
-    // A page that is already open is replaced where it lives (exclusivity);
-    // a page opening for the first time covers the conversation rather than
-    // taking over whichever companion pane happens to hold focus.
-    this.router.navigate(ref, { via, target: this.router.leadingPane.id })
+  private showPage(
+    ref: RouteRef,
+    via: Via,
+    surface: SolusEventMap['surface_viewed']['surface'],
+    target: NavTarget = this.router.leadingPane.id,
+  ): void {
+    // A page that is already open is replaced where it lives (exclusivity).
+    // The default target covers the conversation rather than taking over
+    // whichever companion pane happens to hold focus; contextual links can
+    // explicitly request a companion.
+    this.router.navigate(ref, { via, target })
     this.isExpanded = true
     track('surface_viewed', { surface, via })
   }
@@ -2930,11 +2935,10 @@ export class WorkspaceContext {
 
   /** Open a plan as the single artifact. */
   openPlan(planId: string, target: 'focused' | 'aside' = 'focused'): void {
-    const pane = this.router.navigate(
+    this.router.navigate(
       { name: 'plan', params: { planId, serverId: this.planStore.hostFor(planId) ?? undefined } },
       { target: this.artifactTarget(target) },
     )
-    if (target === 'aside') this.geometry.open(pane.id)
   }
 
   /** An artifact opening fresh covers the conversation; `aside` puts it beside
@@ -3000,12 +3004,17 @@ export class WorkspaceContext {
   }
 
   /** Open one task's page. Its own route, so it deep-links, joins history and
-   *  can be opened in a split. */
-  goToTask(taskId: string, via: Via = 'palette'): void {
+   *  can be opened beside the conversation from contextual entry points. */
+  goToTask(
+    taskId: string,
+    via: Via = 'palette',
+    target: 'leading' | 'secondary' = 'leading',
+  ): void {
     this.showPage(
       { name: 'task', params: { taskId, serverId: this.tasksStore.hostFor(taskId) ?? undefined } },
       via,
       'tasks',
+      target === 'secondary' ? 'new' : this.router.leadingPane.id,
     )
   }
 
@@ -3063,6 +3072,27 @@ export class WorkspaceContext {
     }
   }
 
+  // ─── Insights page ───
+  //
+  // The page loads its own registry, saved queries, and histogram on entry —
+  // it needs the active host, which the store resolves — so opening one is
+  // just a location change.
+
+  toggleInsights(via: Via = 'click'): void {
+    this.togglePage({ name: 'insights', params: {} }, via, 'insights')
+  }
+
+  openInsights(via: Via = 'click'): void {
+    this.showPage({ name: 'insights', params: {} }, via, 'insights')
+  }
+
+  /** One turn's waterfall, by the trace that identifies it: the Insights page
+   *  with that turn's detail panel open beside the list. Naming a span opens
+   *  the waterfall with that span's detail already expanded. */
+  openInsightsTurn(traceId: string, spanId?: string, via: Via = 'click'): void {
+    this.showPage({ name: 'insights', params: spanId ? { traceId, spanId } : { traceId } }, via, 'insights')
+  }
+
   // ─── Automations page ───
 
   toggleAutomations(via: Via = 'click'): void {
@@ -3093,11 +3123,10 @@ export class WorkspaceContext {
     const serverId = sourceId ? this.runFor(sourceId)?.serverId : undefined
     const params: Extract<RouteRef, { name: 'automation' }>['params'] = { automationId }
     if (serverId) params.serverId = serverId
-    const pane = this.router.navigate(
+    this.router.navigate(
       { name: 'automation', params },
       { target: this.artifactTarget(target) },
     )
-    if (target === 'aside') this.geometry.open(pane.id)
     this.isExpanded = true
     void this.automationsStore.loadAll(serverId)
   }
@@ -3267,6 +3296,7 @@ export class WorkspaceContext {
       serverId?: string
       target?: NavTarget
       expectedRepo?: RouteRef<'prReview'>['params']['expectedRepo']
+      externalFallbackUrl?: string
     } = {},
   ): Promise<PrReviewTarget | null> {
     // The row's verb picks the tab: an inbox row that says Review lands on the
@@ -3275,19 +3305,34 @@ export class WorkspaceContext {
     const api = opts.serverId ? serverConnections.apiFor(opts.serverId) : this.apiForContext(ctx)
     const serverId = opts.serverId ?? serverConnections.serverIdForApi(api)
     const ref = this.prReviewRef(number, title, ctx, serverId, opts.expectedRepo)
+    const resolve = () => this.router.resolve(ref, {
+      api,
+      ipc: (cwd) => (cwd ? this.ctxForDirectory(cwd) : ctx),
+    })
+
+    // A transcript can name a PR outside the repositories this client can
+    // read. Probe the exact review target before changing panes. The router
+    // keeps a successful result, so opening the pane does not repeat the host
+    // request; a failure stays invisible and opens the original URL instead.
+    let preflightedPr: PrReviewTarget | null = null
+    if (opts.externalFallbackUrl) {
+      try {
+        preflightedPr = await resolve()
+      } catch {
+        void localApi.openExternal(opts.externalFallbackUrl)
+        return null
+      }
+      if (this.window.viewMode !== 'editor') await this.window.setViewMode('editor')
+    }
     const pane = this.router.navigate(ref, {
       target: opts.target ?? this.router.leadingPane.id,
       via: opts.via,
     })
-    if (pane.id !== this.router.leadingPane.id) this.geometry.open(pane.id)
     this.isExpanded = true
     track('surface_viewed', { surface: 'pr_review', via: opts.via })
     this.prsStore.prefetchReview(api, serverId, ctx, number)
     try {
-      const pr = await this.router.resolve(ref, {
-        api,
-        ipc: (cwd) => (cwd ? this.ctxForDirectory(cwd) : ctx),
-      })
+      const pr = preflightedPr ?? await resolve()
       markPrReviewProfile('review-worktree-ready')
       return pr
     } catch (err) {
@@ -3317,17 +3362,23 @@ export class WorkspaceContext {
       serverId?: string
       target?: NavTarget
       expectedRepo?: RouteRef<'prReview'>['params']['expectedRepo']
+      externalFallbackUrl?: string
     } = {},
   ): Promise<void> {
     beginPrReviewProfile(number)
     // Switch to the editor layout up front so the click registers immediately.
-    if (this.window.viewMode !== 'editor') await this.window.setViewMode('editor')
+    // Transcript web links preflight first so an inaccessible PR never causes
+    // a visible mode or pane transition before it falls back to the browser.
+    if (!opts.externalFallbackUrl && this.window.viewMode !== 'editor') {
+      await this.window.setViewMode('editor')
+    }
     const ctx = opts.ctx ?? this.ctx
     const pr = await this.openPrReviewRoute(number, title, ctx, {
       via: opts.via,
       serverId: opts.serverId,
       target: opts.target,
       expectedRepo: opts.expectedRepo,
+      externalFallbackUrl: opts.externalFallbackUrl,
     })
     if (pr && opts.openChat) {
       const api = opts.serverId ? serverConnections.apiFor(opts.serverId) : this.apiForContext(ctx)
@@ -3501,7 +3552,7 @@ export class WorkspaceContext {
       chatRoute(sessionId, this.sessions[sessionId]?.run.serverId),
       { target },
     )
-    this.geometry.open(pane.id, 0.5)
+    pane.defaultSize = 50
     this.isExpanded = true
   }
 
@@ -3519,7 +3570,7 @@ export class WorkspaceContext {
       },
       { target: 'aside' },
     )
-    this.geometry.open(pane.id, 0.5)
+    pane.defaultSize = 50
     this.isExpanded = true
   }
 
@@ -3576,7 +3627,10 @@ export class WorkspaceContext {
    * bare navigation cannot know about — a plan's body off disk, a PR's provider
    * detail, or a session that must be resumed.
    */
-  openRoute(ref: RouteRef, opts: { via?: Via; target?: NavTarget } = {}): void {
+  openRoute(
+    ref: RouteRef,
+    opts: { via?: Via; target?: NavTarget; externalFallbackUrl?: string } = {},
+  ): void {
     switch (ref.name) {
       case 'plan':
         if (ref.params.planId) void this.openPlanModal(ref.params.planId)
@@ -3589,6 +3643,7 @@ export class WorkspaceContext {
           via: opts.via,
           target: opts.target,
           expectedRepo: ref.params.expectedRepo,
+          externalFallbackUrl: opts.externalFallbackUrl,
           serverId: ref.params.serverId,
           ctx: ref.params.cwd ? this.ctxForDirectory(ref.params.cwd) : this.ctx,
         })
@@ -3678,9 +3733,8 @@ export class WorkspaceContext {
    *  review guide splits evenly so both halves stay readable. */
   private showViewer(ref: RouteRef): void {
     const pane = this.router.navigate(ref, { target: 'aside' })
-    const wideByDefault =
-      ref.name === 'diff' && this.router.leadingPane.base?.name === 'review' ? 0.5 : 0.6
-    this.geometry.open(pane.id, wideByDefault)
+    pane.defaultSize =
+      ref.name === 'diff' && this.router.leadingPane.base?.name === 'review' ? 50 : 60
   }
 
   // ─── Reviews ───

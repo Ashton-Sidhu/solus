@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   isMarkdownFile,
   initialMarkdownFileViewMode,
+  MARKDOWN_FILE_VIEW_OPTIONS,
   markdownFileDirectory,
 } from "../../src/renderer/components/files/lib/markdown-file";
 
@@ -16,6 +17,13 @@ describe("Markdown file rendering", () => {
     expect(initialMarkdownFileViewMode("README.md")).toBe("rendered");
     expect(initialMarkdownFileViewMode("README.md", 24)).toBe("source");
     expect(initialMarkdownFileViewMode("app.ts")).toBe("source");
+  });
+
+  test("uses the same Editor and Markdown mode names as document surfaces", () => {
+    expect(MARKDOWN_FILE_VIEW_OPTIONS).toEqual([
+      { value: "rendered", label: "Editor" },
+      { value: "source", label: "Markdown" },
+    ]);
   });
 
   test("uses the document directory for relative image assets", () => {

@@ -155,7 +155,7 @@
     width: 2rem;
     height: 2rem;
     border-radius: 0.5625rem;
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     line-height: 1;
     color: var(--tile-tint);
     background: linear-gradient(
@@ -169,7 +169,7 @@
   .diagram-rail__kind {
     max-width: 100%;
     padding: 0 0.125rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
 
     text-transform: uppercase;
@@ -239,7 +239,7 @@
   .diagram-rail__label {
     writing-mode: vertical-rl;
     max-height: 7rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     color: var(--solus-text-tertiary);
     overflow: hidden;

@@ -236,7 +236,7 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     line-height: 1.25;
     text-align: left;
     transition:

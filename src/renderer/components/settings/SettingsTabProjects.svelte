@@ -89,7 +89,7 @@
         >
           <FolderIcon size={15} weight={active ? "fill" : "regular"} class="shrink-0 {active ? 'text-(--solus-accent)' : 'text-(--solus-text-tertiary)'}" />
           <span class="flex flex-col min-w-0 gap-px">
-            <span class="text-[0.8125rem] {active ? 'font-medium' : 'font-normal'} whitespace-nowrap overflow-hidden text-ellipsis">{project.folderName || folderName(project.path)}</span>
+            <span class="text-sm {active ? 'font-medium' : 'font-normal'} whitespace-nowrap overflow-hidden text-ellipsis">{project.folderName || folderName(project.path)}</span>
             <span class="text-xs text-(--solus-text-tertiary) whitespace-nowrap overflow-hidden text-ellipsis">{project.path}</span>
           </span>
         </button>

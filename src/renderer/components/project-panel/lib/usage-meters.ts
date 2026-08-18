@@ -12,14 +12,14 @@ export interface UsageMeter {
   resetText: string | null
 }
 
-/** One provider's quota, with the windows it actually reports. An empty
- *  `meters` only ever accompanies `stale` — the read failed and the row states
- *  that, rather than disappearing. */
+/** One provider's usage state, with the quota windows it actually reports.
+ * An empty `meters` accompanies either API billing or a failed read. */
 export interface ProviderUsage {
   provider: string
   label: string
   stale: boolean
   meters: UsageMeter[]
+  status: 'api' | 'unavailable' | null
 }
 
 const MINUTE = 60_000
@@ -141,8 +141,18 @@ export function providerUsage(
       meter('fiveHour', 'Session', limits.fiveHour, now),
       meter('weekly', 'Weekly', limits.weekly, now),
     ].filter((entry): entry is UsageMeter => entry !== null)
+    if (limits.usageMode === 'api') {
+      rows.push({ provider: agent.id, label: agent.label, stale: false, meters: [], status: 'api' })
+      continue
+    }
     if (meters.length === 0 && !limits.stale) continue
-    rows.push({ provider: agent.id, label: agent.label, stale: limits.stale, meters })
+    rows.push({
+      provider: agent.id,
+      label: agent.label,
+      stale: limits.stale,
+      meters,
+      status: limits.stale && meters.length === 0 ? 'unavailable' : null,
+    })
   }
   return rows
 }

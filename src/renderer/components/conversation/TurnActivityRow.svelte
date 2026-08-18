@@ -178,7 +178,7 @@
           <span class="turn-error">{turn.end.detail}</span>
         {/if}
         {#if filesTouched > 0}
-          <span class="turn-survived font-mono"
+          <span class="turn-survived"
             >{filesTouched} file{filesTouched === 1 ? "" : "s"} changed</span
           >
         {/if}
@@ -218,7 +218,7 @@
   }
 
   .turn-survived {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--muted-foreground);
     opacity: 0.7;
   }
@@ -226,7 +226,7 @@
   .turn-error {
     max-width: 100%;
     color: var(--solus-text-primary);
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     line-height: 1.5;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -245,7 +245,7 @@
     background: color-mix(in oklch, var(--foreground) 6%, transparent);
     padding: 0.1875rem 0.5625rem;
     color: var(--solus-text-primary);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     cursor: pointer;
     transition:

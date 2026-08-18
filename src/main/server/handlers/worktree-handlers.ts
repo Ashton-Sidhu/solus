@@ -162,7 +162,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
       ),
       // `gh` must act as whoever the checkout's credential helper pushes as, so
       // a dispatched branch is not opened as a PR by the host owner.
-      githubToken: await githubTokenForCheckout(cwd),
+      githubToken: githubTokenForCheckout(cwd),
       publish: (event) => {
         if (handlerCtx.clientId) deps.events.publish(handlerCtx.clientId, 'git.actionProgressed', event)
         else deps.events.broadcast('git.actionProgressed', event)

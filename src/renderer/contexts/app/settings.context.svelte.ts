@@ -3,14 +3,15 @@
 import { z } from 'zod'
 
 import { createAppContext } from './create-app-context'
-import type { AgentId, AppCodeFontFamily, AppFontFamily, EditorId, ReasoningEffort, SettingsCtx, TerminalAppId } from '../../../shared/types'
+import { EDITOR_IDS, TERMINAL_APP_IDS, type AgentId, type AppCodeFontFamily, type AppFontFamily, type EditorId, type ReasoningEffort, type SettingsCtx, type TerminalAppId } from '../../../shared/types'
 import type { KeyCombo } from '../../lib/keybindings/types'
 import { KEYBINDINGS } from '../../lib/keybindings/manifest'
 import { setAnalyticsEnabled } from '../../lib/analytics'
 import { MOBILE_QUERY } from './viewport'
+import { runtime } from './runtime.svelte'
 import { localApi } from '@client-core/local-api'
 import { serverConnections } from '@client-core/server-connections'
-import { clampZoomFactor, stepZoomFactor, ZOOM_FACTOR_DEFAULT } from '../../../shared/zoom'
+import { clampZoomFactor, defaultZoomFactorForScreen, stepZoomFactor, ZOOM_FACTOR_DEFAULT } from '../../../shared/zoom'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 
@@ -38,7 +39,7 @@ export type SettingsFields = {
   autoSendVoiceTranscripts: boolean
   vadSilenceMs: number
   defaultEditor: EditorId | null
-  defaultTerminal: TerminalAppId | null
+  fallbackTerminal: TerminalAppId | null
   activeAgent: AgentId
   defaultModels: Record<string, string>  // per-agent model for new sessions; missing → that agent's built-in default
   reviewAgent: AgentId | null     // review companion backend; null → use activeAgent
@@ -62,6 +63,8 @@ export type SettingsFields = {
   analyticsEnabled: boolean
   projectPanelOpen: boolean
   splitProjectPanelOpen: boolean
+  projectPanelWidth: number | null
+  splitProjectPanelWidth: number | null
   projectPanelCollapsed: Record<ProjectPanelSectionId, boolean>
   splitProjectPanelCollapsed: Record<ProjectPanelSectionId, boolean>
   tabGroupMode: TabGroupMode
@@ -111,7 +114,17 @@ function applyFontSize(size: number): void {
  *  bridge method is absent there and this is a no-op. */
 function applyZoomFactor(factor: number): void {
   localApi.setZoomFactor?.(factor)
+  // Layout branches keyed on the display need the factor to read `screen.width`
+  // honestly — Chromium reports it in zoomed CSS pixels.
+  runtime.setZoomFactor(factor)
 }
+
+/** Zoom is a desktop shell capability; on web and mobile the browser owns it,
+ *  so there is nothing to seed and the stored factor stays at 100%. */
+const DEFAULT_ZOOM_FACTOR =
+  localApi.setZoomFactor === undefined
+    ? ZOOM_FACTOR_DEFAULT
+    : defaultZoomFactorForScreen(globalThis.screen?.width)
 
 const IS_MAC_OS = /Macintosh|Mac OS X/.test(globalThis.navigator?.userAgent ?? '')
 const DEFAULT_APP_FONT_FAMILY: AppFontFamily = IS_MAC_OS ? 'sf-pro-text' : 'inter'
@@ -168,8 +181,7 @@ function applyCodeFontSize(size: number): void {
 
 const SETTINGS_KEY = 'solus-settings'
 
-const VALID_EDITORS = ['vscode', 'vim', 'nvim', 'helix'] as const satisfies readonly EditorId[]
-const VALID_TERMINALS = ['default-terminal', 'ghostty'] as const satisfies readonly TerminalAppId[]
+
 const VALID_AGENTS = ['claude-code', 'codex', 'opencode'] as const satisfies readonly AgentId[]
 /**
  * Drop unknown binding ids and malformed combos so a stale or hand-edited
@@ -207,8 +219,8 @@ const savedSettingsSchema = z.object({
   voiceModeEnabled: z.boolean().catch(false),
   autoSendVoiceTranscripts: z.boolean().catch(false),
   vadSilenceMs: z.number().transform((value) => Math.max(1000, Math.min(8000, value))).catch(1500),
-  defaultEditor: z.enum(VALID_EDITORS).nullable().catch(null),
-  defaultTerminal: z.enum(VALID_TERMINALS).nullable().catch(null),
+  defaultEditor: z.enum(EDITOR_IDS).nullable().catch(null),
+  fallbackTerminal: z.enum(TERMINAL_APP_IDS).nullable().catch(null),
   activeAgent: z.enum(VALID_AGENTS).catch('claude-code'),
   defaultModels: z.record(z.string(), z.string()).catch({}),
   reviewAgent: z.enum(VALID_AGENTS).nullable().catch(null),
@@ -232,6 +244,8 @@ const savedSettingsSchema = z.object({
   analyticsEnabled: z.boolean().catch(true),
   projectPanelOpen: z.boolean().catch(false),
   splitProjectPanelOpen: z.boolean().catch(false),
+  projectPanelWidth: z.number().positive().nullable().catch(null),
+  splitProjectPanelWidth: z.number().positive().nullable().catch(null),
   projectPanelCollapsed: projectPanelCollapsedSchema.catch(DEFAULT_PROJECT_PANEL_COLLAPSED),
   splitProjectPanelCollapsed: projectPanelCollapsedSchema.catch(DEFAULT_PROJECT_PANEL_COLLAPSED),
   tabGroupMode: z.enum(TAB_GROUP_MODES).catch('flat'),
@@ -239,12 +253,28 @@ const savedSettingsSchema = z.object({
   onboardingCompleted: z.boolean().catch(true),
 })
 
+/** `defaultTerminal` became `fallbackTerminal` when terminal choice turned into a
+ * fallback for sessions with no attached terminal. Keep the old pick. */
+const legacyTerminalSchema = z.object({ defaultTerminal: z.enum(TERMINAL_APP_IDS) })
+
+/** True when this boot found a settings blob. Only a first run may seed the
+ *  screen-derived zoom, and it persists the result immediately. */
+let hasStoredSettings = false
+
 function loadSettings(): SettingsFields {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
     if (raw) {
-      const parsed = savedSettingsSchema.safeParse(JSON.parse(raw))
-      if (parsed.success) return parsed.data
+      const stored: unknown = JSON.parse(raw)
+      const parsed = savedSettingsSchema.safeParse(stored)
+      if (parsed.success) {
+        hasStoredSettings = true
+        if (parsed.data.fallbackTerminal === null) {
+          const legacy = legacyTerminalSchema.safeParse(stored)
+          if (legacy.success) parsed.data.fallbackTerminal = legacy.data.defaultTerminal
+        }
+        return parsed.data
+      }
     }
   } catch {}
   return {
@@ -254,7 +284,7 @@ function loadSettings(): SettingsFields {
     autoSendVoiceTranscripts: false,
     vadSilenceMs: 1500,
     defaultEditor: 'vim',
-    defaultTerminal: 'default-terminal',
+    fallbackTerminal: 'default-terminal',
     activeAgent: 'claude-code',
     defaultModels: {},
     reviewAgent: null,
@@ -269,7 +299,7 @@ function loadSettings(): SettingsFields {
     showDiffSummaryAfterTurn: true,
     fontFamily: DEFAULT_APP_FONT_FAMILY,
     fontSize: DEFAULT_FONT_SIZE,
-    zoomFactor: ZOOM_FACTOR_DEFAULT,
+    zoomFactor: DEFAULT_ZOOM_FACTOR,
     codeFontFamily: 'jetbrains-mono',
     codeFontSize: DEFAULT_CODE_FONT_SIZE,
     extraInstructions: '',
@@ -278,6 +308,8 @@ function loadSettings(): SettingsFields {
     analyticsEnabled: true,
     projectPanelOpen: false,
     splitProjectPanelOpen: false,
+    projectPanelWidth: null,
+    splitProjectPanelWidth: null,
     projectPanelCollapsed: { ...DEFAULT_PROJECT_PANEL_COLLAPSED },
     splitProjectPanelCollapsed: { ...DEFAULT_PROJECT_PANEL_COLLAPSED },
     tabGroupMode: 'flat',
@@ -293,7 +325,7 @@ export class SettingsContext {
   autoSendVoiceTranscripts = $state(false)
   vadSilenceMs = $state(1500)
   defaultEditor = $state<EditorId | null>(null)
-  defaultTerminal = $state<TerminalAppId | null>(null)
+  fallbackTerminal = $state<TerminalAppId | null>(null)
   activeAgent = $state<AgentId>('claude-code')
   defaultModels = $state<Record<string, string>>({})
   reviewAgent = $state<AgentId | null>(null)
@@ -317,6 +349,8 @@ export class SettingsContext {
   analyticsEnabled = $state(true)
   projectPanelOpen = $state(false)
   splitProjectPanelOpen = $state(false)
+  projectPanelWidth = $state<number | null>(null)
+  splitProjectPanelWidth = $state<number | null>(null)
   projectPanelCollapsed = $state<Record<ProjectPanelSectionId, boolean>>({ ...DEFAULT_PROJECT_PANEL_COLLAPSED })
   splitProjectPanelCollapsed = $state<Record<ProjectPanelSectionId, boolean>>({ ...DEFAULT_PROJECT_PANEL_COLLAPSED })
   tabGroupMode = $state<TabGroupMode>('flat')
@@ -334,7 +368,7 @@ export class SettingsContext {
     this.autoSendVoiceTranscripts = saved.autoSendVoiceTranscripts
     this.vadSilenceMs = saved.vadSilenceMs
     this.defaultEditor = saved.defaultEditor
-    this.defaultTerminal = saved.defaultTerminal
+    this.fallbackTerminal = saved.fallbackTerminal
     this.activeAgent = saved.activeAgent
     this.defaultModels = saved.defaultModels
     this.reviewAgent = saved.reviewAgent
@@ -358,6 +392,8 @@ export class SettingsContext {
     this.analyticsEnabled = saved.analyticsEnabled
     this.projectPanelOpen = saved.projectPanelOpen
     this.splitProjectPanelOpen = saved.splitProjectPanelOpen
+    this.projectPanelWidth = saved.projectPanelWidth
+    this.splitProjectPanelWidth = saved.splitProjectPanelWidth
     this.projectPanelCollapsed = saved.projectPanelCollapsed
     this.splitProjectPanelCollapsed = saved.splitProjectPanelCollapsed
     this.tabGroupMode = saved.tabGroupMode
@@ -371,6 +407,11 @@ export class SettingsContext {
     applyZoomFactor(saved.zoomFactor)
     applyCodeFontFamily(saved.codeFontFamily)
     applyCodeFontSize(saved.codeFontSize)
+
+    // Write the seeded blob straight back on a first run so the screen-derived
+    // zoom is decided once. Chromium reports `screen.width` in zoomed CSS
+    // pixels, so a later boot would read the widened value and undo the seed.
+    if (!hasStoredSettings) this.saveSettings()
 
     // Zoom applies per-webContents but is one user preference. The pill and
     // editor windows share this origin's localStorage, so when the other
@@ -401,7 +442,7 @@ export class SettingsContext {
       voiceModeEnabled: this.voiceModeEnabled,
       vadSilenceMs: this.vadSilenceMs,
       defaultEditor: this.defaultEditor,
-      defaultTerminal: this.defaultTerminal,
+      fallbackTerminal: this.fallbackTerminal,
       activeAgent: this.activeAgent,
       reviewAgent: this.reviewAgent,
       reviewModel: this.reviewModel,
@@ -447,7 +488,7 @@ export class SettingsContext {
     if (patch.autoSendVoiceTranscripts !== undefined) this.autoSendVoiceTranscripts = patch.autoSendVoiceTranscripts
     if (patch.vadSilenceMs !== undefined) this.vadSilenceMs = Math.max(1000, Math.min(8000, patch.vadSilenceMs))
     if (patch.defaultEditor !== undefined) this.defaultEditor = patch.defaultEditor
-    if (patch.defaultTerminal !== undefined) this.defaultTerminal = patch.defaultTerminal
+    if (patch.fallbackTerminal !== undefined) this.fallbackTerminal = patch.fallbackTerminal
     if (patch.activeAgent !== undefined) this.activeAgent = patch.activeAgent
     if (patch.defaultModels !== undefined) this.defaultModels = patch.defaultModels
     if (patch.reviewAgent !== undefined) this.reviewAgent = patch.reviewAgent
@@ -494,6 +535,10 @@ export class SettingsContext {
     if (patch.projectPanelOpen !== undefined) this.projectPanelOpen = patch.projectPanelOpen
     if (patch.splitProjectPanelOpen !== undefined)
       this.splitProjectPanelOpen = patch.splitProjectPanelOpen
+    if (patch.projectPanelWidth !== undefined)
+      this.projectPanelWidth = patch.projectPanelWidth
+    if (patch.splitProjectPanelWidth !== undefined)
+      this.splitProjectPanelWidth = patch.splitProjectPanelWidth
     if (patch.projectPanelCollapsed !== undefined) this.projectPanelCollapsed = patch.projectPanelCollapsed
     if (patch.splitProjectPanelCollapsed !== undefined)
       this.splitProjectPanelCollapsed = patch.splitProjectPanelCollapsed
@@ -539,7 +584,7 @@ export class SettingsContext {
         autoSendVoiceTranscripts: this.autoSendVoiceTranscripts,
         vadSilenceMs: this.vadSilenceMs,
         defaultEditor: this.defaultEditor,
-        defaultTerminal: this.defaultTerminal,
+        fallbackTerminal: this.fallbackTerminal,
         activeAgent: this.activeAgent,
         defaultModels: this.defaultModels,
         reviewAgent: this.reviewAgent,
@@ -563,6 +608,8 @@ export class SettingsContext {
         analyticsEnabled: this.analyticsEnabled,
         projectPanelOpen: this.projectPanelOpen,
         splitProjectPanelOpen: this.splitProjectPanelOpen,
+        projectPanelWidth: this.projectPanelWidth,
+        splitProjectPanelWidth: this.splitProjectPanelWidth,
         projectPanelCollapsed: this.projectPanelCollapsed,
         splitProjectPanelCollapsed: this.splitProjectPanelCollapsed,
         tabGroupMode: this.tabGroupMode,

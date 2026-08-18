@@ -40,6 +40,7 @@
     type TableResizePreview,
   } from "./lib/deferred-table-resize";
   import { z } from "zod";
+  import RawMarkdownEditor from "./RawMarkdownEditor.svelte";
 
   const linkAttributesSchema = z.object({ href: z.string().optional() });
 
@@ -105,7 +106,7 @@
   let editorDiv: HTMLDivElement | null = $state(null);
   let editorInstance: Editor | null = $state(null);
   let mode = $state<"rich" | "raw">("rich");
-  let rawTextareaEl: HTMLTextAreaElement | null = $state(null);
+  let rawEditorRef: RawMarkdownEditor | null = $state(null);
   // Skip the value-sync diff pass when the incoming `value` is our own echo.
   let lastEmittedMd = "";
 
@@ -475,10 +476,10 @@
     }
   }
 
-  // Mode-aware current markdown: the rich doc serialized, or the raw textarea's
+  // Mode-aware current markdown: the rich doc serialized, or the source editor's
   // text verbatim (raw edits aren't mirrored into the rich doc until a switch).
   function currentMarkdown(): string {
-    if (mode === "raw") return rawTextareaEl?.value ?? lastEmittedMd;
+    if (mode === "raw") return rawEditorRef?.getValue() ?? lastEmittedMd;
     return editorInstance ? getMd(editorInstance) : lastEmittedMd;
   }
 
@@ -521,7 +522,7 @@
 
   // Mirror external value resets (e.g. cancel discards editBuffer) and raw-mode edits
   // back into the Tiptap editor — but only when the rich editor is visible. Re-parsing
-  // markdown into a ProseMirror doc on every keystroke from the raw textarea would be
+  // markdown into a ProseMirror doc on every source edit would be
   // wasteful, so we skip the sync in raw mode and reconcile on the next switch back.
   $effect(() => {
     const ext = value;
@@ -554,7 +555,7 @@
   });
 
   export function focus() {
-    if (mode === "raw") rawTextareaEl?.focus();
+    if (mode === "raw") rawEditorRef?.focus();
     else editorInstance?.commands.focus();
   }
 
@@ -578,11 +579,6 @@
     );
   }
 
-  function handleRawInput() {
-    // Debounced + mode-aware (currentMarkdown reads the textarea in raw mode).
-    scheduleEmit(onValueChange);
-  }
-
   export function toggleMode() {
     // Push current content into `value` so the surface we switch to reads it.
     flushPendingEmit();
@@ -590,8 +586,7 @@
     onModeChange?.(mode);
     queueMicrotask(() => {
       if (mode === "raw") {
-        rawTextareaEl?.focus({ preventScroll: true });
-        rawTextareaEl?.setSelectionRange(0, 0);
+        rawEditorRef?.focus({ preventScroll: true });
       } else {
         editorInstance?.commands.focus("start", { scrollIntoView: false });
       }
@@ -663,20 +658,15 @@
     class:doc-mode-hidden={mode === "raw"}
   ></div>
 
-  <textarea
-    bind:this={rawTextareaEl}
+  <RawMarkdownEditor
+    bind:this={rawEditorRef}
     {value}
-    oninput={handleRawInput}
-    onfocus={() => onFocus?.()}
-    onblur={() => onBlur?.()}
-    readonly={readOnly}
-    spellcheck="true"
-    autocapitalize="off"
-    autocorrect="on"
-    class="solus-doc-raw"
-    class:doc-mode-hidden={mode === "rich"}
-    {placeholder}
-  ></textarea>
+    onValueChange={() => scheduleEmit(onValueChange)}
+    onFocus={() => onFocus?.()}
+    onBlur={() => onBlur?.()}
+    {readOnly}
+    class={mode === "rich" ? "doc-mode-hidden" : ""}
+  />
 
   {#if slashActive && slashFiltered.length > 0 && slashCoords}
     <EditorSlashMenu

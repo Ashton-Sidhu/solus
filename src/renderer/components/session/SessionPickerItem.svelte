@@ -139,7 +139,7 @@
     <div class="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
       <div class="flex min-w-0 items-center gap-2">
         <span
-          class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.8125rem] leading-[1.3] text-[var(--solus-text-primary)] {isSelected
+          class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm leading-[1.3] text-[var(--solus-text-primary)] {isSelected
  ? 'font-medium'
  : 'font-normal'}"
           >{#each titleRuns as run, i (i)}{#if run.hit}<mark

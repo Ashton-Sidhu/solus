@@ -9,7 +9,7 @@
   role="status"
 >
   <WarningCircleIcon size={18} class="text-(--solus-text-tertiary)" />
-  <p class="text-[0.8125rem] font-medium text-(--solus-text-secondary)">
+  <p class="text-sm font-medium text-(--solus-text-secondary)">
     {feature} are not supported on {hostLabel}.
   </p>
   <p class="max-w-sm text-xs text-(--solus-text-tertiary)">

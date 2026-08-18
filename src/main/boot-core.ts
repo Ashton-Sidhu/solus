@@ -1,5 +1,6 @@
 import { ControlPlane } from './control-plane'
 import { createBackends } from './agents/backend-registry'
+import { syncBundledPlugins } from './agents/plugins'
 import { bootServer, type BootOptions, type BootedServer } from './server'
 import type { AgentId, IpcContext } from '../shared/types'
 
@@ -18,6 +19,10 @@ function agentIdFromContext(ctx?: IpcContext): AgentId {
 }
 
 export async function bootCore(opts: BootCoreOptions = {}): Promise<BootCore> {
+  // Link the app-bundled plugins into the state dir before any agent can run.
+  // Both the desktop app and the standalone server boot through here, so the
+  // headless host serves the same bundled skills as the desktop one.
+  await syncBundledPlugins()
   const controlPlane = new ControlPlane(createBackends())
   const booted = await bootServer({
     ...opts,

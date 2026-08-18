@@ -25,7 +25,7 @@
 	{vadMinSpeechMs}
 	{submitOn}
 	class={cn(
-		"text-[0.8125rem] md:text-[0.8125rem]",
+		"text-sm md:text-sm",
 		bare &&
 			(mic
 				? "h-auto rounded-none border-0 bg-transparent py-0 pl-0 pr-7! shadow-none focus-visible:ring-0 dark:bg-transparent"

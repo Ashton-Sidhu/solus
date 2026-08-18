@@ -15,8 +15,8 @@
   } = $props();
 </script>
 
-<aside class="flex min-h-0 w-64 shrink-0 flex-col border-r border-(--solus-container-border)">
-  <div class="flex shrink-0 items-center justify-between gap-2 px-3 pt-3 pb-2 text-xs text-(--solus-text-tertiary)">
+<aside class="text-xs flex min-h-0 w-64 shrink-0 flex-col border-r border-(--solus-container-border)">
+  <div class="flex shrink-0 items-center justify-between gap-2 px-3 pt-3 pb-2 text-(--solus-text-tertiary)">
     <span class="font-medium uppercase">Queue</span>
     {#if remainingMinutes !== null && totalMinutes !== null}
       <span class="tabular-nums">{remainingMinutes}m left · {totalMinutes}m total</span>
@@ -34,7 +34,7 @@
         aria-label={`Review #${row.number}: ${row.title}`}
         onclick={() => onSelect(index)}
       >
-        <span class="flex h-5 items-center justify-center text-xs text-(--solus-text-tertiary) tabular-nums">
+        <span class="flex h-5 items-center justify-center text-(--solus-text-tertiary) tabular-nums">
           {#if row.outcome}
             <span
               class="size-2 rounded-full {row.outcome === 'approved'
@@ -52,8 +52,8 @@
         </span>
 
         <span class="min-w-0">
-          <span class="block truncate text-xs font-medium text-(--solus-text-primary)">{row.title}</span>
-          <span class="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-(--solus-text-tertiary)">
+          <span class="block truncate font-medium text-(--solus-text-primary)">{row.title}</span>
+          <span class="mt-1 flex min-w-0 items-center gap-1.5 text-(--solus-text-tertiary)">
             <span class="shrink-0 tabular-nums">#{row.number}</span>
             {#if row.band}
               <span
@@ -71,7 +71,7 @@
             {/if}
             {#if row.unresolvedThreads !== null && row.unresolvedThreads > 0}
               <span
-                class="ml-auto inline-flex min-w-4 shrink-0 items-center justify-center rounded-full bg-(--solus-status-error-bg) px-1 text-xs font-medium text-(--solus-status-error) tabular-nums"
+                class="ml-auto inline-flex min-w-4 shrink-0 items-center justify-center rounded-full bg-(--solus-status-error-bg) px-1 font-medium text-(--solus-status-error) tabular-nums"
                 title={`${row.unresolvedThreads} unresolved ${row.unresolvedThreads === 1 ? "thread" : "threads"}`}
               >
                 {row.unresolvedThreads}
@@ -81,12 +81,12 @@
 
           {#if row.pending}
             <span
-              class="mt-1.5 flex items-center gap-1.5 text-xs {row.flushError ? 'text-(--solus-status-error)' : 'text-(--solus-accent)'}"
+              class="mt-1.5 flex items-center gap-1.5 {row.flushError ? 'text-(--solus-status-error)' : 'text-(--solus-accent)'}"
               title={row.flushError ?? undefined}
             >
               <span>{row.flushError ? "post failed" : "posting shortly…"}</span>
               {#if !row.flushError}
-                <span class="ml-auto text-(--solus-text-tertiary)">undo <kbd class="font-mono">u</kbd></span>
+                <span class="ml-auto text-(--solus-text-tertiary)">undo <kbd class="">u</kbd></span>
               {/if}
             </span>
           {/if}

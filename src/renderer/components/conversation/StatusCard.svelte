@@ -123,7 +123,7 @@
             {/if}
 
             <span
-              class="min-w-0 flex-1 truncate text-[0.8125rem]"
+              class="min-w-0 flex-1 truncate text-sm"
               class:setup-label--done={step.status === "done"}
               class:setup-label--active={step.status === "active"}
               class:setup-label--pending={step.status === "pending"}
@@ -133,9 +133,9 @@
             </span>
 
             {#if step.status === "active"}
-              <span class="setup-elapsed font-mono shrink-0">running</span>
+              <span class="setup-elapsed shrink-0">running</span>
             {:else if stepMs}
-              <span class="setup-elapsed font-mono shrink-0">{formatStepDuration(stepMs)}</span>
+              <span class="setup-elapsed shrink-0">{formatStepDuration(stepMs)}</span>
             {/if}
           </li>
           {#if step.detail && step.status === "error"}
@@ -162,7 +162,7 @@
 
   .setup-kicker {
     margin-bottom: 0.3125rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
 
     text-transform: uppercase;
@@ -255,13 +255,13 @@
   }
 
   .setup-elapsed {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--muted-foreground);
     opacity: 0.7;
   }
 
   .setup-detail {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     line-height: 1.5;
     color: var(--muted-foreground);
     text-wrap: pretty;
