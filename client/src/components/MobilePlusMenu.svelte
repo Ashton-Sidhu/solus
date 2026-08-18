@@ -269,13 +269,13 @@
   const heroCard =
     "relative flex flex-col items-center justify-center gap-2 py-4 rounded-2xl border border-(--solus-container-border) cursor-pointer bg-(--solus-surface-hover) text-(--solus-text-primary) transition-[background-color,transform] duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.96] active:bg-(--solus-accent-light) active:border-(--solus-accent-border) disabled:opacity-40 disabled:active:scale-100 disabled:active:bg-(--solus-surface-hover) [-webkit-tap-highlight-color:transparent]";
   const heroIcon = "text-(--solus-accent)";
-  const heroLabel = "text-[0.8125rem] font-medium leading-tight text-center text-(--solus-text-primary)";
+  const heroLabel = "text-sm font-medium leading-tight text-center text-(--solus-text-primary)";
   const groupCard = "flex flex-col rounded-2xl overflow-hidden border border-(--solus-container-border) bg-(--solus-surface-hover)";
   const listRow =
     "flex items-center gap-3.5 w-full min-h-12 px-3.5 py-3 border-0 bg-transparent text-left cursor-pointer transition-colors duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:bg-(--solus-accent-light) disabled:opacity-40 disabled:cursor-default disabled:active:bg-transparent [-webkit-tap-highlight-color:transparent]";
   const listIcon = "w-5 flex items-center justify-center shrink-0 font-secondary text-(--solus-text-secondary)";
   const listLabel = "flex-1 min-w-0 truncate text-sm font-medium text-(--solus-text-primary)";
-  const listValue = "shrink-0 max-w-[8rem] truncate text-[0.8125rem] text-(--solus-text-tertiary)";
+  const listValue = "shrink-0 max-w-[8rem] truncate text-sm text-(--solus-text-tertiary)";
   const rowDivider = "h-px bg-(--solus-container-border) opacity-60 ml-12";
   const chevronClass = "shrink-0 text-(--solus-text-tertiary)";
 
@@ -472,7 +472,7 @@
             <div class={rowDivider}></div>
             {#if confirmingDiscard}
               <div class="flex items-center gap-2 px-3.5 py-2.5">
-                <span class="flex-1 min-w-0 text-[0.8125rem] text-(--solus-text-secondary)">
+                <span class="flex-1 min-w-0 text-sm text-(--solus-text-secondary)">
                   Discards {changedFilesCount} uncommitted change{changedFilesCount === 1 ? "" : "s"}
                 </span>
                 <button

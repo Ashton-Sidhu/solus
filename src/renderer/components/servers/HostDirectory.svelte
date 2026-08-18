@@ -74,12 +74,12 @@
         </span>
         <span class="min-w-0 flex-1">
           <span
-            class="flex min-w-0 items-center gap-2 text-[0.8125rem] font-medium text-(--solus-text-primary)"
+            class="flex min-w-0 items-center gap-2 text-sm font-medium text-(--solus-text-primary)"
           >
             <span class="truncate">{server.label}</span>
             {#if isActive}
               <span
-                class="shrink-0 whitespace-nowrap rounded-full bg-(--solus-accent-light) px-1.5 py-0.5 text-[0.6875rem] leading-[1.4] font-medium uppercase tracking-[0.04em] text-(--solus-accent) sm:text-[0.625rem]"
+                class="shrink-0 whitespace-nowrap rounded-full bg-(--solus-accent-light) px-1.5 py-0.5 text-xs leading-[1.4] font-medium uppercase tracking-[0.04em] text-(--solus-accent) sm:text-xs"
               >
                 Running sessions
               </span>
@@ -124,11 +124,11 @@
       </span>
       <div class="min-w-0 flex-1">
         <div class="flex min-w-0 items-center gap-2">
-          <p class="truncate text-[0.8125rem] font-medium text-(--solus-text-primary)">
+          <p class="truncate text-sm font-medium text-(--solus-text-primary)">
             {host.server.name}
           </p>
           <span
-            class="shrink-0 whitespace-nowrap rounded-full bg-(--solus-surface-active) px-1.5 py-0.5 text-[0.6875rem] leading-[1.4] font-medium uppercase tracking-[0.04em] text-(--solus-text-tertiary) sm:text-[0.625rem]"
+            class="shrink-0 whitespace-nowrap rounded-full bg-(--solus-surface-active) px-1.5 py-0.5 text-xs leading-[1.4] font-medium uppercase tracking-[0.04em] text-(--solus-text-tertiary) sm:text-xs"
           >
             {host.server.source === "lan" ? "LAN" : "Tailnet"}
           </span>

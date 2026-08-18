@@ -41,12 +41,12 @@
     type="button"
     onclick={() => onApprove("auto")}
     data-testid="plan-action-yes-auto"
-    class="flex h-7 cursor-pointer items-center gap-1 rounded-l-md border border-r-0 border-transparent bg-(--solus-accent) px-2 text-xs font-medium text-white shadow-[0_0.0625rem_0.125rem_rgba(217,119,87,0.25),inset_0_0_0_0.0625rem_rgba(255,255,255,0.10)] transition-[background-color,box-shadow,transform] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-send-hover) hover:shadow-[0_0.125rem_0.5rem_rgba(217,119,87,0.32),inset_0_0_0_0.0625rem_rgba(255,255,255,0.12)] active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) motion-reduce:transition-none motion-reduce:active:scale-100 max-md:h-9 max-md:flex-1 max-md:justify-center max-md:pr-1 max-md:text-[0.8125rem]"
+    class="flex h-7 cursor-pointer items-center gap-1 rounded-l-md border border-r-0 border-transparent bg-(--solus-accent) px-2 text-xs font-medium text-white shadow-[0_0.0625rem_0.125rem_rgba(217,119,87,0.25),inset_0_0_0_0.0625rem_rgba(255,255,255,0.10)] transition-[background-color,box-shadow,transform] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-send-hover) hover:shadow-[0_0.125rem_0.5rem_rgba(217,119,87,0.32),inset_0_0_0_0.0625rem_rgba(255,255,255,0.12)] active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) motion-reduce:transition-none motion-reduce:active:scale-100 max-md:h-9 max-md:flex-1 max-md:justify-center max-md:pr-1 max-md:text-sm"
   >
     <CheckIcon size={13} />
     Approve
     {#if !isMobile}<span
-        class="ml-0.5 font-mono text-xs tabular-nums opacity-45"
+        class="ml-0.5 text-xs tabular-nums opacity-45"
         >⌥A</span
       >{/if}
   </button>

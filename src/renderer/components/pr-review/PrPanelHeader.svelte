@@ -77,7 +77,7 @@
     ? "padding-left: max(0.875rem, var(--solus-chrome-lead-inset, 0px))"
     : "padding-left: 0.875rem"}
 >
-  <span class="flex shrink-0 items-center gap-1.5 font-mono text-xs tabular-nums text-muted-foreground">
+  <span class="flex shrink-0 items-center gap-1.5 text-xs tabular-nums text-muted-foreground">
     <GitPullRequestIcon size={11} aria-hidden="true" />
     <span>#{number}</span>
   </span>
@@ -115,7 +115,7 @@
         <CaretLeftIcon size={11} />
       </button>
       <span
-        class="min-w-[44px] text-center font-mono text-xs tabular-nums text-muted-foreground opacity-75"
+        class="min-w-[44px] text-center text-xs tabular-nums text-muted-foreground opacity-75"
       >
         {position} of {total}
       </span>

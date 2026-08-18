@@ -314,12 +314,6 @@
   /* Reading typography (measure, type scale, heading rhythm, code and table
      treatment) is the shared doc-shell column in index.css — this surface only
      keeps what is genuinely its own. */
-  @media (max-width: 767px) {
-    :global(.doc-document-editor .solus-doc-raw) {
-      padding: 0.75rem 1.125rem 2rem;
-    }
-  }
-
   /* An unfilled header verb like the rest of the cluster — the count is the
      label, so it needs no icon and no surface of its own. */
   .dm-comment-count {
@@ -333,7 +327,7 @@
     border-radius: 0.4375rem;
     background: transparent;
     font-family: inherit;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 400;
     font-variant-numeric: tabular-nums;
     color: var(--solus-text-tertiary);
@@ -375,7 +369,7 @@
     border-top: 0.0625rem solid color-mix(in srgb, var(--solus-art-border) 55%, transparent);
   }
   .dm-send-bar__hint {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-text-tertiary);
     font-variant-numeric: tabular-nums;
   }

@@ -132,7 +132,7 @@
   onkeydown={onPanelKeydown}
 >
   <div
-    class="flex max-h-[min(38rem,80svh)] w-[clamp(20rem,44vw,30rem)] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl max-md:max-h-[88svh] max-md:w-[calc(100vw-1.5rem)] max-md:max-w-none min-[1801px]:w-[clamp(44rem,40vw,56rem)] min-[1801px]:max-h-[min(48rem,80svh)] border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] [.dark_&]:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] outline-none [animation:commit-composer-enter_200ms_cubic-bezier(0.22,1,0.36,1)_backwards]"
+    class="flex max-h-[min(38rem,80svh)] w-[clamp(20rem,44vw,30rem)] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl max-md:max-h-[88svh] max-md:w-[calc(100vw-1.5rem)] max-md:max-w-none border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] [.dark_&]:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] outline-none [animation:commit-composer-enter_200ms_cubic-bezier(0.22,1,0.36,1)_backwards]"
     role="dialog"
     aria-label={heading}
     aria-modal="true"
@@ -149,11 +149,11 @@
       </span>
       <div class="flex min-w-0 flex-col">
         <span
-          class="truncate text-[0.8125rem] font-medium leading-tight text-(--solus-text-primary)"
+          class="truncate text-sm font-medium leading-tight text-(--solus-text-primary)"
           >{heading}</span
         >
         <span
-          class="truncate text-menu-meta leading-tight text-(--solus-text-tertiary)"
+          class="truncate text-xs leading-tight text-(--solus-text-tertiary)"
         >
           {#if composer.loading}
             Reading the working tree…
@@ -195,7 +195,7 @@
           spellcheck={false}
           autocomplete="off"
           aria-label="Filter changed files"
-          class="h-8 rounded-lg border-transparent bg-(--solus-input-bg-soft) pl-7 pr-7 text-xs shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-container-border)_70%,transparent)] focus-visible:border-transparent focus-visible:ring-[0.125rem] focus-visible:ring-[color-mix(in_srgb,var(--solus-accent)_30%,transparent)] max-md:h-11 max-md:pl-9 max-md:pr-11 max-md:text-base min-[1801px]:h-9 min-[1801px]:text-[0.8125rem]"
+          class="h-8 rounded-lg border-transparent bg-(--solus-input-bg-soft) pl-7 pr-7 text-xs shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-container-border)_70%,transparent)] focus-visible:border-transparent focus-visible:ring-[0.125rem] focus-visible:ring-[color-mix(in_srgb,var(--solus-accent)_30%,transparent)] max-md:h-11 max-md:pl-9 max-md:pr-11 max-md:text-base"
         />
         {#if composer.query}
           <button
@@ -212,7 +212,7 @@
       <div
         class="flex flex-shrink-0 items-center justify-between gap-2 px-[1.125rem] pb-1 pt-2.5"
       >
-        <span class="min-w-0 truncate text-menu-meta text-(--solus-text-tertiary)">
+        <span class="min-w-0 truncate text-xs text-(--solus-text-tertiary)">
           <span class="tabular-nums">{composer.selected.size}</span> of
           <span class="tabular-nums">{composer.files.length}</span> selected
           {#if composer.selected.size > 0}
@@ -227,7 +227,7 @@
         <div class="flex flex-shrink-0 items-center gap-0.5">
           <button
             type="button"
-            class="cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 text-menu-meta text-(--solus-text-secondary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] disabled:pointer-events-none disabled:opacity-40 max-md:h-11 max-md:px-3 max-md:text-[0.8125rem]"
+            class="cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 text-xs text-(--solus-text-secondary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] disabled:pointer-events-none disabled:opacity-40 max-md:h-11 max-md:px-3 max-md:text-sm"
             onclick={() => composer.selectAll()}
             disabled={composer.loading || composer.visibleFiles.length === 0}
           >
@@ -235,7 +235,7 @@
           </button>
           <button
             type="button"
-            class="cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 text-menu-meta text-(--solus-text-secondary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] disabled:pointer-events-none disabled:opacity-40 max-md:h-11 max-md:px-3 max-md:text-[0.8125rem]"
+            class="cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 text-xs text-(--solus-text-secondary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] disabled:pointer-events-none disabled:opacity-40 max-md:h-11 max-md:px-3 max-md:text-sm"
             onclick={() => composer.selectNone()}
             disabled={composer.loading || composer.visibleSelectedCount === 0}
           >
@@ -278,7 +278,7 @@
               <li>
                 <button
                   type="button"
-                  class="flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-left transition-colors duration-100 hover:bg-(--solus-surface-hover) max-md:h-12 max-md:gap-3 max-md:px-2.5 min-[1801px]:h-9 {isSelected
+                  class="flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-left transition-colors duration-100 hover:bg-(--solus-surface-hover) max-md:h-12 max-md:gap-3 max-md:px-2.5 {isSelected
                     ? ''
                     : 'opacity-70'}"
                   onclick={() => composer.toggle(file.path)}
@@ -298,12 +298,12 @@
                     />
                   </span>
                   <span
-                    class="w-3 flex-shrink-0 text-center text-menu-meta font-semibold {STATUS_TONE_CLASS[
+                    class="w-3 flex-shrink-0 text-center text-xs font-semibold {STATUS_TONE_CLASS[
                       file.status
                     ]}">{file.status}</span
                   >
                   <span
-                    class="flex min-w-0 flex-1 items-baseline font-mono text-xs max-md:text-[0.8125rem] min-[1801px]:text-[0.8125rem]"
+                    class="flex min-w-0 flex-1 items-baseline text-xs max-md:text-sm"
                   >
                     {#if parts.folders}
                       <span
@@ -316,11 +316,11 @@
                     >
                   </span>
                   <span
-                    class="flex-shrink-0 text-menu-meta tabular-nums text-(--solus-status-complete) min-[1801px]:text-xs"
+                    class="flex-shrink-0 text-xs tabular-nums text-(--solus-status-complete)"
                     >+{file.additions}</span
                   >
                   <span
-                    class="w-8 flex-shrink-0 text-menu-meta tabular-nums text-(--solus-status-error) min-[1801px]:text-xs"
+                    class="w-8 flex-shrink-0 text-xs tabular-nums text-(--solus-status-error)"
                     >−{file.deletions}</span
                   >
                 </button>
@@ -340,7 +340,7 @@
         placeholder="Commit message (optional — leave blank to generate one)"
         rows={2}
         disabled={actions.running}
-        class="w-full resize-none rounded-lg border-transparent bg-(--solus-input-bg-soft) px-2.5 py-2 text-xs text-(--solus-text-primary) shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-container-border)_70%,transparent)] outline-none focus:border-transparent focus-visible:ring-[0.125rem] focus-visible:ring-[color-mix(in_srgb,var(--solus-accent)_30%,transparent)] max-md:px-3 max-md:py-2.5 max-md:text-base min-[1801px]:text-[0.8125rem]"
+        class="w-full resize-none rounded-lg border-transparent bg-(--solus-input-bg-soft) px-2.5 py-2 text-xs text-(--solus-text-primary) shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-container-border)_70%,transparent)] outline-none focus:border-transparent focus-visible:ring-[0.125rem] focus-visible:ring-[color-mix(in_srgb,var(--solus-accent)_30%,transparent)] max-md:px-3 max-md:py-2.5 max-md:text-base"
         onSubmit={() => void submit()}
         submitOn="mod-enter"
       />
@@ -361,12 +361,12 @@
            reverses so the primary action stays on top, and the shortcut hint
            goes away where there is no keyboard to press it. -->
       <span
-        class="min-w-0 flex-1 truncate text-menu-meta text-(--solus-text-tertiary) max-md:hidden"
+        class="min-w-0 flex-1 truncate text-xs text-(--solus-text-tertiary) max-md:hidden"
         >⌘↵ to {submitLabel.toLowerCase()}</span
       >
       <button
         type="button"
-        class="cursor-pointer rounded-lg border-0 bg-transparent px-2.5 py-[0.375rem] text-xs font-medium text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) active:scale-[0.96] disabled:pointer-events-none disabled:opacity-50 max-md:h-11 max-md:text-[0.8125rem]"
+        class="cursor-pointer rounded-lg border-0 bg-transparent px-2.5 py-[0.375rem] text-xs font-medium text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) active:scale-[0.96] disabled:pointer-events-none disabled:opacity-50 max-md:h-11 max-md:text-sm"
         onclick={onClose}
         disabled={actions.running}
       >
@@ -375,7 +375,7 @@
       {#if canCommitOnly}
         <button
           type="button"
-          class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-(--solus-surface-hover) px-2.5 py-[0.375rem] text-xs font-medium text-(--solus-text-secondary) shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-container-border)_70%,transparent)] transition-[background-color,color,scale] duration-100 hover:text-(--solus-text-primary) active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 max-md:h-11 max-md:justify-center max-md:text-[0.8125rem]"
+          class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-(--solus-surface-hover) px-2.5 py-[0.375rem] text-xs font-medium text-(--solus-text-secondary) shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-container-border)_70%,transparent)] transition-[background-color,color,scale] duration-100 hover:text-(--solus-text-primary) active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 max-md:h-11 max-md:justify-center max-md:text-sm"
           disabled={!composer.canSubmit || actions.running}
           onclick={() => void submit("commit")}
         >
@@ -390,7 +390,7 @@
       {/if}
       <button
         type="button"
-        class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-(--solus-accent) px-3 py-[0.375rem] text-xs font-medium text-white shadow-[0_0.0625rem_0.125rem_rgba(0,0,0,0.12),inset_0_0.0625rem_0_rgba(255,255,255,0.18)] transition-[opacity,scale] duration-100 hover:opacity-90 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 max-md:h-11 max-md:justify-center max-md:text-[0.8125rem]"
+        class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-(--solus-accent) px-3 py-[0.375rem] text-xs font-medium text-white shadow-[0_0.0625rem_0.125rem_rgba(0,0,0,0.12),inset_0_0.0625rem_0_rgba(255,255,255,0.18)] transition-[opacity,scale] duration-100 hover:opacity-90 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 max-md:h-11 max-md:justify-center max-md:text-sm"
         disabled={!composer.canSubmit || actions.running}
         onclick={() => void submit()}
       >

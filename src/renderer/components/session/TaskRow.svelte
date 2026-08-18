@@ -5,7 +5,6 @@
     AlarmIcon,
     CheckIcon,
     CircleNotchIcon,
-    FolderIcon,
     GlobeIcon,
     LaptopIcon,
     MoonIcon,
@@ -16,12 +15,14 @@
   import { attentionLabel } from "../../lib/sessionUtils";
   import { liveActivityClock } from "../../lib/shared-clock";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
-  import ProjectFavicon from "../ui/ProjectFavicon.svelte";
+  import ProjectMark from "./ProjectMark.svelte";
   import PrChip from "./PrChip.svelte";
   import SessionNameInput from "./SessionNameInput.svelte";
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
   import TaskSessionRow from "./TaskSessionRow.svelte";
   import UnreadDot from "./UnreadDot.svelte";
+  import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
+  import * as TooltipUI from "../ui/tooltip";
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import {
     formatElapsed,
@@ -29,6 +30,7 @@
     aggregateReviewGuideStatus,
     hasDisclosure,
     hasGlyph,
+    projectInitial,
     showsUnreadIndicator,
     type PrChip as PrChipModel,
     type SidebarTask,
@@ -105,10 +107,6 @@
     !isCompleted && hasSessions && hasDisclosure(sessions),
   );
   const reviewGuideStatus = $derived(aggregateReviewGuideStatus(sessions));
-
-  // `~` stands in for a session with no repo behind it, so there is no root to
-  // look a favicon up in.
-  const hasRoot = $derived(task.projectKey.startsWith("/"));
 
   // Which machine, on the same rule as the elapsed readout: with one session
   // under the task there is a single answer and the row states it, so you never
@@ -243,7 +241,11 @@
   emphasis, never a wall between "readable" and "invisible".
 -->
 <div class="group/task">
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
   <div
+    {...tooltipProps}
     class="group/row relative -mx-2 flex cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.625rem] transition-[background] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] {bulkSelected ? 'bg-[color-mix(in_oklch,var(--primary)_9%,transparent)]' : ''} {showsBottomRow ? 'h-[3.5rem]' : 'h-[2.125rem]'}"
     role="treeitem"
     tabindex="0"
@@ -288,20 +290,13 @@
  : ''}"
         aria-hidden="true"
       >
-        {#if isCompleted}
-          {#if hasRoot}
-            <ProjectFavicon
-              projectRoot={task.projectKey}
-              class="size-[0.875rem]"
-            />
-          {:else}
-            <FolderIcon
-              size={14}
-              weight="fill"
-              class="text-(--solus-text-tertiary)"
-            />
-          {/if}
-        {/if}
+        <ProjectMark
+          projectKey={task.projectKey}
+          initial={projectInitial(task.projectLabel)}
+          active={false}
+          class="size-4"
+          letterClass="text-xs"
+        />
       </span>
     {/if}
 
@@ -315,12 +310,12 @@
            overflows it symmetrically rather than pushing the project line down —
            the rename wash included, which is why the height holds while
            renaming rather than being handed to the input. -->
-      <span class="flex h-[1.1875rem] items-center gap-[0.5625rem] @max-[13rem]:gap-1.5">
+      <span class="flex h-[1.1875rem] items-center gap-[0.5625rem] @max-[15rem]:gap-1.5">
         <!-- The one thing the eye scans. The title truncates; nothing else does. -->
         {#if renamingLead}
           <SessionNameInput
             value={task.title}
-            class="text-sm @max-[13rem]:text-[0.8125rem] {titleIsEmphasized
+            class="text-sm @max-[15rem]:text-xs {titleIsEmphasized
  ? 'font-medium'
  : ''}"
             onCommit={(next) => onRename(null, next)}
@@ -328,7 +323,7 @@
           />
         {:else}
           <span
-            class="min-w-0 flex-1 overflow-hidden text-sm leading-[1.1875rem] text-ellipsis whitespace-nowrap transition-colors duration-150 @max-[13rem]:text-[0.8125rem] {titleIsEmphasized
+            class="min-w-0 flex-1 overflow-hidden text-sm leading-[1.1875rem] text-ellipsis whitespace-nowrap transition-colors duration-150 @max-[15rem]:text-xs {titleIsEmphasized
  ? 'font-medium'
  : ''} {titleLeads
  ? 'text-foreground'
@@ -338,10 +333,10 @@
 
         <!-- The margin carries live task state, not standing navigation. -->
         {#if showsMargin}
-          <span class="ml-auto flex shrink-0 items-center gap-[0.5625rem] @max-[13rem]:gap-1.5">
+          <span class="ml-auto flex shrink-0 items-center gap-[0.5625rem] @max-[15rem]:gap-1.5">
             {#if completedAge}
               <span
-                class="shrink-0 font-mono text-xs text-muted-foreground tabular-nums"
+                class="shrink-0 text-xs text-muted-foreground tabular-nums"
                 title={`Completed ${new Date(task.completedAt).toLocaleString()}`}
                 >{completedAge}</span
               >
@@ -379,7 +374,7 @@
               </span>
             {/if}
             {#if snoozeReturn}
-              <span class="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{snoozeReturn}</span>
+              <span class="shrink-0 text-xs tabular-nums text-muted-foreground">{snoozeReturn}</span>
             {/if}
             <!-- State marks vary slightly in silhouette and optical size, but
                  their centres share one column down the tree. -->
@@ -411,7 +406,7 @@
                      clock joins the selected elbow in terracotta — the same rule
                      one level down. -->
                 <span
-                  class="shrink-0 font-mono text-xs tabular-nums {isCurrentSession
+                  class="shrink-0 text-xs tabular-nums {isCurrentSession
  ? 'text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))]'
  : 'text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]'}">{elapsed}</span
                 >
@@ -422,14 +417,23 @@
         {/if}
 
         <!-- A task with nothing open still owns its name and completion state,
-             so completion and overflow remain available. Closing only affects
-             mounted sessions; it never changes task status. -->
+             so completion and overflow remain available. The check finishes the
+             task; the cross closes it as work that will not be done. A loose
+             session has no task to close, so its cross only unloads it. -->
         {#if task.tabIds[0] || task.taskId}
           <span
             class="-mr-1 hidden shrink-0 items-center gap-px group-hover/row:flex group-focus-within/row:flex"
           >
             <!-- Reversible first, destructive last, so the pointer never lands
-                 on remove while aiming for the lifecycle action. -->
+                 on remove while aiming for the lifecycle action.
+
+                 Three 24px buttons appearing on hover take 72px out of the
+                 title on a narrow column, so the title collapses the moment a
+                 pointer crosses the row. Snooze is the one of the three the
+                 narrow column can drop: it is a move you make on a row you are
+                 leaving alone, and it stays on the context menu with the rest
+                 of the task's lifecycle. Wake is not — it is a snoozed row's
+                 only way back, so it holds at every width. -->
             {#if task.status !== "done" && task.status !== "dropped"}
               {#if task.lifecycle === "snoozed"}
                 <button
@@ -445,7 +449,7 @@
                 </button>
               {:else}
                 <button
-                  class={iconButton}
+                  class="{iconButton} @max-[15rem]:hidden"
                   title="Snooze"
                   aria-label="Snooze task"
                   onclick={(event) => {
@@ -475,8 +479,8 @@
             {#if task.tabIds.length > 0 || task.taskId}
               <button
                 class={iconButton}
-                title={task.taskId ? "Remove from sidebar" : "Close session"}
-                aria-label={task.taskId ? "Remove task from sidebar" : "Close session"}
+                title={task.taskId ? "Close task" : "Close session"}
+                aria-label={task.taskId ? "Close task" : "Close session"}
                 onclick={(event) => {
                   event.stopPropagation();
                   onClose();
@@ -489,14 +493,20 @@
         {/if}
       </span>
       {#if showsBottomRow}
+        <!-- Narrow columns pay for the same line twice: a long project name
+             truncates to nothing *and* the type stays at full size beside it.
+             One step down in size and gap buys the name back several
+             characters, which is what the line is for. -->
         <span
-          class="mt-[0.625rem] flex h-5 min-w-0 max-w-full items-center gap-[0.375rem] text-xs text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]"
+          class="mt-[0.625rem] flex h-5 min-w-0 max-w-full items-center gap-[0.375rem] text-xs text-[color-mix(in_oklch,var(--foreground)_64%,transparent)] @max-[15rem]:gap-1 @max-[15rem]:text-xs"
         >
           <!-- The project's own mark identifies it faster than its name does.
                The band above already names the project while the list is
                scoped. Project and host stay as one compact cluster on the
                left; PR navigation owns the opposite edge. -->
-          <span class="flex min-w-0 items-center gap-[0.375rem]">
+          <span
+            class="flex min-w-0 flex-1 items-center gap-[0.375rem] @max-[15rem]:gap-1"
+          >
             <!-- The project line is also the way into that project: it names
                  the scope you would be picking, so it is the shortest path to
                  picking it. The band above is the only way back out. -->
@@ -509,29 +519,34 @@
                 onFilterProject();
               }}
             >
-              {#if hasRoot}
-                <ProjectFavicon
-                  projectRoot={task.projectKey}
-                  class="size-[0.8125rem]"
-                />
-              {:else}
-                <FolderIcon
-                  size={14}
-                  weight="fill"
-                  class="shrink-0 text-(--solus-text-tertiary)"
-                />
-              {/if}
+              <ProjectMark
+                projectKey={task.projectKey}
+                initial={projectInitial(task.projectLabel)}
+                active={false}
+                class="size-4 @max-[15rem]:size-[0.875rem]"
+                letterClass="text-xs @max-[15rem]:text-xs"
+              />
               <span
                 class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
                 >{task.projectLabel}</span
               >
             </button>
             {#if showsHost}
-              <span class="shrink-0">·</span>
+              <!-- The dot and the "runs here" mark are the first things a
+                   narrow column can spend: the separator is pure decoration,
+                   and local is the default every row would otherwise repeat.
+                   Both stay in the row's tooltip, and a remote host — the
+                   answer worth interrupting a name for — keeps its globe at
+                   every width. -->
+              <span class="shrink-0 @max-[15rem]:hidden">·</span>
               {#if isRemote}
                 <GlobeIcon size={14} class="shrink-0" aria-label={host?.label} />
               {:else}
-                <LaptopIcon size={14} class="shrink-0" aria-label="This machine" />
+                <LaptopIcon
+                  size={14}
+                  class="shrink-0 @max-[15rem]:hidden"
+                  aria-label="This machine"
+                />
               {/if}
             {/if}
           </span>
@@ -544,6 +559,17 @@
       {/if}
     </span>
   </div>
+      {/snippet}
+    </TooltipUI.Trigger>
+    <SessionSidebarTooltip
+      title={task.title}
+      projectKey={task.projectKey}
+      projectLabel={task.projectLabel}
+      branchName={task.branchName}
+      serverId={task.serverId}
+      attention={task.attention}
+    />
+  </TooltipUI.Root>
 
   {#if disclosable && expanded}
     <div class="relative flex flex-col gap-[0.1875rem] pt-px pb-2">
@@ -555,6 +581,7 @@
       {#each sessions as session, index (session.sessionId ?? session.tabId ?? session.taskId)}
         <TaskSessionRow
           {session}
+          projectLabel={task.projectLabel}
           {onPath}
           leadsToSelection={selectedIndex >= 0 && index <= selectedIndex}
           renaming={!!session.tabId && renamingTabId === session.tabId}

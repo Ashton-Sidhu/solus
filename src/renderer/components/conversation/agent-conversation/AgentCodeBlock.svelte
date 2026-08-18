@@ -17,6 +17,6 @@
 </script>
 
 <pre
-  class="mt-2.5 mb-0 px-3 py-2.5 rounded-lg overflow-auto max-h-[15.9375rem] font-mono text-[0.8125rem] leading-[1.7] whitespace-pre bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"><code
+  class="mt-2.5 mb-0 px-3 py-2.5 rounded-lg overflow-auto max-h-[15.9375rem] font-mono text-sm leading-[1.7] whitespace-pre bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"><code
     >{text}</code
   ></pre>

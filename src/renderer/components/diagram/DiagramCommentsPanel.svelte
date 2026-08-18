@@ -195,7 +195,7 @@
     background: var(--solus-accent-light);
     border: 0.0625rem solid var(--solus-accent-border);
     color: var(--solus-accent);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
@@ -235,7 +235,7 @@
     border: 0.0625rem solid var(--solus-tool-border);
     background: var(--solus-surface-primary);
     color: var(--solus-text-primary);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-family: inherit;
     line-height: 1.45;
     resize: none;

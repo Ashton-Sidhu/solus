@@ -186,7 +186,7 @@
       >
         <MonitorIcon size={20} class="text-(--solus-text-tertiary)" />
       </div>
-      <p class="text-[0.8125rem] text-(--solus-text-tertiary)">
+      <p class="text-sm text-(--solus-text-tertiary)">
         No devices connected
       </p>
       <p class="text-xs text-(--solus-text-tertiary) opacity-70">
@@ -204,7 +204,7 @@
           <MonitorIcon size={14} class="text-(--solus-text-tertiary)" />
         </div>
         <div class="min-w-0 flex-1">
-          <p class="truncate text-[0.8125rem] font-medium text-(--solus-text-primary)">
+          <p class="truncate text-sm font-medium text-(--solus-text-primary)">
             {session.deviceLabel}
           </p>
           <p class="text-xs text-(--solus-text-tertiary)">

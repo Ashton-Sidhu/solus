@@ -7,6 +7,7 @@ import type {
 } from './generated'
 import type {
   DynamicToolSpec,
+  GetAccountResponse,
   GetAccountRateLimitsResponse,
   ModelListResponse,
   SkillsExtraRootsSetResponse,
@@ -105,6 +106,7 @@ export interface CodexResponseByMethod {
   'turn/interrupt': TurnInterruptResponse
   'skills/list': CodexSkillsListResponse
   'model/list': CodexModelListResponse
+  'account/read': GetAccountResponse
   'account/rateLimits/read': GetAccountRateLimitsResponse
 }
 

@@ -96,7 +96,7 @@
     {attachTooltip}
   />
   <PermissionModePicker {tabId} {isPrimary} {run} {onRun} />
-  <SessionChip {tabId} {isPrimary} bind:selection />
+  <SessionChip {tabId} {isPrimary} bind:selection returnFocusOnClose />
   {@render savedPromptsControl?.()}
 
   <div class="ml-auto flex min-w-0 items-center">

@@ -50,9 +50,9 @@
   }
 </script>
 
-<div class="flex items-center gap-[13px] pb-[11px]">
+<div class="text-sm flex items-center gap-[13px] pb-[11px]">
   <span
-    class="inline-flex items-center gap-1.5 text-[0.8125rem] font-normal "
+    class="inline-flex items-center gap-1.5  font-normal "
     style="color:{statusTextColor(task.status)}"
   >
     <svg
@@ -69,7 +69,7 @@
     {status.label}
   </span>
   <span class="h-[11px] w-px bg-[var(--hairline-strong)]" aria-hidden="true"></span>
-  <span class="inline-flex items-center gap-1.5 text-[0.8125rem] text-muted-foreground">
+  <span class="inline-flex items-center gap-1.5  text-muted-foreground">
     <span class="flex h-[9px] shrink-0 items-end gap-[1.5px]" aria-hidden="true">
       {#each bars as bar (bar.height)}
         <span
@@ -82,13 +82,13 @@
   </span>
   {#if openedAt}
     <span class="h-[11px] w-px bg-[var(--hairline-strong)]" aria-hidden="true"></span>
-    <span class="font-mono text-xs text-muted-foreground opacity-75">opened {openedAt}</span>
+    <span class="text-xs text-muted-foreground opacity-75">opened {openedAt}</span>
   {/if}
 </div>
 
 {#if canEdit}
   <input
-    class="m-0 w-full bg-transparent text-[1.5rem] leading-[1.25] font-medium text-pretty outline-none"
+    class="text-sm m-0 w-full bg-transparent text-2xl leading-[1.25] font-medium text-pretty outline-none"
     bind:value={titleDraft}
     onblur={commitTitle}
     onkeydown={(e) => {
@@ -101,12 +101,12 @@
     aria-label="Task title"
   />
 {:else}
-  <h1 class="m-0 text-[1.5rem] leading-[1.25] font-medium text-pretty">
+  <h1 class="text-sm m-0 text-2xl leading-[1.25] font-medium text-pretty">
     {task.title}
   </h1>
 {/if}
 
-<div class="task-description-prose pt-[18px]">
+<div class="text-sm task-description-prose pt-[18px]">
   <DocumentPromptEditor
     value={bodyDraft}
     onValueChange={(v) => (bodyDraft = v)}

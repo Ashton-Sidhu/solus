@@ -157,6 +157,7 @@ interface CreateSessionRequest {
   worktreeBaseBranch?: string | null
   taskId?: string | null
   parentTaskId?: string | null
+  skipTaskCreation?: boolean
 }
 
 function startedSession(agentSessionId: string, taskId?: string): Parameters<PendingStart['resolve']>[0] {
@@ -173,6 +174,7 @@ function buildCreatedSessionPromptOptions(request: CreateSessionRequest): Prompt
   }
   if (request.taskId) options.taskId = request.taskId
   if (request.parentTaskId) options.parentTaskId = request.parentTaskId
+  if (request.skipTaskCreation) options.skipTaskCreation = true
   return options
 }
 

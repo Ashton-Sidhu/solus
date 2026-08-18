@@ -848,7 +848,7 @@
 {#snippet chatButton()}
   <Button
     type="button"
-    class="ml-[5px] h-7 shrink-0 gap-[0.4375rem] rounded-full border-0 bg-(--solus-accent) px-[0.6875rem] text-[0.8125rem] font-medium text-(--solus-text-on-accent) transition-colors hover:bg-[color-mix(in_srgb,var(--solus-accent)_88%,black)] disabled:opacity-50"
+    class="ml-[5px] h-7 shrink-0 gap-[0.4375rem] rounded-full border-0 bg-(--solus-accent) px-[0.6875rem] text-sm font-medium text-(--solus-text-on-accent) transition-colors hover:bg-[color-mix(in_srgb,var(--solus-accent)_88%,black)] disabled:opacity-50"
     onclick={openChat}
     disabled={openingChat || !pr}
     aria-label="Ask Solus"
@@ -1001,11 +1001,11 @@
         {#if !guideEnabled}
           <div class="grid h-full place-items-center px-8 text-center">
             <div class="max-w-sm">
-              <p class="text-[0.8125rem] font-medium">
+              <p class="text-sm font-medium">
                 Guide skipped for this quick review
               </p>
               <p
-                class="mt-1.5 text-pretty text-[0.8125rem] leading-[1.6] text-muted-foreground"
+                class="mt-1.5 text-pretty text-sm leading-[1.6] text-muted-foreground"
               >
                 The complete diff is ready in view 3. Activity and Diff remain
                 fully available.

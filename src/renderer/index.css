@@ -950,6 +950,47 @@ html.solus-web #root {
   --font-weight-secondary: var(--solus-font-weight-secondary);
 }
 
+/* ─── Type scale: two ladders (ADR-0013) ───
+   Chrome and reading surfaces have opposite needs, so they get separate
+   ladders rather than one list of sizes serving both.
+
+   A rung is declared once, on the *surface* — a panel, a menu, the transcript —
+   and inherited. An element inside a surface says nothing about its size unless
+   it genuinely differs (a badge, a timestamp, a heading). That is what keeps the
+   scale from regrowing into hundreds of leaves that must be kept in agreement by
+   hand; `tests/unit/type-scale-standard.test.ts` enforces it.
+
+   Every rung carries its own leading through the `--text-*--line-height`
+   convention, so one class sets both and the two can never drift apart. */
+/* Chrome uses **stock Tailwind** — `text-xs` 12, `text-sm` 14, `text-base` 16.
+   There is no custom UI ladder because there is nothing to add: those three are
+   already the exact rungs chrome needs, and a private alias for a stock value
+   only buys a tailwind-merge hazard and a name nobody else knows.
+
+   The split is legible from the class itself:
+     stock class  -> chrome, fixed size, scaled by zoom alone
+     --text-* rung -> content, multiplied by the user's text preference
+
+   Content — reading surfaces, on a x1.25 ladder off a 16px body: 16 -> 20 ->
+   25 -> 31. Separate from the UI block because these carry the user's text
+   preference: the whole point of that setting is to grow prose relative to
+   chrome, so the multiply belongs here and nowhere else.
+
+   Not `@theme inline`: these must stay `var()` references so a live change to
+   --solus-font-scale reflows the type without a rebuild. */
+@theme {
+  --text-caption: calc(0.875rem * var(--solus-font-scale, 1));
+  --text-caption--line-height: 1.5;
+  --text-body: calc(1rem * var(--solus-font-scale, 1));
+  --text-body--line-height: 1.6;
+  --text-h3: calc(1.25rem * var(--solus-font-scale, 1));
+  --text-h3--line-height: 1.35;
+  --text-h2: calc(1.5625rem * var(--solus-font-scale, 1));
+  --text-h2--line-height: 1.3;
+  --text-h1: calc(1.9375rem * var(--solus-font-scale, 1));
+  --text-h1--line-height: 1.25;
+}
+
 /* ─── Touch scrolling — native-feel on mobile/touch devices ─── */
 @media (pointer: coarse) {
   * {
@@ -1320,28 +1361,6 @@ button.solus-token {
 .solus-doc-editor-wrap .doc-mode-hidden {
   display: none !important;
 }
-.solus-doc-raw {
-  display: block;
-  width: 100%;
-  min-height: 12.5rem;
-  resize: none;
-  outline: none;
-  border: none;
-  background: transparent;
-  color: var(--solus-text-primary);
-  padding: 1.25rem 1.5rem 2rem;
-  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
-  font-feature-settings: 'calt' 1, 'liga' 0;
-  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
-  line-height: 1.7;
-  tab-size: 2;
-  white-space: pre-wrap;
-  word-break: break-word;
-  field-sizing: content;
-}
-.solus-doc-raw::placeholder {
-  color: var(--solus-placeholder);
-}
 .solus-doc-editor .ProseMirror {
   outline: none;
   border: none;
@@ -1401,11 +1420,15 @@ button.solus-token {
   margin: 0;
 }
 .doc-prompt-editor .solus-doc-editor .ProseMirror p { margin: 0.35em 0; }
+/* Composer preview: one rung down from the document ladder, because a prompt is
+   read in a small box rather than a reading column. */
 .doc-prompt-editor .solus-doc-editor .ProseMirror h1 {
-  font-size: calc(1.5rem * var(--solus-font-scale, 1)); margin: 1.2em 0 0.35em; line-height: 1.3;
+  font-size: var(--text-h2); line-height: var(--text-h2--line-height);
+  margin: 1.2em 0 0.35em;
 }
 .doc-prompt-editor .solus-doc-editor .ProseMirror h2 {
-  font-size: calc(0.875rem * var(--solus-font-scale, 1)); margin: 1em 0 0.3em; line-height: 1.35;
+  font-size: var(--text-h3); line-height: var(--text-h3--line-height);
+  margin: 1em 0 0.3em;
   border-bottom: none; padding-bottom: 0;
 }
 .solus-doc-editor .ProseMirror > * + * {
@@ -1425,22 +1448,23 @@ button.solus-token {
 .solus-doc-editor .ProseMirror h3 {
   text-wrap: balance;
 }
-/* ×1.25 scale off the 16px body: h1 31px, h2 25px, h3 20px. Big gap above a
-   heading separates the prior section, tight gap below bonds it to its content. */
+/* The ×1.25 content ladder — h1 31, h2 25, h3 20 — which this block described
+   for a long time while rendering all three at 24. Big gap above a heading
+   separates the prior section, tight gap below bonds it to its content. */
 .solus-doc-editor .ProseMirror h1 {
-  font-size: calc(1.5rem * var(--solus-font-scale, 1)); font-weight: 500;
-  margin: 1.8em 0 0.45em; line-height: 1.25;
+  font-size: var(--text-h1); line-height: var(--text-h1--line-height);
+  font-weight: 500; margin: 1.8em 0 0.45em;
 }
 .solus-doc-editor .ProseMirror h1:first-child { margin-top: 0; }
 .solus-doc-editor .ProseMirror h2 {
-  font-size: calc(1.5rem * var(--solus-font-scale, 1)); font-weight: 500;
-  margin: 1.8em 0 0.4em; line-height: 1.3;
+  font-size: var(--text-h2); line-height: var(--text-h2--line-height);
+  font-weight: 500; margin: 1.8em 0 0.4em;
   border-bottom: 0.0625rem solid var(--solus-art-border);
   padding-bottom: 0.25em;
 }
 .solus-doc-editor .ProseMirror h3 {
-  font-size: calc(1.5rem * var(--solus-font-scale, 1)); font-weight: 500;
-  margin: 1.45em 0 0.3em; line-height: 1.35;
+  font-size: var(--text-h3); line-height: var(--text-h3--line-height);
+  font-weight: 500; margin: 1.45em 0 0.3em;
 }
 .solus-doc-editor .ProseMirror h2 + h3,
 .solus-doc-editor .ProseMirror h2 + p,
@@ -1610,9 +1634,6 @@ button.solus-token {
   .solus-doc-editor .ProseMirror {
     --doc-pad-x: 1rem;
   }
-  .solus-doc-raw {
-    padding-inline: 1rem;
-  }
 }
 @media (max-width: 767px) {
   /* Body stays at the 16px reading size (also the iOS no-zoom floor); headings
@@ -1622,17 +1643,16 @@ button.solus-token {
     padding: 0.5rem var(--doc-pad-x) 0.75rem;
     line-height: 1.6;
   }
+  /* Phone: one rung down each, so a heading anchors a section without
+     dominating the screen. The ladder keeps its ×1.25 shape. */
   .solus-doc-editor .ProseMirror h1 {
-    font-size: calc(1.5rem * var(--solus-font-scale, 1));
+    font-size: var(--text-h2); line-height: var(--text-h2--line-height);
   }
   .solus-doc-editor .ProseMirror h2 {
-    font-size: calc(1.5rem * var(--solus-font-scale, 1));
+    font-size: var(--text-h3); line-height: var(--text-h3--line-height);
   }
   .solus-doc-editor .ProseMirror h3 {
-    font-size: calc(0.875rem * var(--solus-font-scale, 1));
-  }
-  .solus-doc-raw {
-    padding-inline: 0.75rem;
+    font-size: var(--text-body);
   }
 }
 
@@ -1666,7 +1686,7 @@ button.solus-token {
    can click; amber is only ever human annotation; sage is only ever saved or
    resolved. */
 .doc-shell-root .doc-shell-column {
-  --solus-doc-size: calc(0.875rem * var(--solus-font-scale, 1));
+  --solus-doc-size: var(--text-body);
   /* Measure grows with the pane rather than sitting at a fixed 68ch. The root
      font-size is a fixed 16px, so a fixed ch measure stays the same physical
      width however wide the window gets — which reads as a narrow ribbon on a
@@ -1705,8 +1725,10 @@ button.solus-token {
    inside the prose, so it stays Inter and separates by weight instead. */
 .doc-shell-root .solus-doc-editor .ProseMirror h1 {
   font-family: var(--solus-doc-serif);
-  font-size: calc(1.5rem * var(--solus-font-scale, 1));
+  font-size: var(--text-h1);
   font-weight: 500;
+  /* Tighter than the rung's own leading: a serif title at this size sets its
+     own rhythm and the shell gives it the space instead. */
   line-height: 1.12;
   margin: 2.6em 0 0.7em;
 }
@@ -1735,9 +1757,9 @@ button.solus-token {
 .doc-shell-root .solus-doc-editor .ProseMirror h2 {
   position: relative;
   font-family: var(--solus-doc-serif);
-  font-size: calc(1.5rem * var(--solus-font-scale, 1));
+  font-size: var(--text-h2);
   font-weight: 500;
-  line-height: 1.3;
+  line-height: var(--text-h2--line-height);
   margin: 1.9em 0 0.55em;
   counter-increment: doc-section;
   /* The design separates sections by whitespace alone. */
@@ -1765,16 +1787,16 @@ button.solus-token {
   opacity: 0;
 }
 .doc-shell-root .solus-doc-editor .ProseMirror h3 {
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-size: var(--text-h3);
   font-weight: 500;
-  line-height: 1.4;
+  line-height: var(--text-h3--line-height);
   margin: 2em 0 0.6em;
   color: var(--solus-doc-ink-strong);
 }
 /* Lead: the paragraph that opens the document reads a step larger and a step
    lighter, so the eye enters the column before it starts scanning sections. */
 .doc-shell-root .solus-doc-editor .ProseMirror h1 + p {
-  font-size: calc(1.5rem * var(--solus-font-scale, 1));
+  font-size: var(--text-h3);
   line-height: 1.62;
   color: var(--solus-doc-ink-lead);
   margin-bottom: 1.4em;
@@ -2020,7 +2042,7 @@ button.solus-token {
 }
 @container doc-shell (max-width: 45rem) {
   .doc-shell-root .doc-shell-column {
-    --solus-doc-size: calc(0.875rem * var(--solus-font-scale, 1));
+    --solus-doc-size: var(--text-caption);
   }
   .doc-shell-root .solus-doc-editor .ProseMirror {
     --doc-pad-x: 1.375rem;
@@ -2035,7 +2057,7 @@ button.solus-token {
    is em-relative, so this one variable rescales the whole column. */
 @media (max-width: 767px) {
   .doc-shell-root .doc-shell-column {
-    --solus-doc-size: calc(0.875rem * var(--solus-font-scale, 1));
+    --solus-doc-size: var(--text-body);
   }
   .doc-shell-root .solus-doc-editor .ProseMirror {
     line-height: 1.7;
@@ -2053,7 +2075,7 @@ button.solus-token {
    Placed after the responsive ladder and qualified on the root so neither the
    `@container doc-shell` steps nor the phone `@media` rule can outrank it. */
 .doc-shell-root.doc-peek .doc-shell-column {
-  --solus-doc-size: calc(0.8125rem * var(--solus-font-scale, 1));
+  --solus-doc-size: var(--text-caption);
   /* A 19rem column *is* the measure — there is nothing to hold it in. */
   --solus-doc-measure: 100%;
   /* Just clear of the text, the way the narrow-pane step pulls them in. */
@@ -2206,7 +2228,9 @@ button.solus-token {
 .prose-cloud {
   color: var(--solus-text-primary);
   font-weight: var(--solus-font-weight-body);
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-size: var(--text-body);
+  /* Looser than the body rung's own leading: a transcript is skimmed as much as
+     read, and the extra air separates turns. */
   line-height: 1.7;
   overflow-wrap: break-word;
   word-break: break-word;
@@ -2419,19 +2443,25 @@ button.solus-token {
 .prose-cloud li > p {
   margin: 0.1em 0;
 }
+/* Margins are in `em`, so each level's rhythm follows its own rung. Leading
+   comes from the rung too — a heading's line-height is part of its size, not a
+   blanket value applied across four of them. */
 .prose-cloud h1, .prose-cloud h2, .prose-cloud h3, .prose-cloud h4 {
   margin: 1.4em 0 0.4em;
   font-weight: 500;
   color: var(--solus-text-primary);
-  line-height: 1.3;
+  text-wrap: balance;
 }
 .prose-cloud h1:first-child,
 .prose-cloud h2:first-child,
 .prose-cloud h3:first-child { margin-top: 0; }
-.prose-cloud h1 { font-size: calc(1.5rem * var(--solus-font-scale, 1)); }
-.prose-cloud h2 { font-size: calc(0.875rem * var(--solus-font-scale, 1)); }
-.prose-cloud h3 { font-size: calc(0.875rem * var(--solus-font-scale, 1)); }
-.prose-cloud h4 { font-size: calc(0.875rem * var(--solus-font-scale, 1)); color: var(--solus-text-secondary); }
+.prose-cloud h1 { font-size: var(--text-h1); line-height: var(--text-h1--line-height); }
+.prose-cloud h2 { font-size: var(--text-h2); line-height: var(--text-h2--line-height); }
+.prose-cloud h3 { font-size: var(--text-h3); line-height: var(--text-h3--line-height); }
+/* h4 is the level where size runs out: it takes the body rung and separates
+   itself by colour instead. Declaring no size would work too, but the explicit
+   rung documents that this is the floor of the ladder, not an oversight. */
+.prose-cloud h4 { font-size: var(--text-body); color: var(--solus-text-secondary); }
 .github-markdown h5,
 .github-markdown h6 {
   margin: 1.4em 0 0.4em;
@@ -2441,8 +2471,10 @@ button.solus-token {
 }
 .github-markdown h5:first-child,
 .github-markdown h6:first-child { margin-top: 0; }
-.github-markdown h5 { font-size: calc(0.875rem * var(--solus-font-scale, 1)); }
-.github-markdown h6 { font-size: calc(0.8125rem * var(--solus-font-scale, 1)); color: var(--solus-text-secondary); }
+/* Below h4 the ladder is out of rungs, so these two separate by colour and
+   weight alone — h5 sits at body, h6 drops to the caption rung. */
+.github-markdown h5 { font-size: var(--text-body); }
+.github-markdown h6 { font-size: var(--text-caption); color: var(--solus-text-secondary); }
 .github-markdown details {
   margin: 0.5em 0;
 }
@@ -2530,7 +2562,7 @@ button.solus-token {
   margin: 0.1em 0;
 }
 .prose-cloud table {
-  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+  font-size: var(--text-caption);
 }
 .prose-cloud th {
   border-bottom-color: var(--solus-container-border);
@@ -2546,7 +2578,7 @@ button.solus-token {
    reads cleanly and sits a touch above the dense tool rows / user bubbles.
    Code (`pre`/`code`) stays monospace via the `.prose-cloud` rules above. */
 .prose-reading {
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-size: var(--text-body);
   line-height: 1.78;
   /* 400 (Regular) is a *named* master instance — hinted, so glyphs snap to the
      pixel grid and stay crisp at the ~12–13px sizes the reading text hits once
@@ -2566,7 +2598,7 @@ button.solus-token {
 /* Looser list rhythm so bullets breathe instead of reading as a packed block. */
 .prose-reading li { margin: 0.45em 0; }
 /* Nudge table text up from the dense .prose-cloud base — too small to read in narration. */
-.prose-reading table { font-size: calc(0.875rem * var(--solus-font-scale, 1)); }
+.prose-reading table { font-size: var(--text-caption); }
 /* A comparison table is usually the point of the message, so make it the most
    scannable element, not the least: filled header row, roomier cells, and body
    cells dropped to the secondary tone so the header + first column lead. */
@@ -2583,12 +2615,13 @@ button.solus-token {
   margin-top: 2em;
   margin-bottom: 0.45em;
 }
-/* Wider size jump from body so headings anchor sections instead of just reading
-   as slightly-larger text (h1 ~1.6× body, was ~1.33×). */
-.prose-reading h1 { font-size: calc(1.5rem * var(--solus-font-scale, 1)); }
-.prose-reading h2 { font-size: calc(1.5rem * var(--solus-font-scale, 1)); }
-.prose-reading h3 { font-size: calc(0.875rem * var(--solus-font-scale, 1)); }
-.prose-reading h4 { font-size: calc(0.875rem * var(--solus-font-scale, 1)); }
+/* Sizes come from the shared content ladder (ADR-0013). This surface used to
+   collapse h1 and h2 onto one size and then drop h3 to body, because there was
+   no rung between 14 and 24 to land on. */
+.prose-reading h1 { font-size: var(--text-h1); line-height: var(--text-h1--line-height); }
+.prose-reading h2 { font-size: var(--text-h2); line-height: var(--text-h2--line-height); }
+.prose-reading h3 { font-size: var(--text-h3); line-height: var(--text-h3--line-height); }
+.prose-reading h4 { font-size: var(--text-body); }
 
 /* Pill mode — assistant text 2px smaller than editor/default */
 .pill-shell .prose-reading {
@@ -3673,11 +3706,14 @@ html.is-mac-editor
   }
 
   /* A menu is chrome, not content: plain rem, never scaled by
-     --solus-font-scale (that preference belongs to the transcript). 13px label
-     in a 32px row is the pairing that reads as an app menu rather than a web
-     page's. */
-  --text-menu: 0.8125rem;
-  --text-menu-meta: 0.6875rem;
+     --solus-font-scale (that preference belongs to the transcript).
+     A menu item is a label you read to make a decision, which is the rule that
+     put every other row label in the app on the 14px rung — so menus join them.
+     That also restores the step down to their 12px metadata, which the retired
+     11px rung used to fake with a difference nobody could see.
+     Kept as a token, unlike the rest of chrome, while the value settles: one
+     edit here moves every menu in the app. Fold it into `text-sm` once it has. */
+  --text-menu: 0.875rem;
 }
 
 @utility menu-surface {

@@ -73,6 +73,10 @@
       e.preventDefault();
       session.openRoute(linkRoute, {
         target: linkRoute.name === "prReview" ? "aside" : undefined,
+        externalFallbackUrl:
+          linkRoute.name === "prReview" && /^https:\/\//i.test(href)
+            ? href
+            : undefined,
       });
     } else if (sessionParams) {
       e.preventDefault();

@@ -155,7 +155,7 @@
     onkeydown={onPanelKeydown}
   >
     <div
-      class="flex max-h-[min(38rem,80svh)] w-[clamp(20rem,40vw,26rem)] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl max-md:max-h-[88svh] max-md:w-[calc(100vw-1.5rem)] max-md:max-w-none min-[1801px]:w-[min(26vw,32rem)] border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] [.dark_&]:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] outline-none [animation:publish-repository-enter_200ms_cubic-bezier(0.22,1,0.36,1)_backwards]"
+      class="flex max-h-[min(38rem,80svh)] w-[clamp(20rem,40vw,26rem)] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl max-md:max-h-[88svh] max-md:w-[calc(100vw-1.5rem)] max-md:max-w-none border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] [.dark_&]:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] outline-none [animation:publish-repository-enter_200ms_cubic-bezier(0.22,1,0.36,1)_backwards]"
       role="dialog"
       aria-label="Publish to GitHub"
       aria-modal="true"
@@ -168,7 +168,7 @@
           weight="fill"
           class="flex-shrink-0 text-(--solus-accent)"
         />
-        <span class="text-[0.8125rem] font-medium text-(--solus-text-primary)"
+        <span class="text-sm font-medium text-(--solus-text-primary)"
           >Publish to GitHub</span
         >
         <button
@@ -211,7 +211,7 @@
             {/if}
           {/if}
           <label class="flex flex-col gap-1">
-            <span class="text-menu-meta text-muted-foreground max-md:text-xs"
+            <span class="text-xs text-muted-foreground max-md:text-xs"
               >Organization <span class="opacity-60">(optional)</span></span
             >
             <Input
@@ -223,7 +223,7 @@
             />
           </label>
           <label class="flex flex-col gap-1">
-            <span class="text-menu-meta text-muted-foreground max-md:text-xs"
+            <span class="text-xs text-muted-foreground max-md:text-xs"
               >Repository name</span
             >
             <Input
@@ -235,7 +235,7 @@
             />
           </label>
           <div class="flex items-center justify-between gap-2 py-0.5 max-md:py-2">
-            <span class="text-xs text-muted-foreground max-md:text-[0.8125rem]">Private repository</span
+            <span class="text-xs text-muted-foreground max-md:text-sm">Private repository</span
             >
             <Switch
               checked={isPrivate}
@@ -246,7 +246,7 @@
             />
           </div>
           <div class="flex items-center justify-between gap-2 py-0.5 max-md:py-2">
-            <span class="text-xs text-muted-foreground max-md:text-[0.8125rem]">Use SSH</span>
+            <span class="text-xs text-muted-foreground max-md:text-sm">Use SSH</span>
             <Switch
               checked={useSsh}
               onCheckedChange={(next) => (useSsh = next)}
@@ -270,13 +270,13 @@
           <Button
             variant="ghost"
             size="sm"
-            class="text-[0.8125rem] max-md:h-11"
+            class="text-sm max-md:h-11"
             disabled={publishing}
             onclick={onClose}>Cancel</Button
           >
           <Button
             size="sm"
-            class="gap-1.5 text-[0.8125rem] max-md:h-11"
+            class="gap-1.5 text-sm max-md:h-11"
             disabled={publishing || !name.trim()}
             onclick={() => void submit()}
           >

@@ -44,12 +44,12 @@
     Math.round(Math.min(max, Math.max(min, v)));
 
   const pillWidth = $derived(
-    runtime.isLaptopViewport
+    runtime.isLaptopDisplay
       ? clamp(windowCtx.workAreaWidth * 0.67, 620, 960)
       : clamp(windowCtx.workAreaWidth * 0.82, 900, 1440),
   );
   const pillBodyMax = $derived(
-    runtime.isLaptopViewport
+    runtime.isLaptopDisplay
       ? clamp(windowCtx.workAreaHeight * 0.55, 400, 580)
       : clamp(windowCtx.workAreaHeight * 0.68, 540, 740),
   );

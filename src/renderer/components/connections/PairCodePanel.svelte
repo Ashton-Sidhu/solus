@@ -107,7 +107,7 @@
     <div class="flex items-center justify-between gap-3">
       <div class="flex items-center gap-3">
         <code
-          class="text-[1.5rem] font-medium text-(--solus-text-primary) tabular-nums"
+          class="text-2xl font-medium text-(--solus-text-primary) tabular-nums"
           class:opacity-40={pairExpired}
           style="font-family: 'Geist Mono', ui-monospace, monospace"
           >{connections.activePair.code}</code
@@ -168,7 +168,7 @@
         </div>
         <div class="flex min-w-0 flex-1 flex-col justify-between gap-3">
           <div class="min-w-0">
-            <p class="text-[0.8125rem] font-medium text-(--solus-text-primary)">
+            <p class="text-sm font-medium text-(--solus-text-primary)">
               Scan to pair
             </p>
             <p class="mt-1 text-xs leading-4 text-(--solus-text-tertiary)">

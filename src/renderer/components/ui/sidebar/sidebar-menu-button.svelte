@@ -10,7 +10,7 @@
       },
       size: {
         sm: "h-7 text-xs",
-        default: "h-8 text-[0.8125rem]",
+        default: "h-8 text-sm",
         lg: "h-10 text-sm",
       },
     },

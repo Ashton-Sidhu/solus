@@ -57,7 +57,7 @@
   class="flex min-h-full flex-col items-center justify-center px-6 py-10 sm:px-10 sm:py-12"
 >
   <h1
-    class="onboarding-title m-0 shrink-0 text-center text-[1.5rem] font-medium leading-[1.12] sm:text-[1.5rem]"
+    class="onboarding-title m-0 shrink-0 text-center text-2xl font-medium leading-[1.12] sm:text-2xl"
   >
     {title}
   </h1>
@@ -83,7 +83,7 @@
           : 'background: var(--wash-1)'}"
       >
         <span
-          class="flex h-10 shrink-0 items-center justify-center rounded-full px-3 font-mono text-xs transition-[background-color,color] duration-200"
+          class="flex h-10 shrink-0 items-center justify-center rounded-full px-3 text-xs transition-[background-color,color] duration-200"
           style="min-width: 2.5rem; {lit
             ? 'background: color-mix(in oklch, var(--primary) 20%, transparent); color: color-mix(in oklch, var(--primary) 68%, var(--foreground))'
             : 'background: var(--wash-2); color: var(--muted-foreground)'}"
@@ -95,7 +95,7 @@
             >{key.label}</span
           >
           <span
-            class="truncate text-[0.8125rem] text-muted-foreground"
+            class="truncate text-sm text-muted-foreground"
             >{key.hint}</span
           >
         </span>

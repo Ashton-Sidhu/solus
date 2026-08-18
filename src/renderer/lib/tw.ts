@@ -20,7 +20,17 @@ import { createTV } from 'tailwind-variants'
 export const twMergeConfig = {
   extend: {
     classGroups: {
-      'font-size': ['text-menu', 'text-menu-meta'],
+      'font-size': [
+        'text-menu',
+        // The content ladder (ADR-0013). Every rung lands here or it gets read
+        // as a colour and dropped against the neighbouring text-(--…). Chrome
+        // uses stock sizes, which tailwind-merge already knows.
+        'text-caption',
+        'text-body',
+        'text-h1',
+        'text-h2',
+        'text-h3',
+      ],
       'font-weight': ['font-secondary'],
     },
   },

@@ -8,9 +8,10 @@ import type { KeyCombo } from '../../lib/keybindings/types'
 import { KEYBINDINGS } from '../../lib/keybindings/manifest'
 import { setAnalyticsEnabled } from '../../lib/analytics'
 import { MOBILE_QUERY } from './viewport'
+import { runtime } from './runtime.svelte'
 import { localApi } from '@client-core/local-api'
 import { serverConnections } from '@client-core/server-connections'
-import { clampZoomFactor, stepZoomFactor, ZOOM_FACTOR_DEFAULT } from '../../../shared/zoom'
+import { clampZoomFactor, defaultZoomFactorForScreen, stepZoomFactor, ZOOM_FACTOR_DEFAULT } from '../../../shared/zoom'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 
@@ -62,6 +63,8 @@ export type SettingsFields = {
   analyticsEnabled: boolean
   projectPanelOpen: boolean
   splitProjectPanelOpen: boolean
+  projectPanelWidth: number | null
+  splitProjectPanelWidth: number | null
   projectPanelCollapsed: Record<ProjectPanelSectionId, boolean>
   splitProjectPanelCollapsed: Record<ProjectPanelSectionId, boolean>
   tabGroupMode: TabGroupMode
@@ -111,7 +114,17 @@ function applyFontSize(size: number): void {
  *  bridge method is absent there and this is a no-op. */
 function applyZoomFactor(factor: number): void {
   localApi.setZoomFactor?.(factor)
+  // Layout branches keyed on the display need the factor to read `screen.width`
+  // honestly — Chromium reports it in zoomed CSS pixels.
+  runtime.setZoomFactor(factor)
 }
+
+/** Zoom is a desktop shell capability; on web and mobile the browser owns it,
+ *  so there is nothing to seed and the stored factor stays at 100%. */
+const DEFAULT_ZOOM_FACTOR =
+  localApi.setZoomFactor === undefined
+    ? ZOOM_FACTOR_DEFAULT
+    : defaultZoomFactorForScreen(globalThis.screen?.width)
 
 const IS_MAC_OS = /Macintosh|Mac OS X/.test(globalThis.navigator?.userAgent ?? '')
 const DEFAULT_APP_FONT_FAMILY: AppFontFamily = IS_MAC_OS ? 'sf-pro-text' : 'inter'
@@ -231,6 +244,8 @@ const savedSettingsSchema = z.object({
   analyticsEnabled: z.boolean().catch(true),
   projectPanelOpen: z.boolean().catch(false),
   splitProjectPanelOpen: z.boolean().catch(false),
+  projectPanelWidth: z.number().positive().nullable().catch(null),
+  splitProjectPanelWidth: z.number().positive().nullable().catch(null),
   projectPanelCollapsed: projectPanelCollapsedSchema.catch(DEFAULT_PROJECT_PANEL_COLLAPSED),
   splitProjectPanelCollapsed: projectPanelCollapsedSchema.catch(DEFAULT_PROJECT_PANEL_COLLAPSED),
   tabGroupMode: z.enum(TAB_GROUP_MODES).catch('flat'),
@@ -242,6 +257,10 @@ const savedSettingsSchema = z.object({
  * fallback for sessions with no attached terminal. Keep the old pick. */
 const legacyTerminalSchema = z.object({ defaultTerminal: z.enum(TERMINAL_APP_IDS) })
 
+/** True when this boot found a settings blob. Only a first run may seed the
+ *  screen-derived zoom, and it persists the result immediately. */
+let hasStoredSettings = false
+
 function loadSettings(): SettingsFields {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
@@ -249,6 +268,7 @@ function loadSettings(): SettingsFields {
       const stored: unknown = JSON.parse(raw)
       const parsed = savedSettingsSchema.safeParse(stored)
       if (parsed.success) {
+        hasStoredSettings = true
         if (parsed.data.fallbackTerminal === null) {
           const legacy = legacyTerminalSchema.safeParse(stored)
           if (legacy.success) parsed.data.fallbackTerminal = legacy.data.defaultTerminal
@@ -279,7 +299,7 @@ function loadSettings(): SettingsFields {
     showDiffSummaryAfterTurn: true,
     fontFamily: DEFAULT_APP_FONT_FAMILY,
     fontSize: DEFAULT_FONT_SIZE,
-    zoomFactor: ZOOM_FACTOR_DEFAULT,
+    zoomFactor: DEFAULT_ZOOM_FACTOR,
     codeFontFamily: 'jetbrains-mono',
     codeFontSize: DEFAULT_CODE_FONT_SIZE,
     extraInstructions: '',
@@ -288,6 +308,8 @@ function loadSettings(): SettingsFields {
     analyticsEnabled: true,
     projectPanelOpen: false,
     splitProjectPanelOpen: false,
+    projectPanelWidth: null,
+    splitProjectPanelWidth: null,
     projectPanelCollapsed: { ...DEFAULT_PROJECT_PANEL_COLLAPSED },
     splitProjectPanelCollapsed: { ...DEFAULT_PROJECT_PANEL_COLLAPSED },
     tabGroupMode: 'flat',
@@ -327,6 +349,8 @@ export class SettingsContext {
   analyticsEnabled = $state(true)
   projectPanelOpen = $state(false)
   splitProjectPanelOpen = $state(false)
+  projectPanelWidth = $state<number | null>(null)
+  splitProjectPanelWidth = $state<number | null>(null)
   projectPanelCollapsed = $state<Record<ProjectPanelSectionId, boolean>>({ ...DEFAULT_PROJECT_PANEL_COLLAPSED })
   splitProjectPanelCollapsed = $state<Record<ProjectPanelSectionId, boolean>>({ ...DEFAULT_PROJECT_PANEL_COLLAPSED })
   tabGroupMode = $state<TabGroupMode>('flat')
@@ -368,6 +392,8 @@ export class SettingsContext {
     this.analyticsEnabled = saved.analyticsEnabled
     this.projectPanelOpen = saved.projectPanelOpen
     this.splitProjectPanelOpen = saved.splitProjectPanelOpen
+    this.projectPanelWidth = saved.projectPanelWidth
+    this.splitProjectPanelWidth = saved.splitProjectPanelWidth
     this.projectPanelCollapsed = saved.projectPanelCollapsed
     this.splitProjectPanelCollapsed = saved.splitProjectPanelCollapsed
     this.tabGroupMode = saved.tabGroupMode
@@ -381,6 +407,11 @@ export class SettingsContext {
     applyZoomFactor(saved.zoomFactor)
     applyCodeFontFamily(saved.codeFontFamily)
     applyCodeFontSize(saved.codeFontSize)
+
+    // Write the seeded blob straight back on a first run so the screen-derived
+    // zoom is decided once. Chromium reports `screen.width` in zoomed CSS
+    // pixels, so a later boot would read the widened value and undo the seed.
+    if (!hasStoredSettings) this.saveSettings()
 
     // Zoom applies per-webContents but is one user preference. The pill and
     // editor windows share this origin's localStorage, so when the other
@@ -504,6 +535,10 @@ export class SettingsContext {
     if (patch.projectPanelOpen !== undefined) this.projectPanelOpen = patch.projectPanelOpen
     if (patch.splitProjectPanelOpen !== undefined)
       this.splitProjectPanelOpen = patch.splitProjectPanelOpen
+    if (patch.projectPanelWidth !== undefined)
+      this.projectPanelWidth = patch.projectPanelWidth
+    if (patch.splitProjectPanelWidth !== undefined)
+      this.splitProjectPanelWidth = patch.splitProjectPanelWidth
     if (patch.projectPanelCollapsed !== undefined) this.projectPanelCollapsed = patch.projectPanelCollapsed
     if (patch.splitProjectPanelCollapsed !== undefined)
       this.splitProjectPanelCollapsed = patch.splitProjectPanelCollapsed
@@ -573,6 +608,8 @@ export class SettingsContext {
         analyticsEnabled: this.analyticsEnabled,
         projectPanelOpen: this.projectPanelOpen,
         splitProjectPanelOpen: this.splitProjectPanelOpen,
+        projectPanelWidth: this.projectPanelWidth,
+        splitProjectPanelWidth: this.splitProjectPanelWidth,
         projectPanelCollapsed: this.projectPanelCollapsed,
         splitProjectPanelCollapsed: this.splitProjectPanelCollapsed,
         tabGroupMode: this.tabGroupMode,

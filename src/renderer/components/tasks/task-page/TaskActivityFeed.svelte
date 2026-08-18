@@ -79,10 +79,10 @@
   }
 </script>
 
-<div class="pt-7">
+<div class="text-xs text-xs pt-7">
   <div class="flex items-center gap-2.5 pb-1">
     <span
-      class="text-xs font-normal text-muted-foreground uppercase"
+      class="font-normal text-muted-foreground uppercase"
     >
       Activity
     </span>
@@ -140,11 +140,11 @@
           <span
             class="flex min-h-[25px] min-w-0 flex-1 flex-wrap items-center gap-2"
           >
-            <span class="text-xs leading-[1.55] text-muted-foreground"
+            <span class="leading-[1.55] text-muted-foreground"
               >{line.text}</span
             >
             <span
-              class="font-mono text-xs text-muted-foreground opacity-60"
+              class="text-muted-foreground opacity-60"
             >
               {relativeTime(entry.at)}
             </span>
@@ -155,7 +155,7 @@
         {@const agent = isAgent(comment)}
         <div class="relative flex gap-3 py-3">
           <span
-            class="flex size-[25px] shrink-0 items-center justify-center rounded-full text-xs font-medium shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
+            class="flex size-[25px] shrink-0 items-center justify-center rounded-full font-medium shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
             style={agent
               ? "background:color-mix(in oklch, var(--primary) 15%, transparent);color:color-mix(in oklch, var(--primary) 78%, var(--foreground))"
               : "background:color-mix(in oklch, var(--chart-1) 22%, transparent);color:color-mix(in oklch, var(--chart-1) 72%, var(--foreground))"}
@@ -188,19 +188,19 @@
           </span>
           <span class="flex min-w-0 flex-1 flex-col gap-1.5">
             <span class="flex min-h-[25px] flex-wrap items-center gap-2">
-              <span class="text-[0.8125rem] font-medium ">
+              <span class="text-sm font-medium ">
                 {authorName(comment)}
               </span>
               {#if comment.originSessionId}
                 <span
-                  class="rounded-full px-1.5 py-px font-mono text-xs "
+                  class="rounded-full px-1.5 py-px "
                   style="background:color-mix(in oklch, var(--primary) 13%, transparent);color:color-mix(in oklch, var(--primary) 82%, var(--foreground))"
                 >
                   {comment.originSessionId.slice(0, 8)}
                 </span>
               {/if}
               <span
-                class="font-mono text-xs text-muted-foreground opacity-60"
+                class="text-muted-foreground opacity-60"
               >
                 {relativeTime(comment.createdAt)}
               </span>
@@ -211,7 +211,7 @@
                      not automatically a note for the ticket's audience. -->
                 {#if sync === "published"}
                   <span
-                    class="flex items-center gap-1 text-xs text-muted-foreground opacity-65"
+                    class="flex items-center gap-1 text-muted-foreground opacity-65"
                     title="Published to {provider}"
                   >
                     <CheckIcon size={10} weight="bold" aria-hidden="true" />
@@ -219,7 +219,7 @@
                   </span>
                 {:else if sync === "queued" || publishing.has(comment.id)}
                   <span
-                    class="flex items-center gap-1 text-xs text-muted-foreground opacity-65"
+                    class="flex items-center gap-1 text-muted-foreground opacity-65"
                     title="Queued for {provider} — it posts on the next sync"
                   >
                     <CircleNotchIcon
@@ -232,7 +232,7 @@
                 {:else if sync === "held"}
                   <button
                     type="button"
-                    class="flex h-[22px] cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] transition-colors hover:text-primary hover:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
+                    class="flex h-[22px] cursor-pointer items-center gap-1.5 rounded-md px-2 font-medium text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] transition-colors hover:text-primary hover:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
                     onclick={() => void publish(comment.id)}
                     title="Publish this comment to {provider}"
                   >
@@ -254,7 +254,7 @@
         </div>
       {/if}
     {:else}
-      <div class="py-3 pl-9 text-xs text-muted-foreground">
+      <div class="py-3 pl-9 text-muted-foreground">
         {filter === "comments" ? "No comments yet." : "No activity yet."}
       </div>
     {/each}

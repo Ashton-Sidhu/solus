@@ -41,7 +41,7 @@
     : 'bg-[color-mix(in_oklch,var(--foreground)_2.5%,transparent)]'}"
 >
   {#if needsYou && answerInSessionOnly}
-    <span class="text-[0.8125rem] text-muted-foreground">
+    <span class="text-sm text-muted-foreground">
       {agentName} needs an answer in its own session
     </span>
     <span class="flex-1"></span>

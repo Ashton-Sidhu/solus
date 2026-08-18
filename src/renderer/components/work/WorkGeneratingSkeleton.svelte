@@ -22,7 +22,7 @@
     <div class="flex items-center gap-2 px-[1.0625rem] pt-[0.8125rem] pb-[0.6875rem]">
       <span class="work-skeleton__kicker">{kicker}</span>
       <span class="flex-1"></span>
-      <span class="work-skeleton__status font-mono">generating</span>
+      <span class="work-skeleton__status">generating</span>
     </div>
     <div class="work-skeleton__rule"></div>
     <div class="flex flex-1 flex-col gap-[0.6875rem] px-4 pt-4 pb-[0.9375rem]">
@@ -46,7 +46,7 @@
   }
 
   .work-skeleton__kicker {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
 
     text-transform: uppercase;
@@ -55,7 +55,7 @@
   }
 
   .work-skeleton__status {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--muted-foreground);
     animation: work-sk-breathe 2.6s ease-in-out infinite;
   }

@@ -163,7 +163,7 @@
     <div class="flex w-full items-center justify-end gap-2">
       {#if ordinal !== undefined}
         <!-- Ordinals carry the order, so nothing inside the bubble has to. -->
-        <span class="shrink-0 font-mono text-xs text-(--muted-foreground) opacity-45">
+        <span class="shrink-0 text-xs text-(--muted-foreground) opacity-45">
           {ordinal}
         </span>
       {/if}
@@ -208,7 +208,7 @@
             onkeydown={handleEditKeydown}
             onblur={commitEdit}
             rows={Math.min(8, draft.split("\n").length + 1)}
-            class="w-full resize-none bg-transparent text-[0.8125rem] leading-[1.55] text-(--solus-text-primary) outline-none"
+            class="w-full resize-none bg-transparent text-sm leading-[1.55] text-(--solus-text-primary) outline-none"
           ></textarea>
         {:else}
           <div class="relative">
@@ -275,7 +275,7 @@
     </div>
     {#if waitedLabel}
       <!-- The wait is over, so the caption is a fact, not a countdown. -->
-      <div class="mt-1.5 flex justify-end font-mono text-xs text-(--muted-foreground)">
+      <div class="mt-1.5 flex justify-end text-xs text-(--muted-foreground)">
         {waitedLabel}
       </div>
     {/if}

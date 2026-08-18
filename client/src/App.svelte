@@ -1089,7 +1089,7 @@
     place-items: center;
     background: color-mix(in oklab, var(--solus-container-bg) 72%, transparent);
     color: var(--solus-text-tertiary);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
   }
 
   .drop-overlay {
@@ -1113,7 +1113,7 @@
     border-radius: 1rem;
     border: 0.0938rem dashed var(--color-zinc-600);
     color: var(--color-zinc-400);
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 500;
   }
 
