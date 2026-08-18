@@ -82,6 +82,7 @@
         key: "files",
         label: "Files",
         icon: FolderIcon,
+        hint: comboHint("global.toggle-files"),
         phase: "idle",
         disabled: !onOpenFiles,
         run: () => {
