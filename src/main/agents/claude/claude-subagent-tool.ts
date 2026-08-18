@@ -6,6 +6,7 @@ import type { AgentDispatcher } from '../agent-runner'
 import type { AgentTool } from '../tools/agent-tool'
 import { solusToolbox } from '../tools/solus-toolbox'
 import { isSubagentTranscriptEvent, parentSubagentEvent } from '../subagent-events'
+import { SPAN_SERVICES } from '../../observability/registries'
 
 export const CLAUDE_SUBAGENT_TOOL_NAME = 'claude_subagent'
 
@@ -79,6 +80,7 @@ export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher): Agen
         reasoningEffort,
         permissionMode: readOnly ? 'plan' : 'auto',
         persistence: 'ephemeral',
+        service: SPAN_SERVICES.subagents,
         unattended: true,
         systemPrompt: buildSystemPrompt({
           agent: 'claude',

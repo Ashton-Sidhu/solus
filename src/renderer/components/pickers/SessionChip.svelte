@@ -13,6 +13,7 @@
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { comboHint } from "../../lib/keybindings/manifest";
+  import { cn } from "@renderer/lib/tw";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { MenuFooter } from "../ui/menu";
   import {
@@ -48,6 +49,12 @@
     disabled?: boolean;
     ariaLabel?: string;
     returnFocusOnClose?: boolean;
+    /** Detached composers can return focus to their own editor instead of the
+     *  workspace input bar. */
+    onReturnFocus?: () => void;
+    /** Extra trigger classes, for call sites that must align several chips on a
+     *  shared width instead of letting each shrink-wrap its own label. */
+    class?: string;
     onSelectionChange?: (selection: PickerSelection) => void;
   }
   let {
@@ -60,6 +67,8 @@
     disabled = false,
     ariaLabel = "Session settings",
     returnFocusOnClose = false,
+    onReturnFocus,
+    class: className,
     onSelectionChange,
   }: Props = $props();
 
@@ -212,6 +221,13 @@
     void session.switchActiveAgent(id, tabId);
   }
 
+  function handleCloseAutoFocus(event: Event) {
+    if (detached && !returnFocusOnClose && !onReturnFocus) return;
+    event.preventDefault();
+    if (onReturnFocus) onReturnFocus();
+    else requestInputFocus({ tabId });
+  }
+
   function pickerItems(column: ModelPickerColumn): HTMLElement[] {
     return contentEl
       ? Array.from(
@@ -276,7 +292,7 @@
   });
 </script>
 
-<DropdownMenu.Root bind:open onOpenChange={(next) => { hoveredModelId = null; hoveredLevel = null; if (!next && (!detached || returnFocusOnClose)) requestInputFocus({ tabId }) }}>
+<DropdownMenu.Root bind:open onOpenChange={() => { hoveredModelId = null; hoveredLevel = null; }}>
   <DropdownMenu.Trigger disabled={disabled || isBusy || handoffInProgress} bind:ref={triggerEl}>
     {#snippet child({ props })}
       <TooltipUI.Root>
@@ -286,7 +302,7 @@
                  and model are two decisions, so they are two hit targets. The
                  brand mark is the model's category glyph and carries the only
                  accent on the control. -->
-            <button {...tooltipProps} {...props} type="button" aria-label={ariaLabel} class="flex h-[1.875rem] min-w-0 items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-[0.8125rem] text-(--solus-text-secondary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) {open ? 'bg-(--solus-surface-hover)' : ''}" style="cursor:{disabled || isBusy || handoffInProgress ? 'not-allowed' : 'pointer'}">
+            <button {...tooltipProps} {...props} type="button" aria-label={ariaLabel} class={cn("flex h-[1.875rem] min-w-0 items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-sm text-(--solus-text-secondary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)", open && "bg-(--solus-surface-hover)", className)} style="cursor:{disabled || isBusy || handoffInProgress ? 'not-allowed' : 'pointer'}">
         <!-- Codex's mark is solid black, so it keeps a white plate to stay
              legible in dark mode; the others take the accent directly. -->
         <span
@@ -312,7 +328,9 @@
           {#if !modelOnly}
             <span class="flex-shrink-0 text-(--solus-text-tertiary)">{reasoningLabel}</span>
           {/if}
-          <CaretDownIcon size={9} class="text-(--solus-text-tertiary) transition-transform duration-150 {open ? 'rotate-180' : ''}" />
+          <!-- ml-auto is inert while the chip shrink-wraps; it only bites when a
+               call site sets a width floor, keeping the caret on the edge. -->
+          <CaretDownIcon size={9} class="ml-auto text-(--solus-text-tertiary) transition-transform duration-150 {open ? 'rotate-180' : ''}" />
         {/if}
       </button>
           {/snippet}
@@ -331,6 +349,7 @@
     align="end"
     sideOffset={6}
     class={modelOnly ? "w-[344px] overflow-visible p-0" : "w-[452px] overflow-visible p-0"}
+    onCloseAutoFocus={handleCloseAutoFocus}
     onkeydown={handlePickerKeyDown}
     onpointerleave={() => {
       hoveredModelId = null;

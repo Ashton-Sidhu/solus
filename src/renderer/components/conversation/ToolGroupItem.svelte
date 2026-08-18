@@ -183,7 +183,7 @@
          more important than the answer above it. -->
     {#snippet detail()}
       {#if failureLine}
-        <div class="tool-stderr font-mono">{failureLine}</div>
+        <div class="tool-stderr">{failureLine}</div>
       {/if}
       {#each tools as tool, i (tool.id)}
         {@const parsed = parsedInputs[i]}
@@ -200,7 +200,7 @@
           <button
             type="button"
             class:is-expanded={expandedToolId === tool.id}
-            class="tool-step-text font-mono"
+            class="tool-step-text"
             aria-expanded={expandedToolId === tool.id}
             onclick={() => toggleToolExpanded(tool.id)}
           >
@@ -208,7 +208,7 @@
           </button>
           <span class="flex-1"></span>
           {#if tool.toolCompletedAt}
-            <span class="tool-step-duration font-mono shrink-0">
+            <span class="tool-step-duration shrink-0">
               {formatActivityDuration(tool.toolCompletedAt - tool.timestamp)}
             </span>
           {/if}
@@ -227,7 +227,7 @@
 
   .tool-stderr {
     padding: 0.125rem 0 0.3125rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     line-height: 1.65;
     color: var(--muted-foreground);
     white-space: pre-wrap;
@@ -270,7 +270,7 @@
     white-space: nowrap;
     text-align: left;
     text-overflow: ellipsis;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     opacity: 0.8;
     cursor: pointer;
   }
@@ -287,7 +287,7 @@
   }
 
   .tool-step-duration {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--muted-foreground);
     opacity: 0.55;
   }

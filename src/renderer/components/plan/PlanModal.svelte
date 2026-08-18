@@ -171,7 +171,7 @@
             <button
               {...props}
               type="button"
-              class="group inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border-0 px-2 text-[0.8125rem] font-normal transition-[background-color,color,scale] duration-(--duration-quick) ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none {revisionDropdownOpen
+              class="group inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border-0 px-2 text-sm font-normal transition-[background-color,color,scale] duration-(--duration-quick) ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none {revisionDropdownOpen
  ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
  : 'bg-transparent text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
             >
@@ -189,7 +189,7 @@
             {#each planRevisions as rev, i (rev.id)}
               <DropdownMenu.RadioItem value={rev.id} onSelect={() => session.openPlanModal(rev.id)}>
                 <span class="shrink-0 font-medium tabular-nums">v{i + 1}</span>
-                <span class="min-w-0 flex-1 truncate text-menu-meta text-(--solus-text-tertiary)">
+                <span class="min-w-0 flex-1 truncate text-xs text-(--solus-text-tertiary)">
                   {new Date(rev.timestamp).toLocaleString(undefined, {
                     month: "short",
                     day: "numeric",
@@ -216,7 +216,7 @@
       onclick={() => (commentsRailOpen = !commentsRailOpen)}
       class="plan-soft-pill"
       class:plan-soft-pill--active={commentsRailOpen}
-      title={commentsRailOpen ? "Hide comments (⌥M)" : "Show comments (⌥M)"}
+      title={commentsRailOpen ? "Hide comments (⌥T)" : "Show comments (⌥T)"}
       aria-label={commentsRailOpen ? "Hide comments" : "Show comments"}
     >
       <span class="plan-soft-pill__swatch" aria-hidden="true"></span>

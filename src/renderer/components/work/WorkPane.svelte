@@ -251,6 +251,8 @@
     <PaneChrome
       onClose={pane.close}
       onOpenInSplit={pane.moveAcross}
+      onToggleMaximize={pane.toggleMaximize}
+      maximized={pane.maximized}
       isLeading={pane.isLeading}
       closeLabel={work.type === "diagram" ? "Close diagram" : "Close document"}
       closeTestId={work.type === "diagram" ? undefined : "document-modal-close"}
@@ -270,12 +272,12 @@
     border-bottom: 0.0625rem solid var(--solus-accent-border);
   }
   .work-refresh-banner__text {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     color: var(--solus-text-primary);
   }
   .work-refresh-banner__btn {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     padding: 0.25rem 0.75rem;
     border-radius: 0.375rem;
@@ -331,7 +333,7 @@
     border-radius: 9999px;
     background: var(--solus-accent);
     color: var(--solus-on-accent, #fff);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     pointer-events: none;
     box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.18);

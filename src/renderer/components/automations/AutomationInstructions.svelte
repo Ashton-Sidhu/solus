@@ -30,7 +30,7 @@
     display: flex;
     flex-direction: column;
     gap: 1.625rem;
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     font-weight: 400;
     line-height: 1.75;
     /* One step below the title: full foreground competes with the h1, pure
@@ -78,7 +78,7 @@
     position: absolute;
     top: 0.375rem;
     left: 0;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     font-variant-numeric: tabular-nums;
     color: color-mix(in oklab, var(--muted-foreground) 75%, transparent);
@@ -116,7 +116,7 @@
   /* One step down in size under a parent step, same colour — and a shorter line
      box, so the dot rides that much higher. */
   .automation-prose :global(li ul) {
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     line-height: 1.65;
   }
   .automation-prose :global(li ul > li)::before {
@@ -126,7 +126,7 @@
   /* Terracotta means "a thing in the repo": paths, filenames, branches, ids. */
   .automation-prose :global(code) {
     font-family: var(--solus-code-font-family);
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 400;
     background: none;
     color: color-mix(in oklab, var(--primary) 78%, var(--foreground));
@@ -135,7 +135,7 @@
     margin: 0;
     padding: 0.625rem 0.75rem;
     overflow-x: auto;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     line-height: 1.6;
     border: 0.0625rem solid color-mix(in oklab, var(--border) 55%, transparent);
     border-radius: 0.5rem;
@@ -157,7 +157,7 @@
   .automation-prose :global(h3),
   .automation-prose :global(h4) {
     margin: 0;
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     font-weight: 500;
     line-height: 1.5;
     color: var(--foreground);

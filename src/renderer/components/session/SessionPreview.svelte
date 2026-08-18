@@ -37,18 +37,18 @@
   );
 </script>
 
-<div class="flex h-full min-w-0 flex-col">
+<div class="text-xs flex h-full min-w-0 flex-col">
   {#if hasSession && title}
     <div class="flex min-w-0 flex-shrink-0 items-center gap-3 px-[1.125rem] pb-2.5 pt-3">
       <div class="flex min-w-0 flex-1 flex-col gap-0.5">
         <div
-          class="overflow-hidden text-ellipsis whitespace-nowrap text-[0.8125rem] font-medium leading-[1.3] text-[var(--solus-text-primary)]"
+          class="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium leading-[1.3] text-[var(--solus-text-primary)]"
           title={title}
         >{#each titleRuns as run, i (i)}{#if run.hit}<mark
               class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
               >{run.text}</mark
             >{:else}{run.text}{/if}{/each}</div>
-        <div class="flex min-w-0 items-center gap-1.5 text-xs text-[var(--solus-text-tertiary)]">
+        <div class="flex min-w-0 items-center gap-1.5 text-[var(--solus-text-tertiary)]">
           {#if byline}<span
               class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
               >{#each bylineRuns as run, i (i)}{#if run.hit}<mark
@@ -66,7 +66,7 @@
       </div>
       {#if onContinue && preview}
         <button
-          class="inline-flex min-h-8 flex-shrink-0 cursor-pointer items-center gap-[0.3125rem] rounded-lg bg-card px-[0.5625rem] py-[0.1875rem] text-xs font-medium text-(--solus-text-secondary) shadow-[shadow:var(--solus-tx-hairline)] transition-[background-color,color,transform] duration-150 hover:translate-x-[0.0625rem] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium)"
+          class="inline-flex min-h-8 flex-shrink-0 cursor-pointer items-center gap-[0.3125rem] rounded-lg bg-card px-[0.5625rem] py-[0.1875rem] font-medium text-(--solus-text-secondary) shadow-[shadow:var(--solus-tx-hairline)] transition-[background-color,color,transform] duration-150 hover:translate-x-[0.0625rem] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium)"
           onclick={onContinue}
         >
           <span>Continue</span>
@@ -111,7 +111,7 @@
           class="my-2 flex items-center gap-2.5 before:h-px before:flex-1 before:bg-[var(--solus-tx-rule)] before:content-[''] after:h-px after:flex-1 after:bg-[var(--solus-tx-rule)] after:content-['']"
         >
           <span
-            class="whitespace-nowrap font-mono text-xs uppercase text-(--solus-text-tertiary)"
+            class="whitespace-nowrap uppercase text-(--solus-text-tertiary)"
             >{hiddenCount > 0
               ? `+${hiddenCount} more · last reply`
               : "last reply"}</span

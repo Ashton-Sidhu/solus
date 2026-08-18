@@ -641,19 +641,19 @@
     <div class="flex items-center gap-3.5 max-md:hidden">
       <span class="inline-flex items-center gap-[0.3125rem] text-xs">
         <Kbd variant="hint">↑</Kbd><Kbd variant="hint">↓</Kbd>
-        <span class=" opacity-75">navigate</span>
+        <span class="opacity-75">navigate</span>
       </span>
       <span class="inline-flex items-center gap-[0.3125rem] text-xs">
         <Kbd variant="hint">↵</Kbd>
-        <span class=" opacity-75">open</span>
+        <span class="opacity-75">open</span>
       </span>
       <span class="inline-flex items-center gap-[0.3125rem] text-xs">
         <Kbd variant="hint">⌥</Kbd><Kbd variant="hint">↵</Kbd>
-        <span class=" opacity-75">open &amp; stay</span>
+        <span class="opacity-75">open &amp; stay</span>
       </span>
       <span class="inline-flex items-center gap-[0.3125rem] text-xs">
         <Kbd variant="hint">esc</Kbd>
-        <span class=" opacity-75">close</span>
+        <span class="opacity-75">close</span>
       </span>
     </div>
   </div>

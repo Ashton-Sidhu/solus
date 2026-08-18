@@ -32,8 +32,9 @@
     /** Present when the pane can be maximized over the window. */
     onToggleMaximize?: (() => void) | null;
     maximized?: boolean;
-    /** The surface's own maximize binding, so the tooltip names the key that
-     *  actually works in this pane's scope rather than the diff panel's. */
+    /** The binding the tooltip names. Defaults to the shared pane key; a surface
+     *  whose own scope claims that key passes its own binding instead, so the
+     *  tooltip never names a key that does something else in this pane. */
     maximizeBinding?: BindingId;
     /** Surface-specific extras rendered before the shared controls. */
     trailing?: Snippet;
@@ -47,7 +48,7 @@
     isLeading = true,
     onToggleMaximize,
     maximized = false,
-    maximizeBinding = "diff-panel.maximize",
+    maximizeBinding = "pane.maximize",
     trailing,
     closeLabel = "Close pane",
     closeTestId,

@@ -87,7 +87,7 @@ export function buildSandboxThemeStyle(isDark: boolean): string {
     `html,body{margin:0;background:transparent;` +
     `color:var(--solus-text-primary);` +
     `font-family:var(--solus-font-family,-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif);` +
-    `font-size:0.8125rem;line-height:1.5;-webkit-font-smoothing:antialiased;` +
+    `font-size: var(--text-sm);line-height:1.5;-webkit-font-smoothing:antialiased;` +
     `scrollbar-width:none;` +
     `text-rendering:optimizeLegibility}` +
     `html::-webkit-scrollbar,body::-webkit-scrollbar{display:none}</style>`

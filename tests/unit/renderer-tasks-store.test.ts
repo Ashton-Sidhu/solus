@@ -227,6 +227,42 @@ describe('renderer task hydration', () => {
     expect(store.hostFor('remote-completed')).toBe('remote')
   })
 
+  test('lists a task once when two hosts serve the same task store', async () => {
+    // WHY: a desktop host and a standalone server can front the same data
+    // directory, so both report the same ULIDs. The sidebar keys its rows by
+    // task id — a second copy breaks the whole keyed block, and routes the
+    // task's writes to whichever host answered last.
+    installStateRune()
+    const shared = { ...task(), id: 'shared-task' }
+    const primaryApi = {
+      tasksSidebarSnapshot: async () => ({
+        tasks: [shared],
+        sessionsByTask: { 'shared-task': [{ taskId: 'shared-task', sessionId: 'primary-session', linkedAt: 1 }] },
+      }),
+    }
+    const mirrorApi = {
+      tasksSidebarSnapshot: async () => ({
+        tasks: [shared],
+        sessionsByTask: { 'shared-task': [{ taskId: 'shared-task', sessionId: 'mirror-session', linkedAt: 2 }] },
+      }),
+    }
+    taskServerConnections.registerPrimary('local', primaryApi)
+    taskServerConnections.registerHost('mirror', mirrorApi)
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: { solus: primaryApi },
+    })
+
+    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+
+    expect(store.tasks.map((entry) => entry.id)).toEqual(['shared-task'])
+    expect(store.hostFor('shared-task')).toBe('local')
+    expect(store.sessionsByTask.get('shared-task')?.map((link) => link.sessionId)).toEqual(['primary-session'])
+  })
+
   test('publishes task rows and session ownership as one sidebar snapshot', async () => {
     // WHY: restored sessions must never render between independently timed task
     // and link reads. The host response is the renderer's atomic boundary.

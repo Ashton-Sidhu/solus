@@ -427,7 +427,7 @@
     border: none;
     background: transparent;
     cursor: pointer;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-text-tertiary);
     -webkit-tap-highlight-color: transparent;
     transition:
@@ -531,7 +531,7 @@
   }
 
   .mh-navbar-title {
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     font-weight: 550;
     color: var(--solus-text-primary);
     white-space: nowrap;
@@ -646,7 +646,7 @@
   /* The composer is CodeMirror now; 16px keeps iOS Safari from zooming the
      viewport when the input gains focus. */
   .mobile-shell :global(.cm-editor) {
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     line-height: 1.5;
   }
 

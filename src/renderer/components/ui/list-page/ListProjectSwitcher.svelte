@@ -91,7 +91,7 @@
   }
 </script>
 
-<div class="relative shrink-0">
+<div class="text-sm relative shrink-0">
   <!-- The scrim closes the menu on the next click anywhere, so the trigger has
        no dismissal logic of its own. -->
   {#if menuOpen}
@@ -120,7 +120,7 @@
       {/key}
     {/if}
     <span
-      class="max-w-[180px] truncate text-[0.8125rem] font-normal "
+      class="max-w-[180px] truncate font-normal "
     >
       {active?.label ?? (allActive ? allLabel : emptyLabel)}
     </span>
@@ -149,7 +149,7 @@
           <input
             bind:this={queryEl}
             bind:value={query}
-            class="w-full border-0 bg-transparent text-[0.8125rem] outline-none"
+            class="w-full border-0 bg-transparent outline-none"
             placeholder="Find a project…"
           />
         </div>
@@ -164,7 +164,7 @@
           onclick={pickAll}
         >
           <span
-            class="min-w-0 flex-1 truncate text-[0.8125rem] {allActive
+            class="min-w-0 flex-1 truncate {allActive
  ? 'font-medium'
  : ''}"
           >
@@ -204,7 +204,7 @@
               coloredFallback
             />
             <span
-              class="min-w-0 flex-1 truncate text-[0.8125rem] {isActive
+              class="min-w-0 flex-1 truncate {isActive
  ? 'font-medium'
  : ''}"
             >
@@ -231,7 +231,7 @@
       {/each}
 
       {#if matches.length === 0}
-        <div class="px-[9px] pt-3 pb-3.5 text-[0.8125rem] text-muted-foreground">
+        <div class="px-[9px] pt-3 pb-3.5 text-muted-foreground">
           No project matches.
         </div>
       {/if}

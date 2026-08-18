@@ -57,7 +57,11 @@ const rekeySessionLinkRowSchema = z.object({
   linked_at: z.number(),
 })
 const taskIdRowSchema = z.object({ task_id: z.string() })
-const idRowSchema = z.object({ id: z.string() })
+const generatedMetadataTaskRowSchema = z.object({
+  id: z.string(),
+  title_source: z.enum(['prompt', 'generated', 'manual']),
+  body: z.string(),
+})
 
 type TaskSessionLinkRow = z.infer<typeof taskSessionLinkRowSchema>
 interface TaskSessionsByTask {
@@ -383,37 +387,44 @@ export async function prepareSessionTask(input: PrepareSessionTaskInput): Promis
   return task
 }
 
-/** Generated scaffolding can describe a session-born task, but the task name is
- * deterministic from its first message and is never agent-generated. The
- * description fills only an empty body, so a task-page edit that wins the
- * background-generation race is authoritative. */
-export async function updateGeneratedDescriptionForSession(
+/** Name and describe the task minted for a session's opening turn. Each field
+ * keeps its own race guard: a human title or body edit remains authoritative,
+ * while an edit to one field does not prevent generated metadata filling the
+ * other. Linked attempts cannot rename or describe an existing parent task. */
+export async function updateGeneratedMetadataForSession(
   sessionId: string,
+  title: string,
   description: string,
 ): Promise<Task | null> {
+  const generatedTitle = title.trim()
   const generatedDescription = description.trim()
-  if (!generatedDescription) return null
+  if (!generatedTitle || !generatedDescription) return null
   const task = withTx(() => {
     const db = database()
-    const row = idRowSchema.nullish().parse(db.prepare(`
-      SELECT tasks.id
+    const row = generatedMetadataTaskRowSchema.nullish().parse(db.prepare(`
+      SELECT tasks.id, tasks.title_source, tasks.body
       FROM tasks
       JOIN task_session_links ON task_session_links.task_id = tasks.id
       WHERE task_session_links.session_id = ?
         AND task_session_links.role = 'working'
         AND tasks.source = 'session'
         AND tasks.origin_session_id = task_session_links.session_id
-        AND TRIM(tasks.body) = ''
       ORDER BY task_session_links.linked_at DESC
       LIMIT 1
     `).get(sessionId))
     if (!row) return null
+    const canUpdateTitle = row.title_source === 'prompt'
+    const canUpdateDescription = row.body.trim() === ''
+    if (!canUpdateTitle && !canUpdateDescription) return null
+    const now = Date.now()
     db.prepare(`
       UPDATE tasks SET
-        body = ?,
+        title = CASE WHEN title_source = 'prompt' THEN ? ELSE title END,
+        title_source = CASE WHEN title_source = 'prompt' THEN 'generated' ELSE title_source END,
+        body = CASE WHEN TRIM(body) = '' THEN ? ELSE body END,
         updated_at = ?
-      WHERE id = ? AND TRIM(body) = ''
-    `).run(generatedDescription, Date.now(), row.id)
+      WHERE id = ?
+    `).run(generatedTitle, generatedDescription, now, row.id)
     return taskFromRow(requireTask(row.id, db))
   })
   if (task) emitChanged()

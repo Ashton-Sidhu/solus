@@ -97,7 +97,7 @@
   const STAT_VALUE = "text-sm font-medium ";
   // Pill actions in the title row. Both sit at 2.0625rem so they read as one
   // pair; only "Run now" carries fill.
-  const PILL = "h-[2.0625rem] shrink-0 rounded-full text-[0.8125rem]";
+  const PILL = "h-[2.0625rem] shrink-0 rounded-full text-sm";
   // Sidebar background — also used by the inline pane container. Kept a hair
   // warmer than the page so the pane reads as its own surface.
   const SIDEBAR_PANEL_BG =
@@ -110,7 +110,7 @@
   // The title, editable in place: same 2.125rem type as the h1 it replaces, so
   // entering edit mode doesn't reflow the page.
   const TITLE_INPUT =
-    "h-auto w-full -ml-1.5 rounded-lg border-0 bg-transparent px-1.5 py-0 text-[1.5rem] max-md:text-[1.5rem] font-medium leading-[1.1]  " +
+    "h-auto w-full -ml-1.5 rounded-lg border-0 bg-transparent px-1.5 py-0 text-2xl max-md:text-2xl font-medium leading-[1.1]  " +
     "text-foreground shadow-none [outline:0.0625rem_solid_transparent] transition-[outline-color,background-color] duration-120 " +
     "placeholder:text-muted-foreground hover:bg-muted focus-visible:bg-transparent focus-visible:ring-0 " +
     "focus-visible:[outline-color:color-mix(in_srgb,var(--solus-accent)_55%,transparent)]";
@@ -120,7 +120,7 @@
     "-ml-2 flex w-full min-h-[16rem] flex-col rounded-lg bg-transparent px-2 [outline:0.0625rem_solid_transparent] transition-[outline-color,background-color] duration-120 " +
     "[&_[data-testid=message-input]]:flex [&_[data-testid=message-input]]:flex-1 [&_[data-testid=message-input]]:min-h-0 " +
     "[&_.cm-editor]:flex-1 [&_.cm-editor]:min-h-0 [&_.cm-scroller]:max-h-none! [&_.cm-content]:min-h-full [&_.cm-content]:![font-weight:400] " +
-    "[&_.cm-content]:![font-size:0.875rem] [&_.cm-content]:![line-height:1.75]";
+    "[&_.cm-content]:![font-size: var(--text-sm)] [&_.cm-content]:![line-height:1.75]";
 
   const session = getWorkspaceContext();
   const store = session.automationsStore;
@@ -613,7 +613,7 @@
     class="workspace-titlebar flex h-(--solus-chrome-row-h) shrink-0 items-center justify-between gap-3 border-b border-border/45 pr-[max(0.875rem,var(--solus-pane-chrome-inset,0px))] pl-[max(1.25rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <Breadcrumb.Root class="min-w-0">
-      <Breadcrumb.List class="min-w-0 flex-nowrap gap-[0.4375rem] text-[0.8125rem]">
+      <Breadcrumb.List class="min-w-0 flex-nowrap gap-[0.4375rem] text-sm">
         <Breadcrumb.Item>
           <Breadcrumb.Link class={CRUMB_LINK}>
             {#snippet child({ props })}
@@ -675,7 +675,7 @@
         />
       {:else}
         <h1
-          class="m-0 text-[1.5rem] font-medium leading-[1.1] text-foreground"
+          class="m-0 text-2xl font-medium leading-[1.1] text-foreground"
         >
           {name || "Untitled automation"}
         </h1>
@@ -764,7 +764,7 @@
               ></span>
             {/each}
           </div>
-          <span class="text-[0.8125rem] whitespace-nowrap text-muted-foreground">
+          <span class="text-sm whitespace-nowrap text-muted-foreground">
             {health.clean} of {health.total} clean
           </span>
         </div>

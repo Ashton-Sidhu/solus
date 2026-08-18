@@ -7,6 +7,7 @@ import { buildSystemPrompt } from '../agents/system-hint'
 import {
   createReviewGuideAgentTool,
 } from './review-guide-tool'
+import { SPAN_SERVICES } from '../observability/registries'
 
 const log = createLogger('review', 'review-agent.ts')
 const REVIEW_AGENT_TIMEOUT_MS = 10 * 60_000
@@ -65,6 +66,7 @@ export async function runReviewAgent(
       reasoningEffort,
       permissionMode: 'plan',
       persistence: 'ephemeral',
+      service: SPAN_SERVICES.reviewGuide,
       unattended: true,
       timeoutMs: REVIEW_AGENT_TIMEOUT_MS,
       systemPrompt: buildSystemPrompt({

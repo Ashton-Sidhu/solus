@@ -161,6 +161,54 @@ describe('Codex context usage', () => {
       },
     }])
   })
+
+  test('separates cache writes from ordinary input for pricing', () => {
+    const events = new CodexTurnNormalizer({ planMode: false }).push({
+      method: 'thread/tokenUsage/updated',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        tokenUsage: {
+          total: {
+            totalTokens: 105,
+            inputTokens: 100,
+            cachedInputTokens: 20,
+            cacheWriteInputTokens: 10,
+            outputTokens: 5,
+            reasoningOutputTokens: 2,
+          },
+          last: {
+            totalTokens: 105,
+            inputTokens: 100,
+            cachedInputTokens: 20,
+            cacheWriteInputTokens: 10,
+            outputTokens: 5,
+            reasoningOutputTokens: 2,
+          },
+          modelContextWindow: 258_000,
+        },
+      },
+    })
+
+    expect(usageEvents(events)[0]).toEqual({
+      type: 'usage',
+      context: {
+        usedTokens: 105,
+        windowTokens: 258_000,
+        inputTokens: 70,
+        cacheReadTokens: 20,
+        cacheCreationTokens: 10,
+        outputTokens: 5,
+      },
+      run: {
+        inputTokens: 70,
+        outputTokens: 5,
+        cacheReadTokens: 20,
+        cacheCreationTokens: 10,
+        reasoningTokens: 2,
+      },
+    })
+  })
 })
 
 describe('contextLimit', () => {

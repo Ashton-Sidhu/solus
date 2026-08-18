@@ -324,7 +324,7 @@
     background: transparent;
     border: none;
     outline: none;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     color: var(--solus-text-primary);
     caret-color: var(--solus-accent);
   }
@@ -392,7 +392,7 @@
     gap: 0.625rem;
     padding: 2.75rem 1.5rem;
     text-align: center;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-text-tertiary);
   }
 
@@ -435,7 +435,7 @@
   }
 
   .shortcuts-scope-label {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     color: var(--solus-text-primary);
     user-select: none;
@@ -446,7 +446,7 @@
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
 
     text-transform: uppercase;
@@ -473,7 +473,7 @@
 
   .shortcuts-group-title {
     padding: 0.1875rem 1.125rem 0.3125rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     text-transform: uppercase;
 
@@ -496,7 +496,7 @@
   }
 
   .shortcuts-row-label {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-text-secondary);
   }
 
@@ -516,7 +516,7 @@
     height: 2.25rem;
     flex-shrink: 0;
     position: relative;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--solus-text-tertiary);
   }
 

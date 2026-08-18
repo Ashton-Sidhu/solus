@@ -105,44 +105,68 @@ export class KeybindingsContext {
       const { scope } = this.scopeStack[i]
       const bindings = BINDINGS_BY_SCOPE.get(scope)
       if (!bindings) continue
-      for (const [id, def] of bindings) {
-        // `null` is a binding that ships unassigned: only a user override can
-        // ever make it fire.
-        const combo = this.overrides[id] ?? defaultCombo(def)
-        // An override replaces the primary combo but keeps the built-in aliases.
-        const matched =
-          (combo !== null && eventMatches(e, combo)) ||
-          (def.aliases?.some((a) => eventMatches(e, a)) ?? false)
-        if (!matched) continue
-        // Auto-repeat (held key) only fires bindings that opt in (e.g. palette
-        // navigation); everything else ignores repeats so toggles/actions don't
-        // double-fire while a key is held.
-        if (e.repeat && !def.repeatable) return
-        const entries = this.handlers.get(id)
-        if (!entries) continue
-        for (const entry of entries) {
-          if (entry.opts.enabled?.() === false) continue
-          e.preventDefault()
-          // macOS dead keys (e.g. ⌥N → ˜) start an IME composition that
-          // preventDefault() above can't stop, so the accent still leaks into
-          // the focused editor (notably in Safari). We don't try to swallow it —
-          // just warn so the offending binding gets moved to a non-dead key.
-          if (isMac && e.altKey && combo !== null && MAC_DEAD_KEY_CODES.has(combo.code)) {
-            console.warn(
-              `[keybindings] "${id}" is bound to ⌥${combo.code} — a macOS dead key. ` +
-                `Its accent character may leak into the input. Rebind to a non-dead key.`,
-            )
-          }
-          track('keybinding_used', {
-            binding_id: id,
-            scope,
-            overridden: this.overrides[id] !== undefined,
-          })
-          void Promise.resolve(entry.handler())
-          return
+      if (this.scan(e, scope, bindings, false)) return
+    }
+    // A reserved binding means the same thing under every surface, so an
+    // exclusive scope may not swallow it. Scanned last, and only for the scopes
+    // the loop above skipped, so a scope that binds the combo itself still wins.
+    if (exclusiveIdx === -1) return
+    for (let i = exclusiveIdx - 1; i >= 0; i--) {
+      const { scope } = this.scopeStack[i]
+      const bindings = BINDINGS_BY_SCOPE.get(scope)
+      if (!bindings) continue
+      if (this.scan(e, scope, bindings, true)) return
+    }
+  }
+
+  /** One scope's bindings against one keystroke. Returns true once a handler
+   *  ran — or once a matched binding refused the keystroke (a held key on a
+   *  non-repeatable binding), which is also an answer. */
+  private scan(
+    e: KeyboardEvent,
+    scope: Scope,
+    bindings: Array<[BindingId, BindingDef]>,
+    reservedOnly: boolean,
+  ): boolean {
+    for (const [id, def] of bindings) {
+      if (reservedOnly && !def.reserved) continue
+      // `null` is a binding that ships unassigned: only a user override can
+      // ever make it fire.
+      const combo = this.overrides[id] ?? defaultCombo(def)
+      // An override replaces the primary combo but keeps the built-in aliases.
+      const matched =
+        (combo !== null && eventMatches(e, combo)) ||
+        (def.aliases?.some((a) => eventMatches(e, a)) ?? false)
+      if (!matched) continue
+      // Auto-repeat (held key) only fires bindings that opt in (e.g. palette
+      // navigation); everything else ignores repeats so toggles/actions don't
+      // double-fire while a key is held.
+      if (e.repeat && !def.repeatable) return true
+      const entries = this.handlers.get(id)
+      if (!entries) continue
+      for (const entry of entries) {
+        if (entry.opts.enabled?.() === false) continue
+        e.preventDefault()
+        // macOS dead keys (e.g. ⌥N → ˜) start an IME composition that
+        // preventDefault() above can't stop, so the accent still leaks into
+        // the focused editor (notably in Safari). We don't try to swallow it —
+        // just warn so the offending binding gets moved to a non-dead key.
+        if (isMac && e.altKey && combo !== null && MAC_DEAD_KEY_CODES.has(combo.code)) {
+          console.warn(
+            `[keybindings] "${id}" is bound to ⌥${combo.code} — a macOS dead key. ` +
+              `Its accent character may leak into the input. Rebind to a non-dead key.`,
+          )
         }
+        track('keybinding_used', {
+          binding_id: id,
+          scope,
+          overridden: this.overrides[id] !== undefined,
+        })
+        void Promise.resolve(entry.handler())
+        return true
       }
     }
+    return false
   }
 }
 

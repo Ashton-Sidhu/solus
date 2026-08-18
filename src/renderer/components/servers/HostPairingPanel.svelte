@@ -32,7 +32,7 @@
   }
 </script>
 
-<p class="text-[1.5rem] font-medium text-(--solus-text-primary)">
+<p class="text-2xl font-medium text-(--solus-text-primary)">
   {target.name}
 </p>
 <p
@@ -62,12 +62,12 @@
 
 <form onsubmit={submit}>
   {#if store.pairingView === "connecting"}
-    <p class="mt-4 text-pretty text-[0.8125rem] leading-[1.6] font-secondary text-(--solus-text-secondary)">
+    <p class="mt-4 text-pretty text-sm leading-[1.6] font-secondary text-(--solus-text-secondary)">
       Solus is using your existing SSH access to install and start the agent on
       {target.name}. Nothing is installed on this Mac.
     </p>
   {:else if store.pairingView === "error"}
-    <p class="mt-4 text-pretty text-[0.8125rem] leading-[1.6] text-(--solus-status-error)">
+    <p class="mt-4 text-pretty text-sm leading-[1.6] text-(--solus-status-error)">
       {store.pairingError}
     </p>
   {:else if store.pairingView === "ssh-target"}
@@ -89,7 +89,7 @@
         bind:ref={sshTargetInput}
         bind:value={store.sshTarget}
         disabled={store.pairingBusy}
-        class="mt-1.5 h-10 w-full rounded-lg border-(--solus-input-border) px-3 font-mono text-[0.8125rem] text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[0.8125rem]"
+        class="mt-1.5 h-10 w-full rounded-lg border-(--solus-input-border) px-3 text-sm text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-sm"
         placeholder="user@host"
         autocomplete="off"
         spellcheck={false}
@@ -103,7 +103,7 @@
       <span>
         Enter the SSH password or key passphrase for
         <span
-          class="rounded-md bg-(--solus-surface-hover) px-1 py-0.5 font-mono text-xs text-(--solus-text-primary)"
+          class="rounded-md bg-(--solus-surface-hover) px-1 py-0.5 text-xs text-(--solus-text-primary)"
           >{store.sshTarget}</span
         >. It is used once and never stored.
       </span>
@@ -117,7 +117,7 @@
         bind:ref={sshPasswordInput}
         bind:value={store.sshPassword}
         disabled={store.pairingBusy}
-        class="mt-1.5 h-10 w-full rounded-lg border-(--solus-input-border) px-3 text-[0.8125rem] text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[0.8125rem]"
+        class="mt-1.5 h-10 w-full rounded-lg border-(--solus-input-border) px-3 text-sm text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-sm"
         type="password"
         placeholder="••••••••"
         autocomplete="current-password"
@@ -141,7 +141,7 @@
         bind:ref={codeInput}
         bind:value={store.pairCode}
         disabled={store.pairingBusy}
-        class="mt-1.5 h-10 w-full max-w-[12rem] rounded-lg border-(--solus-input-border) px-3 text-center font-mono text-sm tabular-nums text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-sm"
+        class="mt-1.5 h-10 w-full max-w-[12rem] rounded-lg border-(--solus-input-border) px-3 text-center text-sm tabular-nums text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-sm"
         placeholder="000000"
         inputmode="numeric"
         maxlength="6"

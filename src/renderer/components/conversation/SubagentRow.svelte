@@ -68,16 +68,16 @@
   </span>
 
   {#if row.target}
-    <span class="subagent-row__target font-mono">{row.target}</span>
+    <span class="subagent-row__target">{row.target}</span>
   {/if}
 
   <span class="flex-1"></span>
 
   {#if row.meta}
-    <span class="subagent-row__meta font-mono">{row.meta}</span>
+    <span class="subagent-row__meta">{row.meta}</span>
   {/if}
-  <span class="subagent-row__rail subagent-row__rail--steps font-mono">{steps}</span>
-  <span class="subagent-row__rail subagent-row__rail--time font-mono">{elapsed}</span>
+  <span class="subagent-row__rail subagent-row__rail--steps">{steps}</span>
+  <span class="subagent-row__rail subagent-row__rail--time">{elapsed}</span>
 </button>
 
 <style>
@@ -134,7 +134,7 @@
      truncates — the activity beside it gives way instead. */
   .subagent-row__name {
     flex-shrink: 0;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 500;
     color: var(--solus-text-primary);
   }
@@ -144,7 +144,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
   }
 
   .subagent-row__activity.is-muted {
@@ -156,7 +156,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--muted-foreground);
     opacity: 0.7;
   }
@@ -165,7 +165,7 @@
      reads what the agent is doing before what it was dispatched with. */
   .subagent-row__meta {
     flex-shrink: 0;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--muted-foreground);
     opacity: 0.5;
     white-space: nowrap;
@@ -173,7 +173,7 @@
 
   .subagent-row__rail {
     flex-shrink: 0;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--muted-foreground);
     opacity: 0.55;
     font-variant-numeric: tabular-nums;

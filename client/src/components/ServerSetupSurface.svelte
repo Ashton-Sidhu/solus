@@ -130,7 +130,7 @@
     ></span>
     <span class="flex min-w-0 flex-1 flex-col">
       <span
-        class="truncate text-[0.8125rem] font-medium text-(--solus-text-primary)"
+        class="truncate text-sm font-medium text-(--solus-text-primary)"
         >{host.label}</span
       >
       <span
@@ -162,7 +162,7 @@
     />
     <span class="flex min-w-0 flex-1 flex-col">
       <span
-        class="truncate text-[0.8125rem] font-medium text-(--solus-text-primary)"
+        class="truncate text-sm font-medium text-(--solus-text-primary)"
         >{host.server.name}</span
       >
       <span
@@ -225,7 +225,7 @@
             bind:this={smartInputEl}
             bind:value={smartInput}
             type="text"
-            class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 text-[0.8125rem] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"
+            class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 text-sm text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"
             placeholder="192.168.1.42:51234 or pairing link"
             autocomplete="off"
             autocapitalize="off"
@@ -242,7 +242,7 @@
             <input
               bind:value={codeInput}
               type="text"
-              class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 font-mono text-[0.8125rem] tracking-[0.16em] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"
+              class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 text-sm tracking-[0.16em] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"
               placeholder="000000"
               inputmode="numeric"
               maxlength="6"
@@ -260,7 +260,7 @@
           <input
             bind:value={labelInput}
             type="text"
-            class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 text-[0.8125rem] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"
+            class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 text-sm text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"
             placeholder={defaultDeviceLabel()}
             autocomplete="off"
           />
@@ -269,7 +269,7 @@
         <button
           type="submit"
           disabled={busy}
-          class="inline-flex items-center justify-center gap-2 rounded-lg bg-(--solus-accent) px-3 py-2 text-[0.8125rem] font-medium text-(--solus-text-on-accent) transition-[opacity,transform] active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
+          class="inline-flex items-center justify-center gap-2 rounded-lg bg-(--solus-accent) px-3 py-2 text-sm font-medium text-(--solus-text-on-accent) transition-[opacity,transform] active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
         >
           <LinkSimpleIcon size={14} />
           {busy ? "Connecting…" : "Connect"}

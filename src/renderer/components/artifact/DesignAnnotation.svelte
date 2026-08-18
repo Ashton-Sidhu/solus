@@ -479,7 +479,7 @@
       >
         <tool.icon size={16} />
         <span
-          style="position:absolute;bottom:0.1875rem;right:0.25rem;font-size:0.75rem;font-family:ui-monospace,monospace;font-weight:500;line-height:1;color:{activeTool === tool.id ? 'var(--solus-accent)' : 'var(--solus-text-tertiary)'};opacity:0.55">{tool.key}</span
+          style="position:absolute;bottom:0.1875rem;right:0.25rem;font-size: var(--text-xs);font-family:ui-monospace,monospace;font-weight:500;line-height:1;color:{activeTool === tool.id ? 'var(--solus-accent)' : 'var(--solus-text-tertiary)'};opacity:0.55">{tool.key}</span
         >
       </button>
     {/each}
@@ -496,7 +496,7 @@
     >
       <ArrowCounterClockwiseIcon size={16} />
       <span
-        style="position:absolute;bottom:0.1875rem;right:0.25rem;font-size:0.75rem;font-family:ui-monospace,monospace;font-weight:500;line-height:1;color:var(--solus-text-tertiary);opacity:0.55"
+        style="position:absolute;bottom:0.1875rem;right:0.25rem;font-size: var(--text-xs);font-family:ui-monospace,monospace;font-weight:500;line-height:1;color:var(--solus-text-tertiary);opacity:0.55"
         >U</span
       >
     </button>
@@ -509,7 +509,7 @@
     >
       <ArrowClockwiseIcon size={16} />
       <span
-        style="position:absolute;bottom:0.1875rem;right:0.25rem;font-size:0.75rem;font-family:ui-monospace,monospace;font-weight:500;line-height:1;color:var(--solus-text-tertiary);opacity:0.55"
+        style="position:absolute;bottom:0.1875rem;right:0.25rem;font-size: var(--text-xs);font-family:ui-monospace,monospace;font-weight:500;line-height:1;color:var(--solus-text-tertiary);opacity:0.55"
         >R</span
       >
     </button>
@@ -521,7 +521,7 @@
     {#if annotations.length > 0}
       <span
         class="text-(--solus-text-tertiary)"
-        style="font-size:0.75rem;font-weight: 500;font-family:-apple-system,sans-serif;padding:0.125rem 0"
+        style="font-size: var(--text-xs);font-weight: 500;font-family:-apple-system,sans-serif;padding:0.125rem 0"
         >{annotations.length}</span
       >
       <div
@@ -698,7 +698,7 @@
       bind:value={textInputValue}
       onpointerdown={(e) => e.stopPropagation()}
       class="h-auto focus-visible:ring-0"
-      style="position:fixed;left:{textInputPos.x}px;top:{textInputPos.y}px;background:var(--solus-container-bg);backdrop-filter:blur(1.25rem);-webkit-backdrop-filter:blur(1.25rem);color:var(--solus-text-primary);border:0.0625rem solid var(--solus-tool-border);border-left:0.1875rem solid var(--solus-accent);border-radius:0.5rem;padding:0.5rem 0.875rem 0.5rem 0.75rem;font-size:0.875rem;outline:none;z-index:10001;min-width:28.125rem;box-shadow:var(--solus-container-shadow)"
+      style="position:fixed;left:{textInputPos.x}px;top:{textInputPos.y}px;background:var(--solus-container-bg);backdrop-filter:blur(1.25rem);-webkit-backdrop-filter:blur(1.25rem);color:var(--solus-text-primary);border:0.0625rem solid var(--solus-tool-border);border-left:0.1875rem solid var(--solus-accent);border-radius:0.5rem;padding:0.5rem 0.875rem 0.5rem 0.75rem;font-size: var(--text-sm);outline:none;z-index:10001;min-width:28.125rem;box-shadow:var(--solus-container-shadow)"
       placeholder="Type annotation…"
       onkeydown={(e) => {
         if (e.key === "Enter") {

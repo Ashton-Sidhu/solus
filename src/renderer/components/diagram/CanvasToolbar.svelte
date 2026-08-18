@@ -272,7 +272,7 @@
     background: transparent;
     color: var(--solus-text-primary);
     font-family: var(--solus-code-font-family);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     font-variant-numeric: tabular-nums;
     text-align: center;
     cursor: pointer;

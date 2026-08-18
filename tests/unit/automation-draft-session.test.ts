@@ -21,6 +21,9 @@ describe('automation draft sessions', () => {
       modelId: 'gpt-test',
       reasoningEffort: 'low',
       contextWindow: 200_000,
+      // The saved automation is the artifact of this session; a task row for
+      // "set up an automation" is noise on the board.
+      skipTaskCreation: true,
     })
   })
 

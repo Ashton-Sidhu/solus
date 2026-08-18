@@ -61,7 +61,7 @@
   <span class="flex-1"></span>
 
   {#if clearsAt}
-    <span class="status-row-clears font-mono shrink-0">{clearsAt}</span>
+    <span class="status-row-clears shrink-0">{clearsAt}</span>
   {/if}
   {#if actions}
     {@render actions()}
@@ -78,7 +78,7 @@
     background: transparent;
     padding: 0.1875rem 0.5rem;
     color: var(--muted-foreground);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     cursor: pointer;
     transition: background var(--duration-quick) var(--ease-premium);
   }
@@ -103,7 +103,7 @@
   }
 
   .status-row-text {
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     color: var(--solus-text-primary);
     white-space: nowrap;
   }
@@ -131,7 +131,7 @@
   }
 
   .status-row-clears {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     color: var(--muted-foreground);
     opacity: 0.55;
   }

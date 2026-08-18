@@ -20,6 +20,8 @@
     isElevated?: boolean;
     minWidth?: number;
     maxWidth?: number;
+    /** Disable width interpolation while a pointer directly controls the panel. */
+    isResizing?: boolean;
     onAction?: () => void;
     actionIcon?: Component<{ size?: number }>;
     actionTooltip?: string;
@@ -39,6 +41,7 @@
     isElevated = true,
     minWidth = 160,
     maxWidth = 400,
+    isResizing = false,
     onAction,
     actionIcon: ActionIcon = SidebarSimpleIcon,
     actionTooltip,
@@ -64,6 +67,7 @@
   class:side-panel-closed={!open}
   class:side-panel-managed={managedWidth}
   class:side-panel-flush={flush}
+  class:side-panel-resizing={isResizing}
   style:--panel-min-width="{minWidth}px"
   style:--panel-max-width="{maxWidth}px"
   style:--panel-root-width={managedWidth
@@ -171,6 +175,10 @@
     height: 100%;
     min-width: 0;
     max-width: none;
+  }
+
+  .side-panel-shell.side-panel-resizing {
+    transition: none;
   }
 
   @media (prefers-reduced-motion: reduce) {

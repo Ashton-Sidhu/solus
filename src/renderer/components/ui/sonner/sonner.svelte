@@ -2,7 +2,7 @@
   import CircleCheckIcon from "@lucide/svelte/icons/circle-check";
   import InfoIcon from "@lucide/svelte/icons/info";
   import Loader2Icon from "@lucide/svelte/icons/loader-2";
-  import OctagonXIcon from "@lucide/svelte/icons/octagon-x";
+  import CircleXIcon from "@lucide/svelte/icons/circle-x";
   import TriangleAlertIcon from "@lucide/svelte/icons/triangle-alert";
   import {
     Toaster as Sonner,
@@ -25,7 +25,9 @@
     <CircleCheckIcon class="size-4 text-(--solus-status-complete)" />
   {/snippet}
   {#snippet errorIcon()}
-    <OctagonXIcon class="size-4" />
+    <!-- Circle to match the success mark, in the same red an error wears
+         elsewhere; the stock icon inherited body text and read as neutral. -->
+    <CircleXIcon class="size-4 text-(--solus-status-error)" />
   {/snippet}
   {#snippet infoIcon()}
     <InfoIcon class="size-4" />

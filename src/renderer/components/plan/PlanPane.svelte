@@ -52,6 +52,8 @@
 <PaneChrome
   onClose={close}
   onOpenInSplit={pane.moveAcross}
+  onToggleMaximize={pane.toggleMaximize}
+  maximized={pane.maximized}
   isLeading={pane.isLeading}
   closeLabel="Close plan"
   closeTestId="plan-modal-close"

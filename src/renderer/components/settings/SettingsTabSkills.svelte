@@ -153,7 +153,7 @@
 </script>
 
 {#if capabilities === undefined}
-  <div class="py-10 text-center text-[0.8125rem] text-(--solus-text-tertiary)" role="status">
+  <div class="py-10 text-center text-sm text-(--solus-text-tertiary)" role="status">
     Checking skill support…
   </div>
 {:else if !isSupported}
@@ -180,16 +180,16 @@
 
 <SettingsSection label="Results">
   {#if searching && results.length === 0}
-    <div class="flex items-center justify-center gap-2 py-10 text-[0.8125rem] text-(--solus-text-tertiary)">
+    <div class="flex items-center justify-center gap-2 py-10 text-sm text-(--solus-text-tertiary)">
       <SpinnerGapIcon size={15} class="animate-spin" />
       Searching skills.sh…
     </div>
   {:else if hasSearched && results.length === 0}
-    <div class="py-10 text-center text-[0.8125rem] text-(--solus-text-tertiary)">
+    <div class="py-10 text-center text-sm text-(--solus-text-tertiary)">
       No skills found for "{query.trim()}"
     </div>
   {:else if !hasSearched}
-    <div class="py-10 text-center text-[0.8125rem] text-(--solus-text-tertiary)">
+    <div class="py-10 text-center text-sm text-(--solus-text-tertiary)">
       Type to search the skills registry
     </div>
   {:else}
@@ -227,7 +227,7 @@
         {#snippet control()}
           {#if isInstalled}
             <span
-              class="flex items-center gap-[0.3125rem] px-3 py-1.5 text-[0.8125rem] font-medium text-(--solus-accent)"
+              class="flex items-center gap-[0.3125rem] px-3 py-1.5 text-sm font-medium text-(--solus-accent)"
               data-testid="skill-installed"
             >
               <CheckIcon size={13} weight="bold" />

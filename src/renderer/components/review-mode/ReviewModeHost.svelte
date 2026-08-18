@@ -441,7 +441,7 @@
  : 'text-(--solus-text-tertiary) hover:text-(--solus-text-primary)'}"
                   onclick={() => selectView(tab[0] as ReviewModeView)}
                 >
-                  {tab[1]} <span class="ml-1 font-mono text-xs opacity-60">{tab[2]}</span>
+                  {tab[1]} <span class="ml-1 text-xs opacity-60">{tab[2]}</span>
                 </button>
               {/each}
             </div>
@@ -513,20 +513,20 @@
               onclick={() => disposeCurrent("approved")}
               class="bg-(--solus-status-complete) text-white hover:bg-(--solus-status-complete)/85"
             >
-              <CheckCircleIcon data-icon="inline-start" weight="fill" /> Approve <kbd class="ml-1 font-mono text-xs opacity-70">a</kbd>
+              <CheckCircleIcon data-icon="inline-start" weight="fill" /> Approve <kbd class="ml-1 text-xs opacity-70">a</kbd>
             </Button>
             <Button variant="outline" size="sm" disabled={!canDisposition()} onclick={() => openComposer("changes_requested")} class="text-(--solus-status-error) hover:text-(--solus-status-error)">
-              <WarningCircleIcon data-icon="inline-start" /> Request changes <kbd class="ml-1 font-mono text-xs opacity-70">r</kbd>
+              <WarningCircleIcon data-icon="inline-start" /> Request changes <kbd class="ml-1 text-xs opacity-70">r</kbd>
             </Button>
             <Button variant="outline" size="sm" disabled={!canDisposition()} onclick={() => openComposer("commented")}>
-              <ChatTextIcon data-icon="inline-start" /> Comment <kbd class="ml-1 font-mono text-xs opacity-70">c</kbd>
+              <ChatTextIcon data-icon="inline-start" /> Comment <kbd class="ml-1 text-xs opacity-70">c</kbd>
             </Button>
             <Button variant="ghost" size="sm" disabled={!canDisposition()} onclick={() => disposeCurrent("deferred")} class="text-(--solus-text-tertiary)">
-              <ClockIcon data-icon="inline-start" /> Defer <kbd class="ml-1 font-mono text-xs opacity-70">d</kbd>
+              <ClockIcon data-icon="inline-start" /> Defer <kbd class="ml-1 text-xs opacity-70">d</kbd>
             </Button>
             <span class="ml-auto hidden items-center gap-2 text-xs text-(--solus-text-tertiary) 2xl:flex">
-              <span><kbd class="font-mono">j</kbd>/<kbd class="font-mono">k</kbd> next / prev</span>
-              <span><kbd class="font-mono">u</kbd> undo</span>
+              <span><kbd class="">j</kbd>/<kbd class="">k</kbd> next / prev</span>
+              <span><kbd class="">u</kbd> undo</span>
             </span>
           </div>
         {/if}
